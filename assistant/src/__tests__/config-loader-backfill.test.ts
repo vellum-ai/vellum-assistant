@@ -671,7 +671,14 @@ describe("loadConfig startup behavior", () => {
       "fireworks-managed",
     );
     expect(raw.llm.profiles.balanced.source).toBe("managed");
-    expect(raw.llm.profiles["quality-optimized"].provider).toBe("anthropic");
+    // Quality is now GLM 5.2 on Fireworks; Frontier carries the Anthropic Opus
+    // config Quality used to have.
+    expect(raw.llm.profiles["quality-optimized"].provider).toBe("fireworks");
+    expect(raw.llm.profiles["quality-optimized"].model).toBe(
+      "accounts/fireworks/models/glm-5p2",
+    );
+    expect(raw.llm.profiles.frontier.provider).toBe("anthropic");
+    expect(raw.llm.profiles.frontier.model).toBe("claude-opus-4-8");
     expect(raw.llm.profiles["cost-optimized"].provider).toBe("anthropic");
   });
 
@@ -703,6 +710,81 @@ describe("loadConfig startup behavior", () => {
       "fireworks-managed",
     );
     expect(raw.llm.activeProfile).toBe("balanced");
+  });
+
+  test("reseed leaves a user-owned profile that shares a managed name untouched", () => {
+    // A workspace that created its own profile named `frontier` before the name
+    // was reserved as managed must keep it: reseeding would change its
+    // provider/model and silently mark it managed.
+    const userFrontier = {
+      source: "user",
+      provider: "openai",
+      model: "gpt-5.4",
+      provider_connection: "openai-personal",
+      label: "My Frontier",
+    };
+    writeConfig({ llm: { profiles: { frontier: userFrontier } } });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles.frontier).toEqual(userFrontier);
+    // The advisor default must not route to the user-owned `frontier`; it falls
+    // back to the always-managed Quality profile.
+    expect(raw.llm.advisorProfile).toBe("quality-optimized");
+  });
+
+  test("reseed leaves a source-less profile sharing a managed name untouched", () => {
+    // The settings UI saves custom profiles without a `source` field; such a
+    // profile keyed `frontier` must not be clobbered or marked managed.
+    const sourcelessFrontier = {
+      provider: "openai",
+      model: "gpt-5.4",
+      provider_connection: "openai-personal",
+      label: "My Frontier",
+    };
+    writeConfig({ llm: { profiles: { frontier: sourcelessFrontier } } });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles.frontier).toEqual(sourcelessFrontier);
+    expect(raw.llm.advisorProfile).toBe("quality-optimized");
+  });
+
+  test("reseed updates a source-less legacy canonical managed profile", () => {
+    // Migration 052 seeded canonical profiles without a `source`. Such a
+    // source-less `quality-optimized` is legacy managed, not user-owned, so it
+    // must still reseed to the latest template (GLM 5.2) and be tagged managed.
+    writeConfig({
+      llm: {
+        profiles: {
+          "quality-optimized": {
+            provider: "anthropic",
+            model: "claude-opus-4-8",
+            provider_connection: "anthropic-managed",
+          },
+        },
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles["quality-optimized"].model).toBe(
+      "accounts/fireworks/models/glm-5p2",
+    );
+    expect(raw.llm.profiles["quality-optimized"].source).toBe("managed");
+  });
+
+  test("seeds the managed Frontier profile as the default advisor profile", () => {
+    writeConfig({ llm: { default: { provider: "anthropic" } } });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.advisorProfile).toBe("frontier");
+    expect(raw.llm.profiles.frontier.source).toBe("managed");
   });
 
   test("on-platform managed profiles reconcile to the code template on every boot", () => {

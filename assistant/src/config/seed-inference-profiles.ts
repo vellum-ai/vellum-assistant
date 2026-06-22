@@ -57,12 +57,28 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
     topP: 0.95,
   },
+  // Served by GLM 5.2 on Fireworks via managed platform inference: a leading
+  // open model. `model` is pinned explicitly rather than resolved via the
+  // `quality-optimized` intent (which still maps to Anthropic Opus for the
+  // `frontier` profile below).
   "quality-optimized": {
+    model: "accounts/fireworks/models/glm-5p2",
+    provider: "fireworks",
+    connectionName: "fireworks-managed",
+    source: "managed",
+    label: "Quality",
+    description: "High-quality results with a leading open model (GLM 5.2)",
+    maxTokens: 32000,
+    effort: "high",
+    thinking: { enabled: true, streamThinking: true },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+  },
+  frontier: {
     intent: "quality-optimized",
     provider: "anthropic",
     connectionName: "anthropic-managed",
     source: "managed",
-    label: "Quality",
+    label: "Frontier",
     description: "Best results with the most capable model",
     maxTokens: 32000,
     effort: "high",
@@ -176,6 +192,16 @@ export const MANAGED_PROFILE_NAMES = new Set([
   OS_BETA_PROFILE_KEY,
   AUTO_PROFILE_KEY,
 ]);
+
+// Managed names introduced after profile-ownership metadata existed, so any
+// pre-existing same-named entry must have been user-created. The seed loop
+// protects these from being clobbered: a user may already own a profile under
+// such a name (the settings UI saves custom profiles without a `source`), so an
+// entry that isn't explicitly `source: "managed"` is treated as theirs. The
+// original canonical names (`balanced`/`quality-optimized`/`cost-optimized`)
+// predate ownership metadata — migration 052 seeded them source-less — so they
+// are NOT listed here and always reseed, even when source is absent.
+const NEWLY_RESERVED_MANAGED_NAMES = new Set(["frontier"]);
 
 export type SeedInferenceProfilesOptions = {
   /**
@@ -293,6 +319,21 @@ export function seedInferenceProfiles(
     if (preservedProfileNames.has(name)) continue;
 
     const previous = readObject(profiles[name]);
+    // Never clobber a custom profile that happens to share a *newly reserved*
+    // managed name (e.g. `frontier`): reseeding would change its provider/model
+    // and mark it managed. Treat anything not explicitly `source: "managed"` as
+    // the user's, since the settings UI saves custom profiles without a `source`
+    // and the source backfill below skips managed names. The original canonical
+    // names are excluded from this guard — they may be source-less *managed*
+    // entries from migration 052, so they must keep reseeding to receive
+    // template updates (see NEWLY_RESERVED_MANAGED_NAMES).
+    if (
+      NEWLY_RESERVED_MANAGED_NAMES.has(name) &&
+      previous &&
+      previous.source !== "managed"
+    ) {
+      continue;
+    }
     const effectiveTemplate: ManagedProfileTemplate = isByokMode
       ? { ...template, label: `${template.label} (Managed)` }
       : template;
@@ -418,14 +459,19 @@ export function seedInferenceProfiles(
   }
 
   // Advisor profile: default to the strongest managed profile when unset, so
-  // the advisor consults `quality-optimized` out of the box. Guarded on
-  // existence so it never names a missing profile (superRefine rejects that);
-  // off-platform/BYOK installs can repoint it at one of their own profiles.
-  if (
-    readString(llm.advisorProfile) === undefined &&
-    readObject(profiles["quality-optimized"]) !== null
-  ) {
-    llm.advisorProfile = "quality-optimized";
+  // the advisor consults `frontier` (Anthropic Opus) out of the box, falling
+  // back to `quality-optimized` if `frontier` is unavailable. The `frontier`
+  // arm requires managed ownership: the seed loop above leaves a user-owned
+  // profile named `frontier` in place, and pointing the advisor at that would
+  // consult an arbitrary user model. Guarded on existence so it never names a
+  // missing profile (superRefine rejects that); off-platform/BYOK installs can
+  // repoint it at one of their own profiles.
+  if (readString(llm.advisorProfile) === undefined) {
+    if (readObject(profiles["frontier"])?.source === "managed") {
+      llm.advisorProfile = "frontier";
+    } else if (readObject(profiles["quality-optimized"]) !== null) {
+      llm.advisorProfile = "quality-optimized";
+    }
   }
 
   // Profile ordering — ensure all seeded profiles appear in the order array.
