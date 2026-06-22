@@ -74,11 +74,10 @@ export const swapQualityProfileToGlm52Migration: WorkspaceMigration = {
         profile.model = GLM_52_MODEL;
         profile.provider = "fireworks";
         profile.provider_connection = "fireworks-managed";
-        // Leave `advisorEnabled` untouched. The old Quality template seeded it
-        // to `false`, which is indistinguishable from a user who explicitly
-        // turned the advisor off for this chat profile, so deleting it could
-        // silently reverse that preference. New installs omit the field (advisor
-        // on by default); existing installs keep whatever is persisted.
+        // Leave `advisorEnabled` untouched: a persisted `false` is ambiguous —
+        // it can be a seeded default or a deliberate per-profile opt-out — so
+        // deleting it could silently re-enable the advisor against the user's
+        // intent. Preserving the stored value keeps an explicit opt-out intact.
         profiles["quality-optimized"] = profile;
         llm.profiles = profiles;
         changed = true;
