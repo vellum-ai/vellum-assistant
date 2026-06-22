@@ -129,7 +129,7 @@ export async function revokeExistingChannelGuardian(
   const now = Date.now();
 
   const revokedRows = getGatewayDb()
-    .select({ id: gwContactChannels.id })
+    .select({ id: gwContactChannels.id, address: gwContactChannels.address })
     .from(gwContacts)
     .innerJoin(
       gwContactChannels,
@@ -146,20 +146,29 @@ export async function revokeExistingChannelGuardian(
 
   if (revokedRows.length === 0) return;
 
-  const ids = revokedRows.map((r) => r.id);
-  const placeholders = ids.map(() => "?").join(", ");
-
-  await assistantDbRun(
-    `UPDATE contact_channels
-     SET status = 'revoked', policy = 'deny', updated_at = ?
-     WHERE id IN (${placeholders})`,
-    [now, ...ids],
-  );
+  // Assistant mirror: id-keyed update, then heal divergent (type,address) rows
+  // whose assistant-side id differs (m0006 divergence).
+  for (const gwChannel of revokedRows) {
+    const result = await assistantDbRun(
+      `UPDATE contact_channels
+       SET status = 'revoked', policy = 'deny', updated_at = ?
+       WHERE id = ?`,
+      [now, gwChannel.id],
+    );
+    if (result.changes === 0) {
+      await assistantDbRun(
+        `UPDATE contact_channels
+         SET status = 'revoked', policy = 'deny', updated_at = ?
+         WHERE type = ? AND address = ? COLLATE NOCASE`,
+        [now, channel, gwChannel.address],
+      );
+    }
+  }
 
   // Gateway DB dual-write
   try {
     const gwDb = getGatewayDb();
-    for (const id of ids) {
+    for (const { id } of revokedRows) {
       gwDb
         .update(gwContactChannels)
         .set({ status: "revoked", policy: "deny", updatedAt: now })
