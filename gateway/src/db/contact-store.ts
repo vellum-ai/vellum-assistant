@@ -554,8 +554,9 @@ export class ContactStore {
     );
 
     // Legacy channels may have a different assistant-side ID. If the ID-keyed
-    // update touched zero rows, resolve by (contactId, type, address) and
-    // retry so the assistant mirror stays consistent.
+    // update touched zero rows, resolve by the unique (type, address) key and
+    // retry so the assistant mirror stays consistent. The assistant row may sit
+    // under a different contact than the gateway row, so contactId is excluded.
     if (result.changes === 0) {
       const gwChannel = this.db
         .select()
@@ -565,10 +566,10 @@ export class ContactStore {
       if (!gwChannel) return;
 
       const logicalBind = bind.slice(0, -1); // drop the channelId
-      logicalBind.push(gwChannel.contactId, gwChannel.type, gwChannel.address);
+      logicalBind.push(gwChannel.type, gwChannel.address);
       await assistantDbRun(
         `UPDATE contact_channels SET ${setClauses.join(", ")}
-         WHERE contact_id = ? AND type = ? AND address = ? COLLATE NOCASE`,
+         WHERE type = ? AND address = ? COLLATE NOCASE`,
         logicalBind,
       );
     }
@@ -737,22 +738,24 @@ export class ContactStore {
     if (byId) return byId;
 
     const assistantChannel = await assistantDbQuery<{
-      contact_id: string;
       type: string;
       address: string;
     }>(
-      "SELECT contact_id, type, address FROM contact_channels WHERE id = ?",
+      "SELECT type, address FROM contact_channels WHERE id = ?",
       [channelId],
     );
     if (assistantChannel.length === 0) return undefined;
 
-    const { contact_id: contactId, type, address } = assistantChannel[0];
+    // Resolve by the gateway's unique key (type, address). The gateway row may
+    // live under a different contact than the assistant mirror — m0006 reconcile
+    // skips mirroring when (type, address) already exists under any contact — so
+    // contactId is not part of the lookup; the resolved row's contact is trusted.
+    const { type, address } = assistantChannel[0];
     return this.db
       .select()
       .from(contactChannels)
       .where(
         and(
-          eq(contactChannels.contactId, contactId),
           eq(contactChannels.type, type),
           sql`${contactChannels.address} = ${address} COLLATE NOCASE`,
         ),
@@ -834,13 +837,14 @@ export class ContactStore {
         );
         // Legacy mismatch: the caller's id may not be the assistant mirror's id
         // (the gateway row lives under a different UUID). Fall back to the
-        // resolved row's logical key so the mirror isn't left stale.
+        // unique (type, address) key so the mirror isn't left stale — the
+        // assistant row may sit under a different contact than the gateway row.
         if (result.changes === 0) {
           await assistantDbRun(
             `UPDATE contact_channels
                SET status = 'active', verified_at = ?, verified_via = ?, updated_at = ?
-             WHERE contact_id = ? AND type = ? AND address = ? COLLATE NOCASE`,
-            [now, verifiedVia, now, after.contactId, after.type, after.address],
+             WHERE type = ? AND address = ? COLLATE NOCASE`,
+            [now, verifiedVia, now, after.type, after.address],
           );
         }
       } catch (err) {

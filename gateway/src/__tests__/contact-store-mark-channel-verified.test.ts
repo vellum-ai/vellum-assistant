@@ -517,15 +517,44 @@ describe("ContactStore.markChannelVerified", () => {
     expect(idUpdate).toBeTruthy();
 
     const keyUpdate = fakeAssistantDb.runCalls.find((c) =>
-      /WHERE contact_id = \? AND type = \? AND address = \? COLLATE NOCASE/i.test(
-        c.sql,
-      ),
+      /WHERE type = \? AND address = \? COLLATE NOCASE/i.test(c.sql),
     );
     expect(keyUpdate).toBeTruthy();
-    // Logical-key update binds the resolved gateway row's (contactId,type,address).
-    expect(keyUpdate!.bind).toContain("c1");
+    // Logical-key update binds the gateway unique key (type, address) — not
+    // contactId, since the assistant row may sit under a different contact.
     expect(keyUpdate!.bind).toContain("vellum");
     expect(keyUpdate!.bind).toContain("shared-addr");
+  });
+
+  test("legacy cross-contact: resolves the gateway row by (type,address) even under a different contact", async () => {
+    // m0006 can leave the gateway row under a DIFFERENT contact than the
+    // assistant mirror. Keying the fallback on (type,address) — the gateway
+    // unique key — must still resolve it (no 404), and the write keys on the
+    // gateway row's own contact.
+    seedContact("gw-contact", "contact");
+    seedChannel({
+      id: "gw-uuid",
+      contactId: "gw-contact",
+      status: "unverified",
+      address: "shared-addr",
+    });
+    seedAssistantContact("asst-contact", "contact");
+    seedAssistantChannel({
+      id: "assistant-uuid",
+      contactId: "asst-contact",
+      status: "unverified",
+      address: "shared-addr",
+    });
+
+    const result = await new ContactStore().markChannelVerified(
+      "assistant-uuid",
+      "challenge",
+    );
+    expect(result).not.toBeNull();
+    expect(result!.channel.id).toBe("gw-uuid");
+    expect(result!.channel.contactId).toBe("gw-contact");
+    expect(result!.channel.status).toBe("active");
+    expect(result!.channel.verifiedVia).toBe("challenge");
   });
 });
 

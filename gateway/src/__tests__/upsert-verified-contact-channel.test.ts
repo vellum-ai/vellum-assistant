@@ -553,6 +553,33 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     expect(result).toEqual({ verified: false });
   });
 
+  test("gateway-first: skips assistant activation when the gateway write is rejected after the pre-check", async () => {
+    // An existing assistant channel + a gateway pre-check that passes, but the
+    // guarded gateway write is rejected (row became blocked/revoked in the
+    // race). The assistant mirror must NOT be activated, so a blocked actor is
+    // never left active locally.
+    queryRows = [
+      { channelId: "ch-race", contactId: "co-race", channelStatus: "unverified" },
+    ];
+    gwSelectStatus = "unverified"; // pre-check passes
+    gwUpdateChanges = [0, 0]; // guarded gateway updates miss
+    gwInsertWrote = false; // insert-mirror no-op → write rejected
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550009999",
+      externalChatId: "+15550009999",
+    });
+
+    expect(result).toEqual({ verified: false });
+    const assistantActivate = runCalls.find(
+      (c) =>
+        /UPDATE contact_channels/i.test(c.sql) &&
+        c.sql.includes("status = 'active'"),
+    );
+    expect(assistantActivate).toBeUndefined();
+  });
+
   test("honors an explicit verifiedVia value on the update path", async () => {
     queryRows = [
       { channelId: "ch-7", contactId: "co-7", channelStatus: "active" },
