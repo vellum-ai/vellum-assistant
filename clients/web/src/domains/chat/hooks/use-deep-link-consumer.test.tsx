@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
 import { useComposerStore } from "@/domains/chat/composer-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import {
   __resetPendingDeepLinkForTesting,
   usePendingDeepLinkStore,
@@ -24,6 +25,9 @@ const renderConsumer = (composerInput: string) => {
 beforeEach(() => {
   __resetPendingDeepLinkForTesting();
   useComposerStore.getState().fullReset();
+  // fullReset only clears attachments — reset the draft fields this suite drives.
+  useComposerStore.setState({ input: "", restoredDraftConversationId: null });
+  useConversationStore.setState({ activeConversationId: null });
   sentryBreadcrumbMock.mockClear();
 });
 
@@ -69,6 +73,25 @@ describe("pending message consumption", () => {
     renderConsumer("   \n  ");
 
     expect(useComposerStore.getState().input).toBe("hello");
+  });
+
+  test("a deeplink overrides a cold-load restored draft, not live typing", () => {
+    // The draft-restore effect (registered ahead of this hook) can populate the
+    // composer with a *restored* draft before this effect runs. A restored
+    // draft is not live typing, so the explicit deeplink must still win.
+    useConversationStore.setState({ activeConversationId: "conv-1" });
+    useComposerStore.setState({
+      input: "restored draft text",
+      restoredDraftConversationId: "conv-1",
+    });
+    usePendingDeepLinkStore.getState().setPendingComposerMessage("from link");
+
+    renderHook(() => useDeepLinkConsumer());
+
+    expect(useComposerStore.getState().input).toBe("from link");
+    // The restored-draft notice is retired since the deeplink replaced it.
+    expect(useComposerStore.getState().restoredDraftConversationId).toBe(null);
+    expect(sentryBreadcrumbMock).not.toHaveBeenCalled();
   });
 
   test("no-op when no message is pending", () => {
