@@ -698,10 +698,12 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   // -----------------------------------------------------------------------
   // mutableLatestUserMessage — volatile trailing user message cache anchor
   // -----------------------------------------------------------------------
-  test("mutableLatestUserMessage: first-of-turn skips the volatile turn-start anchor and anchors the previous stable user message", async () => {
+  test("mutableLatestUserMessage: first-of-turn moves the 1h anchor off the volatile latest message and bridges it with a 5m tail", async () => {
     // The latest user message carries per-turn-volatile content (e.g. an
-    // injected memory block). The long-TTL anchor must move off it onto the
-    // most recent stable user message so the cached prefix stays reusable.
+    // injected memory block). The 1h anchor must move off it onto the most
+    // recent stable user message so the cached prefix stays reusable across
+    // turns; the volatile message still gets a cheap 5m tail breakpoint so the
+    // next request in the same turn has an exact, reachable boundary.
     const messages: Message[] = [
       userMsg("Turn 1"),
       assistantMsg("Response 1"),
@@ -721,13 +723,13 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     }>;
     const userMessages = sent.filter((m) => m.role === "user");
 
-    // Latest (turn-start) user message gets NO long-TTL breakpoint — it's volatile.
+    // Latest (turn-start) user message gets the cheap 5m tail bridge, never the
+    // 1h anchor — it's volatile.
     const latest = userMessages[userMessages.length - 1];
-    for (const block of latest.content) {
-      expect(block.cache_control).toBeUndefined();
-    }
+    const latestLast = latest.content[latest.content.length - 1];
+    expect(latestLast.cache_control).toEqual({ type: "ephemeral", ttl: "5m" });
 
-    // Previous stable user message (Turn 1) becomes the primary anchor.
+    // Previous stable user message (Turn 1) becomes the primary 1h anchor.
     const prev = userMessages[userMessages.length - 2];
     const prevLast = prev.content[prev.content.length - 1];
     expect(prevLast.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
@@ -803,9 +805,104 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       }>;
     }>;
     // Only user message is volatile and there is no prior stable one, so no
-    // long-TTL breakpoint lands on any user message — graceful, no throw.
+    // 1h anchor and no 5m tail bridge land on any user message — there is no
+    // previous-turn anchor to bridge to. Graceful, no throw.
     const lastBlock = sent[0].content[sent[0].content.length - 1];
     expect(lastBlock.cache_control).toBeUndefined();
+  });
+
+  test("mutableLatestUserMessage: first-of-turn after a long autonomous tail bridges the volatile latest message so the next call stays within the lookback window", async () => {
+    // Reproduces the memory-retrospective / heartbeat case: a long run of
+    // autonomous assistant + tool turns sits between the previous user message
+    // and the volatile latest one. The 1h anchor moves back onto the previous
+    // user message (now >20 content blocks away); without a breakpoint on the
+    // latest message the next request's anchor would land beyond Anthropic's
+    // ~20-block lookback and re-create the whole prefix. The 5m tail bridge
+    // gives the next call an exact, reachable boundary.
+    const tail: Message[] = [];
+    for (let i = 0; i < 8; i++) {
+      tail.push(
+        assistantMsg(`heartbeat ${i}`),
+        toolUseMsg(`hb_${i}`, "bash"),
+        toolResultMsg(`hb_${i}`, "wake"),
+      );
+    }
+    // End the tail on an assistant message so the latest user message is not
+    // merged with a preceding tool_result (both user role).
+    tail.push(assistantMsg("still here"));
+    const messages: Message[] = [
+      userMsg("Turn 1"),
+      ...tail,
+      userMsg("Turn 2 (volatile)"),
+    ];
+    await provider.sendMessage(messages, {
+      config: { mutableLatestUserMessage: true },
+    });
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        text?: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
+    const findUser = (text: string) =>
+      sent.find(
+        (m) => m.role === "user" && m.content.some((b) => b.text === text),
+      )!;
+
+    // The volatile latest message gets the 5m tail bridge.
+    const turn2 = findUser("Turn 2 (volatile)");
+    const turn2Last = turn2.content[turn2.content.length - 1];
+    expect(turn2Last.cache_control).toEqual({ type: "ephemeral", ttl: "5m" });
+
+    // The previous stable user message — across the whole autonomous tail —
+    // is the 1h anchor.
+    const turn1 = findUser("Turn 1");
+    const turn1Last = turn1.content[turn1.content.length - 1];
+    expect(turn1Last.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+  });
+
+  test("mutableLatestUserMessage absent: the same long autonomous tail gets no extra tail bridge (placement unchanged)", async () => {
+    // Regression guard: the tail bridge is gated on the volatile-latest flag,
+    // not on tail length. With the flag off, the latest message keeps the
+    // ordinary 1h turn-start anchor and no 5m bridge is added.
+    const tail: Message[] = [];
+    for (let i = 0; i < 8; i++) {
+      tail.push(
+        assistantMsg(`heartbeat ${i}`),
+        toolUseMsg(`hb_${i}`, "bash"),
+        toolResultMsg(`hb_${i}`, "wake"),
+      );
+    }
+    // End the tail on an assistant message so the latest user message is not
+    // merged with a preceding tool_result (both user role).
+    tail.push(assistantMsg("still here"));
+    const messages: Message[] = [userMsg("Turn 1"), ...tail, userMsg("Turn 2")];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        text?: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
+    const findUser = (text: string) =>
+      sent.find(
+        (m) => m.role === "user" && m.content.some((b) => b.text === text),
+      )!;
+
+    // Latest message keeps the 1h turn-start anchor — no 5m bridge.
+    const turn2 = findUser("Turn 2");
+    const turn2Last = turn2.content[turn2.content.length - 1];
+    expect(turn2Last.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    // Previous-turn anchor keeps 1h.
+    const turn1 = findUser("Turn 1");
+    const turn1Last = turn1.content[turn1.content.length - 1];
+    expect(turn1Last.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
   test("mutableLatestUserMessage is not forwarded to the Anthropic API", async () => {
