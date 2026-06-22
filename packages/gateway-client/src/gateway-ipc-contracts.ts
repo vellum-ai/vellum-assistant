@@ -85,3 +85,25 @@ export const TrustRulesListIpcResponseSchema = z.object({
 export type TrustRulesListIpcResponse = z.infer<
   typeof TrustRulesListIpcResponseSchema
 >;
+
+export const UpdateContactChannelIpcParamsSchema = z.object({
+  contactChannelId: z.string().min(1),
+  status: z.string().optional(),
+  policy: z.string().optional(),
+  reason: z.string().optional(),
+});
+
+export type UpdateContactChannelIpcParams = z.infer<
+  typeof UpdateContactChannelIpcParamsSchema
+>;
+
+export const UpdateContactChannelIpcResponseSchema = z.object({
+  ok: z.boolean(),
+  // The gateway-native handler owns the full contact payload shape; pass it
+  // through verbatim rather than re-declaring channel fields here.
+  contact: z.object({}).passthrough().optional(),
+});
+
+export type UpdateContactChannelIpcResponse = z.infer<
+  typeof UpdateContactChannelIpcResponseSchema
+>;
