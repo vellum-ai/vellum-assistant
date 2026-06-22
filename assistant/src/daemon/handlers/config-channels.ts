@@ -1,7 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 
+import { MarkChannelRevokedIpcResponseSchema } from "@vellumai/gateway-client/gateway-ipc-contracts";
+
 import { startVerificationCall } from "../../calls/call-domain.js";
 import type { ChannelId } from "../../channels/types.js";
+import { emitContactChange } from "../../contacts/contact-events.js";
 import {
   findContactChannel,
   findGuardianForChannel,
@@ -211,16 +214,25 @@ export async function revokeVerificationForChannel(
       channelStatus === "pending" ||
       channelStatus === "unverified"
     ) {
-      await ipcCallPersistent("mark_channel_revoked", {
+      const result = await ipcCallPersistent("mark_channel_revoked", {
         contactChannelId: contactResult.channel.id,
         reason: "guardian_binding_revoked",
       });
+      const parsed = MarkChannelRevokedIpcResponseSchema.parse(result);
+      if (!parsed.ok) {
+        throw new Error("mark_channel_revoked relay returned ok: false");
+      }
+      // The gateway dual-write already set the assistant channel to "revoked",
+      // so the later revokeGuardianBinding lookup (active-only) finds nothing
+      // and won't fire the invalidation. Emit it here so open client views
+      // stop showing the channel as active.
+      emitContactChange();
     }
   }
 
   // The guardian binding is assistant-owned state the gateway relay does not
-  // manage; tear it down here. revokeBinding also emits the contact-change
-  // invalidation so open client views stop showing the channel as active.
+  // manage; tear it down here. The contact-change invalidation is emitted
+  // explicitly above on relay success.
   revokeBinding(assistantId, resolvedChannel);
 
   return {
