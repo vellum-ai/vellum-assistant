@@ -1,3 +1,4 @@
+import { AUTO_PROFILE_KEY } from "../api/constants/inference-profiles.js";
 import type { DrizzleDb } from "../memory/db-connection.js";
 import {
   createConnection,
@@ -140,7 +141,7 @@ const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
  * Re-exported from `@vellumai/assistant-api` (the shared constants package)
  * so the backend, plugin API, and UI all reference a single source of truth.
  */
-export { AUTO_PROFILE_KEY } from "../api/constants/inference-profiles.js";
+export { AUTO_PROFILE_KEY };
 
 export const OS_BETA_PROFILE_KEY = "os-beta";
 export const OS_BETA_FEATURE_FLAG_KEY = "os-beta";
