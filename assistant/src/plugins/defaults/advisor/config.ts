@@ -2,7 +2,7 @@
  * Static behavioral configuration for the advisor.
  *
  * The advisor *model* is no longer hardcoded here: it routes through the
- * dedicated `advisor` call site, whose default profile (`quality-optimized`)
+ * dedicated `advisor` call site, whose default profile (`frontier`)
  * lives in CALL_SITE_DEFAULTS and is overridden per workspace by
  * `llm.advisorProfile`. Whether the advisor is active is decided per chat
  * profile by `ProfileEntry.advisorEnabled` (default on).

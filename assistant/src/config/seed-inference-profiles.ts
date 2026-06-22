@@ -305,6 +305,12 @@ export function seedInferenceProfiles(
     if (preservedProfileNames.has(name)) continue;
 
     const previous = readObject(profiles[name]);
+    // Never clobber a user-owned profile that happens to share a managed name.
+    // Older workspaces may already hold a user profile under a name we are only
+    // now reserving as managed (e.g. `frontier`); reseeding it would change its
+    // provider/model and mark it managed. This mirrors the flag-gated reconcile,
+    // which only manages an entry it already owns.
+    if (previous?.source === "user") continue;
     const effectiveTemplate: ManagedProfileTemplate = isByokMode
       ? { ...template, label: `${template.label} (Managed)` }
       : template;

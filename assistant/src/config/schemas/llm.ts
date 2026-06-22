@@ -494,7 +494,7 @@ export const LLMSchema = z
     // The profile the advisor consults (chosen under Models & Services). It is
     // excluded from the chat-profile pickers so it can't be selected as the
     // assistant's chat model. Absent falls back to the `advisor` call-site
-    // default (`quality-optimized`).
+    // default (`frontier`).
     advisorProfile: z.string().min(1).optional(),
     // TTL bounds for inference profile sessions. `defaultTtlSeconds` is read by
     // the CLI to apply when `--ttl` is omitted; the daemon handler itself only

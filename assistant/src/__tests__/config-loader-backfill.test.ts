@@ -712,6 +712,25 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.activeProfile).toBe("balanced");
   });
 
+  test("reseed leaves a user-owned profile that shares a managed name untouched", () => {
+    // A workspace that created its own profile named `frontier` before the name
+    // was reserved as managed must keep it: reseeding would change its
+    // provider/model and silently mark it managed.
+    const userFrontier = {
+      source: "user",
+      provider: "openai",
+      model: "gpt-5.4",
+      provider_connection: "openai-personal",
+      label: "My Frontier",
+    };
+    writeConfig({ llm: { profiles: { frontier: userFrontier } } });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles.frontier).toEqual(userFrontier);
+  });
+
   test("on-platform managed profiles reconcile to the code template on every boot", () => {
     // Headline behavior: on-platform installs now reconcile managed profile
     // content from the code template on every boot (same as off-platform), so
