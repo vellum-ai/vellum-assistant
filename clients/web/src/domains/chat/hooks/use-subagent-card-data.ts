@@ -239,10 +239,19 @@ export function computeSubagentCardData(
       const target = steps[matchIndex]!;
       if (target.kind !== "tool") continue;
       const start = toolMeta[matchIndex]?.startTs;
-      const durationLabel =
+      // Suppress synthetic durations for fetched-history events. Detail
+      // events from `mapDetailEvents` stamp every event `timestamp:
+      // Date.now()`, so a matched `tool_call`→`tool_result` delta is
+      // exactly 0 and `formatMs(0)` would render a misleading "<1s" for
+      // every historical tool run. Omit the label (`""`) when the delta is
+      // non-positive. Real streaming events carry distinct receive-time
+      // `Date.now()` values (delta > 0), so genuine sub-second tools still
+      // show "<1s" — only the synthetic equal-timestamp case is dropped.
+      const delta =
         typeof start === "number" && Number.isFinite(start)
-          ? formatMs(event.timestamp - start)
-          : "";
+          ? event.timestamp - start
+          : 0;
+      const durationLabel = delta > 0 ? formatMs(delta) : "";
       steps[matchIndex] = {
         ...target,
         status: event.isError ? "error" : "completed",

@@ -178,7 +178,18 @@ export function SubagentDetailPanel({
            * an expanded phase would leak its expanded state onto the next
            * subagent's same-positioned phase.
            */}
-          {cardData.steps.length > 0 ? (
+          {/*
+           * Gate the empty state on the RAW `entry.events`, not on
+           * `cardData.steps`. `computeSubagentCardData` can intentionally
+           * DROP events (e.g. a `tool_result` with no preceding in-flight
+           * `tool_call`), so `entry.events` can be non-empty while
+           * `cardData.steps` is empty. Gating on steps would show a false
+           * "No events yet" AND — because `entry.events.length !== 0` — the
+           * detail-refetch effect above wouldn't fire to recover. When the
+           * store has events we render the timeline (which returns null for
+           * zero steps, an acceptable no-op).
+           */}
+          {entry.events.length > 0 ? (
             <SubagentPhaseTimeline
               key={entry.subagentId}
               steps={cardData.steps}
