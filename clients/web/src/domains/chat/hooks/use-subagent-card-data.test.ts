@@ -8,6 +8,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  buildSubagentToolDetails,
   computeSubagentCardData,
   mapToolEventToStep,
 } from "@/domains/chat/hooks/use-subagent-card-data";
@@ -655,5 +656,234 @@ describe("computeSubagentCardData — error event toolUseId correlation", () => 
     if (err.kind === "tool_error") {
       expect(err.message).toBe("boom");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildSubagentToolDetails — nested tool-detail payload map
+// ---------------------------------------------------------------------------
+
+describe("buildSubagentToolDetails", () => {
+  test("tool_call + tool_result → one completed payload with raw input/result + duration", () => {
+    const details = buildSubagentToolDetails(
+      makeEntry({
+        events: [
+          makeEvent(
+            {
+              type: "tool_call",
+              toolName: "bash",
+              toolUseId: "tu-1",
+              content: "ls -la",
+              input: { command: "ls -la" },
+              timestamp: NOW,
+            },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "bash",
+              toolUseId: "tu-1",
+              result: "total 0",
+              timestamp: NOW + 2500,
+            },
+            1,
+          ),
+        ],
+      }),
+    );
+    expect(details.size).toBe(1);
+    const payload = details.get("tu-1")!;
+    expect(payload.toolCallId).toBe("tu-1");
+    expect(payload.toolName).toBe("bash");
+    // Raw input is preserved verbatim (not the reconstructed summary bag).
+    expect(payload.input).toEqual({ command: "ls -la" });
+    expect(payload.result).toBe("total 0");
+    expect(payload.status).toBe("completed");
+    expect(payload.durationLabel).toBe("3s");
+    expect(payload.kind).toBe("tool");
+  });
+
+  test("falls back to event.content for result when result is absent", () => {
+    const details = buildSubagentToolDetails(
+      makeEntry({
+        events: [
+          makeEvent(
+            { type: "tool_call", toolName: "bash", toolUseId: "tu-1" },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "bash",
+              toolUseId: "tu-1",
+              content: "fallback output",
+            },
+            1,
+          ),
+        ],
+      }),
+    );
+    expect(details.get("tu-1")!.result).toBe("fallback output");
+  });
+
+  test("in-flight tool_call with no result → running payload, result undefined", () => {
+    const details = buildSubagentToolDetails(
+      makeEntry({
+        events: [
+          makeEvent(
+            {
+              type: "tool_call",
+              toolName: "bash",
+              toolUseId: "tu-1",
+              input: { command: "sleep 5" },
+            },
+            0,
+          ),
+        ],
+      }),
+    );
+    expect(details.size).toBe(1);
+    const payload = details.get("tu-1")!;
+    expect(payload.status).toBe("running");
+    expect(payload.result).toBeUndefined();
+    expect(payload.durationLabel).toBe("");
+    expect(payload.input).toEqual({ command: "sleep 5" });
+  });
+
+  test("tool_call with empty toolUseId is skipped (can't be keyed/clicked)", () => {
+    const details = buildSubagentToolDetails(
+      makeEntry({
+        events: [makeEvent({ type: "tool_call", toolName: "bash" })],
+      }),
+    );
+    expect(details.size).toBe(0);
+  });
+
+  test("parallel calls to the same tool with distinct ids → two payloads matched by id", () => {
+    const details = buildSubagentToolDetails(
+      makeEntry({
+        events: [
+          makeEvent(
+            {
+              type: "tool_call",
+              toolName: "bash",
+              toolUseId: "tu-A",
+              input: { command: "first" },
+            },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_call",
+              toolName: "bash",
+              toolUseId: "tu-B",
+              input: { command: "second" },
+            },
+            1,
+          ),
+          // The SECOND call's result lands first; must close tu-B, not tu-A.
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "bash",
+              toolUseId: "tu-B",
+              result: "second done",
+            },
+            2,
+          ),
+        ],
+      }),
+    );
+    expect(details.size).toBe(2);
+    const a = details.get("tu-A")!;
+    const b = details.get("tu-B")!;
+    expect(a.status).toBe("running");
+    expect(a.result).toBeUndefined();
+    expect(a.input).toEqual({ command: "first" });
+    expect(b.status).toBe("completed");
+    expect(b.result).toBe("second done");
+    expect(b.input).toEqual({ command: "second" });
+  });
+
+  test("isError result → error status with the result preserved", () => {
+    const details = buildSubagentToolDetails(
+      makeEntry({
+        events: [
+          makeEvent(
+            { type: "tool_call", toolName: "bash", toolUseId: "tu-1" },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "bash",
+              toolUseId: "tu-1",
+              isError: true,
+              result: "command failed",
+            },
+            1,
+          ),
+        ],
+      }),
+    );
+    const payload = details.get("tu-1")!;
+    expect(payload.status).toBe("error");
+    expect(payload.result).toBe("command failed");
+  });
+
+  test("a FAILED tool result mapped to a raw error event is still matched", () => {
+    // When a tool fails, the store maps the inner event to type `"error"`
+    // (not `"tool_result"`) but preserves `result` + `isError`. The matcher
+    // must catch it regardless of the mapped type.
+    const details = buildSubagentToolDetails(
+      makeEntry({
+        events: [
+          makeEvent(
+            { type: "tool_call", toolName: "bash", toolUseId: "tu-1" },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "error",
+              toolName: "bash",
+              toolUseId: "tu-1",
+              isError: true,
+              result: "boom",
+            },
+            1,
+          ),
+        ],
+      }),
+    );
+    const payload = details.get("tu-1")!;
+    expect(payload.status).toBe("error");
+    expect(payload.result).toBe("boom");
+  });
+
+  test("equal timestamps (synthetic history) yield no durationLabel", () => {
+    const details = buildSubagentToolDetails(
+      makeEntry({
+        status: "completed",
+        events: [
+          makeEvent({
+            type: "tool_call",
+            toolName: "bash",
+            toolUseId: "tu-1",
+            timestamp: NOW,
+          }),
+          makeEvent({
+            type: "tool_result",
+            toolName: "bash",
+            toolUseId: "tu-1",
+            result: "ok",
+            timestamp: NOW,
+          }),
+        ],
+      }),
+    );
+    const payload = details.get("tu-1")!;
+    expect(payload.status).toBe("completed");
+    expect(payload.durationLabel).toBe("");
   });
 });

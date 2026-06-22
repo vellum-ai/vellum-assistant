@@ -44,6 +44,7 @@ import {
   type ToolCallCardData,
   type ToolCallCardStep,
 } from "@/domains/chat/utils/tool-call-card-utils";
+import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 export type { ToolCallCardData, ToolCallCardStep };
 
@@ -142,12 +143,41 @@ export function mapToolEventToStep(
 }
 
 /**
- * Find the index of the most recent in-flight tool step that matches a
- * follow-up event (`tool_result` or `error`). Match precedence:
+ * Core in-flight matching predicate, shared by `findMatchingInFlightToolIndex`
+ * (which drives `computeSubagentCardData`) and `buildSubagentToolDetails` so
+ * the two projections can't drift. Walks `candidates` newest-first and returns
+ * the index of the first still-`running` tool that matches the follow-up
+ * `event`. Match precedence:
  *   1. Exact `toolUseId` match — required when the event carries one (so
  *      parallel calls to the same tool don't bleed into each other).
  *   2. `toolName` match against the originating `tool_call`'s name.
  *   3. "Latest in-flight" — when neither identifier is present.
+ *
+ * Returns -1 when no in-flight candidate matches.
+ */
+function matchInFlightTool(
+  candidates: Array<{ toolCallId: string; toolName: string; running: boolean }>,
+  event: { toolUseId?: string; toolName?: string },
+): number {
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const candidate = candidates[i]!;
+    if (!candidate.running) continue;
+    if (event.toolUseId) {
+      if (candidate.toolCallId === event.toolUseId) return i;
+      // Exact-match-only when the event carries a toolUseId — do NOT fall
+      // through to toolName matching for a different ID.
+      continue;
+    }
+    if (!event.toolName || candidate.toolName === event.toolName) return i;
+  }
+  return -1;
+}
+
+/**
+ * Find the index of the most recent in-flight tool step that matches a
+ * follow-up event (`tool_result` or `error`). Thin adapter over
+ * `matchInFlightTool` projecting the `(steps, toolMeta)` parallel arrays into
+ * the shared candidate shape.
  *
  * Returns -1 when no in-flight step matches.
  */
@@ -156,19 +186,14 @@ function findMatchingInFlightToolIndex(
   toolMeta: Array<{ startTs: number; toolName: string } | undefined>,
   event: { toolUseId?: string; toolName?: string },
 ): number {
-  for (let i = steps.length - 1; i >= 0; i--) {
-    const step = steps[i]!;
-    if (step.kind !== "tool" || step.status !== "running") continue;
-    if (event.toolUseId) {
-      if (step.toolCallId === event.toolUseId) return i;
-      // Exact-match-only when the event carries a toolUseId — do NOT fall
-      // through to toolName matching for a different ID.
-      continue;
-    }
-    const stepToolName = toolMeta[i]?.toolName ?? "";
-    if (!event.toolName || stepToolName === event.toolName) return i;
-  }
-  return -1;
+  return matchInFlightTool(
+    steps.map((step, i) => ({
+      toolCallId: step.kind === "tool" ? step.toolCallId : "",
+      toolName: toolMeta[i]?.toolName ?? "",
+      running: step.kind === "tool" && step.status === "running",
+    })),
+    event,
+  );
 }
 
 /**
@@ -407,4 +432,85 @@ export function useSubagentCardData(
     if (!entry) return null;
     return computeSubagentCardData(entry);
   }, [entry]);
+}
+
+/**
+ * Pure projection of (entry) → a `toolCallId`-keyed map of nested tool-detail
+ * payloads. Separate from `computeSubagentCardData` (whose `ToolCallCardStep`s
+ * carry only label/duration, not the raw `input`/`result`) so the clickable
+ * timeline pills can open the full tool-detail drawer (`ToolDetailBody`) for
+ * the tool whose id they emit.
+ *
+ * Walks `entry.events` in order, tracking in-flight payloads and resolving
+ * `tool_result` / `error` follow-ups against them with `matchInFlightTool` —
+ * the same precedence `computeSubagentCardData` uses, so the two stay aligned.
+ *
+ * Keyed by `toolUseId`; `tool_call` events with an empty id are skipped (they
+ * can't be keyed or clicked). Risk fields (`riskLevel`/`riskReason`) are
+ * omitted — subagent timeline events don't carry them.
+ */
+export function buildSubagentToolDetails(
+  entry: SubagentEntry,
+): Map<string, ToolDetailPayload> {
+  const payloads: ToolDetailPayload[] = [];
+  // Parallel array: start timestamp + running flag per payload, used for
+  // matching follow-ups and duration calc. Indexed by `payloads` position.
+  const meta: Array<{ startTs: number; running: boolean }> = [];
+
+  for (const event of entry.events) {
+    if (event.type === "tool_call") {
+      const toolCallId = event.toolUseId ?? "";
+      // Skip calls without an id — they can't be keyed or clicked.
+      if (!toolCallId) continue;
+      const toolName = event.toolName ?? "";
+      const labelInput =
+        event.input ?? reconstructInputBag(toolName, event.content ?? "");
+      const label = deriveStepLabelFromName(toolName, labelInput);
+      payloads.push({
+        toolCallId,
+        toolName,
+        title: label.title,
+        activity: label.activity,
+        input: event.input ?? {},
+        status: "running",
+        durationLabel: "",
+        kind: "tool",
+      });
+      meta.push({ startTs: event.timestamp, running: true });
+      continue;
+    }
+
+    // A follow-up carrying a result. A FAILED tool result is mapped to a raw
+    // `error`-typed event (see `mapInnerEventType`) yet still carries its
+    // `result` + `isError`, so we resolve both `tool_result` and `error`
+    // against the in-flight list regardless of the mapped type.
+    if (event.type === "tool_result" || event.type === "error") {
+      const matchIndex = matchInFlightTool(
+        payloads.map((payload, i) => ({
+          toolCallId: payload.toolCallId,
+          toolName: payload.toolName,
+          running: meta[i]!.running,
+        })),
+        event,
+      );
+      if (matchIndex === -1) continue;
+      const target = payloads[matchIndex]!;
+      const start = meta[matchIndex]!.startTs;
+      // Same non-positive-delta suppression as `computeSubagentCardData`:
+      // synthetic equal-timestamp history events → "".
+      const delta =
+        Number.isFinite(start) && event.timestamp > start
+          ? event.timestamp - start
+          : 0;
+      payloads[matchIndex] = {
+        ...target,
+        result: event.result ?? event.content,
+        status: event.isError ? "error" : "completed",
+        durationLabel: delta > 0 ? formatMs(delta) : "",
+      };
+      meta[matchIndex]!.running = false;
+    }
+  }
+
+  return new Map(payloads.map((payload) => [payload.toolCallId, payload]));
 }
