@@ -116,7 +116,6 @@ function resetTables(): void {
   const db = getDb();
   db.run("DELETE FROM channel_verification_sessions");
   try {
-    db.run("DELETE FROM channel_guardian_approval_requests");
   } catch {
     /* table may not exist */
   }
