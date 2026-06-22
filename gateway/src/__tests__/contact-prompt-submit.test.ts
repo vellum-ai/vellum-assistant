@@ -510,6 +510,41 @@ describe("handleContactPromptSubmit", () => {
     expect(ipcCall.body.contactId).toBe("contact-1");
   });
 
+  test("non-guardian prompt — explicit null displayName is treated as omitted (preserves name, no 500)", async () => {
+    const now = Date.now();
+    getGatewayDb()
+      .insert(gwContacts)
+      .values({ id: "contact-1", displayName: "Alice", role: "contact", createdAt: now, updatedAt: now })
+      .run();
+    getGatewayDb()
+      .insert(gwContactChannels)
+      .values({
+        id: "chan-alice",
+        contactId: "contact-1",
+        type: "email",
+        address: "alice@example.com",
+        isPrimary: true,
+        status: "active",
+        policy: "allow",
+        interactionCount: 3,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    // displayName: null must NOT be written through to the NOT NULL column.
+    const res = await handleContactPromptSubmit(
+      makeRequest({ requestId: "req-null", address: "alice@example.com", channelType: "email", displayName: null }),
+    );
+
+    expect(res.status).toBe(200);
+
+    const gwContactRows = getGatewayDb().select().from(gwContacts).all();
+    expect(gwContactRows).toHaveLength(1);
+    expect(gwContactRows[0].id).toBe("contact-1");
+    expect(gwContactRows[0].displayName).toBe("Alice");
+  });
+
   test("gateway DB receives dual-write for new contact and channel", async () => {
     const now = Date.now();
     testAssistantDb!.run(

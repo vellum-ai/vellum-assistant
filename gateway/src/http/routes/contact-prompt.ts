@@ -86,7 +86,12 @@ export async function handleContactPromptSubmit(
     );
   }
 
-  const { requestId, address, channelType, role, displayName } = body;
+  const { requestId, address, channelType, role } = body;
+  // Treat a non-string displayName (incl. an explicit null) as omitted, so
+  // upsertContact preserves an existing contact's name instead of writing the
+  // value through to the NOT NULL display_name column (which would 500).
+  const displayName =
+    typeof body.displayName === "string" ? body.displayName : undefined;
 
   if (!requestId || typeof requestId !== "string") {
     return Response.json(
