@@ -33,10 +33,7 @@ export async function handleMintInvite({ body = {} }: RouteHandlerArgs) {
     note: body.note as string | undefined,
     maxUses: body.maxUses as number | undefined,
     expiresInMs: body.expiresInMs as number | undefined,
-    contactName: body.contactName as string | undefined,
     expectedExternalUserId: body.expectedExternalUserId as string | undefined,
-    friendName: body.friendName as string | undefined,
-    guardianName: body.guardianName as string | undefined,
     contactId: body.contactId as string,
   });
 

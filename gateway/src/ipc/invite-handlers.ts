@@ -20,9 +20,8 @@
  *
  *   invites_create
  *     params : { contactId: string; sourceChannel: string; note?: string;
- *                maxUses?: number; expiresInMs?: number; contactName?: string;
- *                expectedExternalUserId?: string; friendName?: string;
- *                guardianName?: string }
+ *                maxUses?: number; expiresInMs?: number;
+ *                expectedExternalUserId?: string }
  *     returns: { invite: Record<string, unknown>; rawToken?: string }
  *              (the assistant's one-time minted payload)
  *

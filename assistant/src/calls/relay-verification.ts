@@ -224,7 +224,8 @@ interface InviteRedemptionParams {
   inviteRedemptionAssistantId: string;
   inviteRedemptionFromNumber: string;
   enteredCode: string;
-  inviteRedemptionGuardianName: string | null;
+  /** Resolved guardian label used in the failure TTS message. */
+  guardianLabel: string;
 }
 
 type InviteRedemptionResult =
@@ -251,7 +252,7 @@ export async function attemptInviteCodeRedemption(
     inviteRedemptionAssistantId,
     inviteRedemptionFromNumber,
     enteredCode,
-    inviteRedemptionGuardianName,
+    guardianLabel,
   } = params;
 
   const result = await redeemVoiceInviteCode({
@@ -270,9 +271,8 @@ export async function attemptInviteCodeRedemption(
     };
   }
 
-  const displayGuardian = inviteRedemptionGuardianName ?? "your contact";
   return {
     outcome: "failure",
-    ttsMessage: `Sorry, the code you provided is incorrect or has since expired. Please ask ${displayGuardian} for a new code. Goodbye.`,
+    ttsMessage: `Sorry, the code you provided is incorrect or has since expired. Please ask ${guardianLabel} for a new code. Goodbye.`,
   };
 }

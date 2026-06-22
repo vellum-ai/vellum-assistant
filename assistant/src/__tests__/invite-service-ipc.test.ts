@@ -109,8 +109,6 @@ describe("handleMintInvite (invites_mint)", () => {
         sourceChannel: "phone",
         contactId,
         expectedExternalUserId: "+12025550100",
-        friendName: "Alex",
-        guardianName: "Sam",
       },
     })) as {
       ok: boolean;
