@@ -2,6 +2,7 @@ import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { GatewayConfig } from "../../config.js";
 import { credentialKey } from "../../credential-key.js";
 import { getLogger } from "../../logger.js";
+import { resolveAdmissionPolicy } from "../../risk/admission-policy-cache.js";
 import {
   CircuitBreakerOpenError,
   forwardTwilioVoiceWebhook,
@@ -59,6 +60,20 @@ export function createTwilioVoiceWebhookHandler(
     let assistantId: string | undefined;
 
     if (!hasCallSessionId) {
+      // `no_one` kill switch — mirrors handle-inbound.ts. Only inbound is
+      // gated; outbound assistant-initiated calls are never kill-switched.
+      const phonePolicy = resolveAdmissionPolicy("phone");
+      if (phonePolicy === "no_one") {
+        log.info(
+          { callSid: params.CallSid, from: params.From, to: params.To },
+          "Inbound voice call hard-denied by admission policy 'no_one'",
+        );
+        return new Response(REJECT_TWIML, {
+          status: 200,
+          headers: TWIML_HEADERS,
+        });
+      }
+
       const phoneRouting = params.To
         ? resolveAssistantByPhoneNumber(config, params.To, caches?.configFile)
         : undefined;

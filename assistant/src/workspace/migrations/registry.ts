@@ -102,6 +102,11 @@ import { upgradeBalancedEconomyToMinimaxM3Migration } from "./101-upgrade-balanc
 import { preserveHeartbeatEnabledForExistingWorkspacesMigration } from "./102-preserve-heartbeat-enabled-for-existing-workspaces.js";
 import { upgradeQualityProfileToOpus48Migration } from "./103-upgrade-quality-profile-to-opus-4-8.js";
 import { recheckAdaptiveThinkingModelImpliedAnthropicMigration } from "./104-recheck-adaptive-thinking-model-implied-anthropic.js";
+import { enableMemoryV3LiveForNewWorkspacesMigration } from "./105-enable-memory-v3-live-for-new-workspaces.js";
+import { dropCollectUsageDataMigration } from "./106-drop-collect-usage-data.js";
+import { dropSendDiagnosticsMigration } from "./107-drop-send-diagnostics.js";
+import { dropBalancedEconomyProfileMigration } from "./108-drop-balanced-economy-profile.js";
+import { swapQualityProfileToGlm52Migration } from "./109-swap-quality-profile-to-glm-5p2.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -215,4 +220,9 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   preserveHeartbeatEnabledForExistingWorkspacesMigration,
   upgradeQualityProfileToOpus48Migration,
   recheckAdaptiveThinkingModelImpliedAnthropicMigration,
+  enableMemoryV3LiveForNewWorkspacesMigration,
+  dropCollectUsageDataMigration,
+  dropSendDiagnosticsMigration,
+  dropBalancedEconomyProfileMigration,
+  swapQualityProfileToGlm52Migration,
 ];

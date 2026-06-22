@@ -20,7 +20,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { messages } from "../memory/schema.js";
 import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
 
-initializeDb();
+await initializeDb();
 
 function purge(): void {
   const db = getDb();

@@ -32,8 +32,8 @@ import type {
   UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
 
-import { isAssistantFeatureFlagEnabled } from "../../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../../config/loader.js";
+import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
 import { findConversationOrSubagent } from "../../../../daemon/conversation-registry.js";
 import {
   applyRuntimeInjections,
@@ -194,6 +194,9 @@ function persistInjectionBlocks(
     !blocks.pkbContextBlock &&
     !blocks.memoryV2StaticBlock &&
     !blocks.memoryV3InjectedBlock &&
+    !blocks.backgroundTurnBlock &&
+    !blocks.channelCapabilitiesBlock &&
+    !blocks.nonInteractiveContextBlock &&
     !removeV2Block
   ) {
     return;
@@ -228,6 +231,17 @@ function persistInjectionBlocks(
     }
     if (blocks.memoryV2StaticBlock) {
       metadataUpdates.memoryV2StaticBlock = blocks.memoryV2StaticBlock;
+    }
+    if (blocks.backgroundTurnBlock) {
+      metadataUpdates.backgroundTurnBlock = blocks.backgroundTurnBlock;
+    }
+    if (blocks.channelCapabilitiesBlock) {
+      metadataUpdates.channelCapabilitiesBlock =
+        blocks.channelCapabilitiesBlock;
+    }
+    if (blocks.nonInteractiveContextBlock) {
+      metadataUpdates.nonInteractiveContextBlock =
+        blocks.nonInteractiveContextBlock;
     }
     updateMessageMetadata(ctx.userMessageId, metadataUpdates);
   } catch (err) {
@@ -273,7 +287,7 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
   // presence checks stay inline so the block below narrows. NOTE: this removes
   // the v2 fallback — under v3-live, a v3 empty/failed selection yields no NEW
   // injected memory that turn (prior turns' frozen v3 cards still ride history).
-  const memoryV3Live = isAssistantFeatureFlagEnabled("memory-v3-live", config);
+  const memoryV3Live = isMemoryV3Live(config);
   let v2BlockPersisted = false;
   if (
     shouldRunV2Retrieval({ isTrustedActor, memoryV3Live }) &&

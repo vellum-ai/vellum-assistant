@@ -4,8 +4,8 @@ import { spawn } from "node:child_process";
 import { getConfig } from "../../config/loader.js";
 import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
 import { RiskLevel } from "../../permissions/types.js";
-import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
+import { isUntrustedShellLockdownActive } from "../../runtime/effective-capabilities.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
@@ -24,7 +24,10 @@ import {
   getSessionEnv,
 } from "../network/script-proxy/index.js";
 import { registerTool } from "../registry.js";
-import { formatShellOutput } from "../shared/shell-output.js";
+import {
+  formatShellOutput,
+  MAX_OUTPUT_LENGTH,
+} from "../shared/shell-output.js";
 import type {
   ProxyEnvVars,
   ToolContext,
@@ -117,9 +120,10 @@ export const shellTool = {
     }
 
     const config = getConfig();
-    const shellLockdownActive =
-      isCesShellLockdownEnabled(config) &&
-      isUntrustedTrustClass(context.trustClass);
+    const shellLockdownActive = isUntrustedShellLockdownActive({
+      trustClass: context.trustClass,
+      lockdownEnabled: isCesShellLockdownEnabled(config),
+    });
 
     const networkMode: "off" | "proxied" =
       input.network_mode === "proxied" ? "proxied" : "off";
@@ -307,6 +311,11 @@ export const shellTool = {
 
     const env = buildSanitizedEnv();
     env.__CONVERSATION_ID = context.conversationId;
+    // Surface the resolving model to assistant CLI commands so they can tailor
+    // remediation guidance for weak open models (see isWeakOpenModel).
+    if (context.attribution?.resolvedModel) {
+      env.__RESOLVED_MODEL = context.attribution.resolvedModel;
+    }
     if (proxyEnv) {
       Object.assign(env, proxyEnv);
     }
@@ -400,11 +409,19 @@ export const shellTool = {
           timeoutSec,
         );
 
-        const hint = `Background command completed (id=${bgId}, exit=${code ?? "unknown"}):\n${fmtResult.content}`;
+        const framing = `Background command completed (id=${bgId}, exit=${code ?? "unknown"}):`;
         void wakeAgentForOpportunity({
           conversationId: context.conversationId,
-          hint,
+          hint: framing,
           source: "background-tool",
+          persistTriggerAsEvent: true,
+          untrustedOutput: {
+            content: fmtResult.content,
+            source: "tool_result",
+            // Already bounded + recovery-marked by formatShellOutput; a larger
+            // budget keeps wrapUntrustedContent from re-truncating the marker.
+            maxChars: MAX_OUTPUT_LENGTH * 2,
+          },
         });
       });
 
@@ -427,11 +444,11 @@ export const shellTool = {
           spawnError: err.message,
         });
 
-        const hint = `Background command failed (id=${bgId}): ${err.message}`;
         void wakeAgentForOpportunity({
           conversationId: context.conversationId,
-          hint,
+          hint: `Background command failed (id=${bgId}): ${err.message}`,
           source: "background-tool",
+          persistTriggerAsEvent: true,
         });
       });
 

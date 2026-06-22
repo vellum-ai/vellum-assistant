@@ -46,12 +46,10 @@ mock.module("../ipc/socket-path.js", () => ({
   resolveIpcSocketPath: () => ({ path: "/dev/null" }),
 }));
 
-const { createPhoneGuardianBinding } = await import(
-  "./outbound-voice-verification-sync.js"
-);
-const { getMostRecentChannelGuardianTimestamp } = await import(
-  "./binding-helpers.js"
-);
+const { createPhoneGuardianBinding } =
+  await import("./outbound-voice-verification-sync.js");
+const { getMostRecentChannelGuardianTimestamp } =
+  await import("./binding-helpers.js");
 
 // ---------------------------------------------------------------------------
 // Fixture setup
@@ -138,15 +136,14 @@ function insertChannel(opts: {
   testAssistantDb!
     .prepare(
       `INSERT INTO contact_channels
-        (id, contact_id, type, address, external_user_id, external_chat_id,
+        (id, contact_id, type, address, external_chat_id,
          is_primary, status, policy, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?, 'allow', ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, 1, ?, 'allow', ?, ?)`,
     )
     .run(
       opts.id,
       opts.contactId,
       opts.type,
-      opts.externalUserId,
       opts.externalUserId,
       opts.externalUserId,
       opts.status,
@@ -156,21 +153,21 @@ function insertChannel(opts: {
 }
 
 function activeBindingFor(phone: string): {
-  externalUserId: string;
+  address: string;
   status: string;
   updatedAt: number | null;
 } | null {
   const row = testAssistantDb!
     .prepare(
-      `SELECT cc.external_user_id AS externalUserId, cc.status, cc.updated_at AS updatedAt
+      `SELECT cc.address, cc.status, cc.updated_at AS updatedAt
        FROM contacts c
        JOIN contact_channels cc ON cc.contact_id = c.id
        WHERE c.role = 'guardian' AND cc.type = 'phone'
-         AND cc.external_user_id = ?
+         AND cc.address = ?
        LIMIT 1`,
     )
     .get(phone) as
-    | { externalUserId: string; status: string; updatedAt: number | null }
+    | { address: string; status: string; updatedAt: number | null }
     | undefined;
   return row ?? null;
 }
@@ -449,5 +446,3 @@ describe("createPhoneGuardianBinding recency check", () => {
     expect(row?.status).toBe("active");
   });
 });
-
-

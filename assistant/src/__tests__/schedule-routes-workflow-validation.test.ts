@@ -1,20 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// These tests exercise the PATCH-side `workflowName` validation, which only
-// runs once the `workflows` feature flag is ON (the flag gate short-circuits
-// first when it is off). Mock the flag resolver to ON so the validation path is
-// reachable; the sibling schedule-routes.test.ts keeps the flag OFF and asserts
-// the flag-gate behavior, so the two files do not conflict.
+// These tests exercise the PATCH-side `workflowName` validation.
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
-}));
-
-mock.module("../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: (key: string) => key === "workflows",
-  getAssistantFeatureFlagValue: (key: string) => key === "workflows",
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -60,7 +51,7 @@ import {
   listSchedules,
 } from "../schedule/schedule-store.js";
 
-initializeDb();
+await initializeDb();
 
 function clearTables(): void {
   const db = getDb();

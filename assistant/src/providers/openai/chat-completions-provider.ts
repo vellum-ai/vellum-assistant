@@ -367,6 +367,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     const logitBias = configObj?.logit_bias as
       | Record<string, number>
       | undefined;
+    const topP = configObj?.top_p as number | undefined;
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
       | Record<string, string>
       | undefined;
@@ -396,6 +397,12 @@ export class OpenAIChatCompletionsProvider implements Provider {
       // and gated to this provider family upstream in `RetryProvider`.
       if (logitBias) {
         params.logit_bias = logitBias;
+      }
+
+      // `top_p` (nucleus sampling). Forwarded explicitly because this client
+      // builds `params` field-by-field rather than spreading the config object.
+      if (typeof topP === "number") {
+        params.top_p = topP;
       }
 
       // Subclasses (OpenRouter) may already have nested effort under

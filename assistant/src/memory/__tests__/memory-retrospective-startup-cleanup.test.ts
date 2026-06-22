@@ -40,78 +40,81 @@ function isRetroSource(source: string | null): boolean {
   return source !== null && RETRO_SOURCES.includes(source);
 }
 
-mock.module("../db-connection.js", () => ({
-  getDb: () => ({
-    select: (cols?: Record<string, unknown>) => ({
-      from: (_table: { _: { name: string } } | unknown) => ({
-        where: (..._args: unknown[]) => ({
-          all: () => {
-            // Heuristic: tests only construct two query shapes — the jobs
-            // query and the conversations query. Distinguish by the first
-            // requested column shape.
-            const colKeys = cols ? Object.keys(cols) : [];
-            if (colKeys.includes("conversationId")) {
-              return mockJobs
-                .filter(
-                  (j) =>
-                    j.type === "memory_retrospective" &&
-                    (j.status === "pending" || j.status === "running"),
-                )
-                .map((j) => {
-                  let convId: string | null = null;
-                  try {
-                    const parsed = JSON.parse(j.payload) as {
-                      conversationId?: unknown;
-                    };
-                    if (typeof parsed.conversationId === "string") {
-                      convId = parsed.conversationId;
-                    }
-                  } catch {
-                    // Ignore malformed payload
+const makeFakeDb = () => ({
+  select: (cols?: Record<string, unknown>) => ({
+    from: (_table: { _: { name: string } } | unknown) => ({
+      where: (..._args: unknown[]) => ({
+        all: () => {
+          // Heuristic: tests only construct two query shapes — the jobs
+          // query and the conversations query. Distinguish by the first
+          // requested column shape.
+          const colKeys = cols ? Object.keys(cols) : [];
+          if (colKeys.includes("conversationId")) {
+            return mockJobs
+              .filter(
+                (j) =>
+                  j.type === "memory_retrospective" &&
+                  (j.status === "pending" || j.status === "running"),
+              )
+              .map((j) => {
+                let convId: string | null = null;
+                try {
+                  const parsed = JSON.parse(j.payload) as {
+                    conversationId?: unknown;
+                  };
+                  if (typeof parsed.conversationId === "string") {
+                    convId = parsed.conversationId;
                   }
-                  return { conversationId: convId };
-                });
-            }
-            // The "all retros" query (used to compute the preserved
-            // dedup-baseline per source) requests id + source +
-            // forkParentConversationId + createdAt with only the source +
-            // isNotNull(forkParent) predicate.
-            if (
-              colKeys.includes("forkParentConversationId") &&
-              colKeys.includes("createdAt")
-            ) {
-              return mockConversations
-                .filter((c) => isRetroSource(c.source))
-                .filter((c) => c.fork_parent_conversation_id !== null)
-                .map((c) => ({
-                  id: c.id,
-                  source: c.source,
-                  forkParentConversationId: c.fork_parent_conversation_id,
-                  createdAt: c.created_at,
-                }));
-            }
-            // Otherwise, this is the orphan-candidate query. The production
-            // predicate compares `forkParentConversationId` (the source ID
-            // encoded on the background conversation row) against the set
-            // of source IDs extracted from active jobs.
+                } catch {
+                  // Ignore malformed payload
+                }
+                return { conversationId: convId };
+              });
+          }
+          // The "all retros" query (used to compute the preserved
+          // dedup-baseline per source) requests id + source +
+          // forkParentConversationId + createdAt with only the source +
+          // isNotNull(forkParent) predicate.
+          if (
+            colKeys.includes("forkParentConversationId") &&
+            colKeys.includes("createdAt")
+          ) {
             return mockConversations
               .filter((c) => isRetroSource(c.source))
-              .filter(
-                (c) =>
-                  c.last_message_at !== null &&
-                  c.last_message_at < injectedNowMinusOrphanAgeMs,
-              )
-              .filter(
-                (c) =>
-                  c.fork_parent_conversation_id === null ||
-                  !activeJobSourceConvIds.has(c.fork_parent_conversation_id),
-              )
-              .map((c) => ({ id: c.id }));
-          },
-        }),
+              .filter((c) => c.fork_parent_conversation_id !== null)
+              .map((c) => ({
+                id: c.id,
+                source: c.source,
+                forkParentConversationId: c.fork_parent_conversation_id,
+                createdAt: c.created_at,
+              }));
+          }
+          // Otherwise, this is the orphan-candidate query. The production
+          // predicate compares `forkParentConversationId` (the source ID
+          // encoded on the background conversation row) against the set
+          // of source IDs extracted from active jobs.
+          return mockConversations
+            .filter((c) => isRetroSource(c.source))
+            .filter(
+              (c) =>
+                c.last_message_at !== null &&
+                c.last_message_at < injectedNowMinusOrphanAgeMs,
+            )
+            .filter(
+              (c) =>
+                c.fork_parent_conversation_id === null ||
+                !activeJobSourceConvIds.has(c.fork_parent_conversation_id),
+            )
+            .map((c) => ({ id: c.id }));
+        },
       }),
     }),
   }),
+});
+
+mock.module("../db-connection.js", () => ({
+  getDb: makeFakeDb,
+  getMemoryDb: makeFakeDb,
 }));
 
 let activeJobSourceConvIds = new Set<string>();

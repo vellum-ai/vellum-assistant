@@ -117,6 +117,14 @@ mock.module("../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: (key: string) => flagStates[key] ?? v3FlagOn,
 }));
 
+// The v3-live gate moved to config (`config.memory.v3.live`), read via
+// `isMemoryV3Live`. Mirror the flag mock so the shadow-vs-live tests keep
+// driving live through `flagStates["memory-v3-live"]` (and `v3FlagOn` toggles
+// it alongside shadow for the existing on/off tests).
+mock.module("../../../config/memory-v3-gate.js", () => ({
+  isMemoryV3Live: () => flagStates["memory-v3-live"] ?? v3FlagOn,
+}));
+
 // ── Workspace pin ───────────────────────────────────────────────────
 let tmpWorkspace: string;
 let previousWorkspaceEnv: string | undefined;

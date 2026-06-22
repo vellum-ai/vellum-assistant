@@ -585,7 +585,7 @@ Multiple plans can run in parallel — just specify the plan name to disambiguat
 |---------|---------|
 | `/plan-html <topic\|plan-name>` | Create or refresh a rollout plan in `.private/plans/` with both markdown and a polished, review-friendly HTML view (including per-PR file lists). |
 | `/release [version]` | Cut a release: pull main, determine/create version tag, generate release notes, publish GitHub Release, and verify CI trigger. |
-| `/triage [user\|assistant\|device]` | Search Sentry for recent errors and log reports by user, assistant, or device across both `vellum-assistant-brain` and `vellum-assistant-macos` projects, then cross-reference with Linear issues to produce a triage summary. |
+| `/triage [user\|assistant\|device]` | Search Sentry for recent errors and log reports by user, assistant, or device in the `vellum-assistant-brain` project, then cross-reference with Linear issues to produce a triage summary. |
 | `/update` | Pull latest from `main`, kill stale processes, rebuild and launch the macOS app. The app manages its own assistant and gateway lifecycle (hatching on first launch). Prints a startup summary. |
 
 #### Review
@@ -626,17 +626,17 @@ Run `/release [version]` in Claude Code. If no version is provided, the patch ve
 
 Creating the GitHub Release triggers three workflows in parallel:
 
-- **Build and Release macOS App** (`build-and-release-macos.yml`): Builds the macOS `.app` from source, compiles the Bun assistant binary, code-signs it with a Developer ID certificate, notarizes it with Apple, creates a DMG installer, and publishes both the DMG and a Sparkle-compatible ZIP + `appcast.xml` to the releases on [vellum-ai/vellum-assistant](https://github.com/vellum-ai/vellum-assistant). This takes ~15-20 minutes.
+- **Build Electron macOS App** (`build-electron` job in `release.yml`): Builds the Electron `.app` for each architecture, code-signs it with a Developer ID certificate, notarizes it with Apple, creates a DMG installer, and publishes the per-arch update artifacts to the Google Cloud Storage generic feed at `mac-electron/{channel}/{arch}/`. The arm64 DMG is also attached to the GitHub Release as `vellum-assistant.dmg`.
 - **Publish velly to npm** (`publish-velly.yml`): Publishes the `velly` CLI package to npm with provenance.
 - **Slack Release Notification** (`slack-release-notification.yml`): Posts a summary message to the releases Slack channel with a threaded changelog.
 
 #### Auto-updates for macOS clients
 
-The macOS app uses [Sparkle](https://sparkle-project.org/) for automatic updates. When a new release is published to the public updates repo, existing client installations detect the update via the `appcast.xml` feed, download the new version, and install it automatically — no manual action required from users. The update check happens periodically in the background while the app is running.
+The macOS app updates via [`electron-updater`](https://www.electron.build/auto-update), which polls the GCS generic feed at `mac-electron/{arch}/`. Existing installations detect a newer version, download it in the background, and install it on the next launch. The feed is independent of GitHub Release assets.
 
 #### First-time installation
 
-New users download the latest DMG from the [releases page](https://github.com/vellum-ai/vellum-assistant/releases/latest), open it, and drag the app to their Applications folder. All subsequent updates are handled automatically by Sparkle.
+New users download `vellum-assistant.dmg` from the [releases page](https://github.com/vellum-ai/vellum-assistant/releases/latest), open it, and drag the app to their Applications folder. All subsequent updates are handled automatically by `electron-updater`.
 
 ---
 
@@ -733,10 +733,10 @@ For full architectural details, see the "Conversation streaming boundary" sectio
 ### Architecture Summary
 
 ```
-macOS/iOS Client                     Gateway                              Daemon (Runtime)
+Web/Electron Client                  Gateway                              Daemon (Runtime)
 ─────────────────                    ───────                              ────────────────
-STTStreamingClient  ──WSS──>  stt-stream-websocket.ts  ──WS──>  http-server.ts /v1/stt/stream
-  (URLSessionWebSocketTask)    (edge JWT auth → service token)     (SttStreamSession)
+dictation-stream.ts ──WSS──>  stt-stream-websocket.ts  ──WS──>  http-server.ts /v1/stt/stream
+  (WebSocket)                  (edge JWT auth → service token)     (SttStreamSession)
                                                                         │
                                                             resolveStreamingTranscriber()
                                                                         │
@@ -764,7 +764,7 @@ STTStreamingClient  ──WSS──>  stt-stream-websocket.ts  ──WS──>  
 
 #### 1. Verify provider supports streaming
 
-Check the configured STT provider in the assistant's config (`services.stt.provider`). All four providers (`deepgram`, `google-gemini`, `openai-whisper`, and `xai`) support conversation streaming. The client checks `STTProviderRegistry.isStreamingAvailable` before opening a WebSocket — if the provider's `conversationStreamingMode` is `"none"`, streaming sessions are not attempted.
+Check the configured STT provider in the assistant's config (`services.stt.provider`). All four providers (`deepgram`, `google-gemini`, `openai-whisper`, and `xai`) support conversation streaming. The client checks streaming availability before opening a WebSocket — if the provider's `conversationStreamingMode` is `"none"`, streaming sessions are not attempted.
 
 #### 2. Verify credentials are configured
 
@@ -879,14 +879,14 @@ Daemon: WS close 1000
 Client -> Gateway: WSS upgrade with invalid/expired edge JWT
 Gateway: "STT stream WS: authentication failed"
 Gateway -> Client: HTTP 401 Unauthorized (no WebSocket upgrade)
-Client: STTStreamFailure.rejected(statusCode: 401)
+Client: stream failure reported (statusCode 401)
 Client: Falls back to batch STT path
 ```
 
 **Unsupported provider (hypothetical provider with `conversationStreamingMode: "none"`):**
 
 ```
-Client: STTProviderRegistry.isStreamingAvailable -> false (provider has conversationStreamingMode "none")
+Client: streaming availability -> false (provider has conversationStreamingMode "none")
 Client: Does not open WebSocket; uses batch STT path directly
 ```
 
@@ -898,7 +898,7 @@ Deepgram -> Daemon: WS close 1008 (auth error)
 Daemon: "Deepgram realtime session closed unexpectedly" code=1008
 Daemon -> Client: {"type":"error","category":"auth","message":"Deepgram WebSocket closed (code=1008, ...)","seq":N}
 Daemon -> Client: {"type":"closed","seq":N+1}
-Client: streamingFailed = true / isStreamingActive = false
+Client: marks stream failed / inactive
 Client: Falls back to batch STT on recording stop
 ```
 
@@ -906,7 +906,7 @@ Client: Falls back to batch STT on recording stop
 
 | Symptom | Likely cause | Diagnosis |
 | --- | --- | --- |
-| No streaming session opened | Provider has `conversationStreamingMode: "none"` or STT not configured | Check `services.stt.provider` config; check `STTProviderRegistry.isStreamingAvailable` |
+| No streaming session opened | Provider has `conversationStreamingMode: "none"` or STT not configured | Check `services.stt.provider` config; check client streaming availability |
 | `ready` event never received | Gateway cannot reach daemon, or daemon failed to start transcriber | Check gateway logs for upstream connection errors; check daemon logs for `"Failed to start STT stream session"` |
 | Auth failure (HTTP 401 before upgrade) | Expired or invalid edge JWT; no `Authorization` header or `token` query param | Check gateway `stt-stream-ws` logs for `"authentication failed"` with reason |
 | Partials but no final (Deepgram) | Deepgram session closed before client sent `stop` | Check for `"Deepgram realtime session closed unexpectedly"` or `"inactivity timeout"` |

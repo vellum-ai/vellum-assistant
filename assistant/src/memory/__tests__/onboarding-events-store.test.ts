@@ -8,10 +8,10 @@ mock.module("../../util/logger.js", () => ({
     }),
 }));
 
-// Mutable usage-data gate, flipped per-test.
-let collectUsageData = true;
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({ collectUsageData }),
+// Mutable consent gate, flipped per-test.
+let shareAnalytics = true;
+mock.module("../../platform/consent-cache.js", () => ({
+  getCachedShareAnalytics: () => shareAnalytics,
 }));
 
 import { getDb } from "../db-connection.js";
@@ -22,7 +22,7 @@ import {
 } from "../onboarding-events-store.js";
 import { onboardingEvents } from "../schema.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTable(): void {
   getDb().delete(onboardingEvents).run();
@@ -30,7 +30,7 @@ function resetTable(): void {
 
 describe("onboarding-events-store: recordActivationEvent", () => {
   beforeEach(() => {
-    collectUsageData = true;
+    shareAnalytics = true;
     resetTable();
   });
 
@@ -66,8 +66,8 @@ describe("onboarding-events-store: recordActivationEvent", () => {
     expect(rows[0]!.stepIndex).toBe(2);
   });
 
-  test("returns null and writes no row when collectUsageData is disabled", () => {
-    collectUsageData = false;
+  test("returns null and writes no row when share_analytics is disabled", () => {
+    shareAnalytics = false;
     const event = recordActivationEvent({
       stepName: "activation_moment_1_complete",
       sessionId: "conv-3",

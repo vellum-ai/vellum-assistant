@@ -16,6 +16,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   afterAll,
+  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -35,6 +36,28 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
+}));
+
+// The voice redemption path now claims the gateway-canonical row over IPC
+// before mutating. Stub it so tests don't attempt a real socket connect; the
+// claim returns consumed (updated:true) so redemption proceeds.
+//
+// `inviteClaimCalls` counts gateway claims so concurrency tests can assert that
+// a repeated code does NOT launch a second claim. `inviteClaimGate`, when set,
+// holds the claim open mid-flight so a test can drive the race window where a
+// second code arrives while the first redemption is still awaiting the gateway.
+let inviteClaimCalls = 0;
+let inviteClaimGate: Promise<void> | null = null;
+mock.module("../ipc/gateway-client.js", () => ({
+  ipcCall: async () => undefined,
+  ipcCallPersistent: async (method: string) => {
+    if (method === "record_invite_redemption") {
+      inviteClaimCalls += 1;
+      if (inviteClaimGate) await inviteClaimGate;
+      return { ok: true, updated: true, mirrored: true };
+    }
+    return undefined;
+  },
 }));
 
 // ── Identity helpers mock ─────────────────────────────────────────────
@@ -98,6 +121,46 @@ const mockConfig = {
 mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
+}));
+
+// ── Channel admission policy reader mock ────────────────────────────
+//
+// handleSetup resolves the phone admission floor via this reader and forwards
+// it into routeSetup. Tests drive the floor by setting `mockAdmissionPolicy`
+// (or making the reader throw to exercise the fail-open guard).
+
+let mockAdmissionPolicy:
+  | import("@vellumai/gateway-client").AdmissionPolicy
+  | null = null;
+// Optional gate to hold the reader open mid-setup so tests can drive the
+// race window where a prompt arrives while handleSetup is still awaiting.
+let mockAdmissionGate: Promise<void> | null = null;
+// `mock.module` is process-global in Bun and leaks into sibling files that run
+// later in the same `bun test` invocation. channel-admission-reader.test.ts
+// imports the reader for real, so an unconditional stub here would feed it this
+// stub and break its assertions. Delegate to the real implementation unless
+// this file's tests are active (`admissionMockActive`, toggled in
+// beforeAll/afterAll). Snapshot the real exports into a plain object NOW,
+// before the stub registers — a module namespace is a live view, so reading
+// the real export after the stub installs would resolve back to the stub
+// (infinite recursion).
+const realChannelAdmissionReaderModule = {
+  ...(await import("../calls/channel-admission-reader.js")),
+};
+let admissionMockActive = false;
+mock.module("../calls/channel-admission-reader.js", () => ({
+  ...realChannelAdmissionReaderModule,
+  getChannelAdmissionPolicy: async (
+    channelType: import("../channels/types.js").ChannelId,
+  ) => {
+    if (!admissionMockActive) {
+      return realChannelAdmissionReaderModule.getChannelAdmissionPolicy(
+        channelType,
+      );
+    }
+    if (mockAdmissionGate) await mockAdmissionGate;
+    return mockAdmissionPolicy;
+  },
 }));
 
 // ── TTS provider mocks (for call-speech-output) ─────────────────────
@@ -238,9 +301,17 @@ import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
-initializeDb();
+await initializeDb();
+
+// Activate the channel-admission-reader stub only while this file's tests run,
+// so the registered (process-global) mock delegates to the real module for
+// sibling files that load later in the same worker.
+beforeAll(() => {
+  admissionMockActive = true;
+});
 
 afterAll(() => {
+  admissionMockActive = false;
   resetDbForTesting();
 });
 
@@ -402,8 +473,12 @@ describe("relay-server", () => {
       verifiedVia: "bootstrap",
     });
     activeRelayConnections.clear();
+    inviteClaimCalls = 0;
+    inviteClaimGate = null;
     mockUserReference = "my human";
     mockAssistantName = "Vellum";
+    mockAdmissionPolicy = null;
+    mockAdmissionGate = null;
     mockSendMessage.mockImplementation(createMockProviderResponse(["Hello"]));
     mockConfig.calls.verification.enabled = false;
     mockConfig.calls.verification.maxAttempts = 3;
@@ -836,6 +911,121 @@ describe("relay-server", () => {
     expect(textMessages.length).toBe(1);
     expect(textMessages[0].token).toContain("still setting up");
     expect(textMessages[0].last).toBe(true);
+
+    relay.destroy();
+  });
+
+  test("handleMessage: prompt arriving during setup (setting_up) is dropped", async () => {
+    ensureConversation("conv-relay-setting-up");
+    const session = createCallSession({
+      conversationId: "conv-relay-setting-up",
+      provider: "twilio",
+      fromNumber: "+15551111111",
+      toNumber: "+15552222222",
+    });
+
+    addTrustedVoiceContact("+15551111111");
+
+    const { ws, relay } = createMockWs(session.id);
+
+    // Hold the admission reader open so handleSetup stays in "setting_up".
+    let releaseGate: () => void = () => {};
+    mockAdmissionGate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+
+    // Fire setup without awaiting — it suspends inside getChannelAdmissionPolicy.
+    const setupPromise = relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_setting_up_123",
+        from: "+15551111111",
+        to: "+15552222222",
+      }),
+    );
+
+    // Let the setup task reach the await; state must be "setting_up".
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(relay.getConnectionState()).toBe("setting_up");
+
+    // A prompt arriving now must be dropped: no transcript, no fallback.
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "prompt",
+        voicePrompt: "Wire me money",
+        lang: "en-US",
+        last: true,
+      }),
+    );
+
+    const textMessages = ws.sentMessages
+      .map((m) => JSON.parse(m))
+      .filter((m: { type: string }) => m.type === "text");
+    expect(
+      textMessages.some((m) => (m.token ?? "").includes("still setting up")),
+    ).toBe(false);
+    expect(relay.getConversationHistory().length).toBe(0);
+    expect(
+      getMessages("conv-relay-setting-up").filter((m) => m.role === "user")
+        .length,
+    ).toBe(0);
+
+    // Release the reader and let setup finish.
+    releaseGate();
+    await setupPromise;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(relay.getConnectionState()).toBe("connected");
+
+    relay.destroy();
+  });
+
+  test("handleMessage: prompt after normal-call setup completes is handled", async () => {
+    ensureConversation("conv-relay-postsetup");
+    const session = createCallSession({
+      conversationId: "conv-relay-postsetup",
+      provider: "twilio",
+      fromNumber: "+15551111111",
+      toNumber: "+15552222222",
+    });
+
+    addTrustedVoiceContact("+15551111111");
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Sure, happy to help."]),
+    );
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_postsetup_123",
+        from: "+15551111111",
+        to: "+15552222222",
+      }),
+    );
+
+    // Setup completed normally → "connected".
+    expect(relay.getConnectionState()).toBe("connected");
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // A subsequent prompt routes to the controller (no "still setting up").
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "prompt",
+        voicePrompt: "Hello there",
+        lang: "en-US",
+        last: true,
+      }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const userMessages = getMessages("conv-relay-postsetup").filter(
+      (m) => m.role === "user",
+    );
+    expect(userMessages.length).toBeGreaterThan(0);
+    expect(relay.getConnectionState()).toBe("connected");
 
     relay.destroy();
   });
@@ -2107,8 +2297,9 @@ describe("relay-server", () => {
 
   // ── Inbound voice invite redemption ──────────────────────────────────
 
-  test("inbound voice invite redemption: personalized welcome prompt with friend/guardian names", async () => {
+  test("inbound voice invite redemption: personalized welcome prompt uses contact displayName", async () => {
     ensureConversation("conv-invite-welcome");
+    mockUserReference = "Bob";
     const session = createCallSession({
       conversationId: "conv-invite-welcome",
       provider: "twilio",
@@ -2116,18 +2307,16 @@ describe("relay-server", () => {
       toNumber: "+15551111111",
     });
 
-    // Create a voice invite with friend/guardian names
+    // The invitee's name is read from the bound contact's displayName.
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
     createInvite({
       sourceChannel: "phone",
-      contactId: createTargetContact(),
+      contactId: createTargetContact("Alice"),
       maxUses: 1,
       expectedExternalUserId: "+15558887777",
       voiceCodeHash: codeHash,
       voiceCodeDigits: 6,
-      friendName: "Alice",
-      guardianName: "Bob",
     });
 
     mockSendMessage.mockImplementation(
@@ -2148,7 +2337,8 @@ describe("relay-server", () => {
     // Should be in verification-pending state for invite redemption
     expect(relay.getConnectionState()).toBe("verification_pending");
 
-    // Check that the welcome prompt includes friend/guardian names
+    // Welcome prompt should use the contact's first-name and the resolved
+    // guardian label (not stale name flags from the invite row).
     const textMessages = ws.sentMessages
       .map((raw) => JSON.parse(raw) as { type: string; token?: string })
       .filter((m) => m.type === "text");
@@ -2183,6 +2373,7 @@ describe("relay-server", () => {
 
   test("inbound voice invite redemption: invalid code gets exact failure copy with guardian name and call ends", async () => {
     ensureConversation("conv-invite-fail");
+    mockUserReference = "Dave";
     const session = createCallSession({
       conversationId: "conv-invite-fail",
       provider: "twilio",
@@ -2190,18 +2381,16 @@ describe("relay-server", () => {
       toNumber: "+15551111111",
     });
 
-    // Create a voice invite with friend/guardian names
+    // Bound contact's displayName is used; guardian label is resolved at runtime.
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
     createInvite({
       sourceChannel: "phone",
-      contactId: createTargetContact(),
+      contactId: createTargetContact("Carol"),
       maxUses: 1,
       expectedExternalUserId: "+15558886666",
       voiceCodeHash: codeHash,
       voiceCodeDigits: 6,
-      friendName: "Carol",
-      guardianName: "Dave",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -2222,7 +2411,11 @@ describe("relay-server", () => {
       await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
 
-    // Call should be marked as failed immediately
+    // Redemption is dispatched async (it now consults the gateway lifecycle
+    // pre-check over IPC), so flush the microtask/timer queue before asserting.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Call should be marked as failed
     const updated = getCallSession(session.id);
     expect(updated).not.toBeNull();
     expect(updated!.status).toBe("failed");
@@ -2260,6 +2453,184 @@ describe("relay-server", () => {
     expect(endMessages.length).toBe(1);
 
     relay.destroy();
+  });
+
+  test("inbound voice invite redemption: repeated code during in-flight claim is deduped (no second redemption, no spurious failure)", async () => {
+    ensureConversation("conv-invite-dedup");
+    const session = createCallSession({
+      conversationId: "conv-invite-dedup",
+      provider: "twilio",
+      fromNumber: "+15558885555",
+      toNumber: "+15551111111",
+    });
+
+    const code = generateVoiceCode(6);
+    const codeHash = hashVoiceCode(code);
+    createInvite({
+      sourceChannel: "phone",
+      contactId: createTargetContact("Eve"),
+      maxUses: 1,
+      expectedExternalUserId: "+15558885555",
+      voiceCodeHash: codeHash,
+      voiceCodeDigits: 6,
+    });
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Hello, how can I help?"]),
+    );
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_invite_dedup",
+        from: "+15558885555",
+        to: "+15551111111",
+      }),
+    );
+
+    expect(relay.getConnectionState()).toBe("verification_pending");
+
+    // Hold the gateway claim open so the first redemption stays in flight while
+    // the caller re-speaks the SAME code (the race this guard prevents).
+    let releaseClaim: () => void = () => {};
+    inviteClaimGate = new Promise<void>((resolve) => {
+      releaseClaim = resolve;
+    });
+
+    // First attempt: enter the full code via DTMF — dispatched fire-and-forget.
+    for (const digit of code) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+    // Let the async handler reach the awaited gateway claim.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(inviteClaimCalls).toBe(1);
+
+    // Second attempt with the SAME code arrives while the first is in flight.
+    // It must be ignored — no second claim, no failure branch.
+    for (const digit of code) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(inviteClaimCalls).toBe(1);
+
+    // Now let the first redemption resolve.
+    releaseClaim();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Exactly one gateway claim ran across both attempts.
+    expect(inviteClaimCalls).toBe(1);
+
+    // Activation succeeded — call continued, never marked failed.
+    expect(relay.getConnectionState()).toBe("connected");
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).not.toBe("failed");
+
+    const events = getCallEvents(session.id);
+    expect(
+      events.some((e) => e.eventType === "invite_redemption_succeeded"),
+    ).toBe(true);
+    expect(events.some((e) => e.eventType === "invite_redemption_failed")).toBe(
+      false,
+    );
+
+    // No failure copy was sent for the deduped second attempt.
+    const failureCopy = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter(
+        (m) =>
+          m.type === "text" &&
+          (m.token ?? "").includes("incorrect or has since expired"),
+      );
+    expect(failureCopy.length).toBe(0);
+
+    relay.destroy();
+  });
+
+  test("inbound voice invite redemption: a fresh redemption after a prior attempt fully resolves still proceeds (guard cleared, no deadlock)", async () => {
+    // Prior attempt: a fully-resolved redemption on its own call.
+    ensureConversation("conv-invite-prior");
+    const priorSession = createCallSession({
+      conversationId: "conv-invite-prior",
+      provider: "twilio",
+      fromNumber: "+15558883333",
+      toNumber: "+15551111111",
+    });
+    const priorCode = generateVoiceCode(6);
+    createInvite({
+      sourceChannel: "phone",
+      contactId: createTargetContact("Ivan"),
+      maxUses: 1,
+      expectedExternalUserId: "+15558883333",
+      voiceCodeHash: hashVoiceCode(priorCode),
+      voiceCodeDigits: 6,
+    });
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Hello, how can I help?"]),
+    );
+
+    const prior = createMockWs(priorSession.id);
+    await prior.relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_invite_prior",
+        from: "+15558883333",
+        to: "+15551111111",
+      }),
+    );
+    for (const digit of priorCode) {
+      await prior.relay.handleMessage(
+        JSON.stringify({ type: "dtmf", digit }),
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(prior.relay.getConnectionState()).toBe("connected");
+    expect(inviteClaimCalls).toBe(1);
+    prior.relay.destroy();
+
+    // Fresh attempt: a brand-new redemption proceeds (the in-flight guard from
+    // the resolved attempt does not block it — it was cleared in finally).
+    ensureConversation("conv-invite-fresh");
+    const freshSession = createCallSession({
+      conversationId: "conv-invite-fresh",
+      provider: "twilio",
+      fromNumber: "+15558882222",
+      toNumber: "+15551111111",
+    });
+    const freshCode = generateVoiceCode(6);
+    createInvite({
+      sourceChannel: "phone",
+      contactId: createTargetContact("Kim"),
+      maxUses: 1,
+      expectedExternalUserId: "+15558882222",
+      voiceCodeHash: hashVoiceCode(freshCode),
+      voiceCodeDigits: 6,
+    });
+
+    const fresh = createMockWs(freshSession.id);
+    await fresh.relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_invite_fresh",
+        from: "+15558882222",
+        to: "+15551111111",
+      }),
+    );
+    for (const digit of freshCode) {
+      await fresh.relay.handleMessage(
+        JSON.stringify({ type: "dtmf", digit }),
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // A second claim ran for the fresh attempt — guard did not deadlock it.
+    expect(inviteClaimCalls).toBe(2);
+    expect(fresh.relay.getConnectionState()).toBe("connected");
+
+    fresh.relay.destroy();
   });
 
   test("inbound voice: unknown caller with no active invite enters name capture flow", async () => {
@@ -2718,6 +3089,87 @@ describe("relay-server", () => {
 
     // Let delayed endSession callback flush
     await new Promise((resolve) => setTimeout(resolve, 10));
+
+    relay.destroy();
+  });
+
+  // ── Inbound admission floor (reader → routeSetup wiring) ───────────
+
+  test("admission floor: reader floor that excludes caller denies the call end-to-end", async () => {
+    ensureConversation("conv-admission-floor-deny");
+    const session = createCallSession({
+      conversationId: "conv-admission-floor-deny",
+      provider: "twilio",
+      fromNumber: "+15557776666",
+      toNumber: "+15551111111",
+    });
+
+    // A trusted contact (rank 3) is below the `guardian_only` floor (rank 4).
+    addTrustedVoiceContact("+15557776666");
+    mockAdmissionPolicy = "guardian_only";
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_admission_floor_deny",
+        from: "+15557776666",
+        to: "+15551111111",
+      }),
+    );
+
+    // Floor-excluded caller takes the deny path.
+    expect(relay.getConnectionState()).toBe("disconnecting");
+
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe("failed");
+
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === "text");
+    expect(
+      textMessages.some((m) => (m.token ?? "").includes("not authorized")),
+    ).toBe(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    relay.destroy();
+  });
+
+  test("admission floor: null policy from reader leaves the call flow unchanged", async () => {
+    ensureConversation("conv-admission-floor-null");
+    const session = createCallSession({
+      conversationId: "conv-admission-floor-null",
+      provider: "twilio",
+      fromNumber: "+15557776666",
+      toNumber: "+15551111111",
+    });
+
+    addTrustedVoiceContact("+15557776666");
+    mockAdmissionPolicy = null; // no floor supplied
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Hello, how can I help you?"]),
+    );
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_admission_floor_null",
+        from: "+15557776666",
+        to: "+15551111111",
+      }),
+    );
+
+    // Trusted contact proceeds normally — no deny.
+    expect(relay.getConnectionState()).toBe("connected");
+
+    const updated = getCallSession(session.id);
+    expect(updated!.status).toBe("in_progress");
 
     relay.destroy();
   });
@@ -4234,7 +4686,7 @@ describe("relay-server", () => {
     relay.destroy();
   });
 
-  test("invite redemption success: continues call with handoff copy instead of ending", async () => {
+  test("invite redemption success: greeting uses bound contact's displayName first-token, not friendName", async () => {
     ensureConversation("conv-invite-continue");
     const session = createCallSession({
       conversationId: "conv-invite-continue",
@@ -4245,15 +4697,19 @@ describe("relay-server", () => {
 
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
+    // Bound contact's displayName is the source of truth — its first token
+    // (here "Carolina") is what the post-redemption greeting should use.
+    // The legacy friendName column carries an out-of-date free-text label
+    // ("Stale Name") to prove the greeting reads from the contact, not the
+    // legacy column.
     createInvite({
       sourceChannel: "phone",
-      contactId: createTargetContact(),
+      contactId: createTargetContact("Carolina Flaherty"),
       maxUses: 1,
       expectedExternalUserId: "+15557776666",
       voiceCodeHash: codeHash,
       voiceCodeDigits: 6,
-      friendName: "Eve",
-      guardianName: "Frank",
+      friendName: "Stale Name",
     });
 
     mockSendMessage.mockImplementation(
@@ -4284,14 +4740,17 @@ describe("relay-server", () => {
     // Call should remain connected
     expect(relay.getConnectionState()).toBe("connected");
 
-    // Handoff copy should have been sent
+    // Handoff copy should use the contact's first-name, not the stale friendName
     const textMessages = ws.sentMessages
       .map((raw) => JSON.parse(raw) as { type: string; token?: string })
       .filter((m) => m.type === "text");
     expect(
       textMessages.some((m) =>
-        (m.token ?? "").includes("verified that you are Eve"),
+        (m.token ?? "").includes("verified that you are Carolina"),
       ),
+    ).toBe(true);
+    expect(
+      textMessages.every((m) => !(m.token ?? "").includes("Stale Name")),
     ).toBe(true);
 
     // No end message — call stays alive
@@ -4317,6 +4776,7 @@ describe("relay-server", () => {
   test("outbound invite prompt uses assistant introduction", async () => {
     ensureConversation("conv-outbound-invite-origin");
     ensureConversation("conv-outbound-invite");
+    mockUserReference = "Hank";
     const session = createCallSession({
       conversationId: "conv-outbound-invite",
       provider: "twilio",
@@ -4353,6 +4813,132 @@ describe("relay-server", () => {
         (m) =>
           (m.token ?? "").includes("this is Vellum") &&
           (m.token ?? "").includes("Hank's assistant"),
+      ),
+    ).toBe(true);
+
+    relay.destroy();
+  });
+
+  test("invite redemption success: empty contact displayName triggers neutral 'Hi there' greeting", async () => {
+    ensureConversation("conv-invite-blank-name");
+    mockUserReference = "my human";
+    mockAssistantName = "";
+    const session = createCallSession({
+      conversationId: "conv-invite-blank-name",
+      provider: "twilio",
+      fromNumber: "+15557775555",
+      toNumber: "+15551111111",
+    });
+
+    const code = generateVoiceCode(6);
+    const codeHash = hashVoiceCode(code);
+    // displayName is whitespace-only — greeting falls back to "Hi there"
+    // rather than substituting the channel address.
+    createInvite({
+      sourceChannel: "phone",
+      contactId: createTargetContact("   "),
+      maxUses: 1,
+      expectedExternalUserId: "+15557775555",
+      voiceCodeHash: codeHash,
+      voiceCodeDigits: 6,
+    });
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["I'd be happy to help."]),
+    );
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_invite_blank_name",
+        from: "+15557775555",
+        to: "+15551111111",
+      }),
+    );
+
+    for (const digit of code) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(relay.getConnectionState()).toBe("connected");
+
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === "text");
+    expect(
+      textMessages.some((m) => (m.token ?? "").startsWith("Hi there!")),
+    ).toBe(true);
+    expect(
+      textMessages.every(
+        (m) => !(m.token ?? "").includes("+15557775555"),
+      ),
+    ).toBe(true);
+
+    relay.destroy();
+  });
+
+  test("invite redemption success: empty contact displayName with stale friendName column still greets 'Hi there'", async () => {
+    // Guards the Codex P2 on #35581 (discussion_r3453033493): when a bound
+    // contact's displayName is blank and the invite row carries a stale
+    // free-text friend_name, the greeting must NOT fall back to that stale
+    // label. contact_id is NOT NULL, so every invite is bound — empty
+    // displayName falls through to the neutral "Hi there" copy.
+    ensureConversation("conv-invite-stale-friend");
+    mockUserReference = "my human";
+    mockAssistantName = "";
+    const session = createCallSession({
+      conversationId: "conv-invite-stale-friend",
+      provider: "twilio",
+      fromNumber: "+15557774444",
+      toNumber: "+15551111111",
+    });
+
+    const code = generateVoiceCode(6);
+    const codeHash = hashVoiceCode(code);
+    createInvite({
+      sourceChannel: "phone",
+      contactId: createTargetContact("   "),
+      maxUses: 1,
+      expectedExternalUserId: "+15557774444",
+      voiceCodeHash: codeHash,
+      voiceCodeDigits: 6,
+      friendName: "Stale Legacy Name",
+    });
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["I'd be happy to help."]),
+    );
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_invite_stale_friend",
+        from: "+15557774444",
+        to: "+15551111111",
+      }),
+    );
+
+    for (const digit of code) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(relay.getConnectionState()).toBe("connected");
+
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === "text");
+    expect(
+      textMessages.some((m) => (m.token ?? "").startsWith("Hi there!")),
+    ).toBe(true);
+    expect(
+      textMessages.every(
+        (m) => !(m.token ?? "").includes("Stale Legacy Name"),
       ),
     ).toBe(true);
 

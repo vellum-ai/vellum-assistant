@@ -112,7 +112,6 @@ function makeConfig() {
 function makeManager(provider: Provider): ContextWindowManager {
   return new ContextWindowManager({
     provider,
-    systemPrompt: "system prompt",
     config: makeConfig(),
     conversationId: "conv-benchmark",
   });

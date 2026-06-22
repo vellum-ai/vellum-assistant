@@ -22,7 +22,7 @@ import { join } from "node:path";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb } from "../../memory/db-connection.js";
+import { getDb, getLogsDb } from "../../memory/db-connection.js";
 import {
   llmRequestLogs,
   llmUsageEvents,
@@ -168,7 +168,7 @@ async function handleExport({
         : [];
 
       const llmLogRows = capRows(
-        db
+        (getLogsDb() ?? db)
           .select()
           .from(llmRequestLogs)
           .where(

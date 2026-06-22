@@ -72,7 +72,7 @@ import { RouteError } from "../runtime/routes/errors.js";
 import type { ToolContext } from "../tools/types.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
-initializeDb();
+await initializeDb();
 
 // ── Lightweight gateway stub ─────────────────────────────────────────────────
 
@@ -237,6 +237,35 @@ describe("contact_search tool", () => {
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Frank");
+  });
+});
+
+// ── search_contacts route (HTTP/IPC compat shim) ─────────────────────
+
+describe("search_contacts route", () => {
+  beforeEach(clearContacts);
+
+  test("includes externalUserId (= address) on channels for older clients", async () => {
+    const seeded = upsertFixture({
+      display_name: "Dana",
+      channels: [{ type: "slack", address: "U12345ABC" }],
+    });
+    const seededAddress = seeded.channels[0]!.address;
+
+    const searchRoute = ROUTES.find(
+      (r) => r.operationId === "search_contacts",
+    )!;
+    const contacts = (await searchRoute.handler({
+      body: { channelAddress: seededAddress },
+    })) as unknown as Array<{
+      channels: Array<{ address: string; externalUserId?: string }>;
+    }>;
+
+    expect(contacts.length).toBeGreaterThanOrEqual(1);
+    const channel = contacts[0]!.channels[0]!;
+    // The route re-derives the compat field from address, so SDK/macOS
+    // clients that read externalUserId keep working.
+    expect(channel.externalUserId).toBe(channel.address);
   });
 });
 

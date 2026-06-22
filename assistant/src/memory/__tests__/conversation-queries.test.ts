@@ -25,7 +25,7 @@ import { initializeDb } from "../db-init.js";
 import { rawRun } from "../raw-query.js";
 import { conversations } from "../schema.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();

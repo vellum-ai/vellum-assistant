@@ -7,6 +7,7 @@ import {
   loadRawConfig,
   saveRawConfig,
 } from "../config/loader.js";
+import { orderProfileKeys } from "../config/profile-order.js";
 import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
 import { getConfiguredProviders } from "../providers/provider-availability.js";
 import { getVisibleProviderCatalog } from "../providers/provider-catalog-visibility.js";
@@ -130,28 +131,6 @@ function parseModelCommand(trimmed: string): ModelCommandParse | null {
   return { kind: "switch", profileName: rest };
 }
 
-function orderedProfileNames(
-  profiles: Record<
-    string,
-    { label?: string; description?: string; status?: "active" | "disabled" }
-  >,
-  profileOrder: readonly string[] | undefined,
-): string[] {
-  const order = profileOrder ?? [];
-  const seen = new Set<string>();
-  const ordered: string[] = [];
-  for (const name of order) {
-    if (profiles[name] != null && !seen.has(name)) {
-      ordered.push(name);
-      seen.add(name);
-    }
-  }
-  const tail = Object.keys(profiles)
-    .filter((n) => !seen.has(n))
-    .sort();
-  return [...ordered, ...tail];
-}
-
 async function resolveModelCommand(
   parse: ModelCommandParse,
 ): Promise<SlashResolution> {
@@ -160,7 +139,7 @@ async function resolveModelCommand(
     string,
     { label?: string; description?: string; status?: "active" | "disabled" }
   >;
-  const profileNames = orderedProfileNames(profiles, config.llm.profileOrder);
+  const profileNames = orderProfileKeys(profiles, config.llm.profileOrder);
   const activeProfile = config.llm.activeProfile;
 
   if (parse.kind === "list") {

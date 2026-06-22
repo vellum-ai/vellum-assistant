@@ -8,6 +8,7 @@
 
 import { randomInt } from "node:crypto";
 
+import type { AdmissionPolicy } from "@vellumai/gateway-client";
 import type { ServerWebSocket } from "bun";
 
 import {
@@ -47,6 +48,7 @@ import {
   updateCallSession,
 } from "./call-store.js";
 import { ConversationRelayTransport } from "./call-transport.js";
+import { getChannelAdmissionPolicy } from "./channel-admission-reader.js";
 import { finalizeCall } from "./finalize-call.js";
 import {
   classifyWaitUtterance,
@@ -68,6 +70,17 @@ import {
 const log = getLogger("relay-server");
 const UUID_SHAPED_NAME =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/**
+ * Return the first whitespace-delimited token of a name, or `null` when the
+ * input is null/blank. Used for greetings so "Carolina Flaherty" -> "Carolina".
+ */
+function firstToken(name: string | null | undefined): string | null {
+  if (!name) return null;
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  return trimmed.split(/\s+/)[0] ?? null;
+}
 
 // ── ConversationRelay message types ──────────────────────────────────
 
@@ -170,6 +183,11 @@ export function setRelayBroadcast(fn: (msg: ServerMessage) => void): void {
  */
 type RelayConnectionState =
   | "connected"
+  // Transient state held synchronously from the start of handleSetup until
+  // routing/ACL completes. Prompts arriving in this window are dropped so a
+  // not-yet-authorized caller's speech is never persisted/emitted before the
+  // admission floor and trust ACL are applied.
+  | "setting_up"
   | "verification_pending"
   | "awaiting_name"
   | "awaiting_guardian_decision"
@@ -206,11 +224,14 @@ export class RelayConnection {
 
   // Inbound voice invite redemption state
   private inviteRedemptionActive = false;
+  // In-flight guard: true while an async redemption attempt is awaiting the
+  // gateway-backed claim, so a rapidly-repeated code is deduped rather than
+  // launching a second concurrent redeemVoiceInviteCode.
+  private inviteRedemptionInFlight = false;
   private inviteRedemptionAssistantId: string | null = null;
   private inviteRedemptionFromNumber: string | null = null;
   private inviteRedemptionCodeLength = 6;
-  private inviteRedemptionFriendName: string | null = null;
-  private inviteRedemptionGuardianName: string | null = null;
+  private inviteRedemptionInviteeName: string | null = null;
 
   // In-call guardian approval wait state (friend-initiated)
   private accessRequestWaitActive = false;
@@ -550,15 +571,58 @@ export class RelayConnection {
       "ConversationRelay setup received",
     );
 
+    // Enter the setup-pending state synchronously, before any await. The
+    // admission-policy read below yields the event loop, and inbound frames are
+    // dispatched fire-and-forget, so a `prompt` frame can arrive before routing
+    // completes. handlePrompt drops prompts while in "setting_up" so a blocked
+    // or admission-denied caller's speech is never stored before the ACL runs.
+    this.connectionState = "setting_up";
+
     const session = getCallSession(this.callSessionId);
     this.recordSetupBookkeeping(session, msg);
 
+    // Resolve the phone channel's inbound admission floor. The reader fails
+    // open to `null` by contract, so a transport hiccup admits the caller.
+    const admissionPolicy = await getChannelAdmissionPolicy("phone");
+
+    try {
+      await this.routeSetupOutcome(msg, session, admissionPolicy);
+    } catch (err) {
+      // Never leave the connection stranded in "setting_up": a setup that
+      // throws before reaching a terminal outcome would otherwise drop every
+      // prompt forever. Tear the call down instead.
+      log.error(
+        { err, callSessionId: this.callSessionId },
+        "Setup routing failed — disconnecting",
+      );
+      this.connectionState = "disconnecting";
+      updateCallSession(this.callSessionId, {
+        status: "failed",
+        endedAt: Date.now(),
+        lastError: "Setup routing failed",
+      });
+      this.endSession("Setup routing failed");
+    }
+  }
+
+  /**
+   * Apply the routing/ACL outcome for a setup frame. Synchronous helpers that
+   * fire-and-forget (greeting, verification, name capture) are awaited here only
+   * when they themselves are async. Each reachable outcome transitions the
+   * connection out of "setting_up" into its terminal state.
+   */
+  private async routeSetupOutcome(
+    msg: RelaySetupMessage,
+    session: ReturnType<typeof getCallSession>,
+    admissionPolicy: AdmissionPolicy | null,
+  ): Promise<void> {
     const { outcome, resolved } = routeSetup({
       callSessionId: this.callSessionId,
       session,
       from: msg.from,
       to: msg.to,
       customParameters: msg.customParameters,
+      admissionPolicy,
     });
 
     const initialTrustContext = toTrustContext(
@@ -596,8 +660,7 @@ export class RelayConnection {
         this.startInviteRedemption(
           outcome.assistantId,
           outcome.fromNumber,
-          outcome.friendName,
-          outcome.guardianName,
+          outcome.inviteeName,
           !resolved.isInbound,
         );
         return;
@@ -634,6 +697,9 @@ export class RelayConnection {
             );
           }
         }
+        // Routing/ACL cleared — leave the setup-pending state so subsequent
+        // prompts are handled normally.
+        this.connectionState = "connected";
         this.startNormalCallFlow(controller, outcome.isInbound);
         return;
     }
@@ -819,8 +885,14 @@ export class RelayConnection {
       | "invite_redeemed"
       | "access_approved"
       | "trusted_contact_verified";
-    friendName?: string;
-    guardianName?: string;
+    /**
+     * Display name resolved from the bound contact (or, for outbound invite
+     * calls, the session's recorded invitee name). Greeting uses only the
+     * first whitespace-delimited token; an empty/blank value triggers the
+     * neutral "Hi there" greeting rather than substituting the channel
+     * address.
+     */
+    inviteeName?: string | null;
   }): void {
     const { assistantId, fromNumber } = params;
 
@@ -845,17 +917,16 @@ export class RelayConnection {
     let handoffText: string;
 
     if (params.activationReason === "invite_redeemed") {
-      const name = params.friendName;
+      const firstName = firstToken(params.inviteeName);
       const assistantName = this.resolveAssistantLabel();
-      const gLabel = params.guardianName || guardianLabel;
-      if (name) {
+      if (firstName) {
         handoffText = assistantName
-          ? `Great, I've verified that you are ${name}. It's nice to meet you! I'm ${assistantName}, ${gLabel}'s assistant. How can I help?`
-          : `Great, I've verified that you are ${name}. It's nice to meet you! How can I help?`;
+          ? `Great, I've verified that you are ${firstName}. It's nice to meet you! I'm ${assistantName}, ${guardianLabel}'s assistant. How can I help?`
+          : `Great, I've verified that you are ${firstName}. It's nice to meet you! How can I help?`;
       } else {
         handoffText = assistantName
-          ? `Great, I've verified your identity. It's nice to meet you! I'm ${assistantName}, ${gLabel}'s assistant. How can I help?`
-          : `Great, I've verified your identity. It's nice to meet you! How can I help?`;
+          ? `Hi there! I'm ${assistantName}, ${guardianLabel}'s assistant. How can I help?`
+          : `Hi there! How can I help?`;
       }
     } else {
       handoffText = `Great! ${guardianLabel} said I can speak with you. How can I help?`;
@@ -1142,15 +1213,14 @@ export class RelayConnection {
   private startInviteRedemption(
     assistantId: string,
     fromNumber: string,
-    friendName: string | null,
-    guardianName: string | null,
+    inviteeName: string | null,
     isOutbound: boolean,
   ): void {
     this.inviteRedemptionActive = true;
+    this.inviteRedemptionInFlight = false;
     this.inviteRedemptionAssistantId = assistantId;
     this.inviteRedemptionFromNumber = fromNumber;
-    this.inviteRedemptionFriendName = friendName;
-    this.inviteRedemptionGuardianName = guardianName;
+    this.inviteRedemptionInviteeName = inviteeName;
     this.connectionState = "verification_pending";
     this.verificationAttempts = 0;
     this.verificationMaxAttempts = 1;
@@ -1163,8 +1233,8 @@ export class RelayConnection {
       maxAttempts: this.verificationMaxAttempts,
     });
 
-    const displayFriend = friendName ?? "there";
-    const displayGuardian = guardianName ?? "your contact";
+    const displayFriend = firstToken(inviteeName) ?? "there";
+    const displayGuardian = this.resolveGuardianLabel();
 
     let promptText: string;
     if (isOutbound) {
@@ -1567,11 +1637,37 @@ export class RelayConnection {
       return;
     }
 
-    const result = attemptInviteCodeRedemption({
+    // Dedup concurrent attempts: a repeated code (re-spoken / re-entered)
+    // arriving while the async gateway-backed claim is still in flight is
+    // ignored, so we never run a second redeemVoiceInviteCode that would see
+    // the invite already consumed and wrongly mark the call failed. The flag
+    // is set synchronously before awaiting and cleared in finally.
+    if (this.inviteRedemptionInFlight) {
+      log.info(
+        { callSessionId: this.callSessionId },
+        "Ignoring repeated invite code — redemption already in flight",
+      );
+      return;
+    }
+    this.inviteRedemptionInFlight = true;
+
+    try {
+      await this.runInviteCodeRedemption(enteredCode);
+    } finally {
+      this.inviteRedemptionInFlight = false;
+    }
+  }
+
+  private async runInviteCodeRedemption(enteredCode: string): Promise<void> {
+    if (!this.inviteRedemptionAssistantId || !this.inviteRedemptionFromNumber) {
+      return;
+    }
+
+    const result = await attemptInviteCodeRedemption({
       inviteRedemptionAssistantId: this.inviteRedemptionAssistantId,
       inviteRedemptionFromNumber: this.inviteRedemptionFromNumber,
       enteredCode,
-      inviteRedemptionGuardianName: this.inviteRedemptionGuardianName,
+      guardianLabel: this.resolveGuardianLabel(),
     });
 
     if (result.outcome === "success") {
@@ -1596,8 +1692,7 @@ export class RelayConnection {
         assistantId: this.inviteRedemptionAssistantId,
         fromNumber: this.inviteRedemptionFromNumber,
         activationReason: "invite_redeemed",
-        friendName: this.inviteRedemptionFriendName ?? undefined,
-        guardianName: this.inviteRedemptionGuardianName ?? undefined,
+        inviteeName: this.inviteRedemptionInviteeName,
       });
     } else {
       this.inviteRedemptionActive = false;
@@ -1822,6 +1917,13 @@ export class RelayConnection {
       return;
     }
 
+    // Prompts arriving before setup routing/ACL completes are dropped — never
+    // persisted or emitted — so a not-yet-authorized caller's speech can't be
+    // stored ahead of the admission floor / trust ACL decision.
+    if (this.connectionState === "setting_up") {
+      return;
+    }
+
     if (!msg.last) {
       // Partial transcript, wait for final
       return;
@@ -2021,6 +2123,12 @@ export class RelayConnection {
 
   private handleDtmf(msg: RelayDtmfMessage): void {
     if (this.connectionState === "disconnecting") {
+      return;
+    }
+
+    // Drop DTMF arriving before setup routing/ACL completes (same reasoning as
+    // handlePrompt): don't record input from a not-yet-authorized caller.
+    if (this.connectionState === "setting_up") {
       return;
     }
 

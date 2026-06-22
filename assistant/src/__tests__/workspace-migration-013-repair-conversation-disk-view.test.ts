@@ -51,7 +51,7 @@ import {
 } from "../memory/schema.js";
 import { repairConversationDiskViewMigration } from "../workspace/migrations/013-repair-conversation-disk-view.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables() {
   const db = getDb();

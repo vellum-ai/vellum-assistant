@@ -18,7 +18,7 @@ import {
   resolveComment,
 } from "./document-comments-store.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers

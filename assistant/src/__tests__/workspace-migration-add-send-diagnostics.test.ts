@@ -49,7 +49,7 @@ describe("005-add-send-diagnostics migration", () => {
   test("runs without error on existing config (no-op)", () => {
     existsSyncFn.mockImplementation(() => true);
     readFileSyncFn.mockImplementation(() =>
-      JSON.stringify({ collectUsageData: true }),
+      JSON.stringify({ sendDiagnostics: true }),
     );
 
     addSendDiagnosticsMigration.run(WORKSPACE_DIR);

@@ -1184,6 +1184,7 @@ export async function finalizePendingToolResultRow(
     let provenanceTrustClass:
       | "guardian"
       | "trusted_contact"
+      | "unverified_contact"
       | "unknown"
       | undefined;
     let automated: boolean | undefined;
@@ -1845,6 +1846,7 @@ export async function handleMessageComplete(
     let provenanceTrustClass:
       | "guardian"
       | "trusted_contact"
+      | "unverified_contact"
       | "unknown"
       | undefined;
     let automated: boolean | undefined;
@@ -2432,6 +2434,9 @@ export async function dispatchAgentEvent(
             "Failed to persist agent_loop_exit_reason (non-fatal)",
           );
         }
+        break;
+      case "system_prompt_changed":
+        deps.ctx.systemPrompt = event.systemPrompt;
         break;
     }
   } catch (err) {

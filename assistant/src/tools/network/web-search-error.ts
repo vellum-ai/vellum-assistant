@@ -2,7 +2,7 @@
 // failures and the user-facing copy we surface for them (ATL-727).
 //
 // This is a pure leaf module: it has NO imports from `daemon/`, `agent/`,
-// `apps/`, or any client/UI package. It may only import the logger and pino
+// `clients/`, or any client/UI package. It may only import the logger and pino
 // types (for the telemetry helper). Every web_search code path — native
 // Anthropic handler, app-side providers, and the web client default — funnels
 // failures through `classifyWebSearchFailure` so the same friendly message

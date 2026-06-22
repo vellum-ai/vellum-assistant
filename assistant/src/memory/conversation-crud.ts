@@ -57,12 +57,27 @@ import {
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { runAsyncSqlite } from "./db-async-query.js";
-import { getDb, getSqliteFrom } from "./db-connection.js";
+import {
+  type DrizzleDb,
+  getDb,
+  getLogsDb,
+  getSqliteFrom,
+} from "./db-connection.js";
+import {
+  copyForkMessagesViaSubprocess,
+  type ForkIdPair,
+} from "./fork-message-copy.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
-import { rawExec, rawGet, rawRun } from "./raw-query.js";
+import {
+  rawExec,
+  rawGet,
+  rawLogsRun,
+  rawMemoryRun,
+  rawRun,
+} from "./raw-query.js";
 import {
   channelInboundEvents,
   conversations,
@@ -83,6 +98,19 @@ import {
 import { extractInjectedConceptSlugs } from "./v2/injected-block-slugs.js";
 
 const log = getLogger("conversation-store");
+
+/**
+ * The logs connection (`assistant-logs.db`), where `llm_request_logs` lives.
+ * Throws if the file cannot be opened — the few call sites here that touch
+ * request logs (conversation deletes, turn-window anchoring) have no fallback.
+ */
+function logsDb(): DrizzleDb {
+  const db = getLogsDb();
+  if (!db) {
+    throw new Error("logs database unavailable");
+  }
+  return db;
+}
 
 // ── Message metadata Zod schema ──────────────────────────────────────
 // Validates the JSON stored in messages.metadata. Known fields are typed;
@@ -129,7 +157,7 @@ export const messageMetadataSchema = z
      * and read gate (conversation history loading) to enforce trust-aware access.
      */
     provenanceTrustClass: z
-      .enum(["guardian", "trusted_contact", "unknown"])
+      .enum(["guardian", "trusted_contact", "unverified_contact", "unknown"])
       .optional(),
     provenanceSourceChannel: channelIdSchema.optional(),
     provenanceGuardianExternalUserId: z.string().optional(),
@@ -148,6 +176,13 @@ export const messageMetadataSchema = z
     nowScratchpadBlock: z.string().optional(),
     pkbContextBlock: z.string().optional(),
     memoryV2StaticBlock: z.string().optional(),
+    /** `<background_turn>` block (background/scheduled non-interactive turns),
+     *  rehydrated by `loadFromDb` for reload/fork prefix-cache parity. */
+    backgroundTurnBlock: z.string().optional(),
+    /** `<channel_capabilities>` block, rehydrated for the same reason. */
+    channelCapabilitiesBlock: z.string().optional(),
+    /** `<non_interactive_context>` block, rehydrated for the same reason. */
+    nonInteractiveContextBlock: z.string().optional(),
   })
   .passthrough();
 
@@ -997,151 +1032,16 @@ export function forkConversation(params: {
       }
     }
 
-    const attachmentIdMap = new Map<string, string>();
-    for (const message of messagesToCopy) {
-      const forkedMessageId = forkedMessageIds.get(message.id);
-      if (!forkedMessageId) continue;
-
-      const attachmentLinks = db
-        .select({
-          attachmentId: messageAttachments.attachmentId,
-          position: messageAttachments.position,
-        })
-        .from(messageAttachments)
-        .where(eq(messageAttachments.messageId, message.id))
-        .orderBy(messageAttachments.position)
-        .all();
-      const uncachedAttachmentLinks = attachmentLinks.filter(
-        (link) => !attachmentIdMap.has(link.attachmentId),
-      );
-      const stagingMessageId =
-        uncachedAttachmentLinks.length > 0 ? uuid() : null;
-
-      if (stagingMessageId) {
-        db.insert(messages)
-          .values({
-            id: stagingMessageId,
-            conversationId: fc.id,
-            role: message.role,
-            content: "",
-            createdAt: message.createdAt,
-            metadata: null,
-          })
-          .run();
-      }
-
-      for (const link of attachmentLinks) {
-        const cachedAttachmentId = attachmentIdMap.get(link.attachmentId);
-        if (cachedAttachmentId) {
-          db.insert(messageAttachments)
-            .values({
-              id: uuid(),
-              messageId: forkedMessageId,
-              attachmentId: cachedAttachmentId,
-              position: link.position,
-              createdAt: Date.now(),
-            })
-            .run();
-          continue;
-        }
-
-        const scopedAttachmentId = linkAttachmentToMessage(
-          stagingMessageId ?? forkedMessageId,
-          link.attachmentId,
-          link.position,
-        );
-        attachmentIdMap.set(link.attachmentId, scopedAttachmentId);
-      }
-
-      if (stagingMessageId) {
-        relinkAttachments([stagingMessageId], forkedMessageId);
-        db.delete(messages).where(eq(messages.id, stagingMessageId)).run();
-      }
-
-      diskSyncQueue.push({
-        conversationId: fc.id,
-        messageId: forkedMessageId,
-        createdAt: fc.createdAt,
-      });
-    }
-
-    // Set lastMessageAt to the max createdAt of copied messages so the
-    // forked conversation sorts correctly by message recency.
-    const lastCopiedMessage = messagesToCopy.at(-1);
-    if (lastCopiedMessage) {
-      db.update(conversations)
-        .set({ lastMessageAt: lastCopiedMessage.createdAt })
-        .where(eq(conversations.id, fc.id))
-        .run();
-    }
-
-    seedForkedConversationAttention({
-      conversationId: fc.id,
-      latestAssistantMessageId: latestForkedAssistant?.messageId ?? null,
-      latestAssistantMessageAt: latestForkedAssistant?.messageAt ?? null,
-    });
-
-    // Carry the parent's per-conversation memory state into the child so the
-    // forked thread resumes with the same activation/injection log and
-    // in-context tracker the parent had at fork time. Only valid for
-    // full-history forks: a truncated fork would inherit activation/tracker
-    // entries for turns the child does not actually contain.
-    const isFullHistoryFork = copyBoundaryIndex === sourceMessages.length - 1;
-    if (isFullHistoryFork) {
-      forkActivationState(db, sourceConversation.id, fc.id);
-      forkEverInjected(db, sourceConversation.id, fc.id);
-      forkGraphMemoryState(sourceConversation.id, fc.id);
-    } else {
-      // Truncated fork: the wholesale copy above would over-claim, but
-      // seeding nothing makes the child re-select and re-attach every page
-      // whose `<memory>` attachment it already inherited (observed in
-      // production: 89 duplicate page injections on one fork). Derive
-      // `everInjected` from the inherited attachments themselves — scoped to
-      // the child's visible window, since attachments behind an inherited
-      // compaction boundary are not rendered and must stay re-injectable.
-      // The v2 and v3 layers persist under separate metadata keys with the
-      // same `# memory/concepts/<slug>.md` header convention, so each seeds
-      // its own dedup record from its own blocks.
-      const visibleStartIndex = preserveSourceCompactionState
-        ? visibleWindowStartIndex
-        : 0;
-      const inheritedSlugs = new Set<string>();
-      const inheritedV3Slugs = new Set<string>();
-      for (const message of messagesToCopy.slice(visibleStartIndex)) {
-        const block = readInjectedBlock(
-          message.metadata,
-          "memoryInjectedBlock",
-        );
-        if (block) {
-          for (const slug of extractInjectedConceptSlugs(block)) {
-            inheritedSlugs.add(slug);
-          }
-        }
-        const v3Block = readInjectedBlock(
-          message.metadata,
-          MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
-        );
-        if (v3Block) {
-          for (const slug of extractInjectedConceptSlugs(v3Block)) {
-            inheritedV3Slugs.add(slug);
-          }
-        }
-      }
-      seedForkActivationState(db, fc.id, [...inheritedSlugs]);
-      seedEverInjectedFromSlugs(
-        db,
-        sourceConversation.id,
-        fc.id,
-        [...inheritedV3Slugs],
-        Date.now(),
-      );
-    }
-    forkRetrospectiveState({
-      database: db,
+    populateForkContentsInProcess({
+      fork: fc,
       sourceConversationId: sourceConversation.id,
-      forkedConversationId: fc.id,
+      messagesToCopy,
       forkedMessageIds,
-      lastCopiedSourceMessageId: messagesToCopy.at(-1)?.id ?? null,
+      latestForkedAssistant,
+      isFullHistoryFork: copyBoundaryIndex === sourceMessages.length - 1,
+      preserveSourceCompactionState,
+      visibleWindowStartIndex,
+      diskSyncQueue,
     });
 
     return fc;
@@ -1163,6 +1063,407 @@ export function forkConversation(params: {
   return persistedFork;
 }
 
+interface PopulateForkContentsArgs {
+  /** The freshly-created fork conversation row (needs `id` + `createdAt`). */
+  fork: { id: string; createdAt: number };
+  sourceConversationId: string;
+  messagesToCopy: MessageRow[];
+  /** Source→fork message-id map for every copied row. */
+  forkedMessageIds: Map<string, string>;
+  latestForkedAssistant: { messageId: string; messageAt: number } | null;
+  /** `copyBoundaryIndex === sourceMessages.length - 1` for the source. */
+  isFullHistoryFork: boolean;
+  preserveSourceCompactionState: boolean;
+  visibleWindowStartIndex: number;
+  /**
+   * When provided, a disk-sync entry is appended per copied message for the
+   * caller to flush after commit. Omitted by the retrospective fork, whose
+   * throwaway conversation needs no disk-view projection.
+   */
+  diskSyncQueue?: Array<{
+    conversationId: string;
+    messageId: string;
+    createdAt: number;
+  }>;
+}
+
+/**
+ * In-process tail of a conversation fork: relink each copied message's
+ * attachments (scoped per-conversation), set `lastMessageAt`, seed attention,
+ * and carry the parent's per-conversation memory state.
+ *
+ * Assumes the fork's message ROWS already exist — copied either in-process
+ * (synchronous fork) or via the off-event-loop subprocess (retrospective
+ * fork). Single source of truth shared by `forkConversation` and
+ * `forkConversationForRetrospective`; must run inside a transaction on the
+ * main connection.
+ */
+function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
+  const {
+    fork,
+    sourceConversationId,
+    messagesToCopy,
+    forkedMessageIds,
+    latestForkedAssistant,
+    isFullHistoryFork,
+    preserveSourceCompactionState,
+    visibleWindowStartIndex,
+    diskSyncQueue,
+  } = args;
+  const db = getDb();
+
+  const attachmentIdMap = new Map<string, string>();
+  for (const message of messagesToCopy) {
+    const forkedMessageId = forkedMessageIds.get(message.id);
+    if (!forkedMessageId) continue;
+
+    const attachmentLinks = db
+      .select({
+        attachmentId: messageAttachments.attachmentId,
+        position: messageAttachments.position,
+      })
+      .from(messageAttachments)
+      .where(eq(messageAttachments.messageId, message.id))
+      .orderBy(messageAttachments.position)
+      .all();
+    const uncachedAttachmentLinks = attachmentLinks.filter(
+      (link) => !attachmentIdMap.has(link.attachmentId),
+    );
+    const stagingMessageId = uncachedAttachmentLinks.length > 0 ? uuid() : null;
+
+    if (stagingMessageId) {
+      db.insert(messages)
+        .values({
+          id: stagingMessageId,
+          conversationId: fork.id,
+          role: message.role,
+          content: "",
+          createdAt: message.createdAt,
+          metadata: null,
+        })
+        .run();
+    }
+
+    for (const link of attachmentLinks) {
+      const cachedAttachmentId = attachmentIdMap.get(link.attachmentId);
+      if (cachedAttachmentId) {
+        db.insert(messageAttachments)
+          .values({
+            id: uuid(),
+            messageId: forkedMessageId,
+            attachmentId: cachedAttachmentId,
+            position: link.position,
+            createdAt: Date.now(),
+          })
+          .run();
+        continue;
+      }
+
+      const scopedAttachmentId = linkAttachmentToMessage(
+        stagingMessageId ?? forkedMessageId,
+        link.attachmentId,
+        link.position,
+      );
+      attachmentIdMap.set(link.attachmentId, scopedAttachmentId);
+    }
+
+    if (stagingMessageId) {
+      relinkAttachments([stagingMessageId], forkedMessageId);
+      db.delete(messages).where(eq(messages.id, stagingMessageId)).run();
+    }
+
+    diskSyncQueue?.push({
+      conversationId: fork.id,
+      messageId: forkedMessageId,
+      createdAt: fork.createdAt,
+    });
+  }
+
+  // Set lastMessageAt to the max createdAt of copied messages so the
+  // forked conversation sorts correctly by message recency.
+  const lastCopiedMessage = messagesToCopy.at(-1);
+  if (lastCopiedMessage) {
+    db.update(conversations)
+      .set({ lastMessageAt: lastCopiedMessage.createdAt })
+      .where(eq(conversations.id, fork.id))
+      .run();
+  }
+
+  seedForkedConversationAttention({
+    conversationId: fork.id,
+    latestAssistantMessageId: latestForkedAssistant?.messageId ?? null,
+    latestAssistantMessageAt: latestForkedAssistant?.messageAt ?? null,
+  });
+
+  // Carry the parent's per-conversation memory state into the child so the
+  // forked thread resumes with the same activation/injection log and
+  // in-context tracker the parent had at fork time. Only valid for
+  // full-history forks: a truncated fork would inherit activation/tracker
+  // entries for turns the child does not actually contain.
+  if (isFullHistoryFork) {
+    forkActivationState(db, sourceConversationId, fork.id);
+    forkEverInjected(db, sourceConversationId, fork.id);
+    forkGraphMemoryState(sourceConversationId, fork.id);
+  } else {
+    // Truncated fork: the wholesale copy above would over-claim, but
+    // seeding nothing makes the child re-select and re-attach every page
+    // whose `<memory>` attachment it already inherited (observed in
+    // production: 89 duplicate page injections on one fork). Derive
+    // `everInjected` from the inherited attachments themselves — scoped to
+    // the child's visible window, since attachments behind an inherited
+    // compaction boundary are not rendered and must stay re-injectable.
+    // The v2 and v3 layers persist under separate metadata keys with the
+    // same `# memory/concepts/<slug>.md` header convention, so each seeds
+    // its own dedup record from its own blocks.
+    const visibleStartIndex = preserveSourceCompactionState
+      ? visibleWindowStartIndex
+      : 0;
+    const inheritedSlugs = new Set<string>();
+    const inheritedV3Slugs = new Set<string>();
+    for (const message of messagesToCopy.slice(visibleStartIndex)) {
+      const block = readInjectedBlock(message.metadata, "memoryInjectedBlock");
+      if (block) {
+        for (const slug of extractInjectedConceptSlugs(block)) {
+          inheritedSlugs.add(slug);
+        }
+      }
+      const v3Block = readInjectedBlock(
+        message.metadata,
+        MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
+      );
+      if (v3Block) {
+        for (const slug of extractInjectedConceptSlugs(v3Block)) {
+          inheritedV3Slugs.add(slug);
+        }
+      }
+    }
+    seedForkActivationState(db, fork.id, [...inheritedSlugs]);
+    seedEverInjectedFromSlugs(
+      db,
+      sourceConversationId,
+      fork.id,
+      [...inheritedV3Slugs],
+      Date.now(),
+    );
+  }
+  forkRetrospectiveState({
+    database: db,
+    sourceConversationId,
+    forkedConversationId: fork.id,
+    forkedMessageIds,
+    lastCopiedSourceMessageId: messagesToCopy.at(-1)?.id ?? null,
+  });
+}
+
+/**
+ * Resolve the fork id + timestamp of the LAST assistant message among the
+ * copied rows. The synchronous copy loop tracks this inline; the off-loop
+ * subprocess copy does not, so the async fork derives it from the id map.
+ */
+function latestForkedAssistantFrom(
+  messagesToCopy: MessageRow[],
+  forkedMessageIds: Map<string, string>,
+): { messageId: string; messageAt: number } | null {
+  for (let i = messagesToCopy.length - 1; i >= 0; i--) {
+    const message = messagesToCopy[i]!;
+    if (message.role !== "assistant") continue;
+    const forkedMessageId = forkedMessageIds.get(message.id);
+    if (forkedMessageId) {
+      return { messageId: forkedMessageId, messageAt: message.createdAt };
+    }
+  }
+  return null;
+}
+
+/**
+ * Async variant of {@link forkConversation} for the memory-retrospective job,
+ * which forks the entire source conversation into a throwaway background
+ * conversation on a hot path that must not stall the daemon.
+ *
+ * The dominant cost — copying every source message row — runs OFF the event
+ * loop in a `sqlite3` subprocess (see {@link copyForkMessagesViaSubprocess}),
+ * so `/healthz` and gateway IPC stay responsive during the copy. The cheap
+ * tail (conversation row, attachment relink, memory-state seeding) runs
+ * in-process and reuses {@link populateForkContentsInProcess}, the same helper
+ * the synchronous fork uses, so the two paths cannot drift on that logic. The
+ * boundary/compaction computation mirrors {@link forkConversation} and is
+ * pinned by a parity test.
+ *
+ * The disk-view projection (`syncMessageToDisk`) is intentionally skipped: the
+ * fork is GC'd after the retrospective pass and never browsed, and the agent
+ * reads it from the database, not the on-disk JSONL.
+ *
+ * Atomicity spans two connections (the in-process row/tail and the subprocess
+ * copy), so a mid-flight failure can leave a partial fork. The partial is
+ * deleted best-effort on error; a crash between phases is reclaimed by the
+ * worker's startup orphan sweep. Callers only ever observe a fully-built fork
+ * because the returned promise resolves after every phase commits.
+ */
+export async function forkConversationForRetrospective(params: {
+  conversationId: string;
+  throughMessageId?: string;
+  source?: string;
+  title?: string;
+  conversationType?: ConversationCreateType;
+  groupId?: string;
+}): Promise<ConversationRow> {
+  const { conversationId, throughMessageId } = params;
+  const db = getDb();
+  const sourceConversation = getConversation(conversationId);
+  if (!sourceConversation) {
+    throw new UserError(`Conversation ${conversationId} not found`);
+  }
+
+  const sourceMessages = getMessages(conversationId);
+  if (throughMessageId != null) {
+    // Re-sort on `(createdAt, id)` so the cutoff slice agrees with the cursor
+    // the caller chose it from — see the matching note in `forkConversation`.
+    sourceMessages.sort(
+      (a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id),
+    );
+  }
+  if (sourceMessages.length === 0) {
+    throw new UserError(
+      `Conversation ${conversationId} has no persisted messages to fork`,
+    );
+  }
+
+  const initialBoundaryIndex =
+    throughMessageId == null
+      ? sourceMessages.length - 1
+      : sourceMessages.findIndex((message) => message.id === throughMessageId);
+  if (throughMessageId != null && initialBoundaryIndex === -1) {
+    throw new UserError(
+      `Message ${throughMessageId} does not belong to conversation ${conversationId}`,
+    );
+  }
+
+  const copyBoundaryIndex = findDisplayTurnEndIndex(
+    sourceMessages,
+    initialBoundaryIndex,
+  );
+  const visibleWindowStartIndex = Math.max(
+    0,
+    Math.min(
+      sourceConversation.contextCompactedMessageCount,
+      sourceMessages.length,
+    ),
+  );
+  const preserveSourceCompactionState =
+    copyBoundaryIndex >= visibleWindowStartIndex;
+  const messagesToCopy =
+    copyBoundaryIndex >= 0
+      ? sourceMessages.slice(0, copyBoundaryIndex + 1)
+      : ([] as MessageRow[]);
+
+  const sourceHistoryStrippedAt = sourceConversation.historyStrippedAt ?? null;
+  const boundaryMessageCreatedAt = messagesToCopy.at(-1)?.createdAt ?? null;
+  const inheritsHistoryStrippedAt =
+    sourceHistoryStrippedAt != null &&
+    boundaryMessageCreatedAt != null &&
+    boundaryMessageCreatedAt >= sourceHistoryStrippedAt;
+  const forkParentMessageId = messagesToCopy.at(-1)?.id ?? null;
+  const forkTitle =
+    params.title ?? `${sourceConversation.title ?? "Untitled"} (Fork)`;
+  const parentGroupId = getConversationGroupId(conversationId);
+
+  // Pre-generate the id map in JS so the same map drives the off-loop copy and
+  // the in-process attachment relink that follows.
+  const idPairs: ForkIdPair[] = messagesToCopy.map((message) => ({
+    oldId: message.id,
+    newId: uuid(),
+  }));
+  const forkedMessageIds = new Map<string, string>(
+    idPairs.map((pair) => [pair.oldId, pair.newId]),
+  );
+
+  // Phase 1 (in-process, tiny): create the fork conversation row + lineage so
+  // the subprocess connection sees it before inserting messages.
+  const fork = db.transaction(() => {
+    const fc = createConversation({
+      title: forkTitle,
+      conversationType: params.conversationType ?? "standard",
+      groupId: params.groupId ?? parentGroupId ?? "system:all",
+      ...(params.source != null ? { source: params.source } : {}),
+    });
+    db.update(conversations)
+      .set({
+        forkParentConversationId: sourceConversation.id,
+        forkParentMessageId,
+        contextSummary: preserveSourceCompactionState
+          ? sourceConversation.contextSummary
+          : null,
+        contextCompactedMessageCount: preserveSourceCompactionState
+          ? sourceConversation.contextCompactedMessageCount
+          : 0,
+        contextCompactedAt: preserveSourceCompactionState
+          ? sourceConversation.contextCompactedAt
+          : null,
+        slackContextCompactionWatermarkTs: preserveSourceCompactionState
+          ? sourceConversation.slackContextCompactionWatermarkTs
+          : null,
+        slackContextCompactionWatermarkAt: preserveSourceCompactionState
+          ? sourceConversation.slackContextCompactionWatermarkAt
+          : null,
+        historyStrippedAt: inheritsHistoryStrippedAt
+          ? sourceHistoryStrippedAt
+          : null,
+        inferenceProfile: sourceConversation.inferenceProfile,
+      })
+      .where(eq(conversations.id, fc.id))
+      .run();
+    return fc;
+  });
+
+  try {
+    // Phase 2 (off the event loop): copy the message rows in a sqlite3
+    // subprocess so the daemon stays responsive during the heavy copy.
+    const copy = await copyForkMessagesViaSubprocess({
+      forkConversationId: fork.id,
+      idPairs,
+    });
+    if (!copy.ok) {
+      throw new Error(
+        `fork message copy failed (${copy.backend}): ${copy.error ?? "unknown"}`,
+      );
+    }
+
+    // Phase 3 (in-process): attachments + memory-state seeding, reusing the
+    // same helper as the synchronous fork. Disk-view projection is skipped.
+    const latestForkedAssistant = latestForkedAssistantFrom(
+      messagesToCopy,
+      forkedMessageIds,
+    );
+    db.transaction(() => {
+      populateForkContentsInProcess({
+        fork,
+        sourceConversationId: sourceConversation.id,
+        messagesToCopy,
+        forkedMessageIds,
+        latestForkedAssistant,
+        isFullHistoryFork: copyBoundaryIndex === sourceMessages.length - 1,
+        preserveSourceCompactionState,
+        visibleWindowStartIndex,
+      });
+    });
+
+    const persistedFork = getConversation(fork.id);
+    if (!persistedFork) {
+      throw new Error(
+        `Failed to load forked conversation ${fork.id} after creation`,
+      );
+    }
+    return persistedFork;
+  } catch (err) {
+    try {
+      deleteConversation(fork.id);
+    } catch {
+      // Best-effort cleanup; the worker's startup orphan sweep is the backstop.
+    }
+    throw err;
+  }
+}
+
 /**
  * Delete a conversation and all its messages, cleaning up orphaned memory
  * artifacts (embeddings). Returns segment IDs so callers can clean up
@@ -1179,6 +1480,13 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   // resolve the conversation's disk-view directory path after deletion.
   const convBeforeDelete = getConversation(id);
   const createdAtForDiskCleanup = convBeforeDelete?.createdAt;
+
+  // llm_request_logs lives in the dedicated logs connection, so it is deleted
+  // there — separately from the main-DB transaction below.
+  logsDb()
+    .delete(llmRequestLogs)
+    .where(eq(llmRequestLogs.conversationId, id))
+    .run();
 
   db.transaction((tx) => {
     // Collect all message IDs for this conversation.
@@ -1199,9 +1507,6 @@ export function deleteConversation(id: string): DeletedMemoryIds {
       result.segmentIds = linkedSegments.map((r) => r.id);
 
       // Delete non-cascading tables first.
-      tx.delete(llmRequestLogs)
-        .where(eq(llmRequestLogs.conversationId, id))
-        .run();
       tx.delete(toolInvocations)
         .where(eq(toolInvocations.conversationId, id))
         .run();
@@ -1224,9 +1529,6 @@ export function deleteConversation(id: string): DeletedMemoryIds {
       }
     } else {
       // No messages — just clean up non-message tables.
-      tx.delete(llmRequestLogs)
-        .where(eq(llmRequestLogs.conversationId, id))
-        .run();
       tx.delete(toolInvocations)
         .where(eq(toolInvocations.conversationId, id))
         .run();
@@ -2133,8 +2435,11 @@ export async function clearAll(): Promise<{
   // Each DELETE goes through `runAsyncSqlite`. The original code threw
   // on rawExec failure; mirror that here by throwing when the async
   // result reports `ok: false`, so the route handler still returns 500.
-  const runOrThrow = async (sql: string): Promise<void> => {
-    const result = await runAsyncSqlite(sql);
+  const runOrThrow = async (
+    sql: string,
+    options?: { dbPath?: string },
+  ): Promise<void> => {
+    const result = await runAsyncSqlite(sql, options);
     if (!result.ok) {
       throw new Error(
         `clearAll: \`${sql}\` failed (${result.backend}): ${result.error ?? "unknown"}`,
@@ -2154,9 +2459,12 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM memory_segments");
   await runOrThrow("DELETE FROM memory_summaries");
   await runOrThrow("DELETE FROM memory_embeddings");
-  await runOrThrow("DELETE FROM memory_jobs");
+  // memory_jobs and llm_request_logs each live in their own dedicated
+  // connection; clear them directly on those connections rather than through a
+  // sqlite3 subprocess.
+  rawMemoryRun("DELETE FROM memory_jobs");
   await runOrThrow("DELETE FROM memory_checkpoints");
-  await runOrThrow("DELETE FROM llm_request_logs");
+  rawLogsRun("DELETE FROM llm_request_logs");
   await runOrThrow("DELETE FROM llm_usage_events");
   await runOrThrow("DELETE FROM message_attachments");
   await runOrThrow("DELETE FROM attachments");
@@ -2575,12 +2883,17 @@ export function getConversationOriginInterface(
  * in the given conversation, or `undefined` if none is found.
  *
  * Used by the pointer message trust resolver to detect conversations
- * whose audience is a guardian or trusted_contact outside desktop-origin
- * conversations.
+ * whose audience is a guardian, trusted_contact, or unverified_contact
+ * outside desktop-origin conversations.
  */
 export function getConversationRecentProvenanceTrustClass(
   conversationId: string,
-): "guardian" | "trusted_contact" | "unknown" | undefined {
+):
+  | "guardian"
+  | "trusted_contact"
+  | "unverified_contact"
+  | "unknown"
+  | undefined {
   const row = rawGet<{ metadata: string | null }>(
     `SELECT metadata FROM messages
      WHERE conversation_id = ? AND role = 'user' AND metadata IS NOT NULL
@@ -2844,7 +3157,8 @@ export function getTurnTimeBounds(
       : startTime + MAX_TURN_DURATION_MS;
 
   if (hardCeiling > endTime) {
-    const latestLog = db
+    // llm_request_logs lives in the dedicated logs connection.
+    const latestLog = logsDb()
       .select({ createdAt: llmRequestLogs.createdAt })
       .from(llmRequestLogs)
       .where(

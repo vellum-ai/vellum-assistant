@@ -1,12 +1,13 @@
 /**
- * The compaction summarizer's input routing.
+ * The compaction summarizer's input.
  *
- * Budget-gate compaction summarizes the *injected* history so the summary
- * call's prompt prefix matches the agent's warm prefix cache (a cache read
- * rather than a fresh cache write). Overflow recovery summarizes the
- * injection-*stripped* history because its emergency split keeps an
- * un-stripped verbatim prefix that the post-compaction re-injection would
- * otherwise double-stack.
+ * Both the budget gate and overflow recovery summarize the *injected* history
+ * (the genuine conversation as the agent saw it) so the summary call's prompt
+ * prefix matches the agent's warm prefix cache — a cache read rather than a
+ * fresh cache write. The agent loop hands the full injected history to
+ * compaction unconditionally; the post-compaction re-injection hook owns
+ * injection idempotency by stripping the tail's per-turn blocks before
+ * re-applying them.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
@@ -46,17 +47,17 @@ const testPostCompactPlugin = {
 const CONVERSATION_ID = "compaction-strip-conversation";
 
 /**
- * A runtime `<workspace>` injection block. `stripInjectionsForCompaction`
- * matches its full `{ prefix: "<workspace>\n", suffix: "\n</workspace>" }`
- * wrapper and drops it from user-message content.
+ * A runtime `<workspace>` injection block. Its presence in the summarizer's
+ * input proves compaction received the injected history rather than a stripped
+ * copy.
  */
 const WORKSPACE_INJECTION =
   "<workspace>\nActive workspace: project-x\n</workspace>";
 const TURN_BODY = "Hello there, this is the turn body.";
 
 /**
- * A user turn carrying a real text block plus a runtime injection block.
- * Stripping drops the injection block and keeps the real one.
+ * A user turn carrying a real text block plus a runtime injection block, both
+ * of which ride into compaction's input as-is.
  */
 const injectedUserMessage: Message = {
   role: "user",
@@ -105,7 +106,6 @@ function installCapturingManager(capture: CompactionInputCapture): {
 } {
   createContextWindowManager({
     provider: { name: "mock-provider" } as unknown as Provider,
-    systemPrompt: "system",
     config: {} as unknown as ContextWindowConfig,
     conversationId: CONVERSATION_ID,
   });
@@ -184,7 +184,7 @@ describe("AgentLoop compaction summarizer input", () => {
     expect(events.some((e) => e.type === "history_stripped")).toBe(true);
   });
 
-  test("overflow-driven compaction summarizes the injection-stripped history", async () => {
+  test("overflow-driven compaction summarizes the injected history", async () => {
     // GIVEN a history whose user turn carries a runtime-injection block
     const capture: CompactionInputCapture = { budget: null, overflow: null };
 
@@ -229,10 +229,10 @@ describe("AgentLoop compaction summarizer input", () => {
       ...installCapturingManager(capture),
     });
 
-    // THEN overflow recovery received the history with the injection removed
+    // THEN overflow recovery received the injected history, injection intact
     expect(capture.overflow).not.toBeNull();
-    expect(serialize(capture.overflow)).not.toContain("<workspace>");
-    // AND the real turn body survives the strip
+    expect(serialize(capture.overflow)).toContain("<workspace>");
+    // AND the real turn body is present alongside the injection
     expect(serialize(capture.overflow)).toContain(TURN_BODY);
     // AND the budget summarizer was not invoked
     expect(capture.budget).toBeNull();

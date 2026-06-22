@@ -8,7 +8,6 @@ on:
       - 'cli/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
-      - 'clients/shared/App/VellumEnvironment.swift'
       - '.github/workflows/ci-main-cli.yaml'
       - '.github/actions/install-shared-packages/**'
 

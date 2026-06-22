@@ -2,7 +2,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
+import {
+  isModelInCatalog,
+  PROVIDER_CATALOG,
+} from "../providers/model-catalog.js";
 import { PLATFORM_PROVIDER_META } from "../providers/platform-proxy/constants.js";
 import { resolvePricing, resolvePricingForUsage } from "../util/pricing.js";
 
@@ -30,13 +33,6 @@ function getRepoRoot(): string {
 }
 
 const META_JSON_PATH = join(getRepoRoot(), "meta", "llm-provider-catalog.json");
-const SWIFTPM_MIRROR_PATH = join(
-  getRepoRoot(),
-  "clients",
-  "shared",
-  "Resources",
-  "llm-provider-catalog.json",
-);
 
 interface ClientCatalogCredentialsGuide {
   description: string;
@@ -309,6 +305,32 @@ describe("LLM catalog parity: daemon vs client", () => {
     });
   });
 
+  test("Fireworks catalog includes GLM 5.2", () => {
+    expect(
+      isModelInCatalog("fireworks", "accounts/fireworks/models/glm-5p2"),
+    ).toBe(true);
+
+    const fireworks = PROVIDER_CATALOG.find(
+      (entry) => entry.id === "fireworks",
+    );
+    expect(
+      fireworks?.models.find(
+        (model) => model.id === "accounts/fireworks/models/glm-5p2",
+      ),
+    ).toMatchObject({
+      displayName: "GLM 5.2",
+      contextWindowTokens: 1040000,
+      maxOutputTokens: 131072,
+      supportsToolUse: true,
+      supportsVision: false,
+      pricing: {
+        inputPer1mTokens: 1.4,
+        outputPer1mTokens: 4.4,
+        cacheReadPer1mTokens: 0.26,
+      },
+    });
+  });
+
   test("MiniMax catalog includes MiniMax M3", () => {
     const minimax = PROVIDER_CATALOG.find((entry) => entry.id === "minimax");
     expect(
@@ -456,20 +478,5 @@ describe("LLM catalog parity: daemon vs client", () => {
       longContextPricingThresholdTokens: 200000,
       longContextMode: "native-model",
     });
-  });
-
-  // -----------------------------------------------------------------------
-  // Mirror byte-equality
-  // -----------------------------------------------------------------------
-
-  test("SwiftPM mirror is byte-identical to meta/ copy", () => {
-    // `sync-llm-catalog.ts` writes both files from the same serializer; this
-    // guard catches any case where one copy is regenerated without the other.
-    // Byte equality is required because SwiftPM bundles the resource verbatim
-    // into `VellumAssistantShared` while the meta/ JSON is consumed as a
-    // cross-package artifact (web codegen, etc.).
-    const metaBytes = readFileSync(META_JSON_PATH);
-    const swiftPmBytes = readFileSync(SWIFTPM_MIRROR_PATH);
-    expect(swiftPmBytes.equals(metaBytes)).toBe(true);
   });
 });

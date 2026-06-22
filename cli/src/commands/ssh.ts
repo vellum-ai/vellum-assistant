@@ -3,7 +3,6 @@ import { spawn } from "child_process";
 import {
   extractHostFromUrl,
   resolveAssistant,
-  resolveCloud,
 } from "../lib/assistant-config";
 import { dockerResourceNames } from "../lib/docker";
 import { getPlatformUrl, readPlatformToken } from "../lib/platform-client";
@@ -47,7 +46,7 @@ export async function ssh(): Promise<void> {
     process.exit(1);
   }
 
-  const cloud = resolveCloud(entry);
+  const cloud = entry.cloud;
 
   if (cloud === "local") {
     console.error(

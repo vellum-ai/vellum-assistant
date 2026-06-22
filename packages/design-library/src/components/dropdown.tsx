@@ -349,7 +349,12 @@ export function Dropdown<T extends string>({
               </span>
             )}
             <span className="flex min-w-0 flex-1 items-center gap-2">
-              <span className="min-w-0 flex-1 truncate">{option.label}</span>
+              <span
+                className="min-w-0 flex-1 truncate"
+                title={option.label || undefined}
+              >
+                {option.label}
+              </span>
               {option.suffix && (
                 <span className="shrink-0">{option.suffix}</span>
               )}
@@ -411,7 +416,10 @@ export function Dropdown<T extends string>({
           </span>
         )}
         <span className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="min-w-0 flex-1 truncate">
+          <span
+            className="min-w-0 flex-1 truncate"
+            title={selectedOption?.label || undefined}
+          >
             {selectedOption?.label ?? placeholder ?? ""}
           </span>
           {selectedOption?.suffix && (

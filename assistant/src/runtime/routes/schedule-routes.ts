@@ -7,8 +7,6 @@
 
 import { z } from "zod";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import { getConfig } from "../../config/loader.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
 import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
@@ -299,7 +297,6 @@ function handleCreateSchedule(body: Record<string, unknown>) {
   }
 
   if (mode === "workflow") {
-    assertWorkflowsEnabled();
     const workflowName =
       typeof body.workflowName === "string" ? body.workflowName.trim() : "";
     if (!workflowName) {
@@ -349,17 +346,6 @@ function handleCreateSchedule(body: Record<string, unknown>) {
     throw err;
   }
   return handleListSchedules({});
-}
-
-/**
- * Reject workflow-mode schedule operations when the `workflows` feature flag
- * is off. Scheduled workflow runs would fail at trigger time (the run manager
- * hard-fails with WorkflowsDisabledError), so we fail fast at the route.
- */
-function assertWorkflowsEnabled(): void {
-  if (!isAssistantFeatureFlagEnabled("workflows", getConfig())) {
-    throw new BadRequestError("Workflows are not enabled.");
-  }
 }
 
 function handleToggleSchedule(id: string, body: Record<string, unknown>) {
@@ -425,11 +411,6 @@ function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
     throw new BadRequestError(
       `Invalid routingIntent: must be one of ${VALID_ROUTING_INTENTS.join(", ")}`,
     );
-  }
-
-  // Switching a schedule into workflow mode requires the workflows flag.
-  if (body.mode === "workflow") {
-    assertWorkflowsEnabled();
   }
 
   // Mirror the create-side validation: a schedule whose RESULTING mode is
@@ -946,9 +927,6 @@ async function handleRunScheduleNow(id: string) {
   // `schedule.message` (usually empty — workflow-mode create no longer requires
   // a message), running a no-op normal turn instead of the workflow.
   if (schedule.mode === "workflow") {
-    // Fail fast at the route when the flag is off (the run manager would also
-    // hard-fail with WorkflowsDisabledError); matches create/update handling.
-    assertWorkflowsEnabled();
     if (!schedule.workflowName) {
       throw new BadRequestError("Workflow schedule has no workflowName");
     }
@@ -1083,6 +1061,7 @@ async function handleRunScheduleNow(id: string) {
         conversationId: schedule.wakeConversationId,
         hint: schedule.message,
         source: "defer",
+        persistTriggerAsEvent: true,
         ...(schedule.inferenceProfile
           ? { forceOverrideProfile: schedule.inferenceProfile }
           : {}),

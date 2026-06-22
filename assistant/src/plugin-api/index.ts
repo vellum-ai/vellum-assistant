@@ -32,6 +32,11 @@
  *
  * - {@link assistantEventHub} — the assistant's pub/sub hub for runtime events
  * - {@link getSecureKeyAsync} — read a secret from secure storage
+ * - {@link getModelProfiles} — list the workspace inference profiles a plugin
+ *   can route to (e.g. a model router building its category → profile map)
+ * - {@link getConfiguredProvider} — resolve a {@link Provider} for a call site
+ *   (optionally overriding the profile) and run inference through the
+ *   workspace's configured profiles and credentials — no plugin-supplied API key
  *
  * - {@link PluginInitContext} — passed to `init` hook at bootstrap
  * - {@link PluginShutdownContext} — passed to `shutdown` hook at teardown
@@ -40,7 +45,8 @@
  * - {@link PostCompactContext} — passed to `post-compact` hook, fired after
  *   the agent loop compacts a conversation mid-turn to re-apply injections
  * - {@link PreModelCallContext} — passed to `pre-model-call` hook, fired
- *   before each provider call to edit the request / defer output streaming
+ *   before each provider call to edit the request, route it to a different
+ *   inference profile, or defer output streaming
  * - {@link PostToolUseContext} — passed to `post-tool-use` hook, fired once
  *   per tool result before it joins the provider-bound history
  * - {@link StopContext} — passed to `stop` hook, the definitive terminal hook
@@ -77,8 +83,23 @@ export type {
   ToolUseContent,
   WebSearchToolResultContent,
 } from "../providers/types.js";
+// Provider + inference types. A plugin that runs its own inference through
+// `getConfiguredProvider` names these to type the provider handle it gets back,
+// the request options it passes to `sendMessage`, and the response.
+export type {
+  Provider,
+  ProviderEvent,
+  ProviderResponse,
+  SendMessageConfig,
+  SendMessageOptions,
+} from "../providers/types.js";
+// Call-site identifier accepted by `getConfiguredProvider`. Plugins typically
+// pass `"inference"` (the general-purpose call site) and pick the model via the
+// `overrideProfile` option.
+export type { LLMCallSite } from "../config/schemas/llm.js";
 export type {
   AgentLoopExitReason,
+  ModelProfileInfo,
   PluginHookFn,
   PluginInitContext,
   PluginLogger,
@@ -110,3 +131,21 @@ export type {
 } from "../runtime/assistant-event-hub.js";
 export { assistantEventHub } from "../runtime/assistant-event-hub.js";
 export { getSecureKeyAsync } from "../security/secure-keys.js";
+export { getModelProfiles } from "./model-profiles.js";
+// Check whether a profile's resolved model can process image input. Resolves
+// the effective (provider, model) by merging over the workspace default and
+// inferring the provider for model-only profiles, then looks up the model
+// catalog's `supportsVision` flag. Handles mix profiles (true if any arm
+// supports vision). Fail-open for unknown models. Pair with
+// `getModelProfiles()` to inspect the active or candidate profiles.
+export { doesSupportVision } from "./vision-support.js";
+// Resolve a provider for a call site (optionally overriding the profile) so a
+// plugin can run inference through the workspace's configured profiles and
+// credentials — managed-proxy or BYOK — without supplying its own API key.
+// Pair with `getModelProfiles` to pick a profile. Returns `null` when no
+// provider is configured. By default `overrideProfile` layers below any
+// per-call-site config the workspace has pinned (e.g. a cheap `inference`
+// profile), so it loses to that pin; pass `forceOverrideProfile: true` to
+// float the chosen profile above the call-site layers when the plugin must
+// run on a specific profile regardless of workspace tuning.
+export { getConfiguredProvider } from "../providers/provider-send-message.js";

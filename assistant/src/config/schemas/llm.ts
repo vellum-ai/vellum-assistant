@@ -23,6 +23,7 @@ export const LLMProvider = z
     "openrouter",
     "openai-compatible",
     "minimax",
+    "atlascloud",
   ])
   .meta({ id: "LLMProvider" });
 type LLMProvider = z.infer<typeof LLMProvider>;
@@ -77,6 +78,8 @@ export const LLMCallSiteEnum = z.enum([
   "meetConsentMonitor",
   "meetChatOpportunity",
   "inference",
+  "advisor",
+  "vision",
   "trustRuleSuggestion",
   "homeGreeting",
   "homeSuggestedPrompts",
@@ -126,6 +129,11 @@ const VerbosityEnum = z.enum(["low", "medium", "high"]);
 const ModelSchema = z.string().min(1);
 const MaxTokensSchema = z.number().int().positive();
 const TemperatureSchema = z.number().min(0).max(2).nullable();
+// `top_p` (nucleus sampling). Range 0–1; `null` = "no opinion — let the
+// provider pick its own default" (matches TemperatureSchema's null
+// semantics). `RetryProvider` renames `topP`→`top_p` and only forwards a
+// non-null value, so providers never receive `top_p: null`.
+const TopPSchema = z.number().min(0).max(1).nullable();
 // Named, code-resolved logit-bias preset a profile may opt into. The value is a
 // preset *name*, not an inline token→bias map, so the workspace config stays
 // small. This is profile-identity metadata, not inheritable config: the resolver
@@ -326,6 +334,7 @@ export const LLMConfigBase = z.object({
   speed: SpeedEnum.default("standard"),
   verbosity: VerbosityEnum.default("medium"),
   temperature: TemperatureSchema.default(null),
+  topP: TopPSchema.default(null),
   thinking: ThinkingSchema.default(ThinkingSchema.parse({})),
   contextWindow: ContextWindowSchema.default(ContextWindowSchema.parse({})),
   openrouter: OpenRouterSchema.default(OpenRouterSchema.parse({})),
@@ -361,6 +370,7 @@ export const LLMConfigFragment = z
     speed: SpeedEnum.optional(),
     verbosity: VerbosityEnum.optional(),
     temperature: TemperatureSchema.optional(),
+    topP: TopPSchema.optional(),
     thinking: ThinkingFragmentSchema.optional(),
     contextWindow: ContextWindowDeepPartialSchema.optional(),
     openrouter: OpenRouterDeepPartialSchema.optional(),
@@ -432,6 +442,13 @@ export const ProfileEntry = LLMConfigFragment.extend({
    */
   status: ProfileStatusSchema.nullable().optional(),
   /**
+   * Whether the advisor is active while this profile is the chat profile.
+   * Absent/null means enabled (default on); only an explicit `false` disables
+   * it. `.nullable()` matches `status`/`label` so the PUT route's "send null
+   * to clear" sentinel resets it back to the default-on state.
+   */
+  advisorEnabled: z.boolean().nullable().optional(),
+  /**
    * When present, this profile is a "mix": it carries no model config and
    * instead references a weighted list of standard profiles. The resolver
    * expands a mix by a seeded weighted pick (see `resolveCallSiteConfig`).
@@ -474,6 +491,11 @@ export const LLMSchema = z
     // schema level, so `LLMSchema.parse({})` yields an empty map.
     callSites: z.partialRecord(LLMCallSiteEnum, LLMCallSiteConfig).default({}),
     activeProfile: z.string().min(1).optional(),
+    // The profile the advisor consults (chosen under Models & Services). It is
+    // excluded from the chat-profile pickers so it can't be selected as the
+    // assistant's chat model. Absent falls back to the `advisor` call-site
+    // default (`quality-optimized`).
+    advisorProfile: z.string().min(1).optional(),
     // TTL bounds for inference profile sessions. `defaultTtlSeconds` is read by
     // the CLI to apply when `--ttl` is omitted; the daemon handler itself only
     // reads `maxTtlSeconds` (to clamp caller-supplied values).
@@ -505,6 +527,16 @@ export const LLMSchema = z
         code: "custom",
         path: ["activeProfile"],
         message: `Profile "${config.activeProfile}" referenced by llm.activeProfile is not defined in llm.profiles`,
+      });
+    }
+    if (
+      config.advisorProfile != null &&
+      !profileNames.has(config.advisorProfile)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["advisorProfile"],
+        message: `Profile "${config.advisorProfile}" referenced by llm.advisorProfile is not defined in llm.profiles`,
       });
     }
 

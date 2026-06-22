@@ -366,6 +366,7 @@ import { runAgentLoopImpl } from "../daemon/conversation-agent-loop.js";
 interface CapturedAgentLoopRun {
   callSite: LLMCallSite | undefined;
   overrideProfile: string | undefined;
+  forceOverrideProfile: boolean | undefined;
   resolvedOverrideProfile: string | undefined;
   resolvedMaxInputTokens: number | undefined;
 }
@@ -383,6 +384,7 @@ function makeCtx(
     captured.push({
       callSite: options.callSite,
       overrideProfile: options.overrideProfile,
+      forceOverrideProfile: options.forceOverrideProfile,
       resolvedOverrideProfile: options.resolveOverrideProfile?.(),
       resolvedMaxInputTokens: options.resolveContextWindow?.().maxInputTokens,
     });
@@ -505,6 +507,9 @@ function makeCtx(
       assistantMessageChannel: "vellum" as const,
     }),
 
+    buildCurrentSystemPrompt: () => "system prompt",
+    modelOverride: undefined,
+
     graphMemory: {
       onCompacted: async () => {},
       prepareMemory: async () => ({
@@ -620,6 +625,26 @@ describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {
     expect(captured.length).toBeGreaterThan(0);
     for (const call of captured) {
       expect(call.overrideProfile).toBe("fast");
+      expect(call.forceOverrideProfile).toBeUndefined();
+    }
+  });
+
+  test("explicit options.forceOverrideProfile is passed to AgentLoop.run", async () => {
+    const captured: CapturedAgentLoopRun[] = [];
+    const ctx = makeCtx(captured, {
+      conversationType: "background",
+      inferenceProfile: null,
+    });
+
+    await runAgentLoopImpl(ctx, "hello", "msg-1", () => {}, {
+      overrideProfile: "fast",
+      forceOverrideProfile: true,
+    });
+
+    expect(captured.length).toBeGreaterThan(0);
+    for (const call of captured) {
+      expect(call.overrideProfile).toBe("fast");
+      expect(call.forceOverrideProfile).toBe(true);
     }
   });
 

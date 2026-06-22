@@ -90,7 +90,7 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-initializeDb();
+await initializeDb();
 
 const conversationInstances = new Map<string, Conversation>();
 

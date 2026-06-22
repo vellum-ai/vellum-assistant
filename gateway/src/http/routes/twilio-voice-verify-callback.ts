@@ -143,9 +143,9 @@ export function createTwilioVoiceVerifyCallbackHandler(
 
         // Check for existing phone guardian binding conflict
         const existingPhoneGuardians = await assistantDbQuery<{
-          externalUserId: string | null;
+          address: string;
         }>(
-          `SELECT cc.external_user_id AS externalUserId
+          `SELECT cc.address
            FROM contacts c
            JOIN contact_channels cc ON cc.contact_id = c.id
            WHERE c.role = 'guardian' AND cc.type = 'phone' AND cc.status = 'active'
@@ -154,15 +154,12 @@ export function createTwilioVoiceVerifyCallbackHandler(
         );
 
         const existingGuardian = existingPhoneGuardians[0];
-        if (
-          existingGuardian &&
-          existingGuardian.externalUserId !== fromNumber
-        ) {
+        if (existingGuardian && existingGuardian.address !== fromNumber) {
           log.warn(
             {
               callSid,
               fromNumber,
-              existingGuardian: existingGuardian.externalUserId,
+              existingGuardian: existingGuardian.address,
             },
             "Guardian binding conflict — another user already holds the voice binding",
           );
@@ -195,16 +192,24 @@ export function createTwilioVoiceVerifyCallbackHandler(
       }
     } else if (result.verificationType === "trusted_contact") {
       try {
-        await upsertVerifiedContactChannel({
+        const { verified } = await upsertVerifiedContactChannel({
           sourceChannel: "phone",
           externalUserId: fromNumber,
           externalChatId: fromNumber,
         });
 
-        log.info(
-          { callSid, fromNumber },
-          "Trusted contact phone channel activated by gateway",
-        );
+        if (verified) {
+          log.info(
+            { callSid, fromNumber },
+            "Trusted contact phone channel activated by gateway",
+          );
+        } else {
+          // Authoritative gateway row is blocked/revoked — activation skipped.
+          log.warn(
+            { callSid, fromNumber },
+            "Trusted contact activation skipped (channel blocked/revoked)",
+          );
+        }
       } catch (err) {
         log.error(
           { err, callSid, fromNumber },

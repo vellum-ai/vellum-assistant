@@ -27,6 +27,7 @@ export const LLM_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   fireworks: "FIREWORKS_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
   minimax: "MINIMAX_API_KEY",
+  atlascloud: "ATLASCLOUD_API_KEY",
 };
 
 /** Search-provider env var names. Mirrors `SEARCH_PROVIDER_CATALOG` BYOK entries. */
@@ -34,6 +35,7 @@ export const SEARCH_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   perplexity: "PERPLEXITY_API_KEY",
   brave: "BRAVE_API_KEY",
   tavily: "TAVILY_API_KEY",
+  firecrawl: "FIRECRAWL_API_KEY",
 };
 
 /**

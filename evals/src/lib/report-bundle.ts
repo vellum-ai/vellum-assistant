@@ -207,6 +207,11 @@ export function isBundleOutput(outPath: string): boolean {
   return /\.tar$/i.test(outPath) || /\.t(ar\.gz|gz)$/i.test(outPath);
 }
 
+/** True when `--out` is an HTTP(S) URL to push the bundle to (e.g. qa.vellum.ai). */
+export function isHttpUrlOut(outPath: string): boolean {
+  return /^https?:\/\//i.test(outPath);
+}
+
 /**
  * Stages `files` into a temp directory and tars it to `outPath`. A `.tar.gz`
  * / `.tgz` extension produces a gzipped archive; `.tar` an uncompressed one.
@@ -239,5 +244,21 @@ export async function writeBundleTar(
     }
   } finally {
     await rm(stageDir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Builds a bundle tar entirely in memory and returns it as a gzipped Buffer.
+ * Used by `evals export --out https://...` to push the bundle to a remote
+ * endpoint without writing an intermediate file to disk.
+ */
+export async function buildBundleBuffer(files: BundleFile[]): Promise<Buffer> {
+  const tmpPath = join(tmpdir(), `evals-bundle-${Date.now()}.tar.gz`);
+  try {
+    await writeBundleTar(`${tmpPath}`, files);
+    const file = Bun.file(tmpPath);
+    return Buffer.from(await file.arrayBuffer());
+  } finally {
+    await rm(tmpPath, { force: true });
   }
 }

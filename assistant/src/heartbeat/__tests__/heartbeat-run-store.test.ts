@@ -25,7 +25,7 @@ import {
   supersedePendingRun,
 } from "../heartbeat-run-store.js";
 
-initializeDb();
+await initializeDb();
 
 describe("heartbeat-run-store", () => {
   beforeEach(() => {

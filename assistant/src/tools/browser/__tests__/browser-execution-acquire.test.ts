@@ -54,6 +54,9 @@ const setPreferredBackendKindMock = mock(
   (_conversationId: string, _kind: CdpClientKind) => {},
 );
 const clearPreferredBackendKindMock = mock((_conversationId: string) => {});
+const waitForExtensionClientMock = mock(
+  async (_actor?: string, _targetClientId?: string) => true,
+);
 
 // ---------------------------------------------------------------------------
 // Module mocks (must be declared before dynamic import)
@@ -98,6 +101,7 @@ mock.module("../../../daemon/host-browser-proxy.js", () => ({
       return {
         isAvailable: () => false,
         hasExtensionClient: () => false,
+        waitForExtensionClient: waitForExtensionClientMock,
         request: () => Promise.reject(new Error("no extension")),
       };
     },
@@ -141,7 +145,34 @@ describe("acquireCdpClientWithMode: target_client_id overrides sticky backend mo
     getCdpClientMock.mockClear();
     setPreferredBackendKindMock.mockClear();
     clearPreferredBackendKindMock.mockClear();
+    waitForExtensionClientMock.mockClear();
     stickyKind = null;
+  });
+
+  test("extension-pinned acquisition awaits the reconnect grace window", async () => {
+    await executeBrowserAttach(
+      { target_client_id: "host-client-grace" },
+      makeContext("grace-window"),
+    );
+
+    // The grace wait runs before backend selection so a flapping extension
+    // SSE reconnect doesn't hard-fail the dispatch, and it targets the exact
+    // requested client.
+    expect(waitForExtensionClientMock).toHaveBeenCalledTimes(1);
+    expect(waitForExtensionClientMock).toHaveBeenCalledWith(
+      undefined,
+      "host-client-grace",
+    );
+    expect(getCdpClientCalls[0].mode).toBe("extension");
+  });
+
+  test("non-extension (sticky local, no target) does not wait on the extension", async () => {
+    stickyKind = "local";
+
+    await executeBrowserAttach({}, makeContext("no-grace-for-local"));
+
+    expect(waitForExtensionClientMock).not.toHaveBeenCalled();
+    expect(getCdpClientCalls[0].mode).toBe("local");
   });
 
   test("sticky local + target_client_id → getCdpClient receives mode:extension, not local", async () => {

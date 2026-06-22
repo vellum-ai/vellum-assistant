@@ -41,7 +41,7 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 
-initializeDb();
+await initializeDb();
 
 afterAll(() => {
   resetDbForTesting();
@@ -55,7 +55,6 @@ function resetTables(): void {
   resetTestTables(
     "conversation_attention_events",
     "conversation_assistant_attention_state",
-    "channel_guardian_approval_requests",
     "channel_verification_sessions",
     "conversation_keys",
     "message_runs",
@@ -76,7 +75,6 @@ function ensureTestContact(): void {
       {
         type: "telegram",
         address: "telegram-user-default",
-        externalUserId: "telegram-user-default",
         status: "active",
         policy: "allow",
       },

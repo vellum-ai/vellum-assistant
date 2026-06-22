@@ -2,7 +2,7 @@
  * Memory v3 — `memory_v3_maintain` job handler.
  *
  * A flag-gated, best-effort self-maintenance pass over the v3 section dense
- * store and the in-memory lanes. It runs four independent stages, in order:
+ * store and the in-memory lanes. It runs five independent stages, in order:
  *
  *   1. **Section re-embed** — diff the page index by `modifiedAt` against the
  *      last successful pass (the high-water mark below), and for every page that
@@ -15,19 +15,26 @@
  *      captured before any potential mtime bumps) so a page is not re-embedded
  *      forever, yet a page whose embed failed (and whose sections were therefore
  *      left deleted) stays above the mark and is retried next pass.
- *   2. **Deleted-page prune** — diff the dense store's stored articles
+ *   2. **Capability reconcile** — embed capability rows (synthetic skill/CLI
+ *      slugs) present in the page index but missing from the section store. The
+ *      re-embed delta above EXCLUDES capability rows (they have `modifiedAt` 0,
+ *      no mtime to diff), so the only other embedder is the one-time
+ *      `backfillAllSections`. Without this stage a skill enabled AFTER that
+ *      backfill (e.g. a flag-gated skill flipped on at runtime) lands in the
+ *      index but never reaches the dense lane. See {@link reconcileCapabilityRows}.
+ *   3. **Deleted-page prune** — diff the dense store's stored articles
  *      (`listSectionArticles`) against the live page-index slugs and
  *      `deleteSectionsForArticle` for any article that is no longer in the
  *      index. A deleted page's slug never reaches the re-embed delta selector
  *      (it only names live pages), so without this its section points would
  *      linger in Qdrant and the dense lane could still surface the deleted page.
  *      Synthetic capability rows are in the page index, so they are never pruned.
- *   3. **Core-set validation** — load the maintainer-curated core set
+ *   4. **Core-set validation** — load the maintainer-curated core set
  *      (`memory/core-pages.md`) and report entries whose page no longer exists
  *      in the page index (dangling slugs) via the log + outcome. The file is
  *      maintainer-owned, so this stage NEVER edits it — the maintainer fixes
  *      dangling entries at the next consolidation pass.
- *   4. **Lane invalidation** — `invalidateLanes()` so the next turn rebuilds the
+ *   5. **Lane invalidation** — `invalidateLanes()` so the next turn rebuilds the
  *      in-memory section index, needle, and edge graph from the freshly-updated
  *      pages.
  *
@@ -35,8 +42,8 @@
  * logged and recorded in the outcome but does NOT abort the others. A single
  * page whose embed fails does not abort the rest of the re-embed stage, and a
  * single prune delete that throws does not abort the rest of the prune stage.
- * The job is a no-op (returns a disabled outcome) unless `memory-v3-shadow` OR
- * `memory-v3-live` is enabled — the same flags that gate the v3 plugin.
+ * The job is a no-op (returns a disabled outcome) unless the `memory-v3-shadow`
+ * flag OR `memory.v3.live` (config) is enabled — the same gates as the v3 plugin.
  *
  * Dependency-injectable: `deps` lets tests substitute the page-index reader,
  * section builder, dense-store ops (including the prune-stage
@@ -45,11 +52,17 @@
  */
 
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
+import { isMemoryV3Live } from "../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../config/types.js";
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../../../memory/checkpoints.js";
+import {
+  EmbeddingBackendUnavailableError,
+  embedWithBackend,
+} from "../../../memory/embedding-backend.js";
+import { EmbeddingBillingBlockError } from "../../../memory/embedding-billing-breaker.js";
 import type { MemoryJob } from "../../../memory/jobs-store.js";
 import { getPageIndex } from "../../../memory/v2/page-index.js";
 import { readPage } from "../../../memory/v2/page-store.js";
@@ -68,7 +81,6 @@ import { invalidateLanes as realInvalidateLanes } from "./shadow-plugin.js";
 import type { Slug } from "./types.js";
 
 const MEMORY_V3_SHADOW = "memory-v3-shadow" as const;
-const MEMORY_V3_LIVE = "memory-v3-live" as const;
 
 /**
  * Durable checkpoint holding the epoch-ms high-water mark of the last successful
@@ -110,6 +122,13 @@ export interface MaintainJobDeps {
   buildSectionIndex: typeof realBuildSectionIndex;
   /** Read a page's frontmatter-stripped body for `buildSectionIndex`. */
   readPageBody: (slug: Slug) => Promise<string>;
+  /**
+   * Capability-aware body reader for the reconcile stage: synthetic skill/CLI
+   * slugs resolve their rendered capability content; real pages read from disk.
+   * The re-embed stage uses `readPageBody` (disk-only) since it only processes
+   * real pages — the reconcile stage needs capability bodies.
+   */
+  readCapabilityBody: (slug: Slug) => Promise<string>;
   /** Clear an article's stale section points before re-upserting. */
   deleteSectionsForArticle: typeof realDeleteSectionsForArticle;
   /** Embed + upsert an article's current sections into the dense store. */
@@ -178,6 +197,13 @@ export interface BackfillJobDeps {
   nowMs: () => number;
   /** Active assistant config (for the dense-store/embedding calls). */
   config: AssistantConfig;
+  /**
+   * Smoke-test the embedding backend before any destructive write. Throws when
+   * the backend is unavailable, so the backfill aborts BEFORE deleting any
+   * article's points (each article is processed delete-then-upsert). Injectable
+   * for tests.
+   */
+  embedProbe: () => Promise<void>;
 }
 
 /** Counts surfaced by {@link backfillAllSections}. */
@@ -198,6 +224,15 @@ export interface MaintainOutcome {
   reembedded: number;
   /** Pages whose re-embed threw (and was contained). */
   reembedFailures: number;
+  /**
+   * Capability rows (skills/CLI) present in the index but missing from the
+   * section store that were embedded this pass — how a skill enabled after the
+   * one-time backfill reaches the dense lane (the re-embed delta excludes
+   * capability rows).
+   */
+  capabilitiesReconciled: number;
+  /** Capability reconcile embeds that threw (and were contained). */
+  reconcileFailures: number;
   /**
    * Deleted-page articles whose lingering section points were pruned this pass
    * (present in the dense store but absent from the page index).
@@ -302,6 +337,8 @@ function defaultDeps(config: AssistantConfig): MaintainJobDeps {
     selectChangedPages: () => selectChangedPagesFromWorkspace(workspaceDir),
     buildSectionIndex: realBuildSectionIndex,
     readPageBody: (slug) => readPageBodyFromWorkspace(workspaceDir, slug),
+    readCapabilityBody: (slug) =>
+      backfillPageBodyFromWorkspace(workspaceDir, slug),
     deleteSectionsForArticle: realDeleteSectionsForArticle,
     upsertSections: realUpsertSections,
     commitEmbedHighWater,
@@ -325,6 +362,9 @@ function defaultBackfillDeps(config: AssistantConfig): BackfillJobDeps {
     commitEmbedHighWater,
     nowMs: () => Date.now(),
     config,
+    embedProbe: async () => {
+      await embedWithBackend(config, ["memory-v3 backfill preflight"]);
+    },
   };
 }
 
@@ -355,6 +395,58 @@ async function reembedChangedPages(
     }
   }
   return { reembedded, reembedFailures };
+}
+
+/**
+ * Embed capability rows (synthetic skill/CLI slugs) present in the page index
+ * but missing from the section dense store. The incremental re-embed selector
+ * ({@link computeChangedPages}) excludes capability rows — they have no on-disk
+ * mtime to delta against — so the ONLY other embedder is the one-time
+ * {@link backfillAllSections}. Without this, a skill enabled AFTER that backfill
+ * (e.g. a flag-gated skill flipped on at runtime) lands in the page index but
+ * never reaches the dense lane. This stage makes the periodic maintain pass
+ * self-heal: diff the live capability slugs against the stored section articles
+ * and embed the missing ones.
+ *
+ * Each row is independent: a single build/upsert throw is logged and counted in
+ * `reconcileFailures` without aborting the rest. A capability row whose body
+ * resolves empty (its store has not seeded yet) is skipped WITHOUT deleting any
+ * points — never replace good points with a blank — and is retried next pass.
+ */
+async function reconcileCapabilityRows(
+  deps: MaintainJobDeps,
+): Promise<{ capabilitiesReconciled: number; reconcileFailures: number }> {
+  const [indexedSlugs, storedArticles] = await Promise.all([
+    deps.listIndexedSlugs(),
+    deps.listSectionArticles(),
+  ]);
+  const stored = new Set(storedArticles);
+  const missing = indexedSlugs.filter(
+    (slug) => isCapabilitySlug(slug) && !stored.has(slug),
+  );
+
+  let capabilitiesReconciled = 0;
+  let reconcileFailures = 0;
+  for (const slug of missing) {
+    try {
+      const body = await deps.readCapabilityBody(slug);
+      if (body.trim().length === 0) continue; // store cold — retry next pass
+      const index = await deps.buildSectionIndex(
+        [slug],
+        deps.readCapabilityBody,
+      );
+      await deps.deleteSectionsForArticle(deps.config, slug);
+      await deps.upsertSections(deps.config, index.sections);
+      capabilitiesReconciled += 1;
+    } catch (err) {
+      reconcileFailures += 1;
+      log.warn(
+        { slug, err: err instanceof Error ? err.message : String(err) },
+        "memory-v3 maintain: capability reconcile embed failed (non-fatal)",
+      );
+    }
+  }
+  return { capabilitiesReconciled, reconcileFailures };
 }
 
 /**
@@ -444,6 +536,13 @@ export async function backfillAllSections(
   const slugs = await deps.selectAllPages();
   await deps.ensureSectionCollection(deps.config);
 
+  // Pre-flight: smoke-test the embedding backend BEFORE any delete. Each article
+  // is processed delete-then-upsert, so starting a full backfill against a down
+  // backend would delete every article's points and re-embed none of them. A
+  // throw here aborts with nothing deleted; the high-water mark stays put, so a
+  // later run retries once the backend is healthy.
+  await deps.embedProbe();
+
   let articles = 0;
   let sections = 0;
   let failures = 0;
@@ -466,6 +565,17 @@ export async function backfillAllSections(
       sections += index.sections.length;
       return "embedded";
     } catch (err) {
+      // A down embedding backend (unconfigured, or billing breaker open) fails
+      // EVERY article — the condition is process-wide — and each article is
+      // delete-then-upsert, so continuing would delete the rest of the corpus
+      // and re-embed none of it. Abort the run; the high-water mark is never
+      // advanced, so the next pass retries from here once the backend recovers.
+      if (
+        err instanceof EmbeddingBackendUnavailableError ||
+        err instanceof EmbeddingBillingBlockError
+      ) {
+        throw err;
+      }
       failures += 1;
       log.warn(
         { slug, err: err instanceof Error ? err.message : String(err) },
@@ -537,6 +647,8 @@ export async function maintainJob(
     disabled: false,
     reembedded: 0,
     reembedFailures: 0,
+    capabilitiesReconciled: 0,
+    reconcileFailures: 0,
     pruned: 0,
     pruneFailures: 0,
     danglingCoreSlugs: [],
@@ -546,7 +658,7 @@ export async function maintainJob(
 
   const enabled =
     isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config) ||
-    isAssistantFeatureFlagEnabled(MEMORY_V3_LIVE, config);
+    isMemoryV3Live(config);
   if (!enabled) {
     outcome.disabled = true;
     return outcome;
@@ -587,7 +699,26 @@ export async function maintainJob(
     );
   }
 
-  // Stage 2: prune section points for pages deleted from the index. A deleted
+  // Stage 2: embed capability rows (skills/CLI) present in the index but missing
+  // from the section store. They have modifiedAt 0, so computeChangedPages never
+  // selects them; the one-time backfill is otherwise their only embedder, so a
+  // skill enabled after that backfill stays invisible to the dense lane until
+  // this self-heals it. Contained: a failure is logged + recorded without
+  // aborting later stages.
+  try {
+    const { capabilitiesReconciled, reconcileFailures } =
+      await reconcileCapabilityRows(deps);
+    outcome.capabilitiesReconciled = capabilitiesReconciled;
+    outcome.reconcileFailures = reconcileFailures;
+  } catch (err) {
+    outcome.failures.push("capability-reconcile");
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "memory-v3 maintain: capability reconcile failed (non-fatal)",
+    );
+  }
+
+  // Stage 3: prune section points for pages deleted from the index. A deleted
   // page's slug never appears in `selectChangedPages` (the delta selector only
   // names live pages), so its lingering points are cleared by diffing the dense
   // store's stored articles against the live page-index slugs. Contained: a
@@ -604,7 +735,7 @@ export async function maintainJob(
     );
   }
 
-  // Stage 3: validate the maintainer-curated core set. Diff `core-pages.md`
+  // Stage 4: validate the maintainer-curated core set. Diff `core-pages.md`
   // entries against the live page-index slugs and REPORT dangling entries
   // (pages that were renamed or deleted) through the log + outcome — the file
   // is maintainer-owned, so it is never auto-edited; the maintainer fixes it at
@@ -632,7 +763,7 @@ export async function maintainJob(
     );
   }
 
-  // Stage 4: rebuild section index + needle + edge graph on the next turn.
+  // Stage 5: rebuild section index + needle + edge graph on the next turn.
   try {
     deps.invalidateLanes();
     outcome.invalidated = true;
@@ -648,6 +779,8 @@ export async function maintainJob(
     {
       reembedded: outcome.reembedded,
       reembedFailures: outcome.reembedFailures,
+      capabilitiesReconciled: outcome.capabilitiesReconciled,
+      reconcileFailures: outcome.reconcileFailures,
       pruned: outcome.pruned,
       pruneFailures: outcome.pruneFailures,
       danglingCoreSlugs: outcome.danglingCoreSlugs,

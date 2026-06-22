@@ -52,11 +52,17 @@ import { UISurfaceUpdateEventSchema } from "./events/ui-surface-update.js";
 import { UsageProgressEventSchema } from "./events/usage-progress.js";
 import { UsageUpdateEventSchema } from "./events/usage-update.js";
 import { UserMessageEchoEventSchema } from "./events/user-message-echo.js";
+import { WorkflowCompletedEventSchema } from "./events/workflow-completed.js";
+import { WorkflowLeafFinishedEventSchema } from "./events/workflow-leaf-finished.js";
+import { WorkflowLeafStartedEventSchema } from "./events/workflow-leaf-started.js";
+import { WorkflowProgressEventSchema } from "./events/workflow-progress.js";
+import { WorkflowStartedEventSchema } from "./events/workflow-started.js";
 
 export {
   CALL_SITE_COMPACTION_AGENT,
   CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
 } from "./constants/call-sites.js";
+export { AUTO_PROFILE_KEY } from "./constants/inference-profiles.js";
 export { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "./constants/tool-execution.js";
 export {
   type AssistantActivityAnchor,
@@ -327,6 +333,28 @@ export {
   UserMessageEchoEventSchema,
 } from "./events/user-message-echo.js";
 export {
+  type WorkflowCompletedEvent,
+  WorkflowCompletedEventSchema,
+  type WorkflowRunStatus,
+  WorkflowRunStatusSchema,
+} from "./events/workflow-completed.js";
+export {
+  type WorkflowLeafFinishedEvent,
+  WorkflowLeafFinishedEventSchema,
+} from "./events/workflow-leaf-finished.js";
+export {
+  type WorkflowLeafStartedEvent,
+  WorkflowLeafStartedEventSchema,
+} from "./events/workflow-leaf-started.js";
+export {
+  type WorkflowProgressEvent,
+  WorkflowProgressEventSchema,
+} from "./events/workflow-progress.js";
+export {
+  type WorkflowStartedEvent,
+  WorkflowStartedEventSchema,
+} from "./events/workflow-started.js";
+export {
   type DictationContext,
   DictationContextSchema,
   type DictationRequest,
@@ -385,6 +413,8 @@ export {
   FeedItemDetailPanelKindSchema,
   FeedItemDetailPanelSchema,
   FeedItemSchema,
+  type FeedItemSourceType,
+  FeedItemSourceTypeSchema,
   type FeedItemStatus,
   FeedItemStatusSchema,
   type FeedItemType,
@@ -441,6 +471,12 @@ export {
   type SubagentDetailResponse,
   SubagentDetailResponseSchema,
 } from "./responses/subagent-detail.js";
+export {
+  type WorkflowJournalResponse,
+  WorkflowJournalResponseSchema,
+  type WorkflowLeaf,
+  WorkflowLeafSchema,
+} from "./responses/workflow-journal.js";
 
 /**
  * Canonical SSE event schema for the assistant runtime.
@@ -508,6 +544,11 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   UsageProgressEventSchema,
   UsageUpdateEventSchema,
   UserMessageEchoEventSchema,
+  WorkflowCompletedEventSchema,
+  WorkflowLeafFinishedEventSchema,
+  WorkflowLeafStartedEventSchema,
+  WorkflowProgressEventSchema,
+  WorkflowStartedEventSchema,
 ]);
 
 /**

@@ -31,12 +31,11 @@ import {
 } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();
   db.run("DELETE FROM channel_inbound_events");
-  db.run("DELETE FROM channel_guardian_approval_requests");
   db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM conversation_keys");
   db.run("DELETE FROM messages");
@@ -162,7 +161,6 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
         {
           type: "telegram",
           address: "telegram-user-default",
-          externalUserId: "telegram-user-default",
           status: "active",
           policy: "allow",
         },

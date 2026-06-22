@@ -20,7 +20,7 @@ export const HOOKS = {
   SHUTDOWN: "shutdown",
   /** Fires once per user turn, immediately before the agent loop receives `runMessages`. */
   USER_PROMPT_SUBMIT: "user-prompt-submit",
-  /** Fires immediately before each provider call. A hook may edit the outbound request (e.g. the system prompt) and opt the turn into deferred output streaming. */
+  /** Fires immediately before each provider call. A hook may edit the outbound request (e.g. the system prompt), route the call to a different inference profile, and opt the turn into deferred output streaming. */
   PRE_MODEL_CALL: "pre-model-call",
   /** Fires once per tool result, after the tool returns and before the result is sent to the provider. */
   POST_TOOL_USE: "post-tool-use",

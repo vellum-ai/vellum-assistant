@@ -22,7 +22,7 @@ import {
   updateRun,
 } from "./journal-store.js";
 
-initializeDb();
+await initializeDb();
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -194,6 +194,76 @@ describe("workflow journal store", () => {
       kind: "agent",
       request: { prompt: "a" },
       result: { text: "ra" },
+    });
+  });
+
+  test("appendJournalEntry round-trips per-leaf token usage", () => {
+    createRun({ id: "wf-tok", scriptSource: "s", scriptHash: "h" });
+
+    appendJournalEntry({
+      runId: "wf-tok",
+      seq: 0,
+      callHash: "c0",
+      kind: "agent",
+      request: { prompt: "with tokens" },
+      result: { text: "r" },
+      status: "completed",
+      inputTokens: 120,
+      outputTokens: 45,
+    });
+    // A leaf with no recorded usage stores NULL → reads back as undefined.
+    appendJournalEntry({
+      runId: "wf-tok",
+      seq: 1,
+      callHash: "c1",
+      kind: "agent",
+      request: { prompt: "no tokens" },
+      result: { error: "boom" },
+      status: "failed",
+    });
+
+    const journal = getJournal("wf-tok");
+    expect(journal[0]).toMatchObject({
+      seq: 0,
+      inputTokens: 120,
+      outputTokens: 45,
+    });
+    expect(journal[1].inputTokens).toBeUndefined();
+    expect(journal[1].outputTokens).toBeUndefined();
+  });
+
+  test("appendJournalEntry upserts token usage on a changed-hash re-run", () => {
+    createRun({ id: "wf-tok-resume", scriptSource: "s", scriptHash: "h" });
+
+    appendJournalEntry({
+      runId: "wf-tok-resume",
+      seq: 0,
+      callHash: "hash-old",
+      kind: "agent",
+      result: { text: "old" },
+      status: "completed",
+      inputTokens: 10,
+      outputTokens: 5,
+    });
+    // Resume re-runs the leaf with new usage; the upsert overwrites the tokens.
+    appendJournalEntry({
+      runId: "wf-tok-resume",
+      seq: 0,
+      callHash: "hash-new",
+      kind: "agent",
+      result: { text: "new" },
+      status: "completed",
+      inputTokens: 30,
+      outputTokens: 12,
+    });
+
+    const journal = getJournal("wf-tok-resume");
+    expect(journal).toHaveLength(1);
+    expect(journal[0]).toMatchObject({
+      seq: 0,
+      callHash: "hash-new",
+      inputTokens: 30,
+      outputTokens: 12,
     });
   });
 

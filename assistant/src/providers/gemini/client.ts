@@ -17,6 +17,7 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
+  ToolDefinition,
 } from "../types.js";
 import {
   ContextOverflowError,
@@ -516,6 +517,48 @@ export class GeminiProvider implements Provider {
         abortReason ? { cause: error, abortReason } : { cause: error },
       );
     }
+  }
+
+  /**
+   * Exact prompt-token count via Gemini's `models.countTokens` — the real
+   * tokenizer, no generation. Mirrors {@link sendMessage}'s composition
+   * (contents + `systemInstruction` + tool function declarations) so the count
+   * tracks what a real call would send. Throws when the endpoint returns no
+   * `totalTokens`, so the caller falls back to the local estimate.
+   */
+  async countInputTokens(
+    messages: Message[],
+    systemPrompt: string,
+    tools?: ToolDefinition[],
+  ): Promise<number> {
+    const contents = this.toGeminiContents(messages, this.model);
+    const config: genai.CountTokensConfig = {};
+    if (systemPrompt) {
+      config.systemInstruction = systemPrompt.replaceAll(
+        SYSTEM_PROMPT_CACHE_BOUNDARY,
+        "\n\n",
+      );
+    }
+    if (tools && tools.length > 0) {
+      config.tools = [
+        {
+          functionDeclarations: tools.map((t) => ({
+            name: t.name,
+            description: t.description,
+            parametersJsonSchema: t.input_schema,
+          })),
+        },
+      ];
+    }
+    const res = await this.client.models.countTokens({
+      model: this.model,
+      contents,
+      ...(Object.keys(config).length > 0 ? { config } : {}),
+    });
+    if (typeof res.totalTokens !== "number") {
+      throw new Error("Gemini countTokens returned no totalTokens");
+    }
+    return res.totalTokens;
   }
 
   /** Convert neutral messages to Gemini Content[] format. */

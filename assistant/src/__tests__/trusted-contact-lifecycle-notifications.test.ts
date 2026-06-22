@@ -66,13 +66,13 @@ mock.module("../runtime/approval-message-composer.js", () => ({
 
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
+import { createCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import { createApprovalRequest } from "../memory/guardian-approvals.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -83,7 +83,8 @@ const GUARDIAN_APPROVAL_TTL_MS = 5 * 60 * 1000;
 
 function resetState(): void {
   const db = getDb();
-  db.run("DELETE FROM channel_guardian_approval_requests");
+  db.run("DELETE FROM canonical_guardian_requests");
+  db.run("DELETE FROM canonical_guardian_deliveries");
   db.run("DELETE FROM channel_verification_sessions");
   db.run("DELETE FROM channel_guardian_rate_limits");
   db.run("DELETE FROM channel_inbound_events");
@@ -160,19 +161,19 @@ describe("trusted contact lifecycle notification signals", () => {
 
     const testRequestId = `req-deny-${Date.now()}`;
 
-    // Create a pending access request approval
-    const _approval = createApprovalRequest({
-      runId: `ingress-access-request-${Date.now()}`,
-      requestId: testRequestId,
+    // Create a pending canonical access request
+    createCanonicalGuardianRequest({
+      id: testRequestId,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
       conversationId: "access-req-telegram-requester-user-456",
-      channel: "telegram",
       requesterExternalUserId: "requester-user-456",
       requesterChatId: "requester-chat-456",
       guardianExternalUserId: "guardian-user-789",
-      guardianChatId: "guardian-chat-789",
+      guardianPrincipalId: "guardian-user-789",
       toolName: "ingress_access_request",
-      riskLevel: "access_request",
-      reason: "Alice is requesting access",
+      questionText: "Alice is requesting access",
       expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
     });
 
@@ -254,19 +255,19 @@ describe("trusted contact lifecycle notification signals", () => {
 
     const testRequestId = `req-approve-${Date.now()}`;
 
-    // Create a pending access request approval
-    const _approval = createApprovalRequest({
-      runId: `ingress-access-request-${Date.now()}`,
-      requestId: testRequestId,
+    // Create a pending canonical access request
+    createCanonicalGuardianRequest({
+      id: testRequestId,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
       conversationId: "access-req-telegram-requester-user-456",
-      channel: "telegram",
       requesterExternalUserId: "requester-user-456",
       requesterChatId: "requester-chat-456",
       guardianExternalUserId: "guardian-user-789",
-      guardianChatId: "guardian-chat-789",
+      guardianPrincipalId: "guardian-user-789",
       toolName: "ingress_access_request",
-      riskLevel: "access_request",
-      reason: "Alice is requesting access",
+      questionText: "Alice is requesting access",
       expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
     });
 
@@ -331,18 +332,18 @@ describe("trusted contact lifecycle notification signals", () => {
 
     const testRequestId = `req-dedup-${Date.now()}`;
 
-    const approval = createApprovalRequest({
-      runId: `ingress-access-request-${Date.now()}`,
-      requestId: testRequestId,
+    const approval = createCanonicalGuardianRequest({
+      id: testRequestId,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
       conversationId: "access-req-telegram-requester-user-456",
-      channel: "telegram",
       requesterExternalUserId: "requester-user-456",
       requesterChatId: "requester-chat-456",
       guardianExternalUserId: "guardian-user-789",
-      guardianChatId: "guardian-chat-789",
+      guardianPrincipalId: "guardian-user-789",
       toolName: "ingress_access_request",
-      riskLevel: "access_request",
-      reason: "Alice is requesting access",
+      questionText: "Alice is requesting access",
       expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
     });
 
@@ -399,18 +400,18 @@ describe("trusted contact lifecycle notification signals", () => {
 
     const testRequestId = `req-noname-${Date.now()}`;
 
-    createApprovalRequest({
-      runId: `ingress-access-request-${Date.now()}`,
-      requestId: testRequestId,
+    createCanonicalGuardianRequest({
+      id: testRequestId,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
       conversationId: "access-req-telegram-requester-noname-222",
-      channel: "telegram",
       requesterExternalUserId: "requester-noname-222",
       requesterChatId: "requester-chat-222",
       guardianExternalUserId: "guardian-noname-111",
-      guardianChatId: "guardian-chat-111",
+      guardianPrincipalId: "guardian-noname-111",
       toolName: "ingress_access_request",
-      riskLevel: "access_request",
-      reason: "Unknown user requesting access",
+      questionText: "Unknown user requesting access",
       expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
     });
 
@@ -493,5 +494,4 @@ describe("trusted contact activated notification signal", () => {
     expect(resolver).toBeDefined();
     expect(resolver!.kind).toBe("access_request");
   });
-
 });

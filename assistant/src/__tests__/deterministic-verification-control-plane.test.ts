@@ -64,14 +64,6 @@ import {
 } from "../runtime/verification-templates.js";
 
 // ---------------------------------------------------------------------------
-// DB initialization
-// ---------------------------------------------------------------------------
-
-beforeEach(() => {
-  initializeDb();
-});
-
-// ---------------------------------------------------------------------------
 // Template tests: channel verification reply templates are deterministic
 // ---------------------------------------------------------------------------
 
@@ -181,6 +173,10 @@ describe("TwiML parameter propagation", () => {
 // ---------------------------------------------------------------------------
 
 describe("Call session mode metadata", () => {
+  beforeEach(async () => {
+    await initializeDb();
+  });
+
   test("createCallSession persists callMode and verificationSessionId", async () => {
     // Dynamic import to avoid circular dependency issues
     const { createCallSession, getCallSession } =
@@ -239,6 +235,10 @@ describe("Call session mode metadata", () => {
 // ---------------------------------------------------------------------------
 
 describe("Verification control messages are deterministic (guard)", () => {
+  beforeEach(async () => {
+    await initializeDb();
+  });
+
   test("handleChannelInbound does not call processMessage for /start gv_<token> bootstrap commands", async () => {
     const { createHash, randomBytes } = await import("node:crypto");
 

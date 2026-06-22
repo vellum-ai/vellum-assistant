@@ -16,11 +16,15 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import type { ResolvedCapabilities } from "./capabilities.js";
-import { executeWorkflow, extractWorkflowMeta } from "./engine.js";
+import {
+  executeWorkflow,
+  extractWorkflowMeta,
+  type WorkflowLeafEvent,
+} from "./engine.js";
 import * as journalStore from "./journal-store.js";
 import type { LeafResult, RunLeafOptions } from "./leaf-runner.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   getSqlite().exec("DELETE FROM workflow_journal");
@@ -677,6 +681,21 @@ describe("executeWorkflow — resume", () => {
     );
     expect(journalA.map((e) => e.seq)).toEqual([0, 1, 2]);
   });
+
+  test("a completed leaf persists its per-leaf token usage in the journal", async () => {
+    const runner = makeFakeRunner();
+    await execute("wf-leaf-tokens", `return agent("alpha");`, runner.runner);
+
+    const journal = journalStore.getJournal("wf-leaf-tokens");
+    expect(journal).toHaveLength(1);
+    // The fake runner reports 10/5 per leaf; the completed entry carries them.
+    expect(journal[0]).toMatchObject({
+      seq: 0,
+      status: "completed",
+      inputTokens: 10,
+      outputTokens: 5,
+    });
+  });
 });
 
 describe("executeWorkflow — schema vs tool leaf tool forwarding", () => {
@@ -1140,5 +1159,160 @@ describe("executeWorkflow — nested workflow()", () => {
     const res2 = await execute("wf-nest-resume-edit", parent, second.runner);
     expect(res2.result).toBe("out:c0");
     expect(second.prompts).toEqual([]);
+  });
+});
+
+describe("executeWorkflow — onLeaf observe-only hook", () => {
+  beforeEach(resetTables);
+
+  /** Run a workflow, collecting every onLeaf event. */
+  function executeWithLeafEvents(
+    runId: string,
+    scriptSource: string,
+    runner: typeof import("./leaf-runner.js").runLeaf,
+    config: WorkflowsConfig = configWith(),
+    signal?: AbortSignal,
+  ): {
+    promise: ReturnType<typeof executeWorkflow>;
+    events: WorkflowLeafEvent[];
+  } {
+    const events: WorkflowLeafEvent[] = [];
+    const promise = executeWorkflow({
+      runId,
+      scriptSource: META + scriptSource,
+      args: null,
+      capabilities: CAPABILITIES,
+      config,
+      journal: journalStore,
+      leafRunner: runner,
+      trustContext: TRUST,
+      onLeaf: (e) => events.push(e),
+      ...(signal ? { signal } : {}),
+    });
+    return { promise, events };
+  }
+
+  test("a single agent() emits leaf_started then leaf_finished:completed at seq 0", async () => {
+    const fake = makeFakeRunner();
+    const { promise, events } = executeWithLeafEvents(
+      "wf-leaf-single",
+      `return agent("solo");`,
+      fake.runner,
+    );
+    const res = await promise;
+    expect(res.status).toBe("completed");
+
+    expect(events).toEqual([
+      { type: "leaf_started", seq: 0, promptSummary: "solo" },
+      {
+        type: "leaf_finished",
+        seq: 0,
+        status: "completed",
+        inputTokens: 10,
+        outputTokens: 5,
+        resultSummary: "out:solo",
+      },
+    ]);
+  });
+
+  test("a 3-spec parallel() emits 3 started + 3 finished across seqs 0,1,2", async () => {
+    const fake = makeFakeRunner();
+    const { promise, events } = executeWithLeafEvents(
+      "wf-leaf-parallel",
+      `return parallel([leaf("a"), leaf("b"), leaf("c")]);`,
+      fake.runner,
+    );
+    const res = await promise;
+    expect(res.status).toBe("completed");
+
+    const started = events.filter((e) => e.type === "leaf_started");
+    const finished = events.filter((e) => e.type === "leaf_finished");
+    expect(started.map((e) => e.seq).sort((a, b) => a - b)).toEqual([0, 1, 2]);
+    expect(finished.map((e) => e.seq).sort((a, b) => a - b)).toEqual([0, 1, 2]);
+    expect(finished.every((e) => e.status === "completed")).toBe(true);
+  });
+
+  test("a throwing (non-abort) leaf emits leaf_started then leaf_finished:failed", async () => {
+    const fake = makeFakeRunner({ failOn: (p) => p === "boom" });
+    const { promise, events } = executeWithLeafEvents(
+      "wf-leaf-fail",
+      `return parallel([leaf("boom")]);`,
+      fake.runner,
+    );
+    await promise;
+
+    expect(events).toEqual([
+      { type: "leaf_started", seq: 0, promptSummary: "boom" },
+      {
+        type: "leaf_finished",
+        seq: 0,
+        status: "failed",
+        inputTokens: 0,
+        outputTokens: 0,
+        resultSummary: "leaf failed: boom",
+      },
+    ]);
+  });
+
+  test("an aborted in-flight leaf emits leaf_started but NO leaf_finished", async () => {
+    const controller = new AbortController();
+    let started = false;
+    const runner = (async (): Promise<
+      import("./leaf-runner.js").LeafResult
+    > => {
+      started = true;
+      await new Promise<void>((resolve) => {
+        if (controller.signal.aborted) return resolve();
+        controller.signal.addEventListener("abort", () => resolve(), {
+          once: true,
+        });
+      });
+      const err = new Error("The operation was aborted");
+      err.name = "AbortError";
+      throw err;
+    }) as unknown as typeof import("./leaf-runner.js").runLeaf;
+
+    const { promise, events } = executeWithLeafEvents(
+      "wf-leaf-abort",
+      `return agent("long-running");`,
+      runner,
+      configWith(),
+      controller.signal,
+    );
+
+    await waitUntil(() => started);
+    controller.abort();
+
+    const res = await promise;
+    expect(res.status).toBe("aborted");
+    expect(events).toEqual([
+      { type: "leaf_started", seq: 0, promptSummary: "long-running" },
+    ]);
+  });
+
+  test("a journal-replayed leaf emits neither leaf_started nor leaf_finished", async () => {
+    const script = `return agent("alpha");`;
+
+    // First run journals the leaf as completed.
+    const first = makeFakeRunner();
+    const res1 = await executeWithLeafEvents(
+      "wf-leaf-replay",
+      script,
+      first.runner,
+    ).promise;
+    expect(res1.status).toBe("completed");
+    expect(first.prompts).toEqual(["alpha"]);
+
+    // Resume: the leaf replays from the journal, so no onLeaf events fire.
+    const second = makeFakeRunner();
+    const { promise, events } = executeWithLeafEvents(
+      "wf-leaf-replay",
+      script,
+      second.runner,
+    );
+    const res2 = await promise;
+    expect(res2.status).toBe("completed");
+    expect(second.prompts).toEqual([]);
+    expect(events).toEqual([]);
   });
 });

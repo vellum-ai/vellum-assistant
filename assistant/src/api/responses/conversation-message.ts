@@ -30,6 +30,7 @@ import {
   DirectoryScopeOptionSchema,
   ScopeOptionSchema,
 } from "../events/confirmation-request.js";
+import { QuestionEntrySchema } from "../events/question-request.js";
 import { ToolActivityMetadataSchema } from "../events/tool-result.js";
 
 // ---------------------------------------------------------------------------
@@ -103,6 +104,25 @@ export const PendingToolConfirmationSchema = z.object({
 export type PendingToolConfirmation = z.infer<
   typeof PendingToolConfirmationSchema
 >;
+
+/**
+ * In-flight `ask_question` prompt awaiting a user answer, mirrored onto the
+ * history tool call that raised it so a cold reconnect (or a conversation
+ * reopened after the event-buffer window has elapsed) can restore the inline
+ * question card without replaying the live `question_request` SSE event.
+ *
+ * Stamped at render time from the in-memory `pending-interactions` registry
+ * (the authoritative store of unresolved prompts) — not persisted to the
+ * database, so it appears only while the prompt is genuinely outstanding and
+ * disappears once the interaction resolves. `entries` mirrors the
+ * `question_request` event's `questions[]`, so both paths hydrate the same
+ * client state.
+ */
+export const PendingToolQuestionSchema = z.object({
+  requestId: z.string(),
+  entries: z.array(QuestionEntrySchema),
+});
+export type PendingToolQuestion = z.infer<typeof PendingToolQuestionSchema>;
 
 /**
  * Closed set of confirmation outcomes recorded for a tool call. The daemon
@@ -190,6 +210,12 @@ export const ConversationMessageToolCallSchema = z.object({
    * Guaranteed present for outstanding prompts as of daemon v0.8.8.
    */
   pendingConfirmation: PendingToolConfirmationSchema.optional(),
+  /**
+   * In-flight `ask_question` prompt, present only while the tool call is
+   * awaiting a user answer (read from the `pending-interactions` registry at
+   * render time). Lets a cold reconnect restore the inline question card.
+   */
+  pendingQuestion: PendingToolQuestionSchema.optional(),
 });
 export type ConversationMessageToolCall = z.infer<
   typeof ConversationMessageToolCallSchema
@@ -390,10 +416,8 @@ export const ConversationMessageSchema = z.object({
   /**
    * @deprecated Superseded by `contentBlocks`. Flat plain-text body (joined
    * text segments). Redundant with `textSegments`/`contentOrder` for clients
-   * that render from the positional arrays (web, CLI), but the legacy Swift
-   * macOS client reads `content` directly and drops any history row missing it
-   * (its `HistoryReconstructionService` skips rows with empty text). The
-   * serializer always emits it — do not remove without updating that client.
+   * that render from the positional arrays (web, CLI). The serializer always
+   * emits it — do not remove without auditing clients that read it directly.
    */
   content: z
     .string()

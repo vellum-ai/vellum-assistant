@@ -1,10 +1,9 @@
 import * as Sentry from "@sentry/node";
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
-import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import {
   estimatePromptTokensRaw,
   estimatePromptTokensWithTools,
@@ -333,12 +332,14 @@ export type AgentEvent =
        * `stripInjectionsForCompaction`.
        *
        * The daemon's event dispatcher commits the stripped pre-compaction
-       * base as the conversation's durable message state, so re-injection
-       * (the post-compaction hook) re-applies injections onto the stripped
-       * base rather than stacking on top of the still-injected messages.
-       * When `compacted` is set it additionally commits the durable
-       * compaction result (DB-record fields, graph-memory side effects, SSE)
-       * and projects Slack provenance from the pre-compaction base.
+       * base as the conversation's durable message state. Re-injection (the
+       * post-compaction hook) strips runtime injections before re-applying
+       * them, so it is idempotent whether the loop continues from the
+       * stripped compaction result or from the unchanged injected history.
+       * When `compacted` is set the dispatcher additionally commits the
+       * durable compaction result (DB-record fields, graph-memory side
+       * effects, SSE) and projects Slack provenance from the pre-compaction
+       * base.
        *
        * Treated as a critical event: a failed durable commit re-throws so the
        * turn aborts rather than re-injecting against half-applied state.
@@ -358,13 +359,14 @@ export type AgentEvent =
     } & ContextWindowResult)
   | {
       /**
-       * Emitted right after the loop strips runtime injections from the
-       * running history, before the compaction pipeline runs. The daemon's
-       * event dispatcher records the history-stripped marker — a Conversation
-       * DB-record field read back at load time to strip embedded injection
-       * prefixes from pre-strip messages. Best-effort: a transient marker
-       * write must not abort the turn, so unlike `compaction_completed` this
-       * event is not treated as critical.
+       * Emitted during the loop's compaction ceremony, before the pipeline
+       * runs. The daemon's event dispatcher commits the stripped
+       * pre-compaction base as the durable history and records the
+       * history-stripped marker — a Conversation DB-record field read back at
+       * load time to strip embedded injection prefixes from pre-strip
+       * messages. Best-effort: a transient marker write must not abort the
+       * turn, so unlike `compaction_completed` this event is not treated as
+       * critical.
        */
       type: "history_stripped";
     }
@@ -389,6 +391,17 @@ export type AgentEvent =
        */
       type: "agent_loop_exit";
       reason: AgentLoopExitReason;
+    }
+  | {
+      /**
+       * Emitted when the `pre-model-call` hook chain mutates the system
+       * prompt for the current call — i.e. `finalPreModelCtx.systemPrompt`
+       * differs from the value the loop handed the hook. Carries the
+       * post-hook string so consumers can observe exactly what the provider
+       * received.
+       */
+      type: "system_prompt_changed";
+      systemPrompt: string;
     };
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
@@ -480,12 +493,6 @@ export function shouldCaptureAgentLoopError(err: Error): boolean {
   return true;
 }
 
-export interface ResolvedSystemPrompt {
-  systemPrompt: string;
-  maxTokens?: number;
-  model?: string;
-}
-
 export interface AgentLoopRunOptions {
   /** Input history the run starts from; the loop appends its output onto a copy. */
   messages: Message[];
@@ -493,6 +500,12 @@ export interface AgentLoopRunOptions {
   onEvent: (event: AgentEvent) => void | Promise<void>;
   signal?: AbortSignal;
   requestId: string;
+  /**
+   * Explicit model override (provider/model string) for every LLM call in
+   * this run. When omitted, the model is resolved through the normal
+   * call-site / profile resolution path.
+   */
+  model?: string;
   onCheckpoint?: (
     checkpoint: CheckpointInfo,
   ) => CheckpointDecision | Promise<CheckpointDecision>;
@@ -621,7 +634,6 @@ export interface AgentLoopConstructorOptions {
   tools?: ToolDefinition[];
   toolExecutor?: LoopToolExecutor;
   resolveTools?: (history: Message[]) => ToolDefinition[];
-  resolveSystemPrompt?: (history: Message[]) => ResolvedSystemPrompt;
   /**
    * Conversation this loop drives. Scopes the loop-held compaction circuit
    * breaker and is the source of truth the loop's pipeline contexts and
@@ -646,9 +658,6 @@ export class AgentLoop {
   private config: AgentLoopConfig;
   private tools: ToolDefinition[];
   private resolveTools: ((history: Message[]) => ToolDefinition[]) | null;
-  private resolveSystemPrompt:
-    | ((history: Message[]) => ResolvedSystemPrompt)
-    | null;
   private toolExecutor: LoopToolExecutor | null;
 
   /**
@@ -679,7 +688,6 @@ export class AgentLoop {
       tools,
       toolExecutor,
       resolveTools,
-      resolveSystemPrompt,
       conversationId,
       resolveConversationDir,
     } = options;
@@ -688,7 +696,6 @@ export class AgentLoop {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.tools = tools ?? [];
     this.resolveTools = resolveTools ?? null;
-    this.resolveSystemPrompt = resolveSystemPrompt ?? null;
     this.toolExecutor = toolExecutor ?? null;
     this.conversationId = conversationId;
     this.resolveConversationDir = resolveConversationDir ?? null;
@@ -762,10 +769,11 @@ export class AgentLoop {
    * Compact the running history in place when the budget gate trips.
    *
    * Calls the default compaction plugin, then re-applies injections via the
-   * supplied hooks. The budget path summarizes the injected `history` (so the
-   * summary call reuses the agent's warm prefix cache); overflow recovery runs
-   * on the injection-stripped history. When `overflowSignal` is
-   * supplied the plugin routes through the manager's reduction ladder (which
+   * supplied hooks. Both the budget and overflow paths hand the full injected
+   * `history` to the plugin (so the summary call reuses the agent's warm prefix
+   * cache); the POST_COMPACT hook owns re-injection idempotency so continuing
+   * from injected history does not double-stack blocks. When `overflowSignal`
+   * is supplied the plugin routes through the manager's reduction ladder (which
    * advances one rung per call and reports `exhausted` / `autoCompressApplied`
    * / `injectionMode`); otherwise it runs ordinary forced compaction. Returns
    * the re-injected history to continue from alongside the ladder's terminal
@@ -797,14 +805,9 @@ export class AgentLoop {
       startedAt,
       messages: history,
     });
-    // Injection-stripped history for overflow recovery's reduction ladder and
-    // the post-compaction re-injection base below. The budget-path summarizer
-    // instead runs on the injected `history` so its prompt prefix matches the
-    // agent's warm prefix cache and the summary call is a cache read, not a
-    // fresh cache write.
-    const rawHistory = stripInjectionsForCompaction(history);
-    // Record the history-stripped marker right after stripping, before the
-    // pipeline runs.
+    // The durable pre-compaction base is stripped by the event dispatcher
+    // (re-derived from the start event), so record the history-stripped
+    // marker for this compaction before the pipeline runs.
     await onEvent({ type: "history_stripped" });
     // The compaction module owns the per-conversation manager; pass the
     // conversation id and let `defaultCompact` resolve it from the store.
@@ -817,7 +820,7 @@ export class AgentLoop {
     // routes the request through the reduction ladder when present.
     const compactResult = await defaultCompact({
       conversationId: this.conversationId,
-      messages: overflowSignal != null ? rawHistory : history,
+      messages: history,
       signal,
       force: true,
       actorTrustClass: trust.trustClass,
@@ -853,15 +856,17 @@ export class AgentLoop {
     if (overflowSignal == null && exhausted) {
       return { history: null, exhausted, autoCompressApplied };
     }
-    // Re-inject onto the same base the `compaction_completed` dispatch commits.
-    // The overflow ladder transforms the history on every rung (truncation /
+    // The POST_COMPACT hook strips runtime injections from this base and
+    // re-applies them, so continuing from injected history is safe. The
+    // overflow ladder transforms the history on every rung (truncation /
     // media stubbing / injection downgrade) regardless of whether the summary
     // ran, so continue from its reduced messages; the ordinary path continues
-    // from the compacted messages only when the pipeline actually compacted.
+    // from the compacted messages when the pipeline compacted, otherwise from
+    // the unchanged injected history.
     const base =
       overflowSignal != null || compactResult.compacted
         ? compactResult.messages
-        : rawHistory;
+        : history;
     const postCompactCtx: PostCompactContext = {
       history: base,
       requestId,
@@ -899,7 +904,14 @@ export class AgentLoop {
       compactInPlace = false,
       isNonInteractive = false,
       modelProfileKey = null,
+      model: runModel,
     } = options;
+    // Snapshot the system prompt once per run. The instance field is mutable
+    // (the conversation may update it between turns), but a single run must
+    // use one consistent prompt — an aborted run left detached after the
+    // watchdog rejects must not pick up a later turn's prompt on its next
+    // provider call.
+    const runSystemPrompt = this.systemPrompt;
     let history = [...messages];
     // Index into `history` where this run's appended output begins. It starts
     // after the input and resets to the new base whenever the loop rewrites the
@@ -1207,15 +1219,8 @@ export class AgentLoop {
           ? this.resolveTools(history)
           : this.tools;
 
-        // Resolve system prompt, per-turn maxTokens, and model
-        const resolved = this.resolveSystemPrompt
-          ? this.resolveSystemPrompt(history)
-          : null;
-        const turnSystemPrompt = resolved?.systemPrompt ?? this.systemPrompt;
-        const turnModel = resolved?.model;
-
         // Field precedence (highest wins):
-        //   1. Per-turn explicit (`resolved.maxTokens` / `resolved.model`)
+        //   1. Per-run explicit (`runModel`)
         //   2. Call-site resolved values (filled by
         //      `RetryProvider.normalizeSendMessageOptions` from
         //      `resolveCallSiteConfig(callSite, llm)`)
@@ -1233,14 +1238,12 @@ export class AgentLoop {
         // they always come from `this.config` regardless of `callSite`.
         const providerConfig: Record<string, unknown> = {};
 
-        if (resolved?.maxTokens !== undefined) {
-          providerConfig.max_tokens = resolved.maxTokens;
-        } else if (!callSite) {
+        if (!callSite) {
           providerConfig.max_tokens = this.config.maxTokens;
         }
 
-        if (turnModel) {
-          providerConfig.model = turnModel;
+        if (runModel) {
+          providerConfig.model = runModel;
         }
 
         if (!callSite) {
@@ -1271,7 +1274,7 @@ export class AgentLoop {
         // volatile latest one. Read here alongside the rest of the provider
         // config; only set when true so the wire/config stays byte-identical
         // when off.
-        if (isAssistantFeatureFlagEnabled("memory-v3-live", getConfig())) {
+        if (isMemoryV3Live(getConfig())) {
           providerConfig.mutableLatestUserMessage = true;
         }
 
@@ -1334,7 +1337,7 @@ export class AgentLoop {
           currentTools.length > 0 ? estimateToolsTokens(currentTools) : 0;
         const preSendEstimatedTokens = estimatePromptTokensRaw(
           history,
-          turnSystemPrompt,
+          runSystemPrompt,
           {
             providerName: getCalibrationProviderKey(this.provider),
             toolTokenBudget,
@@ -1366,7 +1369,7 @@ export class AgentLoop {
         // type through unchanged.
         const providerOptions: SendMessageOptions = {
           tools: currentTools.length > 0 ? currentTools : undefined,
-          systemPrompt: turnSystemPrompt,
+          systemPrompt: runSystemPrompt,
           config: providerConfig,
           onEvent: (event) => {
             if (event.type === "text_delta") {
@@ -1439,6 +1442,7 @@ export class AgentLoop {
             conversationId: this.conversationId,
             callSite: callSite ?? null,
             systemPrompt: providerOptions.systemPrompt ?? null,
+            modelProfile: effectiveOverrideProfile ?? null,
             deferAssistantOutput: false,
             logger: rlog,
           };
@@ -1446,8 +1450,37 @@ export class AgentLoop {
             HOOKS.PRE_MODEL_CALL,
             preModelCtx,
           );
+          // Emit a changed event when the hook mutated the prompt. Compare
+          // against the pre-hook value from providerOptions, not
+          // preModelCtx — the hook may mutate the context object in place,
+          // which would make preModelCtx.systemPrompt already reflect the
+          // change and hide the diff.
+          const preHookSystemPrompt = providerOptions.systemPrompt ?? null;
+          if (
+            typeof finalPreModelCtx.systemPrompt === "string" &&
+            finalPreModelCtx.systemPrompt !== preHookSystemPrompt
+          ) {
+            await onEvent({
+              type: "system_prompt_changed",
+              systemPrompt: finalPreModelCtx.systemPrompt,
+            });
+          }
           providerOptions.systemPrompt =
             finalPreModelCtx.systemPrompt ?? undefined;
+          // Route this call to the hook's chosen inference profile. The
+          // resolver layers `llm.profiles[overrideProfile]` at the top of
+          // precedence for the user-facing call, so a model router can pick
+          // the profile per message; clearing it drops any seeded override.
+          const hookModelProfile = finalPreModelCtx.modelProfile?.trim();
+          if (hookModelProfile) {
+            providerConfig.overrideProfile = hookModelProfile;
+            if (forceOverrideProfile) {
+              providerConfig.forceOverrideProfile = true;
+            }
+          } else {
+            delete providerConfig.overrideProfile;
+            delete providerConfig.forceOverrideProfile;
+          }
           // The hook owns the policy (it sees `callSite`/conversation and
           // self-gates); the loop honors whatever it decides.
           deferAssistantOutput = finalPreModelCtx.deferAssistantOutput;

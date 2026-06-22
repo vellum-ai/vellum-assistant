@@ -26,6 +26,7 @@ import {
   cancelGeneration,
   clearAllConversations,
   regenerateResponse,
+  resolveMetaSlashCommand,
   switchConversation,
   undoLastMessage,
 } from "../../daemon/handlers/conversations.js";
@@ -93,11 +94,26 @@ function cancelScheduleIfLast(conversationId: string): void {
 function handleCreateConversation({ body = {}, headers }: RouteHandlerArgs) {
   const conversationKey =
     (body.conversationKey as string | undefined) ?? crypto.randomUUID();
+  // The shared route adapter does not runtime-validate the body against the
+  // Zod requestBody (it's codegen-only), so guard the type before trimming —
+  // a malformed `{ title: 123 }` would otherwise throw on `.trim()` and 500.
+  if (body.title !== undefined && typeof body.title !== "string") {
+    throw new BadRequestError("title must be a string");
+  }
+  const customTitle = body.title?.trim() || undefined;
   const result = getOrCreateConversation(conversationKey, {
     conversationType: "standard",
   });
   if (result.created) {
-    updateConversationTitle(result.conversationId, "New Conversation");
+    // A caller-supplied title is user-set: persist it with isAutoTitle = 0 so
+    // the async LLM titler's safe-overwrite check leaves it untouched. Without
+    // one, fall back to the neutral "New Conversation" placeholder, which stays
+    // replaceable by the auto-titler once messages arrive.
+    if (customTitle) {
+      updateConversationTitle(result.conversationId, customTitle, 0);
+    } else {
+      updateConversationTitle(result.conversationId, "New Conversation");
+    }
     publishConversationListAndMetadataChanged(
       "created",
       result.conversationId,
@@ -452,6 +468,29 @@ async function handleUndoLastMessage({ pathParams = {} }: RouteHandlerArgs) {
   };
 }
 
+async function handleResolveMetaSlashCommand({
+  pathParams = {},
+  body = {},
+}: RouteHandlerArgs) {
+  const command = body.command as string | undefined;
+  if (!command || typeof command !== "string") {
+    throw new BadRequestError("Missing command");
+  }
+  let result: Awaited<ReturnType<typeof resolveMetaSlashCommand>>;
+  try {
+    result = await resolveMetaSlashCommand(pathParams.id!, command);
+  } catch (err) {
+    if (err instanceof UserError) {
+      throw new BadRequestError(err.message);
+    }
+    throw err;
+  }
+  if (!result) {
+    throw new NotFoundError(`No conversation for ${pathParams.id}`);
+  }
+  return result;
+}
+
 async function handleRegenerateResponse({ pathParams = {} }: RouteHandlerArgs) {
   const conversationId = pathParams.id!;
   try {
@@ -526,6 +565,12 @@ export const ROUTES: RouteDefinition[] = [
         .literal("standard")
         .optional()
         .describe("Only standard conversations are created by this endpoint"),
+      title: z
+        .string()
+        .optional()
+        .describe(
+          "Explicit title for the conversation. When provided on creation, it is persisted as a user-set title (never overwritten by the auto-titler). Used by flows that mint a conversation up-front and don't want an auto-generated title.",
+        ),
     }),
     responseBody: z.object({
       id: z
@@ -819,6 +864,40 @@ export const ROUTES: RouteDefinition[] = [
       conversationId: z.string(),
     }),
     handler: handleUndoLastMessage,
+  },
+  {
+    operationId: "resolveConversationSlashCommand",
+    endpoint: "conversations/:id/slash",
+    method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Resolve a local meta slash command",
+    description:
+      "Run a local meta slash command (/clean, /status, /commands, /models) " +
+      "without starting a turn: no messages are persisted and no turn events " +
+      "are emitted. /clean also strips runtime injections from the history. " +
+      "Returns the text to render and, for /clean, the post-strip context usage.",
+    tags: ["conversations"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    requestBody: z.object({
+      command: z
+        .string()
+        .describe("The slash command text, e.g. `/clean` or `/status`."),
+    }),
+    responseBody: z.object({
+      kind: z.enum(["clean", "info"]),
+      text: z.string(),
+      contextUsage: z
+        .object({
+          tokens: z.number(),
+          maxTokens: z.number().nullable(),
+          fillRatio: z.number().nullable(),
+        })
+        .optional(),
+    }),
+    handler: handleResolveMetaSlashCommand,
   },
   {
     operationId: "regenerateResponse",

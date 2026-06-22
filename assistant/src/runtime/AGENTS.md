@@ -22,7 +22,6 @@ GET handlers must be safe and side-effect-free — they must not enqueue backgro
 
 Accepted exceptions (stale-while-revalidate caches): a GET handler may kick off a bounded, fire-and-forget background refresh of a generated-content cache when no fresh cache exists, provided the handler itself stays read-only and returns immediately with cached/fallback copy, the refresh is single-flight (concurrent GETs share one regeneration), and a TTL bounds regeneration frequency. Current instances:
 
-- `GET /v1/identity/intro` — refreshes the generated greeting cache; the background prompt may only depend on static identity/soul context plus caller-supplied local hour/minute.
 - `GET /v1/home/feed` — refreshes the personalized home greeting and suggested-prompt caches via `revalidateHomeContentInBackground()`, which publishes `home_feed_updated` when fresh content lands so clients refetch. This is intentional: home content is generated on demand (when a user actually views Home), never at daemon startup or on a timer.
 - `GET /v1/conversation-starters` — enqueues a `generate_conversation_starters` memory job when the starter set is stale, cooldown-gated and deduped against in-flight jobs.
 
@@ -157,6 +156,14 @@ Channel approval flows use `requestId` (not `runId`) as the primary identifier:
 - Telegram callback buttons encode `apr:<requestId>:<action>` in `callback_data`.
 - Guardian approval records in `channelGuardianApprovalRequests` link via `requestId`.
 - The conversational approval engine classifies user intent and resolves via `conversation.handleConfirmationResponse(requestId, decision)`.
+
+### Channel verification source-of-truth split
+
+Verification SESSION state (pending sessions, codes, resend, rate-limit) is assistant-owned (`channel-verification-routes.ts`, `channel-verification-service.ts`). The channel-verified OUTCOME (status / verifiedAt / verifiedVia) is gateway-owned.
+
+The verified outcome is written in-process by the gateway: the HTTP guardian-attest handler calls `ContactStore.markChannelVerified` directly (verifiedVia "manual"), and the inbound code-match path (`gateway/src/verification/text-verification.ts`) writes via `upsertVerifiedContactChannel` / `createGuardianBinding` (verifiedVia "challenge"). The revoke/downgrade outcome is relayed from the daemon via `ipcCallPersistent("mark_channel_revoked", …)` to `ContactStore.markChannelRevoked`.
+
+The `mark_channel_verified` IPC method exists as the daemon/CLI relay surface (symmetric with `mark_channel_revoked`) but has no caller: the trusted-contact CLI path sends codes only, and the outcome arrives via the inbound code-match path.
 
 ## Rate Limiting & Diagnostics
 

@@ -9,9 +9,9 @@ import { statSync } from "node:fs";
 import { join } from "node:path";
 
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
+import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { LLMCallSite, LLMConfig } from "../config/schemas/llm.js";
 import {
   NOW_SCRATCHPAD_STRIP_PREFIXES,
@@ -62,11 +62,11 @@ import type {
 import type { ContentBlock, Message } from "../providers/types.js";
 import {
   type ActorTrustContext,
-  isUntrustedTrustClass,
   resolveActorTrust,
   type TrustClass,
 } from "../runtime/actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { SubagentState } from "../subagent/types.js";
@@ -125,8 +125,8 @@ export interface InboundActorContext {
   actorSenderDisplayName?: string;
   /** Guardian-managed display name from the contact record. */
   actorMemberDisplayName?: string;
-  /** Trust classification: guardian, trusted_contact, or unknown. */
-  trustClass: "guardian" | "trusted_contact" | "unknown";
+  /** Trust classification: see TrustClass. */
+  trustClass: TrustClass;
   /** Guardian identity for this (assistant, channel) binding. */
   guardianIdentity?: string;
   /** Member status when the actor has a contact record. */
@@ -681,13 +681,14 @@ export function stripNowScratchpad(messages: Message[]): Message[] {
 }
 
 /**
- * Prepend channel capability context to the last user message so the
- * model knows what the current channel can and cannot do.
+ * Build the `<channel_capabilities>` block text for the given capabilities, or
+ * `null` on the happy path (desktop, full capabilities, no special context)
+ * where no block is injected. Split from {@link injectChannelCapabilityContext}
+ * so callers can capture the exact injected text for metadata persistence.
  */
-export function injectChannelCapabilityContext(
-  message: Message,
+export function buildChannelCapabilityBlock(
   caps: ChannelCapabilities,
-): Message {
+): string | null {
   // Happy path: desktop with full capabilities and no special context — skip injection.
   if (
     caps.dashboardCapable &&
@@ -696,7 +697,7 @@ export function injectChannelCapabilityContext(
     !isGroupChatType(caps.chatType) &&
     caps.clientOS !== "macos"
   ) {
-    return message;
+    return null;
   }
 
   const lines: string[] = ["<channel_capabilities>"];
@@ -769,7 +770,16 @@ export function injectChannelCapabilityContext(
 
   lines.push("</channel_capabilities>");
 
-  const block = lines.join("\n");
+  return lines.join("\n");
+}
+
+/** Prepend the `<channel_capabilities>` block (if any) to a user message. */
+export function injectChannelCapabilityContext(
+  message: Message,
+  caps: ChannelCapabilities,
+): Message {
+  const block = buildChannelCapabilityBlock(caps);
+  if (block === null) return message;
   return {
     ...message,
     content: [{ type: "text", text: block }, ...message.content],
@@ -916,7 +926,7 @@ function filterSlackConversationRowsForActor(
   rows: MessageRow[],
   trustClass: TrustClass | undefined,
 ): MessageRow[] {
-  if (!isUntrustedTrustClass(trustClass)) return rows;
+  if (resolveCapabilities(trustClass).canAccessMemory) return rows;
   const nonSlackVisibleRows = filterMessagesForUntrustedActor(rows);
   const nonSlackVisibleIds = new Set(nonSlackVisibleRows.map((row) => row.id));
   return rows.filter((row) => {
@@ -1009,6 +1019,7 @@ function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
       if (
         outer.provenanceTrustClass === "guardian" ||
         outer.provenanceTrustClass === "trusted_contact" ||
+        outer.provenanceTrustClass === "unverified_contact" ||
         outer.provenanceTrustClass === "unknown"
       ) {
         provenanceTrustClass = outer.provenanceTrustClass;
@@ -1322,9 +1333,9 @@ export function loadSlackChronologicalContext(
     options,
   );
   return assembleSlackChronologicalContext(rows, capabilities, {
-    contextSummary: isUntrustedTrustClass(options.trustClass)
-      ? null
-      : options.contextSummary,
+    contextSummary: resolveCapabilities(options.trustClass).canAccessMemory
+      ? options.contextSummary
+      : null,
   });
 }
 
@@ -1512,6 +1523,14 @@ export function loadSlackActiveThreadFocusBlock(
 export type InjectionMode = "full" | "minimal";
 
 /**
+ * The `<non_interactive_context>` block appended on non-interactive turns.
+ * Module-scoped so `applyRuntimeInjections` both injects it and captures the
+ * exact text for metadata persistence from a single source of truth.
+ */
+export const NON_INTERACTIVE_CONTEXT_BLOCK =
+  "<non_interactive_context>\nNon-interactive scheduled task — do not ask for clarification or confirmation. Follow the instructions exactly using your best judgment. If recalled memory contains conflicting notes, prefer the explicit instruction in this message.\n</non_interactive_context>";
+
+/**
  * Per-turn injection bytes captured so `loadFromDb` can rehydrate historical
  * user messages byte-for-byte after a daemon restart or conversation
  * eviction. Persisting the exact injected text onto message metadata keeps
@@ -1527,6 +1546,27 @@ export interface RuntimeInjectionBlocks {
   pkbContextBlock?: string;
   memoryV2StaticBlock?: string;
   /**
+   * The `<background_turn>` block the `background-turn` default injector
+   * attached this turn (background/scheduled non-interactive turns only).
+   * Persisted under `metadata.backgroundTurnBlock` so `loadFromDb` rehydrates
+   * it byte-for-byte on reload/fork — without it, a fork of a background
+   * source (memory retrospective) drops the block and breaks message-tier
+   * prefix-cache parity with the source's live turns.
+   */
+  backgroundTurnBlock?: string;
+  /**
+   * The `<channel_capabilities>` block injected this turn (non-default channel
+   * capabilities). Persisted under `metadata.channelCapabilitiesBlock` for the
+   * same reload/fork cache-parity reason as {@link backgroundTurnBlock}.
+   */
+  channelCapabilitiesBlock?: string;
+  /**
+   * The `<non_interactive_context>` block injected this turn (non-interactive
+   * turns only). Persisted under `metadata.nonInteractiveContextBlock` for the
+   * same reload/fork cache-parity reason as {@link backgroundTurnBlock}.
+   */
+  nonInteractiveContextBlock?: string;
+  /**
    * UNWRAPPED inner text of the memory-v3 frozen net-new card block the v3
    * injector attached this turn, mirroring v2's unwrapped `memoryInjectedBlock`
    * contract (rehydration re-wraps on use). Undefined when v3 attached no new
@@ -1536,8 +1576,8 @@ export interface RuntimeInjectionBlocks {
    */
   memoryV3InjectedBlock?: string;
   /**
-   * True when memory-v3 superseded v2 as this turn's `<memory>` source — the
-   * `memory-v3-live` flag is on AND the v3 injector produced a block (possibly
+   * True when memory-v3 superseded v2 as this turn's `<memory>` source —
+   * `memory.v3.live` is on AND the v3 injector produced a block (possibly
    * empty-text on an all-repeat turn), i.e. exactly when assembly stripped
    * v2's fresh tail block. The user-prompt-submit hook keys v2's
    * `memoryInjectedBlock` metadata persist off this so a stripped v2 block is
@@ -2107,6 +2147,9 @@ export async function applyRuntimeInjections(
   let pkbSystemReminderCaptured: string | undefined;
   let memoryV2StaticCaptured: string | undefined;
   let memoryV3Captured: string | undefined;
+  let backgroundTurnCaptured: string | undefined;
+  let channelCapabilitiesCaptured: string | undefined;
+  let nonInteractiveContextCaptured: string | undefined;
   const initialTail = runMessages[runMessages.length - 1];
   const initialTailIsUser = !!initialTail && initialTail.role === "user";
   if (initialTailIsUser) {
@@ -2129,6 +2172,9 @@ export async function applyRuntimeInjections(
           break;
         case "memory-v2-static":
           memoryV2StaticCaptured = block.text;
+          break;
+        case "background-turn":
+          backgroundTurnCaptured = block.text;
           break;
         case MEMORY_V3_BLOCK_ID: {
           // The v3 frozen card block is persisted UNWRAPPED (the v2
@@ -2177,7 +2223,7 @@ export async function applyRuntimeInjections(
   // no-op, keeping the v2 path bit-for-bit identical.
   let runMessagesForAssembly = stripSpotlightInjections(runMessages);
 
-  // v2 suppression: when the `memory-v3-live` flag is on AND the v3 injector
+  // v2 suppression: when `memory.v3.live` is on AND the v3 injector
   // produced a block this turn (possibly empty-text on an all-repeat turn), v3
   // owns the `<memory>` layer. v2's `prepareMemory` already prepended its own
   // fresh `<memory>` block to the tail user message — strip the TAIL's v2
@@ -2196,10 +2242,7 @@ export async function applyRuntimeInjections(
   // (`produce()` → null) leaves v2's block intact — fallback rather than a
   // memory-less turn. Idempotent: re-injection sites that already stripped
   // see no change. Flag off → bit-for-bit identical to the v2 path.
-  const suppressV2MemoryForV3 = isAssistantFeatureFlagEnabled(
-    "memory-v3-live",
-    getConfig(),
-  );
+  const suppressV2MemoryForV3 = isMemoryV3Live(getConfig());
   const v3ProducedBlock = afterMemory.some((b) => b.id === MEMORY_V3_BLOCK_ID);
   const memoryV3Active = suppressV2MemoryForV3 && v3ProducedBlock;
   if (memoryV3Active) {
@@ -2262,16 +2305,14 @@ export async function applyRuntimeInjections(
   if (isNonInteractive) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
+      nonInteractiveContextCaptured = NON_INTERACTIVE_CONTEXT_BLOCK;
       result = [
         ...result.slice(0, -1),
         {
           ...userTail,
           content: [
             ...userTail.content,
-            {
-              type: "text" as const,
-              text: "<non_interactive_context>\nNon-interactive scheduled task — do not ask for clarification or confirmation. Follow the instructions exactly using your best judgment. If recalled memory contains conflicting notes, prefer the explicit instruction in this message.\n</non_interactive_context>",
-            },
+            { type: "text" as const, text: NON_INTERACTIVE_CONTEXT_BLOCK },
           ],
         },
       ];
@@ -2312,10 +2353,21 @@ export async function applyRuntimeInjections(
   if (channelCapabilities) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
-      result = [
-        ...result.slice(0, -1),
-        injectChannelCapabilityContext(userTail, channelCapabilities),
-      ];
+      const channelCapabilityBlock =
+        buildChannelCapabilityBlock(channelCapabilities);
+      if (channelCapabilityBlock !== null) {
+        channelCapabilitiesCaptured = channelCapabilityBlock;
+        result = [
+          ...result.slice(0, -1),
+          {
+            ...userTail,
+            content: [
+              { type: "text" as const, text: channelCapabilityBlock },
+              ...userTail.content,
+            ],
+          },
+        ];
+      }
     }
   }
 
@@ -2374,6 +2426,9 @@ export async function applyRuntimeInjections(
       pkbContextBlock: pkbContextCaptured,
       memoryV2StaticBlock: memoryV2StaticCaptured,
       memoryV3InjectedBlock: memoryV3Captured,
+      backgroundTurnBlock: backgroundTurnCaptured,
+      channelCapabilitiesBlock: channelCapabilitiesCaptured,
+      nonInteractiveContextBlock: nonInteractiveContextCaptured,
       memoryV3Active,
       injectorChainBlock,
     },

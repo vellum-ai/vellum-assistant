@@ -169,9 +169,7 @@ export type MarkdownLinkComponent = (
  * We wrap emoji grapheme runs in a `font-style: normal` span so they render
  * upright while the surrounding emphasized text stays italic.
  *
- * Emoji detection mirrors the macOS app's `Character.rendersAsEmoji`
- * (clients/macos/.../MarkdownSegmentView.swift) so web and native agree on what
- * counts as an emoji: U+FE0F (VS16) forces emoji presentation; U+FE0E (VS15)
+ * Emoji detection: U+FE0F (VS16) forces emoji presentation; U+FE0E (VS15)
  * forces text presentation; otherwise the Unicode `Emoji_Presentation` property
  * decides. This keeps digits / `#` / `*` (bare Emoji but text-presentation) and
  * VS15 sequences italic.
@@ -298,7 +296,10 @@ function buildMarkdownComponents(
 
       <h6 className="mb-1 mt-2 text-body-small-default !font-bold text-[var(--content-secondary)] first:mt-0">{children}</h6>
     ),
-    li: ({ children }) => <li className="mb-0.5">{children}</li>,
+    // `value` is forwarded so a list item whose source ordinal breaks the
+    // running sequence (set by remarkPreserveOrderedListNumbers) renders at its
+    // typed number via the HTML `<li value="N">` attribute.
+    li: ({ children, value }) => <li value={value} className="mb-0.5">{children}</li>,
     a: ({ href, children }) => <LinkComponent href={href}>{children}</LinkComponent>,
     code: ({ className, children, ...props }) => {
       const isBlock = className?.startsWith("language-");
@@ -496,6 +497,60 @@ function hardBreakNewlines(content: string): string {
   return rewriteTextSlices(content, ranges, (slice) => slice.replace(/\n/g, "  \n"));
 }
 
+/** Leading marker of an ordered-list item: up to 3 spaces, digits, then `.`/`)`. */
+const ORDERED_MARKER = /^\s{0,3}(\d{1,9})[.)]/;
+
+/**
+ * remark plugin: render an ordered list with the exact numbers the author typed.
+ *
+ * CommonMark keeps only an ordered list's *first* item number — emitted as the
+ * `<ol start>` — and discards every later marker, so a list written as
+ * `1. / 2. / 4. / 5.` silently renumbers to 1, 2, 3, 4. For each item we recover
+ * the literal ordinal from the source and, wherever it breaks the running
+ * sequence, pin it with `data.hProperties.value` — which react-markdown's
+ * mdast→hast step turns into an HTML `<li value="N">` that overrides the
+ * browser's auto-increment. Items that already match the running count emit no
+ * `value`, so contiguous lists render byte-identically to no plugin at all.
+ */
+function remarkPreserveOrderedListNumbers() {
+  return (tree: unknown, file: { toString(): string }) => {
+    const source = String(file);
+    const visit = (node: {
+      type: string;
+      ordered?: boolean;
+      start?: number | null;
+      position?: { start: { offset?: number } };
+      data?: { hProperties?: Record<string, unknown> };
+      children?: unknown[];
+    }) => {
+      if (node.type === "list" && node.ordered && Array.isArray(node.children)) {
+        let counter = node.start ?? 1;
+        for (const child of node.children) {
+          const item = child as Parameters<typeof visit>[0];
+          const offset = item.position?.start.offset;
+          let literal = counter;
+          if (typeof offset === "number") {
+            const marker = ORDERED_MARKER.exec(source.slice(offset, offset + 16));
+            if (marker) literal = Number(marker[1]);
+          }
+          if (literal !== counter) {
+            item.data ??= {};
+            item.data.hProperties ??= {};
+            item.data.hProperties.value = literal;
+          }
+          counter = literal + 1;
+        }
+      }
+      if (Array.isArray(node.children)) {
+        for (const child of node.children) {
+          visit(child as Parameters<typeof visit>[0]);
+        }
+      }
+    };
+    visit(tree as Parameters<typeof visit>[0]);
+  };
+}
+
 export interface MarkdownMessageProps {
   content: string;
   className?: string;
@@ -526,7 +581,7 @@ export function MarkdownMessage({
   const components = useMemo(() => buildMarkdownComponents(Link), [Link]);
   return (
     <div data-slot="markdown-message" className={cn("text-chat text-[var(--content-default)]", className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={components}>
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath, remarkPreserveOrderedListNumbers]} rehypePlugins={[rehypeKatex]} components={components}>
         {processed}
       </ReactMarkdown>
     </div>

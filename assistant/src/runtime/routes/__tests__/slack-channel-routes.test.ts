@@ -39,7 +39,7 @@ import {
 import { ROUTES } from "../slack-channel-routes.js";
 import type { RouteDefinition } from "../types.js";
 
-initializeDb();
+await initializeDb();
 
 interface ResolveResponse {
   channelId: string;

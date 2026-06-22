@@ -31,7 +31,7 @@ mock.module("../config/loader.js", () => ({
 import { eq } from "drizzle-orm";
 
 import { createConversation } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
+import { getDb, getLogsDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
   getCompactionLogsBetween,
@@ -40,11 +40,12 @@ import {
 } from "../memory/llm-request-log-store.js";
 import { llmRequestLogs } from "../memory/schema.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();
-  db.delete(llmRequestLogs).run();
+  // llm_request_logs lives in the dedicated logs connection.
+  getLogsDb()!.delete(llmRequestLogs).run();
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
 }
@@ -72,8 +73,8 @@ function insertLogAt(
   // way `bun:sqlite` does, and a silent no-op there manifests as zero
   // rows in the query under test (the inserted `created_at` keeps its
   // `Date.now()` value and ends up far in the future of the cutoff).
-  const db = getDb();
-  db.update(llmRequestLogs)
+  getLogsDb()!
+    .update(llmRequestLogs)
     .set({ createdAt })
     .where(eq(llmRequestLogs.id, id))
     .run();

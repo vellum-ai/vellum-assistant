@@ -26,6 +26,10 @@ mock.module("../config/loader.js", () => ({
       activeHoursStart: undefined,
       activeHoursEnd: undefined,
     },
+    timeouts: {
+      backgroundTurnTimeoutSec: 1800,
+      scheduleTurnTimeoutSec: 1800,
+    },
   }),
   loadConfig: () => ({}),
   loadRawConfig: () => ({}),

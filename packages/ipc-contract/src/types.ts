@@ -33,6 +33,7 @@ export type VellumCommand =
   | { kind: "shareFeedback" }
   | { kind: "find" }
   | { kind: "markAllRead" }
+  | { kind: "login" }
   | { kind: "logout" }
   | { kind: "rePair" }
   | { kind: "sidebarToggle" }
@@ -367,6 +368,8 @@ export interface LocalAssistantResources {
   instanceDir?: string;
   gatewayPort: number;
   daemonPort: number;
+  runtimeVersion?: string;
+  runtimeInstallDir?: string;
 }
 
 export interface LockfileAssistant {

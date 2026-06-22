@@ -43,7 +43,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { ROUTES } from "../runtime/routes/inference-profile-session-routes.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
-initializeDb();
+await initializeDb();
 
 const openRoute = ROUTES.find(
   (r) => r.operationId === "inference_profile_open",

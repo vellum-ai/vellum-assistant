@@ -28,6 +28,7 @@ import {
   type FeedItemStatus,
   HomeFeedResponseSchema,
 } from "../../api/responses/home.js";
+import { enrichFeedItemsWithSource } from "../../home/feed-source-enrichment.js";
 import { patchFeedItemStatus, readHomeFeed } from "../../home/feed-writer.js";
 import { revalidateHomeContentInBackground } from "../../home/home-content-refresh.js";
 import { getPersonalizedGreeting } from "../../home/home-greeting.js";
@@ -135,8 +136,10 @@ export async function handleGetHomeFeed({
   // v2 schema dropped per-item `minTimeAway` gating; surface every item
   // and let the client decide what to render based on its own
   // session state. `timeAwaySeconds` survives only to feed the
-  // context-banner relative-time label.
-  const filtered = feed.items;
+  // context-banner relative-time label. Each item is enriched with its
+  // source-conversation classification (`sourceType`/`sourceKey`/
+  // `sourceLabel`) so clients can filter the feed by what produced it.
+  const filtered = enrichFeedItemsWithSource(feed.items);
 
   const now = new Date();
 
@@ -287,7 +290,9 @@ export function handleListHomeFeed({
   const total = filtered.length;
   const offset = params.offset ?? 0;
   const limit = params.limit ?? 20;
-  const items = filtered.slice(offset, offset + limit);
+  const items = enrichFeedItemsWithSource(
+    filtered.slice(offset, offset + limit),
+  );
 
   return {
     items,

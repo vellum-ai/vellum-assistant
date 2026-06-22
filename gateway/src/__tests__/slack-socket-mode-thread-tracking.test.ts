@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import type { GatewayConfig } from "../config.js";
 import { SlackStore } from "../db/slack-store.js";
@@ -83,6 +83,9 @@ const { SlackSocketModeClient } = await import("../slack/socket-mode.js");
 const { clearChannelInfoCache, clearUserInfoCache, resolveSlackUser } =
   await import("../slack/normalize.js");
 const { handleInbound } = await import("../handlers/handle-inbound.js");
+const { initGatewayDb, resetGatewayDb } = await import("../db/connection.js");
+const { initAdmissionPolicyCache, resetAdmissionPolicyCache } =
+  await import("../risk/admission-policy-cache.js");
 import type { SlackSocketModeConfig } from "../slack/socket-mode.js";
 
 type SocketModeHarness = {
@@ -187,6 +190,7 @@ function createHarness(
     botUsername: "assistant",
     teamName: "Example Team",
     gatewayConfig: makeConfig(),
+    threadMode: "mention_then_thread",
   };
   harness.onEvent = onEvent;
   harness.store = store;
@@ -204,12 +208,21 @@ function flushAsyncEventEmission(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  resetGatewayDb();
+  resetAdmissionPolicyCache();
+  await initGatewayDb();
+  initAdmissionPolicyCache();
   runtimePayloads.length = 0;
   warnLogs.length = 0;
   clearUserInfoCache();
   clearChannelInfoCache();
   fetchMock = mock(async () => makeSlackUserResponse());
+});
+
+afterEach(() => {
+  resetAdmissionPolicyCache();
+  resetGatewayDb();
 });
 
 describe("SlackSocketModeClient thread tracking", () => {
@@ -1303,6 +1316,171 @@ describe("SlackSocketModeClient thread tracking", () => {
       expect(emitted[0].event.message.conversationExternalId).toBe("D-direct");
       expect(emitted[0].threadTs).toBeUndefined();
       expect(emitted[0].event.source.threadId).toBeUndefined();
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("emits a DM thread reply that omits channel_type via the DM path", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+
+    try {
+      await resolveSlackUser("U-dm", "xoxb-test");
+
+      // A reply inside a DM thread (e.g. answering an async/cron message the
+      // assistant posted). Slack omits `channel_type` on this sub-event and
+      // the thread was never armed, so DM-ness must come from the "D" channel
+      // ID prefix — otherwise the reply is silently dropped.
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-dm-thread",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-dm-thread",
+            event: {
+              type: "message",
+              user: "U-dm",
+              text: "yes, go ahead",
+              ts: "1700000000.000600",
+              channel: "D-direct",
+              thread_ts: "1700000000.000500",
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.source.updateId).toBe("Ev-dm-thread");
+      expect(emitted[0].event.source.chatType).toBe("im");
+      expect(emitted[0].event.message.conversationExternalId).toBe("D-direct");
+      expect(emitted[0].threadTs).toBe("1700000000.000500");
+      expect(emitted[0].event.source.threadId).toBe("1700000000.000500");
+      // DMs route to the default assistant even when the channel is unmapped.
+      expect(emitted[0].routing).toEqual({
+        assistantId: "ast-default",
+        routeSource: "default",
+      });
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("emits a top-level DM that omits channel_type via the DM path", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+
+    try {
+      await resolveSlackUser("U-dm", "xoxb-test");
+
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-dm-no-type",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-dm-no-type",
+            event: {
+              type: "message",
+              user: "U-dm",
+              text: "hello from dm",
+              ts: "1700000000.000700",
+              channel: "D-direct",
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.source.updateId).toBe("Ev-dm-no-type");
+      expect(emitted[0].event.source.chatType).toBe("im");
+      expect(emitted[0].threadTs).toBeUndefined();
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("admits a DM message edit that omits channel_type", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+
+    try {
+      await resolveSlackUser("U-dm", "xoxb-test");
+
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-dm-edit",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-dm-edit",
+            event: {
+              type: "message",
+              subtype: "message_changed",
+              channel: "D-direct",
+              message: {
+                user: "U-dm",
+                text: "edited in a dm",
+                ts: "1700000000.000800",
+              },
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.source.updateId).toBe("Ev-dm-edit");
+      expect(emitted[0].event.message.isEdit).toBe(true);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("admits a DM message delete that omits channel_type", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+
+    try {
+      await resolveSlackUser("U-dm", "xoxb-test");
+
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-dm-delete",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-dm-delete",
+            event: {
+              type: "message",
+              subtype: "message_deleted",
+              channel: "D-direct",
+              deleted_ts: "1700000000.000900",
+              previous_message: {
+                user: "U-dm",
+                text: "deleted in a dm",
+                ts: "1700000000.000900",
+              },
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.source.updateId).toBe("Ev-dm-delete");
+      expect(emitted[0].event.message.callbackData).toBe("message_deleted");
     } finally {
       rawDb.close();
     }

@@ -264,7 +264,7 @@ export async function createGuardianBinding(
 
       await assistantDbRun(
         `UPDATE contact_channels
-         SET contact_id = ?, address = ?, external_user_id = ?, external_chat_id = ?,
+         SET contact_id = ?, address = ?, external_chat_id = ?,
              is_primary = 1,
              status = 'active', policy = 'allow', verified_at = ?,
              verified_via = ?, revoked_reason = NULL, blocked_reason = NULL,
@@ -272,7 +272,6 @@ export async function createGuardianBinding(
          WHERE id = ?`,
         [
           contactId,
-          params.externalUserId,
           params.externalUserId,
           params.deliveryChatId,
           now,
@@ -284,14 +283,13 @@ export async function createGuardianBinding(
     } else {
       await assistantDbRun(
         `INSERT INTO contact_channels
-           (id, contact_id, type, address, external_user_id, external_chat_id,
+           (id, contact_id, type, address, external_chat_id,
             is_primary, status, policy, verified_at, verified_via, interaction_count, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, 1, 'active', 'allow', ?, ?, 0, ?)`,
+         VALUES (?, ?, ?, ?, ?, 1, 'active', 'allow', ?, ?, 0, ?)`,
         [
           channelId,
           contactId,
           params.channel,
-          params.externalUserId,
           params.externalUserId,
           params.deliveryChatId,
           now,
@@ -341,7 +339,6 @@ export async function createGuardianBinding(
           contactId,
           type: params.channel,
           address: params.externalUserId,
-          externalUserId: params.externalUserId,
           externalChatId: params.deliveryChatId,
           isPrimary: true,
           status: "active",
@@ -356,7 +353,6 @@ export async function createGuardianBinding(
           set: {
             contactId,
             address: params.externalUserId,
-            externalUserId: params.externalUserId,
             externalChatId: params.deliveryChatId,
             isPrimary: true,
             status: "active",
@@ -399,16 +395,18 @@ export async function createGuardianBinding(
 // Token operations (against the gateway's own DB — no cross-container issue)
 // ---------------------------------------------------------------------------
 
-/**
- * A freshly minted, DB-recorded access + refresh token pair bound to a device.
- */
-export interface DeviceBoundTokenPair {
+export interface RefreshableTokenPair {
   accessToken: string;
   accessTokenExpiresAt: number;
   refreshToken: string;
   refreshTokenExpiresAt: number;
   refreshAfter: number;
 }
+
+/**
+ * A freshly minted, DB-recorded access + refresh token pair bound to a device.
+ */
+export type DeviceBoundTokenPair = RefreshableTokenPair;
 
 /**
  * Revoke active actor tokens for a device binding.
@@ -502,6 +500,7 @@ function mintRefreshToken(
   guardianPrincipalId: string,
   hashedDeviceId: string,
   platform: string,
+  options: { browserRefreshCookiePath?: string } = {},
 ): {
   refreshToken: string;
   refreshTokenExpiresAt: number;
@@ -528,6 +527,7 @@ function mintRefreshToken(
       absoluteExpiresAt,
       inactivityExpiresAt,
       lastUsedAt: null,
+      browserRefreshCookiePath: options.browserRefreshCookiePath,
       createdAt: now,
       updatedAt: now,
     })
@@ -569,6 +569,40 @@ export function mintAndRecordDeviceBoundTokenPair(params: {
     params.guardianPrincipalId,
     hashedDeviceId,
     params.platform,
+  );
+
+  return {
+    accessToken: access.token,
+    accessTokenExpiresAt: access.expiresAt,
+    refreshToken: refresh.refreshToken,
+    refreshTokenExpiresAt: refresh.refreshTokenExpiresAt,
+    refreshAfter: refresh.refreshAfter,
+  };
+}
+
+/**
+ * Mint a refreshable browser credential without requiring the browser to track a
+ * separate device id. The current token tables still require a binding column,
+ * so remote web uses an internal random binding that never leaves the gateway.
+ */
+export function mintAndRecordBrowserTokenPair(params: {
+  guardianPrincipalId: string;
+  platform: string;
+  browserRefreshCookiePath: string;
+}): RefreshableTokenPair {
+  const internalBinding = randomBytes(32).toString("base64url");
+  const hashedDeviceId = hashToken(internalBinding);
+
+  const access = mintAccessToken(
+    params.guardianPrincipalId,
+    hashedDeviceId,
+    params.platform,
+  );
+  const refresh = mintRefreshToken(
+    params.guardianPrincipalId,
+    hashedDeviceId,
+    params.platform,
+    { browserRefreshCookiePath: params.browserRefreshCookiePath },
   );
 
   return {

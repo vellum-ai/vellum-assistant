@@ -31,7 +31,7 @@ import { executeScheduleUpdate } from "../tools/schedule/update.js";
 import type { Tool, ToolContext } from "../tools/types.js";
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
-initializeDb();
+await initializeDb();
 
 function getRawDb(): Database {
   return (getDb() as unknown as { $client: Database }).$client;
@@ -421,7 +421,7 @@ describe("schedule tools — workflow mode", () => {
   beforeEach(() => {
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
-    setOverridesForTesting({ workflows: true });
+    setOverridesForTesting({});
   });
   afterAll(() => {
     setOverridesForTesting({});
@@ -464,22 +464,6 @@ describe("schedule tools — workflow mode", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("workflow_name is required");
-  });
-
-  test("rejects workflow mode when the workflows flag is off", async () => {
-    setOverridesForTesting({}); // flag off
-    const result = await executeScheduleCreate(
-      {
-        name: "Flag off",
-        expression: "0 8 * * *",
-        mode: "workflow",
-        workflow_name: "inbox-triage",
-      },
-      ctx,
-    );
-
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("workflows are not enabled");
   });
 
   test("update to workflow mode requires a workflow_name", async () => {
@@ -544,7 +528,7 @@ describe("schedule_create — workflow capability manifest", () => {
   beforeEach(() => {
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
-    setOverridesForTesting({ workflows: true });
+    setOverridesForTesting({});
     // Deterministic registry so a declared side-effecting tool resolves.
     __clearRegistryForTesting();
     registerTool(makeFakeTool("file_write"));

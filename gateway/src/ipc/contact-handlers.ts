@@ -2,14 +2,24 @@
  * IPC route definitions for contact reads and writes.
  *
  * Read methods expose gateway-owned contact data to the assistant daemon.
- * The `create_contact` write method upserts a contact+channel via the
- * assistant DB proxy (raw SQL), so the gateway owns the write path.
+ * The `create_contact` write method upserts a contact+channel via
+ * `ContactStore.upsertContact`, which writes the gateway DB (source of truth)
+ * and best-effort mirrors to the assistant DB.
  */
 
+import {
+  GetContactIpcParamsSchema,
+  ListContactsIpcParamsSchema,
+  MarkChannelRevokedIpcParamsSchema,
+  MarkChannelRevokedIpcResponseSchema,
+  MarkChannelVerifiedIpcParamsSchema,
+  MarkChannelVerifiedIpcResponseSchema,
+  UpdateContactChannelIpcParamsSchema,
+} from "@vellumai/gateway-client/gateway-ipc-contracts";
 import { z } from "zod";
 
-import { assistantDbQuery, assistantDbRun } from "../db/assistant-db-proxy.js";
 import { ContactStore } from "../db/contact-store.js";
+import { updateContactChannelCore } from "../http/routes/contacts-control-plane-proxy.js";
 import { getLogger } from "../logger.js";
 import { canonicalizeInboundIdentity } from "../verification/identity.js";
 import type { IpcRoute } from "./server.js";
@@ -58,6 +68,36 @@ export const contactRoutes: IpcRoute[] = [
       return getStore().getContact(contactId) ?? null;
     },
   },
+  // Rich reads expose the shared ContactRead shape (gateway ACL + assistant
+  // info) for the daemon's list/get relay. Additive — the lean list_contacts /
+  // get_contact methods above stay for gateway-internal callers.
+  {
+    method: "contacts_list_rich",
+    schema: ListContactsIpcParamsSchema,
+    handler: async (params?: Record<string, unknown>) => {
+      const parsed = ListContactsIpcParamsSchema.parse(params);
+      const contacts = await getStore().listContactsRich(parsed);
+      return { ok: true, contacts };
+    },
+  },
+  {
+    method: "contacts_get_rich",
+    schema: GetContactIpcParamsSchema,
+    handler: async (params?: Record<string, unknown>) => {
+      const { contactId } = GetContactIpcParamsSchema.parse(params);
+      const result = await getStore().getContactRich(contactId);
+      // Return null on miss (mirrors get_contact); the daemon relay maps a
+      // null/not-found result to a 404.
+      if (!result) return null;
+      return {
+        ok: true,
+        contact: result.contact,
+        ...(result.assistantMetadata
+          ? { assistantMetadata: result.assistantMetadata }
+          : {}),
+      };
+    },
+  },
   {
     method: "get_contact_by_channel",
     schema: GetContactByChannelParamsSchema,
@@ -81,85 +121,126 @@ export const contactRoutes: IpcRoute[] = [
     method: "create_contact",
     schema: CreateContactParamsSchema,
     handler: async (params?: Record<string, unknown>) => {
-      const { channelType, address, role, displayName } =
+      const { channelType, address, displayName } =
         CreateContactParamsSchema.parse(params);
 
-      const normalizedAddress =
+      // Canonicalize once here; upsertContact canonicalizes internally too, so
+      // passing the canonical form keeps a single source of truth.
+      // NOTE: `role` is intentionally not honored. Guardian binding is owned by
+      // guardian-bootstrap (see ContactStore.upsertContact SECURITY note); a
+      // contact created here always gets role="contact".
+      const canonicalAddress =
         canonicalizeInboundIdentity(channelType, address) ?? address.trim();
-      const effectiveDisplayName = displayName ?? normalizedAddress;
-      // Map prompt roles to valid ContactRole values ("guardian" | "contact").
-      const effectiveRole: string =
-        role === "guardian" ? "guardian" : "contact";
-      const now = Date.now();
 
-      // Check if a channel with this (type, address) already exists.
-      const existing = await assistantDbQuery<{
-        channelId: string;
-        contactId: string;
-      }>(
-        `SELECT cc.id AS channelId, cc.contact_id AS contactId
-         FROM contact_channels cc
-         WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
-         LIMIT 1`,
-        [channelType, normalizedAddress],
-      );
+      const store = getStore();
+      // Omit displayName when the caller didn't supply one: upsertContact is
+      // omit-to-preserve, so an existing contact keeps its current name and a
+      // brand-new contact falls back to the canonical address. Passing a
+      // synthesized name here would clobber a custom name on retry.
+      //
+      // Omit status/policy/externalChatId: syncChannels and the assistant-DB
+      // mirror default a new channel but preserve an existing channel's values
+      // on retry. Passing them here would demote a trusted channel below the
+      // trusted_contacts admission floor (mirrors verification/contact-helpers)
+      // or clear a delivery chat id.
+      const { contact } = await store.upsertContact({
+        displayName,
+        channels: [
+          {
+            type: channelType,
+            address: canonicalAddress,
+            isPrimary: true,
+          },
+        ],
+      });
 
-      if (existing.length > 0) {
-        const { channelId, contactId } = existing[0];
-        log.info(
-          { channelType, address: normalizedAddress, contactId, channelId },
-          "create_contact: channel already exists, returning existing record",
+      const contactId = contact.id;
+      // Resolve the channel id from the gateway DB (source of truth). The
+      // upsertContact result's channels can be empty when the assistant-DB
+      // read-back is unavailable (best-effort), so don't rely on it here.
+      const channel = store
+        .getChannelsForContact(contactId)
+        .find(
+          (ch) =>
+            ch.type === channelType &&
+            ch.address.toLowerCase() === canonicalAddress.toLowerCase(),
         );
-        return { contactId, channelId };
-      }
-
-      // Create a new contact + channel.
-      // Two separate INSERTs — use a compensating DELETE on channel failure.
-      const contactId = crypto.randomUUID();
-      const channelId = crypto.randomUUID();
-
-      await assistantDbRun(
-        `INSERT INTO contacts (id, display_name, role, contact_type, created_at, updated_at)
-         VALUES (?, ?, ?, 'human', ?, ?)`,
-        [contactId, effectiveDisplayName, effectiveRole, now, now],
-      );
-
-      try {
-        await assistantDbRun(
-          `INSERT INTO contact_channels (id, contact_id, type, address, external_user_id, is_primary, status, policy, interaction_count, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, 1, 'unverified', 'allow', 0, ?, ?)`,
-          [
-            channelId,
-            contactId,
-            channelType,
-            normalizedAddress,
-            normalizedAddress,
-            now,
-            now,
-          ],
-        );
-      } catch (channelErr) {
-        // Compensating delete — remove the orphaned contact row.
-        log.error(
-          { channelErr, contactId, channelType, address: normalizedAddress },
-          "create_contact: channel INSERT failed, rolling back contact row",
-        );
-        await assistantDbRun("DELETE FROM contacts WHERE id = ?", [contactId]);
-        throw channelErr;
-      }
+      const channelId = channel?.id ?? "";
 
       log.info(
-        {
-          channelType,
-          address: normalizedAddress,
-          contactId,
-          channelId,
-          role: effectiveRole,
-        },
-        "create_contact: created new contact + channel",
+        { channelType, address: canonicalAddress, contactId, channelId },
+        "create_contact: upserted contact + channel via ContactStore",
       );
 
       return { contactId, channelId };
+    },
+  },
+  {
+    method: "update_contact_channel",
+    schema: UpdateContactChannelIpcParamsSchema,
+    handler: (params?: Record<string, unknown>) => {
+      const parsed = UpdateContactChannelIpcParamsSchema.parse(params);
+      // Thrown ContactChannelNativeError carries statusCode/code, which the IPC
+      // server's buildErrorResponse mirrors into the wire envelope; unexpected
+      // errors propagate as a generic IPC error (no fallback).
+      return updateContactChannelCore(parsed);
+    },
+  },
+  {
+    method: "mark_channel_verified",
+    schema: MarkChannelVerifiedIpcParamsSchema,
+    handler: async (params?: Record<string, unknown>) => {
+      const { contactChannelId, verifiedVia } =
+        MarkChannelVerifiedIpcParamsSchema.parse(params);
+      const result = await getStore().markChannelVerified(
+        contactChannelId,
+        verifiedVia,
+      );
+      if (!result) {
+        throw new Error(`Channel "${contactChannelId}" not found`);
+      }
+      const { channel, didWrite } = result;
+      return MarkChannelVerifiedIpcResponseSchema.parse({
+        ok: true,
+        didWrite,
+        channel: {
+          id: channel.id,
+          contactId: channel.contactId,
+          type: channel.type,
+          address: channel.address,
+          status: channel.status,
+          verifiedAt: channel.verifiedAt,
+          verifiedVia: channel.verifiedVia,
+        },
+      });
+    },
+  },
+  {
+    method: "mark_channel_revoked",
+    schema: MarkChannelRevokedIpcParamsSchema,
+    handler: async (params?: Record<string, unknown>) => {
+      const { contactChannelId, reason } =
+        MarkChannelRevokedIpcParamsSchema.parse(params);
+      const result = await getStore().markChannelRevoked(
+        contactChannelId,
+        reason,
+      );
+      if (!result) {
+        throw new Error(`Channel "${contactChannelId}" not found`);
+      }
+      const { channel, didWrite } = result;
+      return MarkChannelRevokedIpcResponseSchema.parse({
+        ok: true,
+        didWrite,
+        channel: {
+          id: channel.id,
+          contactId: channel.contactId,
+          type: channel.type,
+          address: channel.address,
+          status: channel.status,
+          revokedReason: channel.revokedReason,
+        },
+      });
     },
   },
 ];

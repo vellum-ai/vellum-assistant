@@ -18,10 +18,17 @@ const log = getLogger("provider-usage-tracking");
 export class UsageTrackingProvider implements Provider {
   public readonly name: string;
   public readonly tokenEstimationProvider?: string;
+  // Forward the optional token-counting endpoint so the capability survives
+  // the wrapper chain. Bound straight to the inner provider — count_tokens is
+  // not billed, so there's no usage to track.
+  public readonly countInputTokens?: NonNullable<Provider["countInputTokens"]>;
 
   constructor(private readonly inner: Provider) {
     this.name = inner.name;
     this.tokenEstimationProvider = inner.tokenEstimationProvider;
+    if (inner.countInputTokens) {
+      this.countInputTokens = inner.countInputTokens.bind(inner);
+    }
   }
 
   async sendMessage(

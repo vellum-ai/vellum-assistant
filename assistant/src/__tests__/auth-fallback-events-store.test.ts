@@ -7,18 +7,10 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-let collectUsageData = true;
+let shareAnalytics = true;
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    collectUsageData,
-  }),
+mock.module("../platform/consent-cache.js", () => ({
+  getCachedShareAnalytics: () => shareAnalytics,
 }));
 
 import {
@@ -30,7 +22,7 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { authFallbackEvents } from "../memory/schema.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTable(): void {
   getDb().delete(authFallbackEvents).run();
@@ -53,7 +45,7 @@ const SAMPLE: AuthFallbackCount[] = [
 
 describe("auth-fallback-events-store", () => {
   beforeEach(() => {
-    collectUsageData = true;
+    shareAnalytics = true;
     resetTable();
   });
 
@@ -78,8 +70,8 @@ describe("auth-fallback-events-store", () => {
     });
   });
 
-  test("honors the collectUsageData opt-out (records nothing)", () => {
-    collectUsageData = false;
+  test("honors the share_analytics opt-out (records nothing)", () => {
+    shareAnalytics = false;
     const recorded = recordAuthFallbackCounts(1000, 2000, SAMPLE);
     expect(recorded).toBe(0);
     expect(queryUnreportedAuthFallbackEvents(0, undefined, 100).length).toBe(0);

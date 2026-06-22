@@ -15,7 +15,7 @@ const CANONICAL = join(ROOT, "feature-flag-registry.json");
 const TARGETS = [
   join(ROOT, "..", "..", "assistant", "src", "config", "feature-flag-registry.json"),
   join(ROOT, "..", "..", "gateway", "src", "feature-flag-registry.json"),
-  join(ROOT, "..", "..", "apps", "web", "src", "lib", "feature-flags", "feature-flag-registry.json"),
+  join(ROOT, "..", "..", "clients", "web", "src", "lib", "feature-flags", "feature-flag-registry.json"),
 ];
 
 for (const target of TARGETS) {

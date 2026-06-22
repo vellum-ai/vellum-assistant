@@ -7,7 +7,6 @@
 
 import { z } from "zod";
 
-import { buildApprovalCardBlocks } from "./approval-card-builder.js";
 import {
   nonEmpty,
   sanitizeIdentityField,
@@ -312,74 +311,88 @@ export function buildAccessRequestContractText(
   return lines.join("\n");
 }
 
-// ── Seed content blocks (Surface-based rendering) ───────────────────────────
+// ── Card view model ─────────────────────────────────────────────────────────
 
 /**
- * Build structured content blocks for an access request notification seed
- * message. Produces a `ui_surface` card block that the web/macOS/iOS apps
- * render as an interactive card via `SurfaceRouter → CardSurface`, plus a
- * plain-text fallback block for search, CLI display, and backward-compatible
- * clients that don't support surfaces.
+ * Display-ready projection of an access request, shared by every renderer
+ * (the Vellum Surface card and the Slack Card block). It carries the
+ * sanitized, pre-computed facts each renderer needs — identity sanitizing,
+ * warnings, permalink, DM detection, preview sanitizing — so that projection
+ * lives in exactly one place. Renderers lay these facts out in their
+ * channel-native shape without re-deriving them.
  */
-export function buildAccessRequestSeedContentBlocks(
-  payload: Record<string, unknown>,
-): unknown[] {
-  const p = parseAccessRequestPayload(payload);
+export interface AccessRequestCardView {
+  /** Sanitized display name (actorDisplayName ?? senderIdentifier, else "Someone"). */
+  displayName: string;
+  /** Sanitized username, without the leading `@`. */
+  username: string | undefined;
+  /** Sanitized external ID. */
+  externalId: string | undefined;
+  sourceChannel: string | undefined;
+  conversationExternalId: string | undefined;
+  /** Whether the source Slack conversation is a DM. */
+  isSlackDm: boolean;
+  /** Slack permalink — present only for a slack source with conversation + ts. */
+  messagePermalink: string | undefined;
+  /** Sanitized message preview, or undefined when blank after sanitizing. */
+  messagePreview: string | undefined;
+  /** Human-readable trust/security warnings. */
+  warnings: string[];
+  guardianResolutionSource: string | undefined;
+  requestId: string | undefined;
+}
 
+/**
+ * Project a parsed access-request payload into display-ready card facts.
+ *
+ * The payload is parsed once upstream — the broadcaster resolves
+ * `accessRequestContext`, and the Surface seed path parses the raw payload —
+ * so this takes the parsed payload rather than re-parsing it.
+ */
+export function buildAccessRequestCardView(
+  p: ParsedAccessRequestPayload,
+): AccessRequestCardView {
   const rawName = nonEmpty(p.actorDisplayName) ?? nonEmpty(p.senderIdentifier);
   const displayName = rawName ? sanitizeIdentityField(rawName) : "Someone";
 
-  const metadata: Array<{ label: string; value: string }> = [];
+  const rawUsername = nonEmpty(p.actorUsername);
+  const username = rawUsername ? sanitizeIdentityField(rawUsername) : undefined;
 
-  if (p.actorUsername) {
-    metadata.push({
-      label: "Username",
-      value: `@${sanitizeIdentityField(p.actorUsername)}`,
-    });
-  }
+  const rawExternalId = nonEmpty(p.actorExternalId);
+  const externalId = rawExternalId
+    ? sanitizeIdentityField(rawExternalId)
+    : undefined;
 
-  if (p.sourceChannel === "slack" && p.conversationExternalId) {
-    const isDm = isSlackDmConversation(p.conversationExternalId);
-    metadata.push({
-      label: "Source",
-      value: isDm
-        ? "Slack — Direct message"
-        : `Slack — #${p.conversationExternalId}`,
-    });
-  } else if (p.sourceChannel) {
-    metadata.push({ label: "Source", value: p.sourceChannel });
-  }
+  const sourceChannel = nonEmpty(p.sourceChannel);
+  const conversationExternalId = nonEmpty(p.conversationExternalId);
+  const messageTs = nonEmpty(p.messageTs);
 
-  const warnings = buildAccessRequestWarnings(p);
-  const bodyParts: string[] = [];
+  const isSlackDm =
+    sourceChannel === "slack" && conversationExternalId != null
+      ? isSlackDmConversation(conversationExternalId)
+      : false;
 
-  if (p.messagePreview) {
-    bodyParts.push(`> "${sanitizeMessagePreview(p.messagePreview)}"`);
-  }
-  for (const w of warnings) {
-    bodyParts.push(`⚠️ ${w}`);
-  }
-  if (p.sourceChannel === "slack" && p.conversationExternalId && p.messageTs) {
-    const permalink = buildSlackMessagePermalink(
-      p.conversationExternalId,
-      p.messageTs,
-    );
-    bodyParts.push(`[View message](${permalink})`);
-  }
+  const messagePermalink =
+    sourceChannel === "slack" && conversationExternalId && messageTs
+      ? buildSlackMessagePermalink(conversationExternalId, messageTs)
+      : undefined;
 
-  const body =
-    bodyParts.length > 0
-      ? bodyParts.join("\n\n")
-      : "No additional context available.";
+  const rawPreview = nonEmpty(p.messagePreview);
+  const messagePreview = rawPreview
+    ? sanitizeMessagePreview(rawPreview) || undefined
+    : undefined;
 
-  return buildApprovalCardBlocks({
-    surfaceIdPrefix: "access-request",
-    cardTitle: "Access Request",
-    requesterName: displayName,
-    subtitle: "Requesting access to the assistant",
-    body,
-    metadata,
-    requestId: p.requestId,
-    fallbackText: buildAccessRequestContractText(payload),
-  });
+  return {
+    displayName,
+    username,
+    externalId,
+    sourceChannel,
+    conversationExternalId,
+    isSlackDm,
+    messagePermalink,
+    messagePreview,
+    warnings: buildAccessRequestWarnings(p),
+    guardianResolutionSource: nonEmpty(p.guardianResolutionSource),
+    requestId: nonEmpty(p.requestId),
+  };
 }

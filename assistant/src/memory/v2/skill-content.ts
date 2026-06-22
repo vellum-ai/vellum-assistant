@@ -2,21 +2,39 @@ import { getConfig } from "../../config/loader.js";
 import type { SkillCapabilityInput } from "../../skills/skill-memory.js";
 
 /**
+ * Character budget for an always-candidate skill's capability statement. Larger
+ * than the default so a cross-cutting skill (pinned into the selector pool every
+ * turn) can describe its full range of uses rather than a single mode — see
+ * `buildSkillContent`'s `maxChars` and `skill-store.ts`'s seeding loop.
+ */
+export const ALWAYS_CANDIDATE_CARD_CHARS = 900;
+
+/**
  * Render the prose-style capability statement embedded into the unified
  * `memory_v2_concept_pages` Qdrant collection (under the `skills/<id>` slug
- * prefix) and rendered in `### Skills You Can Use`. Capped at 500 chars to
- * match v1's behavior.
+ * prefix) and rendered in `### Skills You Can Use` / the memory-v3 selector
+ * card. Capped at `maxChars` (default 500). A larger budget switches the hints
+ * to a bulleted list — easier for the selector to parse one mode per line — so
+ * always-candidate skills can carry a fuller, multi-mode description.
  */
-export function buildSkillContent(input: SkillCapabilityInput): string {
+export function buildSkillContent(
+  input: SkillCapabilityInput,
+  maxChars = 500,
+): string {
+  const list = maxChars > 500;
   let content = `The "${input.displayName}" skill (${input.id}) is available. ${input.description}.`;
   if (input.activationHints && input.activationHints.length > 0) {
-    content += ` Use when: ${input.activationHints.join("; ")}.`;
+    content += list
+      ? `\nUse when:\n${input.activationHints.map((h) => `- ${h}`).join("\n")}`
+      : ` Use when: ${input.activationHints.join("; ")}.`;
   }
   if (input.avoidWhen && input.avoidWhen.length > 0) {
-    content += ` Avoid when: ${input.avoidWhen.join("; ")}.`;
+    content += list
+      ? `\nAvoid when:\n${input.avoidWhen.map((a) => `- ${a}`).join("\n")}`
+      : ` Avoid when: ${input.avoidWhen.join("; ")}.`;
   }
-  if (content.length > 500) {
-    content = content.slice(0, 500);
+  if (content.length > maxChars) {
+    content = content.slice(0, maxChars);
   }
   return content;
 }

@@ -28,7 +28,10 @@ import {
 import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
-import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
+import {
+  type GuardianPendingScope,
+  routeGuardianReply,
+} from "../runtime/guardian-reply-router.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import type { CleanResult, Conversation } from "./conversation.js";
@@ -153,7 +156,7 @@ function resolveQueuedTurnInterfaceContext(
 }
 
 /** Build a SlashContext from the current conversation state and config. */
-function buildSlashContext(
+export function buildSlashContext(
   content: string,
   conversation: Conversation,
 ): SlashContext | undefined {
@@ -1407,9 +1410,14 @@ export async function processMessage(
           "vellum",
         ).map((request) => request.id)
       : [];
-  const canonicalPendingRequestIdsForConversation =
+  // Empty hints → leave the scope unset (identity-fallback): the desktop
+  // guardian can still resolve their pending work by identity/principal.
+  const pendingScope: GuardianPendingScope | undefined =
     canonicalPendingRequestHintIdsForConversation.length > 0
-      ? canonicalPendingRequestHintIdsForConversation
+      ? {
+          mode: "scoped",
+          requestIds: canonicalPendingRequestHintIdsForConversation,
+        }
       : undefined;
 
   // ── Canonical guardian reply router (desktop/conversation path) ──
@@ -1428,7 +1436,7 @@ export async function processMessage(
           conversation.trustContext?.guardianPrincipalId ?? undefined,
       },
       conversationId: conversation.conversationId,
-      pendingRequestIds: canonicalPendingRequestIdsForConversation,
+      pendingScope,
       // Desktop path: disable NL classification to avoid consuming non-decision
       // messages while a tool confirmation is pending. Deterministic code-prefix
       // and callback parsing remain active.

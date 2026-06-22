@@ -6,6 +6,7 @@
  * attachments by calling the Slack Web API directly via ./api.ts.
  */
 
+import type { Button, KnownBlock } from "@slack/types";
 import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
 
 import { getAttachmentContent } from "../../../memory/attachments-store.js";
@@ -27,24 +28,22 @@ const log = getLogger("slack-send");
 const SLACK_MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
-// Approval Block Kit builder (mirrors gateway/src/slack/block-kit-builder.ts)
+// Approval Block Kit builder
 // ---------------------------------------------------------------------------
 
 function buildApprovalBlocks(
   message: string,
   approval: ApprovalUIMetadata,
-): unknown[] {
+): KnownBlock[] {
+  const buttons: Button[] = approval.actions.map((action) => ({
+    type: "button",
+    text: { type: "plain_text", text: action.label, emoji: true },
+    action_id: `apr:${approval.requestId}:${action.id}`,
+    value: `apr:${approval.requestId}:${action.id}`,
+  }));
   return [
     { type: "section", text: { type: "mrkdwn", text: message } },
-    {
-      type: "actions",
-      elements: approval.actions.map((action) => ({
-        type: "button",
-        text: { type: "plain_text", text: action.label, emoji: true },
-        action_id: `apr:${approval.requestId}:${action.id}`,
-        value: `apr:${approval.requestId}:${action.id}`,
-      })),
-    },
+    { type: "actions", elements: buttons },
     {
       type: "context",
       elements: [
@@ -63,10 +62,10 @@ function buildApprovalBlocks(
 
 function resolveBlocks(
   text: string | undefined,
-  providedBlocks: unknown[] | undefined,
+  providedBlocks: KnownBlock[] | undefined,
   approval: ApprovalUIMetadata | undefined,
   useBlocks: boolean | undefined,
-): unknown[] {
+): KnownBlock[] {
   if (Array.isArray(providedBlocks) && providedBlocks.length > 0) {
     return providedBlocks;
   }
@@ -110,7 +109,7 @@ async function uploadFileToSlack(
 
 export interface SlackSendOptions {
   threadTs?: string;
-  blocks?: unknown[];
+  blocks?: KnownBlock[];
   approval?: ApprovalUIMetadata;
   useBlocks?: boolean;
   ephemeral?: boolean;
@@ -121,11 +120,53 @@ export interface SlackSendOptions {
 export interface SlackSendResult {
   ok: boolean;
   ts?: string;
-  placeholderTs?: string;
+}
+
+/**
+ * Call a Slack message API once, retrying a single time without Block Kit
+ * blocks if Slack rejects the payload with `invalid_blocks`.
+ *
+ * `invalid_blocks` faults the Block Kit payload, not the target — the retry
+ * repeats the *same* operation (same `chat.update` ts, same `chat.postMessage`
+ * thread) without blocks, so it edits/posts in place rather than spawning a
+ * second message. Any other error propagates to the caller.
+ */
+async function sendWithBlockFallback(
+  method: string,
+  baseBody: Record<string, unknown>,
+  blocks: KnownBlock[],
+  options: { fallbackWithoutBlocks: boolean },
+): Promise<SlackSendResult> {
+  try {
+    const result = await callSlackApi(
+      method,
+      blocks.length > 0 ? { ...baseBody, blocks } : baseBody,
+    );
+    return { ok: true, ts: result.ts };
+  } catch (err) {
+    if (
+      options.fallbackWithoutBlocks &&
+      blocks.length > 0 &&
+      err instanceof SlackApiError &&
+      err.slackError === "invalid_blocks"
+    ) {
+      log.warn({ method }, "Slack rejected blocks; retrying without blocks");
+      const result = await callSlackApi(method, baseBody);
+      return { ok: true, ts: result.ts };
+    }
+    throw err;
+  }
 }
 
 /**
  * Send a Slack text message with optional Block Kit formatting.
+ *
+ * When `messageTs` is set this is strictly an in-place edit (`chat.update`),
+ * mirroring `editMessage()` in ./withdraw.ts: a failed edit throws and is
+ * never converted into a fresh `chat.postMessage`. Posting on failure would
+ * leave the original message beside a duplicate ("ghost") reply; re-delivery
+ * after a transient failure is the delivery layer's responsibility, not this
+ * function's.
  */
 export async function sendSlackReply(
   chatId: string,
@@ -139,84 +180,45 @@ export async function sendSlackReply(
     options?.useBlocks,
   );
 
-  const slackBody: Record<string, unknown> = {
-    channel: chatId,
-    text,
-  };
-  if (blocks.length > 0) slackBody.blocks = blocks;
-  if (options?.threadTs) slackBody.thread_ts = options.threadTs;
-
-  const isUpdate =
-    typeof options?.messageTs === "string" && options.messageTs.length > 0;
-
-  if (isUpdate) {
-    const updateBody: Record<string, unknown> = {
-      channel: chatId,
-      text,
-      ts: options!.messageTs,
-    };
-    if (blocks.length > 0) updateBody.blocks = blocks;
-
-    try {
-      const result = await callSlackApi("chat.update", updateBody);
-      log.info(
-        { chatId, messageTs: options!.messageTs },
-        "Slack message updated",
-      );
-      return { ok: true, ts: result.ts };
-    } catch (err) {
-      if (err instanceof SlackApiError && err.slackError === "invalid_blocks") {
-        log.warn(
-          { chatId, messageTs: options!.messageTs },
-          "chat.update returned invalid_blocks; falling back to chat.postMessage without blocks",
-        );
-        delete slackBody.blocks;
-      } else {
-        log.warn(
-          { chatId, messageTs: options!.messageTs },
-          "Slack chat.update failed, falling back to chat.postMessage",
-        );
-      }
-    }
+  const messageTs = options?.messageTs;
+  if (typeof messageTs === "string" && messageTs.length > 0) {
+    const result = await sendWithBlockFallback(
+      "chat.update",
+      { channel: chatId, text, ts: messageTs },
+      blocks,
+      { fallbackWithoutBlocks: true },
+    );
+    log.info({ chatId, messageTs }, "Slack message updated");
+    return result;
   }
+
+  const postBase: Record<string, unknown> = { channel: chatId, text };
+  if (options?.threadTs) postBase.thread_ts = options.threadTs;
 
   if (options?.ephemeral) {
     if (!options.user)
       throw new Error("user is required for ephemeral messages");
     const result = await callSlackApi("chat.postEphemeral", {
-      ...slackBody,
+      ...postBase,
+      ...(blocks.length > 0 ? { blocks } : {}),
       user: options.user,
     });
     return { ok: true, ts: result.ts };
   }
 
-  try {
-    const result = await callSlackApi("chat.postMessage", slackBody);
-    log.info(
-      { chatId, hasThreadTs: !!options?.threadTs },
-      "Slack message sent",
-    );
-    return { ok: true, ts: result.ts };
-  } catch (err) {
-    // Retry without blocks for invalid_blocks errors
-    if (
-      err instanceof SlackApiError &&
-      err.slackError === "invalid_blocks" &&
-      !options?.approval &&
-      !options?.ephemeral &&
-      Array.isArray(slackBody.blocks) &&
-      (slackBody.blocks as unknown[]).length > 0
-    ) {
-      log.warn(
-        { chatId },
-        "Retrying Slack delivery without blocks after invalid_blocks",
-      );
-      delete slackBody.blocks;
-      const result = await callSlackApi("chat.postMessage", slackBody);
-      return { ok: true, ts: result.ts };
-    }
-    throw err;
-  }
+  // Approval prompts carry their action buttons in `blocks`; dropping them on
+  // `invalid_blocks` would post a card with no way to respond, so only
+  // non-approval posts fall back to a block-free retry.
+  const result = await sendWithBlockFallback(
+    "chat.postMessage",
+    postBase,
+    blocks,
+    {
+      fallbackWithoutBlocks: !options?.approval,
+    },
+  );
+  log.info({ chatId, hasThreadTs: !!options?.threadTs }, "Slack message sent");
+  return result;
 }
 
 /**

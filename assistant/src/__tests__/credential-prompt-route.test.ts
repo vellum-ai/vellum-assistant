@@ -110,6 +110,7 @@ function slackResult(
     hasAppToken: false,
     hasUserToken: false,
     connected: false,
+    threadMode: "mention_only",
     ...overrides,
   };
 }

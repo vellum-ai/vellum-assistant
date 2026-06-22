@@ -45,7 +45,7 @@ function loadDesignSystemCss(): string {
   try {
     const cssPath = join(
       import.meta.dirname ?? __dirname,
-      "../../../../clients/macos/vellum-assistant/Resources/vellum-design-system.css",
+      "assets/vellum-design-system.css",
     );
     designSystemCssCache = readFileSync(cssPath, "utf-8");
   } catch {

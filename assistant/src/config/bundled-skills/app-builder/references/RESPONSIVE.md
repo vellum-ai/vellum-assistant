@@ -40,7 +40,7 @@ The conversation context's `<turn_context>` block carries an `interface:` field.
 
 - Use fluid widths only. No fixed-pixel layouts. Prefer `%`, `fr`, `minmax`, `clamp()` over `px` on container widths.
 - At narrow widths, collapse tables into stacked cards with labels and values arranged vertically.
-- Size `vellum.widgets.*` chart containers in `vw` / `%`, not fixed `px`.
+- Size chart containers (`chart.js` canvas or inline SVG) in `vw` / `%`, not fixed `px`.
 
 ---
 

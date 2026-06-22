@@ -48,6 +48,7 @@ export class CallSiteConfiguredProvider implements Provider {
     private readonly inner: Provider,
     private readonly callSite: LLMCallSite,
     private readonly overrideProfile?: string,
+    private readonly forceOverrideProfile?: boolean,
   ) {
     this.name = inner.name;
     this.tokenEstimationProvider = inner.tokenEstimationProvider;
@@ -71,6 +72,10 @@ export class CallSiteConfiguredProvider implements Provider {
         this.overrideProfile !== undefined
           ? { overrideProfile: this.overrideProfile }
           : {}),
+        ...(config?.forceOverrideProfile === undefined &&
+        this.forceOverrideProfile !== undefined
+          ? { forceOverrideProfile: this.forceOverrideProfile }
+          : {}),
       },
     });
   }
@@ -88,13 +93,15 @@ export class CallSiteConfiguredProvider implements Provider {
  * matching call-site identifier from `LLMCallSiteEnum` when adding a new
  * caller. Pass `opts.overrideProfile` to apply a per-call ad-hoc profile
  * override (e.g. a per-conversation pinned profile) on top of any workspace
- * `activeProfile`.
+ * `activeProfile`. Pass `opts.forceOverrideProfile` to float that override
+ * above the call-site layers (named site profile + call-site override) for
+ * non-main-agent call sites — see `ResolveCallSiteOpts.forceOverrideProfile`.
  *
  * Returns `null` when no providers are available at all.
  */
 export async function resolveConfiguredProvider(
   callSite: LLMCallSite,
-  opts: { overrideProfile?: string } = {},
+  opts: { overrideProfile?: string; forceOverrideProfile?: boolean } = {},
 ): Promise<ConfiguredProviderResult | null> {
   const config = getConfig();
 
@@ -174,6 +181,7 @@ export async function resolveConfiguredProvider(
       connectionProvider,
       callSite,
       opts.overrideProfile,
+      opts.forceOverrideProfile,
     ),
     configuredProviderName: inferenceProvider,
   };
@@ -189,7 +197,7 @@ export async function resolveConfiguredProvider(
  */
 export async function getConfiguredProvider(
   callSite: LLMCallSite,
-  opts: { overrideProfile?: string } = {},
+  opts: { overrideProfile?: string; forceOverrideProfile?: boolean } = {},
 ): Promise<Provider | null> {
   const result = await resolveConfiguredProvider(callSite, opts);
   return result?.provider ?? null;

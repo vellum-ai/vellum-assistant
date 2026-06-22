@@ -8,18 +8,10 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-let collectUsageData = true;
+let shareAnalytics = true;
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    collectUsageData,
-  }),
+mock.module("../platform/consent-cache.js", () => ({
+  getCachedShareAnalytics: () => shareAnalytics,
 }));
 
 import { getDb } from "./db-connection.js";
@@ -30,7 +22,7 @@ import {
   recordSkillLoadedEvent,
 } from "./skill-loaded-events-store.js";
 
-initializeDb();
+await initializeDb();
 
 function insertEvent(
   id: string,
@@ -42,12 +34,12 @@ function insertEvent(
 
 describe("skill-loaded-events-store", () => {
   beforeEach(() => {
-    collectUsageData = true;
+    shareAnalytics = true;
     getDb().delete(skillLoadedEvents).run();
   });
 
-  test("honors the collectUsageData opt-out (records nothing)", () => {
-    collectUsageData = false;
+  test("honors the share_analytics opt-out (records nothing)", () => {
+    shareAnalytics = false;
     recordSkillLoadedEvent({ skillName: "web-research" });
     expect(queryUnreportedSkillLoadedEvents(0, undefined, 10)).toHaveLength(0);
   });

@@ -24,43 +24,42 @@ export function readPayloadString(
   payload: unknown,
   key: string,
 ): string | undefined {
-  if (!payload || typeof payload !== "object") return undefined;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+    return undefined;
   const value = (payload as Record<string, unknown>)[key];
   return typeof value === "string" ? value : undefined;
 }
 
+/** Truncate `text` to `maxLength`, appending "…" when exceeded. */
+export function truncate(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  return text.slice(0, maxLength - 1) + "…";
+}
+
 // ── Sanitization ────────────────────────────────────────────────────────────
 
-const IDENTITY_FIELD_MAX_LENGTH = 120;
+/** Strip control characters and newlines, then truncate to `maxLength`. */
+function sanitize(value: string, maxLength: number): string {
+  return truncate(
+    value.replace(/[\x00-\x1f\x7f-\x9f\r\n]+/g, " ").trim(),
+    maxLength,
+  );
+}
 
 /**
  * Sanitize an untrusted identity field for inclusion in notification copy.
- *
- * - Strips control characters (U+0000–U+001F, U+007F–U+009F) and newlines.
- * - Clamps to 120 characters.
+ * Strips control characters and clamps to 120 characters.
  */
 export function sanitizeIdentityField(value: string): string {
-  const stripped = value.replace(/[\x00-\x1f\x7f-\x9f\r\n]+/g, " ").trim();
-  const clamped =
-    stripped.length > IDENTITY_FIELD_MAX_LENGTH
-      ? stripped.slice(0, IDENTITY_FIELD_MAX_LENGTH) + "…"
-      : stripped;
-  return clamped;
+  return sanitize(value, 120);
 }
 
 export const MESSAGE_PREVIEW_MAX_LENGTH = 200;
 
 /**
  * Sanitize an untrusted message preview for inclusion in notification copy.
- *
- * Same as {@link sanitizeIdentityField} but uses a higher length limit
- * (200 chars) suited for message previews.
+ * Strips control characters and clamps to 200 characters.
  */
 export function sanitizeMessagePreview(value: string): string {
-  const stripped = value.replace(/[\x00-\x1f\x7f-\x9f\r\n]+/g, " ").trim();
-  const clamped =
-    stripped.length > MESSAGE_PREVIEW_MAX_LENGTH
-      ? stripped.slice(0, MESSAGE_PREVIEW_MAX_LENGTH) + "…"
-      : stripped;
-  return clamped;
+  return sanitize(value, MESSAGE_PREVIEW_MAX_LENGTH);
 }

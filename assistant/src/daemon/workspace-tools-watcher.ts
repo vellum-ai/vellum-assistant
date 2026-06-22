@@ -23,9 +23,9 @@
  * the world: "given what's on disk right now for `<stem>.*`, what
  * registry state should the assistant be in?"
  *
- * This is the same eventual-consistency pattern as
- * `plugin-source-watcher.ts` — the watcher exists to KICK the
- * reconciler, not to be the source of truth about what changed.
+ * This is the same eventual-consistency pattern the plugin mtime cache
+ * uses — the watcher exists to KICK the reconciler, not to be the
+ * source of truth about what changed.
  *
  * ## Lifecycle position
  *
@@ -57,6 +57,7 @@ import {
   loadSingleWorkspaceTool,
 } from "../tools/workspace-tools/loader.js";
 import { DebouncerMap } from "../util/debounce.js";
+import { attachFsWatcherErrorHandler } from "../util/fs-watcher-error.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceToolsDir } from "../util/platform.js";
 
@@ -154,6 +155,9 @@ export class WorkspaceToolsWatcher {
           });
         },
       );
+      // Async FSWatcher errors (e.g. ENOSPC, ENXIO) arrive as an 'error' event;
+      // without a listener they crash the daemon. Degrade to a dead watcher.
+      attachFsWatcherErrorHandler(this.watcher, log, toolsDir);
       log.info({ toolsDir }, "Workspace tools watcher started");
     } catch (err) {
       log.warn(

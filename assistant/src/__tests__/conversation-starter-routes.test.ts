@@ -14,7 +14,7 @@ mock.module("../prompts/user-reference.js", () => ({
   resolveUserReference: () => "Alice",
 }));
 
-import { getSqlite } from "../memory/db-connection.js";
+import { getMemorySqlite, getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
   CONVERSATION_STARTERS_STALE_TTL_MS,
@@ -23,7 +23,7 @@ import {
 } from "../runtime/routes/conversation-starter-routes.js";
 import { RouteError } from "../runtime/routes/errors.js";
 
-initializeDb();
+await initializeDb();
 
 /**
  * Dispatch a request to the ROUTES array by matching endpoint + method.
@@ -66,7 +66,7 @@ function dispatch(path: string, method = "GET"): unknown | Promise<unknown> {
 function clearTables() {
   getSqlite().run("DELETE FROM conversation_starters");
   getSqlite().run("DELETE FROM memory_graph_nodes");
-  getSqlite().run("DELETE FROM memory_jobs");
+  getMemorySqlite()!.run("DELETE FROM memory_jobs");
   getSqlite().run("DELETE FROM memory_checkpoints");
 }
 
@@ -129,7 +129,7 @@ function setCheckpoint(key: string, value: string, updatedAt = Date.now()) {
 
 function insertStarterJob(scopeId = "default", status = "pending") {
   const now = Date.now();
-  getSqlite().run(
+  getMemorySqlite()!.run(
     `INSERT INTO memory_jobs (
       id, type, payload, status, attempts, deferrals, run_after, last_error,
       started_at, created_at, updated_at
@@ -140,7 +140,7 @@ function insertStarterJob(scopeId = "default", status = "pending") {
 
 function countStarterJobs() {
   return (
-    getSqlite()
+    getMemorySqlite()!
       .prepare(
         `SELECT COUNT(*) AS c FROM memory_jobs WHERE type = 'generate_conversation_starters'`,
       )

@@ -692,6 +692,41 @@ export class AcpSessionManager {
   }
 
   /**
+   * Cancels every in-flight session spawned by `parentConversationId`.
+   *
+   * Mirrors the subagent manager's `abortAllForParent`: when the user cancels
+   * a turn, the ACP agents it launched should stop rather than keep running in
+   * the background — holding a child process — and then, on completion, enqueue
+   * a follow-up message into the conversation the user just stopped. Cancelling
+   * settles each in-flight prompt down its `"cancelled"` path, which sends a
+   * client event but does NOT notify the parent, so no model activity follows
+   * the stop.
+   *
+   * Each session's `cancel()` runs detached (it awaits a protocol notification
+   * to the child) so callers on the cancel hot path never block on an
+   * unresponsive agent; failures are logged. Session ids are snapshotted before
+   * dispatch so concurrent teardown can't disturb the iteration. Returns the
+   * number of sessions a cancel was kicked off for.
+   */
+  cancelForParent(parentConversationId: string): number {
+    const ids: string[] = [];
+    for (const [acpSessionId, entry] of this.sessions) {
+      if (entry.parentConversationId === parentConversationId) {
+        ids.push(acpSessionId);
+      }
+    }
+    for (const acpSessionId of ids) {
+      void this.cancel(acpSessionId).catch((err) => {
+        log.warn(
+          { acpSessionId, parentConversationId, err },
+          "Failed to cancel ACP session on parent cancel",
+        );
+      });
+    }
+    return ids.length;
+  }
+
+  /**
    * Kills the agent process and removes the session from tracking.
    *
    * Persists the buffered event log first so abort paths

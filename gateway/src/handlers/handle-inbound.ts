@@ -5,6 +5,7 @@ import { ipcCallAssistant } from "../ipc/assistant-client.js";
 import { resolveIpcSocketPath } from "../ipc/socket-path.js";
 import { ContactStore } from "../db/contact-store.js";
 import { getLogger } from "../logger.js";
+import { resolveAdmissionPolicy } from "../risk/admission-policy-cache.js";
 import { canonicalizeInboundIdentity } from "../verification/identity.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 import type { RouteResult } from "../routing/types.js";
@@ -62,6 +63,36 @@ export async function handleInbound(
   event: GatewayInboundEvent,
   options?: HandleInboundOptions,
 ): Promise<InboundResult> {
+  // ── Admission policy: `no_one` kill switch ──
+  // Channel-global hard-deny, evaluated BEFORE routing so a channel set to
+  // `no_one` denies every inbound with the kill-switch reason — even an
+  // unmapped chat that would otherwise exit via the routing-rejection path
+  // and read as a setup failure. Also runs before `tryTextVerificationIntercept`
+  // because the kill switch admits nobody — verification-code redemption during
+  // a `no_one` lockout would upgrade an actor on a channel the guardian has
+  // explicitly turned off.
+  //
+  // Defense in depth: the §8.1 exempt set (vellum/platform/a2a) skips this
+  // check so a guardian can never lock themselves out of the desktop client
+  // via the admission UI. The same exemption is enforced PUT-side in
+  // channel-admission-policy.ts and at the runtime admission stage.
+  const admissionPolicy = resolveAdmissionPolicy(event.sourceChannel);
+  if (admissionPolicy === "no_one") {
+    log.info(
+      {
+        sourceChannel: event.sourceChannel,
+        conversationExternalId: event.message.conversationExternalId,
+        actorExternalId: event.actor.actorExternalId,
+      },
+      "Inbound event hard-denied by admission policy 'no_one'",
+    );
+    return {
+      forwarded: false,
+      rejected: true,
+      rejectionReason: "admission_no_one",
+    };
+  }
+
   const routing =
     options?.routingOverride ??
     resolveAssistant(
@@ -158,6 +189,11 @@ export async function handleInbound(
           isRestricted: event.actor.isRestricted,
           ...(transportHints.length > 0 ? { hints: transportHints } : {}),
           ...(transportUxBrief ? { uxBrief: transportUxBrief } : {}),
+          // Floor for the runtime admission stage. Exempt channels send no
+          // value; the runtime's own exempt-channel short-circuit then
+          // admits unconditionally. Non-exempt channels always carry the
+          // cache value (default `trusted_contacts` when the row is absent).
+          ...(admissionPolicy ? { admissionPolicy } : {}),
           ...(options?.sourceMetadata ?? {}),
         },
         ...(options?.attachmentIds?.length
@@ -242,7 +278,7 @@ async function touchContactChannelStats(
   // Look up channel in assistant DB (source of truth), with
   // externalChatId fallback for legacy/imported contacts.
   let result = (await ipcCallAssistant("db_proxy", {
-    sql: "SELECT id FROM contact_channels WHERE type = ? AND external_user_id = ? LIMIT 1",
+    sql: "SELECT id FROM contact_channels WHERE type = ? AND address = ? COLLATE NOCASE LIMIT 1",
     mode: "query",
     bind: [event.sourceChannel, canonicalActorId],
   })) as DbProxyResult;

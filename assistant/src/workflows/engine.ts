@@ -73,6 +73,30 @@ export type WorkflowProgressEvent =
   | { type: "phase"; title: string }
   | { type: "log"; message: string };
 
+/**
+ * An observe-only lifecycle event for a single leaf — the source of a live leaf
+ * tree. Emitted once when a leaf STARTS (after the cap check + spawn increment)
+ * and once when it FINISHES (completed or failed). A journal-replayed leaf and
+ * an aborted in-flight leaf emit neither.
+ */
+export type WorkflowLeafEvent =
+  | {
+      type: "leaf_started";
+      seq: number;
+      label?: string;
+      phase?: string;
+      promptSummary: string;
+    }
+  | {
+      type: "leaf_finished";
+      seq: number;
+      status: "completed" | "failed";
+      label?: string;
+      inputTokens: number;
+      outputTokens: number;
+      resultSummary: string;
+    };
+
 /** The journal-store surface the engine depends on (injectable for tests). */
 export interface WorkflowJournal {
   appendJournalEntry: typeof JournalStore.appendJournalEntry;
@@ -108,6 +132,13 @@ export interface ExecuteWorkflowOptions {
   trustContext: TrustContext;
   /** Receives `phase`/`log` progress events from the script. */
   onProgress?: (event: WorkflowProgressEvent) => void;
+  /**
+   * Observe-only per-leaf lifecycle hook. Emits once on START (after the cap
+   * check + spawn increment; NEVER on a journal-replay short-circuit) and once
+   * on FINISH (completed or failed). An aborted in-flight leaf emits NEITHER a
+   * finish nor a spurious failed.
+   */
+  onLeaf?: (event: WorkflowLeafEvent) => void;
   /** Cooperative cancellation for the whole run. */
   signal?: AbortSignal;
 }
@@ -451,6 +482,26 @@ function skipRegexLiteral(source: string, start: number): number {
   return source.length - 1;
 }
 
+/**
+ * A bounded string summary of a leaf prompt or result, for an observe-only
+ * {@link WorkflowLeafEvent}. Strings pass through; everything else is
+ * JSON-serialized (falling back to `String(value)` if it cannot be). Truncated
+ * to `max` chars with a trailing ellipsis.
+ */
+function summarizeForLeafEvent(value: unknown, max = 200): string {
+  let text: string;
+  if (typeof value === "string") {
+    text = value;
+  } else {
+    try {
+      text = JSON.stringify(value);
+    } catch {
+      text = String(value);
+    }
+  }
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
 function callHashOf(prompt: string, opts: LeafCallOptions): string {
   return createHash("sha256")
     .update(deterministicStringify({ prompt, opts }))
@@ -542,6 +593,7 @@ export async function executeWorkflow(
     leafRunner,
     trustContext,
     onProgress,
+    onLeaf,
     signal,
   } = opts;
 
@@ -586,6 +638,11 @@ export async function executeWorkflow(
   let inputTokens = existing ? existing.inputTokens : 0;
   let outputTokens = existing ? existing.outputTokens : 0;
   let capExceeded = false;
+  // Warn ONCE per run (not per leaf) the first time a schema leaf is launched:
+  // schema leaves run with no tools, so a judge panel that correctly passes its
+  // content inline shouldn't get a wall of warnings, but the author still gets a
+  // visible signal that these leaves cannot read.
+  let warnedSchemaLeafNoTools = false;
 
   /** Persist live counters so `getRun` reports them mid-flight. */
   const flushCounters = (): void => {
@@ -630,6 +687,14 @@ export async function executeWorkflow(
     }
     agentsSpawned += 1;
 
+    onLeaf?.({
+      type: "leaf_started",
+      seq,
+      ...(leafOpts.label !== undefined ? { label: leafOpts.label } : {}),
+      ...(leafOpts.phase !== undefined ? { phase: leafOpts.phase } : {}),
+      promptSummary: summarizeForLeafEvent(prompt),
+    });
+
     try {
       // A leaf is EITHER a schema leaf (structured output via forced
       // tool-choice — `schema` set, no tools) OR a tool leaf (free-form with
@@ -637,6 +702,23 @@ export async function executeWorkflow(
       // resolved capabilities always include a non-empty read-only baseline, so
       // forward `tools` only on the tool-leaf path; a schema leaf runs with none.
       const isSchemaLeaf = leafOpts.schema !== undefined;
+      if (isSchemaLeaf && !warnedSchemaLeafNoTools) {
+        warnedSchemaLeafNoTools = true;
+        // The forced-tool-choice structured-output path forwards NO tools, so a
+        // schema leaf has no file_read/file_list/recall/web_search — it cannot
+        // read files or look anything up. A schema leaf told to "read these
+        // files and compare" will answer from the model's prior, not real data
+        // (the source of confabulated output). Anything it must judge has to be
+        // passed inline in its prompt. Surfaced once per run as a backstop; the
+        // primary guidance lives in the workflows skill the author reads first.
+        log.warn(
+          { runId },
+          "Schema leaves run with NO tools (no file_read/file_list/recall/" +
+            "web_search) — they cannot read files or recall memory. Pass any " +
+            "content a schema leaf must judge INLINE in its prompt; a schema " +
+            "leaf asked to read or look something up will confabulate.",
+        );
+      }
       const result = await leafRunner({
         prompt,
         ...(leafOpts.label !== undefined ? { label: leafOpts.label } : {}),
@@ -666,6 +748,17 @@ export async function executeWorkflow(
         request: { prompt, opts: leafOpts },
         result: result.output,
         status: "completed",
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+      });
+      onLeaf?.({
+        type: "leaf_finished",
+        seq,
+        status: "completed",
+        ...(leafOpts.label !== undefined ? { label: leafOpts.label } : {}),
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        resultSummary: summarizeForLeafEvent(result.output),
       });
       return { output: result.output, failed: false };
     } catch (err) {
@@ -693,6 +786,17 @@ export async function executeWorkflow(
         { err, runId, seq, label: leafOpts.label },
         "Workflow leaf failed",
       );
+      onLeaf?.({
+        type: "leaf_finished",
+        seq,
+        status: "failed",
+        ...(leafOpts.label !== undefined ? { label: leafOpts.label } : {}),
+        inputTokens: 0,
+        outputTokens: 0,
+        resultSummary: summarizeForLeafEvent(
+          err instanceof Error ? err.message : String(err),
+        ),
+      });
       return { output: null, failed: true };
     }
   };

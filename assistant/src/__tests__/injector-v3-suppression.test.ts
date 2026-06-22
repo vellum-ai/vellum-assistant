@@ -2,7 +2,7 @@
  * Tests for the memory-v3 step-0 branch in `applyRuntimeInjections`:
  * spotlight strip + v2 tail suppression.
  *
- * When the `memory-v3-live` flag is on AND the v3 injector (id `memory-v3`,
+ * When `memory.v3.live` is on AND the v3 injector (id `memory-v3`,
  * placement `after-memory-prefix`) produces a block — possibly EMPTY-TEXT on
  * an all-repeat turn — runtime assembly strips the v2 `<memory>` prefix from
  * the TAIL user message only before splicing the v3 block. Historical user
@@ -16,10 +16,11 @@
  * block lands at the tail.
  *
  * v2 suppression stays keyed off whether v3 produced a block, NOT off the
- * flag alone: a v3 failure (`produce()` → null) leaves v2's block intact
- * (fallback-to-v2). The flag-off path must be byte-for-byte identical to
+ * gate alone: a v3 failure (`produce()` → null) leaves v2's block intact
+ * (fallback-to-v2). The v3-off path must be byte-for-byte identical to
  * today — that is the load-bearing regression guard. `applyRuntimeInjections`
- * reads the flag itself, so these tests drive it through the override cache.
+ * reads the v3-live gate itself, so these tests drive it through the
+ * `isMemoryV3Live` mock slot.
  *
  * The strip discriminates v2's dynamic block by IDENTITY, not by prefix: v2's
  * `INJECTION_HEADER` and v3's `V3_CARDS_INJECTION_HEADER` are deliberately
@@ -42,7 +43,6 @@ import type {
   TurnContext,
 } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 // Drive the suppression branch by controlling the static injector chain that
 // `applyRuntimeInjections` walks. The slot is mutated per-test to stand in for
@@ -50,6 +50,13 @@ import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 const injectorChainSlot: Injector[] = [];
 mock.module("../plugins/defaults/memory-retrieval/injector-chain.js", () => ({
   getInjectorChain: () => injectorChainSlot,
+}));
+
+// `applyRuntimeInjections` reads the v3-live gate (`config.memory.v3.live`)
+// via `isMemoryV3Live`; drive it directly through this slot per-test.
+let memoryV3LiveSlot = false;
+mock.module("../config/memory-v3-gate.js", () => ({
+  isMemoryV3Live: () => memoryV3LiveSlot,
 }));
 
 const { applyRuntimeInjections } =
@@ -141,9 +148,9 @@ function tailTexts(messages: Message[]): string[] {
 describe("memory-v3-live v2 suppression", () => {
   beforeEach(() => {
     injectorChainSlot.length = 0;
-    // Clean baseline: no overrides → `memory-v3-live` resolves to its registry
-    // default (off). Each test seeds the flag it needs.
-    setOverridesForTesting({});
+    // Clean baseline: v3-live off (registry/config default). Each test seeds
+    // the gate value it needs.
+    memoryV3LiveSlot = false;
   });
 
   afterEach(() => {
@@ -152,7 +159,7 @@ describe("memory-v3-live v2 suppression", () => {
   });
 
   test("flag ON + v3 produced a block → TAIL v2 stripped, historical memory blocks frozen in place", async () => {
-    setOverridesForTesting({ "memory-v3-live": true });
+    memoryV3LiveSlot = true;
     injectorChainSlot.push(v3Injector("net-new cards"));
     seedV2Identity("fresh recalled fact");
 
@@ -194,7 +201,7 @@ describe("memory-v3-live v2 suppression", () => {
   });
 
   test("flag ON + EMPTY-TEXT v3 block (all-repeat turn) → tail v2 stripped, nothing attached", async () => {
-    setOverridesForTesting({ "memory-v3-live": true });
+    memoryV3LiveSlot = true;
     injectorChainSlot.push(v3Injector(""));
     seedV2Identity("fresh recalled fact");
 
@@ -217,7 +224,7 @@ describe("memory-v3-live v2 suppression", () => {
   });
 
   test("stale spotlight blocks are stripped from EVERY user message; the new spotlight lands at the tail", async () => {
-    setOverridesForTesting({ "memory-v3-live": true });
+    memoryV3LiveSlot = true;
     injectorChainSlot.push(v3Injector(""), spotlightInjector("fresh sections"));
 
     const staleSpotlight = {
@@ -253,7 +260,7 @@ describe("memory-v3-live v2 suppression", () => {
   });
 
   test("convergence re-entry: a tail leading with this turn's frozen v3 cards (and <info>) is NOT stripped", async () => {
-    setOverridesForTesting({ "memory-v3-live": true });
+    memoryV3LiveSlot = true;
     // Re-entry shape: the memo returns the same selections, every slug is now
     // in the everInjected store, so the injector produces an EMPTY block —
     // while the tail still carries the v3 card block frozen on first entry
@@ -292,7 +299,7 @@ describe("memory-v3-live v2 suppression", () => {
   });
 
   test("first entry with a v2 prefix AND a frozen v3 block strips ONLY the v2 block", async () => {
-    setOverridesForTesting({ "memory-v3-live": true });
+    memoryV3LiveSlot = true;
     injectorChainSlot.push(v3Injector(""));
     seedV2Identity("fresh recalled fact");
 
@@ -319,7 +326,7 @@ describe("memory-v3-live v2 suppression", () => {
   });
 
   test("REGRESSION: a v2 block leading with the REAL summary header (byte-identical to v3's) is stripped; v3 cards and <info> survive (first entry)", async () => {
-    setOverridesForTesting({ "memory-v3-live": true });
+    memoryV3LiveSlot = true;
     injectorChainSlot.push(v3Injector(""));
 
     // The collision this guards: v2's router block leads with
@@ -358,7 +365,7 @@ describe("memory-v3-live v2 suppression", () => {
   });
 
   test("REGRESSION: re-entry with a header-bearing v2 identity keeps the first entry's frozen v3 cards", async () => {
-    setOverridesForTesting({ "memory-v3-live": true });
+    memoryV3LiveSlot = true;
     // Re-entry: produce() returns the EMPTY block (cards already claimed by
     // the store) while the tail carries the FIRST entry's v3 block — and the
     // graph handle still holds the summary-bearing v2 identity from this
@@ -391,7 +398,7 @@ describe("memory-v3-live v2 suppression", () => {
   });
 
   test("v2 memory-image groups and legacy <memory __injected> blocks are stripped even without an identity", async () => {
-    setOverridesForTesting({ "memory-v3-live": true });
+    memoryV3LiveSlot = true;
     injectorChainSlot.push(v3Injector("net-new cards"));
     // No live graph handle: identity unknown (null). Image groups and legacy
     // blocks are unambiguously v2's and are stripped regardless; the shared
@@ -430,7 +437,7 @@ describe("memory-v3-live v2 suppression", () => {
   });
 
   test("the v3 block's attachment-commit callback fires on a user tail", async () => {
-    setOverridesForTesting({ "memory-v3-live": true });
+    memoryV3LiveSlot = true;
     const commit = mock(() => {});
     injectorChainSlot.push(v3Injector("net-new cards", commit));
 
@@ -443,7 +450,7 @@ describe("memory-v3-live v2 suppression", () => {
   });
 
   test("the commit callback is SKIPPED when the tail is not a user message (block never attaches)", async () => {
-    setOverridesForTesting({ "memory-v3-live": true });
+    memoryV3LiveSlot = true;
     const commit = mock(() => {});
     injectorChainSlot.push(v3Injector("net-new cards", commit));
 
@@ -465,7 +472,7 @@ describe("memory-v3-live v2 suppression", () => {
   });
 
   test("flag ON but v3 produced NOTHING → v2 block left intact (fallback-to-v2)", async () => {
-    setOverridesForTesting({ "memory-v3-live": true });
+    memoryV3LiveSlot = true;
     injectorChainSlot.push(v3Injector(null));
 
     const runMessages: Message[] = [
@@ -524,7 +531,7 @@ describe("memory-v3-live v2 suppression", () => {
   test("no v3 injector registered + flag ON → no stripping, messages untouched", async () => {
     // No injector named memory-v3 at all (e.g. plugin not loaded): the
     // suppression branch keys off the produced block, so nothing is stripped.
-    setOverridesForTesting({ "memory-v3-live": true });
+    memoryV3LiveSlot = true;
     expect(injectorChainSlot).toHaveLength(0);
 
     const runMessages: Message[] = [

@@ -195,7 +195,7 @@ async function up(target: NginxIngressTarget): Promise<void> {
     );
     console.error("");
     console.error("Build the SPA first:");
-    console.error("  cd apps/web && VITE_PLATFORM_MODE=false bun run build");
+    console.error("  cd clients/web && VITE_PLATFORM_MODE=false bun run build");
     console.error("");
     console.error(
       "Or install @vellumai/web so its packaged dist directory is available.",

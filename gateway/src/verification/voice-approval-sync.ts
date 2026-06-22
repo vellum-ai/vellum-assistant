@@ -92,12 +92,20 @@ async function syncVoiceApprovals(): Promise<void> {
     const chatId = (row.requester_chat_id as string | null) ?? fromNumber;
 
     try {
-      await upsertVerifiedContactChannel({
+      const { verified } = await upsertVerifiedContactChannel({
         sourceChannel: "phone",
         externalUserId: fromNumber,
         externalChatId: chatId,
       });
-      log.info({ fromNumber }, "Voice approval sync: contact activated");
+      if (verified) {
+        log.info({ fromNumber }, "Voice approval sync: contact activated");
+      } else {
+        // Authoritative gateway row is blocked/revoked — activation skipped.
+        log.warn(
+          { fromNumber },
+          "Voice approval sync: activation skipped (channel blocked/revoked)",
+        );
+      }
     } catch (err) {
       log.warn({ err, fromNumber }, "Voice approval sync: upsert failed");
     }

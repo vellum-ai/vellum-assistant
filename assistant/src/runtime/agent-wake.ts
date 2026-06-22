@@ -14,13 +14,22 @@
  *     `suppressAutoCompaction: true` to skip it; a suppressed wake whose
  *     input exceeds the effective context window fails deterministically
  *     with `reason: "context_overflow"` instead of compacting.
- *   - Appends `hint` as a non-persisted assistant message sandwiched
- *     between two static user messages — never shows up in the transcript
- *     or SSE feed. The assistant role prevents prompt injection (LLMs
- *     don't follow instructions in their own prior output), and the
- *     trailing user message satisfies providers that reject assistant
- *     prefill. The bookend user messages are hardcoded strings with no
- *     dynamic content, so they cannot carry injection payloads.
+ *   - Hint delivery has two modes:
+ *     - Default (ephemeral): appends `hint` as a non-persisted assistant
+ *       message sandwiched between two static user bookends — never shows up
+ *       in the transcript or SSE feed. The assistant role defangs prompt
+ *       injection (LLMs don't follow instructions in their own prior output)
+ *       and the bookends are hardcoded strings with no dynamic content. Suited
+ *       to wakes carrying arbitrary/untrusted hint text (meet chat
+ *       opportunities, the explicit wake route).
+ *     - `persistTriggerAsEvent`: appends the trigger as a SINGLE PERSISTED,
+ *       transcript-visible user message wrapped in `<background_event>` (any
+ *       untrusted command output fenced in `<external_content>`). Keeping the
+ *       trigger in durable, append-only history lets the provider prompt-cache
+ *       treat repeated wakes like normal user turns instead of re-creating the
+ *       whole prefix each wake. Used by background-command and scheduled wakes
+ *       whose `hint` is trusted framing; wakes carrying arbitrary caller hint
+ *       text stay on the ephemeral trio above.
  *   - Invokes the agent loop with all conversation tools available unless
  *     the caller provides an explicit `allowedTools` scope.
  *   - No tool calls AND no assistant text → silent no-op (nothing persisted,
@@ -58,6 +67,7 @@ import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { Conversation } from "../daemon/conversation.js";
+import { recordUsage } from "../daemon/conversation-usage.js";
 import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import {
   classifyDiskPressureTurnPolicy,
@@ -73,6 +83,7 @@ import {
   broadcastWakeSurface,
   emitWakeAgentEvent,
   persistWakeTailMessage,
+  persistWakeTriggerMessage,
   scopeWakeAllowedTools,
 } from "../daemon/wake-conversation-ops.js";
 import {
@@ -87,6 +98,10 @@ import {
 } from "../memory/llm-request-log-store.js";
 import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
+import {
+  type UntrustedContentSource,
+  wrapUntrustedContent,
+} from "../security/untrusted-content.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("agent-wake");
@@ -98,6 +113,46 @@ const WAKE_PREAMBLE =
 /** Static postamble user message — ends conversation on a user turn. */
 const WAKE_POSTAMBLE =
   "[system] End of message from external system, continue the conversation.";
+
+/** Sanitize a value for use as an XML attribute (no quotes/brackets/newlines). */
+function sanitizeEventAttr(value: string): string {
+  return value.replace(/[<>"&\r\n]/g, "").slice(0, 200);
+}
+
+/**
+ * Untrusted third-party output to fence inside a persisted wake trigger via
+ * {@link wrapUntrustedContent}. `maxChars` overrides the per-source character
+ * budget — used for preformatted shell output that `formatShellOutput` already
+ * bounded (to `MAX_OUTPUT_LENGTH`) and appended an `<output_truncated file=…/>`
+ * recovery marker to, so the wrapper does not re-truncate that marker off.
+ */
+interface WakeUntrustedOutput {
+  content: string;
+  source: UntrustedContentSource;
+  maxChars?: number;
+}
+
+/**
+ * Build the text for a persisted wake-trigger message: a `<background_event>`
+ * wrapper carrying the trusted framing, with any untrusted command output
+ * fenced in an `<external_content>` block the model is instructed never to
+ * obey. The wrapper signals "a system event woke you" (replacing the legacy
+ * `[system] external system` / `[opportunity:…]` bookends); `source` lives in
+ * the tag attribute and the message metadata.
+ */
+function buildBackgroundEventText(
+  source: string,
+  framing: string,
+  untrustedOutput?: WakeUntrustedOutput,
+): string {
+  const body = untrustedOutput
+    ? `${framing}\n${wrapUntrustedContent(untrustedOutput.content, {
+        source: untrustedOutput.source,
+        maxChars: untrustedOutput.maxChars,
+      })}`
+    : framing;
+  return `<background_event source="${sanitizeEventAttr(source)}">\n${body}\n</background_event>`;
+}
 
 /**
  * Warn line shared by the two reactive over-window failure sites (provider
@@ -240,6 +295,28 @@ export interface WakeOptions {
    * class and approval semantics are governed solely by `trustContext`.
    */
   personaOverride?: SystemPromptPersonaOverride;
+  /**
+   * Inject the wake's trigger as a SINGLE PERSISTED, transcript-visible user
+   * message (wrapped in `<background_event>`) appended to the conversation
+   * BEFORE the run, instead of the default ephemeral hint trio. This keeps the
+   * message array append-only so the provider prompt-cache behaves like a
+   * normal user turn — repeated wakes stop re-creating the whole prefix. The
+   * trigger is persisted unconditionally (like a normal user turn's message),
+   * even if the wake then produces no reply.
+   *
+   * `hint` is the trusted framing line; `untrustedOutput`, when given, is
+   * appended fenced in `<external_content>` so the model treats command output
+   * as data, never instructions. Mutually exclusive with the legacy
+   * `hintRole` / `skipHintInjection` injection.
+   */
+  persistTriggerAsEvent?: boolean;
+  /**
+   * Untrusted third-party output (e.g. background-command stdout) to fence
+   * inside the persisted trigger via {@link wrapUntrustedContent}. Only
+   * consulted when `persistTriggerAsEvent` is set; `hint` stays the trusted
+   * framing outside the fence.
+   */
+  untrustedOutput?: WakeUntrustedOutput;
 }
 
 /**
@@ -596,13 +673,14 @@ export async function wakeAgentForOpportunity(
     });
 
     // Apply the caller's persona override for the duration of the run. The
-    // wake's agent loop builds the system prompt through the conversation's
-    // resolveSystemPrompt callback, which reads this field; cleared (below,
-    // before drainQueue) so a queued user turn never builds its prompt under
-    // the wake's override. Assigned only AFTER the profile/config reads above
-    // — those can throw, and they run before the try/finally that clears the
-    // override, so an earlier assignment would strand the override on the
-    // cached Conversation and corrupt every later prompt build on it.
+    // prompt is built once before `agentLoop.run()` (via
+    // `conversation.buildCurrentSystemPrompt()`), which reads this field;
+    // cleared (below, before drainQueue) so a queued user turn never builds
+    // its prompt under the wake's override. Assigned only AFTER the
+    // profile/config reads above — those can throw, and they run before the
+    // try/finally that clears the override, so an earlier assignment would
+    // strand the override on the cached Conversation and corrupt every later
+    // prompt build on it.
     if (opts.personaOverride) {
       conversation.wakePersonaOverride = opts.personaOverride;
     }
@@ -651,6 +729,38 @@ export async function wakeAgentForOpportunity(
       }
     }
 
+    // ── Persisted-trigger injection (append-only wake) ─────────────────
+    // Append the trigger as a single VISIBLE user message to the in-memory
+    // history AND the DB BEFORE snapshotting the baseline, so the message
+    // array stays append-only (prompt-cache parity with a normal user turn)
+    // and `baseline` already contains it. Runs after `maybeCompact` (a
+    // successful compaction replaces `conversation.messages`) and inside the
+    // single-flight lock + processing flag, so no concurrent turn interleaves.
+    // Push first, then persist (matching the wake-tail flush idiom); a persist
+    // failure is non-fatal — the in-memory push keeps this run's prompt
+    // consistent. The trigger is part of `baseline`, so `flushPendingTail`
+    // never re-persists it.
+    if (opts.persistTriggerAsEvent) {
+      const triggerMessage: Message = {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: buildBackgroundEventText(source, hint, opts.untrustedOutput),
+          },
+        ],
+      };
+      conversation.messages.push(triggerMessage);
+      try {
+        await persistWakeTriggerMessage(conversation, triggerMessage, source);
+      } catch (err) {
+        log.warn(
+          { conversationId, source, err },
+          "agent-wake: failed to persist wake trigger message; continuing",
+        );
+      }
+    }
+
     const baseline = conversation.getMessages();
     // Snapshot the baseline length BEFORE the run starts. Incremental
     // persistence pushes onto `conversation.messages` mid-run, which grows the
@@ -659,44 +769,46 @@ export async function wakeAgentForOpportunity(
     // tail-slice math would skip every message.
     const baselineLength = baseline.length;
     const wakeTrust = buildWakeTrust(opts, diskPressureDecision);
-    // Build the hint injection. Three modes:
-    //   - `skipHintInjection`: caller has already persisted an instruction
-    //     message into the conversation history (typical for fork-based
-    //     memory retrospectives that append a user message before waking).
-    //   - `hintRole === "user"`: single user-role message containing the
-    //     hint directly. Used by trusted internal callers where the hint
-    //     reads naturally as an instruction.
+    // Build the ephemeral hint injection. `persistTriggerAsEvent` and
+    // `skipHintInjection` produce no injection here — the former already
+    // appended the trigger as a persisted message above; the latter relies on
+    // the caller having persisted an instruction (fork retrospectives). The
+    // remaining modes inject a non-persisted hint:
+    //   - `hintRole === "user"`: single user-role message containing the hint
+    //     directly. Used by trusted internal callers where the hint reads
+    //     naturally as an instruction.
     //   - default (`hintRole === "assistant"`): sandwich the hint as an
-    //     assistant message between two hardcoded user bookends. The
-    //     assistant role defangs prompt injection (LLMs don't follow
-    //     instructions in their own prior output) and the trailing user
-    //     message satisfies providers that reject assistant prefill.
+    //     assistant message between two hardcoded user bookends. The assistant
+    //     role defangs prompt injection (LLMs don't follow instructions in
+    //     their own prior output) and the trailing user message satisfies
+    //     providers that reject assistant prefill.
     const hintRole = opts.hintRole ?? "assistant";
-    const wakeMessages: Message[] = opts.skipHintInjection
-      ? []
-      : hintRole === "user"
-        ? [
-            {
-              role: "user",
-              content: [{ type: "text", text: hint }],
-            },
-          ]
-        : [
-            {
-              role: "user",
-              content: [{ type: "text", text: WAKE_PREAMBLE }],
-            },
-            {
-              role: "assistant",
-              content: [
-                { type: "text", text: `[opportunity:${source}] ${hint}` },
-              ],
-            },
-            {
-              role: "user",
-              content: [{ type: "text", text: WAKE_POSTAMBLE }],
-            },
-          ];
+    const wakeMessages: Message[] =
+      opts.persistTriggerAsEvent || opts.skipHintInjection
+        ? []
+        : hintRole === "user"
+          ? [
+              {
+                role: "user",
+                content: [{ type: "text", text: hint }],
+              },
+            ]
+          : [
+              {
+                role: "user",
+                content: [{ type: "text", text: WAKE_PREAMBLE }],
+              },
+              {
+                role: "assistant",
+                content: [
+                  { type: "text", text: `[opportunity:${source}] ${hint}` },
+                ],
+              },
+              {
+                role: "user",
+                content: [{ type: "text", text: WAKE_POSTAMBLE }],
+              },
+            ];
     const wakeHintMessageCount = wakeMessages.length;
     const runInput: Message[] = [...baseline, ...wakeMessages];
 
@@ -783,6 +895,47 @@ export async function wakeAgentForOpportunity(
       }
       if (event.type === "compaction_completed") {
         recordCompactionEndBestEffort(conversationId, event);
+      }
+      // Normal user turns record usage via the `dispatchAgentEvent` event handler)
+      // Wakes run their own onEvent and bypass it, so record here.
+      if (event.type === "usage") {
+        try {
+          recordUsage(
+            {
+              conversationId,
+              providerName: event.actualProvider ?? conversation.provider.name,
+              usageStats: conversation.usageStats,
+            },
+            event.inputTokens,
+            event.outputTokens,
+            event.model,
+            () => {},
+            "main_agent",
+            `wake:${source}`,
+            event.cacheCreationInputTokens ?? 0,
+            event.cacheReadInputTokens ?? 0,
+            event.rawResponse,
+            1,
+            undefined,
+            // Mirror the profile state the request actually ran under:
+            // `forceOverrideProfile` floats the override above the call-site
+            // profile (fork retrospectives with matchConversationProfile), and
+            // the conversation-id seed resolves the same mix arm the dispatch
+            // path chose. Without these, attribution credits the call-site
+            // profile/arm instead of the one that ran.
+            {
+              callSite,
+              overrideProfile: overrideProfile ?? null,
+              forceOverrideProfile,
+              selectionSeed: conversationId,
+            },
+          );
+        } catch (err) {
+          log.warn(
+            { conversationId, source, err },
+            "agent-wake: usage recording failed (non-fatal)",
+          );
+        }
       }
       // Replicates the recordRequestLog side-effect in `handleUsage` because
       // wakes own their own onEvent and never reach `dispatchAgentEvent`.
@@ -1063,6 +1216,19 @@ export async function wakeAgentForOpportunity(
         };
       }
 
+      // Wakes bypass `runAgentLoopImpl`, which is what stamps the live turn's
+      // call site and override profile onto the conversation for the tool
+      // executor to read. Without stamping them here, `subagent_spawn` (and
+      // usage attribution) see an unstamped context and resolve children under
+      // workspace defaults instead of the profile this wake actually runs
+      // under — so a wake on a conversation pinned to another profile spawns
+      // children under the wrong one. Restored in the `finally` so a queued
+      // user turn or a later background read never inherits the wake's stamps.
+      const priorCallSite = conversation.currentCallSite;
+      const priorTurnOverrideProfile = conversation.currentTurnOverrideProfile;
+      conversation.currentCallSite = callSite;
+      conversation.currentTurnOverrideProfile = overrideProfile;
+
       let updatedHistory: Message[];
       try {
         ({ history: updatedHistory } = await conversation.agentLoop.run({
@@ -1091,6 +1257,9 @@ export async function wakeAgentForOpportunity(
             maxInputTokens: effectiveContextWindow.maxInputTokens,
             overflowRecovery: { enabled: false, safetyMarginRatio: 0 },
           }),
+          ...(conversation.modelOverride
+            ? { model: conversation.modelOverride }
+            : {}),
         }));
       } catch (err) {
         // An over-window throw on a compaction-suppressed wake is the
@@ -1112,6 +1281,12 @@ export async function wakeAgentForOpportunity(
         // `processing` and drain the queue.
         runError = err instanceof Error ? err : new Error(String(err));
         return { invoked: true, producedToolCalls: false };
+      } finally {
+        // Restore the pre-wake values so a queued user turn or background read
+        // never observes the wake's stamps. (`runAgentLoopImpl` re-stamps both
+        // at the start of the next normal turn regardless.)
+        conversation.currentCallSite = priorCallSite;
+        conversation.currentTurnOverrideProfile = priorTurnOverrideProfile;
       }
 
       // The loop swallows provider rejections into a graceful no-output

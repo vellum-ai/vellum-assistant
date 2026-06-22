@@ -59,7 +59,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { ROUTES } from "../runtime/routes/conversation-management-routes.js";
 import { routeDefinitionsToHTTPRoutes } from "../runtime/routes/http-adapter.js";
 
-initializeDb();
+await initializeDb();
 
 describe("POST /v1/conversations/:id/cancel", () => {
   const cancelRoute = ROUTES.find(

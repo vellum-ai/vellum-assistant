@@ -29,7 +29,7 @@ import {
 } from "../../security/secure-keys.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
-import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
+import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
   InternalError,
@@ -360,7 +360,7 @@ export const ROUTES: RouteDefinition[] = [
     method: "GET",
     policy: {
       requiredScopes: ["settings.read"],
-      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Get platform deployment context and connection status",
     description:

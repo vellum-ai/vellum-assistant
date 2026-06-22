@@ -252,7 +252,6 @@ export class VellumAgent implements BaseAgent {
   private jail?: DockerEgressJail;
   private hatched = false;
   private stopped = false;
-  private baselineAppDistDirs = new Set<string>();
 
   constructor(opts: VellumAgentOptions) {
     this.profile = opts.profile;
@@ -427,12 +426,6 @@ export class VellumAgent implements BaseAgent {
       }
 
       this.hatched = true;
-
-      // Record the apps that already exist before the evaluated turn runs
-      // (e.g. startup-seeded preloaded apps like the personal landing page,
-      // which the daemon compiles in the background at boot). resolveAppPage()
-      // excludes these so it only ever returns an app the turn itself built.
-      this.baselineAppDistDirs = new Set(await this.listAppDistDirs());
     } catch (err) {
       // Capture container forensics BEFORE any teardown — once
       // containers are removed, `docker inspect` and `docker logs`
@@ -742,26 +735,13 @@ export class VellumAgent implements BaseAgent {
    */
   async resolveAppPage(): Promise<ResolvedAppPage | undefined> {
     this.assertHatched();
-    const distDir = await this.findNewestAppDistDir();
+    const [distDir] = await this.listAppDistDirs();
     if (distDir === undefined) return undefined;
     const indexHtml = await this.readContainerTextFile(`${distDir}/index.html`);
     if (indexHtml === undefined) return undefined;
     const mainJs = await this.readContainerTextFile(`${distDir}/main.js`);
     const mainCss = await this.readContainerTextFile(`${distDir}/main.css`);
     return { html: inlineAppDist({ indexHtml, mainJs, mainCss }) };
-  }
-
-  /**
-   * Find the `dist` directory of the newest app the evaluated turn built,
-   * or `undefined` when the turn built none. Apps that already existed at
-   * hatch (the `baselineAppDistDirs` snapshot — e.g. startup-seeded
-   * preloaded apps) are excluded, so a turn that builds nothing never
-   * resolves to a pre-existing page. `listAppDistDirs` is newest-first by
-   * mtime, so the first non-baseline entry is the freshest turn-built app.
-   */
-  private async findNewestAppDistDir(): Promise<string | undefined> {
-    const distDirs = await this.listAppDistDirs();
-    return distDirs.find((dir) => !this.baselineAppDistDirs.has(dir));
   }
 
   /**
@@ -862,6 +842,7 @@ export class VellumAgent implements BaseAgent {
       retireResult = await this.runner.run(this.cliCommand, [
         "retire",
         this.id,
+        "--yes",
       ]);
     } catch (err) {
       retireError = err;

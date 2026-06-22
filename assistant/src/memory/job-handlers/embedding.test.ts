@@ -61,14 +61,14 @@ const TEST_CONFIG: AssistantConfig = {
 };
 
 describe("embedMediaJob", () => {
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     embedAndUpsertCalls.length = 0;
     resetDbForTesting();
-    initializeDb();
+    await initializeDb();
   });
 
   function makeJob(payload: Record<string, unknown>): MemoryJob {

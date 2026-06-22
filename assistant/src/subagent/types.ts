@@ -70,6 +70,12 @@ export interface SubagentConfig {
    */
   overrideProfile?: string;
   /**
+   * When true, the subagent's `overrideProfile` is an explicit spawn-time
+   * request and must float above call-site layers. Inherited parent profiles
+   * leave this unset so existing call-site precedence stays intact.
+   */
+  forceOverrideProfile?: boolean;
+  /**
    * Tool-use id of the `skill_execute` call that spawned this subagent.
    * Forwarded into the `subagent_spawned` event so the client can anchor the
    * inline subagent card to the exact spawn tool call.

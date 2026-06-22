@@ -36,7 +36,7 @@ const { getDb } = await import("../memory/db-connection.js");
 const { initializeDb } = await import("../memory/db-init.js");
 const { activationSessions } = await import("../memory/schema.js");
 
-initializeDb();
+await initializeDb();
 
 /** Seed the workspace BOOTSTRAP.md with the unmodified generic template so the
  *  one-shot reseed inside `applyBootstrapTemplate` fires. */

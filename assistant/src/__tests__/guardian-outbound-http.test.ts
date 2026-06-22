@@ -105,7 +105,7 @@ import {
 import { resetDbForTesting } from "./db-test-helpers.js";
 
 // Initialize the database (creates all tables)
-initializeDb();
+await initializeDb();
 
 afterAll(() => {
   globalThis.fetch = originalFetch;
@@ -115,11 +115,6 @@ afterAll(() => {
 function resetTables(): void {
   const db = getDb();
   db.run("DELETE FROM channel_verification_sessions");
-  try {
-    db.run("DELETE FROM channel_guardian_approval_requests");
-  } catch {
-    /* table may not exist */
-  }
   try {
     db.run("DELETE FROM channel_guardian_rate_limits");
   } catch {
@@ -442,9 +437,9 @@ describe("HTTP route: handleCreateVerificationSession (guardian path)", () => {
 
 describe("HTTP route: handleResendVerificationSession (guardian path)", () => {
   test("throws BadRequestError when channel is missing", async () => {
-    await expect(
-      handleResendVerificationSession({ body: {} }),
-    ).rejects.toThrow(BadRequestError);
+    await expect(handleResendVerificationSession({ body: {} })).rejects.toThrow(
+      BadRequestError,
+    );
   });
 
   test("throws BadRequestError for no_active_session", async () => {
@@ -483,9 +478,9 @@ describe("HTTP route: handleResendVerificationSession (guardian path)", () => {
 
 describe("HTTP route: handleCancelVerificationSession (guardian path)", () => {
   test("throws BadRequestError when channel is missing", async () => {
-    await expect(
-      handleCancelVerificationSession({ body: {} }),
-    ).rejects.toThrow(BadRequestError);
+    await expect(handleCancelVerificationSession({ body: {} })).rejects.toThrow(
+      BadRequestError,
+    );
   });
 
   test("returns success even when no active session exists", async () => {

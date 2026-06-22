@@ -186,7 +186,7 @@ import {
 } from "./journal-store.js";
 import { runLeaf } from "./leaf-runner.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Shared fixtures

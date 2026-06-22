@@ -8,11 +8,9 @@ from each of a hundred documents, draft-then-verify a batch — and you want the
 results orchestrated deterministically and reported back when the whole run
 finishes.
 
-Workflows are gated behind the `workflows` feature flag (default **off**). The
-`run_workflow` / `manage_workflows` tools are served by the flag-gated `workflows`
+The `run_workflow` / `manage_workflows` tools are served by the `workflows`
 bundled skill rather than as always-on tools — load it with `skill_load` and invoke
-its tools via `skill_execute`. When the flag is off, the skill is absent, the
-management routes 404, and the scheduler rejects `workflow`-mode jobs.
+its tools via `skill_execute`.
 
 - Engine code: `assistant/src/workflows/`
 - Skill (tool surface): `assistant/src/config/bundled-skills/workflows/`
@@ -152,12 +150,12 @@ only as fast as the slowest leaf in each stage.
 
 ### Leaf options (`opts` for `agent` / `leaf`)
 
-| Option    | Type                       | Effect                                                                                  |
-| --------- | -------------------------- | --------------------------------------------------------------------------------------- |
-| `schema`  | JSON Schema object literal | Forces structured output via a tool. A schema leaf runs with **no tools**.              |
-| `label`   | string                     | Short display/diagnostic label for the leaf.                                            |
-| `profile` | string                     | Overrides the model profile. Must exist in `llm.profiles` or the leaf throws.           |
-| `persona` | boolean                    | `true` makes the leaf speak as the assistant (identity + memory). Default is anonymous. |
+| Option    | Type                       | Effect                                                                                                           |
+| --------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `schema`  | JSON Schema object literal | Forces structured output via a tool. A schema leaf runs with **no tools** — no read/recall; pass content inline. |
+| `label`   | string                     | Short display/diagnostic label for the leaf.                                                                     |
+| `profile` | string                     | Overrides the model profile. Must exist in `llm.profiles` or the leaf throws.                                    |
+| `persona` | boolean                    | `true` makes the leaf speak as the assistant (identity + memory). Default is anonymous.                          |
 
 #### `schema` is a JSON Schema literal, not Zod
 
@@ -165,7 +163,12 @@ A script runs in the sandbox and cannot hold a host-side Zod object, so a leaf's
 `schema` is a plain **JSON Schema object literal**. The engine builds a forced
 `tool_choice` call whose synthetic tool input is that schema, validates the
 model's output against it, and returns the structured object. A leaf with a
-`schema` is a pure judge/extractor — it gets **no tools**:
+`schema` is a pure judge/extractor — it gets **no tools**, so it has no
+`file_read`/`file_list`/`recall`/`web_search` and **cannot read files or recall
+memory**. Anything it must judge has to be passed **inline** in the prompt; a
+schema leaf told to "read these files" will confabulate against the schema. (To
+read first and then emit structured output, use a tool leaf that returns JSON in
+its text and parse it yourself.)
 
 ```js
 leaf(`Score this option 0-10 for fit: ${opt}`, {
@@ -437,7 +440,7 @@ Reached via the skill (`skill_load` then `skill_execute`), not as always-on tool
   `list_profiles` returns `{ profiles, activeProfile }` — the defined LLM profile
   names plus the workspace active profile, used to pick a valid leaf `profile`.
 
-### Routes (read/abort/resume, all 404 when the flag is off)
+### Routes (read/abort/resume)
 
 | Method | Path                            | Purpose                                                                                              |
 | ------ | ------------------------------- | ---------------------------------------------------------------------------------------------------- |

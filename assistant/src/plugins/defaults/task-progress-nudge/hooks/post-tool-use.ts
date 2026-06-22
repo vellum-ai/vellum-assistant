@@ -48,6 +48,7 @@
 import type { PluginHookFn, PostToolUseContext } from "@vellumai/plugin-api";
 
 import type { ContentBlock, Message } from "../../../../providers/types.js";
+import { isWeakOpenModel } from "../../../../providers/weak-open-model.js";
 
 /**
  * Canonical nudge notice. Module-level constant so tests and wrapping plugins
@@ -56,7 +57,7 @@ import type { ContentBlock, Message } from "../../../../providers/types.js";
  * are fine and the model may skip it when wrapping up.
  */
 export const TASK_PROGRESS_NUDGE_TEXT =
-  '<system_notice>You are several tool calls into this turn and have not shown the user a progress card. If you are doing multi-step work, call ui_show now with surface_type "card" and template "task_progress" (coarse steps are fine — a rough "Working on X" beats no signal) so the user can see what is happening, and keep it updated with ui_update as you go. Skip this if you are about to finish; never let it interrupt the actual work.</system_notice>';
+  '<system_notice>You are several tool calls into this turn with no progress card shown. A card is optional, not required: if the turn is wrapping up, is not really multi-step, or you cannot form clean steps, skip it and keep working — a one-line note of what you are doing is a fine substitute, and proceeding with no card is also fine. Only if a live step tracker would genuinely help the user, show it with a SINGLE self-contained ui_show call that already contains the steps: ui_show({ surface_type: "card", data: { template: "task_progress", templateData: { title: "<what you are doing>", status: "in_progress", steps: [{ label: "<step 1>", status: "in_progress" }, { label: "<step 2>", status: "pending" }] } } }). Coarse steps are fine. Do not call ui_show with an empty `data: {}` and fill it in afterward — an empty card renders as a blank box; either include the steps now or skip the card. Advance it later with ui_update under `data.templateData`. Never let the card interrupt the actual work; if one ever looks wrong, just dismiss it and move on. You will not be nudged about this again this turn.</system_notice>';
 
 /**
  * Number of tool-use rounds in a turn, with no task_progress card shown, that
@@ -65,17 +66,6 @@ export const TASK_PROGRESS_NUDGE_TEXT =
  * nudged, and only once. Lower from telemetry if cards still arrive too late.
  */
 export const TASK_PROGRESS_NUDGE_ROUND_THRESHOLD = 3;
-
-/**
- * Weaker open models that disregard the static progress-card instruction and
- * so get the mid-turn nudge: Kimi, DeepSeek, and MiniMax. Family-level matching
- * spans provider naming conventions (OpenRouter `moonshotai/kimi-k2.6`,
- * `deepseek/deepseek-chat`, `minimax/minimax-m3`; Fireworks
- * `accounts/fireworks/models/minimax-m3`, `kimi-k2p6`). Extend as other models
- * show the same gap. Capable models (Claude, GPT) follow the prompt and are
- * intentionally excluded.
- */
-const WEAK_MODEL_PATTERN = /kimi|deepseek|minimax/i;
 
 /**
  * Round count at the last nudge, per conversation. A non-zero entry means the
@@ -145,7 +135,7 @@ function scanTurn(messages: ReadonlyArray<Message>): {
 }
 
 const postToolUse: PluginHookFn<PostToolUseContext> = async (ctx) => {
-  if (!WEAK_MODEL_PATTERN.test(ctx.model)) return;
+  if (!isWeakOpenModel(ctx.model)) return;
 
   const { rounds, taskProgressShown } = scanTurn(ctx.messages);
 

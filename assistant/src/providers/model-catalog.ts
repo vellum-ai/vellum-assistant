@@ -678,6 +678,23 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       {
+        id: "accounts/fireworks/models/glm-5p2",
+        displayName: "GLM 5.2",
+        // Fireworks serves GLM 5.2 with a 1,040K input window.
+        contextWindowTokens: 1040000,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: false,
+        supportsToolUse: true,
+        maxEffort: "max",
+        pricing: {
+          inputPer1mTokens: 1.4,
+          outputPer1mTokens: 4.4,
+          cacheReadPer1mTokens: 0.26,
+        },
+      },
+      {
         id: "accounts/fireworks/models/kimi-k2p5",
         displayName: "Kimi K2.5",
         contextWindowTokens: 256000,
@@ -1148,6 +1165,18 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: false,
         pricing: { inputPer1mTokens: 0.2, outputPer1mTokens: 1.1 },
       },
+      // Z.ai
+      {
+        id: "z-ai/glm-5.2",
+        displayName: "GLM-5.2",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: { inputPer1mTokens: 1.4, outputPer1mTokens: 4.4 },
+      },
       // Mistral
       {
         id: "mistralai/mistral-medium-3",
@@ -1283,6 +1312,35 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     defaultModel: "MiniMax-M2.7",
     apiKeyUrl: "https://platform.minimax.io/",
     apiKeyPlaceholder: "sk-cp-...",
+  },
+  {
+    id: "atlascloud",
+    displayName: "Atlas Cloud",
+    subtitle:
+      "Atlas Cloud AI models (OpenAI-compatible). Requires an Atlas Cloud API key.",
+    setupMode: "api-key",
+    setupHint: "Enter your Atlas Cloud API key to enable Atlas Cloud models.",
+    envVar: "ATLASCLOUD_API_KEY",
+    credentialsGuide: {
+      description: "Sign in to the Atlas Cloud console and create an API key.",
+      url: "https://www.atlascloud.ai/console",
+      linkLabel: "Open Atlas Cloud Console",
+    },
+    models: [
+      {
+        id: "deepseek-ai/deepseek-v4-pro",
+        displayName: "DeepSeek V4 Pro",
+        contextWindowTokens: 128000,
+        maxOutputTokens: 8192,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+      },
+    ],
+    defaultModel: "deepseek-ai/deepseek-v4-pro",
+    apiKeyUrl: "https://www.atlascloud.ai/console",
+    apiKeyPlaceholder: "apikey-...",
   },
 ];
 

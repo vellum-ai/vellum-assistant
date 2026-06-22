@@ -75,12 +75,11 @@ import {
 } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();
   db.run("DELETE FROM channel_inbound_events");
-  db.run("DELETE FROM channel_guardian_approval_requests");
   db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM conversation_keys");
   db.run("DELETE FROM messages");
@@ -97,7 +96,6 @@ function seedTrustedContact(policy: "allow" | "escalate" = "allow"): void {
       {
         type: "telegram",
         address: "telegram-user-1",
-        externalUserId: "telegram-user-1",
         status: "active",
         policy,
       },
@@ -237,14 +235,13 @@ describe("channel inbound disk pressure gate", () => {
     expect(db.select().from(messages).all()).toHaveLength(0);
   });
 
-  test("blocks non-guardian Slack reactions before persistence while locked", async () => {
+  test("blocks non-guardian Slack reactions silently (no reply) before persistence while locked", async () => {
     upsertContact({
       displayName: "Example Slack User",
       channels: [
         {
           type: "slack",
           address: "slack-user-1",
-          externalUserId: "slack-user-1",
           status: "active",
           policy: "allow",
         },
@@ -276,18 +273,10 @@ describe("channel inbound disk pressure gate", () => {
       reason: "trusted-contact",
     });
     expect(processMessage).not.toHaveBeenCalled();
-    expect(deliverChannelReplyMock.mock.calls).toEqual([
-      [
-        "https://gateway.test/deliver/slack",
-        {
-          chatId: "slack-channel-1",
-          text: expectedRemoteBlockReply,
-          assistantId: "self",
-          ephemeral: true,
-          user: "slack-user-1",
-        },
-      ],
-    ]);
+    // Reactions are blocked silently during disk pressure: a passive signal
+    // has nothing to "try again", so no block reply is delivered (unlike the
+    // message path, which does reply).
+    expect(deliverChannelReplyMock).not.toHaveBeenCalled();
 
     const db = getDb();
     const event = db

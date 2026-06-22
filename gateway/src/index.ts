@@ -33,6 +33,8 @@ import {
   type CredentialChangeEvent,
 } from "./credential-watcher.js";
 import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
+import { hasRemoteWebRefreshCookie } from "./http/browser-auth-cookies.js";
+import { handleGuardianRefresh } from "./http/routes/guardian-refresh.js";
 
 import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js";
 import { createAudioProxyHandler } from "./http/routes/audio-proxy.js";
@@ -73,10 +75,6 @@ import {
   createFeatureFlagsPatchHandler,
 } from "./http/routes/feature-flags.js";
 import {
-  createPrivacyConfigGetHandler,
-  createPrivacyConfigPatchHandler,
-} from "./http/routes/privacy-config.js";
-import {
   createGlobalThresholdGetHandler,
   createGlobalThresholdPutHandler,
   createConversationThresholdGetHandler,
@@ -95,6 +93,7 @@ import {
 } from "./http/routes/devices.js";
 import { handlePair } from "./http/routes/pair.js";
 import { handleCreateRemoteWebPairingChallenge } from "./http/routes/remote-web-pairing-challenge.js";
+import { handleRemoteWebPairingToken } from "./http/routes/remote-web-pairing-token.js";
 import { handleVerifyRemoteWebPairingChallenge } from "./http/routes/remote-web-pairing-verification.js";
 import { createSlackControlPlaneProxyHandler } from "./http/routes/slack-control-plane-proxy.js";
 import { createOAuthAppsProxyHandler } from "./http/routes/oauth-apps-proxy.js";
@@ -136,6 +135,12 @@ import {
   createTrustRulesSuggestHandler,
 } from "./http/routes/trust-rules.js";
 import { initTrustRuleCache } from "./risk/trust-rule-cache.js";
+import { initAdmissionPolicyCache } from "./risk/admission-policy-cache.js";
+import {
+  createChannelAdmissionPolicyListHandler,
+  createChannelAdmissionPolicySetHandler,
+  createChannelAdmissionPolicyDeleteHandler,
+} from "./http/routes/channel-admission-policy.js";
 import { getLogger, initLogger } from "./logger.js";
 import { getPlatformBaseUrl } from "./platform-url.js";
 import {
@@ -182,7 +187,9 @@ import {
 } from "./twilio/webhook-sync-trigger.js";
 import { GatewayIpcServer } from "./ipc/server.js";
 import { contactRoutes } from "./ipc/contact-handlers.js";
+import { inviteRoutes } from "./ipc/invite-handlers.js";
 import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
+import { admissionPolicyRoutes } from "./ipc/admission-policy-handlers.js";
 import { createLogTailRoutes } from "./ipc/log-tail-handlers.js";
 import { slackThreadRoutes } from "./ipc/slack-thread-handlers.js";
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
@@ -298,6 +305,7 @@ async function main() {
 
   await initGatewayDb();
   initTrustRuleCache();
+  initAdmissionPolicyCache();
 
   // Wait for the assistant runtime to be healthy before serving traffic.
   // Data migrations (e.g. m0002 actor-token-tables-to-gateway) must
@@ -503,9 +511,13 @@ async function main() {
   const handleLogExport = createLogExportHandler(config);
   const handleLogTail = createLogTailHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
-  const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
-  const handlePrivacyConfigGet = createPrivacyConfigGetHandler();
-  const handlePrivacyConfigPatch = createPrivacyConfigPatchHandler();
+  // Assigned once `ipcServer` exists (see `emitFlagChanged` below). Passing a
+  // thunk lets the PATCH handler push flag changes to connected clients the
+  // moment a write commits, rather than waiting on the FeatureFlagWatcher.
+  let emitFlagChanged: () => void = () => {};
+  const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler(() =>
+    emitFlagChanged(),
+  );
   const handleGlobalThresholdGet = createGlobalThresholdGetHandler();
   const handleGlobalThresholdPut = createGlobalThresholdPutHandler();
   const handleConversationThresholdGet =
@@ -520,6 +532,12 @@ async function main() {
   const handleTrustRulesDelete = createTrustRulesDeleteHandler();
   const handleTrustRulesReset = createTrustRulesResetHandler();
   const handleTrustRulesSuggest = createTrustRulesSuggestHandler();
+  const handleChannelAdmissionPolicyList =
+    createChannelAdmissionPolicyListHandler();
+  const handleChannelAdmissionPolicySet =
+    createChannelAdmissionPolicySetHandler();
+  const handleChannelAdmissionPolicyDelete =
+    createChannelAdmissionPolicyDeleteHandler();
 
   const handleAgentCard = createAgentCardHandler(configFileCache);
 
@@ -836,8 +854,12 @@ async function main() {
       path: "/v1/remote-web/pairing-challenge",
       method: "POST",
       auth: "none",
-      handler: (req, _params, getClientIp) =>
-        handleCreateRemoteWebPairingChallenge(req, getClientIp()),
+      handler: (req, _params, getClientIp, getRawPeerIp) =>
+        handleCreateRemoteWebPairingChallenge(
+          req,
+          getClientIp(),
+          getRawPeerIp(),
+        ),
     },
     {
       path: "/v1/remote-web/pairing-verification",
@@ -845,6 +867,12 @@ async function main() {
       auth: "none",
       handler: (req, _params, getClientIp) =>
         handleVerifyRemoteWebPairingChallenge(req, getClientIp()),
+    },
+    {
+      path: "/v1/remote-web/pairing-token",
+      method: "POST",
+      auth: "none",
+      handler: (req) => handleRemoteWebPairingToken(req),
     },
     // ── Device management (localhost-only, auth: none; self-guards loopback) ──
     {
@@ -928,6 +956,10 @@ async function main() {
       method: "POST",
       auth: "custom",
       handler: (req, _params, getClientIp) => {
+        if (hasRemoteWebRefreshCookie(req)) {
+          return handleGuardianRefresh(req);
+        }
+
         const authHeader = req.headers.get("authorization");
         if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
           authRateLimiter.recordFailure(getClientIp());
@@ -947,7 +979,7 @@ async function main() {
           );
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
-        return channelVerificationSessionProxy.handleGuardianRefresh(req);
+        return handleGuardianRefresh(req);
       },
     },
 
@@ -1114,7 +1146,7 @@ async function main() {
       auth: "edge-scoped",
       // Read-only polling endpoint — read scope, not write. Matches the
       // convention used for other GET endpoints in this router (OAuth
-      // providers GET, OAuth apps GET, privacy config GET) so a token
+      // providers GET, OAuth apps GET) so a token
       // profile with `settings.read` only (e.g. the `ui_page_v1`
       // profile) can still poll import progress.
       scope: "settings.read",
@@ -1304,36 +1336,6 @@ async function main() {
       },
     },
 
-    // ── Privacy config (scope-protected) ──
-    {
-      path: "/v1/config/privacy",
-      method: "GET",
-      auth: "edge-scoped",
-      scope: "settings.read",
-      handler: (req) => handlePrivacyConfigGet(req),
-    },
-    {
-      path: /^\/v1\/assistants\/([^/]+)\/config\/privacy\/$/,
-      method: "GET",
-      auth: "edge-scoped",
-      scope: "settings.read",
-      handler: (req) => handlePrivacyConfigGet(req),
-    },
-    {
-      path: "/v1/config/privacy",
-      method: "PATCH",
-      auth: "edge-scoped",
-      scope: "settings.write",
-      handler: (req) => handlePrivacyConfigPatch(req),
-    },
-    {
-      path: /^\/v1\/assistants\/([^/]+)\/config\/privacy\/$/,
-      method: "PATCH",
-      auth: "edge-scoped",
-      scope: "settings.write",
-      handler: (req) => handlePrivacyConfigPatch(req),
-    },
-
     // ── Auto-approve thresholds (scope-protected) ──
     {
       path: "/v1/permissions/thresholds",
@@ -1471,6 +1473,82 @@ async function main() {
       auth: "edge-scoped",
       scope: "settings.write",
       handler: (req, params) => handleTrustRulesDelete(req, params[0]),
+    },
+
+    // ── Channel admission policy — flat routes ──
+    // Storage + CRUD for the per-channel admission floor. Gateway-owned: the
+    // admission-policy store and cache live here, not in the daemon. The
+    // platform's RuntimeProxyView strips the `/v1/assistants/<id>/` prefix and
+    // forwards the flat path to the gateway via `/gateway-query`, so these flat
+    // routes are what actually serve client traffic. The mutation regexes
+    // tolerate a trailing slash.
+    {
+      path: /^\/v1\/channel-admission-policy\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleChannelAdmissionPolicyList(req),
+    },
+    {
+      path: /^\/v1\/channel-admission-policy\/([^/]+)\/?$/,
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) => handleChannelAdmissionPolicySet(req, params[0]),
+    },
+    {
+      path: /^\/v1\/channel-admission-policy\/([^/]+)\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) => handleChannelAdmissionPolicySet(req, params[0]),
+    },
+    {
+      path: /^\/v1\/channel-admission-policy\/([^/]+)\/?$/,
+      method: "DELETE",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) =>
+        handleChannelAdmissionPolicyDelete(req, params[0]),
+    },
+
+    // ── Channel admission policy — assistant-scoped variants ──
+    // Mirror the flat routes for clients that use GatewayHTTPClient's
+    // auto-prefix, which builds URLs like
+    // /v1/assistants/<id>/channel-admission-policy/<channel>/. Without these,
+    // the request falls through to the runtime-proxy catch-all and the daemon
+    // serves 404 (the daemon does not implement this gateway storage API).
+    // Admission policy is gateway-global, so the assistant id is matched and
+    // discarded — same precedent as the assistant-scoped trust-rules routes
+    // below.
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-admission-policy\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleChannelAdmissionPolicyList(req),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-admission-policy\/([^/]+)\/?$/,
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) => handleChannelAdmissionPolicySet(req, params[0]),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-admission-policy\/([^/]+)\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) => handleChannelAdmissionPolicySet(req, params[0]),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-admission-policy\/([^/]+)\/?$/,
+      method: "DELETE",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) =>
+        handleChannelAdmissionPolicyDelete(req, params[0]),
     },
 
     // ── Trust rules v3 — assistant-scoped variants ──
@@ -1928,8 +2006,15 @@ async function main() {
     );
     if (!botToken || !appToken) return;
 
+    const threadModeRaw = configFileCache.getString("slack", "threadMode");
+    const threadMode =
+      threadModeRaw === "mention_only" ||
+      threadModeRaw === "mention_then_thread"
+        ? threadModeRaw
+        : "mention_then_thread";
+
     slackSocketClient = createSlackSocketModeClient(
-      { appToken, botToken, gatewayConfig: config },
+      { appToken, botToken, gatewayConfig: config, threadMode },
       (normalized) => {
         // Notify the platform of inbound activity so the idle-sleep timer
         // is reset for this assistant (fire-and-forget).
@@ -2343,6 +2428,15 @@ async function main() {
       maybeStartVelayTunnelForTwilio("twilio config changed");
     }
 
+    if (event.changedKeys.has("slack")) {
+      startSlackSocket().catch((err) => {
+        log.error(
+          { err },
+          "Failed to restart Slack Socket Mode after config change",
+        );
+      });
+    }
+
     // Side effect: re-register email callback when ingress URL changes so
     // the platform callback route points at the new self-hosted URL.
     if (
@@ -2368,8 +2462,10 @@ async function main() {
   const ipcServer = new GatewayIpcServer([
     ...featureFlagRoutes,
     ...contactRoutes,
+    ...inviteRoutes,
     ...slackThreadRoutes,
     ...thresholdRoutes,
+    ...admissionPolicyRoutes,
     ...riskClassificationRoutes,
     ...createLogTailRoutes(config),
     ...trustRulesRoutes,
@@ -2384,7 +2480,7 @@ async function main() {
     assistantRuntimeBaseUrl: config.assistantRuntimeBaseUrl,
   });
 
-  const emitFlagChanged = () => {
+  emitFlagChanged = () => {
     ipcServer.emit("feature_flags_changed");
     // A `voice-mode` flip (e.g. after a warm-pool claim syncs the assistant's
     // flags) should bring up the Velay tunnel so web live voice can connect

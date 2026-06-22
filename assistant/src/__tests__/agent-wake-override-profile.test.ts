@@ -103,6 +103,8 @@ function makeTarget(): {
     drainQueue: async () => {},
     // Pre-run auto-compaction gate — no-op for these tests.
     maybeCompact: async () => null,
+    buildCurrentSystemPrompt: () => "mock-system-prompt",
+    modelOverride: undefined,
   };
   return { target: target as unknown as Conversation, runArgs };
 }

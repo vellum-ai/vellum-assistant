@@ -74,7 +74,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { createInvite, revokeInvite } from "../memory/invite-store.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -93,7 +93,6 @@ function resetState(): void {
   db.run("DELETE FROM assistant_ingress_invites");
   db.run("DELETE FROM channel_inbound_events");
   db.run("DELETE FROM conversations");
-  db.run("DELETE FROM channel_guardian_approval_requests");
   db.run("DELETE FROM notification_events");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");

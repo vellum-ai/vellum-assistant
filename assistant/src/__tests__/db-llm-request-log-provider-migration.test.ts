@@ -11,7 +11,6 @@ import {
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { removeTestDbFiles } from "./assert-not-live-db.js";
 const originalBunTest = process.env.BUN_TEST;
 
 mock.module("../util/logger.js", () => ({
@@ -22,10 +21,8 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { getSqliteFrom } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import { migrateLlmRequestLogProvider } from "../memory/migrations/184-llm-request-log-provider.js";
 import * as schema from "../memory/schema.js";
-import { getDbPath } from "../util/platform.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
 function createTestDb() {
@@ -61,12 +58,10 @@ describe("llm_request_logs provider migration", () => {
   beforeEach(() => {
     process.env.BUN_TEST = "0";
     resetDbForTesting();
-    removeTestDbFiles(getDbPath());
   });
 
   afterEach(() => {
     resetDbForTesting();
-    removeTestDbFiles(getDbPath());
   });
 
   afterAll(() => {
@@ -76,21 +71,21 @@ describe("llm_request_logs provider migration", () => {
       process.env.BUN_TEST = originalBunTest;
     }
     resetDbForTesting();
-    removeTestDbFiles(getDbPath());
   });
 
   test("fresh DB initialization includes llm_request_logs.provider", () => {
-    initializeDb();
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
 
-    const raw = new Database(getDbPath());
+    bootstrapPreProviderLlmRequestLogs(raw);
+    migrateLlmRequestLogProvider(db);
+
     const columns = getColumnInfo(raw);
 
     expect(columns.some((column) => column.name === "provider")).toBe(true);
     expect(columns.find((column) => column.name === "provider")?.notnull).toBe(
       0,
     );
-
-    raw.close();
   });
 
   test("migration upgrades the pre-provider schema without disturbing rows", () => {

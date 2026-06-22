@@ -1,0 +1,310 @@
+@import "tailwindcss";
+@import "@vellumai/design-library/tokens.css";
+@source "../node_modules/@vellumai/design-library/src/**/*.tsx";
+
+/* Base element styles — theme-aware defaults inherited by all descendants. */
+body {
+  color: var(--content-default);
+}
+
+/* Electron prechat onboarding typography — mirror the lighter DM Sans (Swift
+ * VFont) weights/sizes so the macOS Electron funnel matches the native Swift
+ * client. Scoped via `.electron-prechat-type` (applied ONLY on Electron) so the
+ * web/iOS funnel and the rest of the app are unchanged. The design-library type
+ * tokens read their weight from `--text-*-weight` custom properties, so we just
+ * rebind those vars; values mirror the Swift VFont tokens:
+ *   titleLarge 24/400 · bodyMediumLighter 14/300 · labelDefault 11/400 ·
+ *   bodySmallDefault 12/400. `bodyMediumDefault` intentionally stays 500
+ *   (Swift `bodyMediumEmphasised`) for buttons + vibe-card titles; section
+ *   headers / row labels opt down to 400 via `.prechat-md-regular`. */
+.electron-prechat-type {
+  --text-title-large-weight: 400;
+  --text-body-medium-lighter-weight: 300;
+  --text-label-medium-default-weight: 400;
+  --text-label-small-default-weight: 400;
+  --text-body-small-default-weight: 400;
+}
+
+.electron-prechat-type .prechat-md-regular {
+  --text-body-medium-default-weight: 400;
+}
+
+/* Functional keyframes — app-only animations. Animations consumed by
+ * design-library primitives (popoverIn, bottomSheetIn, panelitem-marquee,
+ * collapsible-slide-*) live in the library's tokens.css. */
+
+@keyframes indeterminate {
+  0% { width: 0%; margin-left: 0%; }
+  50% { width: 60%; margin-left: 20%; }
+  100% { width: 0%; margin-left: 100%; }
+}
+
+@keyframes fadeInUp {
+  0% { transform: translateY(16px); opacity: 0; }
+  /* End at `none` (not translateY(0)) so the filled-forwards transform does
+     not create a containing block — otherwise position:fixed descendants like
+     the Dropdown menu anchor to this element instead of the viewport. */
+  100% { transform: none; opacity: 1; }
+}
+
+/* Onboarding edge characters popping into place — a quick scale-up with a soft
+   overshoot (paired with a spring-ish cubic-bezier at the call site). */
+@keyframes character-pop-in {
+  0% { transform: scale(0); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* Home Activity detail drawer (schedule / heartbeat / notification) sliding
+   in from the right. Ends at `transform: none` for the same containing-block
+   reason as fadeInUp above (the panel hosts fixed Dropdown/tooltip layers). */
+@keyframes drawer-slide-in {
+  0% { transform: translateX(16px); opacity: 0; }
+  100% { transform: none; opacity: 1; }
+}
+
+.home-detail-drawer {
+  animation: drawer-slide-in 0.2s ease-out both;
+  height: 100%;
+}
+
+@keyframes typing-dot-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.6); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+/* Avatar breathing — gentle scale pulse matching macOS
+   AnimatedAvatarView.swift startBreathing() (2s in, 2s out). */
+@keyframes avatar-breathe-kf {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.03); }
+}
+
+@keyframes avatar-morph-scale {
+  0%, 100% { transform: scale(1, 1); }
+  25% { transform: scale(1.02, 0.99); }
+  50% { transform: scale(0.99, 1.02); }
+  75% { transform: scale(1.01, 0.99); }
+}
+
+@keyframes avatar-morph-rotate {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(0.86deg); }
+  50% { transform: rotate(0deg); }
+  75% { transform: rotate(-0.86deg); }
+}
+
+/* BusyIndicator — mirrors macOS VBusyIndicator. A filled circle pulsing in
+ * opacity (1→0.3) and scale (1→0.85) over 1s easeInOut. Used in
+ * ActivityRunCard for active/thinking phases. */
+@keyframes busy-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.3; transform: scale(0.85); }
+}
+
+.busy-indicator {
+  animation: busy-pulse 1s ease-in-out infinite;
+}
+
+/* Deep-link message highlight — a one-shot background flash applied when the
+ * transcript scrolls to a message (e.g. opening a saved bookmark). Fades from
+ * the active-surface tint back to transparent over 2s. */
+@keyframes message-highlight-flash {
+  0% { background-color: var(--surface-active); }
+  100% { background-color: transparent; }
+}
+
+.message-highlighted {
+  animation: message-highlight-flash 2s ease-out;
+  border-radius: var(--radius-lg);
+}
+
+/* Avatar streaming ring — a semicircular arc that traces the circular avatar's
+   edge and spins continuously while the assistant is streaming/loading. Used
+   only for custom uploaded-image avatars; character avatars convey streaming
+   through their own morph animation instead. Two adjacent borders are colored
+   (each border occupies a 90° quadrant of the ring when border-radius is 50%,
+   so two adjacent borders make a 180° semicircle); the rest stay transparent,
+   and the whole ring rotates. Border thickness/inset are set inline so the
+   ring scales with avatar size. `prefers-reduced-motion` holds it static. */
+@keyframes avatar-ring-spin {
+  to { transform: rotate(360deg); }
+}
+
+.avatar-streaming-ring {
+  border-style: solid;
+  border-radius: 50%;
+  border-color: transparent;
+  border-top-color: var(--border-active);
+  border-right-color: var(--border-active);
+  animation: avatar-ring-spin 0.85s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avatar-streaming-ring {
+    animation: none;
+  }
+}
+
+/* Onboarding hatching avatar pulse: scales between 0.9 and 1.0 on
+ * ease-in-out, 1.2s cycle, infinite alternate. Opacity dimmed to 0.6 so the
+ * creature reads as "asleep" during hatching. When the assistant becomes
+ * active, swap the class for `.onboarding-avatar-awake`. */
+@keyframes morphPulse {
+  0% { transform: scale(0.9); }
+  100% { transform: scale(1.0); }
+}
+
+.onboarding-avatar-pulse {
+  animation: morphPulse 1.2s ease-in-out infinite alternate;
+  opacity: 0.6;
+  will-change: transform, opacity;
+}
+
+.onboarding-avatar-awake {
+  transform: scale(1.1);
+  opacity: 1;
+  transition:
+    transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 0.4s ease-out;
+}
+
+/* Failed hatch — tilt the creature ~45° and desaturate toward gray.
+ * No `transition`: the error branch mounts a fresh MorphAvatar rather than
+ * swapping classes on a persistent node. */
+.onboarding-avatar-failed {
+  transform: rotate(45deg);
+  filter: grayscale(1) brightness(0.55);
+  opacity: 1;
+}
+
+/* Billing onboarding modal — pulsing glow behind the loading spinner */
+@keyframes onboarding-glow {
+  0%, 100% { opacity: 0.12; transform: scale(1); }
+  50% { opacity: 0.24; transform: scale(1.15); }
+}
+
+/* Billing onboarding modal — welcome screen staggered reveal */
+@keyframes welcome-reveal {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Billing onboarding modal — crown glow pulse */
+@keyframes welcome-crown-glow {
+  0%, 100% { opacity: 0.18; transform: scale(1); }
+  50% { opacity: 0.32; transform: scale(1.08); }
+}
+
+/* Billing onboarding modal — step content entrance */
+@keyframes onboarding-step-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* App shell sizing guards: keep routed pages from collapsing inside flex
+ * main containers. */
+.app-shell {
+  width: 100%;
+  min-width: 0;
+}
+
+.app-shell-main > * {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Themed scrollbars — subtle, replacing the default OS gray. Applied to
+ * the root and all descendants. Theme-aware via the `data-theme` attribute
+ * on <html>. */
+:root {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(113, 128, 142, 0.35) transparent;
+}
+
+:root *,
+:root *::before,
+:root *::after {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(113, 128, 142, 0.35) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(113, 128, 142, 0.35);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(113, 128, 142, 0.6);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+[data-theme="dark"] {
+  scrollbar-color: rgba(169, 178, 187, 0.25) transparent;
+}
+
+[data-theme="dark"] *,
+[data-theme="dark"] *::before,
+[data-theme="dark"] *::after {
+  scrollbar-color: rgba(169, 178, 187, 0.25) transparent;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: rgba(169, 178, 187, 0.25);
+  background-clip: padding-box;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(169, 178, 187, 0.5);
+  background-clip: padding-box;
+}
+
+[data-theme="velvet"] {
+  scrollbar-color: rgba(232, 63, 91, 0.28) transparent;
+}
+
+[data-theme="velvet"] *,
+[data-theme="velvet"] *::before,
+[data-theme="velvet"] *::after {
+  scrollbar-color: rgba(232, 63, 91, 0.28) transparent;
+}
+
+[data-theme="velvet"] ::-webkit-scrollbar-thumb {
+  background: rgba(232, 63, 91, 0.28);
+  background-clip: padding-box;
+}
+
+[data-theme="velvet"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(232, 63, 91, 0.5);
+  background-clip: padding-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .busy-indicator {
+    animation: none;
+    opacity: 0.6;
+  }
+  .typing-dot {
+    animation: none !important;
+    opacity: 0.7 !important;
+  }
+  .home-detail-drawer {
+    animation: none;
+  }
+}

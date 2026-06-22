@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.8.12
+  version: 0.10.0
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -1491,19 +1491,19 @@ paths:
                 properties:
                   id:
                     type: string
-                  original_filename:
+                  filename:
                     type: string
-                  mime_type:
+                  mimeType:
                     type: string
-                  size_bytes:
+                  sizeBytes:
                     type: number
                   kind:
                     type: string
                 required:
                   - id
-                  - original_filename
-                  - mime_type
-                  - size_bytes
+                  - filename
+                  - mimeType
+                  - sizeBytes
                   - kind
                 additionalProperties: false
   /v1/attachments/{id}:
@@ -3951,6 +3951,14 @@ paths:
                       type: boolean
                     account:
                       type: string
+                    admissionPolicy:
+                      type: string
+                      enum:
+                        - no_one
+                        - guardian_only
+                        - trusted_contacts
+                        - any_contact
+                        - strangers
                     emailSubject:
                       type: string
                     emailRecipient:
@@ -4792,6 +4800,10 @@ paths:
                           - type: "null"
                       interactionCount:
                         type: number
+                      createdAt:
+                        type: number
+                      updatedAt:
+                        type: number
                       channels:
                         type: array
                         items:
@@ -4863,6 +4875,8 @@ paths:
                       - displayName
                       - role
                       - interactionCount
+                      - createdAt
+                      - updatedAt
                       - channels
                     additionalProperties: false
                 required:
@@ -4947,6 +4961,10 @@ paths:
                             - type: "null"
                         interactionCount:
                           type: number
+                        createdAt:
+                          type: number
+                        updatedAt:
+                          type: number
                         channels:
                           type: array
                           items:
@@ -5018,6 +5036,8 @@ paths:
                         - displayName
                         - role
                         - interactionCount
+                        - createdAt
+                        - updatedAt
                         - channels
                       additionalProperties: false
                     description: Contact objects with channels and metadata
@@ -5070,6 +5090,10 @@ paths:
                           - type: number
                           - type: "null"
                       interactionCount:
+                        type: number
+                      createdAt:
+                        type: number
+                      updatedAt:
                         type: number
                       channels:
                         type: array
@@ -5142,6 +5166,8 @@ paths:
                       - displayName
                       - role
                       - interactionCount
+                      - createdAt
+                      - updatedAt
                       - channels
                     additionalProperties: false
                   assistantMetadata:
@@ -5233,18 +5259,9 @@ paths:
                 expiresInMs:
                   type: number
                   description: Expiry duration in ms
-                contactName:
-                  type: string
-                  description: Contact display name
                 expectedExternalUserId:
                   type: string
                   description: Expected user ID (E.164 for phone)
-                friendName:
-                  type: string
-                  description: Friend name for the invite
-                guardianName:
-                  type: string
-                  description: Guardian name
               required:
                 - contactId
       responses:
@@ -5262,6 +5279,9 @@ paths:
                     properties: {}
                     additionalProperties: {}
                     description: Created invite
+                  rawToken:
+                    description: One-time raw invite token (returned at creation only)
+                    type: string
                 required:
                   - ok
                   - invite
@@ -5446,6 +5466,10 @@ paths:
                           - type: "null"
                       interactionCount:
                         type: number
+                      createdAt:
+                        type: number
+                      updatedAt:
+                        type: number
                       channels:
                         type: array
                         items:
@@ -5517,6 +5541,8 @@ paths:
                       - displayName
                       - role
                       - interactionCount
+                      - createdAt
+                      - updatedAt
                       - channels
                     additionalProperties: false
                     description: Merged contact
@@ -5635,6 +5661,10 @@ paths:
                         - type: "null"
                     interactionCount:
                       type: number
+                    createdAt:
+                      type: number
+                    updatedAt:
+                      type: number
                     channels:
                       type: array
                       items:
@@ -5706,6 +5736,8 @@ paths:
                     - displayName
                     - role
                     - interactionCount
+                    - createdAt
+                    - updatedAt
                     - channels
                   additionalProperties: false
   /v1/content-source:
@@ -6144,6 +6176,12 @@ paths:
                   description: Only standard conversations are created by this endpoint
                   type: string
                   const: standard
+                title:
+                  description:
+                    Explicit title for the conversation. When provided on creation, it is persisted as a user-set title (never
+                    overwritten by the auto-titler). Used by flows that mint a conversation up-front and don't want an
+                    auto-generated title.
+                  type: string
       responses:
         "200":
           description: Successful response
@@ -7041,6 +7079,71 @@ paths:
       responses:
         "202":
           description: Successful response
+  /v1/conversations/{id}/slash:
+    post:
+      operationId: conversations_by_id_slash_post
+      summary: Resolve a local meta slash command
+      description:
+        "Run a local meta slash command (/clean, /status, /commands, /models) without starting a turn: no messages
+        are persisted and no turn events are emitted. /clean also strips runtime injections from the history. Returns
+        the text to render and, for /clean, the post-strip context usage."
+      tags:
+        - conversations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                command:
+                  type: string
+                  description: The slash command text, e.g. `/clean` or `/status`.
+              required:
+                - command
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kind:
+                    type: string
+                    enum:
+                      - clean
+                      - info
+                  text:
+                    type: string
+                  contextUsage:
+                    type: object
+                    properties:
+                      tokens:
+                        type: number
+                      maxTokens:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      fillRatio:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                    required:
+                      - tokens
+                      - maxTokens
+                      - fillRatio
+                    additionalProperties: false
+                required:
+                  - kind
+                  - text
+                additionalProperties: false
   /v1/conversations/{id}/surface:
     post:
       operationId: conversations_by_id_surface_post
@@ -12043,6 +12146,19 @@ paths:
                           propertyNames:
                             type: string
                           additionalProperties: {}
+                        sourceType:
+                          type: string
+                          enum:
+                            - heartbeat
+                            - memory_consolidation
+                            - schedule
+                            - auto_analysis
+                            - user
+                            - other
+                        sourceKey:
+                          type: string
+                        sourceLabel:
+                          type: string
                         createdAt:
                           type: string
                       required:
@@ -12223,6 +12339,19 @@ paths:
                     propertyNames:
                       type: string
                     additionalProperties: {}
+                  sourceType:
+                    type: string
+                    enum:
+                      - heartbeat
+                      - memory_consolidation
+                      - schedule
+                      - auto_analysis
+                      - user
+                      - other
+                  sourceKey:
+                    type: string
+                  sourceLabel:
+                    type: string
                   createdAt:
                     type: string
                 required:
@@ -12435,6 +12564,19 @@ paths:
                           propertyNames:
                             type: string
                           additionalProperties: {}
+                        sourceType:
+                          type: string
+                          enum:
+                            - heartbeat
+                            - memory_consolidation
+                            - schedule
+                            - auto_analysis
+                            - user
+                            - other
+                        sourceKey:
+                          type: string
+                        sourceLabel:
+                          type: string
                         createdAt:
                           type: string
                       required:
@@ -13030,60 +13172,6 @@ paths:
                   - home
                   - version
                 additionalProperties: false
-  /v1/identity/intro:
-    get:
-      operationId: identity_intro_get
-      summary: Get identity greetings
-      description:
-        Returns greetings sourced from SOUL.md, the generated cache, or generic fallbacks while background
-        generation refreshes the cache.
-      tags:
-        - identity
-      parameters:
-        - name: localHour
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 0
-            maximum: 23
-          description: Optional client-local hour of day used only when refreshing generated greetings.
-        - name: localMinute
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 0
-            maximum: 59
-          description: Optional client-local minute used only when refreshing generated greetings.
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  greetings:
-                    type: array
-                    items:
-                      type: string
-                  text:
-                    type: string
-                  source:
-                    type: string
-                    enum:
-                      - workspace
-                      - cache
-                      - fallback
-                  refreshing:
-                    type: boolean
-                required:
-                  - greetings
-                  - text
-                  - source
-                  - refreshing
-                additionalProperties: false
   /v1/image-generation/generate:
     post:
       operationId: imagegeneration_generate_post
@@ -13230,7 +13318,7 @@ paths:
             type: string
           description:
             "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, openai-compatible,
-            minimax"
+            minimax, atlascloud"
       responses:
         "200":
           description: Successful response
@@ -13781,6 +13869,11 @@ paths:
                     type: string
                   botUsername:
                     type: string
+                  threadMode:
+                    type: string
+                    enum:
+                      - mention_only
+                      - mention_then_thread
                   error:
                     type: string
                   warning:
@@ -13791,6 +13884,7 @@ paths:
                   - hasAppToken
                   - hasUserToken
                   - connected
+                  - threadMode
                 additionalProperties: false
     get:
       operationId: integrations_slack_channel_config_get
@@ -13826,6 +13920,11 @@ paths:
                     type: string
                   botUsername:
                     type: string
+                  threadMode:
+                    type: string
+                    enum:
+                      - mention_only
+                      - mention_then_thread
                   error:
                     type: string
                   warning:
@@ -13836,6 +13935,71 @@ paths:
                   - hasAppToken
                   - hasUserToken
                   - connected
+                  - threadMode
+                additionalProperties: false
+    patch:
+      operationId: integrations_slack_channel_config_patch
+      summary: Update Slack channel settings
+      description: Update Slack channel behavior settings (e.g. thread mode).
+      tags:
+        - integrations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                threadMode:
+                  type: string
+                  enum:
+                    - mention_only
+                    - mention_then_thread
+                  description: Controls whether the bot follows threads after an initial @mention
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasBotToken:
+                    type: boolean
+                  hasAppToken:
+                    type: boolean
+                  hasUserToken:
+                    type: boolean
+                  connected:
+                    type: boolean
+                  teamId:
+                    type: string
+                  teamName:
+                    type: string
+                  teamUrl:
+                    type: string
+                  botUserId:
+                    type: string
+                  botUsername:
+                    type: string
+                  threadMode:
+                    type: string
+                    enum:
+                      - mention_only
+                      - mention_then_thread
+                  error:
+                    type: string
+                  warning:
+                    type: string
+                required:
+                  - success
+                  - hasBotToken
+                  - hasAppToken
+                  - hasUserToken
+                  - connected
+                  - threadMode
                 additionalProperties: false
     post:
       operationId: integrations_slack_channel_config_post
@@ -13887,6 +14051,11 @@ paths:
                     type: string
                   botUsername:
                     type: string
+                  threadMode:
+                    type: string
+                    enum:
+                      - mention_only
+                      - mention_then_thread
                   error:
                     type: string
                   warning:
@@ -13897,6 +14066,7 @@ paths:
                   - hasAppToken
                   - hasUserToken
                   - connected
+                  - threadMode
                 additionalProperties: false
   /v1/integrations/telegram/commands:
     post:
@@ -14511,6 +14681,54 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  servers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        status:
+                          type: string
+                        transport:
+                          type: object
+                          properties:
+                            type:
+                              type: string
+                              enum:
+                                - stdio
+                                - sse
+                                - streamable-http
+                          required:
+                            - type
+                          additionalProperties: {}
+                        enabled:
+                          type: boolean
+                        defaultRiskLevel:
+                          type: string
+                        allowedTools:
+                          type: array
+                          items:
+                            type: string
+                        blockedTools:
+                          type: array
+                          items:
+                            type: string
+                      required:
+                        - id
+                        - status
+                        - transport
+                        - enabled
+                        - defaultRiskLevel
+                      additionalProperties: false
+                required:
+                  - servers
+                additionalProperties: false
   /v1/internal/mcp/reload:
     post:
       operationId: internal_mcp_reload_post
@@ -14537,6 +14755,104 @@ paths:
               properties:
                 name:
                   type: string
+              required:
+                - name
+      responses:
+        "200":
+          description: Successful response
+  /v1/internal/mcp/tools-summary:
+    get:
+      operationId: internal_mcp_toolssummary_get
+      summary: Per-server MCP tool counts and token estimates
+      description:
+        Returns registered tool counts, individual tool details, and estimated token overhead for each connected
+        MCP server.
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  servers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        serverId:
+                          type: string
+                        toolCount:
+                          type: number
+                        estimatedTokens:
+                          type: number
+                        tools:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              description:
+                                type: string
+                              estimatedTokens:
+                                type: number
+                            required:
+                              - name
+                              - description
+                              - estimatedTokens
+                            additionalProperties: false
+                      required:
+                        - serverId
+                        - toolCount
+                        - estimatedTokens
+                        - tools
+                      additionalProperties: false
+                  totalToolCount:
+                    type: number
+                  totalEstimatedTokens:
+                    type: number
+                required:
+                  - servers
+                  - totalToolCount
+                  - totalEstimatedTokens
+                additionalProperties: false
+  /v1/internal/mcp/update:
+    post:
+      operationId: internal_mcp_update_post
+      summary: Update an MCP server configuration
+      description: Updates fields on an existing MCP server config entry and triggers a reload.
+      tags:
+        - internal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                enabled:
+                  type: boolean
+                defaultRiskLevel:
+                  type: string
+                maxTools:
+                  type: number
+                allowedTools:
+                  anyOf:
+                    - type: array
+                      items:
+                        type: string
+                    - type: "null"
+                blockedTools:
+                  anyOf:
+                    - type: array
+                      items:
+                        type: string
+                    - type: "null"
               required:
                 - name
       responses:
@@ -15191,6 +15507,256 @@ paths:
                 additionalProperties: false
         "409":
           description: Another memory item with this content already exists
+  /v1/memory/eval/run:
+    post:
+      operationId: memory_eval_run_post
+      summary: Build blinded A/B retrieval-eval packets over two concept corpora (snapshot vs staged wiki)
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                stagingDir:
+                  type: string
+                  minLength: 1
+                snapshotDir:
+                  type: string
+                  minLength: 1
+                outDir:
+                  type: string
+                  minLength: 1
+                turns:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                perConversationCap:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                k:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                dense:
+                  type: boolean
+                seed:
+                  type: integer
+                  minimum: -9007199254740991
+                  maximum: 9007199254740991
+                turnIds:
+                  type: array
+                  items:
+                    type: string
+                excludeConversationIds:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - stagingDir
+                - snapshotDir
+                - outDir
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  turnsMined:
+                    type: number
+                  turnsRequested:
+                    type: number
+                  packetsWritten:
+                    type: number
+                  packetsPath:
+                    type: string
+                  keyPath:
+                    type: string
+                  metaPath:
+                    type: string
+                  snapshotPages:
+                    type: number
+                  stagingPages:
+                    type: number
+                  dense:
+                    type: boolean
+                  seed:
+                    type: number
+                  k:
+                    type: number
+                  embedding:
+                    type: object
+                    properties:
+                      provider:
+                        type: string
+                      model:
+                        type: string
+                      dims:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                    required:
+                      - provider
+                      - model
+                      - dims
+                    additionalProperties: false
+                  turnIds:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - turnsMined
+                  - turnsRequested
+                  - packetsWritten
+                  - packetsPath
+                  - keyPath
+                  - metaPath
+                  - snapshotPages
+                  - stagingPages
+                  - dense
+                  - seed
+                  - k
+                  - embedding
+                  - turnIds
+                additionalProperties: false
+  /v1/memory/eval/tally:
+    post:
+      operationId: memory_eval_tally_post
+      summary: Unblind + tally blind-judge verdicts against the key with a noise-aware win/tie/loss verdict
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                verdicts:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      turn:
+                        type: string
+                      winner:
+                        type: string
+                      scoreA:
+                        type: number
+                      scoreB:
+                        type: number
+                    required:
+                      - turn
+                      - scoreA
+                      - scoreB
+                key:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      turn:
+                        type: string
+                      a:
+                        type: string
+                        enum:
+                          - snapshot
+                          - staging
+                      b:
+                        type: string
+                        enum:
+                          - snapshot
+                          - staging
+                    required:
+                      - turn
+                      - a
+                      - b
+                alpha:
+                  type: number
+                  exclusiveMinimum: 0
+              required:
+                - verdicts
+                - key
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  turns:
+                    type: number
+                  verdictsCounted:
+                    type: number
+                  unmatchedVerdicts:
+                    type: number
+                  panel:
+                    type: object
+                    properties:
+                      min:
+                        type: number
+                      max:
+                        type: number
+                      mean:
+                        type: number
+                    required:
+                      - min
+                      - max
+                      - mean
+                    additionalProperties: false
+                  snapshotWins:
+                    type: number
+                  stagingWins:
+                    type: number
+                  ties:
+                    type: number
+                  decided:
+                    type: number
+                  meanSnapshot:
+                    type: number
+                  meanStaging:
+                    type: number
+                  signTestP:
+                    type: number
+                  verdict:
+                    type: string
+                    enum:
+                      - wiki-wins
+                      - tie
+                      - wiki-loses
+                  gate:
+                    type: string
+                    enum:
+                      - pass
+                      - fail
+                  confident:
+                    type: boolean
+                  notes:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - turns
+                  - verdictsCounted
+                  - unmatchedVerdicts
+                  - panel
+                  - snapshotWins
+                  - stagingWins
+                  - ties
+                  - decided
+                  - meanSnapshot
+                  - meanStaging
+                  - signTestP
+                  - verdict
+                  - gate
+                  - confident
+                  - notes
+                additionalProperties: false
   /v1/memory/v2/backfill:
     post:
       operationId: memory_v2_backfill_post
@@ -15872,6 +16438,7 @@ paths:
                                           - brave
                                           - perplexity
                                           - tavily
+                                          - firecrawl
                                       resultCount:
                                         type: number
                                       durationMs:
@@ -15919,6 +16486,11 @@ paths:
                                         type: string
                                       finalUrl:
                                         type: string
+                                      provider:
+                                        type: string
+                                        enum:
+                                          - default
+                                          - firecrawl
                                       status:
                                         type: number
                                       contentType:
@@ -16034,6 +16606,48 @@ paths:
                                     type: boolean
                                 required:
                                   - requestId
+                                additionalProperties: false
+                              pendingQuestion:
+                                type: object
+                                properties:
+                                  requestId:
+                                    type: string
+                                  entries:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        id:
+                                          type: string
+                                        question:
+                                          type: string
+                                        description:
+                                          type: string
+                                        options:
+                                          type: array
+                                          items:
+                                            type: object
+                                            properties:
+                                              id:
+                                                type: string
+                                              label:
+                                                type: string
+                                              description:
+                                                type: string
+                                            required:
+                                              - id
+                                              - label
+                                            additionalProperties: false
+                                        freeTextPlaceholder:
+                                          type: string
+                                      required:
+                                        - id
+                                        - question
+                                        - options
+                                      additionalProperties: false
+                                required:
+                                  - requestId
+                                  - entries
                                 additionalProperties: false
                             required:
                               - name
@@ -16254,6 +16868,7 @@ paths:
                                                   - brave
                                                   - perplexity
                                                   - tavily
+                                                  - firecrawl
                                               resultCount:
                                                 type: number
                                               durationMs:
@@ -16301,6 +16916,11 @@ paths:
                                                 type: string
                                               finalUrl:
                                                 type: string
+                                              provider:
+                                                type: string
+                                                enum:
+                                                  - default
+                                                  - firecrawl
                                               status:
                                                 type: number
                                               contentType:
@@ -16416,6 +17036,48 @@ paths:
                                             type: boolean
                                         required:
                                           - requestId
+                                        additionalProperties: false
+                                      pendingQuestion:
+                                        type: object
+                                        properties:
+                                          requestId:
+                                            type: string
+                                          entries:
+                                            type: array
+                                            items:
+                                              type: object
+                                              properties:
+                                                id:
+                                                  type: string
+                                                question:
+                                                  type: string
+                                                description:
+                                                  type: string
+                                                options:
+                                                  type: array
+                                                  items:
+                                                    type: object
+                                                    properties:
+                                                      id:
+                                                        type: string
+                                                      label:
+                                                        type: string
+                                                      description:
+                                                        type: string
+                                                    required:
+                                                      - id
+                                                      - label
+                                                    additionalProperties: false
+                                                freeTextPlaceholder:
+                                                  type: string
+                                              required:
+                                                - id
+                                                - question
+                                                - options
+                                              additionalProperties: false
+                                        required:
+                                          - requestId
+                                          - entries
                                         additionalProperties: false
                                     required:
                                       - name
@@ -16721,6 +17383,12 @@ paths:
                       type: array
                       items:
                         type: string
+                    title:
+                      description:
+                        Explicit title for the conversation minted on this first message. Persisted as a user-set title (never
+                        overwritten by the auto-titler). Used by onboarding flows that mint a conversation behind the
+                        scenes.
+                      type: string
                   required:
                     - tools
                     - tasks
@@ -17681,6 +18349,7 @@ paths:
               properties:
                 deliveryId:
                   type: string
+                  minLength: 1
                   description: Notification delivery ID
                 success:
                   type: boolean
@@ -17758,9 +18427,113 @@ paths:
                     type: boolean
                   feedItem:
                     type: object
-                    propertyNames:
-                      type: string
-                    additionalProperties: {}
+                    properties:
+                      id:
+                        type: string
+                      type:
+                        type: string
+                        const: notification
+                      priority:
+                        type: integer
+                        minimum: 0
+                        maximum: 100
+                      title:
+                        type: string
+                      summary:
+                        type: string
+                      timestamp:
+                        type: string
+                      status:
+                        default: new
+                        type: string
+                        enum:
+                          - new
+                          - seen
+                          - acted_on
+                          - dismissed
+                      expiresAt:
+                        type: string
+                      actions:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            label:
+                              type: string
+                            prompt:
+                              type: string
+                          required:
+                            - id
+                            - label
+                            - prompt
+                          additionalProperties: false
+                      urgency:
+                        type: string
+                        enum:
+                          - low
+                          - medium
+                          - high
+                          - critical
+                      conversationId:
+                        type: string
+                      detailPanel:
+                        type: object
+                        properties:
+                          kind:
+                            type: string
+                            enum:
+                              - emailDraft
+                              - documentPreview
+                              - permissionChat
+                              - paymentAuth
+                              - toolPermission
+                              - updatesList
+                        required:
+                          - kind
+                        additionalProperties: false
+                      category:
+                        type: string
+                        enum:
+                          - security
+                          - scheduling
+                          - background
+                          - email
+                          - system
+                      noteworthy:
+                        type: boolean
+                      fromAssistant:
+                        type: boolean
+                      metadata:
+                        type: object
+                        propertyNames:
+                          type: string
+                        additionalProperties: {}
+                      sourceType:
+                        type: string
+                        enum:
+                          - heartbeat
+                          - memory_consolidation
+                          - schedule
+                          - auto_analysis
+                          - user
+                          - other
+                      sourceKey:
+                        type: string
+                      sourceLabel:
+                        type: string
+                      createdAt:
+                        type: string
+                    required:
+                      - id
+                      - type
+                      - priority
+                      - summary
+                      - timestamp
+                      - status
+                      - createdAt
+                    additionalProperties: false
                   channels:
                     type: array
                     items:
@@ -17815,7 +18588,11 @@ paths:
                     - vellum
                     - phone
                     - telegram
+                    - whatsapp
                     - slack
+                    - email
+                    - platform
+                    - a2a
                     - scheduler
                     - watcher
                 sourceContextId:
@@ -18737,9 +19514,37 @@ paths:
                     additionalProperties: {}
                     description: Pending confirmation details or null
                   pendingSecret:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
+                    anyOf:
+                      - type: object
+                        properties:
+                          requestId:
+                            type: string
+                          service:
+                            type: string
+                          field:
+                            type: string
+                          label:
+                            type: string
+                          description:
+                            type: string
+                          placeholder:
+                            type: string
+                          purpose:
+                            type: string
+                          allowedTools:
+                            type: array
+                            items:
+                              type: string
+                          allowedDomains:
+                            type: array
+                            items:
+                              type: string
+                          allowOneTimeSend:
+                            type: boolean
+                        required:
+                          - requestId
+                        additionalProperties: {}
+                      - type: "null"
                     description: Pending secret request or null
                   interactions:
                     type: array
@@ -19562,6 +20367,35 @@ paths:
                       - type: string
                       - type: "null"
                     description: Marketplace fetch error message, when the catalog could not be read.
+                  surfaces:
+                    anyOf:
+                      - type: object
+                        properties:
+                          skills:
+                            type: array
+                            items:
+                              type: string
+                            description: Skill ids shipped at `skills/<id>/SKILL.md`.
+                          hooks:
+                            type: array
+                            items:
+                              type: string
+                            description: Lifecycle hook names from `hooks/<name>.{ts,js}` (e.g. `pre-model-call`).
+                          tools:
+                            type: array
+                            items:
+                              type: string
+                            description:
+                              Registered tool names from `tools/<name>.{ts,js}` (filenames derived to tool names, e.g. `create-issue` →
+                              `create_issue`).
+                        required:
+                          - skills
+                          - hooks
+                          - tools
+                        additionalProperties: false
+                        description: Surfaces the installed copy contributes, read from its on-disk tree.
+                      - type: "null"
+                    description: Surfaces the installed copy contributes (skills, hooks, tools); null when the plugin is not installed.
                 required:
                   - name
                   - installed
@@ -19569,6 +20403,7 @@ paths:
                   - local
                   - remote
                   - remoteError
+                  - surfaces
                 additionalProperties: false
         "400":
           description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
@@ -19584,9 +20419,13 @@ paths:
         mirroring `plugins install`''s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed
         commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching
         the install. Installs lacking provenance are re-pinned to the current SHA. The assistant must be restarted to
-        load the upgraded code. This does not gate on local edits — callers should consult `GET
-        /v1/plugins/:name/inspect` (`local.localChanges`) first and confirm before overwriting. Mirrors the CLI''s
-        `assistant plugins upgrade <name>`.'
+        load the upgraded code. `strategy` controls how local edits are reconciled: `overwrite` (default) discards them
+        and re-installs the pin wholesale; `ours`/`theirs`/`assistant` perform a three-way merge against the
+        re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving conflicting
+        hunks toward the local edit (`ours`) or the pin (`theirs`), or writing git conflict markers into the file and
+        reporting them in `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge strategy
+        whose install-time baseline cannot be reconstructed returns 409. Mirrors the CLI''s `assistant plugins upgrade
+        <name> [--strategy <s>]`.'
       tags:
         - plugins
       parameters:
@@ -19605,6 +20444,17 @@ paths:
                 dryRun:
                   description: Report what would change without modifying the install. Defaults to false.
                   type: boolean
+                strategy:
+                  description:
+                    How to reconcile local edits with the pin. `overwrite` (default) discards local edits and re-installs the
+                    pin; `ours`/`theirs` three-way merge, resolving conflicting hunks toward the local edit or the pin
+                    respectively; `assistant` is not yet supported.
+                  type: string
+                  enum:
+                    - ours
+                    - theirs
+                    - overwrite
+                    - assistant
       responses:
         "200":
           description: Successful response
@@ -19656,6 +20506,28 @@ paths:
                   dryRun:
                     type: boolean
                     description: Whether this was a dry run (no changes made).
+                  strategy:
+                    type: string
+                    enum:
+                      - ours
+                      - theirs
+                      - overwrite
+                      - assistant
+                    description: Conflict-resolution strategy the upgrade applied.
+                  conflicts:
+                    type: array
+                    items:
+                      type: string
+                    description:
+                      "Paths left for the assistant to resolve under the `assistant` strategy: text files carry git conflict
+                      markers, modify/delete divergences keep the surviving content. Empty for other strategies."
+                  binaryConflicts:
+                    type: array
+                    items:
+                      type: string
+                    description:
+                      Binary files that conflicted under the `assistant` strategy; the local copy was kept since markers cannot
+                      be written into binary content. Empty for other strategies.
                   provenanceWasUnknown:
                     type: boolean
                     description:
@@ -19671,6 +20543,9 @@ paths:
                   - target
                   - fileCount
                   - dryRun
+                  - strategy
+                  - conflicts
+                  - binaryConflicts
                   - provenanceWasUnknown
                 additionalProperties: false
         "400":
@@ -19678,9 +20553,72 @@ paths:
         "404":
           description: No copy of the plugin is installed, or its source resolves to nothing.
         "409":
-          description: The install exists but has no marketplace entry to advance to.
+          description:
+            The install exists but has no marketplace entry to advance to, or a merge strategy was requested whose
+            install-time baseline cannot be reconstructed.
         "503":
           description: The plugin source (GitHub) was temporarily unavailable; the upgrade is retryable.
+  /v1/plugins/{name}/versions:
+    get:
+      operationId: plugins_by_name_versions_get
+      summary: List a plugin's reviewed marketplace pins
+      description:
+        Report the distinct marketplace pins a plugin has been promoted to over time, newest first (the first entry
+        is the current pin), capped at `limit` (default 5). The curated `marketplace.json` stores only the current pin,
+        so this is reconstructed from the manifest's own commit history on the default branch — every entry is therefore
+        a reviewed, known-good revision. Pair with `POST /v1/plugins/install`'s `pin` field to roll a plugin back to an
+        older reviewed version. An unknown name (never in the manifest) returns an empty array, not 404.
+      tags:
+        - plugins
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Maximum number of pins to return (positive integer; default 5).
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    pin:
+                      type: string
+                      description: Plugin commit SHA pinned at this point in marketplace history.
+                    marketplaceCommit:
+                      type: string
+                      description: Marketplace-manifest commit to install this pin from (the newest commit carrying it).
+                    promotedAt:
+                      anyOf:
+                        - type: string
+                        - type: "null"
+                      description: ISO-8601 committer date (UTC) of the marketplace commit that promoted this pin; null when unreadable.
+                    current:
+                      type: boolean
+                      description: True for the pin currently active on the default branch.
+                  required:
+                    - pin
+                    - marketplaceCommit
+                    - promotedAt
+                    - current
+                  additionalProperties: false
+                description:
+                  Distinct marketplace pins a plugin has been promoted to, newest first; the first entry is the current pin.
+                  Empty when the plugin has no resolvable history.
+        "400":
+          description: The plugin name failed sanitization, or `limit` was not a positive integer.
+        "503":
+          description: The marketplace pin history could not be read from GitHub (rate-limited or upstream error); retryable.
   /v1/plugins/install:
     post:
       operationId: plugins_install_post
@@ -19707,6 +20645,13 @@ paths:
                 force:
                   description: Overwrite an existing install in place. Defaults to false.
                   type: boolean
+                pin:
+                  description:
+                    Install a specific reviewed marketplace pin (full commit SHA) instead of the current one. The pin is
+                    validated against the plugin's marketplace pin history (`GET /v1/plugins/:name/versions`) and
+                    installed from the marketplace revision that introduced it; an unreviewed SHA is rejected. Use this
+                    to roll a plugin back to an older reviewed version.
+                  type: string
               required:
                 - name
       responses:
@@ -26374,6 +27319,10 @@ paths:
                           type: number
                         eventCount:
                           type: number
+                        turnCount:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                       required:
                         - group
                         - groupId
@@ -26383,6 +27332,7 @@ paths:
                         - totalCacheReadTokens
                         - totalEstimatedCostUsd
                         - eventCount
+                        - turnCount
                       additionalProperties: false
                     description: Grouped usage entries
                 required:
@@ -27459,6 +28409,88 @@ paths:
                 additionalProperties: false
         "404":
           description: Run not found
+  /v1/workflows/runs/{id}/journal:
+    get:
+      operationId: workflows_runs_by_id_journal_get
+      summary: Get workflow run journal
+      description: Return a workflow run's leaf journal as bounded per-leaf summaries (one entry per finished leaf).
+      tags:
+        - workflows
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runId:
+                    type: string
+                  status:
+                    type: string
+                    enum:
+                      - running
+                      - completed
+                      - failed
+                      - aborted
+                      - cap_exceeded
+                      - interrupted
+                  agentsSpawned:
+                    type: number
+                  inputTokens:
+                    type: number
+                  outputTokens:
+                    type: number
+                  phase:
+                    type: string
+                  leaves:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        seq:
+                          type: number
+                        kind:
+                          type: string
+                          enum:
+                            - agent
+                            - workflow
+                        label:
+                          type: string
+                        phase:
+                          type: string
+                        promptSummary:
+                          type: string
+                        status:
+                          type: string
+                        resultSummary:
+                          type: string
+                        inputTokens:
+                          type: number
+                        outputTokens:
+                          type: number
+                        createdAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                      required:
+                        - seq
+                        - kind
+                        - status
+                        - createdAt
+                      additionalProperties: false
+                required:
+                  - runId
+                  - leaves
+                additionalProperties: false
+        "404":
+          description: Run not found
   /v1/workflows/runs/{id}/resume:
     post:
       operationId: workflows_runs_by_id_resume_post
@@ -27991,6 +29023,14 @@ components:
                               maximum: 2
                             - type: "null"
                         - type: "null"
+                    topP:
+                      anyOf:
+                        - anyOf:
+                            - type: number
+                              minimum: 0
+                              maximum: 1
+                            - type: "null"
+                        - type: "null"
                     thinking:
                       anyOf:
                         - type: object
@@ -28097,6 +29137,10 @@ components:
               anyOf:
                 - type: string
                 - type: "null"
+            advisorProfile:
+              anyOf:
+                - type: string
+                - type: "null"
             callSites:
               type: object
               propertyNames:
@@ -28123,6 +29167,16 @@ components:
           type: object
           properties:
             web-search:
+              anyOf:
+                - type: object
+                  properties:
+                    mode:
+                      $ref: "#/components/schemas/ServiceMode"
+                    provider:
+                      type: string
+                  additionalProperties: {}
+                - type: "null"
+            web-fetch:
               anyOf:
                 - type: object
                   properties:
@@ -28161,6 +29215,7 @@ components:
         - openrouter
         - openai-compatible
         - minimax
+        - atlascloud
     ProfilePatchEntry:
       type: object
       properties:
@@ -28211,6 +29266,14 @@ components:
                 - type: number
                   minimum: 0
                   maximum: 2
+                - type: "null"
+            - type: "null"
+        topP:
+          anyOf:
+            - anyOf:
+                - type: number
+                  minimum: 0
+                  maximum: 1
                 - type: "null"
             - type: "null"
         thinking:
@@ -28326,6 +29389,12 @@ components:
                 - $ref: "#/components/schemas/ProfileStatus"
                 - type: "null"
             - type: "null"
+        advisorEnabled:
+          anyOf:
+            - anyOf:
+                - type: boolean
+                - type: "null"
+            - type: "null"
         mix:
           anyOf:
             - minItems: 2
@@ -28399,6 +29468,14 @@ components:
                 - type: number
                   minimum: 0
                   maximum: 2
+                - type: "null"
+            - type: "null"
+        topP:
+          anyOf:
+            - anyOf:
+                - type: number
+                  minimum: 0
+                  maximum: 1
                 - type: "null"
             - type: "null"
         thinking:
@@ -28518,6 +29595,7 @@ components:
         - openrouter
         - openai-compatible
         - minimax
+        - atlascloud
     Auth:
       oneOf:
         - type: object
@@ -28623,6 +29701,12 @@ components:
                       minimum: 0
                       maximum: 2
                     - type: "null"
+                topP:
+                  anyOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 1
+                    - type: "null"
                 thinking:
                   type: object
                   properties:
@@ -28716,6 +29800,8 @@ components:
                 type: string
             activeProfile:
               type: string
+            advisorProfile:
+              type: string
             callSites:
               type: object
               propertyNames:
@@ -28758,6 +29844,12 @@ components:
                           - type: number
                             minimum: 0
                             maximum: 2
+                          - type: "null"
+                      topP:
+                        anyOf:
+                          - type: number
+                            minimum: 0
+                            maximum: 1
                           - type: "null"
                       thinking:
                         type: object
@@ -28866,6 +29958,14 @@ components:
                 provider:
                   type: string
               additionalProperties: {}
+            web-fetch:
+              type: object
+              properties:
+                mode:
+                  $ref: "#/components/schemas/ServiceMode"
+                provider:
+                  type: string
+              additionalProperties: {}
             image-generation:
               type: object
               properties:
@@ -28917,6 +30017,12 @@ components:
             - type: number
               minimum: 0
               maximum: 2
+            - type: "null"
+        topP:
+          anyOf:
+            - type: number
+              minimum: 0
+              maximum: 1
             - type: "null"
         thinking:
           type: object
@@ -29014,6 +30120,10 @@ components:
         status:
           anyOf:
             - $ref: "#/components/schemas/ProfileStatus"
+            - type: "null"
+        advisorEnabled:
+          anyOf:
+            - type: boolean
             - type: "null"
         mix:
           minItems: 2

@@ -19,7 +19,7 @@ import {
   toolInvocations,
 } from "../memory/schema.js";
 
-initializeDb();
+await initializeDb();
 
 const STALE_ID = "conv-prune-job-stale";
 const FRESH_ID = "conv-prune-job-fresh";

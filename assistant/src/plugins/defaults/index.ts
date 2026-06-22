@@ -24,8 +24,15 @@
  * {@link registerDefaultPlugins} at call time.
  */
 
+import { finalizeTool } from "../../tools/tool-defaults.js";
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
+import { resetAdvisorStateForTests } from "./advisor/advisor-state-store.js";
+import advisorPostModelCall from "./advisor/hooks/post-model-call.js";
+import advisorPreModelCall from "./advisor/hooks/pre-model-call.js";
+import advisorUserPromptSubmit from "./advisor/hooks/user-prompt-submit.js";
+import advisorPkg from "./advisor/package.json" with { type: "json" };
+import advisorTool from "./advisor/tools/advisor.js";
 import compactionPkg from "./compaction/package.json" with { type: "json" };
 import emptyResponsePostModelCall from "./empty-response/hooks/post-model-call.js";
 import emptyResponseStop from "./empty-response/hooks/stop.js";
@@ -40,6 +47,9 @@ import historyRepairStop from "./history-repair/hooks/stop.js";
 import historyRepairUserPromptSubmit from "./history-repair/hooks/user-prompt-submit.js";
 import historyRepairPkg from "./history-repair/package.json" with { type: "json" };
 import { resetRepairStateStoreForTests } from "./history-repair/repair-state-store.js";
+import imageFallbackUserPromptSubmit from "./image-fallback/hooks/user-prompt-submit.js";
+import imageFallbackPkg from "./image-fallback/package.json" with { type: "json" };
+import { resetCaptionCacheForTests } from "./image-fallback/src/caption-cache.js";
 import imageRecoveryPostModelCall from "./image-recovery/hooks/post-model-call.js";
 import imageRecoveryStop from "./image-recovery/hooks/stop.js";
 import { resetImageRecoveryStoreForTests } from "./image-recovery/image-recovery-state-store.js";
@@ -54,6 +64,10 @@ import memoryRetrievalPkg from "./memory-retrieval/package.json" with { type: "j
 import memoryV3PostCompact from "./memory-v3-shadow/hooks/post-compact.js";
 import memoryV3UserPromptSubmit from "./memory-v3-shadow/hooks/user-prompt-submit.js";
 import memoryV3Pkg from "./memory-v3-shadow/package.json" with { type: "json" };
+import surfaceCompletionNudgePostModelCall from "./surface-completion-nudge/hooks/post-model-call.js";
+import surfaceCompletionNudgeStop from "./surface-completion-nudge/hooks/stop.js";
+import { resetSurfaceCompletionNudgeStoreForTests } from "./surface-completion-nudge/nudge-state-store.js";
+import surfaceCompletionNudgePkg from "./surface-completion-nudge/package.json" with { type: "json" };
 import taskProgressNudgePostToolUse, {
   resetTaskProgressNudgeStateForTests,
 } from "./task-progress-nudge/hooks/post-tool-use.js";
@@ -65,6 +79,24 @@ import toolErrorPostToolUse from "./tool-error/hooks/post-tool-use.js";
 import toolErrorPkg from "./tool-error/package.json" with { type: "json" };
 import toolResultTruncatePostToolUse from "./tool-result-truncate/hooks/post-tool-use.js";
 import toolResultTruncatePkg from "./tool-result-truncate/package.json" with { type: "json" };
+
+/**
+ * `image-fallback` — a `user-prompt-submit` hook that captions image blocks via
+ * a vision-capable profile when the active model is text-only, substituting the
+ * caption as a `[Image: <caption>]` text block so the model can still reason
+ * about the image's content. Self-gates on `isNonInteractive`; fail-open with a
+ * placeholder when no vision profile is configured or captioning fails. An
+ * in-memory content-hash cache avoids re-captioning the same image across turns.
+ */
+export const defaultImageFallbackPlugin: Plugin = {
+  manifest: {
+    name: imageFallbackPkg.name,
+    version: imageFallbackPkg.version,
+  },
+  hooks: {
+    "user-prompt-submit": imageFallbackUserPromptSubmit,
+  },
+};
 
 /**
  * `compaction` — compaction is implemented in `compaction/compact.ts` as
@@ -260,6 +292,25 @@ export const defaultTaskProgressNudgePlugin: Plugin = {
 };
 
 /**
+ * `surface-completion-nudge` — a `post-model-call` hook that, when a user-facing
+ * turn is about to end with a progress surface (a `task_progress` card or
+ * `work_result`) the model showed but never advanced to a terminal status or
+ * dismissed, nudges the model once to close it and re-queries so it can act; the
+ * `stop` hook clears the one-shot bound on a terminal stop so the next run
+ * nudges afresh.
+ */
+export const defaultSurfaceCompletionNudgePlugin: Plugin = {
+  manifest: {
+    name: surfaceCompletionNudgePkg.name,
+    version: surfaceCompletionNudgePkg.version,
+  },
+  hooks: {
+    "post-model-call": surfaceCompletionNudgePostModelCall,
+    stop: surfaceCompletionNudgeStop,
+  },
+};
+
+/**
  * `tool-result-truncate` — a `post-tool-use` hook that tail-drops an oversized
  * tool result down to a character budget derived from the model's context
  * window before the result is sent to the provider.
@@ -275,6 +326,30 @@ export const defaultToolResultTruncatePlugin: Plugin = {
 };
 
 /**
+ * `advisor` — adds the model-visible `advisor` tool: a no-argument tool the
+ * model calls to consult a stronger inference profile (the `inference` call
+ * site with a `quality-optimized` override) on the full transcript, routed
+ * through the assistant's own inference. Three hooks feed it: `user-prompt-submit`
+ * seeds the capture, `pre-model-call` records the executor's system prompt and
+ * injects the steering that nudges the model to consult, and `post-model-call`
+ * snapshots the transcript the tool reads. `finalizeTool` fills the tool's
+ * defaults so it satisfies `Tool`, and `bootstrapPlugins` registers it into the
+ * catalog.
+ */
+export const defaultAdvisorPlugin: Plugin = {
+  manifest: {
+    name: advisorPkg.name,
+    version: advisorPkg.version,
+  },
+  hooks: {
+    "user-prompt-submit": advisorUserPromptSubmit,
+    "pre-model-call": advisorPreModelCall,
+    "post-model-call": advisorPostModelCall,
+  },
+  tools: [finalizeTool(advisorTool, "advisor")],
+};
+
+/**
  * Full set of first-party default plugins. Used by
  * {@link registerDefaultPlugins} to drive the registration loop; the array
  * order is the registration order, which fixes hook-chain order (defaults run
@@ -283,17 +358,22 @@ export const defaultToolResultTruncatePlugin: Plugin = {
 function getAllDefaultPlugins(): readonly Plugin[] {
   return [
     defaultMemoryRetrievalPlugin,
+    defaultImageFallbackPlugin,
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
     defaultMaxTokensContinuePlugin,
     defaultToolErrorPlugin,
     defaultExplorationDriftPlugin,
     defaultTaskProgressNudgePlugin,
+    defaultSurfaceCompletionNudgePlugin,
     defaultHistoryRepairPlugin,
     defaultImageRecoveryPlugin,
     defaultCompactionPlugin,
     defaultTitleGeneratePlugin,
     memoryV3ShadowPlugin,
+    // Registered last so its capture hooks observe the fully-processed turn
+    // (memory injections, history repair) that the executor actually sees.
+    defaultAdvisorPlugin,
   ];
 }
 
@@ -339,5 +419,8 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
   resetImageRecoveryStoreForTests();
   resetExplorationDriftStateForTests();
   resetTaskProgressNudgeStateForTests();
+  resetSurfaceCompletionNudgeStoreForTests();
+  resetAdvisorStateForTests();
+  resetCaptionCacheForTests();
   registerDefaultPlugins();
 }

@@ -9,7 +9,6 @@ import {
   loadAllAssistants,
   lookupAssistantByIdentifier,
   removeAssistantEntry,
-  resolveCloud,
   type AssistantEntry,
 } from "../lib/assistant-config.js";
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
@@ -249,7 +248,7 @@ async function retireInner(): Promise<void> {
   const entry = lookup.entry;
   const assistantId = entry.assistantId;
   const source = parsed.source;
-  const cloud = resolveCloud(entry);
+  const cloud = entry.cloud;
 
   if (cloud === "paired") {
     // A remote assistant paired from another machine. Retiring tears the
@@ -318,7 +317,7 @@ async function retireInner(): Promise<void> {
   console.log(`Removed ${formatAssistantReference(entry)} from config.`);
 
   // When no assistants remain, remove the dock-display-name sentinel so
-  // the next build.sh run falls back to "Vellum" instead of using the
+  // the dock label falls back to "Vellum" instead of using the
   // retired assistant's name.
   if (loadAllAssistants().length === 0) {
     const dockLabelFile = join(

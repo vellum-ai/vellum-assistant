@@ -2,6 +2,7 @@ import { join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../config/types.js";
 import {
   checkDiskPressureBackgroundGate,
@@ -852,7 +853,7 @@ export function maybeEnqueueGraphMaintenanceJobs(
   // this guard is belt-and-suspenders that also avoids a wasted enqueue.
   if (
     isAssistantFeatureFlagEnabled("memory-v3-shadow", config) ||
-    isAssistantFeatureFlagEnabled("memory-v3-live", config)
+    isMemoryV3Live(config)
   ) {
     schedule.push({
       key: GRAPH_MAINTENANCE_CHECKPOINTS.memoryV3Maintain,

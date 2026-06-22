@@ -16,6 +16,18 @@ export function migrateDropLegacyMemberGuardianTables(
 ): void {
   const raw = getSqliteFrom(database);
 
+  // The safety-sync below reads and writes contact_channels.external_user_id.
+  // A later migration drops that column; this step re-runs on every startup,
+  // so once the column is gone the sync cannot run (and is moot —
+  // identities live in `address`). Skip the sync in that case but still
+  // drop the legacy tables, so this step completes instead of failing every
+  // boot. Reaching here with the tables still present means the sync never
+  // succeeded, so nothing synced is lost.
+  const cols = raw.prepare(`PRAGMA table_info(contact_channels)`).all() as {
+    name: string;
+  }[];
+  const hasExternalUserId = cols.some((c) => c.name === "external_user_id");
+
   // ── Safety sync: guardian bindings → contacts ─────────────────────
   const guardianTableExists = raw
     .prepare(
@@ -23,7 +35,7 @@ export function migrateDropLegacyMemberGuardianTables(
     )
     .get();
 
-  if (guardianTableExists) {
+  if (guardianTableExists && hasExternalUserId) {
     // Insert any active guardian bindings not already present in contacts.
     // We match on (type, external_user_id) to avoid duplicating existing rows.
     raw.exec(/*sql*/ `
@@ -77,7 +89,7 @@ export function migrateDropLegacyMemberGuardianTables(
     )
     .get();
 
-  if (membersTableExists) {
+  if (membersTableExists && hasExternalUserId) {
     // Insert non-pending members not already present in contacts.
     raw.exec(/*sql*/ `
       INSERT INTO contacts (id, display_name, created_at, updated_at)

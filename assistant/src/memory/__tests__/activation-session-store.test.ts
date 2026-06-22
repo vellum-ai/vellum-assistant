@@ -15,7 +15,7 @@ import { getDb } from "../db-connection.js";
 import { initializeDb } from "../db-init.js";
 import { activationSessions } from "../schema.js";
 
-initializeDb();
+await initializeDb();
 
 describe("activation-session-store", () => {
   beforeEach(() => {

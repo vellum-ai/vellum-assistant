@@ -18,6 +18,7 @@ import {
   runWithConcurrency,
   type SlackHistoryMessage,
 } from "./slack-web.js";
+import { isSlackDmChannel } from "./channel.js";
 import {
   normalizeSlackAppMention,
   normalizeSlackDirectMessage,
@@ -71,6 +72,8 @@ const CATCHUP_HISTORY_LIMIT = 50;
 const CATCHUP_CONCURRENCY = 4;
 const SLACK_MUTE_COMMANDS = new Set(["detach", "mute"]);
 
+export type SlackThreadMode = "mention_only" | "mention_then_thread";
+
 export type SlackSocketModeConfig = {
   appToken: string;
   botToken: string;
@@ -88,6 +91,13 @@ export type SlackSocketModeConfig = {
   botUsername?: string;
   /** Slack workspace/team name, resolved at startup via auth.test. */
   teamName?: string;
+  /**
+   * Controls whether the bot auto-follows threads after an initial @mention.
+   * - `mention_only`: only respond to explicit @mentions (no thread tracking).
+   * - `mention_then_thread`: after the first @mention, listen to all
+   *   subsequent replies in the thread for 24h.
+   */
+  threadMode: SlackThreadMode;
 };
 
 function escapeRegExp(value: string): string {
@@ -519,6 +529,8 @@ export class SlackSocketModeClient {
       | SlackReactionAddedEvent
       | SlackReactionRemovedEvent,
   ): void {
+    if (this.config.threadMode !== "mention_then_thread") return;
+
     const channelEvent = event as SlackChannelMessageEvent;
     const subtype = (event as SlackMessageChangedEvent).subtype;
     if (
@@ -860,7 +872,10 @@ export class SlackSocketModeClient {
       );
     const isMessageChanged =
       isMessageChangedRaw &&
-      (messageChangedEvent.channel_type === "im" ||
+      (isSlackDmChannel(
+        messageChangedEvent.channel,
+        messageChangedEvent.channel_type,
+      ) ||
         (!!messageChangedEvent.message?.thread_ts &&
           this.store.hasThread(messageChangedEvent.message.thread_ts)) ||
         (!!messageChangedEvent.message?.ts &&
@@ -874,7 +889,10 @@ export class SlackSocketModeClient {
       event.type === "message" &&
       messageDeletedEvent.subtype === "message_deleted" &&
       !!messageDeletedEvent.deleted_ts &&
-      (messageDeletedEvent.channel_type === "im" ||
+      (isSlackDmChannel(
+        messageDeletedEvent.channel,
+        messageDeletedEvent.channel_type,
+      ) ||
         (!!messageDeletedEvent.previous_message?.thread_ts &&
           this.store.hasThread(
             messageDeletedEvent.previous_message.thread_ts,
@@ -891,7 +909,7 @@ export class SlackSocketModeClient {
       event.type === "message" &&
       !isMessageChanged &&
       !isMessageDeleted &&
-      dmEvent.channel_type === "im";
+      isSlackDmChannel(dmEvent.channel, dmEvent.channel_type);
     const mentionsBot = channelEvent.text?.includes(`<@${botUserId}>`);
     const isActiveThreadReply =
       event.type === "message" &&
@@ -915,7 +933,7 @@ export class SlackSocketModeClient {
     const reactionTargetChannel = reactionEvent.item?.channel;
     const reactionAdmitChannel =
       !!reactionTargetChannel &&
-      (reactionTargetChannel.startsWith("D") ||
+      (isSlackDmChannel(reactionTargetChannel) ||
         this.isChannelSubscribed(reactionTargetChannel) ||
         (!!reactionEvent.item?.ts &&
           this.store.hasThread(reactionEvent.item.ts)));
@@ -941,7 +959,8 @@ export class SlackSocketModeClient {
               ? "reaction_added"
               : isReactionRemoved
                 ? "reaction_removed"
-                : isActiveThreadReply
+                : isActiveThreadReply &&
+                    this.config.threadMode === "mention_then_thread"
                   ? "active_thread_reply"
                   : null;
 
@@ -1047,7 +1066,12 @@ export class SlackSocketModeClient {
         appMentionEvent.channel,
         appMentionEvent.user,
       );
-      if (threadTs && !isRejection(routing) && appMentionEvent.channel) {
+      if (
+        this.config.threadMode === "mention_then_thread" &&
+        threadTs &&
+        !isRejection(routing) &&
+        appMentionEvent.channel
+      ) {
         this.store.trackThread(
           threadTs,
           appMentionEvent.channel,
@@ -1329,7 +1353,9 @@ export class SlackSocketModeClient {
     // edits, or deletes arming unrelated threads.
     const threadTs = normalized.threadTs;
     const channelId = normalized.event.message.conversationExternalId;
-    const shouldTrackActiveThread = isAppMention || isActiveThreadReply;
+    const shouldTrackActiveThread =
+      this.config.threadMode === "mention_then_thread" &&
+      (isAppMention || isActiveThreadReply);
     if (shouldTrackActiveThread && threadTs && channelId) {
       this.store.trackThread(threadTs, channelId, ACTIVE_THREAD_TTL_MS);
     }
@@ -1539,14 +1565,15 @@ export class SlackSocketModeClient {
     }
 
     const mentionsBot = msg.text?.includes(`<@${botUserId}>`) ?? false;
-    const isDm = channel.startsWith("D");
-    // DMs are always delivered as `type: "message"` with `channel_type: "im"`
-    // by live Slack, even when the bot is `<@U…>`-mentioned in the body —
-    // Slack only emits `app_mention` for non-DM channels. Synthesizing a DM
-    // as `app_mention` would route through `normalizeSlackAppMention`, which
-    // (intentionally) lacks the DM default-assistant fallback that
-    // `normalizeSlackDirectMessage` provides, so an unrouted DM @-mention
-    // would silently drop in `unmappedPolicy: "reject"` deployments.
+    // `conversations.history`/`replies` carry no `channel_type`, so classify
+    // DMs by the conversation ID prefix.
+    const isDm = isSlackDmChannel(channel);
+    // Slack only emits `app_mention` in non-DM channels, even when the bot is
+    // `<@U…>`-mentioned in a DM body. Synthesizing a DM as `app_mention` would
+    // route through `normalizeSlackAppMention`, which (intentionally) lacks the
+    // DM default-assistant fallback that `normalizeSlackDirectMessage`
+    // provides, so an unrouted DM @-mention would silently drop in
+    // `unmappedPolicy: "reject"` deployments.
     const eventType: "app_mention" | "message" =
       mentionsBot && !isDm ? "app_mention" : "message";
 

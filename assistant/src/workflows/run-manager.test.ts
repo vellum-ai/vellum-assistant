@@ -22,7 +22,6 @@ import {
   WorkflowRunCapError,
   WorkflowRunManager,
   type WorkflowRunManagerDeps,
-  WorkflowsDisabledError,
 } from "./run-manager.js";
 
 const TRUST: TrustContext = {
@@ -144,7 +143,6 @@ interface EngineResult {
  * deterministically), an in-memory journal, and spies for broadcast + wake.
  */
 function makeHarness(opts?: {
-  flagEnabled?: boolean;
   maxConcurrentRuns?: number;
   /** Custom engine impl; defaults to the deferred-resolver fake. */
   engine?: WorkflowRunManagerDeps["executeWorkflow"];
@@ -190,7 +188,6 @@ function makeHarness(opts?: {
     }) as unknown as WorkflowRunManagerDeps["leafRunner"],
     journal: fake.journal,
     getConfig: () => makeConfig(opts?.maxConcurrentRuns),
-    isFlagEnabled: () => opts?.flagEnabled ?? true,
     wake: (async (wakeOpts) => {
       wakes.push({
         conversationId: wakeOpts.conversationId,
@@ -226,22 +223,6 @@ function makeHarness(opts?: {
     },
   };
 }
-
-describe("WorkflowRunManager.start — flag gate", () => {
-  test("flag off → start throws and the engine is never invoked", () => {
-    const h = makeHarness({ flagEnabled: false });
-    expect(() =>
-      h.manager.start({
-        scriptSource: "export const meta = { name: 'x', description: 'y' }",
-        args: {},
-        manifest: { tools: [], hostFunctions: [], persona: false },
-        trustContext: TRUST,
-      }),
-    ).toThrow(WorkflowsDisabledError);
-    expect(h.executeCalls).toHaveLength(0);
-    expect(h.fake.rows.size).toBe(0);
-  });
-});
 
 describe("WorkflowRunManager.start — concurrent-run cap", () => {
   test("the (N+1)th concurrent start is rejected", () => {
@@ -311,6 +292,7 @@ describe("WorkflowRunManager.abort", () => {
       scriptSource: "export const meta = { name: 'x', description: 'y' }",
       args: {},
       manifest: { tools: [], hostFunctions: [], persona: false },
+      conversationId: "conv-1",
       trustContext: TRUST,
     });
 
@@ -337,6 +319,7 @@ describe("WorkflowRunManager — progress events", () => {
       scriptSource: "export const meta = { name: 'x', description: 'y' }",
       args: {},
       manifest: { tools: [], hostFunctions: [], persona: false },
+      conversationId: "conv-1",
       label: "My Flow",
       trustContext: TRUST,
     });
@@ -349,13 +332,163 @@ describe("WorkflowRunManager — progress events", () => {
     expect(progress).toHaveLength(2);
     expect(progress[0]).toMatchObject({
       type: "workflow_progress",
+      conversationId: "conv-1",
       label: "My Flow",
       phase: "Gathering",
     });
     expect(progress[1]).toMatchObject({
       type: "workflow_progress",
+      conversationId: "conv-1",
       message: "step done",
     });
+  });
+
+  test("a run with no conversation broadcasts progress unscoped (no conversationId)", () => {
+    const h = makeHarness();
+    h.manager.start({
+      scriptSource: "export const meta = { name: 'x', description: 'y' }",
+      args: {},
+      manifest: { tools: [], hostFunctions: [], persona: false },
+      label: "My Flow",
+      trustContext: TRUST,
+    });
+
+    const onProgress = h.executeCalls[0]!.onProgress!;
+    onProgress({ type: "phase", title: "Gathering" });
+    onProgress({ type: "log", message: "step done" });
+
+    // `workflow_progress` is a pre-existing event; it still broadcasts for a
+    // conversationless run, just without a `conversationId` (unscoped).
+    const progress = h.broadcasts.filter((b) => b.type === "workflow_progress");
+    expect(progress).toHaveLength(2);
+    expect(progress[0]).toMatchObject({
+      type: "workflow_progress",
+      label: "My Flow",
+      phase: "Gathering",
+    });
+    expect(progress[0]).not.toHaveProperty("conversationId");
+  });
+
+  test("onLeaf start/finish are republished as scoped leaf events", () => {
+    const fakeEngine: WorkflowRunManagerDeps["executeWorkflow"] = (options) => {
+      options.onLeaf?.({
+        type: "leaf_started",
+        seq: 1,
+        label: "Research",
+        phase: "Gather",
+        promptSummary: "look it up",
+      });
+      options.onLeaf?.({
+        type: "leaf_finished",
+        seq: 1,
+        status: "completed",
+        label: "Research",
+        inputTokens: 30,
+        outputTokens: 12,
+        resultSummary: "found it",
+      });
+      return new Promise(() => {}) as ReturnType<
+        WorkflowRunManagerDeps["executeWorkflow"]
+      >;
+    };
+    const h = makeHarness({ engine: fakeEngine });
+
+    const { runId } = h.manager.start({
+      scriptSource: "export const meta = { name: 'x', description: 'y' }",
+      args: {},
+      manifest: { tools: [], hostFunctions: [], persona: false },
+      conversationId: "conv-1",
+      trustContext: TRUST,
+    });
+
+    const started = h.broadcasts.find(
+      (b) => b.type === "workflow_leaf_started",
+    );
+    expect(started).toMatchObject({
+      type: "workflow_leaf_started",
+      runId,
+      conversationId: "conv-1",
+      seq: 1,
+      label: "Research",
+      phase: "Gather",
+      promptSummary: "look it up",
+    });
+
+    const finished = h.broadcasts.find(
+      (b) => b.type === "workflow_leaf_finished",
+    );
+    expect(finished).toMatchObject({
+      type: "workflow_leaf_finished",
+      runId,
+      conversationId: "conv-1",
+      seq: 1,
+      status: "completed",
+      label: "Research",
+      inputTokens: 30,
+      outputTokens: 12,
+      resultSummary: "found it",
+    });
+  });
+
+  test("a run with no conversation gets no onLeaf callback", () => {
+    const h = makeHarness();
+    h.manager.start({
+      scriptSource: "export const meta = { name: 'x', description: 'y' }",
+      args: {},
+      manifest: { tools: [], hostFunctions: [], persona: false },
+      trustContext: TRUST,
+    });
+
+    expect(h.executeCalls[0]!.onLeaf).toBeUndefined();
+  });
+});
+
+describe("WorkflowRunManager.start — workflow_started", () => {
+  test("start with a conversation broadcasts workflow_started carrying toolUseId", () => {
+    const h = makeHarness();
+    const { runId } = h.manager.start({
+      scriptSource: "export const meta = { name: 'x', description: 'y' }",
+      args: {},
+      manifest: { tools: [], hostFunctions: [], persona: false },
+      conversationId: "conv-1",
+      toolUseId: "toolu-abc",
+      label: "My Flow",
+      trustContext: TRUST,
+    });
+
+    const started = h.broadcasts.find((b) => b.type === "workflow_started");
+    expect(started).toMatchObject({
+      type: "workflow_started",
+      runId,
+      conversationId: "conv-1",
+      toolUseId: "toolu-abc",
+      label: "My Flow",
+    });
+  });
+
+  test("start without a conversation broadcasts no workflow_started", () => {
+    const h = makeHarness();
+    h.manager.start({
+      scriptSource: "export const meta = { name: 'x', description: 'y' }",
+      args: {},
+      manifest: { tools: [], hostFunctions: [], persona: false },
+      trustContext: TRUST,
+    });
+
+    expect(h.broadcasts.some((b) => b.type === "workflow_started")).toBe(false);
+  });
+
+  test("resume never broadcasts workflow_started", () => {
+    const h = makeHarness({});
+    seedRun(h, {
+      id: "run-x",
+      status: "interrupted",
+      conversationId: "conv-1",
+    });
+
+    h.manager.resume("run-x");
+
+    expect(h.broadcasts.some((b) => b.type === "workflow_started")).toBe(false);
   });
 });
 
@@ -383,6 +516,7 @@ describe("WorkflowRunManager — completion", () => {
     expect(completed).toMatchObject({
       type: "workflow_completed",
       runId,
+      conversationId: "conv-1",
       status: "completed",
       agentsSpawned: 4,
       inputTokens: 100,
@@ -437,7 +571,7 @@ describe("WorkflowRunManager — completion", () => {
     expect(h.manager.status(runId)?.result).toBe(big);
   });
 
-  test("no conversationId → completion events fire but no wake", async () => {
+  test("no conversationId → pre-existing events broadcast unscoped; UI events and wake are gated", async () => {
     const h = makeHarness();
     h.manager.start({
       scriptSource: "export const meta = { name: 'x', description: 'y' }",
@@ -454,8 +588,23 @@ describe("WorkflowRunManager — completion", () => {
       outputTokens: 1,
     });
 
-    expect(h.broadcasts.some((b) => b.type === "workflow_completed")).toBe(
-      true,
+    // The pre-existing terminal event still broadcasts (unscoped) so raw SSE
+    // listeners and conversationless scheduled runs are still surfaced.
+    const completed = h.broadcasts.find((b) => b.type === "workflow_completed");
+    expect(completed).toMatchObject({
+      type: "workflow_completed",
+      status: "completed",
+    });
+    expect(completed).not.toHaveProperty("conversationId");
+
+    // The conversation-only signals stay gated: no `workflow_started`, no leaf
+    // events, and no completion wake without an originating conversation.
+    expect(h.broadcasts.some((b) => b.type === "workflow_started")).toBe(false);
+    expect(h.broadcasts.some((b) => b.type === "workflow_leaf_started")).toBe(
+      false,
+    );
+    expect(h.broadcasts.some((b) => b.type === "workflow_leaf_finished")).toBe(
+      false,
     );
     expect(h.wakes).toHaveLength(0);
   });
@@ -701,11 +850,5 @@ describe("WorkflowRunManager.resume", () => {
     seedRun(h, { id: "run-x", status: "interrupted" });
 
     expect(() => h.manager.resume("run-x")).toThrow(WorkflowRunCapError);
-  });
-
-  test("resume is rejected when the flag is off", () => {
-    const h = makeHarness({ flagEnabled: false });
-    seedRun(h, { id: "run-x", status: "interrupted" });
-    expect(() => h.manager.resume("run-x")).toThrow(WorkflowsDisabledError);
   });
 });

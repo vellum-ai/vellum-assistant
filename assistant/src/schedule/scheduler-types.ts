@@ -7,7 +7,11 @@
 import type { LLMCallSite } from "../config/schemas/llm.js";
 
 export interface ScheduleMessageOptions {
-  trustClass?: "guardian" | "trusted_contact" | "unknown";
+  trustClass?:
+    | "guardian"
+    | "trusted_contact"
+    | "unverified_contact"
+    | "unknown";
   taskRunId?: string;
   /**
    * Optional LLM call-site identifier propagated to the per-call provider

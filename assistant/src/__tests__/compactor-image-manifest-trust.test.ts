@@ -25,7 +25,7 @@ import { addMessage, createConversation } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 
-initializeDb();
+await initializeDb();
 
 // 1x1 transparent PNG.
 const PNG_1X1_BASE64 =
@@ -41,7 +41,11 @@ function resetTables(): void {
 
 async function addImageMessage(
   conversationId: string,
-  provenanceTrustClass: "guardian" | "trusted_contact" | "unknown",
+  provenanceTrustClass:
+    | "guardian"
+    | "trusted_contact"
+    | "unverified_contact"
+    | "unknown",
   filename: string,
 ): Promise<void> {
   const inserted = await addMessage(
@@ -107,6 +111,22 @@ describe("collectImageManifest trust filtering", () => {
     // THEN the guardian image is excluded (fail-closed, mirroring loadFromDb)
     const filenames = manifest.map((e) => e.filename);
     expect(filenames).toContain("contact.png");
+    expect(filenames).not.toContain("guardian-secret.png");
+  });
+
+  test("unverified_contact actor manifest excludes guardian images but keeps unverified-provenance images", async () => {
+    // GIVEN a conversation with a guardian image and an unverified-contact image
+    const conv = createConversation();
+    await addImageMessage(conv.id, "guardian", "guardian-secret.png");
+    await addImageMessage(conv.id, "unverified_contact", "unverified.png");
+
+    // WHEN the manifest is built for an unverified_contact actor
+    const manifest = collectImageManifest(conv.id, "unverified_contact");
+
+    // THEN the unverified-provenance image is listed and the guardian image
+    // is excluded — unverified_contact is treated as untrusted downstream.
+    const filenames = manifest.map((e) => e.filename);
+    expect(filenames).toContain("unverified.png");
     expect(filenames).not.toContain("guardian-secret.png");
   });
 });

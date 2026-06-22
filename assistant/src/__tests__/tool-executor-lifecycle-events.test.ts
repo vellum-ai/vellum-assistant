@@ -34,9 +34,6 @@ const mockConfig = {
   permissions: {
     mode: "workspace" as const,
   },
-  // The audit listener nulls the telemetry columns when this is false; the
-  // end-to-end listener tests below assert the opted-in sizing behavior.
-  collectUsageData: true,
 };
 
 let checkerDecision: "allow" | "prompt" | "deny" = "allow";
@@ -54,6 +51,12 @@ mock.module("../config/loader.js", () => ({
   saveRawConfig: () => {},
   getNestedValue: () => undefined,
   setNestedValue: () => {},
+}));
+
+// Analytics consent is granted so the audit listener populates the telemetry
+// columns; the end-to-end listener tests below assert the opted-in sizing.
+mock.module("../platform/consent-cache.js", () => ({
+  getCachedShareAnalytics: () => true,
 }));
 
 mock.module("../util/logger.js", () => ({

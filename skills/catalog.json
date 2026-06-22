@@ -644,7 +644,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-16T19:29:01.000Z"
+      "updatedAt": "2026-06-16T19:50:46.000Z"
     },
     {
       "id": "public-ingress",
@@ -782,7 +782,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-06-19T17:01:42.000Z"
     },
     {
       "id": "start-the-day",
@@ -825,28 +825,6 @@
         "vellum": {
           "category": "commerce",
           "display-name": "Stripe Link Wallet"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
-    },
-    {
-      "id": "tasks",
-      "name": "tasks",
-      "description": "Two-layer task system with reusable templates and a prioritized work queue",
-      "metadata": {
-        "icon": "assets/icon.svg",
-        "emoji": "✅",
-        "vellum": {
-          "category": "productivity",
-          "display-name": "Tasks",
-          "activation-hints": [
-            "User wants to add, check, or manage items on their to-do list or task queue",
-            "For one-off action items, not recurring automations (use schedule for those)"
-          ],
-          "avoid-when": [
-            "User wants recurring/scheduled automation — use the schedule skill instead"
-          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
@@ -1000,7 +978,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-06-20T16:20:53.000Z"
     },
     {
       "id": "vellum-memory-v2-migration",
@@ -1024,6 +1002,29 @@
       },
       "compatibility": "Designed for Vellum personal assistants",
       "updatedAt": "2026-06-03T03:10:07.000Z"
+    },
+    {
+      "id": "vellum-memory-v3-migration",
+      "name": "vellum-memory-v3-migration",
+      "description": "One-time migration of an existing memory-v2 concept corpus into the memory-v3 section-grain \"wiki\" — topical articles with a stand-alone lead and queryable sections — with loss-proof staging, assistant-reviewed authoring, and a retrieval-eval gate before cutover.",
+      "metadata": {
+        "emoji": "🗂️",
+        "vellum": {
+          "category": "system",
+          "display-name": "Memory v3 Migration",
+          "user-invocable": "true",
+          "activation-hints": [
+            "When the user asks to migrate the memory wiki to v3 / the section-grain format",
+            "When memory-v3 retrieval is available but memory/concepts/ is still v2-shaped (flat bullet pages, class folders, summary: frontmatter)"
+          ],
+          "avoid-when": [
+            "When the corpus is already in v3 article shape (leads + ## sections, no summary:) and memory.v3.live is already true",
+            "When memory/concepts/ is empty or near-empty (run vellum-memory-v2-migration first — there is nothing to reform)"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-06-18T03:26:43.000Z"
     },
     {
       "id": "vellum-oauth-integrations",

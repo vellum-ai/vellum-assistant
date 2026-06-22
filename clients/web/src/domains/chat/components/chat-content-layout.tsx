@@ -1,0 +1,383 @@
+/**
+ * Chat content layout — routes the active `mainView` to the appropriate
+ * panel arrangement.
+ *
+ * Single responsibility: reads `mainView` from the viewer store, renders
+ * `ChatMainPanel` inside the correct layout shell (standalone, or
+ * as the left pane of a `ResizablePanel` with a side panel on the right).
+ *
+ * Side-panel state (app, document, subagent, tool-detail) is read directly
+ * from stores — no props required for layout decisions.
+ */
+
+import { lazy, useCallback, useEffect, type ReactNode } from "react";
+import { useNavigate } from "react-router";
+import { Loader2 } from "lucide-react";
+import { ResizablePanel } from "@vellumai/design-library";
+import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
+import { LazyBoundary } from "@/components/lazy-boundary";
+import { AppViewerContainer } from "@/components/app-viewer-container";
+import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
+import { ChatMainPanel, type ChatMainPanelProps } from "@/domains/chat/components/chat-route-content";
+import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { useConversationStore } from "@/stores/conversation-store";
+import { useDeployStore } from "@/stores/deploy-store";
+import { useViewerStore } from "@/stores/viewer-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useWorkflowStore } from "@/domains/chat/workflow-store";
+import { useEditApp } from "@/hooks/use-edit-app";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { routes } from "@/utils/routes";
+
+// Import thunks for the lazy panel chunks, shared by the React.lazy wrappers
+// below and the idle-prefetch effect. Once a thunk has run, the browser module
+// cache lets React.lazy resolve it synchronously.
+const importSubagentDetailPanel = () =>
+  import("@/domains/chat/components/subagent-detail-panel");
+const importToolDetailPanel = () =>
+  import("@/domains/chat/components/tool-detail-panel");
+
+const SubagentDetailPanel = lazy(() =>
+  importSubagentDetailPanel().then((m) => ({ default: m.SubagentDetailPanel })),
+);
+const WorkflowDetailPanel = lazy(() =>
+  import("@/domains/chat/components/workflow-detail-panel").then((m) => ({
+    default: m.WorkflowDetailPanel,
+  })),
+);
+const ToolDetailPanel = lazy(() =>
+  importToolDetailPanel().then((m) => ({ default: m.ToolDetailPanel })),
+);
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+export function ChatContentLayout(props: ChatMainPanelProps) {
+  const mainView = useViewerStore.use.mainView();
+  const openedAppState = useViewerStore.use.openedAppState();
+  const openedDocumentState = useViewerStore.use.openedDocumentState();
+  const editingConversationId = useConversationStore.use.editingConversationId();
+  const activeSubagentId = useViewerStore.use.activeSubagentId();
+  const activeWorkflowRunId = useViewerStore.use.activeWorkflowRunId();
+  const activeToolDetail = useViewerStore.use.activeToolDetail();
+  const closeToolDetail = useViewerStore.use.closeToolDetail();
+  // Subscribe to only the active subagent's entry rather than the whole `byId`
+  // map, so streaming events from *other* subagents don't re-render the chat
+  // layout (and the chat transcript it hosts) on every token.
+  const activeSubagentEntry = useSubagentStore((s) =>
+    activeSubagentId ? s.byId[activeSubagentId] : undefined,
+  );
+  const workflowById = useWorkflowStore((s) => s.byId);
+
+  const isSharing = useDeployStore.use.isSharing();
+  const isDeploying = useDeployStore.use.isDeploying();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
+
+  const isMobile = useIsMobile();
+  const navigate = useNavigate();
+  const editApp = useEditApp();
+
+  // -------------------------------------------------------------------------
+  // Side-panel callbacks (store operations only — no hook-local state)
+  // -------------------------------------------------------------------------
+
+  const handleCloseApp = useCallback(() => {
+    useViewerStore.getState().closeApp();
+    useConversationStore.getState().setEditingConversationId(null);
+  }, []);
+
+  const handleCloseEditPanel = useCallback(() => {
+    useConversationStore.getState().setEditingConversationId(null);
+    useViewerStore.getState().exitAppEditing();
+  }, []);
+
+  const handleEditApp = useCallback(() => {
+    const oas = useViewerStore.getState().openedAppState;
+    if (oas) editApp(oas);
+  }, [editApp]);
+
+  const handleShareApp = useCallback(() => {
+    const app = useViewerStore.getState().openedAppState;
+    const aid = useResolvedAssistantsStore.getState().activeAssistantId;
+    if (app && aid) void useDeployStore.getState().shareApp(aid, app.appId, app.name);
+  }, []);
+
+  const handleDeployApp = useCallback(() => {
+    const app = useViewerStore.getState().openedAppState;
+    const aid = useResolvedAssistantsStore.getState().activeAssistantId;
+    if (app && aid) void useDeployStore.getState().deployApp(aid, app.appId, app.name, app.html);
+  }, []);
+
+  const handleAppAction = useCallback(
+    (actionId: string, data?: Record<string, unknown>) =>
+      handleAppViewerAction({ navigate, isMobile }, actionId, data),
+    [navigate, isMobile],
+  );
+
+  const handleCloseDocument = useCallback(() => {
+    useViewerStore.getState().closeDocument();
+  }, []);
+
+  const onCloseSubagentDetail = useCallback(() => {
+    useViewerStore.getState().closeSubagentDetail();
+  }, []);
+
+  const onStopSubagent = useCallback(
+    (subagentId: string) => void useSubagentStore.getState().abortSubagent(subagentId),
+    [],
+  );
+
+  const onRequestSubagentDetail = useCallback((id: string) => {
+    const aid = useResolvedAssistantsStore.getState().activeAssistantId;
+    if (!aid) return;
+    void useSubagentStore.getState().fetchDetailIfNeeded(aid, id);
+  }, []);
+
+  const onCloseWorkflowDetail = useCallback(() => {
+    useViewerStore.getState().closeWorkflowDetail();
+  }, []);
+
+  const onStopWorkflow = useCallback(
+    (runId: string) => void useWorkflowStore.getState().abortRun(runId),
+    [],
+  );
+
+  const onRequestWorkflowJournal = useCallback((runId: string) => {
+    const aid = useResolvedAssistantsStore.getState().activeAssistantId;
+    if (!aid) return;
+    void useWorkflowStore.getState().fetchJournalIfNeeded(aid, runId);
+  }, []);
+
+  // -------------------------------------------------------------------------
+  // Escape closes whichever right-hand side panel is open (tool detail /
+  // thought process, subagent detail, document viewer). Surfaces stacked
+  // above the panel that own Escape — Radix layers (dialogs, popovers,
+  // dropdowns), the command palette, voice recording, the attachment
+  // preview — all run before this bubble-phase window listener (document
+  // capture or React tree handlers) and call preventDefault when they
+  // consume the key, so `defaultPrevented` means the keypress was already
+  // claimed by something above the panel. The full-width app viewer and the
+  // app-editing split are deliberately excluded: the viewer owns Escape for
+  // fullscreen exit, and editing is an explicit session with its own close
+  // affordance. Closing restores `viewBefore*`, so repeated presses unwind
+  // stacked panels (tool detail → document → chat) one layer at a time.
+  // -------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (isMobile) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      // Don't intercept IME composition (CJK input confirmation).
+      if (event.isComposing || event.keyCode === 229) return;
+      const viewer = useViewerStore.getState();
+      switch (viewer.mainView) {
+        case "tool-detail":
+          viewer.closeToolDetail();
+          break;
+        case "subagent-detail":
+          viewer.closeSubagentDetail();
+          break;
+        case "workflow-detail":
+          viewer.closeWorkflowDetail();
+          break;
+        case "document":
+          viewer.closeDocument();
+          break;
+        default:
+          return;
+      }
+      event.preventDefault();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isMobile]);
+
+  // Warm the lazy side-panel chunks while the browser is idle so the first
+  // open renders immediately instead of stalling on a dynamic import.
+  useEffect(() => {
+    // Swallow prefetch rejections: this is best-effort warming, so a chunk
+    // 404 (offline / stale deploy) must not surface as an unhandledrejection.
+    // The real load path on open still reports errors via LazyBoundary.
+    const run = () => {
+      importSubagentDetailPanel().catch(() => {});
+      importToolDetailPanel().catch(() => {});
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      const id = window.requestIdleCallback(run);
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = window.setTimeout(run, 200);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  // -------------------------------------------------------------------------
+  // Layout routing
+  // -------------------------------------------------------------------------
+
+  // App editing: resizable split with chat + app editor
+  if (mainView === "app-editing" && openedAppState && editingConversationId) {
+    return (
+      <ResizablePanel
+        storageKey="appEditPanelWidth"
+        hideDivider
+        defaultRightWidth={400}
+        minLeftWidth={300}
+        minRightWidth={400}
+        left={<ChatMainPanel {...props} />}
+        right={
+          <AppViewerContainer
+            appId={openedAppState.appId}
+            appName={openedAppState.name}
+            html={openedAppState.html}
+            assistantId={assistantId ?? ""}
+            onClose={handleCloseApp}
+            onEdit={handleCloseEditPanel}
+            onShare={handleShareApp}
+            isSharing={isSharing}
+            onDeploy={handleDeployApp}
+            isDeploying={isDeploying}
+            onAction={handleAppAction}
+            isEditing
+          />
+        }
+      />
+    );
+  }
+
+  // Desktop full-width app viewer (non-editing). Mobile uses the
+  // portal-based MobileAppOverlay — this branch is desktop-only.
+  if (mainView === "app" && !isMobile) {
+    if (!openedAppState) {
+      return (
+        <div className="flex flex-1 items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-[var(--content-tertiary)]" />
+        </div>
+      );
+    }
+    return (
+      <AppViewerContainer
+        appId={openedAppState.appId}
+        appName={openedAppState.name}
+        html={openedAppState.html}
+        assistantId={assistantId ?? ""}
+        onClose={handleCloseApp}
+        onEdit={handleEditApp}
+        onShare={handleShareApp}
+        isSharing={isSharing}
+        onDeploy={handleDeployApp}
+        isDeploying={isDeploying}
+        onAction={handleAppAction}
+      />
+    );
+  }
+
+  const chatContent = <ChatMainPanel {...props} />;
+
+  // Right-hand detail panels — document viewer, subagent detail, and tool
+  // detail — all share ONE AnimatedRightDrawer so the chat (`left`) keeps a
+  // stable position in the React tree and is NEVER unmounted when a panel
+  // opens, closes, or switches between them. Only the (lazy, lightweight)
+  // right-pane subtree changes; the transcript keeps its DOM and scroll
+  // position. The drawer eases its width 0 ⇄ target, so opening/closing
+  // reflows the chat in lockstep; drag-to-resize + width persistence are
+  // built in. On mobile these panels render via portal overlays, so the
+  // drawer stays closed (`open=false`) and the chat fills the width.
+  //
+  // (app-editing and the full-width app viewer keep their own returns above:
+  // they replace or split the chat differently and are entered far less often,
+  // so an occasional chat remount on those transitions is acceptable.)
+  let rightPanel: ReactNode = null;
+  if (!isMobile) {
+    if (mainView === "document" && openedDocumentState && assistantId) {
+      rightPanel = (
+        <DocumentViewerContainer
+          documentName={openedDocumentState.documentName}
+          content={openedDocumentState.content}
+          onClose={handleCloseDocument}
+          assistantId={assistantId}
+          surfaceId={openedDocumentState.surfaceId}
+          conversationId={openedDocumentState.conversationId}
+          onSubmitFeedback={() => {
+            const prompt = `Please review and address my comments on "${openedDocumentState.documentName}".`;
+            navigate(
+              routes.conversationWithPrompt(
+                openedDocumentState.conversationId,
+                prompt,
+              ),
+            );
+          }}
+        />
+      );
+    } else if (
+      mainView === "subagent-detail" &&
+      activeSubagentId &&
+      activeSubagentEntry
+    ) {
+      rightPanel = (
+        <LazyBoundary>
+          <SubagentDetailPanel
+            entry={activeSubagentEntry}
+            onClose={onCloseSubagentDetail}
+            onStop={onStopSubagent}
+            onRequestDetail={onRequestSubagentDetail}
+          />
+        </LazyBoundary>
+      );
+    } else if (mainView === "tool-detail" && activeToolDetail) {
+      rightPanel = (
+        <LazyBoundary>
+          <ToolDetailPanel
+            detail={activeToolDetail}
+            onClose={closeToolDetail}
+            onRiskBadgeClick={() => useViewerStore.getState().requestRuleEditorForActiveTool()}
+          />
+        </LazyBoundary>
+      );
+    }
+  }
+
+  // Workflow detail side panel — its own ResizablePanel split, not the unified
+  // AnimatedRightDrawer below. Living in a separate return branch, the chat
+  // (`left`) remounts when switching between this panel and the other right-hand
+  // panels, whereas document/subagent/tool-detail share the drawer and keep the
+  // chat mounted across switches.
+  if (mainView === "workflow-detail" && activeWorkflowRunId && !isMobile) {
+    const activeEntry = workflowById[activeWorkflowRunId];
+    if (activeEntry) {
+      return (
+        <ResizablePanel
+          storageKey="workflowDetailPanelWidth"
+          hideDivider
+          defaultRightWidth={400}
+          minLeftWidth={300}
+          minRightWidth={400}
+          left={chatContent}
+          right={
+            <LazyBoundary>
+              <WorkflowDetailPanel
+                entry={activeEntry}
+                onClose={onCloseWorkflowDetail}
+                onStop={onStopWorkflow}
+                onRequestJournal={onRequestWorkflowJournal}
+              />
+            </LazyBoundary>
+          }
+        />
+      );
+    }
+  }
+
+  return (
+    <AnimatedRightDrawer
+      storageKey="rightPanelWidth"
+      defaultWidth={400}
+      minWidth={400}
+      minLeftWidth={300}
+      open={rightPanel != null}
+      left={chatContent}
+      right={rightPanel}
+    />
+  );
+}

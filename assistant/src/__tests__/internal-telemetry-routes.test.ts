@@ -7,23 +7,15 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// Toggle for the collectUsageData opt-out the real store consults. The store
+// Toggle for the share_analytics opt-out the real store consults. The store
 // module is intentionally NOT mocked here — it has its own DB-backed tests, and
 // Bun's `mock.module` is process-global, so mocking it would leak into those
 // tests when files share an invocation. Exercising the real store keeps every
 // auth-fallback test order-independent.
-let collectUsageData = true;
+let shareAnalytics = true;
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    collectUsageData,
-  }),
+mock.module("../platform/consent-cache.js", () => ({
+  getCachedShareAnalytics: () => shareAnalytics,
 }));
 
 import { queryUnreportedAuthFallbackEvents } from "../memory/auth-fallback-events-store.js";
@@ -35,7 +27,7 @@ import { RouteError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/internal-telemetry-routes.js";
 import type { RouteHandlerArgs } from "../runtime/routes/types.js";
 
-initializeDb();
+await initializeDb();
 
 const route = ROUTES.find(
   (r) => r.operationId === "internal_telemetry_auth_fallback",
@@ -61,7 +53,7 @@ const VALID_BODY = {
 
 describe("internal-telemetry-routes: auth-fallback", () => {
   beforeEach(() => {
-    collectUsageData = true;
+    shareAnalytics = true;
     getDb().delete(authFallbackEvents).run();
   });
 
@@ -90,7 +82,7 @@ describe("internal-telemetry-routes: auth-fallback", () => {
   });
 
   test("returns skipped and persists nothing under the opt-out", () => {
-    collectUsageData = false;
+    shareAnalytics = false;
     expect(call(VALID_BODY)).toEqual({ skipped: true });
     expect(queryUnreportedAuthFallbackEvents(0, undefined, 100).length).toBe(0);
   });

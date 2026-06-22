@@ -75,28 +75,28 @@ describe("checkServerHealth (via internal_mcp_list route)", () => {
     mockLastError = null;
   });
 
-  test("returns Connected when server connects successfully", async () => {
+  test("returns connected when server connects successfully", async () => {
     mockConnect.mockResolvedValue(undefined);
     mockDisconnect.mockResolvedValue(undefined);
 
     const result = (await listHandler({})) as {
       servers: { status: string }[];
     };
-    expect(result.servers[0].status).toContain("Connected");
+    expect(result.servers[0].status).toBe("connected");
     expect(mockDisconnect).toHaveBeenCalled();
   });
 
-  test("returns Needs authentication when isConnected is false and no lastError", async () => {
+  test("returns needs-auth when isConnected is false and no lastError", async () => {
     mockConnect.mockResolvedValue(undefined);
     mockIsConnected = false;
 
     const result = (await listHandler({})) as {
       servers: { status: string }[];
     };
-    expect(result.servers[0].status).toContain("Needs authentication");
+    expect(result.servers[0].status).toBe("needs-auth");
   });
 
-  test("returns Error when connect fails with lastError", async () => {
+  test("returns error when connect fails with lastError", async () => {
     mockConnect.mockResolvedValue(undefined);
     mockIsConnected = false;
     mockLastError = new Error("Connection refused");
@@ -105,7 +105,6 @@ describe("checkServerHealth (via internal_mcp_list route)", () => {
     const result = (await listHandler({})) as {
       servers: { status: string }[];
     };
-    expect(result.servers[0].status).toContain("Error");
-    expect(result.servers[0].status).toContain("Connection refused");
+    expect(result.servers[0].status).toBe("error");
   });
 });

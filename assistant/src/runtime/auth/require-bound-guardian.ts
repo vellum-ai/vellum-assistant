@@ -27,10 +27,7 @@ export function requireBoundGuardian(
     // No guardian yet — in pre-bootstrap state, allow through
     return null;
   }
-  if (
-    (guardianResult.channel.externalUserId ??
-      guardianResult.contact.principalId) !== authContext.actorPrincipalId
-  ) {
+  if (guardianResult.channel.address !== authContext.actorPrincipalId) {
     return httpError(
       "FORBIDDEN",
       "Actor is not the bound guardian for this channel",

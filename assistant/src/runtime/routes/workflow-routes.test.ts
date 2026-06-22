@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import type { AssistantConfig } from "../../config/schema.js";
-import type { WorkflowRun } from "../../workflows/journal-store.js";
+import type {
+  WorkflowJournalEntry,
+  WorkflowRun,
+} from "../../workflows/journal-store.js";
 import type { SavedWorkflowEntry } from "../../workflows/library.js";
 import {
   WorkflowResumeNotPossibleError,
@@ -59,14 +61,31 @@ interface FakeManager {
   resume: (id: string) => { runId: string };
 }
 
+function makeJournalEntry(
+  overrides: Partial<WorkflowJournalEntry> = {},
+): WorkflowJournalEntry {
+  return {
+    runId: "run-1",
+    seq: 0,
+    callHash: "call-0",
+    kind: "agent",
+    request: null,
+    result: null,
+    status: "completed",
+    createdAt: 1000,
+    ...overrides,
+  };
+}
+
 function setup(opts: {
-  flagEnabled?: boolean;
   runs?: WorkflowRun[];
   saved?: SavedWorkflowEntry[];
   /** Custom resume impl; defaults to a success that records the id. */
   resume?: (id: string) => { runId: string };
   /** Resolved auto-approve threshold for the resume posture gate. */
   threshold?: "none" | "low" | "medium" | "high";
+  /** Journal entries returned by getJournal, keyed by run id. */
+  journal?: Record<string, WorkflowJournalEntry[]>;
 }): {
   aborted: string[];
   resumed: string[];
@@ -98,9 +117,8 @@ function setup(opts: {
   __setWorkflowRoutesDeps({
     getManager: () => manager,
     listWorkflows: () => opts.saved ?? [],
-    getConfig: () => ({}) as AssistantConfig,
-    isFlagEnabled: () => opts.flagEnabled ?? true,
     getAutoApproveThreshold: async () => opts.threshold ?? "none",
+    getJournal: (runId) => opts.journal?.[runId] ?? [],
   });
   return { aborted, resumed, listCalls };
 }
@@ -113,10 +131,9 @@ afterEach(() => {
 // Happy paths
 // ---------------------------------------------------------------------------
 
-describe("workflow routes (flag on)", () => {
+describe("workflow routes (happy paths)", () => {
   beforeEach(() => {
     setup({
-      flagEnabled: true,
       runs: [
         makeRun({ id: "run-1" }),
         makeRun({ id: "run-2", status: "completed" }),
@@ -145,7 +162,6 @@ describe("workflow routes (flag on)", () => {
 
   test("listWorkflowRuns honors limit + status query params", async () => {
     const { listCalls } = setup({
-      flagEnabled: true,
       runs: [makeRun({ id: "run-1", status: "completed" })],
     });
     await route("listWorkflowRuns").handler({
@@ -163,7 +179,6 @@ describe("workflow routes (flag on)", () => {
 
   test("abortWorkflowRun aborts a known run", async () => {
     const { aborted } = setup({
-      flagEnabled: true,
       runs: [makeRun({ id: "run-1" })],
     });
     const result = (await route("abortWorkflowRun").handler({
@@ -175,7 +190,6 @@ describe("workflow routes (flag on)", () => {
 
   test("resumeWorkflowRun resumes an interrupted run", async () => {
     const { resumed } = setup({
-      flagEnabled: true,
       runs: [makeRun({ id: "run-1", status: "interrupted" })],
     });
     const result = (await route("resumeWorkflowRun").handler({
@@ -192,7 +206,6 @@ describe("workflow routes (flag on)", () => {
     // full-access posture it must refuse rather than silently bypass consent —
     // resume() is never called.
     const { resumed } = setup({
-      flagEnabled: true,
       threshold: "medium",
       runs: [
         makeRun({
@@ -213,7 +226,6 @@ describe("workflow routes (flag on)", () => {
     // high-risk tools, so no prompt is needed — the side-effecting resume
     // proceeds directly.
     const { resumed } = setup({
-      flagEnabled: true,
       threshold: "high",
       runs: [
         makeRun({
@@ -236,7 +248,6 @@ describe("workflow routes (flag on)", () => {
     // the object shape too — a strict parse would treat it as read-only and let
     // the side-effecting resume through without approval.
     const { resumed } = setup({
-      flagEnabled: true,
       threshold: "medium",
       runs: [
         makeRun({
@@ -259,7 +270,6 @@ describe("workflow routes (flag on)", () => {
     // An explicit empty manifest grants no side effects, so the route resumes
     // it directly — the gate keys on the stored manifest, not run existence.
     const { resumed } = setup({
-      flagEnabled: true,
       threshold: "medium",
       runs: [
         makeRun({
@@ -275,7 +285,6 @@ describe("workflow routes (flag on)", () => {
 
   test("resumeWorkflowRun maps a non-interrupted run to a 409 ConflictError", async () => {
     setup({
-      flagEnabled: true,
       runs: [makeRun({ id: "run-1", status: "completed" })],
       resume: (id) => {
         throw new WorkflowResumeNotPossibleError(
@@ -292,7 +301,6 @@ describe("workflow routes (flag on)", () => {
 
   test("resumeWorkflowRun maps a cap error to a 429 TooManyRequestsError", async () => {
     setup({
-      flagEnabled: true,
       runs: [makeRun({ id: "run-1", status: "interrupted" })],
       resume: () => {
         throw new WorkflowRunCapError(3);
@@ -318,19 +326,221 @@ describe("workflow routes (flag on)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Journal projection
+// ---------------------------------------------------------------------------
+
+interface WireLeaf {
+  seq: number;
+  kind: string;
+  label?: string;
+  phase?: string;
+  promptSummary?: string;
+  status: string;
+  resultSummary?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  createdAt: number | null;
+}
+
+interface WireJournal {
+  runId: string;
+  status: string;
+  agentsSpawned: number;
+  inputTokens: number;
+  outputTokens: number;
+  leaves: WireLeaf[];
+}
+
+describe("getWorkflowRunJournal", () => {
+  test("projects agent leaves with label/phase/promptSummary/resultSummary extracted", async () => {
+    setup({
+      runs: [makeRun({ id: "run-1" })],
+      journal: {
+        "run-1": [
+          makeJournalEntry({
+            seq: 0,
+            kind: "agent",
+            request: {
+              prompt: "Investigate the failing build",
+              opts: { label: "investigate", phase: "triage" },
+            },
+            result: { summary: "found the flaky test" },
+            status: "completed",
+            inputTokens: 120,
+            outputTokens: 45,
+          }),
+        ],
+      },
+    });
+    const result = (await route("getWorkflowRunJournal").handler({
+      pathParams: { id: "run-1" },
+    })) as WireJournal;
+
+    expect(result.runId).toBe("run-1");
+    expect(result.status).toBe("running");
+    expect(result.agentsSpawned).toBe(2);
+    expect(result.leaves.map((l) => l.seq)).toEqual([0]);
+
+    const first = result.leaves[0];
+    expect(first.kind).toBe("agent");
+    expect(first.label).toBe("investigate");
+    expect(first.phase).toBe("triage");
+    expect(first.promptSummary).toBe("Investigate the failing build");
+    expect(first.resultSummary).toContain("found the flaky test");
+    // Per-leaf token usage is projected onto the wire leaf.
+    expect(first.inputTokens).toBe(120);
+    expect(first.outputTokens).toBe(45);
+    // The bulky raw request/result payloads are dropped.
+    expect(first).not.toHaveProperty("request");
+    expect(first).not.toHaveProperty("result");
+  });
+
+  test("omits per-leaf token fields when the journal entry carries none", async () => {
+    setup({
+      runs: [makeRun({ id: "run-1" })],
+      journal: {
+        "run-1": [
+          makeJournalEntry({
+            seq: 0,
+            kind: "agent",
+            request: { prompt: "no tokens recorded", opts: {} },
+            status: "completed",
+          }),
+        ],
+      },
+    });
+    const result = (await route("getWorkflowRunJournal").handler({
+      pathParams: { id: "run-1" },
+    })) as WireJournal;
+
+    const leaf = result.leaves[0];
+    expect(leaf).not.toHaveProperty("inputTokens");
+    expect(leaf).not.toHaveProperty("outputTokens");
+  });
+
+  test("excludes kind:workflow entries so the backfill matches the live agent-only stream", async () => {
+    // The live `workflow_leaf_*` stream is emitted only for agent leaves; nested
+    // `workflow(name)` resolutions never reach it. The journal route must filter
+    // to agent leaves too, or a nested-workflow run renders a phantom unlabeled
+    // node on backfill and a different leaf set than live.
+    setup({
+      runs: [makeRun({ id: "run-1" })],
+      journal: {
+        "run-1": [
+          makeJournalEntry({
+            seq: 0,
+            kind: "agent",
+            request: { prompt: "first agent", opts: { label: "first" } },
+            status: "completed",
+          }),
+          makeJournalEntry({
+            seq: 1,
+            kind: "workflow",
+            request: { name: "child", args: { foo: 1 } },
+            result: "child done",
+            status: "completed",
+          }),
+          makeJournalEntry({
+            seq: 2,
+            kind: "agent",
+            request: { prompt: "second agent", opts: { label: "second" } },
+            status: "completed",
+          }),
+        ],
+      },
+    });
+    const result = (await route("getWorkflowRunJournal").handler({
+      pathParams: { id: "run-1" },
+    })) as WireJournal;
+
+    // Only the agent leaves survive, in seq order; the workflow-kind entry (seq
+    // 1) is dropped entirely.
+    expect(result.leaves.map((l) => l.seq)).toEqual([0, 2]);
+    expect(result.leaves.every((l) => l.kind === "agent")).toBe(true);
+    expect(result.leaves.map((l) => l.label)).toEqual(["first", "second"]);
+  });
+
+  test("surfaces a failed leaf's { error } result as resultSummary", async () => {
+    setup({
+      runs: [makeRun({ id: "run-1" })],
+      journal: {
+        "run-1": [
+          makeJournalEntry({
+            seq: 0,
+            status: "failed",
+            request: { prompt: "do the thing", opts: {} },
+            result: { error: "agent crashed: out of tokens" },
+          }),
+        ],
+      },
+    });
+    const result = (await route("getWorkflowRunJournal").handler({
+      pathParams: { id: "run-1" },
+    })) as WireJournal;
+
+    expect(result.leaves[0].status).toBe("failed");
+    expect(result.leaves[0].resultSummary).toContain(
+      "agent crashed: out of tokens",
+    );
+  });
+
+  test("truncates a long prompt/result to ~200 chars", async () => {
+    const longPrompt = "x".repeat(500);
+    const longResult = "y".repeat(500);
+    setup({
+      runs: [makeRun({ id: "run-1" })],
+      journal: {
+        "run-1": [
+          makeJournalEntry({
+            seq: 0,
+            request: { prompt: longPrompt, opts: {} },
+            result: longResult,
+          }),
+        ],
+      },
+    });
+    const result = (await route("getWorkflowRunJournal").handler({
+      pathParams: { id: "run-1" },
+    })) as WireJournal;
+
+    const leaf = result.leaves[0];
+    expect(leaf.promptSummary!.length).toBeLessThanOrEqual(201);
+    expect(leaf.promptSummary!.startsWith("x")).toBe(true);
+    // A truncated summary ends with the ellipsis marker.
+    expect(leaf.promptSummary!.endsWith("…")).toBe(true);
+    expect(leaf.resultSummary!.length).toBeLessThanOrEqual(201);
+  });
+
+  test("returns an empty leaf list for a run with no journal entries", async () => {
+    setup({ runs: [makeRun({ id: "run-1" })] });
+    const result = (await route("getWorkflowRunJournal").handler({
+      pathParams: { id: "run-1" },
+    })) as WireJournal;
+    expect(result.leaves).toEqual([]);
+  });
+
+  test("throws NotFoundError for an unknown id", () => {
+    setup({ runs: [] });
+    expect(() =>
+      route("getWorkflowRunJournal").handler({ pathParams: { id: "nope" } }),
+    ).toThrow(NotFoundError);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Unknown run → 404
 // ---------------------------------------------------------------------------
 
 describe("workflow routes (unknown run)", () => {
   test("getWorkflowRun throws NotFoundError for an unknown id", () => {
-    setup({ flagEnabled: true, runs: [] });
+    setup({ runs: [] });
     expect(() =>
       route("getWorkflowRun").handler({ pathParams: { id: "nope" } }),
     ).toThrow(NotFoundError);
   });
 
   test("abortWorkflowRun throws NotFoundError for an unknown id", () => {
-    const { aborted } = setup({ flagEnabled: true, runs: [] });
+    const { aborted } = setup({ runs: [] });
     expect(() =>
       route("abortWorkflowRun").handler({ pathParams: { id: "nope" } }),
     ).toThrow(NotFoundError);
@@ -338,35 +548,10 @@ describe("workflow routes (unknown run)", () => {
   });
 
   test("resumeWorkflowRun throws NotFoundError for an unknown id", async () => {
-    const { resumed } = setup({ flagEnabled: true, runs: [] });
+    const { resumed } = setup({ runs: [] });
     await expect(
       route("resumeWorkflowRun").handler({ pathParams: { id: "nope" } }),
     ).rejects.toThrow(NotFoundError);
     expect(resumed).toEqual([]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Flag off → every route 404s
-// ---------------------------------------------------------------------------
-
-describe("workflow routes (flag off)", () => {
-  beforeEach(() => {
-    setup({ flagEnabled: false, runs: [makeRun({ id: "run-1" })], saved: [] });
-  });
-
-  test.each([
-    ["listWorkflowRuns", { queryParams: {} }],
-    ["getWorkflowRun", { pathParams: { id: "run-1" } }],
-    ["abortWorkflowRun", { pathParams: { id: "run-1" } }],
-    ["listSavedWorkflows", {}],
-  ] as const)("%s throws NotFoundError when the flag is off", (op, args) => {
-    expect(() => route(op).handler(args)).toThrow(NotFoundError);
-  });
-
-  test("resumeWorkflowRun rejects with NotFoundError when the flag is off", async () => {
-    await expect(
-      route("resumeWorkflowRun").handler({ pathParams: { id: "run-1" } }),
-    ).rejects.toThrow(NotFoundError);
   });
 });

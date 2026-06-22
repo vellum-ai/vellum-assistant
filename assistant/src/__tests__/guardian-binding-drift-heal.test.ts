@@ -13,7 +13,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { healGuardianBindingDrift } from "../runtime/guardian-vellum-migration.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();
@@ -44,7 +44,7 @@ describe("healGuardianBindingDrift", () => {
     const guardian = findGuardianForChannel("vellum");
     expect(guardian).not.toBeNull();
     expect(guardian!.contact.principalId).toBe("vellum-principal-old-uuid");
-    expect(guardian!.channel.externalUserId).toBe("vellum-principal-old-uuid");
+    expect(guardian!.channel.address).toBe("vellum-principal-old-uuid");
   });
 
   test("no-op when principals already match", () => {

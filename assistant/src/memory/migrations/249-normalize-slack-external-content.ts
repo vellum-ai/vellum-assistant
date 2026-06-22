@@ -7,9 +7,7 @@ import {
   unwrapExternalContentForDisplay,
 } from "../../security/untrusted-content.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
 
-const CHECKPOINT_KEY = "migration_normalize_slack_external_content_v1";
 const BATCH_SIZE = 100;
 
 interface CandidateMessageRow {
@@ -28,49 +26,47 @@ interface NormalizedMessageRow {
 export function migrateNormalizeSlackExternalContent(
   database: DrizzleDb,
 ): void {
-  withCrashRecovery(database, CHECKPOINT_KEY, () => {
-    const raw = getSqliteFrom(database);
+  const raw = getSqliteFrom(database);
 
-    const tableExists = raw
+  const tableExists = raw
+    .query(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'messages'`,
+    )
+    .get();
+  if (!tableExists) return;
+
+  let lastRowid = 0;
+
+  for (;;) {
+    const rows = raw
       .query(
-        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'messages'`,
+        /*sql*/ `
+          SELECT rowid, id, role, content, metadata
+          FROM messages
+          WHERE rowid > ?
+            AND metadata LIKE '%"slackMeta"%'
+            AND (
+              content LIKE '%<external_content%'
+              OR metadata NOT LIKE '%"provenanceTrustClass"%'
+            )
+          ORDER BY rowid
+          LIMIT ?
+        `,
       )
-      .get();
-    if (!tableExists) return;
+      .all(lastRowid, BATCH_SIZE) as CandidateMessageRow[];
 
-    let lastRowid = 0;
+    if (rows.length === 0) break;
 
-    for (;;) {
-      const rows = raw
-        .query(
-          /*sql*/ `
-            SELECT rowid, id, role, content, metadata
-            FROM messages
-            WHERE rowid > ?
-              AND metadata LIKE '%"slackMeta"%'
-              AND (
-                content LIKE '%<external_content%'
-                OR metadata NOT LIKE '%"provenanceTrustClass"%'
-              )
-            ORDER BY rowid
-            LIMIT ?
-          `,
-        )
-        .all(lastRowid, BATCH_SIZE) as CandidateMessageRow[];
+    for (const row of rows) {
+      lastRowid = row.rowid;
+      const normalized = normalizeSlackMessageRow(row);
+      if (!normalized) continue;
 
-      if (rows.length === 0) break;
-
-      for (const row of rows) {
-        lastRowid = row.rowid;
-        const normalized = normalizeSlackMessageRow(row);
-        if (!normalized) continue;
-
-        raw
-          .query(`UPDATE messages SET content = ?, metadata = ? WHERE id = ?`)
-          .run(normalized.content, normalized.metadata, row.id);
-      }
+      raw
+        .query(`UPDATE messages SET content = ?, metadata = ? WHERE id = ?`)
+        .run(normalized.content, normalized.metadata, row.id);
     }
-  });
+  }
 }
 
 export function downNormalizeSlackExternalContent(_database: DrizzleDb): void {

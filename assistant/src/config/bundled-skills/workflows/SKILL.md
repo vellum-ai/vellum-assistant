@@ -1,19 +1,22 @@
 ---
 name: workflows
-description: Author and run autonomous multi-agent workflows that fan work across parallel leaf agents
+description: Delegate a big or high-stakes job to a fleet of parallel subagents, orchestrated deterministically; runs unattended and reports back
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "⚙️"
   vellum:
     display-name: "Workflows"
     category: "system"
-    feature-flag: "workflows"
+    always-candidate: true
     activation-hints:
-      - "A task decomposes into many similar sub-tasks that can run concurrently (score every item, extract a field from each of many documents, draft-then-verify a batch)"
-      - "You want fan-out orchestrated deterministically and the result reported back when the whole run finishes"
+      - "Batch — apply one operation to each of MANY items (score / rate / rank / classify / extract / summarize each of a large set)"
+      - "Comprehensive coverage — exhaustively sweep, audit, or find EVERY instance across a large surface"
+      - "Research & synthesize — gather across many sources or pages and combine into one answer"
+      - "Confidence — generate several independent attempts and judge them, or adversarially verify findings before trusting the result"
+      - "Scale — work too large to finish well in one inline pass"
     avoid-when:
-      - "The task is a single tool call or a quick lookup — do it inline"
-      - "The work needs interactive, conversational back-and-forth rather than unattended fan-out"
+      - "A single inline answer, a quick lookup, or a small one-off"
+      - "Interactive, conversational back-and-forth rather than unattended fan-out"
 ---
 
 A workflow is a short JS/TS script you author that runs in a sandbox and fans work
@@ -22,8 +25,11 @@ one with `run_workflow` (inline `script` OR saved `name`, exactly one). It retur
 `runId` immediately; the run is asynchronous and you are notified in this
 conversation when it completes — **do NOT poll**.
 
-Reach for one when a task decomposes into many similar small sub-tasks that can run
-concurrently. For a single task or a quick lookup, do it inline.
+Reach for one when a job is too big, too parallel, or too important for one inline
+pass. That is more than batch/map-reduce over many items — it also covers exhaustively
+sweeping or auditing a large surface, researching across many sources and synthesizing,
+and generating several independent attempts to judge or adversarially verify before
+trusting the result. For a single task or a quick lookup, do it inline.
 
 ## The script model
 
@@ -99,7 +105,7 @@ Use `agent` for a single sequential leaf (throws on failure). Use `parallel`/`ma
 
 | Option    | Type                       | Effect                                                                                  |
 | --------- | -------------------------- | --------------------------------------------------------------------------------------- |
-| `schema`  | JSON Schema object literal | Forces structured output via a tool. A schema leaf runs with **no tools** (pure judge/extractor). Use a plain JSON Schema literal, not Zod. |
+| `schema`  | JSON Schema object literal | Forces structured output via a tool. A schema leaf runs with **no tools** — no `file_read`/`file_list`/`recall`/`web_search`, so it **cannot read files or recall memory** (pure judge/extractor). Pass anything it must judge **inline** in the prompt; a schema leaf told to "read these files" answers from the model's prior, not real data. Use a plain JSON Schema literal, not Zod. |
 | `label`   | string                     | Short display/diagnostic label for the leaf.                                            |
 | `profile` | string                     | Overrides the model profile. Must exist in `llm.profiles` or the leaf throws. See [Listing profiles](#listing-available-profiles). |
 | `persona` | boolean                    | `true` makes the leaf speak AS the assistant (identity + memory) — use for output meant to be in the assistant's voice. Default is anonymous — use for impartial judging/extraction. |
@@ -122,8 +128,9 @@ workflow**.
 }
 ```
 
-- **Read-only baseline** (always available, no declaration, no launch prompt):
-  `file_read`, `file_list`, `recall`, `web_search`.
+- **Read-only baseline** (available to **tool** leaves, no declaration, no launch prompt):
+  `file_read`, `file_list`, `recall`, `web_search`. **A schema leaf gets none of these**
+  (it runs as a single forced-tool-choice call) — pass it inline content, never tell it to read.
 - **`web_fetch` is NOT in the baseline** — an outbound fetch is side-effecting (its
   URL can exfiltrate read data), so a leaf that must fetch a URL has to declare
   `"web_fetch"` in `capabilities.tools`.
