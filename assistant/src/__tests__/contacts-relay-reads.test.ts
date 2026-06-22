@@ -153,7 +153,9 @@ function gatewayContact(overrides: Record<string, unknown> = {}) {
         type: "telegram",
         address: "tg-001",
         isPrimary: true,
-        externalUserId: "tg-001",
+        // The gateway leaves externalUserId null; the daemon's withChannelCompat
+        // re-derives it from address on the relayed payload.
+        externalUserId: null,
         status: "active",
         policy: "allow",
         verifiedAt: null,
@@ -192,6 +194,11 @@ describe("handleListContacts relay", () => {
     expect(localCalls).toEqual([]);
     expect(result.contacts).toHaveLength(1);
     expect(result.contacts[0].id).toBe("gw-1");
+    // The daemon's withChannelCompat re-derives externalUserId = address even
+    // though the gateway emits null — the client-facing guarantee holds.
+    const ch = (result.contacts[0] as { channels: { address: string; externalUserId: string | null }[] })
+      .channels[0];
+    expect(ch.externalUserId).toBe(ch.address);
   });
 
   test("applies guardian display-name override to relayed contacts", async () => {

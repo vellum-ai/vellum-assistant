@@ -354,9 +354,10 @@ describe("IPC contact routes", () => {
     expect(body.contacts[0].role).toBe("guardian");
     // Trust signals derived from gateway channels (5 + 10 for the guardian).
     expect(body.contacts[0].interactionCount).toBe(15);
-    // externalUserId echoes address (withChannelCompat).
+    // externalUserId is null on the gateway rich-read output — the daemon's
+    // withChannelCompat is the sole producer of that compat field.
     const ch = body.contacts[0].channels[0];
-    expect(ch.externalUserId).toBe(ch.address);
+    expect(ch.externalUserId).toBeNull();
   });
 
   test("contacts_list_rich honors the role filter via IPC", async () => {
