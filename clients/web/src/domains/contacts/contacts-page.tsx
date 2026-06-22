@@ -115,6 +115,23 @@ const READINESS_REFETCH_MS = 15000;
 
 const EMPTY_CHANNELS: ChannelInfo[] = [];
 
+/**
+ * Build a React Query `onError` handler that surfaces a failed contact
+ * mutation as a toast, preferring the server-provided message (carried on
+ * `ApiError.message`) and falling back to an action label.
+ *
+ * Pairing this with `.mutate()` — rather than awaiting `.mutateAsync()` at
+ * the call site — is what keeps a failed gateway call (e.g. a 404 from
+ * `upsertContact`/`deleteContact`) from escalating to an unhandled promise
+ * rejection: `.mutate()` never returns a rejecting promise, and the error is
+ * reported here instead.
+ */
+function toastContactError(fallback: string) {
+  return (err: unknown) => {
+    toast.error(err instanceof Error ? err.message : fallback);
+  };
+}
+
 export interface ContactsPageProps {
   assistantId: string;
   onStartSetupConversation?: (prompt: string) => void;
@@ -270,6 +287,7 @@ export function ContactsPage({
       );
       setSelection({ kind: "contact", contactId: contact.id });
     },
+    onError: toastContactError("Failed to create contact"),
     onSettled: () => invalidateContacts(),
   });
 
@@ -287,6 +305,7 @@ export function ContactsPage({
       );
       setSelection({ kind: "assistant" });
     },
+    onError: toastContactError("Failed to delete contact"),
     onSettled: () => invalidateContacts(),
   });
 
@@ -315,6 +334,7 @@ export function ContactsPage({
           : undefined,
       );
     },
+    onError: toastContactError("Failed to save contact"),
     onSettled: () => invalidateContacts(),
   });
 
@@ -528,11 +548,7 @@ export function ContactsPage({
     mutationFn: (args: { channelId: string }) =>
       verifyContactChannel(assistantId, args.channelId),
     onSuccess: () => invalidateContacts(),
-    onError: (err) => {
-      const message =
-        err instanceof Error ? err.message : "Failed to verify channel";
-      toast.error(message);
-    },
+    onError: toastContactError("Failed to verify channel"),
   });
 
   const handleVerifyChannel = useCallback(
@@ -651,8 +667,8 @@ export function ContactsPage({
               canMerge={canMerge}
               availableChannels={availableChannels}
               a2aEnabled={a2aChannel}
-              onSave={async (patch) => {
-                await updateMutation.mutateAsync({
+              onSave={(patch) => {
+                updateMutation.mutate({
                   contactId: optimisticContact.id,
                   patch,
                 });
@@ -675,14 +691,14 @@ export function ContactsPage({
               canMerge={canMerge}
               availableChannels={availableChannels}
               a2aEnabled={a2aChannel}
-              onSave={async (patch) => {
-                await updateMutation.mutateAsync({
+              onSave={(patch) => {
+                updateMutation.mutate({
                   contactId: optimisticContact.id,
                   patch,
                 });
               }}
-              onDelete={async () => {
-                await deleteMutation.mutateAsync(optimisticContact.id);
+              onDelete={() => {
+                deleteMutation.mutate(optimisticContact.id);
               }}
               onMerge={handleOpenMerge}
               onSetupChannel={
