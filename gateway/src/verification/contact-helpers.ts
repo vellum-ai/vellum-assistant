@@ -85,9 +85,11 @@ export async function upsertVerifiedContactChannel(params: {
   externalChatId: string;
   displayName?: string;
   username?: string;
+  verifiedVia?: string;
 }): Promise<void> {
   const now = Date.now();
   const { sourceChannel, externalChatId, displayName, username } = params;
+  const verifiedVia = params.verifiedVia ?? "challenge";
 
   const address =
     canonicalizeInboundIdentity(sourceChannel, params.externalUserId) ??
@@ -132,10 +134,11 @@ export async function upsertVerifiedContactChannel(params: {
        SET address = ?,
            status = 'active', policy = 'allow',
            external_chat_id = ?,
+           verified_at = ?, verified_via = ?,
            revoked_reason = NULL, blocked_reason = NULL,
            updated_at = ?
        WHERE id = ?`,
-      [address, externalChatId, now, row.channelId],
+      [address, externalChatId, now, verifiedVia, now, row.channelId],
     );
 
     // Dual-write to gateway DB
@@ -148,6 +151,8 @@ export async function upsertVerifiedContactChannel(params: {
           policy: "allow",
           address,
           externalChatId,
+          verifiedAt: now,
+          verifiedVia,
           revokedReason: null,
           blockedReason: null,
           updatedAt: now,
@@ -180,9 +185,20 @@ export async function upsertVerifiedContactChannel(params: {
   await assistantDbRun(
     `INSERT OR IGNORE INTO contact_channels
        (id, contact_id, type, address, is_primary, external_chat_id,
-        status, policy, interaction_count, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 0, ?, 'active', 'allow', 0, ?, ?)`,
-    [channelId, contactId, sourceChannel, address, externalChatId, now, now],
+        status, policy, verified_at, verified_via, interaction_count,
+        created_at, updated_at)
+     VALUES (?, ?, ?, ?, 0, ?, 'active', 'allow', ?, ?, 0, ?, ?)`,
+    [
+      channelId,
+      contactId,
+      sourceChannel,
+      address,
+      externalChatId,
+      now,
+      verifiedVia,
+      now,
+      now,
+    ],
   );
 
   // Dual-write to gateway DB
@@ -211,6 +227,8 @@ export async function upsertVerifiedContactChannel(params: {
         externalChatId,
         status: "active",
         policy: "allow",
+        verifiedAt: now,
+        verifiedVia,
         interactionCount: 0,
         createdAt: now,
         updatedAt: now,

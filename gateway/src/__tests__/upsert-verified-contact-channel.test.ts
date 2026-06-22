@@ -186,6 +186,66 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     const inserts = runCalls.filter((c) => c.sql.includes("INSERT"));
     expect(inserts).toHaveLength(2);
   });
+
+  test("update path stamps verified_at + verified_via='challenge'", async () => {
+    queryRows = [
+      { channelId: "ch-6", contactId: "co-6", channelStatus: "active" },
+    ];
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550001111",
+      externalChatId: "+15550001111",
+    });
+
+    const update = runCalls.find((c) =>
+      c.sql.includes("UPDATE contact_channels"),
+    );
+    expect(update).toBeTruthy();
+    expect(update!.sql).toContain("status = 'active'");
+    expect(update!.sql).toContain("verified_at = ?");
+    expect(update!.sql).toContain("verified_via = ?");
+    expect(update!.params).toContain("challenge");
+    // verified_at uses a numeric timestamp
+    expect(update!.params.some((p) => typeof p === "number")).toBe(true);
+  });
+
+  test("insert path stamps verified_at + verified_via='challenge'", async () => {
+    queryRows = [];
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550009999",
+      externalChatId: "+15550009999",
+    });
+
+    const channelInsert = runCalls.find((c) =>
+      c.sql.includes("INSERT OR IGNORE INTO contact_channels"),
+    );
+    expect(channelInsert).toBeTruthy();
+    expect(channelInsert!.sql).toContain("'active'");
+    expect(channelInsert!.sql).toContain("verified_at");
+    expect(channelInsert!.sql).toContain("verified_via");
+    expect(channelInsert!.params).toContain("challenge");
+  });
+
+  test("honors an explicit verifiedVia value on the update path", async () => {
+    queryRows = [
+      { channelId: "ch-7", contactId: "co-7", channelStatus: "active" },
+    ];
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550001111",
+      externalChatId: "+15550001111",
+      verifiedVia: "manual",
+    });
+
+    const update = runCalls.find((c) =>
+      c.sql.includes("UPDATE contact_channels"),
+    );
+    expect(update!.params).toContain("manual");
+  });
 });
 
 describe("upsertContactChannel — channel address casing", () => {
