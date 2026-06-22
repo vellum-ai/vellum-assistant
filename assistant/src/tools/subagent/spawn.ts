@@ -1,7 +1,7 @@
+import { AUTO_PROFILE_KEY } from "../../api/constants/inference-profiles.js";
 import { validateInferenceProfileKey } from "../../config/inference-profile-validation.js";
 import { resolveDefaultProfileKey } from "../../config/llm-resolver.js";
 import { getConfig } from "../../config/loader.js";
-import { AUTO_PROFILE_KEY } from "../../config/seed-inference-profiles.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import { getConversationOverrideProfile } from "../../memory/conversation-crud.js";
 import type { Message } from "../../providers/types.js";

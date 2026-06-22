@@ -13,12 +13,6 @@
 
 import { AUTO_PROFILE_KEY } from "@vellumai/assistant-api";
 
-/**
- * Re-exported under the legacy name for existing UI consumers. New code
- * should import `AUTO_PROFILE_KEY` from `@vellumai/assistant-api` directly.
- */
-export const AUTO_PROFILE_NAME = AUTO_PROFILE_KEY;
-
 export interface ProfilePickerEntry {
   readonly name: string;
   readonly label?: string | null;

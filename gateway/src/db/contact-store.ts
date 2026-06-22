@@ -3,6 +3,11 @@ import { type Database } from "bun:sqlite";
 import { and, desc, eq, ne, sql } from "drizzle-orm";
 
 import {
+  type AssistantContactMetadata,
+  type ContactRead,
+} from "@vellumai/gateway-client/gateway-ipc-contracts";
+
+import {
   type SqliteValue,
   assistantDbQuery,
   assistantDbRun,
@@ -179,6 +184,114 @@ export class ContactStore {
     if (rows.length === 0) return null;
     const joined = await this.joinInfoIntoContacts(rows);
     return joined[0] ?? null;
+  }
+
+  // ── Rich reads (gateway ACL + assistant info, ContactRead contract) ──────
+  //
+  // listContactsRich / getContactRich assemble the shared ContactRead shape
+  // (packages/gateway-client/src/gateway-ipc-contracts.ts) so the daemon can
+  // relay its full contact read responses through the gateway IPC surface.
+  // Identity + ACL/channel fields come from the gateway DB (source of truth);
+  // info fields (notes, contactType, interactionCount, lastInteraction) come
+  // from the assistant DB via assistantDbQuery. The assistant join is soft:
+  // a failed or missing read degrades to gateway-DB-only values + a warning.
+  //
+  // Guardian display-name override is intentionally NOT applied here — the
+  // daemon relay handler re-applies prepareContactResponse on the relayed
+  // payload, keeping prompt logic on the daemon side.
+
+  /**
+   * List contacts in the shared ContactRead shape: gateway-DB identity + ACL
+   * channels joined to assistant-DB info fields.
+   *
+   * Filters: `role` (gateway DB), `limit` (default 50, capped 200 to mirror
+   * the daemon's listContacts). The daemon serves contactType-filtered list
+   * reads natively (filtering in SQL before the limit) so a tight limit doesn't
+   * under-return and an assistant-DB outage degrades rather than dropping every
+   * row — the relay never carries a contactType filter.
+   *
+   * Thin adapter over `listContactsWithInfo` (shared assembly/soft-fail logic),
+   * projected down to the ContactRead subset.
+   *
+   * Ordering mirrors the daemon's listContacts: guardian role first, then
+   * updatedAt desc.
+   */
+  async listContactsRich(opts?: {
+    limit?: number;
+    role?: string;
+  }): Promise<ContactRead[]> {
+    const withInfo = await this.listContactsWithInfo({
+      limit: opts?.limit,
+      role: opts?.role,
+    });
+    return withInfo.map((c) => this.toContactRead(c));
+  }
+
+  /**
+   * Get a single contact in the shared ContactRead shape, plus the assistant
+   * metadata block for assistant-species contacts. Returns null if the
+   * contact is absent from the gateway DB.
+   *
+   * Thin adapter over `getContactWithInfo`, projected down to ContactRead.
+   */
+  async getContactRich(contactId: string): Promise<{
+    contact: ContactRead;
+    assistantMetadata?: AssistantContactMetadata;
+  } | null> {
+    const withInfo = await this.getContactWithInfo(contactId);
+    if (!withInfo) return null;
+
+    const read = this.toContactRead(withInfo);
+    if (withInfo.contactType === "assistant" && withInfo.assistantMetadata) {
+      return {
+        contact: read,
+        assistantMetadata: {
+          contactId,
+          species: withInfo.assistantMetadata.species,
+          metadata: withInfo.assistantMetadata.metadata,
+        },
+      };
+    }
+    return { contact: read };
+  }
+
+  /**
+   * Project a ContactWithInfo down to the ContactRead subset (drops the
+   * assistant-only/ACL-internal fields not on the shared contract). Channel
+   * `externalUserId` is left null — the daemon's withChannelCompat is the sole
+   * producer of that compat field on the relayed payload. status/policy default
+   * like the DB columns (notNull, so a no-op on real rows) to satisfy the
+   * non-null ContactRead channel contract.
+   */
+  private toContactRead(c: ContactWithInfo): ContactRead {
+    return {
+      id: c.id,
+      displayName: c.displayName,
+      role: c.role,
+      notes: c.notes,
+      contactType: c.contactType,
+      interactionCount: c.interactionCount,
+      lastInteraction: c.lastInteraction,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+      channels: c.channels.map((ch) => ({
+        id: ch.id,
+        contactId: ch.contactId,
+        type: ch.type,
+        address: ch.address,
+        isPrimary: ch.isPrimary,
+        externalUserId: null,
+        status: ch.status ?? "unverified",
+        policy: ch.policy ?? "allow",
+        verifiedAt: ch.verifiedAt,
+        verifiedVia: ch.verifiedVia,
+        lastSeenAt: ch.lastSeenAt,
+        interactionCount: ch.interactionCount ?? 0,
+        lastInteraction: ch.lastInteraction,
+        revokedReason: ch.revokedReason,
+        blockedReason: ch.blockedReason,
+      })),
+    };
   }
 
   /**

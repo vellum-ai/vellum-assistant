@@ -138,10 +138,10 @@ const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
  * per query. No provider/model — the resolver falls through to the call-site
  * default (balanced or custom-balanced for BYOK).
  *
- * Re-exported from `@vellumai/assistant-api` (the shared constants package)
- * so the backend, plugin API, and UI all reference a single source of truth.
+ * Defined in `@vellumai/assistant-api` (assistant/src/api/constants/
+ * inference-profiles.ts) so the backend, plugin API, and UI share a single
+ * source of truth.
  */
-export { AUTO_PROFILE_KEY };
 
 export const OS_BETA_PROFILE_KEY = "os-beta";
 export const OS_BETA_FEATURE_FLAG_KEY = "os-beta";

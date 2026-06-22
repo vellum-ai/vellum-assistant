@@ -16,6 +16,7 @@ const UNSUPPORTED_GROUP_BY_STATUSES = new Set([400, 404, 422]);
 const MAX_RETRY_COUNT = 3;
 const USAGE_TIME_RANGES = new Set<UsageTimeRange>([
   "today",
+  "yesterday",
   "7d",
   "30d",
   "90d",
@@ -223,5 +224,6 @@ export function resolveRangeWindow(
 export function resolveUsageGranularity(
   range: UsageTimeRange,
 ): UsageGranularity {
-  return range === "today" ? "hourly" : "daily";
+  // Single-calendar-day ranges read best at hourly resolution.
+  return range === "today" || range === "yesterday" ? "hourly" : "daily";
 }
