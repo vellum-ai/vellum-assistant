@@ -11,6 +11,8 @@
  * (See Codex post-merge P2 on PR #6413.)
  */
 
+import { AUTO_PROFILE_KEY } from "@vellumai/assistant-api";
+
 export interface ProfilePickerEntry {
   readonly name: string;
   readonly label?: string | null;
@@ -18,31 +20,22 @@ export interface ProfilePickerEntry {
 }
 
 /**
- * Name of the meta-"auto" profile seeded by the daemon. The entry exists
- * in `llm.profiles` unconditionally so a switched-on `query-complexity-
- * routing` flag has something to point at, but every UI surface that
- * lists profiles must hide it while the flag is off — otherwise it
- * leaks into the composer picker, the Default Profile dropdown, the
- * Manage Profiles modal, and the per-call-site override picker.
- *
- * Mirrors `AUTO_PROFILE_KEY` in
- * `assistant/src/config/seed-inference-profiles.ts`.
- */
-export const AUTO_PROFILE_NAME = "auto";
-
-/**
  * Hides the meta-"auto" profile when the `query-complexity-routing`
  * feature flag is off. The daemon seeds `"auto"` into `llm.profiles`
  * unconditionally, so every list-style profile UI must run its source
  * array through this gate before render, or `Auto` shows up in the
  * picker for users whose workspace has the flag disabled.
+ *
+ * The key constant is imported from `@vellumai/assistant-api` so the
+ * backend (config seeder, plugin API) and the UI share a single source
+ * of truth.
  */
 export function gateAutoProfile<T extends ProfilePickerEntry>(
   profiles: ReadonlyArray<T>,
   queryComplexityRoutingEnabled: boolean,
 ): T[] {
   if (queryComplexityRoutingEnabled) return [...profiles];
-  return profiles.filter((p) => p.name !== AUTO_PROFILE_NAME);
+  return profiles.filter((p) => p.name !== AUTO_PROFILE_KEY);
 }
 
 /**

@@ -15,9 +15,9 @@ import { ByoServiceCard, SaveButton } from "@/domains/settings/ai/shared-ui";
 import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
 import { CallSiteOverridesModal } from "@/domains/settings/ai/call-site-overrides-modal";
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";
+import { AUTO_PROFILE_KEY } from "@vellumai/assistant-api";
 import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal";
 import {
-  AUTO_PROFILE_NAME,
   gateAutoProfile,
   profilePickerLabel,
   visibleProfilesForPicker,
@@ -163,13 +163,13 @@ export function LanguageModelCard() {
               options={defaultProfilePickerEntries.map((p) => ({
                 value: p.name,
                 label:
-                  p.name === AUTO_PROFILE_NAME
+                  p.name === AUTO_PROFILE_KEY
                     ? "Automatically switch between profiles"
                     : profilePickerLabel(p),
               }))}
             />
             {queryComplexityRoutingEnabled &&
-              effectiveActiveProfile === AUTO_PROFILE_NAME && (
+              effectiveActiveProfile === AUTO_PROFILE_KEY && (
                 <div className="flex items-center gap-2 rounded-lg bg-[var(--surface-warning-subtle)] px-3 py-2">
                   <span className="text-body-small-default text-[var(--content-warning)]">
                     Auto may use more powerful models when needed, which can
@@ -201,7 +201,7 @@ export function LanguageModelCard() {
               options={advisorProfilePickerEntries.map((p) => ({
                 value: p.name,
                 label:
-                  p.name === AUTO_PROFILE_NAME
+                  p.name === AUTO_PROFILE_KEY
                     ? "Automatically switch between profiles"
                     : profilePickerLabel(p),
               }))}

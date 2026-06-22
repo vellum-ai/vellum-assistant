@@ -22,7 +22,7 @@ import {
 } from "@/domains/settings/ai/profile-advanced-params";
 import { ProfileEditorProviderSection } from "@/domains/settings/ai/profile-editor-provider-section";
 import { type GeminiThinkingLevel, isGeminiThinkingLevel, resolveProfileParamVisibility } from "@/domains/settings/ai/profile-param-visibility";
-import { AUTO_PROFILE_NAME } from "@/assistant/profile-pickers";
+import { AUTO_PROFILE_KEY } from "@vellumai/assistant-api";
 import { deriveProfileDefaults } from "@/domains/settings/ai/profile-prefill";
 import type { ConnectionProvider, ProviderConnection } from "@/generated/daemon/types.gen";
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
@@ -149,7 +149,7 @@ function ProfileEditorModalInner({
 }: ProfileEditorModalInnerProps) {
   const [effectiveMode, setEffectiveMode] = useState<"create" | "edit" | "view">(mode);
   const isReadOnly = effectiveMode === "view";
-  const isAutoProfile = profileName === AUTO_PROFILE_NAME;
+  const isAutoProfile = profileName === AUTO_PROFILE_KEY;
 
   // Managed profiles open the editor in view mode (mode === "view") so they
   // can't be reshaped (provider, model, advanced params) — those are

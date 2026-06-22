@@ -9,6 +9,7 @@
  * looks up `supportsVision` in the model catalog.
  */
 
+import { AUTO_PROFILE_KEY } from "../api/constants/inference-profiles.js";
 import { getConfig } from "../config/loader.js";
 import {
   getCatalogProviderForModel,
@@ -28,10 +29,18 @@ import type { ModelProfileInfo } from "./types.js";
  *   the resolver's `withImpliedProviderForKnownModel`).
  * - For a mix profile, returns `true` if any constituent arm supports vision
  *   (the mix can route to it) and `false` only if every arm is text-only.
+ * - The "auto" meta-profile returns `false` — it has no concrete model and
+ *   may route to a text-only profile at runtime.
  * - Unknown `(provider, model)` pairs default to `true` (fail-open), matching
  *   the config GET route's `enrichProfilesWithVisionFlag`.
  */
 export function doesSupportVision(profile: ModelProfileInfo): boolean {
+  // The "auto" meta-profile has no concrete provider/model — it delegates to
+  // the model's own profile selection at runtime, which may route to a
+  // text-only model. Conservatively report `false` so image-fallback does not
+  // pick it as a vision candidate. Checked before getConfig() to short-circuit.
+  if (profile.key === AUTO_PROFILE_KEY) return false;
+
   const { llm } = getConfig();
   const entry = llm.profiles[profile.key];
   if (entry == null) return true;
