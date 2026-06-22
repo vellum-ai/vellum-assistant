@@ -92,7 +92,18 @@ function parseAssistant(value: unknown): LockfileAssistant | null {
 
   const assistant: LockfileAssistant = { assistantId: value.assistantId };
   if (typeof value.name === "string") assistant.name = value.name;
-  if (typeof value.cloud === "string") assistant.cloud = value.cloud;
+  // Normalize `cloud`. A pre-`cloud` remote entry encodes its topology in legacy
+  // markers (`project` => "gcp", `sshUser` => "custom") that aren't modeled
+  // fields; resolve them here — mirroring the CLI's `resolveCloud` — so a
+  // cloudless remote entry isn't indistinguishable from a local one downstream.
+  // A cloudless entry with no markers stays cloudless (i.e. local).
+  if (typeof value.cloud === "string") {
+    assistant.cloud = value.cloud;
+  } else if (typeof value.project === "string" && value.project) {
+    assistant.cloud = "gcp";
+  } else if (typeof value.sshUser === "string" && value.sshUser) {
+    assistant.cloud = "custom";
+  }
   if (typeof value.runtimeUrl === "string") assistant.runtimeUrl = value.runtimeUrl;
   if (typeof value.species === "string") assistant.species = value.species;
   if (typeof value.hatchedAt === "string") assistant.hatchedAt = value.hatchedAt;
