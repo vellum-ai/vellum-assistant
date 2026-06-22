@@ -57,6 +57,7 @@ import type {
 } from "@/generated/daemon/types.gen";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { toastOnError } from "@/utils/mutation-error";
 
 /**
  * Hardcoded fallback for assistants that don't expose
@@ -114,23 +115,6 @@ const ASSISTANT_SETUP_PROMPTS: Record<AssistantChannelState["key"], string> = {
 const READINESS_REFETCH_MS = 15000;
 
 const EMPTY_CHANNELS: ChannelInfo[] = [];
-
-/**
- * Build a React Query `onError` handler that surfaces a failed contact
- * mutation as a toast, preferring the server-provided message (carried on
- * `ApiError.message`) and falling back to an action label.
- *
- * Pairing this with `.mutate()` — rather than awaiting `.mutateAsync()` at
- * the call site — is what keeps a failed gateway call (e.g. a 404 from
- * `upsertContact`/`deleteContact`) from escalating to an unhandled promise
- * rejection: `.mutate()` never returns a rejecting promise, and the error is
- * reported here instead.
- */
-function toastContactError(fallback: string) {
-  return (err: unknown) => {
-    toast.error(err instanceof Error ? err.message : fallback);
-  };
-}
 
 export interface ContactsPageProps {
   assistantId: string;
@@ -287,7 +271,7 @@ export function ContactsPage({
       );
       setSelection({ kind: "contact", contactId: contact.id });
     },
-    onError: toastContactError("Failed to create contact"),
+    onError: toastOnError("Failed to create contact"),
     onSettled: () => invalidateContacts(),
   });
 
@@ -305,7 +289,7 @@ export function ContactsPage({
       );
       setSelection({ kind: "assistant" });
     },
-    onError: toastContactError("Failed to delete contact"),
+    onError: toastOnError("Failed to delete contact"),
     onSettled: () => invalidateContacts(),
   });
 
@@ -334,7 +318,7 @@ export function ContactsPage({
           : undefined,
       );
     },
-    onError: toastContactError("Failed to save contact"),
+    onError: toastOnError("Failed to save contact"),
     onSettled: () => invalidateContacts(),
   });
 
@@ -548,7 +532,7 @@ export function ContactsPage({
     mutationFn: (args: { channelId: string }) =>
       verifyContactChannel(assistantId, args.channelId),
     onSuccess: () => invalidateContacts(),
-    onError: toastContactError("Failed to verify channel"),
+    onError: toastOnError("Failed to verify channel"),
   });
 
   const handleVerifyChannel = useCallback(
