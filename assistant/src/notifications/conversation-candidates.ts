@@ -174,15 +174,28 @@ function buildCandidatesForChannel(
   // scope: the request's source conversation plus any conversation its card was
   // delivered to (e.g. an access request whose synthetic source id differs from
   // the in-app card's destination conversation).
+  //
+  // Best-effort per candidate: guardian context is supplementary, so a lookup
+  // failure degrades that candidate to "no context" (logged) rather than
+  // propagating to the per-channel catch in `buildConversationCandidates`,
+  // which would discard the channel's whole candidate set.
   for (const candidate of candidates) {
-    const pendingCount = listPendingRequestsByConversationScope(
-      candidate.conversationId,
-      candidate.channel,
-    ).length;
-    if (pendingCount > 0) {
-      candidate.guardianContext = {
-        pendingUnresolvedRequestCount: pendingCount,
-      };
+    try {
+      const pendingCount = listPendingRequestsByConversationScope(
+        candidate.conversationId,
+        candidate.channel,
+      ).length;
+      if (pendingCount > 0) {
+        candidate.guardianContext = {
+          pendingUnresolvedRequestCount: pendingCount,
+        };
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log.warn(
+        { err: errMsg, conversationId: candidate.conversationId },
+        "Failed to enrich candidate with guardian context",
+      );
     }
   }
 
