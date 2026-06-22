@@ -1,36 +1,13 @@
 /**
- * Lightweight Block Kit block generation for Slack channel replies.
+ * Block Kit block generation for Slack channel replies.
  *
- * The gateway's text-to-blocks utility handles the full conversion, but
- * the assistant pre-generates blocks so the gateway can pass them through
- * without re-parsing. This keeps the conversion logic self-contained and
- * avoids the gateway needing to distinguish pre-formatted from raw text.
+ * Converts markdown/plain text into Slack Block Kit blocks (typed via
+ * `@slack/types`) so the assistant can attach pre-formatted `blocks` to a
+ * Slack delivery. Handles code fences, headers, markdown tables, and
+ * oversize-section splitting.
  */
 
-// ---------------------------------------------------------------------------
-// Block types (mirrors gateway/src/slack/block-kit-builder.ts)
-// ---------------------------------------------------------------------------
-
-interface TextObject {
-  type: "mrkdwn" | "plain_text";
-  text: string;
-}
-
-interface SectionBlock {
-  type: "section";
-  text: TextObject;
-}
-
-interface DividerBlock {
-  type: "divider";
-}
-
-interface HeaderBlock {
-  type: "header";
-  text: TextObject;
-}
-
-type Block = SectionBlock | DividerBlock | HeaderBlock;
+import type { KnownBlock } from "@slack/types";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -42,11 +19,11 @@ type Block = SectionBlock | DividerBlock | HeaderBlock;
  * Returns undefined when the input is empty so callers can
  * skip sending the `blocks` field entirely.
  */
-export function textToSlackBlocks(text: string): Block[] | undefined {
+export function textToSlackBlocks(text: string): KnownBlock[] | undefined {
   if (!text || text.trim().length === 0) return undefined;
 
   const segments = splitIntoSegments(text);
-  const blocks: Block[] = [];
+  const blocks: KnownBlock[] = [];
 
   for (let i = 0; i < segments.length; i++) {
     if (i > 0) {
@@ -225,20 +202,22 @@ function splitIntoSegments(text: string): Segment[] {
 function parseTableRow(line: string): string[] {
   const ESCAPED_PIPE_PLACEHOLDER = "\x00PIPE\x00";
   const ESCAPED_BACKSLASH_PLACEHOLDER = "\x00BSLASH\x00";
-  return line
-    // First, protect escaped backslashes (\\) so they don't interfere
-    .replace(/\\\\/g, ESCAPED_BACKSLASH_PLACEHOLDER)
-    // Now a remaining \| is a genuinely escaped pipe (odd backslash)
-    .replace(/\\\|/g, ESCAPED_PIPE_PLACEHOLDER)
-    .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map((cell) =>
-      cell
-        .replaceAll(ESCAPED_PIPE_PLACEHOLDER, "|")
-        .replaceAll(ESCAPED_BACKSLASH_PLACEHOLDER, "\\\\")
-        .trim(),
-    );
+  return (
+    line
+      // First, protect escaped backslashes (\\) so they don't interfere
+      .replace(/\\\\/g, ESCAPED_BACKSLASH_PLACEHOLDER)
+      // Now a remaining \| is a genuinely escaped pipe (odd backslash)
+      .replace(/\\\|/g, ESCAPED_PIPE_PLACEHOLDER)
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .map((cell) =>
+        cell
+          .replaceAll(ESCAPED_PIPE_PLACEHOLDER, "|")
+          .replaceAll(ESCAPED_BACKSLASH_PLACEHOLDER, "\\\\")
+          .trim(),
+      )
+  );
 }
 
 /**
@@ -488,10 +467,7 @@ function computeMrkdwnSpans(window: string): Array<[number, number]> {
   return intervals;
 }
 
-function isInsideSpan(
-  pos: number,
-  spans: Array<[number, number]>,
-): boolean {
+function isInsideSpan(pos: number, spans: Array<[number, number]>): boolean {
   for (const [start, end] of spans) {
     if (pos > start && pos < end) return true;
   }

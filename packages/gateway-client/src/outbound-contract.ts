@@ -10,6 +10,7 @@
  * to the target channel provider.
  */
 
+import type { KnownBlock } from "@slack/types";
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
@@ -68,7 +69,7 @@ export const ChannelReplyPayloadSchema = z.object({
   chatId: z.string(),
   text: z.string().optional(),
   /** Pre-formatted Block Kit blocks for Slack delivery. */
-  blocks: z.array(z.unknown()).optional(),
+  blocks: z.array(z.custom<KnownBlock>()).optional(),
   assistantId: z.string().optional(),
   attachments: z.array(AttachmentMetadataSchema).optional(),
   approval: ApprovalUIMetadataSchema.optional(),
@@ -82,7 +83,7 @@ export const ChannelReplyPayloadSchema = z.object({
   user: z.string().optional(),
   /** When provided, update an existing message instead of posting a new one. */
   messageTs: z.string().optional(),
-  /** When true, auto-generate Block Kit blocks from text via textToBlocks(). */
+  /** When true, the daemon generates Block Kit blocks from the text before delivery. */
   useBlocks: z.boolean().optional(),
   /** When provided, add or remove an emoji reaction on a message. */
   reaction: z

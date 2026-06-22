@@ -6,6 +6,8 @@
  * - guardian-callback-strategy.ts   — guardian callback button and text decisions
  * - guardian-text-engine-strategy.ts — conversational engine for plain-text messages
  */
+import type { KnownBlock } from "@slack/types";
+
 import { applyGuardianDecision } from "../../approvals/guardian-decision-primitive.js";
 import type { ChannelId } from "../../channels/types.js";
 import type { TrustContext } from "../../daemon/trust-context.js";
@@ -593,7 +595,7 @@ function editStaleSlackApprovalMessage(params: {
   conversationId: string;
 }): void {
   const statusText = "This approval request has been resolved.";
-  const blocks = [
+  const blocks: KnownBlock[] = [
     {
       type: "section",
       text: { type: "mrkdwn", text: statusText },

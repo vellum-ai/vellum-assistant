@@ -6,6 +6,7 @@
  * attachments by calling the Slack Web API directly via ./api.ts.
  */
 
+import type { Button, KnownBlock } from "@slack/types";
 import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
 
 import { getAttachmentContent } from "../../../memory/attachments-store.js";
@@ -27,24 +28,22 @@ const log = getLogger("slack-send");
 const SLACK_MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
-// Approval Block Kit builder (mirrors gateway/src/slack/block-kit-builder.ts)
+// Approval Block Kit builder
 // ---------------------------------------------------------------------------
 
 function buildApprovalBlocks(
   message: string,
   approval: ApprovalUIMetadata,
-): unknown[] {
+): KnownBlock[] {
+  const buttons: Button[] = approval.actions.map((action) => ({
+    type: "button",
+    text: { type: "plain_text", text: action.label, emoji: true },
+    action_id: `apr:${approval.requestId}:${action.id}`,
+    value: `apr:${approval.requestId}:${action.id}`,
+  }));
   return [
     { type: "section", text: { type: "mrkdwn", text: message } },
-    {
-      type: "actions",
-      elements: approval.actions.map((action) => ({
-        type: "button",
-        text: { type: "plain_text", text: action.label, emoji: true },
-        action_id: `apr:${approval.requestId}:${action.id}`,
-        value: `apr:${approval.requestId}:${action.id}`,
-      })),
-    },
+    { type: "actions", elements: buttons },
     {
       type: "context",
       elements: [
@@ -63,10 +62,10 @@ function buildApprovalBlocks(
 
 function resolveBlocks(
   text: string | undefined,
-  providedBlocks: unknown[] | undefined,
+  providedBlocks: KnownBlock[] | undefined,
   approval: ApprovalUIMetadata | undefined,
   useBlocks: boolean | undefined,
-): unknown[] {
+): KnownBlock[] {
   if (Array.isArray(providedBlocks) && providedBlocks.length > 0) {
     return providedBlocks;
   }
@@ -110,7 +109,7 @@ async function uploadFileToSlack(
 
 export interface SlackSendOptions {
   threadTs?: string;
-  blocks?: unknown[];
+  blocks?: KnownBlock[];
   approval?: ApprovalUIMetadata;
   useBlocks?: boolean;
   ephemeral?: boolean;
@@ -135,7 +134,7 @@ export interface SlackSendResult {
 async function sendWithBlockFallback(
   method: string,
   baseBody: Record<string, unknown>,
-  blocks: unknown[],
+  blocks: KnownBlock[],
   options: { fallbackWithoutBlocks: boolean },
 ): Promise<SlackSendResult> {
   try {
