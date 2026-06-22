@@ -26,6 +26,20 @@ export const HandshakeRequestSchema = z.object({
   /** Opaque session identifier chosen by the initiator. */
   sessionId: z.string(),
   /**
+   * Optional shared-secret token authenticating the initiator.
+   *
+   * In managed (sidecar) mode the CES bootstrap Unix socket re-binds after
+   * each assistant session ends, so the connection is unauthenticated at the
+   * transport layer — any local process that reaches the socket path during
+   * the reconnect window could otherwise impersonate the assistant. The
+   * assistant forwards the shared `CES_SERVICE_TOKEN` here so CES can verify
+   * the peer before accepting the session (constant-time comparison).
+   *
+   * Omitted in local stdio mode, where the parent process owns the child's
+   * pipes and there is no socket to hijack.
+   */
+  authToken: z.string().optional(), // nosemgrep: not-a-secret
+  /**
    * Optional assistant API key passed from the assistant runtime.
    * In managed (sidecar) mode the API key is provisioned after hatch,
    * so the assistant forwards it during the bootstrap handshake so CES

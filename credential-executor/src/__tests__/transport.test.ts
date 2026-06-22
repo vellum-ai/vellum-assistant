@@ -33,7 +33,10 @@ import { CesRpcServer, type RpcHandlerRegistry } from "../server.js";
 /**
  * Create a CesRpcServer wired to in-memory PassThrough streams for testing.
  */
-function createTestServer(handlers: RpcHandlerRegistry = {}) {
+function createTestServer(
+  handlers: RpcHandlerRegistry = {},
+  options: { expectedAuthToken?: string } = {},
+) {
   const input = new PassThrough();
   const output = new PassThrough();
   const logs: string[] = [];
@@ -42,6 +45,9 @@ function createTestServer(handlers: RpcHandlerRegistry = {}) {
     input,
     output,
     handlers,
+    ...(options.expectedAuthToken
+      ? { expectedAuthToken: options.expectedAuthToken }
+      : {}),
     logger: {
       log: (msg: string) => logs.push(`LOG: ${msg}`),
       warn: (msg: string) => logs.push(`WARN: ${msg}`),
@@ -69,11 +75,15 @@ function createTestServer(handlers: RpcHandlerRegistry = {}) {
   /**
    * Send a handshake request and read the response.
    */
-  async function handshake(sessionId = "test-session"): Promise<HandshakeAck> {
+  async function handshake(
+    sessionId = "test-session",
+    authToken?: string,
+  ): Promise<HandshakeAck> {
     send({
       type: "handshake_request",
       protocolVersion: CES_PROTOCOL_VERSION,
       sessionId,
+      ...(authToken ? { authToken } : {}),
     });
     // Give the server a tick to process
     await new Promise((r) => setTimeout(r, 10));
@@ -335,6 +345,109 @@ describe("CesRpcServer", () => {
     const payload = resp.payload as { success: boolean; error: { code: string; message: string } };
     expect(payload.error.code).toBe("HANDLER_ERROR");
     expect(payload.error.message).toMatch(/Intentional test failure/);
+
+    server.close();
+    input.end();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4b. Handshake authentication (managed bootstrap socket hijack defense)
+// ---------------------------------------------------------------------------
+
+describe("CesRpcServer handshake authentication", () => {
+  const TOKEN = "s3cret-service-token";
+
+  test("accepts a handshake that presents the correct token", async () => {
+    const { server, handshake, input } = createTestServer(
+      {},
+      { expectedAuthToken: TOKEN },
+    );
+    const _servePromise = server.serve();
+
+    const ack = await handshake("authed-session", TOKEN);
+    expect(ack.accepted).toBe(true);
+    expect(server.isHandshakeComplete).toBe(true);
+
+    server.close();
+    input.end();
+  });
+
+  test("rejects a handshake that omits the token", async () => {
+    const { server, handshake, input } = createTestServer(
+      {},
+      { expectedAuthToken: TOKEN },
+    );
+    const servePromise = server.serve();
+
+    const ack = await handshake("no-token-session");
+    expect(ack.accepted).toBe(false);
+    expect(ack.reason).toBe("Authentication failed");
+    expect(server.isHandshakeComplete).toBe(false);
+
+    // The rejected session is torn down so the bootstrap socket can re-bind
+    // for a legitimate client rather than being held by the rejected peer.
+    expect(await servePromise).toBe("handshake_unauthenticated");
+
+    input.end();
+  });
+
+  test("rejects a handshake that presents a wrong token without leaking why", async () => {
+    const { server, handshake, input } = createTestServer(
+      {},
+      { expectedAuthToken: TOKEN },
+    );
+    const servePromise = server.serve();
+
+    const ack = await handshake("wrong-token-session", "not-the-token");
+    expect(ack.accepted).toBe(false);
+    // Reason must be generic — it must not reveal whether the token or the
+    // protocol version was the problem.
+    expect(ack.reason).toBe("Authentication failed");
+    expect(server.isHandshakeComplete).toBe(false);
+
+    expect(await servePromise).toBe("handshake_unauthenticated");
+
+    input.end();
+  });
+
+  test("an unauthenticated peer cannot send RPC after a rejected handshake", async () => {
+    const { server, handshake, send, collectOutputLines, input } =
+      createTestServer(
+        { list_grants: async () => ({ grants: [] }) },
+        { expectedAuthToken: TOKEN },
+      );
+    const _servePromise = server.serve();
+
+    const ack = await handshake("attacker", "wrong");
+    expect(ack.accepted).toBe(false);
+    expect(server.isHandshakeComplete).toBe(false);
+
+    // The session was torn down on the rejected handshake, so a follow-up RPC
+    // the attacker tries to push gets no response at all — the handler never
+    // runs.
+    send({
+      type: "rpc",
+      id: "1",
+      kind: "request",
+      method: "list_grants",
+      payload: {},
+      timestamp: new Date().toISOString(),
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(collectOutputLines()).toEqual([]);
+
+    input.end();
+  });
+
+  test("does not enforce authentication when no expected token is configured", async () => {
+    // Local stdio mode: no socket to hijack, so the handshake stays open.
+    const { server, handshake, input } = createTestServer();
+    const _servePromise = server.serve();
+
+    const ack = await handshake("local-session");
+    expect(ack.accepted).toBe(true);
+    expect(server.isHandshakeComplete).toBe(true);
 
     server.close();
     input.end();

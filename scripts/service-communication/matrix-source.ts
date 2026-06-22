@@ -465,9 +465,9 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     caller: "assistant",
     callee: "ces",
     protocol: "unix-socket-ndjson",
-    auth: "none (bootstrap socket)",
+    auth: "CES_SERVICE_TOKEN (handshake)",
     description:
-      "Assistant connects to the CES sidecar's bootstrap Unix socket (CES_BOOTSTRAP_SOCKET) for RPC in managed/Docker mode.",
+      "Assistant connects to the CES sidecar's bootstrap Unix socket (CES_BOOTSTRAP_SOCKET) for RPC in managed/Docker mode. The socket re-binds after each session, so CES verifies the shared CES_SERVICE_TOKEN (constant-time) during the handshake before accepting the session — without this, a local process racing the reconnect window could hijack the socket and impersonate the assistant.",
     callerGlobs: ["assistant/src/credential-execution/process-manager.ts"],
     calleeGlobs: [
       "credential-executor/src/managed-main.ts",

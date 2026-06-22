@@ -230,7 +230,9 @@ async function startCesProcess(
       // the env var, so we pass it via the handshake.
       const proxyCtx = await resolveManagedProxyContext();
       const assistantId = getPlatformAssistantId();
+      const cesAuthToken = process.env["CES_SERVICE_TOKEN"];
       const { accepted, reason } = await client.handshake({
+        ...(cesAuthToken ? { authToken: cesAuthToken } : {}),
         ...(proxyCtx.assistantApiKey
           ? { assistantApiKey: proxyCtx.assistantApiKey }
           : {}),
@@ -776,7 +778,9 @@ export async function runDaemon(): Promise<void> {
           await pm.stop();
           const transport = await pm.start();
           const newClient = createCesClient(transport);
+          const reconnectAuthToken = process.env["CES_SERVICE_TOKEN"];
           const { accepted, reason } = await newClient.handshake({
+            ...(reconnectAuthToken ? { authToken: reconnectAuthToken } : {}),
             ...(startupProxyCtx.assistantApiKey
               ? { assistantApiKey: startupProxyCtx.assistantApiKey }
               : {}),

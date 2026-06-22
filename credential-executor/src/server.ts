@@ -16,6 +16,8 @@
 
 import type { Readable, Writable } from "node:stream";
 
+import { createHash, timingSafeEqual } from "node:crypto";
+
 import {
   CES_PROTOCOL_VERSION,
   CesRpcMethod,
@@ -88,6 +90,15 @@ export interface CesServerOptions {
   logger?: Pick<Console, "log" | "warn" | "error">;
   /** Optional abort signal to shut down the server. */
   signal?: AbortSignal;
+  /**
+   * Optional shared secret the connecting peer must present in its handshake
+   * `authToken` to be accepted. When set (managed sidecar mode), a handshake
+   * that omits the token or presents a non-matching one is rejected and the
+   * session is torn down so the bootstrap socket re-binds for a legitimate
+   * client. When unset (local stdio mode), no authentication is enforced —
+   * the parent process owns the child's pipes and there is no socket to hijack.
+   */
+  expectedAuthToken?: string;
   /** Callback invoked when the handshake completes with the negotiated session ID and optional API key / assistant ID. */
   onHandshakeComplete?: (sessionId: string, assistantApiKey?: string, assistantId?: string) => void;
   /** Callback invoked when the assistant pushes an updated API key (and optionally assistant ID) after hatch. */
@@ -97,7 +108,8 @@ export interface CesServerOptions {
 export type ServeEndReason =
   | "input_stream_ended"
   | "signal_aborted"
-  | "signal_aborted_before_start";
+  | "signal_aborted_before_start"
+  | "handshake_unauthenticated";
 
 // ---------------------------------------------------------------------------
 // Server implementation
@@ -109,12 +121,17 @@ export class CesRpcServer {
   private readonly handlers: RpcHandlerRegistry;
   private readonly logger: Pick<Console, "log" | "warn" | "error">;
   private readonly signal?: AbortSignal;
+  private readonly expectedAuthToken?: string;
   private readonly onHandshakeComplete?: (sessionId: string, assistantApiKey?: string, assistantId?: string) => void;
 
   private handshakeComplete = false;
   private sessionId: string | null = null;
   private buffer = "";
   private closed = false;
+  /** Resolver for the in-flight `serve()` promise, so the handshake path can
+   *  end the session (e.g. on an authentication failure) and let the managed
+   *  loop re-bind the bootstrap socket for a legitimate client. */
+  private serveResolve: ((reason: ServeEndReason) => void) | null = null;
 
   constructor(options: CesServerOptions) {
     this.input = options.input;
@@ -122,6 +139,7 @@ export class CesRpcServer {
     this.handlers = options.handlers;
     this.logger = options.logger ?? console;
     this.signal = options.signal;
+    this.expectedAuthToken = options.expectedAuthToken;
     this.onHandshakeComplete = options.onHandshakeComplete;
 
     // Auto-register the update_managed_credential handler if a callback is provided.
@@ -147,9 +165,18 @@ export class CesRpcServer {
         return;
       }
 
+      const settle = (reason: ServeEndReason) => {
+        this.serveResolve = null;
+        if (this.signal) {
+          this.signal.removeEventListener("abort", onAbort);
+        }
+        resolve(reason);
+      };
+      this.serveResolve = settle;
+
       const onAbort = () => {
         this.close();
-        resolve("signal_aborted");
+        settle("signal_aborted");
       };
 
       if (this.signal) {
@@ -163,14 +190,12 @@ export class CesRpcServer {
       });
 
       this.input.on("end", () => {
-        if (this.signal) {
-          this.signal.removeEventListener("abort", onAbort);
-        }
         this.close();
-        resolve("input_stream_ended");
+        settle("input_stream_ended");
       });
 
       this.input.on("error", (err) => {
+        this.serveResolve = null;
         if (this.signal) {
           this.signal.removeEventListener("abort", onAbort);
         }
@@ -259,6 +284,31 @@ export class CesRpcServer {
   }
 
   private handleHandshake(req: HandshakeRequest): void {
+    // Authenticate the peer before anything else. When an expected token is
+    // configured (managed sidecar mode), a missing or non-matching token is a
+    // hijack attempt: the bootstrap socket re-binds after each session, so an
+    // unauthenticated peer racing the reconnect window must never be accepted.
+    // The error reason is deliberately generic so it does not reveal whether
+    // the token or the protocol version was wrong.
+    if (this.expectedAuthToken && !this.isAuthorized(req.authToken)) {
+      this.logger.warn(
+        "[ces-server] Handshake rejected: authentication failed — tearing down session",
+      );
+      this.sendMessage({
+        type: "handshake_ack",
+        protocolVersion: CES_PROTOCOL_VERSION,
+        sessionId: req.sessionId,
+        accepted: false,
+        reason: "Authentication failed",
+      } satisfies HandshakeAck);
+      // End the session so the managed loop re-binds the bootstrap socket for
+      // a legitimate client instead of leaving the slot held by the rejected
+      // peer (which would otherwise be a denial of service).
+      this.close();
+      this.serveResolve?.("handshake_unauthenticated");
+      return;
+    }
+
     const accepted = req.protocolVersion === CES_PROTOCOL_VERSION;
     const ack: HandshakeAck = {
       type: "handshake_ack",
@@ -280,6 +330,20 @@ export class CesRpcServer {
     }
 
     this.sendMessage(ack);
+  }
+
+  /**
+   * Constant-time comparison of the presented handshake token against the
+   * expected shared secret. Both sides are SHA-256 hashed first so the compare
+   * runs over fixed-length buffers — this avoids leaking the secret length and
+   * sidesteps `timingSafeEqual`'s equal-length requirement.
+   */
+  private isAuthorized(presented: string | undefined): boolean {
+    if (!this.expectedAuthToken) return true;
+    if (!presented) return false;
+    const expectedHash = createHash("sha256").update(this.expectedAuthToken).digest();
+    const presentedHash = createHash("sha256").update(presented).digest();
+    return timingSafeEqual(expectedHash, presentedHash);
   }
 
   private async handleRpcEnvelope(envelope: RpcEnvelope): Promise<void> {

@@ -42,7 +42,7 @@ This document enumerates every observed communication permutation between the th
 | 30 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
 | 31 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Threshold IPC |
 | 32 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
-| 33 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
+| 33 | Assistant -> CES | `unix-socket-ndjson` | CES_SERVICE_TOKEN (handshake) | CES RPC (managed mode) |
 | 34 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
 | 35 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
 | 36 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
@@ -451,8 +451,8 @@ This document enumerates every observed communication permutation between the th
 ### CES RPC (managed mode)
 
 - **Protocol:** `unix-socket-ndjson`
-- **Auth:** none (bootstrap socket)
-- **Description:** Assistant connects to the CES sidecar's bootstrap Unix socket (CES_BOOTSTRAP_SOCKET) for RPC in managed/Docker mode.
+- **Auth:** CES_SERVICE_TOKEN (handshake)
+- **Description:** Assistant connects to the CES sidecar's bootstrap Unix socket (CES_BOOTSTRAP_SOCKET) for RPC in managed/Docker mode. The socket re-binds after each session, so CES verifies the shared CES_SERVICE_TOKEN (constant-time) during the handshake before accepting the session — without this, a local process racing the reconnect window could hijack the socket and impersonate the assistant.
 
 **Caller files:**
 - `assistant/src/credential-execution/process-manager.ts`

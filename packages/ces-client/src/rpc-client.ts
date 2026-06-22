@@ -85,6 +85,16 @@ const DEFAULT_HANDSHAKE_TIMEOUT_MS = 10_000;
 
 export interface CesRpcHandshakeOptions {
   /**
+   * Optional shared-secret token authenticating this client to CES.
+   *
+   * In managed (sidecar) mode CES requires the assistant to present the shared
+   * `CES_SERVICE_TOKEN` so it can verify the peer before accepting the session
+   * — the bootstrap Unix socket re-binds after each session and is otherwise
+   * vulnerable to being hijacked by another local process during the reconnect
+   * window. Omitted in local stdio mode, where there is no socket to hijack.
+   */
+  authToken?: string;
+  /**
    * Optional assistant API key to pass to CES during the handshake.
    * In managed (sidecar) mode the API key is provisioned after hatch,
    * so the assistant forwards it here so CES can use it for platform
@@ -360,6 +370,7 @@ export function createCesRpcClient(
             type: "handshake_request",
             protocolVersion: CES_PROTOCOL_VERSION,
             sessionId,
+            ...(options?.authToken ? { authToken: options.authToken } : {}),
             ...(options?.assistantApiKey
               ? { assistantApiKey: options.assistantApiKey }
               : {}),

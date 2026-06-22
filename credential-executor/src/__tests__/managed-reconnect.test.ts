@@ -107,8 +107,15 @@ function connectToSocket(
   });
 }
 
+/** The shared service token CES is configured with for these tests. */
+const SERVICE_TOKEN = "test-ces-service-token";
+
 /** Send a handshake and resolve the resulting ack. */
-function handshake(sock: Socket, sessionId: string): Promise<HandshakeAck> {
+function handshake(
+  sock: Socket,
+  sessionId: string,
+  authToken: string | undefined = SERVICE_TOKEN,
+): Promise<HandshakeAck> {
   return new Promise((resolveAck, reject) => {
     let buffer = "";
     const timer = setTimeout(() => {
@@ -139,6 +146,7 @@ function handshake(sock: Socket, sessionId: string): Promise<HandshakeAck> {
         type: "handshake_request",
         protocolVersion: CES_PROTOCOL_VERSION,
         sessionId,
+        ...(authToken ? { authToken } : {}),
       }) + "\n",
     );
   });
@@ -190,6 +198,7 @@ describe("managed CES reconnection (real entrypoint)", () => {
         CES_BOOTSTRAP_SOCKET: socketPath,
         CES_HEALTH_PORT: String(healthPort),
         CES_ASSISTANT_DATA_MOUNT: assistantDataMount,
+        CES_SERVICE_TOKEN: SERVICE_TOKEN,
       },
       stdout: "ignore",
       stderr: "ignore",
@@ -240,5 +249,69 @@ describe("managed CES reconnection (real entrypoint)", () => {
     expect(await readyzRpcConnected(healthPort)).toBe(true);
 
     second.destroy();
+  }, 30_000);
+
+  test("rejects an unauthenticated hijack after reconnect, then accepts the real client", async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "ces-hijack-"));
+    const dataDir = join(tmpDir, "ces-data");
+    const socketDir = join(tmpDir, "bootstrap");
+    const socketPath = join(socketDir, "ces.sock");
+    const assistantDataMount = join(tmpDir, "assistant-data-ro");
+    mkdirSync(dataDir, { recursive: true });
+    mkdirSync(socketDir, { recursive: true });
+    mkdirSync(join(assistantDataMount, ".vellum"), { recursive: true });
+
+    const healthPort = await pickFreePort();
+    const managedMain = resolve(__dirname, "..", "managed-main.ts");
+
+    proc = Bun.spawn({
+      cmd: [process.execPath, managedMain],
+      env: {
+        ...process.env,
+        CES_MODE: "managed",
+        CES_DATA_DIR: dataDir,
+        CES_BOOTSTRAP_SOCKET: socketPath,
+        CES_HEALTH_PORT: String(healthPort),
+        CES_ASSISTANT_DATA_MOUNT: assistantDataMount,
+        CES_SERVICE_TOKEN: SERVICE_TOKEN,
+      },
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+
+    await waitForHealth(healthPort);
+    await waitForSocket(socketPath);
+
+    // Legitimate assistant connects, then crashes — opening the reconnect window.
+    const legit = await connectToSocket(socketPath);
+    expect((await handshake(legit, "session-1")).accepted).toBe(true);
+    await delay(200);
+    legit.destroy();
+    await waitForSocket(socketPath);
+
+    // An attacker races into the reconnect window with no service token. CES
+    // must reject the handshake AND tear the session down so the socket
+    // re-binds — the attacker must not be able to hold the only slot.
+    const attacker = await connectToSocket(socketPath);
+    const attackerAck = await handshake(attacker, "evil-session", undefined);
+    expect(attackerAck.accepted).toBe(false);
+    expect(attackerAck.reason).toBe("Authentication failed");
+    expect(proc.killed).toBe(false);
+
+    // A second attacker with a wrong token is likewise rejected.
+    await waitForSocket(socketPath);
+    const attacker2 = await connectToSocket(socketPath);
+    const attacker2Ack = await handshake(attacker2, "evil-session-2", "wrong");
+    expect(attacker2Ack.accepted).toBe(false);
+
+    // The real assistant — holding the shared token — reconnects successfully.
+    await waitForSocket(socketPath);
+    const real = await connectToSocket(socketPath);
+    const realAck = await handshake(real, "session-2");
+    expect(realAck.accepted).toBe(true);
+    await delay(200);
+    expect(await readyzRpcConnected(healthPort)).toBe(true);
+
+    real.destroy();
   }, 30_000);
 });

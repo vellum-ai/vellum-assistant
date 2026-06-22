@@ -656,6 +656,20 @@ async function main(): Promise<void> {
     );
   }
 
+  // The same shared secret authenticates the bootstrap RPC handshake. The
+  // bootstrap socket re-binds after every assistant session, so without an
+  // authenticated handshake any local process could hijack the socket during
+  // the reconnect window and impersonate the assistant. When the token is
+  // configured every handshake must present it; when it is absent the socket
+  // is left unauthenticated — log loudly so the misconfiguration is visible.
+  if (!serviceToken) {
+    log.error(
+      "CES_SERVICE_TOKEN not set — the bootstrap RPC socket will accept " +
+        "UNAUTHENTICATED connections. Set CES_SERVICE_TOKEN so CES can verify " +
+        "the assistant during the handshake and prevent socket hijacking.",
+    );
+  }
+
   // Start health server on dedicated port. The returned handle isn't
   // needed because the server lifetime is bound to controller.signal,
   // which fires on shutdown and triggers Bun.serve's stop().
@@ -720,6 +734,9 @@ async function main(): Promise<void> {
       input: connection.readable,
       output: connection.writable,
       handlers,
+      // Authenticate the handshake against the shared service token so a
+      // process that races the socket re-bind cannot impersonate the assistant.
+      expectedAuthToken: serviceToken || undefined,
       logger: {
         log: (msg: string, ...args: unknown[]) => rpcLog.info({ args }, msg),
         warn: (msg: string, ...args: unknown[]) => rpcLog.warn({ args }, msg),
@@ -781,9 +798,22 @@ async function main(): Promise<void> {
         { err, uptime: process.uptime(), pid: process.pid },
         "RPC transport errored — treating as session end",
       );
+    } finally {
+      // Drop the underlying socket so a peer whose session ended (including a
+      // handshake we rejected as unauthenticated) cannot keep the connection
+      // open. The next loop iteration re-binds the bootstrap socket for a
+      // legitimate client.
+      connection.socket.destroy();
     }
 
     rpcConnected = false;
+
+    if (endReason === "handshake_unauthenticated") {
+      log.warn(
+        { uptime: process.uptime(), pid: process.pid },
+        "Rejected an unauthenticated bootstrap handshake — awaiting a new connection",
+      );
+    }
 
     // Drop all ephemeral approvals when the session ends. `allow_once` /
     // `allow_10m` grants are keyed by proposal hash only, so reusing the
