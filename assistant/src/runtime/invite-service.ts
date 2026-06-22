@@ -10,6 +10,7 @@
 
 import { startInviteCall } from "../calls/call-domain.js";
 import { isChannelId } from "../channels/types.js";
+import { getContact } from "../contacts/contact-store.js";
 import {
   createInvite,
   findById,
@@ -154,12 +155,11 @@ export async function createIngressInvite(params: {
   note?: string;
   maxUses?: number;
   expiresInMs?: number;
-  // Contact display name for personalizing invite instructions
-  contactName?: string;
-  // Voice invite parameters
+  // Voice invite parameters. Display metadata is no longer accepted from
+  // callers: the invitee's name is resolved from the bound contact's
+  // displayName at every read site (voice greeting, instructions), and the
+  // guardian label is resolved at runtime via resolveGuardianName().
   expectedExternalUserId?: string;
-  friendName?: string;
-  guardianName?: string;
   contactId: string;
 }): Promise<IngressResult<InviteResponseData>> {
   if (!params.sourceChannel) {
@@ -169,6 +169,13 @@ export async function createIngressInvite(params: {
   if (!params.contactId) {
     return { ok: false, error: "contactId is required for create" };
   }
+
+  // Resolve the bound contact's displayName as the canonical invitee name.
+  // The greeting and instruction copy use this rather than a free-text flag.
+  const boundContact = getContact(params.contactId);
+  const resolvedContactName =
+    boundContact?.displayName?.trim() || undefined;
+  const resolvedFirstName = resolvedContactName?.split(/\s+/)[0];
 
   // For voice invites: generate a one-time numeric code, hash it, and pass
   // the hash to the store. The plaintext code is included in the response
@@ -198,17 +205,13 @@ export async function createIngressInvite(params: {
           "expectedExternalUserId must be in E.164 format (e.g., +15551234567)",
       };
     }
-    if (typeof params.friendName !== "string" || !params.friendName.trim()) {
-      return { ok: false, error: "friendName is required for voice invites" };
-    }
-    effectiveGuardianName =
-      params.guardianName?.trim() || resolveGuardianName();
+    effectiveGuardianName = resolveGuardianName();
     if (
       !effectiveGuardianName ||
       effectiveGuardianName === DEFAULT_USER_REFERENCE ||
       effectiveGuardianName === DECLINED_BY_USER_SENTINEL
     ) {
-      return { ok: false, error: "guardianName is required for voice invites" };
+      effectiveGuardianName = undefined;
     }
     voiceCode = generateVoiceCode(6);
     voiceCodeHash = hashVoiceCode(voiceCode);
@@ -228,7 +231,10 @@ export async function createIngressInvite(params: {
           expectedExternalUserId: params.expectedExternalUserId,
           voiceCodeHash,
           voiceCodeDigits: 6,
-          friendName: params.friendName,
+          // Mirror the contact-resolved names into the legacy columns so
+          // outbound invite calls (which still read invite.friendName /
+          // invite.guardianName) keep working without a separate lookup.
+          friendName: resolvedContactName,
           guardianName: effectiveGuardianName,
         }
       : { inviteCodeHash }),
@@ -252,7 +258,7 @@ export async function createIngressInvite(params: {
     channelHandle = adapter ? await resolveAdapterHandle(adapter) : undefined;
     const share = buildSharePayload(params.sourceChannel, rawToken);
     guardianInstruction = await generateInviteInstruction({
-      contactName: params.contactName,
+      contactName: resolvedContactName,
       channelType: params.sourceChannel,
       channelHandle,
       hasShareUrl: !!share?.url,
@@ -260,8 +266,10 @@ export async function createIngressInvite(params: {
     });
   }
 
-  if (isVoice && params.friendName) {
-    guardianInstruction = `${params.friendName} will need this code when they answer. Share it with them first.`;
+  if (isVoice) {
+    guardianInstruction = resolvedFirstName
+      ? `${resolvedFirstName} will need this code when they answer. Share it with them first.`
+      : "Share this code with them — they'll need it when they answer the call.";
   }
 
   // Voice invites must not expose the token — callers must redeem via the
@@ -359,17 +367,21 @@ export async function triggerInviteCall(
   }
   if (invite.sourceChannel !== "phone")
     return { ok: false, error: "Only phone invites support call triggering" };
-  if (
-    !invite.expectedExternalUserId ||
-    !invite.friendName ||
-    !invite.guardianName
-  ) {
+  if (!invite.expectedExternalUserId) {
     return { ok: false, error: "Invite is missing required voice metadata" };
   }
+  // Resolve the invitee's name from the bound contact's displayName,
+  // falling back to the legacy friend_name column for pre-binding rows.
+  const boundContact = getContact(invite.contactId);
+  const friendName =
+    boundContact?.displayName?.trim() || invite.friendName || "";
+  // Guardian label is resolved at runtime by the relay; mirror the legacy
+  // value into the session so STT hints continue to seed correctly.
+  const guardianName = invite.guardianName || resolveGuardianName() || "";
   const result = await startInviteCall({
     phoneNumber: invite.expectedExternalUserId,
-    friendName: invite.friendName,
-    guardianName: invite.guardianName,
+    friendName,
+    guardianName,
   });
   if (!result.ok) return { ok: false, error: result.error };
   return { ok: true, data: { callSid: result.callSid } };

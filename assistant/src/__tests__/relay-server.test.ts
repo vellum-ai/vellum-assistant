@@ -2337,8 +2337,9 @@ describe("relay-server", () => {
 
   // ── Inbound voice invite redemption ──────────────────────────────────
 
-  test("inbound voice invite redemption: personalized welcome prompt with friend/guardian names", async () => {
+  test("inbound voice invite redemption: personalized welcome prompt uses contact displayName", async () => {
     ensureConversation("conv-invite-welcome");
+    mockUserReference = "Bob";
     const session = createCallSession({
       conversationId: "conv-invite-welcome",
       provider: "twilio",
@@ -2346,18 +2347,16 @@ describe("relay-server", () => {
       toNumber: "+15551111111",
     });
 
-    // Create a voice invite with friend/guardian names
+    // The invitee's name is read from the bound contact's displayName.
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
     createInvite({
       sourceChannel: "phone",
-      contactId: createTargetContact(),
+      contactId: createTargetContact("Alice"),
       maxUses: 1,
       expectedExternalUserId: "+15558887777",
       voiceCodeHash: codeHash,
       voiceCodeDigits: 6,
-      friendName: "Alice",
-      guardianName: "Bob",
     });
 
     mockSendMessage.mockImplementation(
@@ -2378,7 +2377,8 @@ describe("relay-server", () => {
     // Should be in verification-pending state for invite redemption
     expect(relay.getConnectionState()).toBe("verification_pending");
 
-    // Check that the welcome prompt includes friend/guardian names
+    // Welcome prompt should use the contact's first-name and the resolved
+    // guardian label (not stale name flags from the invite row).
     const textMessages = ws.sentMessages
       .map((raw) => JSON.parse(raw) as { type: string; token?: string })
       .filter((m) => m.type === "text");
@@ -2413,6 +2413,7 @@ describe("relay-server", () => {
 
   test("inbound voice invite redemption: invalid code gets exact failure copy with guardian name and call ends", async () => {
     ensureConversation("conv-invite-fail");
+    mockUserReference = "Dave";
     const session = createCallSession({
       conversationId: "conv-invite-fail",
       provider: "twilio",
@@ -2420,18 +2421,16 @@ describe("relay-server", () => {
       toNumber: "+15551111111",
     });
 
-    // Create a voice invite with friend/guardian names
+    // Bound contact's displayName is used; guardian label is resolved at runtime.
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
     createInvite({
       sourceChannel: "phone",
-      contactId: createTargetContact(),
+      contactId: createTargetContact("Carol"),
       maxUses: 1,
       expectedExternalUserId: "+15558886666",
       voiceCodeHash: codeHash,
       voiceCodeDigits: 6,
-      friendName: "Carol",
-      guardianName: "Dave",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -2509,13 +2508,11 @@ describe("relay-server", () => {
     const codeHash = hashVoiceCode(code);
     createInvite({
       sourceChannel: "phone",
-      contactId: createTargetContact(),
+      contactId: createTargetContact("Eve"),
       maxUses: 1,
       expectedExternalUserId: "+15558885555",
       voiceCodeHash: codeHash,
       voiceCodeDigits: 6,
-      friendName: "Eve",
-      guardianName: "Frank",
     });
 
     mockSendMessage.mockImplementation(
@@ -2604,13 +2601,11 @@ describe("relay-server", () => {
     const priorCode = generateVoiceCode(6);
     createInvite({
       sourceChannel: "phone",
-      contactId: createTargetContact(),
+      contactId: createTargetContact("Ivan"),
       maxUses: 1,
       expectedExternalUserId: "+15558883333",
       voiceCodeHash: hashVoiceCode(priorCode),
       voiceCodeDigits: 6,
-      friendName: "Ivan",
-      guardianName: "Judy",
     });
 
     mockSendMessage.mockImplementation(
@@ -2648,13 +2643,11 @@ describe("relay-server", () => {
     const freshCode = generateVoiceCode(6);
     createInvite({
       sourceChannel: "phone",
-      contactId: createTargetContact(),
+      contactId: createTargetContact("Kim"),
       maxUses: 1,
       expectedExternalUserId: "+15558882222",
       voiceCodeHash: hashVoiceCode(freshCode),
       voiceCodeDigits: 6,
-      friendName: "Kim",
-      guardianName: "Liam",
     });
 
     const fresh = createMockWs(freshSession.id);
@@ -4733,7 +4726,7 @@ describe("relay-server", () => {
     relay.destroy();
   });
 
-  test("invite redemption success: continues call with handoff copy instead of ending", async () => {
+  test("invite redemption success: greeting uses bound contact's displayName first-token, not friendName", async () => {
     ensureConversation("conv-invite-continue");
     const session = createCallSession({
       conversationId: "conv-invite-continue",
@@ -4744,15 +4737,19 @@ describe("relay-server", () => {
 
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
+    // Bound contact's displayName is the source of truth — its first token
+    // (here "Carolina") is what the post-redemption greeting should use.
+    // The legacy friendName column carries an out-of-date free-text label
+    // ("Stale Name") to prove the greeting reads from the contact, not the
+    // legacy column.
     createInvite({
       sourceChannel: "phone",
-      contactId: createTargetContact(),
+      contactId: createTargetContact("Carolina Flaherty"),
       maxUses: 1,
       expectedExternalUserId: "+15557776666",
       voiceCodeHash: codeHash,
       voiceCodeDigits: 6,
-      friendName: "Eve",
-      guardianName: "Frank",
+      friendName: "Stale Name",
     });
 
     mockSendMessage.mockImplementation(
@@ -4783,14 +4780,17 @@ describe("relay-server", () => {
     // Call should remain connected
     expect(relay.getConnectionState()).toBe("connected");
 
-    // Handoff copy should have been sent
+    // Handoff copy should use the contact's first-name, not the stale friendName
     const textMessages = ws.sentMessages
       .map((raw) => JSON.parse(raw) as { type: string; token?: string })
       .filter((m) => m.type === "text");
     expect(
       textMessages.some((m) =>
-        (m.token ?? "").includes("verified that you are Eve"),
+        (m.token ?? "").includes("verified that you are Carolina"),
       ),
+    ).toBe(true);
+    expect(
+      textMessages.every((m) => !(m.token ?? "").includes("Stale Name")),
     ).toBe(true);
 
     // No end message — call stays alive
@@ -4816,6 +4816,7 @@ describe("relay-server", () => {
   test("outbound invite prompt uses assistant introduction", async () => {
     ensureConversation("conv-outbound-invite-origin");
     ensureConversation("conv-outbound-invite");
+    mockUserReference = "Hank";
     const session = createCallSession({
       conversationId: "conv-outbound-invite",
       provider: "twilio",
@@ -4852,6 +4853,67 @@ describe("relay-server", () => {
         (m) =>
           (m.token ?? "").includes("this is Vellum") &&
           (m.token ?? "").includes("Hank's assistant"),
+      ),
+    ).toBe(true);
+
+    relay.destroy();
+  });
+
+  test("invite redemption success: empty contact displayName triggers neutral 'Hi there' greeting", async () => {
+    ensureConversation("conv-invite-blank-name");
+    mockUserReference = "my human";
+    mockAssistantName = "";
+    const session = createCallSession({
+      conversationId: "conv-invite-blank-name",
+      provider: "twilio",
+      fromNumber: "+15557775555",
+      toNumber: "+15551111111",
+    });
+
+    const code = generateVoiceCode(6);
+    const codeHash = hashVoiceCode(code);
+    // displayName is whitespace-only — greeting falls back to "Hi there"
+    // rather than substituting the channel address.
+    createInvite({
+      sourceChannel: "phone",
+      contactId: createTargetContact("   "),
+      maxUses: 1,
+      expectedExternalUserId: "+15557775555",
+      voiceCodeHash: codeHash,
+      voiceCodeDigits: 6,
+    });
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["I'd be happy to help."]),
+    );
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_invite_blank_name",
+        from: "+15557775555",
+        to: "+15551111111",
+      }),
+    );
+
+    for (const digit of code) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(relay.getConnectionState()).toBe("connected");
+
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === "text");
+    expect(
+      textMessages.some((m) => (m.token ?? "").startsWith("Hi there!")),
+    ).toBe(true);
+    expect(
+      textMessages.every(
+        (m) => !(m.token ?? "").includes("+15557775555"),
       ),
     ).toBe(true);
 

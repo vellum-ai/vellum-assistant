@@ -256,12 +256,9 @@ export async function handleCreateInvite({ body = {} }: RouteHandlerArgs) {
         note: body.note as string | undefined,
         maxUses: body.maxUses as number | undefined,
         expiresInMs: body.expiresInMs as number | undefined,
-        contactName: body.contactName as string | undefined,
         expectedExternalUserId: body.expectedExternalUserId as
           | string
           | undefined,
-        friendName: body.friendName as string | undefined,
-        guardianName: body.guardianName as string | undefined,
       },
       INVITE_CREATE_RELAY_TIMEOUT_MS,
     )) as { invite: Record<string, unknown>; rawToken?: string };
@@ -484,13 +481,10 @@ export const ROUTES: RouteDefinition[] = [
       note: z.string().describe("Optional note").optional(),
       maxUses: z.number().describe("Max redemptions").optional(),
       expiresInMs: z.number().describe("Expiry duration in ms").optional(),
-      contactName: z.string().describe("Contact display name").optional(),
       expectedExternalUserId: z
         .string()
         .describe("Expected user ID (E.164 for phone)")
         .optional(),
-      friendName: z.string().describe("Friend name for the invite").optional(),
-      guardianName: z.string().describe("Guardian name").optional(),
     }),
     responseBody: z.object({
       ok: z.boolean(),

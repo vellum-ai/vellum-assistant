@@ -9,6 +9,7 @@
 import type { AdmissionPolicy } from "@vellumai/gateway-client";
 
 import { getConfig } from "../config/loader.js";
+import { getContact } from "../contacts/contact-store.js";
 import { findActiveVoiceInvites } from "../memory/invite-store.js";
 import {
   type ActorTrustContext,
@@ -64,8 +65,15 @@ type SetupOutcome =
       action: "invite_redemption";
       assistantId: string;
       fromNumber: string;
-      friendName: string | null;
-      guardianName: string | null;
+      /**
+       * Display name of the invitee. For inbound redemptions, resolved from the
+       * bound contact's `displayName`; falls back to the legacy `friend_name`
+       * column for pre-contact-binding invites. For outbound invite calls,
+       * carries the session-recorded `inviteFriendName`. When null/empty, the
+       * relay uses a neutral "Hi there" greeting instead of substituting the
+       * channel address.
+       */
+      inviteeName: string | null;
     }
   | { action: "name_capture"; assistantId: string; fromNumber: string }
   | {
@@ -128,8 +136,7 @@ export function routeSetup(ctx: SetupContext): {
         action: "invite_redemption" as const,
         assistantId,
         fromNumber: ctx.to,
-        friendName: ctx.session?.inviteFriendName ?? null,
-        guardianName: ctx.session?.inviteGuardianName ?? null,
+        inviteeName: ctx.session?.inviteFriendName ?? null,
       },
       resolved,
     };
@@ -289,13 +296,21 @@ export function routeSetup(ctx: SetupContext): {
         { callSessionId: ctx.callSessionId, from: ctx.from },
         "Inbound voice ACL: unknown caller has active voice invite — entering redemption flow",
       );
+      // Resolve the invitee's name from the bound contact's displayName so
+      // the post-redemption greeting matches what the guardian sees in the
+      // contact graph. The legacy `friend_name` column is consulted only as a
+      // fallback for pre-contact-binding rows.
+      const boundContact = matchedInvite.contactId
+        ? getContact(matchedInvite.contactId)
+        : null;
+      const inviteeName =
+        boundContact?.displayName?.trim() || matchedInvite.friendName;
       return {
         outcome: {
           action: "invite_redemption",
           assistantId,
           fromNumber: ctx.from,
-          friendName: matchedInvite.friendName,
-          guardianName: matchedInvite.guardianName,
+          inviteeName: inviteeName ?? null,
         },
         resolved,
       };
