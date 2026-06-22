@@ -44,6 +44,11 @@ import {
   searchPlugins,
 } from "../lib/search-plugins.js";
 import {
+  disablePlugin,
+  enablePlugin,
+  PluginAlreadyInStateException,
+} from "../lib/toggle-plugin.js";
+import {
   PluginNotInstalledError,
   uninstallPlugin,
 } from "../lib/uninstall-plugin.js";
@@ -90,7 +95,9 @@ Examples:
   $ assistant plugins search example
   $ assistant plugins search "^example"
   $ assistant plugins search example --json
-  $ assistant plugins uninstall example`,
+  $ assistant plugins uninstall example
+  $ assistant plugins enable example
+  $ assistant plugins disable example`,
       );
 
       plugins
@@ -485,6 +492,54 @@ Examples:
             }
             const message = err instanceof Error ? err.message : String(err);
             console.error(`Plugin uninstall failed: ${message}`);
+            process.exitCode = 1;
+          }
+        });
+
+      plugins
+        .command("disable <name>")
+        .description(
+          "Disable a plugin by creating a .disabled sentinel file. Works for both user-installed and default plugins. Restart the assistant for the change to take effect.",
+        )
+        .action((name: string) => {
+          try {
+            const result = disablePlugin(name);
+            log.info({ name: result.name }, "plugin disabled");
+            console.log(
+              `Disabled plugin "${result.name}". Restart the assistant for the change to take effect.`,
+            );
+          } catch (err) {
+            if (err instanceof PluginAlreadyInStateException) {
+              console.error(err.message);
+              process.exitCode = 1;
+              return;
+            }
+            const message = err instanceof Error ? err.message : String(err);
+            console.error(`Plugin disable failed: ${message}`);
+            process.exitCode = 1;
+          }
+        });
+
+      plugins
+        .command("enable <name>")
+        .description(
+          "Re-enable a disabled plugin by removing the .disabled sentinel file. Restart the assistant for the change to take effect.",
+        )
+        .action((name: string) => {
+          try {
+            const result = enablePlugin(name);
+            log.info({ name: result.name }, "plugin enabled");
+            console.log(
+              `Enabled plugin "${result.name}". Restart the assistant for the change to take effect.`,
+            );
+          } catch (err) {
+            if (err instanceof PluginAlreadyInStateException) {
+              console.error(err.message);
+              process.exitCode = 1;
+              return;
+            }
+            const message = err instanceof Error ? err.message : String(err);
+            console.error(`Plugin enable failed: ${message}`);
             process.exitCode = 1;
           }
         });
