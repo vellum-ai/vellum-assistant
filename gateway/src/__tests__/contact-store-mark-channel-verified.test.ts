@@ -279,6 +279,68 @@ describe("ContactStore.markChannelVerified", () => {
     expect(b!.channel.verifiedAt).toBe(a!.channel.verifiedAt);
   });
 
+  test("writes verifiedVia=challenge to gateway + assistant when passed", async () => {
+    seedContact("c1");
+    seedChannel({ id: "ch1", contactId: "c1", status: "unverified" });
+
+    const result = await new ContactStore().markChannelVerified(
+      "ch1",
+      "challenge",
+    );
+    expect(result).not.toBeNull();
+    expect(result!.didWrite).toBe(true);
+    expect(result!.channel.status).toBe("active");
+    expect(result!.channel.verifiedVia).toBe("challenge");
+
+    // The assistant DB dual-write bound the same verifiedVia.
+    const dualWrite = fakeAssistantDb.runCalls.find((c) =>
+      c.sql.includes("UPDATE contact_channels"),
+    );
+    expect(dualWrite).toBeTruthy();
+    expect(dualWrite!.bind).toContain("challenge");
+    expect(dualWrite!.bind).not.toContain("manual");
+  });
+
+  test("is idempotent per-verifiedVia: a repeated challenge call is a no-op", async () => {
+    seedContact("c1");
+    seedChannel({
+      id: "ch1",
+      contactId: "c1",
+      status: "active",
+      verifiedAt: 1000,
+      verifiedVia: "challenge",
+    });
+
+    const result = await new ContactStore().markChannelVerified(
+      "ch1",
+      "challenge",
+    );
+    expect(result).not.toBeNull();
+    expect(result!.didWrite).toBe(false);
+    expect(result!.channel.verifiedAt).toBe(1000);
+    expect(result!.channel.verifiedVia).toBe("challenge");
+    // No-op skips the assistant dual-write.
+    expect(
+      fakeAssistantDb.runCalls.some((c) =>
+        c.sql.includes("UPDATE contact_channels"),
+      ),
+    ).toBe(false);
+  });
+
+  test("default (no-arg) call still writes verifiedVia=manual", async () => {
+    seedContact("c1");
+    seedChannel({ id: "ch1", contactId: "c1", status: "unverified" });
+
+    const result = await new ContactStore().markChannelVerified("ch1");
+    expect(result!.didWrite).toBe(true);
+    expect(result!.channel.verifiedVia).toBe("manual");
+
+    const dualWrite = fakeAssistantDb.runCalls.find((c) =>
+      c.sql.includes("UPDATE contact_channels"),
+    );
+    expect(dualWrite!.bind).toContain("manual");
+  });
+
   test("mirrors channel + contact from assistant DB when gateway is empty, then verifies", async () => {
     seedAssistantContact("c1");
     seedAssistantChannel({
