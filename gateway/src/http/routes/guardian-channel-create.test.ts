@@ -1,4 +1,14 @@
-import { describe, it, expect, mock, beforeEach } from "bun:test";
+import {
+  describe,
+  it,
+  expect,
+  mock,
+  beforeAll,
+  beforeEach,
+  afterAll,
+} from "bun:test";
+
+import "../../__tests__/test-preload.js";
 
 // --- Mocks ----------------------------------------------------------------
 
@@ -30,6 +40,10 @@ mock.module("../../auth/guardian-bootstrap.js", () => ({
 const { createGuardianChannelHandler } = await import(
   "./guardian-channel-create.js"
 );
+const { initGatewayDb, getGatewayDb, resetGatewayDb } = await import(
+  "../../db/connection.js"
+);
+const { contacts, contactChannels } = await import("../../db/schema.js");
 
 // --- Helpers ---------------------------------------------------------------
 
@@ -41,17 +55,40 @@ function postRequest(body: unknown): Request {
   });
 }
 
+// Seed a guardian contact in the gateway DB so findGuardian() resolves it.
+function seedGuardian(principalId: string | null): void {
+  const now = Date.now();
+  getGatewayDb()
+    .insert(contacts)
+    .values({
+      id: "guardian-1",
+      displayName: "guardian",
+      role: "guardian",
+      principalId,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+}
+
 // --- Tests -----------------------------------------------------------------
 
 describe("POST /v1/contacts/guardian/channel", () => {
+  beforeAll(async () => {
+    await initGatewayDb();
+  });
+
+  afterAll(() => {
+    resetGatewayDb();
+  });
+
   beforeEach(() => {
+    const db = getGatewayDb();
+    db.delete(contactChannels).run();
+    db.delete(contacts).run();
+
     assistantDbQueryMock.mockReset();
     createGuardianBindingMock.mockReset();
-
-    // Default: guardian exists
-    assistantDbQueryMock.mockResolvedValue([
-      { id: "guardian-1", principal_id: "principal-1" },
-    ]);
 
     createGuardianBindingMock.mockResolvedValue({
       contactId: "contact-1",
@@ -62,6 +99,8 @@ describe("POST /v1/contacts/guardian/channel", () => {
   });
 
   it("creates a guardian channel binding and returns 200", async () => {
+    seedGuardian("principal-1");
+
     const handler = createGuardianChannelHandler();
     const res = await handler(
       postRequest({
@@ -93,7 +132,7 @@ describe("POST /v1/contacts/guardian/channel", () => {
   });
 
   it("returns 404 when no guardian contact exists", async () => {
-    assistantDbQueryMock.mockResolvedValue([]);
+    // Empty gateway DB — no guardian row seeded.
 
     const handler = createGuardianChannelHandler();
     const res = await handler(
@@ -112,9 +151,7 @@ describe("POST /v1/contacts/guardian/channel", () => {
   });
 
   it("returns 404 when guardian has no principal_id", async () => {
-    assistantDbQueryMock.mockResolvedValue([
-      { id: "guardian-1", principal_id: null },
-    ]);
+    seedGuardian(null);
 
     const handler = createGuardianChannelHandler();
     const res = await handler(
@@ -177,9 +214,8 @@ describe("POST /v1/contacts/guardian/channel", () => {
   });
 
   it("returns 500 when createGuardianBinding throws", async () => {
-    createGuardianBindingMock.mockRejectedValue(
-      new Error("DB write failed"),
-    );
+    seedGuardian("principal-1");
+    createGuardianBindingMock.mockRejectedValue(new Error("DB write failed"));
 
     const handler = createGuardianChannelHandler();
     const res = await handler(
