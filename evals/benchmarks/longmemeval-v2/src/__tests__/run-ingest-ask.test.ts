@@ -15,12 +15,12 @@ import type {
   BaseAgent,
   ConfirmationDecision,
   WorkspaceFileWrite,
-} from "../../adapter";
-import type { TestSetupCommand } from "../../setup-command";
-import type { Profile } from "../../profile";
+} from "../../../../src/lib/adapter";
+import type { TestSetupCommand } from "../../../../src/lib/setup-command";
+import type { Profile } from "../../../../src/lib/profile";
 
 let nextAgent: BaseAgent | null = null;
-mock.module("../create-agent", () => ({
+mock.module("../../../../src/lib/runner/create-agent", () => ({
   createAgent: (input: AgentHatchInput): BaseAgent => {
     if (!nextAgent) {
       throw new Error(

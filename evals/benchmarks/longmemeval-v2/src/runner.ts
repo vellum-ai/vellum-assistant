@@ -53,7 +53,7 @@ import {
   DEFAULT_QUESTION_MAX_MS,
   IngestAskError,
   runIngestAsk,
-} from "../../../src/lib/runner/run-ingest-ask";
+} from "./run-ingest-ask";
 import { summarizeAssistantUsage } from "../../../src/lib/usage";
 
 import { type EvalOverrides, type EvalResult, evalFromSpec } from "./judge";
