@@ -135,9 +135,9 @@ describe("SubagentPhaseTimeline — step-count pill", () => {
 });
 
 describe("SubagentPhaseTimeline — single-step expandability", () => {
-  // Regression (Gap 1): a single `tool_error` phase carries its message only in
-  // the step pill. The row must be expandable (chevron shown) even though there
-  // is no "N steps" pill, so the error text stays reachable.
+  // A single `tool_error` phase carries its message only in the step pill, so
+  // the row is expandable (chevron shown) even without an "N steps" pill and
+  // the error text stays reachable.
   test("a single tool_error phase is expandable and reveals its error on click", () => {
     const steps: ToolCallCardStep[] = [toolError("context window exceeded")];
     const { getByTestId, queryByTestId, queryAllByTestId } = render(
@@ -159,9 +159,9 @@ describe("SubagentPhaseTimeline — single-step expandability", () => {
     expect(pills[0]!.textContent).toContain("context window exceeded");
   });
 
-  // Regression (Gap 1): a lone successful tool step with no `info` renders a
-  // null `DefaultStepPill` (nothing to reveal), so the row stays non-expandable
-  // — no chevron, no toggle, disabled header.
+  // A lone successful tool step with no `info` renders a null `DefaultStepPill`
+  // (nothing to reveal), so the row stays non-expandable — no chevron, no
+  // toggle, disabled header.
   test("a single info-less successful tool step is NOT expandable", () => {
     const steps: ToolCallCardStep[] = [bash("", "completed", "1s", "tc-a")];
     const { getByTestId, queryByTestId } = render(
@@ -173,6 +173,24 @@ describe("SubagentPhaseTimeline — single-step expandability", () => {
     expect(queryByTestId("subagent-phase-step-count")).toBeNull();
 
     // Clicking a disabled header does nothing — no pill ever appears.
+    fireEvent.click(header);
+    expect(queryByTestId("phase-step-pill")).toBeNull();
+  });
+
+  // A lone failing tool step with no `info` also renders a null
+  // `DefaultStepPill` — `DefaultStepPill` ignores status when `info` is empty —
+  // so the row stays non-expandable rather than expanding to an empty body.
+  test("a single info-less error tool step is NOT expandable", () => {
+    const steps: ToolCallCardStep[] = [bash("", "error", "1s", "tc-a")];
+    const { getByTestId, queryByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} />,
+    );
+
+    const header = getByTestId("subagent-phase-header");
+    expect(header.hasAttribute("disabled")).toBe(true);
+    expect(queryByTestId("subagent-phase-step-count")).toBeNull();
+
+    // Clicking the disabled header reveals nothing — no empty body.
     fireEvent.click(header);
     expect(queryByTestId("phase-step-pill")).toBeNull();
   });
