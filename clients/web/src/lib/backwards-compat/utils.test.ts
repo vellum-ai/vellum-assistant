@@ -66,6 +66,31 @@ describe("useAssistantSupports", () => {
     expect(check("v0.8.5", "0.8.5")).toBe(true);
     expect(check("v0.8.4", "0.8.5")).toBe(false);
   });
+
+  test("treats dev pre-releases as ahead of stable with same base", () => {
+    // Dev builds contain unreleased commits on top of the stable
+    // release, so 0.10.0-dev.x is AHEAD of 0.10.0 stable.
+    expect(check("0.10.0-dev.202606211252.5cf8576", "0.10.0")).toBe(true);
+    expect(check("0.10.0-dev.1", "0.10.0")).toBe(true);
+  });
+
+  test("compares two dev versions by timestamp", () => {
+    // Same base version, compare by pre-release string (timestamp).
+    const min = "0.10.0-dev.202606211252.5cf8576";
+    expect(check("0.10.0-dev.202606211252.5cf8576", min)).toBe(true);
+    expect(check("0.10.0-dev.202606211300.abcdef", min)).toBe(true);
+    expect(check("0.10.0-dev.202606211200.abcdef", min)).toBe(false);
+    // Different base — higher base wins regardless of dev suffix.
+    expect(check("0.10.0-dev.202606211252.5cf8576", "0.10.1")).toBe(false);
+    expect(check("0.10.1-dev.1", "0.10.0-dev.202606211252.5cf8576")).toBe(true);
+  });
+
+  test("stable is behind dev with same base", () => {
+    // 0.10.0 stable was released before the dev changes.
+    expect(check("0.10.0", "0.10.0-dev.202606211252.5cf8576")).toBe(false);
+    // But 0.10.1 stable (next release) is ahead.
+    expect(check("0.10.1", "0.10.0-dev.202606211252.5cf8576")).toBe(true);
+  });
 });
 
 describe("whenAssistantVersionKnown", () => {

@@ -37,7 +37,7 @@ import {
   getMessages,
 } from "../memory/conversation-crud.js";
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
-import { getDb } from "../memory/db-connection.js";
+import { getDb, getLogsDb, getMemoryDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
   loadGraphMemoryState,
@@ -70,7 +70,7 @@ import {
   recordInjected as recordV3Injected,
 } from "../plugins/defaults/memory-v3-shadow/ever-injected-store.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();
@@ -80,9 +80,9 @@ function resetTables(): void {
   db.delete(activationState).run();
   db.delete(conversationGraphMemoryState).run();
   db.delete(memoryRetrospectiveState).run();
-  db.delete(llmRequestLogs).run();
+  getLogsDb()!.delete(llmRequestLogs).run();
   db.delete(toolInvocations).run();
-  db.delete(memoryJobs).run();
+  getMemoryDb()!.delete(memoryJobs).run();
   db.run("DELETE FROM memory_v3_ever_injected");
   db.run("DELETE FROM message_attachments");
   db.run("DELETE FROM attachments");
@@ -682,7 +682,8 @@ describe("forkConversation", () => {
 
     const db = getDb();
     const now = Date.now();
-    db.insert(llmRequestLogs)
+    getLogsDb()!
+      .insert(llmRequestLogs)
       .values({
         id: "llm-log-1",
         conversationId: source.id,
@@ -705,7 +706,8 @@ describe("forkConversation", () => {
         createdAt: now,
       })
       .run();
-    db.insert(memoryJobs)
+    getMemoryDb()!
+      .insert(memoryJobs)
       .values({
         id: "memory-job-1",
         type: "delete_qdrant_vectors",
@@ -759,7 +761,7 @@ describe("forkConversation", () => {
     const forkState = getAttentionStateByConversationIds([fork.id]).get(
       fork.id,
     );
-    const forkRequestLogCount = db
+    const forkRequestLogCount = getLogsDb()!
       .select()
       .from(llmRequestLogs)
       .where(eq(llmRequestLogs.conversationId, fork.id))
@@ -774,7 +776,7 @@ describe("forkConversation", () => {
       .from(channelInboundEvents)
       .where(eq(channelInboundEvents.conversationId, fork.id))
       .all().length;
-    const forkQueuedWorkCount = db
+    const forkQueuedWorkCount = getMemoryDb()!
       .select()
       .from(memoryJobs)
       .where(like(memoryJobs.payload, `%${fork.id}%`))

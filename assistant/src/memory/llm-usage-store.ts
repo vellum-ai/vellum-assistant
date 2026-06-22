@@ -363,6 +363,14 @@ export interface UsageGroupBreakdown {
   totalCacheReadTokens: number;
   totalEstimatedCostUsd: number;
   eventCount: number;
+  /**
+   * Number of turns in the conversation — the count of eligible user messages
+   * (tool-result turns excluded). Only populated when `groupBy ===
+   * "conversation"` (and `null` for that mode's "Other" bucket, which has no
+   * parent conversation). `null` for every other grouping, where a turn count
+   * has no well-defined meaning.
+   */
+  turnCount: number | null;
 }
 
 // -- raw row shapes returned by SQLite aggregation queries --
@@ -388,6 +396,8 @@ interface GroupRow {
   total_cache_read_tokens: number;
   total_estimated_cost_usd: number | null;
   event_count: number;
+  /** Only selected by the conversation grouping query; absent otherwise. */
+  turn_count?: number | null;
 }
 
 type UsageQueryParam = ScheduleAttributionSqlParam;
@@ -645,6 +655,9 @@ function mapGroupRow(
     totalCacheReadTokens: row.total_cache_read_tokens,
     totalEstimatedCostUsd: row.total_estimated_cost_usd ?? 0,
     eventCount: row.event_count,
+    // Turns are only meaningful per conversation; other dimensions select no
+    // turn_count column, so this collapses to null.
+    turnCount: groupBy === "conversation" ? (row.turn_count ?? null) : null,
   };
 }
 
@@ -678,7 +691,24 @@ export function getUsageGroupBreakdown(
         COALESCE(SUM(e.cache_creation_input_tokens), 0)  AS total_cache_creation_tokens,
         COALESCE(SUM(e.cache_read_input_tokens), 0)      AS total_cache_read_tokens,
         COALESCE(SUM(e.estimated_cost_usd), 0)           AS total_estimated_cost_usd,
-        COALESCE(SUM(COALESCE(e.llm_call_count, 1)), 0)  AS event_count
+        COALESCE(SUM(COALESCE(e.llm_call_count, 1)), 0)  AS event_count,
+        -- Number of turns in the conversation: the count of eligible user
+        -- messages (tool-result turns excluded, mirroring the turnIndex
+        -- definition). Evaluated once per conversation group via the
+        -- idx_messages_conversation_id index rather than once per usage event,
+        -- so it stays cheap as call volume grows. NULL for the "Other" (no
+        -- conversation) bucket. Note: derived from surviving messages, so a
+        -- turn removed via Undo (deleteLastExchange) stops being counted even
+        -- though its billed usage still shows up in Cost/Tokens.
+        CASE WHEN e.conversation_id IS NULL THEN NULL
+             ELSE (
+               SELECT COUNT(*) FROM messages AS m2
+               WHERE m2.conversation_id = e.conversation_id
+                 AND m2.role = 'user'
+                 AND m2.content NOT LIKE '%"type":"tool\\_result"%' ESCAPE '\\'
+                 AND m2.content NOT LIKE '%"type":"web\\_search\\_tool\\_result"%' ESCAPE '\\'
+             )
+        END                                              AS turn_count
       FROM llm_usage_events e
       LEFT JOIN conversations c ON e.conversation_id = c.id
       WHERE ${where.sql}

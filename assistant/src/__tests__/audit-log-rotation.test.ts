@@ -56,9 +56,9 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 // ---------------------------------------------------------------------------
 
 describe("audit log rotation", () => {
-  beforeAll(() => {
+  beforeAll(async () => {
     resetDbForTesting();
-    initializeDb();
+    await initializeDb();
     // Insert a conversations row so FK-enforced ORM inserts succeed
     getSqlite().run(
       `INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-1', 'test', ${Date.now()}, ${Date.now()})`,
@@ -138,57 +138,53 @@ describe("audit log rotation", () => {
     expect(getRecentInvocations(100).length).toBe(1);
   });
 
-  test(
-    "yields to the event loop while the purge is in flight (anti-block)",
-    async () => {
-      // Seed a few thousand rows so the DELETE has measurable
-      // subprocess work behind the scenes.
-      const ROW_COUNT = 2000;
-      const past = 100 * ONE_DAY_MS;
-      const sqlite = getSqlite();
-      sqlite.exec("BEGIN");
-      try {
-        for (let i = 0; i < ROW_COUNT; i++) {
-          addInvocation(past);
-        }
-        sqlite.exec("COMMIT");
-      } catch (err) {
-        sqlite.exec("ROLLBACK");
-        throw err;
+  test("yields to the event loop while the purge is in flight (anti-block)", async () => {
+    // Seed a few thousand rows so the DELETE has measurable
+    // subprocess work behind the scenes.
+    const ROW_COUNT = 2000;
+    const past = 100 * ONE_DAY_MS;
+    const sqlite = getSqlite();
+    sqlite.exec("BEGIN");
+    try {
+      for (let i = 0; i < ROW_COUNT; i++) {
+        addInvocation(past);
       }
+      sqlite.exec("COMMIT");
+    } catch (err) {
+      sqlite.exec("ROLLBACK");
+      throw err;
+    }
 
-      // Race the purge against a `setImmediate` ping. The ping
-      // resolves on the very next event-loop iteration after it is
-      // scheduled.
-      //
-      // If the purge is async (subprocess), `rotateToolInvocations`
-      // returns a pending Promise immediately; the ping wins the race
-      // while the subprocess is still running.
-      //
-      // If the purge is ever regressed back to a synchronous DELETE,
-      // `rotateToolInvocations` blocks the main thread for the full
-      // DELETE duration. `setImmediate` cannot fire until the main
-      // thread releases, so the purge's already-resolved Promise
-      // beats the ping through the microtask queue and "purge" wins.
-      //
-      // The signal is deterministic regardless of how fast the
-      // subprocess is or how busy the event loop is.
-      const ping = new Promise<"ping">((resolve) =>
-        setImmediate(() => resolve("ping")),
-      );
-      const purgePromise = rotateToolInvocations(7);
-      const winner = await Promise.race([
-        ping,
-        purgePromise.then(() => "purge" as const),
-      ]);
+    // Race the purge against a `setImmediate` ping. The ping
+    // resolves on the very next event-loop iteration after it is
+    // scheduled.
+    //
+    // If the purge is async (subprocess), `rotateToolInvocations`
+    // returns a pending Promise immediately; the ping wins the race
+    // while the subprocess is still running.
+    //
+    // If the purge is ever regressed back to a synchronous DELETE,
+    // `rotateToolInvocations` blocks the main thread for the full
+    // DELETE duration. `setImmediate` cannot fire until the main
+    // thread releases, so the purge's already-resolved Promise
+    // beats the ping through the microtask queue and "purge" wins.
+    //
+    // The signal is deterministic regardless of how fast the
+    // subprocess is or how busy the event loop is.
+    const ping = new Promise<"ping">((resolve) =>
+      setImmediate(() => resolve("ping")),
+    );
+    const purgePromise = rotateToolInvocations(7);
+    const winner = await Promise.race([
+      ping,
+      purgePromise.then(() => "purge" as const),
+    ]);
 
-      expect(winner).toBe("ping");
+    expect(winner).toBe("ping");
 
-      // Drain the purge so the log + subprocess cleanup complete
-      // before the test exits.
-      const deleted = await purgePromise;
-      expect(deleted).toBe(ROW_COUNT);
-    },
-    60_000,
-  );
+    // Drain the purge so the log + subprocess cleanup complete
+    // before the test exits.
+    const deleted = await purgePromise;
+    expect(deleted).toBe(ROW_COUNT);
+  }, 60_000);
 });

@@ -224,8 +224,8 @@ function makePrompter(): PermissionPrompter {
 
 import { initializeDb } from "../memory/db-init.js";
 
-beforeAll(() => {
-  initializeDb();
+beforeAll(async () => {
+  await initializeDb();
 });
 afterAll(() => {
   mock.restore();

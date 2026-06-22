@@ -63,6 +63,26 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
+// Gateway relay mock — the revoke path relays the ACL downgrade over IPC and
+// validates the response; return a well-formed mark_channel_revoked result.
+mock.module("../ipc/gateway-client.js", () => ({
+  ipcCallPersistent: async (
+    _method: string,
+    params?: Record<string, unknown>,
+  ) => ({
+    ok: true,
+    didWrite: true,
+    channel: {
+      id: (params?.contactChannelId as string) ?? "ch1",
+      contactId: "c1",
+      type: "phone",
+      address: "addr",
+      status: "revoked",
+      revokedReason: (params?.reason as string) ?? null,
+    },
+  }),
+}));
+
 import { handleChannelVerificationSession } from "../daemon/handlers/config-channels.js";
 import type {
   ChannelVerificationSessionRequest,

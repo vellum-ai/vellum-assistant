@@ -3,12 +3,16 @@ import type { DrizzleDb } from "../db-connection.js";
 /**
  * Core tables: conversations, messages, tool_invocations, memory_segments,
  * memory_items, memory_item_sources, memory_item_conflicts, memory_summaries,
- * memory_embeddings, memory_jobs, memory_checkpoints, attachments,
+ * memory_embeddings, memory_jobs, attachments,
  * message_attachments, message_surfaces, channel_inbound_events,
  * message_runs, cron_jobs, cron_runs, documents,
  * published_pages, shared_app_links, home_base_app_links.
+ *
+ * The migration bookkeeping table `memory_checkpoints` is created by the
+ * migration runner (`runMigrationSteps`) before any step runs, so it is not
+ * created here.
  */
-export function createCoreTables(database: DrizzleDb): void {
+export function migrateCoreTables(database: DrizzleDb): void {
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS conversations (
       id TEXT PRIMARY KEY,
@@ -146,14 +150,6 @@ export function createCoreTables(database: DrizzleDb): void {
       run_after INTEGER NOT NULL,
       last_error TEXT,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `);
-
-  database.run(/*sql*/ `
-    CREATE TABLE IF NOT EXISTS memory_checkpoints (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     )
   `);

@@ -29,7 +29,7 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import type { ToolContext } from "../tools/types.js";
 
-initializeDb();
+await initializeDb();
 
 function getRawDb(): Database {
   return (getDb() as unknown as { $client: Database }).$client;

@@ -33,7 +33,7 @@ import {
 } from "../memory-retrospective-state.js";
 import { memoryRetrospectiveState } from "../schema.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();

@@ -71,6 +71,8 @@ mock.module("../qdrant-circuit-breaker.js", () => ({
 mock.module("../raw-query.js", () => ({
   rawAll: () => [],
   rawChanges: () => 0,
+  rawMemoryAll: () => [],
+  rawMemoryChanges: () => 0,
 }));
 
 // Drizzle-shaped no-op db. Tracks inserts/updates so tests can observe
@@ -111,6 +113,7 @@ function makeStubDb() {
 const stubDb = makeStubDb();
 mock.module("../db-connection.js", () => ({
   getDb: () => stubDb,
+  getMemoryDb: () => stubDb,
 }));
 
 // Now load the real modules under test.

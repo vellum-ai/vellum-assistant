@@ -32,6 +32,7 @@ import {
 } from "./code-parsing.js";
 import {
   findContactChannelByAddress,
+  gatewayChannelStatus,
   upsertVerifiedContactChannel,
 } from "./contact-helpers.js";
 import { canonicalizeInboundIdentity } from "./identity.js";
@@ -223,23 +224,43 @@ export async function tryTextVerificationIntercept(
       ? "trusted_contact"
       : "guardian";
 
-  // 7. Apply side effects
-  if (trustClass === "guardian") {
-    await applyGuardianSideEffects({
-      sourceChannel,
-      canonicalUserId,
+  // 7. Apply side effects. A blocked/revoked authoritative gateway row rejects
+  //    the verification: the actor must not regain trusted status nor see a
+  //    success reply, even though the code matched and the session consumed.
+  const sideEffectsVerified =
+    trustClass === "guardian"
+      ? await applyGuardianSideEffects({
+          sourceChannel,
+          canonicalUserId,
+          actorChatId,
+          actorDisplayName,
+          actorUsername,
+        })
+      : await applyTrustedContactSideEffects({
+          sourceChannel,
+          canonicalUserId,
+          actorChatId,
+          actorDisplayName,
+          actorUsername,
+        });
+
+  if (!sideEffectsVerified) {
+    log.warn(
+      { sourceChannel, actorExternalUserId: canonicalUserId, trustClass },
+      "Verification rejected: authoritative gateway channel is blocked/revoked",
+    );
+    const pendingReplyText = await replyWithFailure(
+      replyCallbackUrl,
       actorChatId,
-      actorDisplayName,
-      actorUsername,
-    });
-  } else {
-    await applyTrustedContactSideEffects({
-      sourceChannel,
-      canonicalUserId,
-      actorChatId,
-      actorDisplayName,
-      actorUsername,
-    });
+      assistantId,
+      "The verification code is invalid or has expired.",
+    );
+    return {
+      intercepted: true,
+      outcome: "failed",
+      trustClass,
+      pendingReplyText,
+    };
   }
 
   // 8. Deliver success reply
@@ -284,7 +305,7 @@ async function applyGuardianSideEffects(params: {
   actorChatId: string;
   actorDisplayName?: string;
   actorUsername?: string;
-}): Promise<void> {
+}): Promise<boolean> {
   const {
     sourceChannel,
     canonicalUserId,
@@ -306,14 +327,28 @@ async function applyGuardianSideEffects(params: {
     );
     // Still upsert the contact channel so the sender is a known contact,
     // but skip guardian binding creation.
-    await upsertVerifiedContactChannel({
+    const { verified } = await upsertVerifiedContactChannel({
       sourceChannel,
       externalUserId: canonicalUserId,
       externalChatId: actorChatId,
       displayName: actorDisplayName,
       username: actorUsername,
     });
-    return;
+    return verified;
+  }
+
+  // The gateway is the source of truth: a blocked/revoked gateway row rejects
+  // the binding. Check BEFORE the same-user revoke below so a legitimately
+  // re-verifying guardian (whose current row is active) isn't blocked by their
+  // own about-to-be-revoked row. createGuardianBinding writes "active"
+  // unconditionally, so this guard is the only thing stopping a blocked actor.
+  const gwStatus = gatewayChannelStatus(sourceChannel, canonicalUserId);
+  if (gwStatus === "blocked" || gwStatus === "revoked") {
+    log.warn(
+      { sourceChannel, address: canonicalUserId, status: gwStatus },
+      "Skipping guardian binding: authoritative gateway channel is blocked or revoked",
+    );
+    return false;
   }
 
   // Revoke existing binding (same-user re-verification)
@@ -340,6 +375,7 @@ async function applyGuardianSideEffects(params: {
     displayName,
     verifiedVia: "challenge",
   });
+  return true;
 }
 
 async function applyTrustedContactSideEffects(params: {
@@ -348,7 +384,7 @@ async function applyTrustedContactSideEffects(params: {
   actorChatId: string;
   actorDisplayName?: string;
   actorUsername?: string;
-}): Promise<void> {
+}): Promise<boolean> {
   const {
     sourceChannel,
     canonicalUserId,
@@ -366,13 +402,14 @@ async function applyTrustedContactSideEffects(params: {
     ? existingContact.displayName
     : (actorDisplayName ?? actorUsername ?? canonicalUserId);
 
-  await upsertVerifiedContactChannel({
+  const { verified } = await upsertVerifiedContactChannel({
     sourceChannel,
     externalUserId: canonicalUserId,
     externalChatId: actorChatId,
     displayName,
     username: actorUsername,
   });
+  return verified;
 }
 
 // ---------------------------------------------------------------------------

@@ -18,7 +18,7 @@ import {
     AttachFileButton,
     ChatAttachmentsStrip,
 } from "@/domains/chat/components/chat-attachments/chat-attachments";
-import { type ChatAttachment, useComposerStore } from "@/domains/chat/composer-store";
+import { type ChatAttachment } from "@/domains/chat/composer-store";
 import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
 import { LiveVoiceButton } from "@/domains/chat/components/live-voice-button";
 import {
@@ -117,16 +117,6 @@ export interface ChatComposerProps {
   // has no voice, leaves this undefined.
   conversationId?: string | null;
 
-  /**
-   * Whether the currently-active inference model accepts image input.
-   * When `false`, the AttachFileButton is disabled so users can't pick a
-   * file that the provider would reject downstream (MiniMax, Fireworks
-   * Kimi, several OpenRouter models, etc.). Sourced at runtime from the
-   * daemon config API — defaults to `true` (fail-open) when the daemon
-   * hasn't surfaced the flag yet.
-   */
-  modelSupportsVision?: boolean;
-
   // chrome surfacing existing buttons (rendered in the form's bottom-left row)
   thresholdPickerSlot?: ReactNode;
   contextWindowIndicatorSlot?: ReactNode;
@@ -189,7 +179,6 @@ export function ChatComposer({
   textareaMaxHeightPx = 240,
   cmdEnterMode = false,
   suggestion,
-  modelSupportsVision = true,
   onRecallLastMessage,
   onCancelEdit,
 }: ChatComposerProps) {
@@ -396,16 +385,7 @@ export function ChatComposer({
                   }
                   if (files.length > 0) {
                     e.preventDefault();
-                    const allowed = modelSupportsVision
-                      ? files
-                      : files.filter((f) => !f.type.startsWith("image/"));
-                    if (allowed.length < files.length) {
-                      useComposerStore.setState({
-                        attachmentLastError:
-                          "The current model doesn't support image input. Switch to a vision-capable model to attach images.",
-                      });
-                    }
-                    if (allowed.length > 0) onAddAttachmentFiles(allowed);
+                    onAddAttachmentFiles(files);
                   }
                 }}
                 onKeyDown={(e) => {
@@ -633,15 +613,8 @@ export function ChatComposer({
                 ) : (
                   <>
                     <AttachFileButton
-                      disabled={
-                        typingDisabled || !assistantId || !modelSupportsVision
-                      }
+                      disabled={typingDisabled || !assistantId}
                       onFilesSelected={onAddAttachmentFiles}
-                      title={
-                        !modelSupportsVision
-                          ? "The current model doesn't support image input"
-                          : undefined
-                      }
                     />
                     {showVoiceInput && (
                       <VoiceInputButton

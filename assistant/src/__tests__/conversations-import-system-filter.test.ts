@@ -35,7 +35,7 @@ import { conversations, messages } from "../memory/schema.js";
 import { ROUTES } from "../runtime/routes/conversations-import-routes.js";
 import type { RouteHandlerArgs } from "../runtime/routes/types.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables() {
   const db = getDb();

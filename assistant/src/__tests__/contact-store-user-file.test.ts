@@ -15,7 +15,7 @@ import { getDb, getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { migrateNormalizeUserFileByPrincipal } from "../memory/migrations/220-normalize-user-file-by-principal.js";
 
-initializeDb();
+await initializeDb();
 
 function resetContactTables(): void {
   const sqlite = getSqlite();

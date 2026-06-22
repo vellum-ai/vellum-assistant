@@ -2,8 +2,19 @@ import { describe, expect, test } from "bun:test";
 
 import {
   augmentSkillExecuteError,
+  recoverSkillExecuteEnvelope,
   resolveSkillExecuteInput,
 } from "../tools/skills/execute.js";
+
+/** Schema with exactly one required string field (e.g. document_update). */
+const SINGLE_REQUIRED_STRING_SCHEMA = {
+  type: "object",
+  properties: {
+    content: { type: "string" },
+    mode: { type: "string", enum: ["replace", "append"] },
+  },
+  required: ["content"],
+};
 
 describe("resolveSkillExecuteInput", () => {
   test("returns a correctly nested object unchanged", () => {
@@ -84,6 +95,121 @@ describe("resolveSkillExecuteInput", () => {
       foo: "bar",
     });
     expect(result).toEqual({ foo: "bar" });
+  });
+
+  test("maps a bare (non-JSON) input string to the sole required string field", () => {
+    // The exact shape from the doc-writer incident: the full Markdown body
+    // passed as `input` instead of `{ "content": "..." }`.
+    const body = "# AI in 2026\n\nWe're halfway through the year.";
+    const result = resolveSkillExecuteInput(
+      { tool: "document_update", input: body, activity: "Streaming article" },
+      SINGLE_REQUIRED_STRING_SCHEMA,
+    );
+    expect(result).toEqual({ content: body });
+  });
+
+  test("does not map a bare string without the inner schema", () => {
+    const result = resolveSkillExecuteInput({
+      tool: "document_update",
+      input: "# AI in 2026",
+      activity: "Streaming article",
+    });
+    expect(result).toEqual({});
+  });
+
+  test("does not map a bare string when the schema has multiple required fields", () => {
+    const schema = {
+      type: "object",
+      properties: { a: { type: "string" }, b: { type: "string" } },
+      required: ["a", "b"],
+    };
+    const result = resolveSkillExecuteInput(
+      { tool: "t", input: "some text", activity: "x" },
+      schema,
+    );
+    expect(result).toEqual({});
+  });
+
+  test("does not map a bare string when the sole required field is not a string", () => {
+    const schema = {
+      type: "object",
+      properties: { count: { type: "number" } },
+      required: ["count"],
+    };
+    const result = resolveSkillExecuteInput(
+      { tool: "t", input: "42", activity: "x" },
+      schema,
+    );
+    // "42" parses as JSON but isn't an object, and the lone required field is
+    // not a string — no rescue applies.
+    expect(result).toEqual({});
+  });
+
+  test("a valid JSON-object string still wins over the bare-string rescue", () => {
+    const result = resolveSkillExecuteInput(
+      {
+        tool: "document_update",
+        input: '{"content":"hello","mode":"append"}',
+        activity: "x",
+      },
+      SINGLE_REQUIRED_STRING_SCHEMA,
+    );
+    expect(result).toEqual({ content: "hello", mode: "append" });
+  });
+
+  test("an empty input string is not rescued (nothing to map)", () => {
+    const result = resolveSkillExecuteInput(
+      { tool: "document_update", input: "", activity: "x" },
+      SINGLE_REQUIRED_STRING_SCHEMA,
+    );
+    expect(result).toEqual({});
+  });
+});
+
+describe("recoverSkillExecuteEnvelope", () => {
+  test("recovers a valid envelope wrapped under the _raw marker", () => {
+    // MiniMax coercion marks a bare-string `input` call unparseable even though
+    // the outer arguments are valid JSON.
+    const raw = JSON.stringify({
+      tool: "document_update",
+      input: "# AI in 2026\n\nbody",
+      activity: "Streaming",
+    });
+    const recovered = recoverSkillExecuteEnvelope({ _raw: raw });
+    expect(recovered).toEqual({
+      tool: "document_update",
+      input: "# AI in 2026\n\nbody",
+      activity: "Streaming",
+    });
+  });
+
+  test("leaves a genuinely unparseable (truncated) call wrapped", () => {
+    const wrapped = { _raw: '{"tool":"document_update","input":"# AI' };
+    expect(recoverSkillExecuteEnvelope(wrapped)).toBe(wrapped);
+  });
+
+  test("passes a normal envelope through untouched", () => {
+    const envelope = {
+      tool: "document_update",
+      input: { content: "hi" },
+      activity: "x",
+    };
+    expect(recoverSkillExecuteEnvelope(envelope)).toBe(envelope);
+  });
+
+  test("end-to-end: recovered bare-string envelope resolves to content", () => {
+    const body = "# Title\n\nThe full article body.";
+    const raw = JSON.stringify({
+      tool: "document_update",
+      input: body,
+      activity: "Streaming",
+    });
+    const envelope = recoverSkillExecuteEnvelope({ _raw: raw });
+    const resolved = resolveSkillExecuteInput(
+      envelope,
+      SINGLE_REQUIRED_STRING_SCHEMA,
+    );
+    expect(resolved).toEqual({ content: body });
   });
 });
 

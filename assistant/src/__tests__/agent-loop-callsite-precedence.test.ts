@@ -9,8 +9,7 @@
  * for these knobs is silently ignored.
  *
  * Precedence (highest wins):
- *   1. Per-turn explicit (from `resolveSystemPrompt`'s
- *      `resolved.maxTokens` / `resolved.model`)
+ *   1. Per-run explicit (from `run()`'s `model` param)
  *   2. Call-site resolved values (from `resolveCallSiteConfig` via the
  *      normalizer)
  *   3. Conversation defaults (`this.config.*`, from `llm.default`)
@@ -33,7 +32,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => ({ llm: mockLlmConfig }),
 }));
 
-import type { ResolvedSystemPrompt } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import { LLMSchema } from "../config/schemas/llm.js";
 import { RetryProvider } from "../providers/retry.js";
@@ -297,42 +295,5 @@ describe("AgentLoop — call-site precedence", () => {
     expect(config.speed).toBe("fast");
     // No callSite → loop sets the wire-format thinking directly.
     expect(config.thinking).toEqual({ type: "adaptive" });
-  });
-
-  test("per-turn resolveSystemPrompt.maxTokens wins over both call-site and default", async () => {
-    setLlmConfig({
-      default: {
-        provider: "anthropic",
-        model: "claude-default",
-        maxTokens: 64000,
-      },
-      callSites: { mainAgent: { maxTokens: 4096 } },
-    });
-
-    const { provider, lastConfig } = makePipeline("anthropic");
-    const resolveSystemPrompt = (): ResolvedSystemPrompt => ({
-      systemPrompt: "per-turn system",
-      maxTokens: 8192,
-    });
-
-    const loop = new AgentLoop({
-      provider: provider,
-      systemPrompt: "system",
-      conversationId: "test-conversation",
-      config: { maxTokens: 64000 },
-      resolveSystemPrompt: resolveSystemPrompt,
-    });
-
-    await loop.run({
-      requestId: "test-request",
-      messages: [userMessage],
-      onEvent: () => {},
-      trust: { sourceChannel: "vellum", trustClass: "unknown" },
-      callSite: "mainAgent",
-    });
-
-    // Per-turn explicit value beats both the call-site (4096) and the
-    // default (64000).
-    expect(lastConfig()!.max_tokens).toBe(8192);
   });
 });

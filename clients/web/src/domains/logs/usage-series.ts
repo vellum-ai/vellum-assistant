@@ -177,6 +177,9 @@ function seriesGroupValueToBreakdown(
     totalCacheReadTokens: 0,
     totalEstimatedCostUsd: value.totalEstimatedCostUsd,
     eventCount: value.eventCount,
+    // Series grouping never supports the conversation dimension, so turns are
+    // always undefined for these synthesized rows.
+    turnCount: null,
   };
 }
 

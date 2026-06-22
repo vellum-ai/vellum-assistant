@@ -47,6 +47,9 @@ import historyRepairStop from "./history-repair/hooks/stop.js";
 import historyRepairUserPromptSubmit from "./history-repair/hooks/user-prompt-submit.js";
 import historyRepairPkg from "./history-repair/package.json" with { type: "json" };
 import { resetRepairStateStoreForTests } from "./history-repair/repair-state-store.js";
+import imageFallbackUserPromptSubmit from "./image-fallback/hooks/user-prompt-submit.js";
+import imageFallbackPkg from "./image-fallback/package.json" with { type: "json" };
+import { resetCaptionCacheForTests } from "./image-fallback/src/caption-cache.js";
 import imageRecoveryPostModelCall from "./image-recovery/hooks/post-model-call.js";
 import imageRecoveryStop from "./image-recovery/hooks/stop.js";
 import { resetImageRecoveryStoreForTests } from "./image-recovery/image-recovery-state-store.js";
@@ -76,6 +79,24 @@ import toolErrorPostToolUse from "./tool-error/hooks/post-tool-use.js";
 import toolErrorPkg from "./tool-error/package.json" with { type: "json" };
 import toolResultTruncatePostToolUse from "./tool-result-truncate/hooks/post-tool-use.js";
 import toolResultTruncatePkg from "./tool-result-truncate/package.json" with { type: "json" };
+
+/**
+ * `image-fallback` — a `user-prompt-submit` hook that captions image blocks via
+ * a vision-capable profile when the active model is text-only, substituting the
+ * caption as a `[Image: <caption>]` text block so the model can still reason
+ * about the image's content. Self-gates on `isNonInteractive`; fail-open with a
+ * placeholder when no vision profile is configured or captioning fails. An
+ * in-memory content-hash cache avoids re-captioning the same image across turns.
+ */
+export const defaultImageFallbackPlugin: Plugin = {
+  manifest: {
+    name: imageFallbackPkg.name,
+    version: imageFallbackPkg.version,
+  },
+  hooks: {
+    "user-prompt-submit": imageFallbackUserPromptSubmit,
+  },
+};
 
 /**
  * `compaction` — compaction is implemented in `compaction/compact.ts` as
@@ -337,6 +358,7 @@ export const defaultAdvisorPlugin: Plugin = {
 function getAllDefaultPlugins(): readonly Plugin[] {
   return [
     defaultMemoryRetrievalPlugin,
+    defaultImageFallbackPlugin,
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
     defaultMaxTokensContinuePlugin,
@@ -399,5 +421,6 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
   resetTaskProgressNudgeStateForTests();
   resetSurfaceCompletionNudgeStoreForTests();
   resetAdvisorStateForTests();
+  resetCaptionCacheForTests();
   registerDefaultPlugins();
 }

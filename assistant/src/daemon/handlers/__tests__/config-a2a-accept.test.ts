@@ -30,7 +30,7 @@ import { getSqlite } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
 import { acceptA2AInvite, createA2AInvite } from "../config-a2a.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers

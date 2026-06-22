@@ -28,7 +28,7 @@ import { initializeDb } from "./db-init.js";
 import { conversations, toolInvocations } from "./schema.js";
 import { queryUnreportedToolExecutedEvents } from "./tool-executed-events-store.js";
 
-initializeDb();
+await initializeDb();
 
 const CONVERSATION_ID = "conv-tool-executed-store-test";
 

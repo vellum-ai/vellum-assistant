@@ -38,7 +38,7 @@ import { rawRun } from "../../../memory/raw-query.js";
 import { ROUTES } from "../retrospective-routes.js";
 import type { RouteDefinition } from "../types.js";
 
-initializeDb();
+await initializeDb();
 
 let workspaceDir: string;
 let origWorkspaceDir: string | undefined;

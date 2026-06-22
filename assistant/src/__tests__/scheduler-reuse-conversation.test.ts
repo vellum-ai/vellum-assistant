@@ -92,7 +92,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { createSchedule, getScheduleRuns } from "../schedule/schedule-store.js";
 import { startScheduler } from "../schedule/scheduler.js";
 
-initializeDb();
+await initializeDb();
 
 /** Access the underlying bun:sqlite Database for raw parameterized queries. */
 function getRawDb(): import("bun:sqlite").Database {

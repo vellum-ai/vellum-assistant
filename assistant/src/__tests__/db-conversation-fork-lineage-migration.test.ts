@@ -82,8 +82,8 @@ describe("conversation fork lineage migration", () => {
     resetMigrationTestDb();
   });
 
-  test("fresh DB initialization includes nullable lineage columns and parent lookup index", () => {
-    initializeDb();
+  test("fresh DB initialization includes nullable lineage columns and parent lookup index", async () => {
+    await initializeDb();
 
     const raw = new Database(getDbPath());
     const columns = getColumnNames(raw);

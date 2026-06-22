@@ -98,7 +98,7 @@ import {
 import { scheduleTask } from "../tasks/task-scheduler.js";
 import { createTask } from "../tasks/task-store.js";
 
-initializeDb();
+await initializeDb();
 
 function clearTables(): void {
   const db = getDb();

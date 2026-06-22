@@ -24,8 +24,22 @@ import {
   getTurnTimeBounds,
   messageMetadataSchema,
 } from "./conversation-crud.js";
-import { getDb } from "./db-connection.js";
+import { type DrizzleDb, getDb, getLogsDb } from "./db-connection.js";
 import { llmRequestLogs, messages } from "./schema.js";
+
+/**
+ * The logs connection (`assistant-logs.db`), where `llm_request_logs` lives.
+ * Throws if the file cannot be opened — the store has no fallback, and a
+ * missing logs DB is a genuine failure for these call sites (insert/read of
+ * request logs). Callers that must not fail on this already wrap in try/catch.
+ */
+function logsDb(): DrizzleDb {
+  const db = getLogsDb();
+  if (!db) {
+    throw new Error("logs database unavailable");
+  }
+  return db;
+}
 
 export type LogRow = {
   id: string;
@@ -111,7 +125,7 @@ export function recordRequestLog(
   provider?: string,
   callSite?: LLMCallSite,
 ): string {
-  const db = getDb();
+  const db = logsDb();
   const id = uuid();
   db.insert(llmRequestLogs)
     .values({
@@ -178,7 +192,7 @@ export function recordSyntheticAgentErrorMessageLog(args: {
   preparedRequest: unknown | null;
   createdAt: number;
 }): string {
-  const db = getDb();
+  const db = logsDb();
   const id = uuid();
   const requestPayload = JSON.stringify({
     syntheticAgentErrorMessage: {
@@ -225,7 +239,7 @@ export function setAgentLoopExitReasonOnLatestLog(
   conversationId: string,
   reason: string,
 ): void {
-  const db = getDb();
+  const db = logsDb();
   const latest = db
     .select({ id: llmRequestLogs.id })
     .from(llmRequestLogs)
@@ -249,7 +263,7 @@ export function backfillMessageIdOnLogs(
   conversationId: string,
   messageId: string,
 ): void {
-  const db = getDb();
+  const db = logsDb();
   db.update(llmRequestLogs)
     .set({ messageId })
     .where(
@@ -272,7 +286,7 @@ export function relinkLlmRequestLogs(
   toMessageId: string,
 ): void {
   if (fromMessageIds.length === 0) return;
-  const db = getDb();
+  const db = logsDb();
   db.update(llmRequestLogs)
     .set({ messageId: toMessageId })
     .where(inArray(llmRequestLogs.messageId, fromMessageIds))
@@ -286,7 +300,7 @@ export function relinkLlmRequestLogs(
  */
 function selectLogsByMessageIds(messageIds: string[]): LogRow[] {
   if (messageIds.length === 0) return [];
-  const db = getDb();
+  const db = logsDb();
   return db
     .select({
       id: llmRequestLogs.id,
@@ -314,7 +328,7 @@ function selectLogsByMessageIds(messageIds: string[]): LogRow[] {
 export function getRequestLogsByConversationId(
   conversationId: string,
 ): LogRow[] {
-  const db = getDb();
+  const db = logsDb();
   return db
     .select({
       id: llmRequestLogs.id,
@@ -346,9 +360,13 @@ function selectOrphanedLogsInRange(
   endTime: number,
 ): LogRow[] {
   if (endTime <= startTime) return [];
-  const db = getDb();
-  // LEFT JOIN messages → filter where message row IS NULL (orphaned).
-  return db
+  // `llm_request_logs` and `messages` live in separate connections now, so the
+  // old LEFT JOIN can't span them. Resolve it in three steps:
+  //   (a) logs conn → candidate rows in [start,end] for the conversation with a
+  //       non-NULL message_id;
+  //   (b) main conn → which of those message_ids still exist in `messages`;
+  //   (c) filter to candidates whose message_id is NOT in the existing set.
+  const candidates = logsDb()
     .select({
       id: llmRequestLogs.id,
       conversationId: llmRequestLogs.conversationId,
@@ -361,18 +379,32 @@ function selectOrphanedLogsInRange(
       callSite: llmRequestLogs.callSite,
     })
     .from(llmRequestLogs)
-    .leftJoin(messages, eq(llmRequestLogs.messageId, messages.id))
     .where(
       and(
         eq(llmRequestLogs.conversationId, conversationId),
         gte(llmRequestLogs.createdAt, startTime),
         lte(llmRequestLogs.createdAt, endTime),
-        sql`${messages.id} IS NULL`,
         sql`${llmRequestLogs.messageId} IS NOT NULL`,
       ),
     )
     .orderBy(llmRequestLogs.createdAt)
     .all();
+  if (candidates.length === 0) return [];
+
+  const candidateMessageIds = [
+    ...new Set(candidates.map((c) => c.messageId as string)),
+  ];
+  const existing = new Set(
+    getDb()
+      .select({ id: messages.id })
+      .from(messages)
+      .where(inArray(messages.id, candidateMessageIds))
+      .all()
+      .map((r) => r.id),
+  );
+
+  // Orphaned = the referenced message no longer exists.
+  return candidates.filter((c) => !existing.has(c.messageId as string));
 }
 
 /**
@@ -389,7 +421,7 @@ function selectUnlinkedLogsInRange(
   endTime: number,
 ): LogRow[] {
   if (endTime <= startTime) return [];
-  const db = getDb();
+  const db = logsDb();
   return db
     .select({
       id: llmRequestLogs.id,
@@ -432,7 +464,7 @@ export function getPreviousNonCompactionCallCreatedAt(
   conversationId: string,
   beforeCreatedAt: number,
 ): number | null {
-  const db = getDb();
+  const db = logsDb();
   const row = db
     .select({ createdAt: llmRequestLogs.createdAt })
     .from(llmRequestLogs)
@@ -480,7 +512,7 @@ export function getCompactionLogsBetween(
   afterCreatedAt: number | null,
   beforeCreatedAt: number,
 ): CompactionAgentLogRow[] {
-  const db = getDb();
+  const db = logsDb();
   const predicates = [
     eq(llmRequestLogs.conversationId, conversationId),
     eq(llmRequestLogs.callSite, "compactionAgent"),
@@ -524,7 +556,7 @@ export function getCompactionLogsBetween(
  * full context window.
  */
 export function getRequestLogMetaById(logId: string): LogMetaRow | null {
-  const db = getDb();
+  const db = logsDb();
   return (
     db
       .select({
@@ -543,7 +575,7 @@ export function getRequestLogMetaById(logId: string): LogMetaRow | null {
 }
 
 export function getRequestLogById(logId: string): LogRow | null {
-  const db = getDb();
+  const db = logsDb();
   return (
     db
       .select({
@@ -609,7 +641,7 @@ export function getRequestLogsByMessageId(messageId: string): LogRow[] {
         // authoritative caller (e.g. watch-notifier).
         if (unlinkedLogs.length > 0 && turnMessageIds.length > 0) {
           try {
-            const db = getDb();
+            const db = logsDb();
             const ids = unlinkedLogs.map((l) => l.id);
             const targetMessageId = turnMessageIds[turnMessageIds.length - 1]!;
             db.update(llmRequestLogs)

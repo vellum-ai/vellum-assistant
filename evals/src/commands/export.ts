@@ -1,12 +1,14 @@
 /**
- * `evals export` — export a report session in one of two shapes, chosen by the
- * `--out` extension:
+ * `evals export` — export a report session in one of three shapes, chosen by
+ * the `--out` value:
  *
  *   • `--out card.jsonl` → a flat JSONL summary (scores/metrics) for eval
  *     comparison and diffing.
  *   • `--out run.tar`    → a self-contained static-site bundle of the full
  *     report (overview + per-execution transcripts/events + raw artifacts),
  *     hostable as plain files — e.g. uploaded to the QA dashboard for viewing.
+ *   • `--out https://qa.vellum.ai` → build the bundle and push it to the QA
+ *     dashboard's upload endpoint, so the run is immediately viewable online.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -14,8 +16,10 @@ import { dirname } from "node:path";
 import type { Command } from "commander";
 
 import {
+  buildBundleBuffer,
   buildRunBundle,
   isBundleOutput,
+  isHttpUrlOut,
   writeBundleTar,
 } from "../lib/report-bundle";
 import {
@@ -75,10 +79,16 @@ export function registerExportCommand(program: Command): void {
     .requiredOption("--session <id>", "Session id to export")
     .requiredOption(
       "--out <path>",
-      "Output path; *.tar/*.tar.gz/*.tgz bundles the full report, anything " +
-        "else writes a JSONL summary",
+      "Output path; *.tar/*.tar.gz/*.tgz bundles the full report, " +
+        "an https:// URL pushes the bundle to a QA dashboard, " +
+        "anything else writes a JSONL summary",
     )
     .action(async (opts: { session: string; out: string }) => {
+      if (isHttpUrlOut(opts.out)) {
+        await pushBundleToUrl(opts.session, opts.out);
+        return;
+      }
+
       if (isBundleOutput(opts.out)) {
         const files = await buildRunBundle(opts.session);
         await writeBundleTar(opts.out, files);
@@ -143,4 +153,55 @@ export function registerExportCommand(program: Command): void {
       await writeFile(opts.out, encodeJsonl(records), "utf8");
       console.log(`Exported ${records.length} records to ${opts.out}`);
     });
+}
+
+/**
+ * Builds a session bundle and POSTs it to a QA dashboard's upload endpoint.
+ * The `--out` URL (e.g. `https://qa.vellum.ai`) is resolved to
+ * `<origin>/api/evals/upload`. Auth uses the `QA_AUTH_TOKEN` env var as a
+ * Bearer token.
+ */
+async function pushBundleToUrl(
+  sessionId: string,
+  outUrl: string,
+): Promise<void> {
+  const authToken = process.env.QA_AUTH_TOKEN;
+  if (!authToken) {
+    throw new Error(
+      "QA_AUTH_TOKEN is not set — export to a file instead, or set the " +
+        "token env var to push directly to the QA dashboard.",
+    );
+  }
+
+  const uploadUrl = outUrl.replace(/\/+$/, "") + "/api/evals/upload";
+
+  console.log(`Bundling session ${sessionId}…`);
+  const files = await buildRunBundle(sessionId);
+  const buffer = await buildBundleBuffer(files);
+  console.log(`Built bundle (${files.length} files, ${buffer.length} bytes)`);
+
+  const formData = new FormData();
+  formData.append(
+    "file",
+    new Blob([new Uint8Array(buffer)], { type: "application/gzip" }),
+    "bundle.tar.gz",
+  );
+
+  const response = await fetch(uploadUrl, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${authToken}` },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(
+      `Upload failed (${response.status} ${response.statusText}): ${body}`,
+    );
+  }
+
+  const result = (await response.json()) as { id?: string; sessionId?: string };
+  const runId = result.id ?? result.sessionId ?? sessionId;
+  console.log(`Pushed session ${sessionId} → ${outUrl} (run id: ${runId})`);
+  console.log(`View at: ${outUrl.replace(/\/+$/, "")}/evals/runs/${runId}`);
 }

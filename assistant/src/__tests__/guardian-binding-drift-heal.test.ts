@@ -13,7 +13,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { healGuardianBindingDrift } from "../runtime/guardian-vellum-migration.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();

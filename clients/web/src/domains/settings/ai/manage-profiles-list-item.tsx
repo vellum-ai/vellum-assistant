@@ -5,8 +5,8 @@ import { Tag } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Typography } from "@vellumai/design-library/components/typography";
 
+import { AUTO_PROFILE_KEY } from "@vellumai/assistant-api";
 import type { ProfileWithName } from "@/domains/settings/ai/utils";
-import { AUTO_PROFILE_NAME } from "@/assistant/profile-pickers";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -56,7 +56,7 @@ export function ProfileListItem({
 }: ProfileListItemProps) {
   const isManaged = profile.source === "managed";
   const isActive = profile.status !== "disabled";
-  const isAutoProfile = profile.name === AUTO_PROFILE_NAME;
+  const isAutoProfile = profile.name === AUTO_PROFILE_KEY;
 
   return (
     <div className="relative">
@@ -89,7 +89,7 @@ export function ProfileListItem({
             >
               {profile.label ?? profile.name}
             </Typography>
-            {isManaged && profile.name !== AUTO_PROFILE_NAME && (
+            {isManaged && profile.name !== AUTO_PROFILE_KEY && (
               <Tag
                 tone="positive"
                 title="Managed by Platform — auth is locked, but you can rename or disable this profile."
@@ -172,7 +172,7 @@ export function ProfileListItem({
           {deleteError}
         </Typography>
       ) : null}
-      {profile.name === AUTO_PROFILE_NAME && (
+      {profile.name === AUTO_PROFILE_KEY && (
         <div className="mx-2 mt-1 border-b border-[var(--border-subtle)]" />
       )}
     </div>

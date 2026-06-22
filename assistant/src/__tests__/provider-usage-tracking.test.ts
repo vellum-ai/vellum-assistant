@@ -22,7 +22,7 @@ import { CallSiteConfiguredProvider } from "../providers/provider-send-message.j
 import type { Provider, ProviderResponse } from "../providers/types.js";
 import { UsageTrackingProvider } from "../providers/usage-tracking.js";
 
-initializeDb();
+await initializeDb();
 
 function setLlmConfig(raw: unknown): void {
   mockLlmConfig = LLMSchema.parse(raw) as Record<string, unknown>;

@@ -62,6 +62,7 @@ export {
   CALL_SITE_COMPACTION_AGENT,
   CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
 } from "./constants/call-sites.js";
+export { AUTO_PROFILE_KEY } from "./constants/inference-profiles.js";
 export { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "./constants/tool-execution.js";
 export {
   type AssistantActivityAnchor,

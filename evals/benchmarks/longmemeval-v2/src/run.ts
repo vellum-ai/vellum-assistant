@@ -2,7 +2,7 @@
  * LongMemEval-V2 benchmark — top-level execution.
  *
  * The dataset itself is never downloaded from source code — operators
- * run the benchmark's own `data/download.sh` first, and the loader +
+ * run the benchmark's own `data/download.ts` first, and the loader +
  * trajectories module throw helpful "missing file" errors pointing at
  * that script if the data isn't on disk yet.
  *
@@ -10,7 +10,7 @@
  *
  *   EVALS_LONGMEMEVAL_DATA_ROOT — defaults to
  *     `benchmarks/longmemeval-v2/data` under the evals package, which
- *     is where `data/download.sh` writes by convention.
+ *     is where `data/download.ts` writes by convention.
  *   EVALS_LONGMEMEVAL_TIER      — "small" (default) or "medium".
  *
  * Composed pieces:
@@ -110,13 +110,13 @@ export async function run(
     }
     throw new Error(
       `LongMemEval-V2 loaded zero items from ${dataRoot} at tier "${tier}". ` +
-        "Confirm `bash data/download.sh` has run and the haystack mapping is non-empty.",
+        "Confirm `bun run data/download.ts` has run and the haystack mapping is non-empty.",
     );
   }
 
   // Open an indexed/positional handle over `trajectories.jsonl`
   // ONCE per `evals run` invocation. First open after a fresh
-  // `data/download.sh` builds a sibling `trajectories.index.json`;
+  // `data/download.ts` builds a sibling `trajectories.index.json`;
   // subsequent invocations reuse it as long as the file's size +
   // mtime are unchanged. See `trajectory-reader.ts` for the full
   // index format + invalidation rules.

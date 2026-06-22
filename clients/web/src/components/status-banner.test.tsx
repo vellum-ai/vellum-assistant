@@ -31,7 +31,14 @@ let assistantStateMock:
   { kind: "active", isLocal: false };
 let requestedOperationalStatusAssistantId: string | null | undefined;
 let operationalStatusQueryMock: {
-  data: { state: string } | null | undefined;
+  data:
+    | {
+        state: string;
+        detail_state?: string;
+        detail?: { reason?: string | null; message?: string | null };
+      }
+    | null
+    | undefined;
   isError: boolean;
   refetch?: () => void;
 } = {
@@ -305,6 +312,61 @@ describe("StatusBanner", () => {
       expect(html).toContain("text-[color:var(--system-info-strong)]");
       expect(html).toContain("animate-spin");
     }
+  });
+
+  test("renders a failed operation as an error instead of a spinner", () => {
+    operationalStatusQueryMock = {
+      data: {
+        state: "upgrading_assistant_version",
+        detail_state: "failed",
+        detail: { reason: "readiness_poll", message: null },
+      },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(html).toContain("Assistant upgrade failed");
+    expect(html).not.toContain("Assistant is upgrading");
+    expect(html).toContain('data-tone="error"');
+    expect(html).toContain("bg-[var(--system-negative-weak)]");
+    expect(html).toContain("lucide-triangle-alert");
+    expect(html).not.toContain("animate-spin");
+    expect(html).toContain("Go to Doctor");
+  });
+
+  test("surfaces the failure detail message when present", () => {
+    operationalStatusQueryMock = {
+      data: {
+        state: "resizing_machine",
+        detail_state: "failed",
+        detail: { reason: "quota_exceeded", message: "Out of capacity" },
+      },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(html).toContain("Machine resize failed");
+    expect(html).toContain("Out of capacity");
+    expect(html).toContain('data-tone="error"');
+  });
+
+  test("does not render Doctor action for local assistant failed operations", () => {
+    assistantStateMock = { kind: "active", isLocal: true };
+    operationalStatusQueryMock = {
+      data: {
+        state: "upgrading_assistant_version",
+        detail_state: "failed",
+        detail: { reason: "readiness_poll", message: null },
+      },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(html).toContain("Assistant upgrade failed");
+    expect(html).not.toContain("Go to Doctor");
   });
 
   test("uses a blue pulsing dot for waking", () => {

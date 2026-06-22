@@ -62,6 +62,7 @@ let persistentClient: PackagePersistentIpcClient | null = null;
 export async function ipcCallPersistent(
   method: string,
   params?: Record<string, unknown>,
+  timeoutMs?: number,
 ): Promise<unknown> {
   if (!persistentClient) {
     persistentClient = new PackagePersistentIpcClient(
@@ -70,7 +71,7 @@ export async function ipcCallPersistent(
       log,
     );
   }
-  return persistentClient.call(method, params);
+  return persistentClient.call(method, params, timeoutMs);
 }
 
 /**

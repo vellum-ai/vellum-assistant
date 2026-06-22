@@ -51,7 +51,7 @@ import {
 } from "../plugins/registry.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 
-initializeDb();
+await initializeDb();
 
 /** Provider rejection text matched by `isImageDimensionsTooLargeError`. */
 const IMAGE_ERROR_MESSAGE =

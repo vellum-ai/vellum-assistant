@@ -60,6 +60,11 @@ import {
   PluginDetailsNotFoundError,
   type PluginDetailsOptions,
 } from "../../../cli/lib/plugin-details.js";
+import {
+  DEFAULT_PIN_HISTORY_LIMIT,
+  type PluginPinHistoryEntry,
+  PluginPinHistoryError,
+} from "../../../cli/lib/plugin-pin-history.js";
 import type {
   PluginCatalog,
   PluginSearchMatch,
@@ -202,6 +207,27 @@ mock.module("../../../cli/lib/diff-plugin.js", () => ({
   diffPlugin: diffSpy,
 }));
 
+// Mock the pin-history lib: the GitHub commit-history walk is covered by
+// plugin-pin-history.test.ts; the routes only forward the name, validate a pin
+// against the resolved history, and map errors.
+const listPinHistorySpy = mock(
+  async (..._args: unknown[]): Promise<PluginPinHistoryEntry[]> => {
+    throw new Error("listPinHistorySpy default impl not configured");
+  },
+);
+const resolvePinSpy = mock(
+  async (..._args: unknown[]): Promise<PluginPinHistoryEntry | null> => {
+    throw new Error("resolvePinSpy default impl not configured");
+  },
+);
+
+mock.module("../../../cli/lib/plugin-pin-history.js", () => ({
+  DEFAULT_PIN_HISTORY_LIMIT,
+  PluginPinHistoryError,
+  listPinHistory: listPinHistorySpy,
+  resolvePinToMarketplaceCommit: resolvePinSpy,
+}));
+
 import {
   BadRequestError,
   ConflictError,
@@ -224,6 +250,7 @@ const uninstallHandler = findHandler("plugins_uninstall");
 const getHandler = findHandler("plugins_get");
 const installHandler = findHandler("plugins_install");
 const inspectHandler = findHandler("plugins_inspect");
+const versionsHandler = findHandler("plugins_versions");
 const upgradeHandler = findHandler("plugins_upgrade");
 const diffHandler = findHandler("plugins_diff");
 
@@ -828,6 +855,7 @@ async function invokeInstall(args: RouteHandlerArgs = {}): Promise<{
 describe("POST /v1/plugins/install", () => {
   beforeEach(() => {
     installSpy.mockReset();
+    resolvePinSpy.mockReset();
   });
 
   test("forwards name/force and shapes the result, pinning ref to the default", async () => {
@@ -953,6 +981,121 @@ describe("POST /v1/plugins/install", () => {
     }
     expect(caught).toBeInstanceOf(InternalError);
     expect((caught as Error).message).toContain("ECONNRESET");
+  });
+
+  test("a reviewed pin installs from the marketplace commit that introduced it", async () => {
+    // GIVEN a pin that resolves to a marketplace commit in the reviewed history
+    resolvePinSpy.mockImplementation(async () => ({
+      pin: "a".repeat(40),
+      marketplaceCommit: "f".repeat(40),
+      promotedAt: "2026-06-01T00:00:00.000Z",
+      current: false,
+    }));
+    installSpy.mockImplementation(async (opts) => ({
+      name: opts.name,
+      target: `/workspace/.vellum/plugins/${opts.name}`,
+      fileCount: 7,
+      ref: opts.ref ?? "main",
+      commit: "a".repeat(40),
+      committedAt: null,
+    }));
+
+    const result = await invokeInstall({
+      body: { name: "caveman", pin: "a".repeat(40) },
+    });
+
+    // THEN the install reads the manifest at the resolving marketplace commit,
+    // not the default branch
+    expect(installSpy.mock.calls[0]?.[0]).toEqual({
+      name: "caveman",
+      ref: "f".repeat(40),
+      force: undefined,
+    });
+    expect(result.ref).toBe("f".repeat(40));
+  });
+
+  test("an unreviewed pin is refused as a BadRequest before installing", async () => {
+    resolvePinSpy.mockImplementation(async () => null);
+
+    await expect(
+      invokeInstall({ body: { name: "caveman", pin: "b".repeat(40) } }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+    expect(installSpy).not.toHaveBeenCalled();
+  });
+
+  test("a pin-history read failure surfaces as ServiceUnavailable (503)", async () => {
+    resolvePinSpy.mockImplementation(async () => {
+      throw new PluginPinHistoryError("HTTP 403");
+    });
+
+    await expect(
+      invokeInstall({ body: { name: "caveman", pin: "c".repeat(40) } }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableError);
+    expect(installSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /v1/plugins/:name/versions", () => {
+  beforeEach(() => {
+    listPinHistorySpy.mockReset();
+  });
+
+  test("returns the resolved pin history", async () => {
+    const history: PluginPinHistoryEntry[] = [
+      {
+        pin: "c".repeat(40),
+        marketplaceCommit: "3".repeat(40),
+        promotedAt: "2026-06-10T00:00:00.000Z",
+        current: true,
+      },
+      {
+        pin: "a".repeat(40),
+        marketplaceCommit: "1".repeat(40),
+        promotedAt: "2026-06-01T00:00:00.000Z",
+        current: false,
+      },
+    ];
+    listPinHistorySpy.mockImplementation(async () => history);
+
+    const result = await versionsHandler({ pathParams: { name: "level-up" } });
+    expect(result).toEqual(history);
+  });
+
+  test("forwards a positive limit to the lib", async () => {
+    listPinHistorySpy.mockImplementation(async () => []);
+    await versionsHandler({
+      pathParams: { name: "level-up" },
+      queryParams: { limit: "3" },
+    });
+    expect(listPinHistorySpy.mock.calls[0]?.[2]).toEqual({ limit: 3 });
+  });
+
+  test("rejects a non-positive limit as BadRequest before calling the lib", async () => {
+    await expect(
+      versionsHandler({
+        pathParams: { name: "level-up" },
+        queryParams: { limit: "0" },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+    expect(listPinHistorySpy).not.toHaveBeenCalled();
+  });
+
+  test("InvalidPluginNameError → BadRequestError (400)", async () => {
+    listPinHistorySpy.mockImplementation(async () => {
+      throw new InvalidPluginNameError("../escape");
+    });
+    await expect(
+      versionsHandler({ pathParams: { name: "../escape" } }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
+  test("PluginPinHistoryError → ServiceUnavailableError (503)", async () => {
+    listPinHistorySpy.mockImplementation(async () => {
+      throw new PluginPinHistoryError("HTTP 429");
+    });
+    await expect(
+      versionsHandler({ pathParams: { name: "level-up" } }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableError);
   });
 });
 

@@ -18,7 +18,7 @@ import { getDb } from "../db-connection.js";
 import { initializeDb } from "../db-init.js";
 import { conversations } from "../schema.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();

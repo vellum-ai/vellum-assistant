@@ -131,7 +131,7 @@ function GuardianDetailViewInner({
           contactChannels={contact.channels}
           availableChannels={availableChannels}
           a2aEnabled={a2aEnabled}
-          setupLabel="Enable"
+          setupLabel="Verify me"
           verifyLoading={verifyPending}
           onSetupChannel={onSetupChannel}
           onVerifyChannel={onVerifyChannel}

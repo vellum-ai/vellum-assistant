@@ -28,7 +28,7 @@ import {
 } from "../memory/memory-recall-log-store.js";
 import { memoryRecallLogs } from "../memory/schema.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();

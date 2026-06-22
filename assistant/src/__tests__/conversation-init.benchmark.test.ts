@@ -218,7 +218,7 @@ mock.module("../services/published-app-updater.js", () => ({
 }));
 
 const { initializeDb } = await import("../memory/db-init.js");
-initializeDb();
+await initializeDb();
 
 const { initializeTools, getAllToolDefinitions, __resetRegistryForTesting } =
   await import("../tools/registry.js");

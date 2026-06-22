@@ -6,57 +6,12 @@ import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getLogsDbPath } from "../util/logs-db-path.js";
+import { getMemoryDbPath } from "../util/memory-db-path.js";
 import { ensureDataDir, getDbPath } from "../util/platform.js";
 import { clearStoredDb, getStoredDb, setStoredDb } from "./db-singleton.js";
 import * as schema from "./schema.js";
 
 export type DrizzleDb = ReturnType<typeof drizzle<typeof schema>>;
-
-/**
- * Schema name under which the secondary append-only database file
- * (`assistant-logs.db`) is ATTACHed to the main connection. Tables created in
- * this schema (e.g. `logs.llm_request_logs`) live in the separate file but are
- * still queryable — and joinable against main-schema tables — over the single
- * daemon connection. Because no append-only table exists in the `main` schema,
- * unqualified references (e.g. `llm_request_logs`) resolve to the attached copy.
- */
-export const LOGS_DB_SCHEMA = "logs";
-
-/**
- * ATTACH the append-only logs database to an open connection and apply its
- * per-database PRAGMAs.
- *
- * `journal_mode` and `synchronous` are per-database settings, so they must be
- * set against the attached schema explicitly — the PRAGMAs run on `main` before
- * the attach do not carry over. `busy_timeout`, `foreign_keys`, `cache_size`,
- * and `temp_store` are connection-wide and already configured on the connection.
- *
- * Best-effort: a failure here (e.g. a filesystem permission problem on the new
- * file) must not take down the main database. We log and continue in line with
- * the daemon's "never block startup on a subsystem failure" policy; append-only
- * tables are simply unavailable until the next successful open.
- *
- * The logger is pulled in lazily (dynamic import) only on the error path. This
- * file is intentionally kept import-light — see `db-singleton.ts` — so it does
- * not take a static dependency on the logger (and transitively on pino).
- */
-function attachLogsDb(sqlite: Database): void {
-  const logsPath = getLogsDbPath();
-  try {
-    // Escape single quotes for the SQL string literal (paths can contain them).
-    const escaped = logsPath.replace(/'/g, "''");
-    sqlite.exec(`ATTACH DATABASE '${escaped}' AS ${LOGS_DB_SCHEMA}`);
-    sqlite.exec(`PRAGMA ${LOGS_DB_SCHEMA}.journal_mode=WAL`);
-    sqlite.exec(`PRAGMA ${LOGS_DB_SCHEMA}.synchronous=FULL`);
-  } catch (err) {
-    void import("../util/logger.js").then(({ getLogger }) =>
-      getLogger("db-connection").error(
-        { err, logsPath },
-        "Failed to ATTACH logs database; append-only log tables will be unavailable",
-      ),
-    );
-  }
-}
 
 function canonicalizePathThroughExistingParent(path: string): string {
   const resolvedPath = resolve(path);
@@ -77,7 +32,12 @@ function canonicalizePathThroughExistingParent(path: string): string {
   }
 }
 
-function assertTestDbIsIsolated(): void {
+/**
+ * Guard against opening a real workspace database during tests. Shared by
+ * every connection opener (main, logs, memory) so a misconfigured test run
+ * cannot write to the real `~/.vellum/workspace` files through any of them.
+ */
+export function assertTestDbIsIsolated(): void {
   if (
     process.env.NODE_ENV !== "test" ||
     process.env.VELLUM_ALLOW_REAL_WORKSPACE_IN_TESTS === "1"
@@ -116,22 +76,30 @@ function assertTestDbIsIsolated(): void {
   }
 }
 
-export function getDb(): DrizzleDb {
-  const existing = getStoredDb<DrizzleDb>();
-  if (existing) return existing;
-
-  assertTestDbIsIsolated();
-  ensureDataDir();
-  const sqlite = new Database(getDbPath());
+/**
+ * Apply the connection-wide PRAGMAs every assistant SQLite connection runs
+ * with. These are per-connection settings, so the dedicated logs/memory
+ * connections set them independently of the main connection.
+ */
+function applyConnectionPragmas(sqlite: Database): void {
   sqlite.exec("PRAGMA journal_mode=WAL");
   sqlite.exec("PRAGMA synchronous=FULL");
   sqlite.exec("PRAGMA busy_timeout=5000");
   sqlite.exec("PRAGMA foreign_keys = ON");
   sqlite.exec("PRAGMA cache_size=-256000");
   sqlite.exec("PRAGMA temp_store=MEMORY");
-  attachLogsDb(sqlite);
+}
+
+export function getDb(): DrizzleDb {
+  const existing = getStoredDb<DrizzleDb>("main");
+  if (existing) return existing;
+
+  assertTestDbIsIsolated();
+  ensureDataDir();
+  const sqlite = new Database(getDbPath());
+  applyConnectionPragmas(sqlite);
   const db = drizzle(sqlite, { schema });
-  setStoredDb(db, () => sqlite.close());
+  setStoredDb("main", db, () => sqlite.close());
   return db;
 }
 
@@ -157,14 +125,85 @@ export function getSqliteFrom(drizzleDb: DrizzleDb): Database {
 }
 
 /**
- * Reset the db singleton. Used by production callers that need to close
- * the live connection so the file can be replaced (post-migration,
- * post-restore, post-vbundle-import) and on graceful shutdown.
+ * Open a dedicated bun:sqlite connection to `dbPath`, apply the standard
+ * PRAGMAs, and return its Drizzle instance — caching both in the given
+ * singleton slot. The connection only opens the file and sets PRAGMAs; it
+ * never runs DDL (table/index creation lives in the migrations).
+ *
+ * Fail-soft: on any open error we log and return `null` rather than throwing,
+ * consistent with the daemon's "never block startup on a subsystem failure"
+ * policy. The logger is pulled in lazily (dynamic import) only on the error
+ * path so this file stays import-light. Callers tolerate a `null` result.
+ */
+function openDedicatedDb(
+  key: "logs" | "memory",
+  dbPath: string,
+): DrizzleDb | null {
+  assertTestDbIsIsolated();
+  ensureDataDir();
+  try {
+    const sqlite = new Database(dbPath);
+    applyConnectionPragmas(sqlite);
+    const db = drizzle(sqlite, { schema });
+    setStoredDb(key, db, () => sqlite.close());
+    return db;
+  } catch (err) {
+    void import("../util/logger.js").then(({ getLogger }) =>
+      getLogger("db-connection").error(
+        { err, dbPath, key },
+        "Failed to open dedicated database; its tables will be unavailable",
+      ),
+    );
+    return null;
+  }
+}
+
+/**
+ * The append-only logs database (`assistant-logs.db`), opened lazily as its
+ * own connection. Houses `llm_request_logs`. Returns `null` if the file
+ * cannot be opened (logged; the daemon stays up).
+ */
+export function getLogsDb(): DrizzleDb | null {
+  const existing = getStoredDb<DrizzleDb>("logs");
+  if (existing) return existing;
+  return openDedicatedDb("logs", getLogsDbPath());
+}
+
+/** Underlying bun:sqlite Database for the logs connection, or `null`. */
+export function getLogsSqlite(): Database | null {
+  const db = getLogsDb();
+  return db ? getSqliteFrom(db) : null;
+}
+
+/**
+ * The high-churn memory database (`assistant-memory.db`), opened lazily as
+ * its own connection. Houses `memory_jobs`. Returns `null` if the file
+ * cannot be opened (logged; the daemon stays up).
+ */
+export function getMemoryDb(): DrizzleDb | null {
+  const existing = getStoredDb<DrizzleDb>("memory");
+  if (existing) return existing;
+  return openDedicatedDb("memory", getMemoryDbPath());
+}
+
+/** Underlying bun:sqlite Database for the memory connection, or `null`. */
+export function getMemorySqlite(): Database | null {
+  const db = getMemoryDb();
+  return db ? getSqliteFrom(db) : null;
+}
+
+/**
+ * Reset all DB singletons. Used by production callers that need to close the
+ * live connections so the files can be replaced (post-migration, post-restore,
+ * post-vbundle-import) and on graceful shutdown. Clears the main, logs, and
+ * memory slots together so none lingers open against a swapped-out file.
  *
  * Tests should use `resetDbForTesting()` from
  * `__tests__/db-test-helpers.ts` instead so they don't depend on this
  * module's heavy import chain (`drizzle-orm/bun-sqlite`).
  */
 export function resetDb(): void {
-  clearStoredDb();
+  clearStoredDb("main");
+  clearStoredDb("logs");
+  clearStoredDb("memory");
 }

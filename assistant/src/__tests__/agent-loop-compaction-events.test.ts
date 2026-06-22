@@ -104,7 +104,6 @@ function fakeCompaction(
 ): { trust: TrustContext } {
   createContextWindowManager({
     provider: { name: "mock-provider" } as unknown as Provider,
-    systemPrompt: "system",
     config: {} as unknown as ContextWindowConfig,
     conversationId,
   });

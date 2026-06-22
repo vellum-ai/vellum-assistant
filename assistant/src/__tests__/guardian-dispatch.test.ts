@@ -68,7 +68,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { conversations } from "../memory/schema.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
-initializeDb();
+await initializeDb();
 
 function ensureConversation(id: string): void {
   const db = getDb();

@@ -55,7 +55,7 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { parseCallbackData } from "../runtime/routes/channel-route-shared.js";
 import { listGuardianDecisionPrompts } from "../runtime/routes/guardian-action-routes.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();

@@ -23,6 +23,66 @@ type ExistingRow = {
 let queryRows: ExistingRow[] = [];
 const queryCalls: { sql: string; params: unknown[] }[] = [];
 const runCalls: { sql: string; params: unknown[] }[] = [];
+
+// Fake gateway DB: records update/insert calls and returns a configurable
+// `changes` count per update so the resilient dual-write fallback can be
+// exercised (id-keyed update → logical-key update → insert-mirror).
+type GwUpdate = { set: Record<string, unknown>; where: unknown };
+type GwInsert = { table: unknown; values: Record<string, unknown> };
+const gwUpdates: GwUpdate[] = [];
+const gwInserts: GwInsert[] = [];
+// Successive row-counts returned by `.update(...).returning().all()`, FIFO.
+// A non-zero count means the update matched an existing gateway row.
+let gwUpdateChanges: number[] = [];
+// Status returned by the authoritative gateway pre-check (`.select(...).get()`).
+// null models a missing gateway row (legacy/unmirrored happy path).
+let gwSelectStatus: string | null = null;
+// Whether the insert-mirror reports a written row (`.returning().all()`).
+// false models a (type,address) conflict with a blocked/revoked row.
+let gwInsertWrote = true;
+
+mock.module("../db/connection.js", () => ({
+  getGatewayDb: () => ({
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          get: () =>
+            gwSelectStatus === null ? undefined : { status: gwSelectStatus },
+        }),
+      }),
+    }),
+    update: (table: unknown) => ({
+      set: (set: Record<string, unknown>) => ({
+        where: (where: unknown) => ({
+          returning: () => ({
+            all: () => {
+              void table;
+              gwUpdates.push({ set, where });
+              const n = gwUpdateChanges.shift() ?? 0;
+              return Array.from({ length: n }, () => ({ id: "x" }));
+            },
+          }),
+        }),
+      }),
+    }),
+    insert: (table: unknown) => ({
+      values: (values: Record<string, unknown>) => ({
+        onConflictDoNothing: () => ({
+          run: () => {
+            gwInserts.push({ table, values });
+          },
+          returning: () => ({
+            all: () => {
+              gwInserts.push({ table, values });
+              return gwInsertWrote ? [{ id: "x" }] : [];
+            },
+          }),
+        }),
+      }),
+    }),
+  }),
+}));
+
 const TEST_SOCKET_PATH = join(
   tmpdir(),
   `vellum-upsert-contact-channel-test-${process.pid}.sock`,
@@ -38,22 +98,24 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   },
 }));
 
-mock.module("../db/connection.js", () => ({
-  getGatewayDb: () => ({
-    update: () => ({ set: () => ({ where: () => ({ run: () => {} }) }) }),
-    insert: () => ({
-      values: () => ({ onConflictDoNothing: () => ({ run: () => {} }) }),
-    }),
-  }),
-}));
-
 mock.module("../db/schema.js", () => ({
-  contactChannels: "contactChannels",
+  contactChannels: {
+    id: "id",
+    type: "type",
+    address: "address",
+    status: "status",
+  },
   contacts: "contacts",
 }));
 
 mock.module("drizzle-orm", () => ({
-  eq: (col: unknown, val: unknown) => ({ col, val }),
+  eq: (col: unknown, val: unknown) => ({ op: "eq", col, val }),
+  and: (...conds: unknown[]) => ({ op: "and", conds }),
+  sql: (strings: TemplateStringsArray, ...vals: unknown[]) => ({
+    op: "sql",
+    strings: Array.from(strings),
+    vals,
+  }),
 }));
 
 mock.module("../verification/identity.js", () => ({
@@ -72,6 +134,13 @@ beforeEach(() => {
   queryRows = [];
   queryCalls.length = 0;
   runCalls.length = 0;
+  gwUpdates.length = 0;
+  gwInserts.length = 0;
+  // Default: the id-keyed gateway update lands on an existing row.
+  gwUpdateChanges = [1];
+  // Default: no authoritative gateway row (legacy/unmirrored happy path).
+  gwSelectStatus = null;
+  gwInsertWrote = true;
   writeFileSync(TEST_SOCKET_PATH, "");
 });
 
@@ -185,6 +254,348 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
 
     const inserts = runCalls.filter((c) => c.sql.includes("INSERT"));
     expect(inserts).toHaveLength(2);
+  });
+
+  test("new-insert path returns verified:false and writes nothing when gateway row is blocked", async () => {
+    // No existing assistant channel, but the authoritative gateway DB already
+    // has a blocked row for the same (type,address): no new active channel.
+    queryRows = [];
+    gwSelectStatus = "blocked";
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550009999",
+      externalChatId: "+15550009999",
+    });
+
+    expect(result).toEqual({ verified: false });
+    expect(runCalls.filter((c) => c.sql.includes("INSERT"))).toHaveLength(0);
+    expect(gwInserts).toHaveLength(0);
+    expect(gwUpdates).toHaveLength(0);
+  });
+
+  test("new-insert path returns verified:false and writes nothing when gateway row is revoked", async () => {
+    queryRows = [];
+    gwSelectStatus = "revoked";
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550009999",
+      externalChatId: "+15550009999",
+    });
+
+    expect(result).toEqual({ verified: false });
+    expect(runCalls.filter((c) => c.sql.includes("INSERT"))).toHaveLength(0);
+    expect(gwInserts).toHaveLength(0);
+    expect(gwUpdates).toHaveLength(0);
+  });
+
+  test("new-insert path updates an existing non-blocked gateway row by logical key", async () => {
+    // Assistant lookup misses, but the gateway already has a NON-blocked
+    // (unverified) row for the same (type,address) — e.g. a gateway-created,
+    // unmirrored contact. The id-keyed update misses (different UUID); the
+    // logical-key update lands. The channel must end up active/verified, not a
+    // silent no-op, and the path returns verified:true.
+    queryRows = [];
+    gwSelectStatus = null;
+    gwUpdateChanges = [0, 1];
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550001212",
+      externalChatId: "+15550001212",
+    });
+
+    expect(result).toEqual({ verified: true });
+    // id-keyed update missed, logical-key update landed — no insert-mirror.
+    expect(gwUpdates).toHaveLength(2);
+    expect(gwUpdates[1]!.set).toMatchObject({
+      status: "active",
+      policy: "allow",
+      verifiedVia: "challenge",
+    });
+    // No channel insert-mirror: the existing row was updated in place.
+    expect(
+      gwInserts.some(
+        (i) => i.values.type === "phone" && i.values.address === "+15550001212",
+      ),
+    ).toBe(false);
+  });
+
+  test("new-insert path returns verified:true when no gateway row exists", async () => {
+    queryRows = [];
+    gwSelectStatus = null;
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550009999",
+      externalChatId: "+15550009999",
+    });
+
+    expect(result).toEqual({ verified: true });
+    expect(runCalls.filter((c) => c.sql.includes("INSERT"))).toHaveLength(2);
+  });
+
+  test("update path stamps verified_at + verified_via='challenge'", async () => {
+    queryRows = [
+      { channelId: "ch-6", contactId: "co-6", channelStatus: "active" },
+    ];
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550001111",
+      externalChatId: "+15550001111",
+    });
+
+    const update = runCalls.find((c) =>
+      c.sql.includes("UPDATE contact_channels"),
+    );
+    expect(update).toBeTruthy();
+    expect(update!.sql).toContain("status = 'active'");
+    expect(update!.sql).toContain("verified_at = ?");
+    expect(update!.sql).toContain("verified_via = ?");
+    expect(update!.params).toContain("challenge");
+    // verified_at uses a numeric timestamp
+    expect(update!.params.some((p) => typeof p === "number")).toBe(true);
+  });
+
+  test("insert path stamps verified_at + verified_via='challenge'", async () => {
+    queryRows = [];
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550009999",
+      externalChatId: "+15550009999",
+    });
+
+    const channelInsert = runCalls.find((c) =>
+      c.sql.includes("INSERT OR IGNORE INTO contact_channels"),
+    );
+    expect(channelInsert).toBeTruthy();
+    expect(channelInsert!.sql).toContain("'active'");
+    expect(channelInsert!.sql).toContain("verified_at");
+    expect(channelInsert!.sql).toContain("verified_via");
+    expect(channelInsert!.params).toContain("challenge");
+  });
+
+  test("resolves the gateway row by (type,address) when the id-keyed update misses", async () => {
+    queryRows = [
+      { channelId: "assistant-ch", contactId: "co-8", channelStatus: "active" },
+    ];
+    // id-keyed update misses (0 changes); logical-key update lands (1).
+    gwUpdateChanges = [0, 1];
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550002222",
+      externalChatId: "+15550002222",
+    });
+
+    expect(gwUpdates).toHaveLength(2);
+    // Second update is keyed on the logical (type,address) key, not the id.
+    expect(gwUpdates[1]!.where).toMatchObject({ op: "and" });
+    expect(gwUpdates[1]!.set).toMatchObject({
+      status: "active",
+      verifiedVia: "challenge",
+    });
+    expect(gwUpdates[1]!.set.verifiedAt).toEqual(expect.any(Number));
+    // No insert-mirror needed — the logical-key update succeeded.
+    expect(gwInserts).toHaveLength(0);
+  });
+
+  test("inserts a verified gateway channel when no gateway row exists at all", async () => {
+    queryRows = [
+      { channelId: "assistant-ch", contactId: "co-9", channelStatus: "active" },
+    ];
+    // Both id-keyed and logical-key updates miss → insert-mirror.
+    gwUpdateChanges = [0, 0];
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550003333",
+      externalChatId: "+15550003333",
+    });
+
+    expect(gwUpdates).toHaveLength(2);
+    const channelInsert = gwInserts.find(
+      (i) => i.values.type === "phone" && i.values.address === "+15550003333",
+    );
+    expect(channelInsert).toBeTruthy();
+    expect(channelInsert!.values).toMatchObject({
+      contactId: "co-9",
+      status: "active",
+      verifiedVia: "challenge",
+    });
+    expect(channelInsert!.values.verifiedAt).toEqual(expect.any(Number));
+    // Parent contact mirrored too.
+    expect(gwInserts.some((i) => i.values.id === "co-9")).toBe(true);
+  });
+
+  test("guards both gateway update paths against blocked/revoked rows", async () => {
+    // Stale assistant mirror is active, so the caller's guard passes and we
+    // reach the gateway write; the authoritative gateway row may be
+    // blocked/revoked and must not be reactivated.
+    queryRows = [
+      { channelId: "assistant-ch", contactId: "co-10", channelStatus: "active" },
+    ];
+    gwUpdateChanges = [0, 0];
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550004444",
+      externalChatId: "+15550004444",
+    });
+
+    const hasBlockedRevokedGuard = (whereRaw: unknown) => {
+      const where = whereRaw as { op?: string; conds?: unknown[] };
+      return (
+        where.op === "and" &&
+        (where.conds ?? []).some(
+          (c) =>
+            typeof c === "object" &&
+            c !== null &&
+            (c as { op?: string }).op === "sql" &&
+            ((c as { strings?: string[] }).strings ?? [])
+              .join("")
+              .includes("not in ('blocked', 'revoked')"),
+        )
+      );
+    };
+
+    expect(gwUpdates).toHaveLength(2);
+    // Both the id-keyed and logical-key updates carry the guard, so a
+    // blocked/revoked gateway row is excluded from reactivation.
+    expect(hasBlockedRevokedGuard(gwUpdates[0]!.where)).toBe(true);
+    expect(hasBlockedRevokedGuard(gwUpdates[1]!.where)).toBe(true);
+  });
+
+  test("returns verified:false and skips assistant UPDATE when gateway row is blocked", async () => {
+    // Assistant mirror is active/claimable, but the authoritative gateway row
+    // is blocked: verification must be rejected without activating the mirror.
+    queryRows = [
+      { channelId: "ch-b", contactId: "co-b", channelStatus: "active" },
+    ];
+    gwSelectStatus = "blocked";
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550005555",
+      externalChatId: "+15550005555",
+    });
+
+    expect(result).toEqual({ verified: false });
+    expect(
+      runCalls.filter(
+        (c) => c.sql.includes("UPDATE") && c.sql.includes("status = 'active'"),
+      ),
+    ).toHaveLength(0);
+    // Gateway write never attempted (returned before the dual-write).
+    expect(gwUpdates).toHaveLength(0);
+    expect(gwInserts).toHaveLength(0);
+  });
+
+  test("returns verified:false and skips assistant UPDATE when gateway row is revoked", async () => {
+    queryRows = [
+      { channelId: "ch-r", contactId: "co-r", channelStatus: "active" },
+    ];
+    gwSelectStatus = "revoked";
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550006666",
+      externalChatId: "+15550006666",
+    });
+
+    expect(result).toEqual({ verified: false });
+    expect(
+      runCalls.filter(
+        (c) => c.sql.includes("UPDATE") && c.sql.includes("status = 'active'"),
+      ),
+    ).toHaveLength(0);
+    expect(gwUpdates).toHaveLength(0);
+    expect(gwInserts).toHaveLength(0);
+  });
+
+  test("returns verified:true when no authoritative gateway row exists", async () => {
+    queryRows = [
+      { channelId: "ch-ok", contactId: "co-ok", channelStatus: "active" },
+    ];
+    gwSelectStatus = null;
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550007777",
+      externalChatId: "+15550007777",
+    });
+
+    expect(result).toEqual({ verified: true });
+    expect(
+      runCalls.filter((c) => c.sql.includes("UPDATE contact_channels")),
+    ).toHaveLength(1);
+  });
+
+  test("returns verified:false when the insert-mirror is no-op'd by a blocked/revoked row", async () => {
+    // Pre-check sees no row (race), updates both miss, and the insert-mirror
+    // conflicts with a blocked/revoked row landed concurrently.
+    queryRows = [
+      { channelId: "ch-race", contactId: "co-race", channelStatus: "active" },
+    ];
+    gwSelectStatus = null;
+    gwUpdateChanges = [0, 0];
+    gwInsertWrote = false;
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550008888",
+      externalChatId: "+15550008888",
+    });
+
+    expect(result).toEqual({ verified: false });
+  });
+
+  test("gateway-first: skips assistant activation when the gateway write is rejected after the pre-check", async () => {
+    // An existing assistant channel + a gateway pre-check that passes, but the
+    // guarded gateway write is rejected (row became blocked/revoked in the
+    // race). The assistant mirror must NOT be activated, so a blocked actor is
+    // never left active locally.
+    queryRows = [
+      { channelId: "ch-race", contactId: "co-race", channelStatus: "unverified" },
+    ];
+    gwSelectStatus = "unverified"; // pre-check passes
+    gwUpdateChanges = [0, 0]; // guarded gateway updates miss
+    gwInsertWrote = false; // insert-mirror no-op → write rejected
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550009999",
+      externalChatId: "+15550009999",
+    });
+
+    expect(result).toEqual({ verified: false });
+    const assistantActivate = runCalls.find(
+      (c) =>
+        /UPDATE contact_channels/i.test(c.sql) &&
+        c.sql.includes("status = 'active'"),
+    );
+    expect(assistantActivate).toBeUndefined();
+  });
+
+  test("honors an explicit verifiedVia value on the update path", async () => {
+    queryRows = [
+      { channelId: "ch-7", contactId: "co-7", channelStatus: "active" },
+    ];
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550001111",
+      externalChatId: "+15550001111",
+      verifiedVia: "manual",
+    });
+
+    const update = runCalls.find((c) =>
+      c.sql.includes("UPDATE contact_channels"),
+    );
+    expect(update!.params).toContain("manual");
   });
 });
 

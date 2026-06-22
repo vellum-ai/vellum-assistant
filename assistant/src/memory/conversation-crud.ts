@@ -57,12 +57,23 @@ import {
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { runAsyncSqlite } from "./db-async-query.js";
-import { getDb, getSqliteFrom } from "./db-connection.js";
+import {
+  type DrizzleDb,
+  getDb,
+  getLogsDb,
+  getSqliteFrom,
+} from "./db-connection.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
-import { rawExec, rawGet, rawRun } from "./raw-query.js";
+import {
+  rawExec,
+  rawGet,
+  rawLogsRun,
+  rawMemoryRun,
+  rawRun,
+} from "./raw-query.js";
 import {
   channelInboundEvents,
   conversations,
@@ -83,6 +94,19 @@ import {
 import { extractInjectedConceptSlugs } from "./v2/injected-block-slugs.js";
 
 const log = getLogger("conversation-store");
+
+/**
+ * The logs connection (`assistant-logs.db`), where `llm_request_logs` lives.
+ * Throws if the file cannot be opened — the few call sites here that touch
+ * request logs (conversation deletes, turn-window anchoring) have no fallback.
+ */
+function logsDb(): DrizzleDb {
+  const db = getLogsDb();
+  if (!db) {
+    throw new Error("logs database unavailable");
+  }
+  return db;
+}
 
 // ── Message metadata Zod schema ──────────────────────────────────────
 // Validates the JSON stored in messages.metadata. Known fields are typed;
@@ -148,6 +172,13 @@ export const messageMetadataSchema = z
     nowScratchpadBlock: z.string().optional(),
     pkbContextBlock: z.string().optional(),
     memoryV2StaticBlock: z.string().optional(),
+    /** `<background_turn>` block (background/scheduled non-interactive turns),
+     *  rehydrated by `loadFromDb` for reload/fork prefix-cache parity. */
+    backgroundTurnBlock: z.string().optional(),
+    /** `<channel_capabilities>` block, rehydrated for the same reason. */
+    channelCapabilitiesBlock: z.string().optional(),
+    /** `<non_interactive_context>` block, rehydrated for the same reason. */
+    nonInteractiveContextBlock: z.string().optional(),
   })
   .passthrough();
 
@@ -1180,6 +1211,13 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   const convBeforeDelete = getConversation(id);
   const createdAtForDiskCleanup = convBeforeDelete?.createdAt;
 
+  // llm_request_logs lives in the dedicated logs connection, so it is deleted
+  // there — separately from the main-DB transaction below.
+  logsDb()
+    .delete(llmRequestLogs)
+    .where(eq(llmRequestLogs.conversationId, id))
+    .run();
+
   db.transaction((tx) => {
     // Collect all message IDs for this conversation.
     const messageRows = tx
@@ -1199,9 +1237,6 @@ export function deleteConversation(id: string): DeletedMemoryIds {
       result.segmentIds = linkedSegments.map((r) => r.id);
 
       // Delete non-cascading tables first.
-      tx.delete(llmRequestLogs)
-        .where(eq(llmRequestLogs.conversationId, id))
-        .run();
       tx.delete(toolInvocations)
         .where(eq(toolInvocations.conversationId, id))
         .run();
@@ -1224,9 +1259,6 @@ export function deleteConversation(id: string): DeletedMemoryIds {
       }
     } else {
       // No messages — just clean up non-message tables.
-      tx.delete(llmRequestLogs)
-        .where(eq(llmRequestLogs.conversationId, id))
-        .run();
       tx.delete(toolInvocations)
         .where(eq(toolInvocations.conversationId, id))
         .run();
@@ -2133,8 +2165,11 @@ export async function clearAll(): Promise<{
   // Each DELETE goes through `runAsyncSqlite`. The original code threw
   // on rawExec failure; mirror that here by throwing when the async
   // result reports `ok: false`, so the route handler still returns 500.
-  const runOrThrow = async (sql: string): Promise<void> => {
-    const result = await runAsyncSqlite(sql);
+  const runOrThrow = async (
+    sql: string,
+    options?: { dbPath?: string },
+  ): Promise<void> => {
+    const result = await runAsyncSqlite(sql, options);
     if (!result.ok) {
       throw new Error(
         `clearAll: \`${sql}\` failed (${result.backend}): ${result.error ?? "unknown"}`,
@@ -2154,9 +2189,12 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM memory_segments");
   await runOrThrow("DELETE FROM memory_summaries");
   await runOrThrow("DELETE FROM memory_embeddings");
-  await runOrThrow("DELETE FROM memory_jobs");
+  // memory_jobs and llm_request_logs each live in their own dedicated
+  // connection; clear them directly on those connections rather than through a
+  // sqlite3 subprocess.
+  rawMemoryRun("DELETE FROM memory_jobs");
   await runOrThrow("DELETE FROM memory_checkpoints");
-  await runOrThrow("DELETE FROM llm_request_logs");
+  rawLogsRun("DELETE FROM llm_request_logs");
   await runOrThrow("DELETE FROM llm_usage_events");
   await runOrThrow("DELETE FROM message_attachments");
   await runOrThrow("DELETE FROM attachments");
@@ -2849,7 +2887,8 @@ export function getTurnTimeBounds(
       : startTime + MAX_TURN_DURATION_MS;
 
   if (hardCeiling > endTime) {
-    const latestLog = db
+    // llm_request_logs lives in the dedicated logs connection.
+    const latestLog = logsDb()
       .select({ createdAt: llmRequestLogs.createdAt })
       .from(llmRequestLogs)
       .where(
