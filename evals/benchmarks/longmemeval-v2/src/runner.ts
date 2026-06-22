@@ -100,7 +100,7 @@ export interface RunLongMemEvalV2UnitInput {
   quietMs?: number;
   /**
    * Hard wall-clock cap (ms) for the *question* turn in `runIngestAsk`.
-   * Defaults to 6 minutes. If the agent doesn't produce an answer within
+   * Defaults to 10 minutes. If the agent doesn't produce an answer within
    * this budget the run is graded as a completed miss (score 0), not an
    * errored run. Surfaced here so the harness can override per-run.
    */

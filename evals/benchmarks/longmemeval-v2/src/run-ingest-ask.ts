@@ -86,7 +86,7 @@ export interface IngestAskInput {
    * a final answer within this budget, the run is graded as a completed
    * miss (score 0), not an errored run — "the model took too long to
    * answer" is a real, gradable outcome rather than a harness failure.
-   * Defaults to 6 minutes.
+   * Defaults to 10 minutes.
    */
   questionMaxMs?: number;
   /**
@@ -169,12 +169,12 @@ export interface IngestAskResult {
 
 const DEFAULT_QUIET_MS = 30_000;
 /**
- * Default hard wall-clock cap for the question turn: 6 minutes. Generous
+ * Default hard wall-clock cap for the question turn: 10 minutes. Generous
  * enough for a retrieval-heavy turn (on-demand `file_read`/`grep` over the
  * staged trajectories plus extended thinking) to reach an answer; a turn
  * that blows past it is graded as a completed miss, not an error.
  */
-export const DEFAULT_QUESTION_MAX_MS = 360_000;
+export const DEFAULT_QUESTION_MAX_MS = 600_000;
 const DEFAULT_INGEST_QUIET_MS = 120_000;
 const DEFAULT_INGEST_SENTINEL = "Ready.";
 const DEFAULT_INGEST_MAX_MS = 600_000;
