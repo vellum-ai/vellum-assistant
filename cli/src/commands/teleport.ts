@@ -3,7 +3,6 @@ import {
   loadAllAssistants,
   getDaemonPidPath,
   removeAssistantEntry,
-  resolveCloud,
   saveAssistantEntry,
   setActiveAssistant,
   type AssistantEntry,
@@ -841,7 +840,7 @@ export async function resolveOrHatchTarget(
     const existing = findAssistantByName(targetName);
     if (existing) {
       // Validate the existing assistant's cloud matches the requested env
-      const existingCloud = resolveCloud(existing);
+      const existingCloud = existing.cloud;
       const normalizedExisting =
         existingCloud === "vellum" ? "platform" : existingCloud;
       if (normalizedExisting !== targetEnv) {
@@ -1190,7 +1189,7 @@ export async function teleport(): Promise<void> {
     process.exit(1);
   }
 
-  const fromCloud = resolveCloud(fromEntry);
+  const fromCloud = fromEntry.cloud;
 
   if (fromCloud === "apple-container") {
     console.error(
@@ -1216,7 +1215,7 @@ export async function teleport(): Promise<void> {
 
     if (existingTarget) {
       // Target exists — validate cloud matches the flag, then run preflight
-      const toCloud = resolveCloud(existingTarget);
+      const toCloud = existingTarget.cloud;
       const normalizedTargetEnv = toCloud === "vellum" ? "platform" : toCloud;
       if (normalizedTargetEnv !== targetEnv) {
         console.error(
@@ -1320,7 +1319,7 @@ export async function teleport(): Promise<void> {
     // exporting — so we don't waste work on an invalid command.
     const existingTarget = targetName ? findAssistantByName(targetName) : null;
     if (existingTarget) {
-      const existingCloud = resolveCloud(existingTarget);
+      const existingCloud = existingTarget.cloud;
       if (existingCloud !== "vellum") {
         console.error(
           `Error: Assistant '${targetName}' is a ${existingCloud} assistant, not platform. ` +
@@ -1376,7 +1375,7 @@ export async function teleport(): Promise<void> {
 
     // Hatch (export succeeded — safe to create the target)
     const toEntry = await resolveOrHatchTarget(targetEnv, targetName);
-    const toCloud = resolveCloud(toEntry);
+    const toCloud = toEntry.cloud;
 
     // Import from GCS
     console.log(`Importing to ${toEntry.assistantId} (${toCloud})...`);
@@ -1463,7 +1462,7 @@ export async function teleport(): Promise<void> {
 
   // Resolve or hatch target (after source is stopped to avoid port conflicts)
   const toEntry = await resolveOrHatchTarget(targetEnv, targetName);
-  const toCloud = resolveCloud(toEntry);
+  const toCloud = toEntry.cloud;
 
   // Post-hatch same-environment safety net — uses resolved clouds in case
   // the resolved target cloud differs from the CLI flag (e.g., --docker

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+import { parseLockfile } from "@vellumai/local-mode/contract";
+
 import * as localModeHost from "@/runtime/local-mode-host";
 
 const replacePlatformAssistantsHost = mock(
@@ -224,9 +226,15 @@ describe("assistant classification", () => {
     expect(isLocalAssistant(appleContainer)).toBe(false);
   });
 
-  test("a legacy entry with no cloud is treated as local", () => {
-    const legacy = { assistantId: "old" } as LockfileAssistant;
-    expect(isLocalAssistant(legacy)).toBe(true);
+  test("a legacy entry with no cloud normalizes to local at the parse seam", () => {
+    // Entries that predate the `cloud` field are normalized to "local" by
+    // parseLockfile (see @vellumai/local-mode/contract), so by the time one
+    // reaches isLocalAssistant its cloud is already set.
+    const { assistants } = parseLockfile({
+      assistants: [{ assistantId: "old" }],
+      activeAssistant: null,
+    });
+    expect(isLocalAssistant(assistants[0]!)).toBe(true);
   });
 
   test("remote self-hosted clouds are neither local nor platform", () => {
@@ -290,11 +298,13 @@ describe("isCliWakeableAssistant", () => {
     expect(isCliWakeableAssistant("legacy")).toBe(true);
   });
 
-  test("a cloud:null (legacy) entry is wakeable", () => {
-    setLockfile({
-      assistants: [{ assistantId: "old" } as LockfileAssistant],
-      activeAssistant: "old",
-    });
+  test("a legacy (cloud-less) entry is wakeable once normalized at parse", () => {
+    setLockfile(
+      parseLockfile({
+        assistants: [{ assistantId: "old" }],
+        activeAssistant: "old",
+      }),
+    );
     expect(isCliWakeableAssistant("old")).toBe(true);
   });
 

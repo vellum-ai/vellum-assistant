@@ -127,6 +127,7 @@ describe("host-proxy-router", () => {
         assistants: [
           {
             assistantId: "a1",
+            cloud: "local",
             resources: { gatewayPort: 9001, daemonPort: 9002 },
           },
         ],
@@ -148,7 +149,7 @@ describe("host-proxy-router", () => {
       // Appear
       lockfileListener?.({
         assistants: [
-          { assistantId: "a1", resources: { gatewayPort: 9001, daemonPort: 9002 } },
+          { assistantId: "a1", cloud: "local", resources: { gatewayPort: 9001, daemonPort: 9002 } },
         ],
         activeAssistant: "a1",
       });
@@ -165,7 +166,7 @@ describe("host-proxy-router", () => {
       installHostProxyBridge(fakeCliResolver);
 
       lockfileListener?.({
-        assistants: [{ assistantId: "no-resources" }],
+        assistants: [{ assistantId: "no-resources", cloud: "local" }],
         activeAssistant: null,
       });
       await flush();
@@ -178,7 +179,7 @@ describe("host-proxy-router", () => {
 
       const lockfile: Lockfile = {
         assistants: [
-          { assistantId: "a1", resources: { gatewayPort: 9001, daemonPort: 9002 } },
+          { assistantId: "a1", cloud: "local", resources: { gatewayPort: 9001, daemonPort: 9002 } },
         ],
         activeAssistant: "a1",
       };
@@ -198,7 +199,7 @@ describe("host-proxy-router", () => {
 
       lockfileListener?.({
         assistants: [
-          { assistantId: "a1", resources: { gatewayPort: 9001, daemonPort: 9002 } },
+          { assistantId: "a1", cloud: "local", resources: { gatewayPort: 9001, daemonPort: 9002 } },
         ],
         activeAssistant: "a1",
       });
@@ -218,7 +219,7 @@ describe("host-proxy-router", () => {
 
       lockfileListener?.({
         assistants: [
-          { assistantId: "a1", resources: { gatewayPort: 9001, daemonPort: 9002 } },
+          { assistantId: "a1", cloud: "local", resources: { gatewayPort: 9001, daemonPort: 9002 } },
         ],
         activeAssistant: "a1",
       });
@@ -355,7 +356,7 @@ describe("host-proxy-router", () => {
 
       lockfileListener?.({
         assistants: [
-          { assistantId: "local-1", resources: { gatewayPort: 9001, daemonPort: 9002 } },
+          { assistantId: "local-1", cloud: "local", resources: { gatewayPort: 9001, daemonPort: 9002 } },
           { assistantId: "cloud-1", cloud: "vellum", runtimeUrl: "https://platform.vellum.ai" },
         ],
         activeAssistant: "local-1",

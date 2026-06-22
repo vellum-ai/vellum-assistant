@@ -166,8 +166,7 @@ mock.module("@/lib/auth/remote-gateway-session", () => ({
 mock.module("@/lib/local-mode", () => ({
   isLocalMode: () => mockIsLocalMode,
   isRemoteGatewayMode: () => mockIsRemoteGatewayMode,
-  isLocalAssistant: (a: { cloud?: string }) =>
-    a.cloud == null || a.cloud === "local",
+  isLocalAssistant: (a: { cloud?: string }) => a.cloud === "local",
   isPlatformAssistant: (a: { cloud?: string }) => a.cloud === "vellum",
   getPlatformAssistants: () => mockPlatformAssistants,
   getLocalAssistants: () => [],
