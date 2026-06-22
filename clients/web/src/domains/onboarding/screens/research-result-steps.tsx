@@ -10,11 +10,13 @@
  *   - SuggestionsStep      tappable suggestions that open a new chat
  *
  * Foreground only (the toned backdrop sits behind). The claims + suggestions
- * are MOCK data for now — the real research streaming/parsing already exists in
- * `domains/chat/onboarding-research` and will be wired into this flow later.
+ * are the REAL research output — the route fires the research turn against the
+ * hatched assistant (see `research-runner.ts`) and threads the parsed
+ * `{ claims, suggestions }` in here. Each step falls back to a graceful
+ * loading / empty presentation while the turn is still streaming.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, Sparkles, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
@@ -23,6 +25,7 @@ import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
+import type { ResearchFact } from "@/utils/research-facts";
 
 function useViewportSize() {
   const [size, setSize] = useState(() => ({
@@ -214,26 +217,17 @@ export function LookingYouUpStep({
 // Research results ("Alright, this is what I got:")
 // ---------------------------------------------------------------------------
 
-/** Mock claims, lightly personalized from the collected fields. */
-function mockClaims(firstName: string, role: string): string[] {
-  const r = role.trim() || "doing interesting work";
-  return [
-    `You're a ${r}`.replace(/\s+/g, " "),
-    firstName.trim() ? `Goes by ${firstName.trim()}` : "Based somewhere sunny",
-    "You climb outdoors",
-    "Juggles launches, content, and GTM",
-  ];
-}
-
 export function ResearchResultsStep({
-  firstName,
-  role,
+  claims,
+  loading,
   onContinue,
   onBack,
   onForward,
 }: {
-  firstName: string;
-  role: string;
+  /** Parsed research claims (streams in; may be empty while still running). */
+  claims: ResearchFact[];
+  /** True while the research turn is still streaming. */
+  loading: boolean;
   onContinue: () => void;
   onBack: () => void;
   /** Redo into the next step — only set when the user has stepped back. */
@@ -241,8 +235,11 @@ export function ResearchResultsStep({
 }) {
   const tone = useOnboardingTone();
   const reduce = useReducedMotion();
-  const initial = useMemo(() => mockClaims(firstName, role), [firstName, role]);
-  const [claims, setClaims] = useState(initial);
+  // Locally track removed claims by their text so a user can prune what's wrong
+  // without mutating the streamed list (which may still be growing).
+  const [removed, setRemoved] = useState<Set<string>>(() => new Set());
+  const visible = claims.filter((c) => !removed.has(c.claim));
+  const hasClaims = visible.length > 0;
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
@@ -256,14 +253,18 @@ export function ResearchResultsStep({
           </h1>
         </div>
         <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
-          Feel free to remove anything that&rsquo;s not true
+          {hasClaims
+            ? "Feel free to remove anything that’s not true"
+            : loading
+              ? "Still putting this together…"
+              : "I didn’t turn up much — we can fill it in as we chat."}
         </p>
 
         <div className="flex flex-col gap-3">
           <AnimatePresence>
-            {claims.map((claim) => (
+            {visible.map((fact) => (
               <motion.div
-                key={claim}
+                key={fact.claim}
                 layout
                 initial={reduce ? false : { opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -275,11 +276,13 @@ export function ResearchResultsStep({
                     : "rgba(255,255,255,0.1)",
                 }}
               >
-                <span>{claim}</span>
+                <span>{fact.claim}</span>
                 <button
                   type="button"
-                  aria-label={`Remove "${claim}"`}
-                  onClick={() => setClaims((cs) => cs.filter((c) => c !== claim))}
+                  aria-label={`Remove "${fact.claim}"`}
+                  onClick={() =>
+                    setRemoved((prev) => new Set(prev).add(fact.claim))
+                  }
                   className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-opacity hover:opacity-100"
                   style={{ color: tone.fgMuted }}
                 >
@@ -311,19 +314,28 @@ export function ResearchResultsStep({
 // Suggestions
 // ---------------------------------------------------------------------------
 
-/** Mock suggestions; clicking opens a new chat with this as the prompt. */
-const MOCK_SUGGESTIONS = [
-  "Build a live dashboard to track my key metrics",
-  "Set up a weekly monitor for news in my space",
-  "Draft a launch announcement from my notes",
-  "Summarize my unread email each morning",
+/**
+ * Generic fallbacks shown only if the research turn produced no suggestions
+ * (failure / sparse subject) so the step is never empty once it's done loading.
+ */
+const FALLBACK_SUGGESTIONS = [
+  "Build a live dashboard to track what matters to me",
+  "Set up a weekly briefing on news in my space",
+  "Help me get on top of my week",
+  "Draft something from a few rough notes",
 ];
 
 export function SuggestionsStep({
+  suggestions,
+  loading,
   onSuggestionClick,
   onBack,
   onForward,
 }: {
+  /** Parsed research suggestions (streams in; may be empty while running). */
+  suggestions: string[];
+  /** True while the research turn is still streaming. */
+  loading: boolean;
   onSuggestionClick: (prompt: string) => void;
   onBack: () => void;
   /** Redo into the next step — only set when the user has stepped back. */
@@ -331,6 +343,14 @@ export function SuggestionsStep({
 }) {
   const tone = useOnboardingTone();
   const reduce = useReducedMotion();
+  // Show real suggestions as they arrive; only fall back once the turn settles
+  // with nothing, so we never flash generic prompts over an in-flight result.
+  const items =
+    suggestions.length > 0
+      ? suggestions
+      : loading
+        ? []
+        : FALLBACK_SUGGESTIONS;
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
@@ -344,11 +364,13 @@ export function SuggestionsStep({
           </h1>
         </div>
         <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
-          Pick one to jump in — or start your own thing.
+          {items.length > 0
+            ? "Pick one to jump in — or start your own thing."
+            : "Putting together a few ideas…"}
         </p>
 
         <div className="flex flex-col gap-3">
-          {MOCK_SUGGESTIONS.map((s, i) => (
+          {items.map((s, i) => (
             <motion.button
               key={s}
               type="button"
