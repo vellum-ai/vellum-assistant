@@ -323,4 +323,124 @@ describe("IPC contact routes", () => {
     expect(res.error).toBeDefined();
     expect(res.error).toContain("Invalid params");
   });
+
+  // -------------------------------------------------------------------------
+  // create_contact (gateway DB source of truth via ContactStore.upsertContact)
+  // -------------------------------------------------------------------------
+  //
+  // No assistant daemon is running in these tests, so the best-effort
+  // assistant-DB dual-write inside upsertContact fails and is soft-failed —
+  // the gateway write still succeeds and { contactId, channelId } is still
+  // returned (invariant 2). This is exactly what we assert below.
+
+  test("create_contact writes the gateway DB contacts + contact_channels rows", async () => {
+    await startServerAndConnect();
+    const res = await sendRequest(client, "create_contact", {
+      channelType: "email",
+      address: "new@example.com",
+      displayName: "New Person",
+    });
+
+    expect(res.error).toBeUndefined();
+    const { contactId, channelId } = res.result as {
+      contactId: string;
+      channelId: string;
+    };
+    expect(contactId).toBeTruthy();
+    expect(channelId).toBeTruthy();
+
+    // The gateway DB (source of truth) now has both rows — previously the
+    // raw-SQL handler wrote the assistant DB only.
+    const store = new ContactStore(getGatewayDb());
+    const contact = store.getContact(contactId);
+    expect(contact).toBeDefined();
+    expect(contact!.displayName).toBe("New Person");
+    // role is always "contact" — guardian binding is not settable here.
+    expect(contact!.role).toBe("contact");
+
+    const channels = store.getChannelsForContact(contactId);
+    expect(channels).toHaveLength(1);
+    expect(channels[0].id).toBe(channelId);
+    expect(channels[0].type).toBe("email");
+    expect(channels[0].address).toBe("new@example.com");
+    expect(channels[0].isPrimary).toBe(true);
+  });
+
+  test("create_contact returns { contactId, channelId } both present and non-empty", async () => {
+    await startServerAndConnect();
+    const res = await sendRequest(client, "create_contact", {
+      channelType: "email",
+      address: "shape@example.com",
+    });
+
+    expect(res.error).toBeUndefined();
+    const result = res.result as { contactId: string; channelId: string };
+    expect(typeof result.contactId).toBe("string");
+    expect(typeof result.channelId).toBe("string");
+    expect(result.contactId.length).toBeGreaterThan(0);
+    expect(result.channelId.length).toBeGreaterThan(0);
+  });
+
+  test("create_contact ignores the role param (guardian binding not settable here)", async () => {
+    await startServerAndConnect();
+    const res = await sendRequest(client, "create_contact", {
+      channelType: "email",
+      address: "wannabe-guardian@example.com",
+      role: "guardian",
+    });
+
+    expect(res.error).toBeUndefined();
+    const { contactId } = res.result as { contactId: string };
+
+    const store = new ContactStore(getGatewayDb());
+    expect(store.getContact(contactId)!.role).toBe("contact");
+  });
+
+  test("create_contact is idempotent for the same (channelType, address)", async () => {
+    await startServerAndConnect();
+    const first = await sendRequest(client, "create_contact", {
+      channelType: "email",
+      address: "dup@example.com",
+    });
+    const second = await sendRequest(client, "create_contact", {
+      channelType: "email",
+      address: "dup@example.com",
+    });
+
+    expect(first.error).toBeUndefined();
+    expect(second.error).toBeUndefined();
+    const a = first.result as { contactId: string; channelId: string };
+    const b = second.result as { contactId: string; channelId: string };
+    expect(b.contactId).toBe(a.contactId);
+    expect(b.channelId).toBe(a.channelId);
+
+    // No duplicate rows.
+    const store = new ContactStore(getGatewayDb());
+    expect(store.listContacts()).toHaveLength(1);
+    expect(store.getChannelsForContact(a.contactId)).toHaveLength(1);
+  });
+
+  test("create_contact canonicalizes the address so a non-canonical variant matches", async () => {
+    await startServerAndConnect();
+    // Phone numbers canonicalize to E.164; a variant with spacing/punctuation
+    // must resolve to the same channel on the second call.
+    const first = await sendRequest(client, "create_contact", {
+      channelType: "phone",
+      address: "+1 (555) 010-1234",
+    });
+    const second = await sendRequest(client, "create_contact", {
+      channelType: "phone",
+      address: "+15550101234",
+    });
+
+    expect(first.error).toBeUndefined();
+    expect(second.error).toBeUndefined();
+    const a = first.result as { contactId: string; channelId: string };
+    const b = second.result as { contactId: string; channelId: string };
+    expect(b.contactId).toBe(a.contactId);
+    expect(b.channelId).toBe(a.channelId);
+
+    const store = new ContactStore(getGatewayDb());
+    expect(store.getChannelsForContact(a.contactId)).toHaveLength(1);
+  });
 });
