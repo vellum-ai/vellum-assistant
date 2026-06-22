@@ -263,7 +263,7 @@ async function handleRevokeVerificationBinding({
 }: RouteHandlerArgs) {
   const { channel } = body as { channel?: ChannelId };
 
-  const result = revokeVerificationForChannel(channel);
+  const result = await revokeVerificationForChannel(channel);
   if (!result.success) {
     throw new BadRequestError(
       (result as { message?: string }).message ?? "Revocation failed",

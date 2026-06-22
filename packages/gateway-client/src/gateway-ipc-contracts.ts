@@ -114,3 +114,32 @@ export const MarkChannelVerifiedIpcResponseSchema = z.object({
 export type MarkChannelVerifiedIpcResponse = z.infer<
   typeof MarkChannelVerifiedIpcResponseSchema
 >;
+
+export const MarkChannelRevokedIpcParamsSchema = z.object({
+  contactChannelId: z.string().min(1),
+  // Audit reason for the downgrade. The verification-revoke flow passes
+  // "guardian_binding_revoked", the only reason allowed to downgrade a
+  // guardian channel (guardian guard, invariant 4).
+  reason: z.string().optional(),
+});
+
+export type MarkChannelRevokedIpcParams = z.infer<
+  typeof MarkChannelRevokedIpcParamsSchema
+>;
+
+export const MarkChannelRevokedIpcResponseSchema = z.object({
+  ok: z.boolean(),
+  didWrite: z.boolean(),
+  channel: z.object({
+    id: z.string(),
+    contactId: z.string(),
+    type: z.string(),
+    address: z.string(),
+    status: z.string(),
+    revokedReason: z.string().nullable(),
+  }),
+});
+
+export type MarkChannelRevokedIpcResponse = z.infer<
+  typeof MarkChannelRevokedIpcResponseSchema
+>;

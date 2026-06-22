@@ -86,6 +86,10 @@ const markChannelVerifiedHandler = contactRoutes.find(
   (r) => r.method === "mark_channel_verified",
 )!.handler;
 
+const markChannelRevokedHandler = contactRoutes.find(
+  (r) => r.method === "mark_channel_revoked",
+)!.handler;
+
 beforeAll(async () => {
   await initGatewayDb();
 });
@@ -245,5 +249,73 @@ describe("mark_channel_verified IPC handler", () => {
       .get();
     expect(channelInGateway).toBeTruthy();
     expect(channelInGateway!.contactId).toBe("c1");
+  });
+});
+
+describe("mark_channel_revoked IPC handler", () => {
+  test("downgrades a contact channel to revoked + reason and returns the envelope", async () => {
+    seedContact("c1", "contact");
+    seedChannel({ id: "ch1", contactId: "c1", status: "active" });
+
+    const res = (await markChannelRevokedHandler({
+      contactChannelId: "ch1",
+      reason: "guardian_binding_revoked",
+    })) as {
+      ok: boolean;
+      didWrite: boolean;
+      channel: { status: string; revokedReason: string | null };
+    };
+
+    expect(res.ok).toBe(true);
+    expect(res.didWrite).toBe(true);
+    expect(res.channel.status).toBe("revoked");
+    expect(res.channel.revokedReason).toBe("guardian_binding_revoked");
+
+    const row = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, "ch1"))
+      .get();
+    expect(row!.status).toBe("revoked");
+    expect(row!.revokedReason).toBe("guardian_binding_revoked");
+  });
+
+  test("guardian guard rejects a non-binding downgrade of a guardian channel", async () => {
+    seedContact("g1", "guardian");
+    seedChannel({ id: "gch1", contactId: "g1", status: "active" });
+
+    await expect(
+      markChannelRevokedHandler({
+        contactChannelId: "gch1",
+        reason: "some_other_reason",
+      }),
+    ).rejects.toThrow(/guardian channel/i);
+
+    // Row is untouched — the guard rejects before any write.
+    const row = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, "gch1"))
+      .get();
+    expect(row!.status).toBe("active");
+  });
+
+  test("allows the sanctioned guardian-binding teardown on a guardian channel", async () => {
+    seedContact("g1", "guardian");
+    seedChannel({ id: "gch1", contactId: "g1", status: "active" });
+
+    const res = (await markChannelRevokedHandler({
+      contactChannelId: "gch1",
+      reason: "guardian_binding_revoked",
+    })) as { ok: boolean; channel: { status: string } };
+
+    expect(res.ok).toBe(true);
+    expect(res.channel.status).toBe("revoked");
+  });
+
+  test("throws on a missing channel id (no silent success)", async () => {
+    await expect(
+      markChannelRevokedHandler({ contactChannelId: "nonexistent" }),
+    ).rejects.toThrow(/not found/);
   });
 });
