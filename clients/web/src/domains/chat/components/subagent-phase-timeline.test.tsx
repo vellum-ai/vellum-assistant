@@ -43,6 +43,10 @@ function thinking(text: string, duration = "1s"): ToolCallCardStep {
   return { kind: "thinking", durationLabel: duration, text };
 }
 
+function toolError(message: string): ToolCallCardStep {
+  return { kind: "tool_error", message };
+}
+
 describe("SubagentPhaseTimeline — empty input", () => {
   test("renders nothing when there are no steps (panel owns the empty state)", () => {
     const { container } = render(<SubagentPhaseTimeline steps={[]} />);
@@ -127,6 +131,50 @@ describe("SubagentPhaseTimeline — step-count pill", () => {
     const steps: ToolCallCardStep[] = [bash("a", "completed", "1s", "tc-a")];
     const { queryByTestId } = render(<SubagentPhaseTimeline steps={steps} />);
     expect(queryByTestId("subagent-phase-step-count")).toBeNull();
+  });
+});
+
+describe("SubagentPhaseTimeline — single-step expandability", () => {
+  // Regression (Gap 1): a single `tool_error` phase carries its message only in
+  // the step pill. The row must be expandable (chevron shown) even though there
+  // is no "N steps" pill, so the error text stays reachable.
+  test("a single tool_error phase is expandable and reveals its error on click", () => {
+    const steps: ToolCallCardStep[] = [toolError("context window exceeded")];
+    const { getByTestId, queryByTestId, queryAllByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} />,
+    );
+
+    const header = getByTestId("subagent-phase-header");
+    // No "N steps" pill for a lone step, but the row is still interactive.
+    expect(queryByTestId("subagent-phase-step-count")).toBeNull();
+    expect(header.hasAttribute("disabled")).toBe(false);
+
+    // Collapsed by default — the error message is hidden.
+    expect(queryAllByTestId("phase-step-pill").length).toBe(0);
+
+    // Clicking reveals the lone error pill carrying the message.
+    fireEvent.click(header);
+    const pills = queryAllByTestId("phase-step-pill");
+    expect(pills.length).toBe(1);
+    expect(pills[0]!.textContent).toContain("context window exceeded");
+  });
+
+  // Regression (Gap 1): a lone successful tool step with no `info` renders a
+  // null `DefaultStepPill` (nothing to reveal), so the row stays non-expandable
+  // — no chevron, no toggle, disabled header.
+  test("a single info-less successful tool step is NOT expandable", () => {
+    const steps: ToolCallCardStep[] = [bash("", "completed", "1s", "tc-a")];
+    const { getByTestId, queryByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} />,
+    );
+
+    const header = getByTestId("subagent-phase-header");
+    expect(header.hasAttribute("disabled")).toBe(true);
+    expect(queryByTestId("subagent-phase-step-count")).toBeNull();
+
+    // Clicking a disabled header does nothing — no pill ever appears.
+    fireEvent.click(header);
+    expect(queryByTestId("phase-step-pill")).toBeNull();
   });
 });
 

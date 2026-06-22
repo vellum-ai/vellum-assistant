@@ -37,7 +37,10 @@ import { Tooltip, Typography } from "@vellumai/design-library";
 
 import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
-import { formatMs, type ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
+import {
+  formatMs,
+  type ToolCallCardStep,
+} from "@/domains/chat/utils/tool-call-card-utils";
 import { cn } from "@/utils/misc";
 
 /** Concrete lucide icon for each `IconName` produced by `deriveStepLabel`. */
@@ -391,18 +394,7 @@ function TimelinePhaseSection({
       data-phase-label={section.label}
       className="relative flex flex-col gap-2"
     >
-      {/* Connector line at the node's center x. It starts BELOW this node
-          (`top-6`) and runs to the section bottom (`bottom-0`), which lands a
-          small, consistent gap before the next node — the timeline reads as
-          evenly-spaced segments rather than one line touching every circle.
-          The last section renders none (nothing trails below the final
-          circle). */}
-      {!isLast && (
-        <div
-          aria-hidden
-          className="absolute bottom-0 left-[6.5px] top-6 w-px bg-[var(--border-element)]"
-        />
-      )}
+      {!isLast && <TimelineConnector />}
       {/* Header row: circular node + label share ONE items-center row so the
           icon is vertically centered with the title regardless of line-height;
           the duration is pushed to the right edge. */}
@@ -440,6 +432,25 @@ function TimelinePhaseSection({
         {renderSectionSteps(section, baseIndex)}
       </div>
     </div>
+  );
+}
+
+/**
+ * The vertical connector line joining one timeline node down to the next. Sits
+ * at the node's center x (`left-[6.5px]`: the 14px icon at the section's left →
+ * center ≈ 7px). It starts BELOW this node (`top-6`) and runs to the section
+ * bottom (`bottom-0`), landing a small, consistent gap before the next node —
+ * the timeline reads as evenly-spaced segments rather than one line touching
+ * every circle. Render only for non-last sections (nothing trails below the
+ * final circle). Shared by the main-chat timeline and the subagent timeline so
+ * the geometry stays in one place.
+ */
+export function TimelineConnector() {
+  return (
+    <div
+      aria-hidden
+      className="absolute bottom-0 left-[6.5px] top-6 w-px bg-[var(--border-element)]"
+    />
   );
 }
 
@@ -506,9 +517,15 @@ function TimelineNodeIcon({
   return <ThreeDotIndicator data-testid={testId} className="shrink-0" />;
 }
 
-/** Stable key for a step descriptor — mirrors the dispatcher card helper. */
-function stepKey(step: ToolCallCardStep, idx: number): string {
-  if (step.kind === "tool") return step.toolCallId;
+/**
+ * Stable per-step key — a tool step's non-empty `toolCallId`, else the
+ * positional `${kind}-${idx}` fallback. Historical/older subagent events can
+ * carry an empty `toolCallId` (see `use-subagent-card-data.ts`), so guarding on
+ * a non-empty string keeps keys unique instead of collapsing every empty-id
+ * tool step onto the same `""` key. Shared with the subagent phase timeline.
+ */
+export function stepKey(step: ToolCallCardStep, idx: number): string {
+  if (step.kind === "tool" && step.toolCallId) return step.toolCallId;
   return `${step.kind}-${idx}`;
 }
 
