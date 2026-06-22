@@ -27,6 +27,7 @@ import {
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { conversations } from "../memory/schema.js";
+import { recordGuardianRequestDeliveries } from "../notifications/canonical-delivery-recorder.js";
 import { buildConversationCandidates } from "../notifications/conversation-candidates.js";
 import { createDecision } from "../notifications/decisions-store.js";
 import { createDelivery } from "../notifications/deliveries-store.js";
@@ -50,9 +51,12 @@ function resetTables(): void {
 
 /**
  * Seed a conversation the candidate builder will surface: a "sent" notification
- * delivery wired event -> decision -> delivery -> conversation on `CHANNEL`.
+ * delivery wired event -> decision -> delivery -> conversation on `channel`.
  */
-function seedCandidateConversation(conversationId: string): void {
+function seedCandidateConversation(
+  conversationId: string,
+  channel: NotificationChannel = CHANNEL,
+): void {
   const db = getDb();
   const now = Date.now();
   db.insert(conversations)
@@ -69,7 +73,7 @@ function seedCandidateConversation(conversationId: string): void {
   createEvent({
     id: eventId,
     sourceEventName: "schedule.notify",
-    sourceChannel: "vellum",
+    sourceChannel: channel,
     sourceContextId: conversationId,
     attentionHints: {
       requiresAction: false,
@@ -83,7 +87,7 @@ function seedCandidateConversation(conversationId: string): void {
     id: decisionId,
     notificationEventId: eventId,
     shouldNotify: true,
-    selectedChannels: [CHANNEL],
+    selectedChannels: [channel],
     reasoningSummary: "test",
     confidence: 1,
     fallbackUsed: false,
@@ -91,7 +95,7 @@ function seedCandidateConversation(conversationId: string): void {
   createDelivery({
     id: `del-${conversationId}`,
     notificationDecisionId: decisionId,
-    channel: CHANNEL,
+    channel,
     destination: "dest",
     status: "sent",
     attempt: 1,
@@ -100,9 +104,12 @@ function seedCandidateConversation(conversationId: string): void {
   });
 }
 
-function candidateFor(conversationId: string) {
-  const set = buildConversationCandidates([CHANNEL]);
-  return set[CHANNEL]?.find((c) => c.conversationId === conversationId);
+function candidateFor(
+  conversationId: string,
+  channel: NotificationChannel = CHANNEL,
+) {
+  const set = buildConversationCandidates([channel]);
+  return set[channel]?.find((c) => c.conversationId === conversationId);
 }
 
 describe("buildConversationCandidates guardian enrichment", () => {
@@ -158,5 +165,39 @@ describe("buildConversationCandidates guardian enrichment", () => {
     const candidate = candidateFor(convId);
     expect(candidate).toBeDefined();
     expect(candidate?.guardianContext).toBeUndefined();
+  });
+
+  test("counts a Slack channel card recorded through the real recorder", () => {
+    const SLACK = "slack" as NotificationChannel;
+    const convId = "conv-slack-card";
+    seedCandidateConversation(convId, SLACK);
+
+    // Channel-only access request: a synthetic source conversation, card
+    // delivered to a Slack chat. The recorder records the card's internal
+    // conversation, so the Slack candidate counts it.
+    const req = createCanonicalGuardianRequest({
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "slack",
+      conversationId: "access-req-synthetic",
+      guardianPrincipalId: TEST_PRINCIPAL,
+    });
+    recordGuardianRequestDeliveries({
+      requestId: req.id,
+      deliveryResults: [
+        {
+          channel: "slack",
+          destination: "slack-chat-1",
+          status: "sent",
+          conversationId: convId,
+          messageId: "ts-1",
+        },
+      ],
+    });
+
+    expect(
+      candidateFor(convId, SLACK)?.guardianContext
+        ?.pendingUnresolvedRequestCount,
+    ).toBe(1);
   });
 });
