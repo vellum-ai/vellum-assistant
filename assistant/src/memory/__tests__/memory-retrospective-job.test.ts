@@ -161,7 +161,7 @@ mock.module("../conversation-crud.js", () => ({
       title: "Source conversation",
     };
   },
-  forkConversation: (params: {
+  forkConversationForRetrospective: async (params: {
     conversationId: string;
     throughMessageId?: string;
     source: string;
