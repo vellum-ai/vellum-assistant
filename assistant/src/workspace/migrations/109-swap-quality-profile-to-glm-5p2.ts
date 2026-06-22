@@ -73,14 +73,11 @@ export const swapQualityProfileToGlm52Migration: WorkspaceMigration = {
         profile.model = GLM_52_MODEL;
         profile.provider = "fireworks";
         profile.provider_connection = "fireworks-managed";
-        // The Opus profile defaulted the advisor off because it was the
-        // advisor's own (strongest) profile. GLM 5.2 no longer holds that role —
-        // `frontier` does — so clear the seeded default and let it fall back to
-        // advisor-on. A user who explicitly toggled it keeps their choice (the
-        // value would not be the seeded `false`).
-        if (profile.advisorEnabled === false) {
-          delete profile.advisorEnabled;
-        }
+        // Leave `advisorEnabled` untouched. The old Quality template seeded it
+        // to `false`, which is indistinguishable from a user who explicitly
+        // turned the advisor off for this chat profile, so deleting it could
+        // silently reverse that preference. New installs omit the field (advisor
+        // on by default); existing installs keep whatever is persisted.
         profiles["quality-optimized"] = profile;
         llm.profiles = profiles;
         changed = true;

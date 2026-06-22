@@ -88,8 +88,9 @@ describe("109-swap-quality-profile-to-glm-5p2 migration", () => {
     expect(profile.provider).toBe("fireworks");
     expect(profile.provider_connection).toBe("fireworks-managed");
     expect(profile.label).toBe("Quality");
-    // The seeded advisor-off default is cleared so it falls back to advisor-on.
-    expect("advisorEnabled" in profile).toBe(false);
+    // `advisorEnabled` is left as persisted — deleting it could reverse an
+    // explicit user preference (the old seeded default was also `false`).
+    expect(profile.advisorEnabled).toBe(false);
   });
 
   test("swaps OpenRouter-prefixed Opus model ids", () => {
