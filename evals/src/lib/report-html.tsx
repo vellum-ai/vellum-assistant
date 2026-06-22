@@ -1,4 +1,6 @@
 import MarkdownIt from "markdown-it";
+import katex from "katex";
+import katexCssText from "katex/dist/katex.min.css?text";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type {
@@ -202,6 +204,46 @@ markdown.renderer.rules.image = (tokens, idx) => {
 };
 
 /**
+ * Render Markdown with inline LaTeX support. Extracts `$$...$$` (display)
+ * and `$...$` (inline) math blocks before markdown processing, renders them
+ * with KaTeX, then reinserts the rendered HTML so the markdown parser doesn't
+ * mangle the math syntax. Placeholder tokens survive markdown untouched
+ * because they contain no special characters.
+ */
+function renderMarkdownWithMath(text: string): string {
+  const mathBlocks: string[] = [];
+  const PLACEHOLDER = (i: number) => `MATHBLOCK${i}ENDMATHBLOCK`;
+
+  // Extract $$...$$ (display math) first — greedy across newlines.
+  let processed = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, expr: string) => {
+    const i = mathBlocks.length;
+    try {
+      mathBlocks.push(katex.renderToString(expr.trim(), { displayMode: true, throwOnError: false }));
+    } catch {
+      mathBlocks.push(`<code>$$${expr}$$</code>`);
+    }
+    return PLACEHOLDER(i);
+  });
+
+  // Extract $...$ (inline math) — but not inside code spans or after $.
+  processed = processed.replace(/(^|[^$])\$(?!\s)([^\n$]+?)(?!\s)\$(?!\d)/g, (_, pre: string, expr: string) => {
+    const i = mathBlocks.length;
+    try {
+      mathBlocks.push(katex.renderToString(expr.trim(), { displayMode: false, throwOnError: false }));
+    } catch {
+      mathBlocks.push(`<code>$${expr}$</code>`);
+    }
+    return `${pre}${PLACEHOLDER(i)}`;
+  });
+
+  // Render markdown, then reinsert math blocks.
+  const html = markdown.render(processed);
+  return html.replace(/MATHBLOCK(\d+)ENDMATHBLOCK/g, (_, i: string) =>
+    mathBlocks[Number(i)] ?? "",
+  );
+}
+
+/**
  * A chunk's run time, shown only on hover of its chunk (CSS reveal) so the
  * transcript stays uncluttered. The badge's own `title` surfaces the chunk's
  * start time on hover, so the two timestamps are one interaction apart without
@@ -396,6 +438,13 @@ td .row-link { display: block; }
 .muted { color: var(--muted); }
 .status { border: 1px solid currentColor; border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 800; text-transform: uppercase; }
 .transcript { display: flex; flex-direction: column; gap: 12px; }
+.transcript-wrap { display: flex; flex-direction: column; gap: 12px; }
+.conversation-tabs { display: flex; flex-wrap: wrap; gap: 0; margin-bottom: 12px; position: relative; }
+.conversation-radio { position: absolute; opacity: 0; pointer-events: none; }
+.conversation-tab-label { display: inline-block; padding: 6px 16px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--muted); transition: all .12s ease; user-select: none; }
+.conversation-radio:checked + .conversation-tab-label { color: var(--text); border-color: rgba(34,211,238,.5); background: rgba(34,211,238,.08); }
+.conversation-panel { display: none; }
+.conversation-radio:checked + .conversation-tab-label + .conversation-panel { display: flex; flex-direction: column; gap: 12px; position: absolute; top: 100%; left: 0; right: 0; padding-top: 12px; }
 .turn { padding: 14px 16px; border-radius: 18px; border: 1px solid var(--border); background: rgba(255,255,255,.045); }
 .turn.assistant { border-color: rgba(34,211,238,.22); }
 .turn.simulator { border-color: rgba(139,92,246,.24); }
@@ -510,6 +559,18 @@ pre.log { max-height: 480px; overflow: auto; padding: 16px; border-radius: 16px;
 .metric-card-meta dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; margin: 0; }
 .metric-card-meta dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; word-break: break-word; }
 .debug-section { border: 1px solid rgba(251, 113, 133, .24); background: rgba(251, 113, 133, .06); }
+.phase-timing { margin-bottom: 22px; }
+.phase-timing-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--border); margin-bottom: 10px; }
+.phase-bar-segment { height: 100%; transition: width .2s ease; }
+.phase-setup { background: #6366f1; }
+.phase-ingest { background: #22d3ee; }
+.phase-question { background: #a78bfa; }
+.phase-grading { background: #34d399; }
+.phase-timing-labels { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.phase-timing-item { display: inline-flex; align-items: center; gap: 6px; }
+.phase-timing-item strong { color: var(--text); font-variant-numeric: tabular-nums; }
+.phase-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.phase-timing-total { margin-left: auto; }
 .debug-item { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
 .debug-item:last-child { margin-bottom: 0; }
 .debug-item code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: rgba(0,0,0,.3); padding: 2px 6px; border-radius: 4px; font-size: 12px; flex: 1; overflow: auto; }
@@ -1319,7 +1380,7 @@ function AssistantMessage({ message }: { message: AssistantMessageView }) {
               <div
                 className="md"
                 dangerouslySetInnerHTML={{
-                  __html: markdown.render(block.text),
+                  __html: renderMarkdownWithMath(block.text),
                 }}
               />
               <ChunkDuration
@@ -1407,30 +1468,111 @@ function Transcript({
     return <p className="muted">No transcript turns recorded.</p>;
   }
 
+  // Group items by conversationKey. Turns without a key (legacy runs or
+  // single-conversation benchmarks) go into a single default group so the
+  // dropdown only appears when there are genuinely multiple conversations.
+  const groups: { key: string; label: string; items: typeof items }[] = [];
+  const DEFAULT_KEY = "__default__";
+  for (const item of items) {
+    const key =
+      (item.role === "simulator"
+        ? item.conversationKey
+        : item.conversationKey) ?? DEFAULT_KEY;
+    let group = groups.find((g) => g.key === key);
+    if (!group) {
+      group = {
+        key,
+        label: conversationLabel(key, turns),
+        items: [],
+      };
+      groups.push(group);
+    }
+    group.items.push(item);
+  }
+
+  // Single conversation (or legacy with no keys) — render flat, no dropdown.
+  if (groups.length <= 1) {
+    return (
+      <div className="transcript">
+        {(groups[0]?.items ?? items).map((item, index) => (
+          <TranscriptItem key={`${item.emittedAt ?? ""}-${index}`} item={item} />
+        ))}
+      </div>
+    );
+  }
+
+  // Multiple conversations — radio-tabbed dropdown so the user can flip
+  // between them. Same CSS-only pattern as the execution tabs.
   return (
-    <div className="transcript">
-      {items.map((item, index) => {
-        const stamp = item.role === "simulator" ? item.emittedAt : item.endedAt;
-        return (
-          <article
-            key={`${item.emittedAt ?? ""}-${index}`}
-            className={`turn ${item.role}`}
-          >
-            <div className="turn-head">
-              <span>{item.role}</span>
+    <div className="transcript-wrap">
+      <div className="conversation-tabs">
+        {groups.map((group, index) => (
+          <label key={group.key}>
+            <input
+              type="radio"
+              name="conversation-select"
+              className="conversation-radio"
+              defaultChecked={index === 0}
+            />
+            <span className="conversation-tab-label">{group.label}</span>
+            <div className="transcript conversation-panel">
+              {group.items.map((item, i) => (
+                <TranscriptItem
+                  key={`${item.emittedAt ?? ""}-${i}`}
+                  item={item}
+                />
+              ))}
             </div>
-            {item.role === "simulator" ? (
-              <div className="turn-body">{item.content}</div>
-            ) : (
-              <AssistantMessage message={item} />
-            )}
-            {stamp ? (
-              <div className="turn-time">{formatRecordedAt(stamp)}</div>
-            ) : null}
-          </article>
-        );
-      })}
+          </label>
+        ))}
+      </div>
     </div>
+  );
+}
+
+/** Human-readable label for a conversation key, derived from the turns. */
+function conversationLabel(
+  key: string,
+  turns: TranscriptTurn[],
+): string {
+  if (key === "__default__") return "Conversation";
+  // The first simulator turn with this conversationKey tells us which
+  // phase it is — ingest prompts mention "staged" / "trajectory" /
+  // "memory", question prompts are the actual test question.
+  const firstSim = turns.find(
+    (t) => t.role === "simulator" && t.conversationKey === key,
+  );
+  if (!firstSim) return key.length > 12 ? `${key.slice(0, 12)}…` : key;
+  const content = firstSim.content.toLowerCase();
+  if (content.includes("staged") || content.includes("trajectory") || content.includes("memory")) {
+    return "Ingest";
+  }
+  return "Question";
+}
+
+function TranscriptItem({
+  item,
+}: {
+  item: ReturnType<typeof buildTranscriptView>[number];
+}) {
+  const stamp = item.role === "simulator" ? item.emittedAt : item.endedAt;
+  return (
+    <article
+      key={`${item.emittedAt ?? ""}`}
+      className={`turn ${item.role}`}
+    >
+      <div className="turn-head">
+        <span>{item.role}</span>
+      </div>
+      {item.role === "simulator" ? (
+        <div className="turn-body">{item.content}</div>
+      ) : (
+        <AssistantMessage message={item} />
+      )}
+      {stamp ? (
+        <div className="turn-time">{formatRecordedAt(stamp)}</div>
+      ) : null}
+    </article>
   );
 }
 
@@ -1818,6 +1960,104 @@ function ExecutionTabs({ run }: { run: ReportRunDetail }) {
   );
 }
 
+/**
+ * Per-phase wall-clock timing breakdown. Computes durations from the progress
+ * events (setup/send/metrics) and the ingest + question event streams, so the
+ * user can see where time was spent — especially when a run takes 5+ minutes
+ * and it's not clear whether the ingest or the question turn dominated.
+ */
+function PhaseTiming({ run }: { run: ReportRunDetail }) {
+  // Derive phase spans from progress events.
+  const setupStart = run.progressEvents.find(
+    (e) => e.step === "setup" && e.status === "start",
+  )?.emittedAt;
+  const setupEnd = run.progressEvents.find(
+    (e) => e.step === "setup" && e.status === "done",
+  )?.emittedAt;
+  const sendStart = run.progressEvents.find(
+    (e) => e.step === "send" && e.status === "start",
+  )?.emittedAt;
+  const sendEnd = run.progressEvents.find(
+    (e) => e.step === "send" && e.status === "done",
+  )?.emittedAt;
+  const metricsStart = run.progressEvents.find(
+    (e) => e.step === "metrics" && e.status === "start",
+  )?.emittedAt;
+
+  const span = (start?: string, end?: string): number | undefined => {
+    if (!start || !end) return undefined;
+    const ms = Date.parse(end) - Date.parse(start);
+    return Number.isNaN(ms) ? undefined : Math.max(0, ms);
+  };
+
+  const setupMs = span(setupStart, setupEnd);
+  const totalSendMs = span(sendStart, sendEnd);
+  const metricsMs = span(metricsStart, sendEnd);
+
+  // Ingest vs question split from the event streams.
+  const ingestFirst = run.ingestAssistantEvents.find((e) => e.emittedAt)?.emittedAt;
+  const ingestLast = (() => {
+    for (let i = run.ingestAssistantEvents.length - 1; i >= 0; i--) {
+      if (run.ingestAssistantEvents[i].emittedAt) return run.ingestAssistantEvents[i].emittedAt;
+    }
+    return undefined;
+  })();
+  const questionFirst = run.assistantEvents.find((e) => e.emittedAt)?.emittedAt;
+  const questionLast = (() => {
+    for (let i = run.assistantEvents.length - 1; i >= 0; i--) {
+      if (run.assistantEvents[i].emittedAt) return run.assistantEvents[i].emittedAt;
+    }
+    return undefined;
+  })();
+
+  const ingestMs = span(ingestFirst, ingestLast);
+  const questionMs = span(questionFirst, questionLast);
+
+  // Only render if we have at least the total send duration.
+  if (totalSendMs === undefined && ingestMs === undefined && questionMs === undefined) {
+    return null;
+  }
+
+  const phases: { label: string; ms: number | undefined }[] = [
+    { label: "Setup", ms: setupMs },
+    { label: "Ingest", ms: ingestMs },
+    { label: "Question", ms: questionMs },
+    { label: "Grading", ms: metricsMs },
+  ];
+  const totalMs = totalSendMs ?? ((ingestMs ?? 0) + (questionMs ?? 0) || undefined);
+
+  return (
+    <div className="phase-timing">
+      <div className="phase-timing-bar">
+        {phases.map((phase) => {
+          if (phase.ms === undefined || totalMs === undefined || totalMs === 0) return null;
+          const pct = Math.max(2, (phase.ms / totalMs) * 100);
+          return (
+            <div
+              key={phase.label}
+              className={`phase-bar-segment phase-${phase.label.toLowerCase()}`}
+              style={{ width: `${pct}%` }}
+              title={`${phase.label}: ${formatDuration(phase.ms)}`}
+            />
+          );
+        })}
+      </div>
+      <div className="phase-timing-labels">
+        {phases.map((phase) => (
+          <span key={phase.label} className="phase-timing-item">
+            <span className={`phase-dot phase-${phase.label.toLowerCase()}`} />
+            {phase.label}
+            <strong>{formatDuration(phase.ms)}</strong>
+          </span>
+        ))}
+        <span className="phase-timing-item phase-timing-total">
+          Total <strong>{formatDuration(totalMs)}</strong>
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function ExecutionPage({
   run,
   readOnly,
@@ -1850,52 +2090,34 @@ function ExecutionPage({
         <span>completed {run.completedAt ?? "—"}</span>
       </div>
 
+      <PhaseTiming run={run} />
+
       <CliCommandSection argv={run.cliArgv} />
 
-      {(run.status === "abandoned" ||
-        run.status === "failed" ||
-        run.metadata?.error ||
-        run.metadata?.lastHeartbeatAt) && (
-        <section className="section debug-section">
-          <h2>Debug info</h2>
-          {run.metadata?.error && (
-            <div className="debug-item bad">
-              <strong>Error:</strong>
-              <code>{run.metadata.error}</code>
-            </div>
-          )}
-          {run.metadata?.lastHeartbeatAt && (
-            <div className="debug-item">
-              <strong>Last heartbeat:</strong>
-              <span>{run.metadata.lastHeartbeatAt}</span>
-            </div>
-          )}
-          {!readOnly && (
-            <div className="action-buttons">
-              <details className="confirm-action">
-                <summary className="bad">Delete run</summary>
-                <form
-                  className="confirm-form"
-                  method="post"
-                  action={`/api/runs/${encodeURIComponent(run.runId)}/delete`}
-                >
-                  <input
-                    type="hidden"
-                    name="backToSession"
-                    value={run.sessionId}
-                  />
-                  <p className="confirm-prompt">
-                    This deletes <code>{run.runId}</code> permanently. It cannot
-                    be undone.
-                  </p>
-                  <button className="bad" type="submit">
-                    Yes, delete this run
-                  </button>
-                </form>
-              </details>
-            </div>
-          )}
-        </section>
+      {!readOnly && (
+        <div className="action-buttons">
+          <details className="confirm-action">
+            <summary className="bad">Delete run</summary>
+            <form
+              className="confirm-form"
+              method="post"
+              action={`/api/runs/${encodeURIComponent(run.runId)}/delete`}
+            >
+              <input
+                type="hidden"
+                name="backToSession"
+                value={run.sessionId}
+              />
+              <p className="confirm-prompt">
+                This deletes <code>{run.runId}</code> permanently. It cannot
+                be undone.
+              </p>
+              <button className="bad" type="submit">
+                Yes, delete this run
+              </button>
+            </form>
+          </details>
+        </div>
       )}
 
       <ExecutionTabs run={run} />
@@ -2166,6 +2388,7 @@ function ReportDocument({
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{pageTitle(input)}</title>
         <style dangerouslySetInnerHTML={{ __html: STYLES }} />
+        <style dangerouslySetInnerHTML={{ __html: katexCssText.replace(/@font-face\{[^}]*\}/g, "") }} />
       </head>
       <body>
         <div className="shell">

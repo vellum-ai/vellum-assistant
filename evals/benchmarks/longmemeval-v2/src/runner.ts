@@ -323,21 +323,46 @@ export async function runLongMemEvalV2Unit(
     });
 
     // Build a three-turn transcript: ingest prompt → question prompt →
-    // assistant hypothesis. This is the deliberately-coarse Phase 1
-    // shape — per-event transcript reconstruction lives with the full
-    // event capture in a later PR.
-    const transcriptStamp = new Date().toISOString();
+    // assistant hypothesis. Use real per-turn timestamps from the event
+    // streams so the report UI can order turns chronologically (all three
+    // sharing a single end-of-run stamp made the assistant response sort
+    // before the simulator prompts). Each turn is tagged with its
+    // conversationKey so the report UI can split them into separate
+    // conversation panes via a dropdown.
+    const firstEventTime = (events: AgentEvent[]): string | undefined =>
+      events.find((e) => e.emittedAt)?.emittedAt;
+    const lastEventTime = (events: AgentEvent[]): string | undefined => {
+      for (let i = events.length - 1; i >= 0; i--) {
+        if (events[i].emittedAt) return events[i].emittedAt;
+      }
+      return undefined;
+    };
+
+    const ingestStamp =
+      firstEventTime(ingestAskResult.ingestEvents) ?? new Date().toISOString();
+    const questionStamp =
+      firstEventTime(ingestAskResult.questionEvents) ?? new Date().toISOString();
+    const answerStamp =
+      lastEventTime(ingestAskResult.questionEvents) ?? questionStamp;
+
     const transcript: TranscriptTurn[] = [
-      { role: "simulator", content: ingestMessage, emittedAt: transcriptStamp },
+      {
+        role: "simulator",
+        content: ingestMessage,
+        emittedAt: ingestStamp,
+        conversationKey: ingestAskResult.ingestConversationKey,
+      },
       {
         role: "simulator",
         content: questionMessage,
-        emittedAt: transcriptStamp,
+        emittedAt: questionStamp,
+        conversationKey: ingestAskResult.questionConversationKey,
       },
       {
         role: "assistant",
         content: ingestAskResult.hypothesis,
-        emittedAt: transcriptStamp,
+        emittedAt: answerStamp,
+        conversationKey: ingestAskResult.questionConversationKey,
       },
     ];
     await writeTranscript(input.runId, transcript);
