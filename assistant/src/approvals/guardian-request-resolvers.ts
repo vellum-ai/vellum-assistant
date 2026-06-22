@@ -24,6 +24,10 @@ import {
   isNotificationSourceChannel,
   type NotificationSourceChannel,
 } from "../notifications/signal.js";
+import type {
+  TrustedContactDecisionPayload,
+  TrustedContactVerificationSentPayload,
+} from "../notifications/trusted-contact-payloads.js";
 import type { UserDecision } from "../permissions/types.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import type { ApprovalAction } from "../runtime/channel-approval-types.js";
@@ -146,34 +150,22 @@ function buildRequesterChannelNotice(params: {
  * for `guardian_decision` on approve (which would notify), so the pipeline
  * doesn't announce approval before verification.
  */
-function emitVerificationSentSignal(params: {
-  channel: NotificationSourceChannel;
-  conversationId: string | null | undefined;
-  requesterExternalUserId: string;
-  requesterChatId: string;
-  requesterDisplayName: string | null;
-  decidedByDisplayName: string | null;
-  verificationSessionId: string;
-}): void {
+function emitVerificationSentSignal(
+  payload: TrustedContactVerificationSentPayload,
+  conversationId: string | null | undefined,
+): void {
   void emitNotificationSignal({
     sourceEventName: "ingress.trusted_contact.verification_sent",
-    sourceChannel: params.channel,
-    sourceContextId: params.conversationId ?? "",
+    sourceChannel: payload.sourceChannel,
+    sourceContextId: conversationId ?? "",
     attentionHints: {
       requiresAction: false,
       urgency: "low",
       isAsyncBackground: true,
       visibleInSourceNow: true,
     },
-    contextPayload: {
-      sourceChannel: params.channel,
-      requesterExternalUserId: params.requesterExternalUserId,
-      requesterChatId: params.requesterChatId,
-      requesterDisplayName: params.requesterDisplayName,
-      decidedByDisplayName: params.decidedByDisplayName,
-      verificationSessionId: params.verificationSessionId,
-    },
-    dedupeKey: `trusted-contact:verification-sent:${params.verificationSessionId}`,
+    contextPayload: payload,
+    dedupeKey: `trusted-contact:verification-sent:${payload.verificationSessionId}`,
   });
 }
 
@@ -537,14 +529,14 @@ const accessRequestResolver: GuardianRequestResolver = {
           );
         }
 
-        const deniedPayload = {
+        const deniedPayload: TrustedContactDecisionPayload = {
           sourceChannel: channel,
           requesterExternalUserId,
           requesterChatId,
           decidedByExternalUserId,
           requesterDisplayName,
           decidedByDisplayName,
-          decision: "denied" as const,
+          decision: "denied",
         };
 
         void emitNotificationSignal({
@@ -821,15 +813,17 @@ const accessRequestResolver: GuardianRequestResolver = {
 
       // Record the verification_sent lifecycle transition (delivery suppressed).
       if (codeDelivered) {
-        emitVerificationSentSignal({
-          channel,
-          conversationId: request.conversationId,
-          requesterExternalUserId,
-          requesterChatId,
-          requesterDisplayName,
-          decidedByDisplayName,
-          verificationSessionId: session.sessionId,
-        });
+        emitVerificationSentSignal(
+          {
+            sourceChannel: channel,
+            requesterExternalUserId,
+            requesterChatId,
+            requesterDisplayName,
+            decidedByDisplayName,
+            verificationSessionId: session.sessionId,
+          },
+          request.conversationId,
+        );
       }
     } else {
       // Guardian decided off-channel (e.g. desktop). The guardian receives the
@@ -886,15 +880,17 @@ const accessRequestResolver: GuardianRequestResolver = {
       // receipt rather than requester delivery. Without this, approves on
       // channels with no deliverable callback (e.g. email) would silently skip
       // the audit/lifecycle record.
-      emitVerificationSentSignal({
-        channel,
-        conversationId: request.conversationId,
-        requesterExternalUserId,
-        requesterChatId,
-        requesterDisplayName,
-        decidedByDisplayName,
-        verificationSessionId: session.sessionId,
-      });
+      emitVerificationSentSignal(
+        {
+          sourceChannel: channel,
+          requesterExternalUserId,
+          requesterChatId,
+          requesterDisplayName,
+          decidedByDisplayName,
+          verificationSessionId: session.sessionId,
+        },
+        request.conversationId,
+      );
     }
 
     const verificationReplyText = requesterNotified

@@ -172,27 +172,10 @@ export async function runMigrationSteps(
     }
 
     try {
-      log.info({ migration: name }, `Starting migration: ${name}`);
-
-      // For async steps, write a 'started' marker BEFORE calling the
-      // step. An async function starts executing synchronously up to its
-      // first `await`, so the 'started' write must happen before we call
-      // the step to ensure the marker is visible during the async body.
-      // Sync steps don't need a 'started' marker — they complete before
-      // the event loop can process the write (a crash during a sync step
-      // would lose it too).
-      //
-      // We detect async-ness by checking if the step's toString() body
-      // contains `async` — cheaper than calling it and checking the
-      // return type, which would have already started execution.
-      const isAsync = step.constructor.name === "AsyncFunction";
-      if (checkpointable && isAsync) {
+      if (checkpointable) {
         markStarted.run(`${STEP_CHECKPOINT_PREFIX}${name}`, Date.now());
       }
-
-      // Await only steps that actually return a promise, so a list of purely
-      // synchronous steps runs to completion without yielding the thread — and
-      // an async step is fully drained before it is checkpointed below.
+      log.info({ migration: name }, `Starting migration: ${name}`);
       const result = step(database);
       if (result instanceof Promise) {
         await result;
