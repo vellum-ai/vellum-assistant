@@ -94,6 +94,10 @@ export const contactRoutes: IpcRoute[] = [
       const effectiveDisplayName = displayName ?? canonicalAddress;
 
       const store = getStore();
+      // Omit status/policy: syncChannels defaults a new channel to
+      // unverified/allow but preserves an existing channel's values on retry.
+      // Passing them here would demote a trusted channel below the
+      // trusted_contacts admission floor (mirrors verification/contact-helpers).
       const { contact } = await store.upsertContact({
         displayName: effectiveDisplayName,
         channels: [
@@ -101,8 +105,6 @@ export const contactRoutes: IpcRoute[] = [
             type: channelType,
             address: canonicalAddress,
             isPrimary: true,
-            status: "unverified",
-            policy: "allow",
           },
         ],
       });

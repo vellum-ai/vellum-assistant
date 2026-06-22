@@ -420,6 +420,79 @@ describe("IPC contact routes", () => {
     expect(store.getChannelsForContact(a.contactId)).toHaveLength(1);
   });
 
+  test("create_contact retry does not demote an existing active/verified channel", async () => {
+    // An already-trusted channel (active + non-allow policy) must survive a
+    // retry untouched — passing hard-coded unverified/allow would drop it below
+    // the trusted_contacts admission floor.
+    const db = getGatewayDb();
+    const now = Date.now();
+    db.insert(contacts)
+      .values({
+        id: "trusted-c1",
+        displayName: "Trusted Person",
+        role: "contact",
+        principalId: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(contactChannels)
+      .values({
+        id: "trusted-ch1",
+        contactId: "trusted-c1",
+        type: "email",
+        address: "trusted@example.com",
+        isPrimary: true,
+        status: "active",
+        policy: "escalate",
+        verifiedAt: now,
+        verifiedVia: "manual",
+        interactionCount: 3,
+        createdAt: now,
+      })
+      .run();
+
+    await startServerAndConnect();
+    const res = await sendRequest(client, "create_contact", {
+      channelType: "email",
+      address: "trusted@example.com",
+    });
+
+    expect(res.error).toBeUndefined();
+    const { contactId, channelId } = res.result as {
+      contactId: string;
+      channelId: string;
+    };
+    expect(contactId).toBe("trusted-c1");
+    expect(channelId).toBe("trusted-ch1");
+
+    const store = new ContactStore(db);
+    const channels = store.getChannelsForContact("trusted-c1");
+    expect(channels).toHaveLength(1);
+    // Status/policy/verification preserved — NOT overwritten to unverified/allow.
+    expect(channels[0].status).toBe("active");
+    expect(channels[0].policy).toBe("escalate");
+    expect(channels[0].verifiedAt).toBe(now);
+    expect(channels[0].verifiedVia).toBe("manual");
+  });
+
+  test("create_contact applies default unverified/allow to a brand-new channel", async () => {
+    await startServerAndConnect();
+    const res = await sendRequest(client, "create_contact", {
+      channelType: "email",
+      address: "fresh@example.com",
+    });
+
+    expect(res.error).toBeUndefined();
+    const { contactId } = res.result as { contactId: string };
+
+    const store = new ContactStore(getGatewayDb());
+    const channels = store.getChannelsForContact(contactId);
+    expect(channels).toHaveLength(1);
+    expect(channels[0].status).toBe("unverified");
+    expect(channels[0].policy).toBe("allow");
+  });
+
   test("create_contact canonicalizes the address so a non-canonical variant matches", async () => {
     await startServerAndConnect();
     // Phone numbers canonicalize to E.164; a variant with spacing/punctuation
