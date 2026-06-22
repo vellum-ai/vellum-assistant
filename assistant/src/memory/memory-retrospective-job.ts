@@ -60,7 +60,7 @@ import {
   type ConversationRow,
   deleteConversation,
   findMostRecentRetrospectiveFor,
-  forkConversation,
+  forkConversationForRetrospective,
   getConversation,
   getMessagesAfter,
   resolveOverrideProfile,
@@ -215,9 +215,14 @@ async function runForkBasedRetrospective(
   // `contextCompactedMessageCount` / `contextCompactedAt` when the fork
   // point sits within the visible window. Compacted source ⇒ compacted
   // fork ⇒ summary + tail visible to the agent natively.
-  let forkConversationRow: ReturnType<typeof forkConversation>;
+  let forkConversationRow: Awaited<
+    ReturnType<typeof forkConversationForRetrospective>
+  >;
   try {
-    forkConversationRow = forkConversation({
+    // Async variant: the source message-row copy runs off the event loop in a
+    // sqlite3 subprocess so this background pass cannot freeze the daemon's
+    // event loop (health probes / gateway IPC) on a large database.
+    forkConversationRow = await forkConversationForRetrospective({
       conversationId: sourceConversationId,
       throughMessageId: cutoffMessageId,
       source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
@@ -229,7 +234,7 @@ async function runForkBasedRetrospective(
     bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
     log.error(
       { err, sourceConversationId },
-      "memory-retrospective (fork): forkConversation failed",
+      "memory-retrospective (fork): forkConversationForRetrospective failed",
     );
     throw err;
   }
