@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { Download, FileIcon, Loader2, X } from "lucide-react";
 import type { FC, KeyboardEvent, MouseEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -10,6 +11,7 @@ import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-previ
 import { PreviewMessageCard } from "@/domains/chat/components/chat-attachments/preview-message-card";
 import { TextPreview } from "@/domains/chat/components/chat-attachments/text-preview";
 import { formatAttachmentSize } from "@/domains/chat/components/chat-attachments/utils";
+import type { DisplayAttachment } from "@/types/attachment-types";
 
 // File extensions routed to the inline text preview even when the upstream
 // MIME type is generic (e.g. application/octet-stream).
@@ -45,13 +47,7 @@ const getExtension = (filename: string): string => {
 interface AttachmentPreviewModalProps {
   open: boolean;
   onClose: () => void;
-  attachment: {
-    id: string;
-    filename: string;
-    mimeType: string;
-    sizeBytes: number;
-    previewUrl: string | null;
-  };
+  attachment: DisplayAttachment;
   /** When set, the modal will fetch missing content from
    *  /v1/assistants/{assistantId}/attachments/{attachment.id}/content. */
   assistantId?: string | null;
@@ -74,9 +70,6 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
 }) => {
   const overlayRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
-  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -84,66 +77,69 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     }
   }, [open]);
 
-  // Lazily fetch attachment content as a blob when no previewUrl is supplied.
-  useEffect(() => {
-    if (!open) return;
-    if (attachment.previewUrl) return;
-    if (!assistantId || !attachment.id) return;
+  // Synthetic IDs from the text-parsing history fallback
+  // (parseAttachmentSummariesFromContent) can never resolve against the
+  // daemon's content endpoint, so we never fetch them — we show a clear message
+  // instead of a misleading network error.
+  const isRehydrated =
+    !attachment.previewUrl && attachment.id.startsWith("rehydrated:");
 
-    // Synthetic IDs created by the text-parsing fallback
-    // (parseAttachmentSummariesFromContent) can never resolve against
-    // the daemon's content endpoint. Skip the doomed fetch and show a
-    // clear message instead of a misleading network error.
-    if (attachment.id.startsWith("rehydrated:")) {
-      setPreviewError(
-        "Preview unavailable — file content was not preserved in chat history.",
-      );
+  // Fetch content from the daemon only when there's no inline previewUrl and we
+  // have a real, resolvable id to fetch with.
+  const shouldFetch =
+    open &&
+    !attachment.previewUrl &&
+    !!assistantId &&
+    !!attachment.id &&
+    !isRehydrated;
+
+  const { data: blob, isError } = useQuery({
+    // The attachment id is stable and unique, so it is the cache key — reopening
+    // the same attachment reuses the fetched blob instead of refetching.
+    queryKey: ["attachmentContent", assistantId, attachment.id],
+    queryFn: async () => {
+      const { data, error } = await attachmentsByIdContentGet({
+        path: { assistant_id: assistantId!, id: attachment.id },
+        parseAs: "blob",
+        throwOnError: false,
+      });
+      if (error || !(data instanceof Blob)) {
+        throw new Error("Failed to load file");
+      }
+      return data;
+    },
+    enabled: shouldFetch,
+    staleTime: Infinity,
+    retry: false,
+  });
+
+  // Hold the fetched blob as an object URL for the media/text renderers, and
+  // revoke it when the blob changes or the modal unmounts.
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!blob) {
+      setObjectUrl(null);
       return;
     }
-
-    let revoked = false;
-
-    const loadPreview = async () => {
-      setIsLoadingPreview(true);
-      setPreviewError(null);
-      setObjectUrl(null);
-
-      try {
-        const { data, error } = await attachmentsByIdContentGet({
-          path: { assistant_id: assistantId, id: attachment.id },
-          parseAs: "blob",
-          throwOnError: false,
-        });
-        if (error || !(data instanceof Blob)) {
-          throw new Error("Failed to load file");
-        }
-        if (revoked) return;
-
-        const url = URL.createObjectURL(data);
-        setObjectUrl(url);
-      } catch {
-        if (!revoked) {
-          setPreviewError("Failed to load preview.");
-        }
-      } finally {
-        if (!revoked) {
-          setIsLoadingPreview(false);
-        }
-      }
-    };
-
-    void loadPreview();
-
+    const url = URL.createObjectURL(blob);
+    setObjectUrl(url);
     return () => {
-      revoked = true;
-      setObjectUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return null;
-      });
-      setIsLoadingPreview(false);
-      setPreviewError(null);
+      URL.revokeObjectURL(url);
+      setObjectUrl(null);
     };
-  }, [open, attachment.previewUrl, attachment.id, assistantId]);
+  }, [blob]);
+
+  const effectiveUrl = attachment.previewUrl ?? objectUrl;
+
+  // Loading until there's a usable URL: covers the fetch and the one-render gap
+  // between the blob arriving and its object URL being created.
+  const isLoadingPreview = shouldFetch && !objectUrl && !isError;
+
+  const previewError = isRehydrated
+    ? "Preview unavailable — file content was not preserved in chat history."
+    : isError
+      ? "Failed to load preview."
+      : null;
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -165,8 +161,6 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     },
     [onClose],
   );
-
-  const effectiveUrl = attachment.previewUrl ?? objectUrl;
 
   const handleDownload = useCallback(async () => {
     if (!effectiveUrl) return;
