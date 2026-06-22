@@ -612,6 +612,151 @@ describe("IPC contact routes", () => {
     expect(store.getContact("rename-c1")!.displayName).toBe("New Name");
   });
 
+  test("create_contact retry does not overwrite the assistant-DB display_name when omitted", async () => {
+    // Gap A: the gateway row exists with a stale name; the assistant DB holds
+    // the user's current (different) name. A retry WITHOUT displayName must
+    // leave the assistant-DB name untouched — the UPDATE must omit display_name.
+    const db = getGatewayDb();
+    const now = Date.now();
+    db.insert(contacts)
+      .values({
+        id: "stale-c1",
+        displayName: "Stale Gateway Name",
+        role: "contact",
+        principalId: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(contactChannels)
+      .values({
+        id: "stale-ch1",
+        contactId: "stale-c1",
+        type: "email",
+        address: "stale@example.com",
+        isPrimary: true,
+        status: "active",
+        policy: "allow",
+        interactionCount: 0,
+        createdAt: now,
+      })
+      .run();
+
+    // Assistant DB has the contact (so the mirror takes the UPDATE branch).
+    assistantDbQueryMock = mock(async (sql: string) => {
+      if (sql.includes("FROM contacts WHERE id = ?")) {
+        return [{ userFile: "current-name.md" }];
+      }
+      return [];
+    });
+    const runCalls: { sql: string; bind?: unknown[] }[] = [];
+    assistantDbRunMock = mock(async (sql: string, bind?: unknown[]) => {
+      runCalls.push({ sql, bind });
+      return { changes: 1, lastInsertRowid: 0 };
+    });
+
+    await startServerAndConnect();
+    const res = await sendRequest(client, "create_contact", {
+      channelType: "email",
+      address: "stale@example.com",
+    });
+
+    expect(res.error).toBeUndefined();
+
+    // The assistant-DB contact UPDATE must NOT touch display_name.
+    const contactUpdate = runCalls.find(
+      (c) => c.sql.includes("UPDATE contacts") && c.sql.includes("WHERE id = ?"),
+    );
+    expect(contactUpdate).toBeDefined();
+    expect(contactUpdate!.sql).not.toContain("display_name");
+
+    // The gateway row's stale name is likewise preserved (omit-to-preserve).
+    expect(new ContactStore(db).getContact("stale-c1")!.displayName).toBe(
+      "Stale Gateway Name",
+    );
+  });
+
+  test("create_contact reconciles an assistant-only contact instead of minting a duplicate", async () => {
+    // Gap B: a contact+channel exists in the assistant DB but NOT the gateway.
+    // upsertContact mints a new gateway id; the mirror must reconcile into the
+    // existing assistant contact (no duplicate INSERT, name preserved) and the
+    // gateway row must be created.
+    const assistantContactId = "assistant-only-c1";
+    const assistantChannelId = "assistant-only-ch1";
+
+    // Channel lookup by (type,address) returns the existing assistant contact;
+    // the contact-by-id lookup (keyed on the resolved id) reports it exists.
+    assistantDbQueryMock = mock(async (sql: string, bind?: unknown[]) => {
+      if (
+        sql.includes("FROM contact_channels") &&
+        sql.includes("WHERE type = ?")
+      ) {
+        return [{ contactId: assistantContactId, id: assistantChannelId }];
+      }
+      if (
+        sql.includes("FROM contact_channels") &&
+        sql.includes("WHERE contact_id = ?")
+      ) {
+        // existingCh lookup keyed on the resolved (assistant) contact id.
+        if (bind?.[0] === assistantContactId) {
+          return [{ id: assistantChannelId, status: "active" }];
+        }
+        return [];
+      }
+      if (sql.includes("FROM contacts WHERE id = ?")) {
+        if (bind?.[0] === assistantContactId) {
+          return [{ userFile: "existing-person.md" }];
+        }
+        return [];
+      }
+      return [];
+    });
+    const runCalls: { sql: string; bind?: unknown[] }[] = [];
+    assistantDbRunMock = mock(async (sql: string, bind?: unknown[]) => {
+      runCalls.push({ sql, bind });
+      return { changes: 1, lastInsertRowid: 0 };
+    });
+
+    await startServerAndConnect();
+    const res = await sendRequest(client, "create_contact", {
+      channelType: "email",
+      address: "existing-person@example.com",
+    });
+
+    expect(res.error).toBeUndefined();
+    const { contactId } = res.result as { contactId: string };
+
+    // No duplicate assistant contact INSERT.
+    const contactInsert = runCalls.find((c) =>
+      c.sql.includes("INSERT INTO contacts"),
+    );
+    expect(contactInsert).toBeUndefined();
+
+    // The assistant contact UPDATE targets the EXISTING assistant id, not the
+    // new gateway id, and preserves the name (no display_name in the SET).
+    const contactUpdate = runCalls.find(
+      (c) => c.sql.includes("UPDATE contacts") && c.sql.includes("WHERE id = ?"),
+    );
+    expect(contactUpdate).toBeDefined();
+    expect(contactUpdate!.bind?.at(-1)).toBe(assistantContactId);
+    expect(contactUpdate!.sql).not.toContain("display_name");
+
+    // The existing assistant channel is updated, not re-inserted with the bare
+    // address.
+    const channelInsert = runCalls.find((c) =>
+      c.sql.includes("INSERT INTO contact_channels"),
+    );
+    expect(channelInsert).toBeUndefined();
+
+    // The gateway DB now has the contact + channel (the split-brain heal).
+    const store = new ContactStore(getGatewayDb());
+    const gwContact = store.getContact(contactId);
+    expect(gwContact).toBeDefined();
+    const gwChannels = store.getChannelsForContact(contactId);
+    expect(gwChannels).toHaveLength(1);
+    expect(gwChannels[0].address).toBe("existing-person@example.com");
+  });
+
   test("create_contact defaults a brand-new contact's displayName to the canonical address", async () => {
     await startServerAndConnect();
     const res = await sendRequest(client, "create_contact", {
