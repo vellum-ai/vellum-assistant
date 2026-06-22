@@ -123,12 +123,13 @@ function seedAssistantChannel(opts: {
   id: string;
   contactId: string;
   status?: string;
+  address?: string;
 }): void {
   fakeAssistantDb.channels.set(opts.id, {
     id: opts.id,
     contact_id: opts.contactId,
     type: "vellum",
-    address: `addr-${opts.id}`,
+    address: opts.address ?? `addr-${opts.id}`,
     is_primary: 0,
     external_user_id: null,
     external_chat_id: null,
@@ -172,6 +173,7 @@ function seedChannel(opts: {
   status?: string;
   verifiedAt?: number | null;
   verifiedVia?: string | null;
+  address?: string;
 }) {
   const now = Date.now();
   getGatewayDb()
@@ -180,7 +182,7 @@ function seedChannel(opts: {
       id: opts.id,
       contactId: opts.contactId,
       type: "vellum",
-      address: `addr-${opts.id}`,
+      address: opts.address ?? `addr-${opts.id}`,
       isPrimary: false,
       status: opts.status ?? "unverified",
       policy: "allow",
@@ -448,5 +450,84 @@ describe("ContactStore.markChannelVerified", () => {
       .where(eq(contacts.id, "c1"))
       .get();
     expect(contactRow!.displayName).toBe("gateway-name");
+  });
+
+  test("legacy channel: resolves a differing gateway id by (contactId,type,address) and verifies", async () => {
+    // Migrated user: gateway row lives under a different UUID than the
+    // assistant channel id, sharing the logical (contactId, type, address) key.
+    seedContact("c1");
+    seedChannel({
+      id: "gw-uuid",
+      contactId: "c1",
+      status: "unverified",
+      address: "shared-addr",
+    });
+    seedAssistantContact("c1");
+    seedAssistantChannel({
+      id: "assistant-uuid",
+      contactId: "c1",
+      status: "unverified",
+      address: "shared-addr",
+    });
+
+    const result = await new ContactStore().markChannelVerified(
+      "assistant-uuid",
+    );
+    expect(result).not.toBeNull();
+    expect(result!.didWrite).toBe(true);
+    expect(result!.channel.id).toBe("gw-uuid");
+    expect(result!.channel.status).toBe("active");
+    expect(result!.channel.verifiedVia).toBe("manual");
+
+    // Still exactly one gateway channel row — the mirror's ON CONFLICT
+    // DO NOTHING did not insert a duplicate.
+    expect(
+      getGatewayDb().select().from(contactChannels).all().length,
+    ).toBe(1);
+  });
+});
+
+describe("ContactStore.markChannelRevoked", () => {
+  test("revokes a channel by its gateway id", async () => {
+    seedContact("c1", "contact");
+    seedChannel({ id: "ch1", contactId: "c1", status: "active" });
+
+    const result = await new ContactStore().markChannelRevoked("ch1", "spam");
+    expect(result).not.toBeNull();
+    expect(result!.didWrite).toBe(true);
+    expect(result!.channel.status).toBe("revoked");
+    expect(result!.channel.revokedReason).toBe("spam");
+  });
+
+  test("legacy channel: resolves a differing gateway id by (contactId,type,address) and revokes", async () => {
+    seedContact("c1", "contact");
+    seedChannel({
+      id: "gw-uuid",
+      contactId: "c1",
+      status: "active",
+      address: "shared-addr",
+    });
+    seedAssistantContact("c1", "contact");
+    seedAssistantChannel({
+      id: "assistant-uuid",
+      contactId: "c1",
+      status: "active",
+      address: "shared-addr",
+    });
+
+    const result = await new ContactStore().markChannelRevoked(
+      "assistant-uuid",
+      "spam",
+    );
+    expect(result).not.toBeNull();
+    expect(result!.didWrite).toBe(true);
+    expect(result!.channel.id).toBe("gw-uuid");
+    expect(result!.channel.status).toBe("revoked");
+    expect(result!.channel.revokedReason).toBe("spam");
+
+    // No duplicate gateway row inserted by the mirror.
+    expect(
+      getGatewayDb().select().from(contactChannels).all().length,
+    ).toBe(1);
   });
 });
