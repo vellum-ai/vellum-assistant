@@ -17,7 +17,7 @@ import {
 import { addMessage, createConversation } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-initializeDb();
+await initializeDb();
 
 describe("renderHistoryContent", () => {
   test("renders text-only content unchanged", () => {

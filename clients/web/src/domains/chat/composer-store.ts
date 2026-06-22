@@ -182,6 +182,13 @@ export interface ComposerActions {
   ) => void;
   /** Clear the restored draft notice. */
   clearRestoredDraftNotice: () => void;
+  /**
+   * Restore the saved draft for `key` into the composer — but only when the
+   * composer is empty, so cold-load restore (page reload) never clobbers text
+   * already present from a deep link or starter prefill. Surfaces the "Draft
+   * restored" notice when it acts.
+   */
+  restoreDraftIfEmpty: (key: string) => void;
 
   // --- Attachment actions ---
   addFiles: (files: FileList | File[], assistantId: string | null) => void;
@@ -294,6 +301,13 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
 
   clearRestoredDraftNotice: () => {
     set({ restoredDraftConversationId: null });
+  },
+
+  restoreDraftIfEmpty: (key) => {
+    const saved = draftsMap.get(key);
+    if (saved && saved.trim() && !get().input.trim()) {
+      set({ input: saved, restoredDraftConversationId: key });
+    }
   },
 
   // --- Attachment actions ---

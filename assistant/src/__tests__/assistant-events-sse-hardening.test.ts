@@ -35,7 +35,7 @@ import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import { ServiceUnavailableError } from "../runtime/routes/errors.js";
 import { handleSubscribeAssistantEvents } from "../runtime/routes/events-routes.js";
 
-initializeDb();
+await initializeDb();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

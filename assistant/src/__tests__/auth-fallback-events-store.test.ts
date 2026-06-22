@@ -22,7 +22,7 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { authFallbackEvents } from "../memory/schema.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTable(): void {
   getDb().delete(authFallbackEvents).run();

@@ -29,7 +29,7 @@ import { initializeDb } from "../../../memory/db-init.js";
 import { findById } from "../../../memory/invite-store.js";
 import { completeA2AInvite, createA2AInvite } from "../config-a2a.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const sqlite = getSqlite();

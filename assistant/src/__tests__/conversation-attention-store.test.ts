@@ -26,7 +26,7 @@ import {
   messages,
 } from "../memory/schema.js";
 
-initializeDb();
+await initializeDb();
 
 function ensureConversation(id: string): void {
   const db = getDb();

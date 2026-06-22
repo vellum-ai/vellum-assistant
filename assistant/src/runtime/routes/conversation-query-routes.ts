@@ -85,7 +85,10 @@ import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { validateAllowlistFile } from "../../security/secret-allowlist.js";
-import { resolvePricingForUsage } from "../../util/pricing.js";
+import {
+  resolvePricingForUsage,
+  usesAnthropicPricingRules,
+} from "../../util/pricing.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import {
   type LlmContextSummary,
@@ -129,8 +132,15 @@ const INFERENCE_PROFILE_UI_KEYS = new Set([
   "speed",
   "verbosity",
   "temperature",
+  "topP",
   "thinking",
 ]);
+
+// Fields a MANAGED profile may edit. Beyond `label` (display name) and
+// `status` (enabled/disabled), users can tune `topP` — the seed contract
+// owns provider/model/connection, but top_p is a per-profile sampling knob
+// the UI exposes on the managed Balanced profile.
+const MANAGED_PROFILE_EDITABLE_KEYS = new Set(["label", "status", "topP"]);
 
 function asMutablePlainObject(value: unknown): Record<string, unknown> | null {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
@@ -205,10 +215,17 @@ function attachEstimatedCost(summary: LlmContextSummary): LlmContextSummary {
 
   const cacheCreation = summary.cacheCreationInputTokens ?? 0;
   const cacheRead = summary.cacheReadInputTokens ?? 0;
-  const directInputTokens = Math.max(
-    inputTokens - cacheCreation - cacheRead,
-    0,
-  );
+  // `inputTokens` carries provider-shape-dependent cache accounting. Anthropic
+  // Messages responses (native and OpenRouter `anthropic/*`) report `input_tokens`
+  // already net of cache — cache-creation/read are separate, additive buckets —
+  // so the full-rate portion IS `inputTokens`. OpenAI/Gemini report a total
+  // prompt-token count with cached tokens as a subset, so the full-rate portion
+  // is the total minus cache. `usesAnthropicPricingRules` selects the same
+  // response shapes the pricing layer treats as Anthropic (keyed on the stored
+  // transport provider + model), so it also distinguishes the cache accounting.
+  const directInputTokens = usesAnthropicPricingRules(provider, model)
+    ? Math.max(inputTokens, 0)
+    : Math.max(inputTokens - cacheCreation - cacheRead, 0);
 
   const result = resolvePricingForUsage(provider, model, {
     directInputTokens,
@@ -748,8 +765,14 @@ function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
   }
   const profiles = asMutablePlainObject(llm.profiles);
   if (!profiles) return;
+  const existingProfiles = asMutablePlainObject(getConfig().llm.profiles) ?? {};
   for (const name of Object.keys(profiles)) {
-    if (profiles[name] === null && MANAGED_PROFILE_NAMES.has(name)) {
+    if (profiles[name] !== null || !MANAGED_PROFILE_NAMES.has(name)) continue;
+    // Only block deletion when the on-disk entry is Vellum-managed. A
+    // user-owned profile sharing a managed name carries a non-managed `source`
+    // and is freely deletable.
+    const existing = asMutablePlainObject(existingProfiles[name]);
+    if (existing?.source === "managed") {
       throw new BadRequestError(`Cannot delete managed profile "${name}".`);
     }
   }
@@ -922,21 +945,39 @@ async function handleReplaceInferenceProfile({
     const detail = parsed.error.issues.map((issue) => issue.message).join("; ");
     throw new BadRequestError(`Invalid profile fragment: ${detail}`);
   }
-  const isManaged = MANAGED_PROFILE_NAMES.has(name);
+  // A managed name with no existing entry stays protected so users can't
+  // shadow a seeded managed profile. An existing entry carrying a non-managed
+  // `source` is user-owned and remains fully editable.
+  const existingProfile = asMutablePlainObject(
+    getConfig().llm.profiles?.[name],
+  );
+  const isManaged =
+    MANAGED_PROFILE_NAMES.has(name) &&
+    (existingProfile == null || existingProfile.source === "managed");
+  // A managed profile name with no materialized entry (e.g. a flag-gated profile
+  // whose flag is off) cannot be patched: writing label/status here would persist
+  // a source-less stub that later blocks the real managed profile from being
+  // seeded. Reject rather than create a placeholder.
+  if (MANAGED_PROFILE_NAMES.has(name) && existingProfile == null) {
+    throw new BadRequestError(
+      `Profile "${name}" is not currently available and cannot be edited.`,
+    );
+  }
   if (isManaged) {
-    // Managed profiles are daemon-seeded — provider, model, advanced params,
-    // and the connection binding all belong to the seed contract and can't
-    // be reshaped by the user. The two fields that ARE user policy (display
-    // label and enabled status) are allowed through so users can rename a
-    // managed profile or temporarily disable it without duplicating it.
+    // Managed profiles are daemon-seeded — provider, model, and the
+    // connection binding all belong to the seed contract and can't be
+    // reshaped by the user. The fields that ARE user policy (display label,
+    // enabled status, and the topP sampling knob) are allowed through so
+    // users can rename a managed profile, temporarily disable it, or tune
+    // top_p without duplicating it.
     const requestedKeys = Object.keys(parsed.data);
     const disallowed = requestedKeys.filter(
-      (k) => k !== "label" && k !== "status",
+      (k) => !MANAGED_PROFILE_EDITABLE_KEYS.has(k),
     );
     if (disallowed.length > 0) {
       throw new BadRequestError(
         `Cannot edit managed profile "${name}" fields [${disallowed.join(", ")}]. ` +
-          `Only label and status may be edited; duplicate to a custom profile to change other fields.`,
+          `Only label, status, and topP may be edited; duplicate to a custom profile to change other fields.`,
       );
     }
   }
@@ -1037,7 +1078,7 @@ async function handleReplaceInferenceProfile({
 }
 
 /**
- * Apply a `{label?, status?}` patch to a managed profile entry, preserving
+ * Apply a `{label?, status?, topP?}` patch to a managed profile entry, preserving
  * every other field already on disk (provider, model, advanced params, etc).
  * Caller is responsible for having already restricted the fragment to the
  * managed-allowed keys.
@@ -1057,19 +1098,16 @@ function patchManagedProfileFields(
 
   const existingProfile = asMutablePlainObject(profiles[name]) ?? {};
   const nextProfile: Record<string, unknown> = { ...existingProfile };
-  // Send `null` to clear; omit to leave untouched.
-  if ("label" in fragment) {
-    if (fragment.label === null) {
-      delete nextProfile.label;
+  // For each managed-editable key: send `null` to clear, a value to set,
+  // omit to leave untouched. Iterating the allowlist keeps persistence in
+  // lock-step with the guard above — a key can't slip through the gate
+  // without also being written.
+  for (const key of MANAGED_PROFILE_EDITABLE_KEYS) {
+    if (!(key in fragment)) continue;
+    if (fragment[key] === null) {
+      delete nextProfile[key];
     } else {
-      nextProfile.label = fragment.label;
-    }
-  }
-  if ("status" in fragment) {
-    if (fragment.status === null) {
-      delete nextProfile.status;
-    } else {
-      nextProfile.status = fragment.status;
+      nextProfile[key] = fragment[key];
     }
   }
   profiles[name] = nextProfile;

@@ -27,7 +27,7 @@ import { createEvent } from "../notifications/events-store.js";
 import type { NotificationSignal } from "../notifications/signal.js";
 import type { NotificationDecision } from "../notifications/types.js";
 
-initializeDb();
+await initializeDb();
 
 beforeEach(() => {
   getDb().delete(notificationEvents).run();

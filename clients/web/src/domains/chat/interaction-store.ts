@@ -143,8 +143,23 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
   ...INITIAL_STATE,
 
   // ----- Secret -----
-  showSecret: (payload) =>
-    set({ pendingSecret: payload, isSubmittingSecret: false, secretSaved: false }),
+  showSecret: (payload) => {
+    const { pendingSecret } = get();
+    // A live `secret_request` SSE event arrives first with full metadata, then
+    // a sparse rehydrate (`{ requestId }`) can fire for the same prompt. Merge
+    // only the defined fields so the sparse rehydrate can't erase rich state.
+    if (pendingSecret && pendingSecret.requestId === payload.requestId) {
+      const defined: Partial<PendingSecretState> = {};
+      for (const key of Object.keys(payload) as (keyof PendingSecretState)[]) {
+        if (payload[key] !== undefined) {
+          (defined[key] as unknown) = payload[key];
+        }
+      }
+      set({ pendingSecret: { ...pendingSecret, ...defined } });
+      return;
+    }
+    set({ pendingSecret: payload, isSubmittingSecret: false, secretSaved: false });
+  },
 
   submitSecretStart: () =>
     set({ isSubmittingSecret: true }),

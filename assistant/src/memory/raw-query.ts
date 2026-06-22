@@ -30,9 +30,9 @@
  * filtering, ordering, pagination — use Drizzle.
  */
 
-import type { SQLQueryBindings } from "bun:sqlite";
+import type { Database, SQLQueryBindings } from "bun:sqlite";
 
-import { getSqlite } from "./db-connection.js";
+import { getLogsSqlite, getMemorySqlite, getSqlite } from "./db-connection.js";
 
 type SqlParam = SQLQueryBindings;
 
@@ -80,6 +80,51 @@ export function rawExec(sql: string): void {
  */
 export function rawChanges(): number {
   return (getSqlite().query("SELECT changes() AS c").get() as { c: number }).c;
+}
+
+// ---------------------------------------------------------------------------
+// Typed query helpers for the dedicated memory connection (assistant-memory.db)
+// ---------------------------------------------------------------------------
+
+/** The memory connection, or a thrown error when it cannot be opened. */
+function memorySqlite(): Database {
+  const sqlite = getMemorySqlite();
+  if (!sqlite) throw new Error("memory database unavailable");
+  return sqlite;
+}
+
+/** The logs connection, or a thrown error when it cannot be opened. */
+function logsSqlite(): Database {
+  const sqlite = getLogsSqlite();
+  if (!sqlite) throw new Error("logs database unavailable");
+  return sqlite;
+}
+
+/** {@link rawAll} against the memory connection. */
+export function rawMemoryAll<T>(sql: string, ...params: SqlParam[]): T[] {
+  return memorySqlite()
+    .query(sql)
+    .all(...params) as T[];
+}
+
+/** {@link rawRun} against the memory connection. */
+export function rawMemoryRun(sql: string, ...params: SqlParam[]): number {
+  const sqlite = memorySqlite();
+  sqlite.query(sql).run(...params);
+  return (sqlite.query("SELECT changes() AS c").get() as { c: number }).c;
+}
+
+/** {@link rawChanges} against the memory connection. */
+export function rawMemoryChanges(): number {
+  return (memorySqlite().query("SELECT changes() AS c").get() as { c: number })
+    .c;
+}
+
+/** {@link rawRun} against the logs connection. */
+export function rawLogsRun(sql: string, ...params: SqlParam[]): number {
+  const sqlite = logsSqlite();
+  sqlite.query(sql).run(...params);
+  return (sqlite.query("SELECT changes() AS c").get() as { c: number }).c;
 }
 
 /**

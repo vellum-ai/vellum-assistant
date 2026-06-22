@@ -15,7 +15,7 @@
  * - conversation-usage.ts        — recordUsage
  */
 
-import type { AgentLoopConfig, ResolvedSystemPrompt } from "../agent/loop.js";
+import type { AgentLoopConfig } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
 import type {
@@ -296,7 +296,7 @@ export class Conversation {
     outputTokens: 0,
     estimatedCost: 0,
   };
-  /** @internal */ readonly systemPrompt: string;
+  /** @internal */ systemPrompt: string;
   /** @internal */ contextCompactedMessageCount = 0;
   /** @internal */ contextCompactedAt: number | null = null;
   /** @internal */ contextSummary: string | null = null;
@@ -537,6 +537,7 @@ export class Conversation {
   };
   public readonly traceEmitter: TraceEmitter;
   /** @internal */ hasSystemPromptOverride: boolean;
+  /** @internal */ modelOverride: string | undefined;
   /** @internal */ readonly graphMemory: ConversationGraphMemory;
   /** @internal */ activeContextNodeIds?: string[];
   /** @internal */ streamThinking: boolean;
@@ -666,34 +667,9 @@ export class Conversation {
     const hasSystemPromptOverride = systemPrompt !== buildSystemPrompt();
     this.hasSystemPromptOverride = hasSystemPromptOverride;
 
-    // If an explicit modelOverride is supplied, use it verbatim. Otherwise
-    // leave the model unset and let `RetryProvider`'s call-site resolver pick
-    // it up from `llm.default` / `llm.callSites.<id>` on every turn.
-    const resolvedModel: string | undefined = modelOverride;
-
-    const resolveSystemPromptCallback = (
-      _history: Message[],
-    ): ResolvedSystemPrompt => {
-      const resolved: ResolvedSystemPrompt = {
-        systemPrompt: this.hasSystemPromptOverride
-          ? systemPrompt
-          : buildSystemPrompt({
-              hasNoClient: this.hasNoClient,
-              trustContext: this.currentTurnTrustContext,
-              channelCapabilities: this.currentTurnChannelCapabilities,
-              personaOverride: this.wakePersonaOverride,
-              onboardingContext: this.getOnboardingContext(),
-              conversationId: this.conversationId,
-            }),
-      };
-      if (configuredMaxTokens !== undefined) {
-        resolved.maxTokens = configuredMaxTokens;
-      }
-      if (resolvedModel !== undefined) {
-        resolved.model = resolvedModel;
-      }
-      return resolved;
-    };
+    // Store the model override for per-run resolution. The loop receives it
+    // as a top-level `model` param on `run()`.
+    this.modelOverride = modelOverride;
 
     const fastModeEnabled = isAssistantFeatureFlagEnabled("fast-mode", config);
     const resolvedSpeed = speedOverride ?? resolvedMainAgent.speed;
@@ -726,7 +702,6 @@ export class Conversation {
       tools: toolDefs.length > 0 ? toolDefs : undefined,
       toolExecutor: toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
-      resolveSystemPrompt: resolveSystemPromptCallback,
       resolveConversationDir: () => {
         const conv = getConversation(this.conversationId);
         if (!conv) return null;
@@ -738,7 +713,6 @@ export class Conversation {
     });
     createContextWindowManager({
       provider,
-      systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
       config: initialContextWindowConfig,
       toolTokenBudget: this.agentLoop.getToolTokenBudget(),
       conversationId: this.conversationId,
@@ -799,6 +773,29 @@ export class Conversation {
     this.inferenceProfileExpiresAt = state.expiresAt;
   }
 
+  /**
+   * Build the system prompt for the current conversation state. When a
+   * system-prompt override was supplied at construction, use it as-is;
+   * otherwise rebuild the full prompt (picks up workspace file changes,
+   * live trust/channel context, persona overrides, onboarding context).
+   *
+   * Called by the caller before invoking `agentLoop.run()` — the loop
+   * itself never re-resolves the prompt mid-loop (re-resolving would bust
+   * the provider's prefix cache).
+   */
+  buildCurrentSystemPrompt(): string {
+    return this.hasSystemPromptOverride
+      ? this.systemPrompt
+      : buildSystemPrompt({
+          hasNoClient: this.hasNoClient,
+          trustContext: this.currentTurnTrustContext,
+          channelCapabilities: this.currentTurnChannelCapabilities,
+          personaOverride: this.wakePersonaOverride,
+          onboardingContext: this.getOnboardingContext(),
+          conversationId: this.conversationId,
+        });
+  }
+
   // ── Prompt Cache Warming ─────────────────────────────────────────
 
   /**
@@ -811,16 +808,7 @@ export class Conversation {
     const abort = new AbortController();
     this.cacheWarmAbort = abort;
 
-    const systemPrompt = this.hasSystemPromptOverride
-      ? this.systemPrompt
-      : buildSystemPrompt({
-          hasNoClient: this.hasNoClient,
-          trustContext: this.currentTurnTrustContext,
-          channelCapabilities: this.currentTurnChannelCapabilities,
-          personaOverride: this.wakePersonaOverride,
-          onboardingContext: this.getOnboardingContext(),
-          conversationId: this.conversationId,
-        });
+    const systemPrompt = this.buildCurrentSystemPrompt();
     const tools = getAllToolDefinitions();
     const provider = this.provider;
 
@@ -976,6 +964,18 @@ export class Conversation {
           const meta = JSON.parse(m.metadata);
           const isTail = index === arr.length - 1;
 
+          // `<non_interactive_context>` is the only rehydrated block that
+          // APPENDS to the tail (live injection appends it in Step 3), so it
+          // must land after the original content. Apply it first — before the
+          // prepends below — so the prepends stack in front of it and it stays
+          // last, matching the live layout.
+          if (!isTail && typeof meta.nonInteractiveContextBlock === "string") {
+            content = [
+              ...content,
+              { type: "text" as const, text: meta.nonInteractiveContextBlock },
+            ];
+          }
+
           // Rehydrate in reverse injection order (innermost block first)
           // so the resulting layout matches `applyRuntimeInjections`'s
           // after-memory-prefix splices in ascending injector order
@@ -1086,9 +1086,30 @@ export class Conversation {
             ];
           }
 
+          // `<channel_capabilities>` lands just below `<turn_context>`: live
+          // injection prepends it (Step 3) before the prepend-user-tail chain
+          // blocks (Step 4), so it must be prepended BEFORE turnContextBlock
+          // here to land one slot deeper than `<turn_context>`.
+          if (!isTail && typeof meta.channelCapabilitiesBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.channelCapabilitiesBlock },
+              ...content,
+            ];
+          }
+
           if (!isTail && typeof meta.turnContextBlock === "string") {
             content = [
               { type: "text" as const, text: meta.turnContextBlock },
+              ...content,
+            ];
+          }
+
+          // `<background_turn>` lands between `<workspace>` and `<turn_context>`
+          // (injector order 15, between workspace 10 and unified-turn-context
+          // 20), so prepend it AFTER turnContextBlock and BEFORE workspaceBlock.
+          if (!isTail && typeof meta.backgroundTurnBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.backgroundTurnBlock },
               ...content,
             ];
           }
@@ -1606,8 +1627,65 @@ export class Conversation {
     }
   }
 
+  /**
+   * Token count for `messages` used to render the user-facing `/compact` and
+   * `/clean` figures. Prefers the provider's real `count_tokens` tokenizer (so
+   * the numbers match the context-window indicator's provider-reported usage)
+   * and falls back to the context-window manager's local estimate when the
+   * provider has no count endpoint or the count call fails — both measure the
+   * same system-prompt + tools composition the manager sizes against.
+   *
+   * The count is a network round-trip with its own rate limit, so this is for
+   * user-initiated actions only, never the per-turn auto-compaction gate.
+   */
+  private async calculateTokens(messages: Message[]): Promise<number> {
+    const countInputTokens = this.provider.countInputTokens;
+    if (!countInputTokens) {
+      return this.contextWindowManager.estimateInputTokens(messages);
+    }
+    try {
+      const { systemPrompt, tools } =
+        this.contextWindowManager.tokenCountInputs;
+      return await countInputTokens.call(
+        this.provider,
+        messages,
+        systemPrompt,
+        tools,
+      );
+    } catch (err) {
+      log.warn(
+        { err, conversationId: this.conversationId },
+        "Provider token count failed — falling back to local estimate",
+      );
+      return this.contextWindowManager.estimateInputTokens(messages);
+    }
+  }
+
   async forceCompact(): Promise<ContextWindowResult> {
-    return this.runCompaction(true);
+    // Report the user-facing before/after using the provider's real tokenizer
+    // (count_tokens) so the `/compact` line matches the context-window
+    // indicator, which reflects the provider's actual reported usage — rather
+    // than the local chars/4 estimate the compaction pipeline runs internally
+    // (it under-counts by ~25% on typical histories). `calculateTokens`
+    // falls back to that estimate when the provider has no count endpoint or
+    // the count call fails, so behavior degrades gracefully.
+    //
+    // Only the *displayed* numbers are overridden — the compaction log and
+    // circuit-breaker accounting inside `runCompaction` keep the estimate-based
+    // figures, leaving calibration and historical logs untouched.
+    const before = await this.calculateTokens(this.messages);
+    const result = await this.runCompaction(true);
+    // `runCompaction` applies the compacted history to `this.messages` in
+    // place, so after a successful compaction this re-counts the new history;
+    // a no-op leaves the context unchanged, so before === after.
+    const after = result.compacted
+      ? await this.calculateTokens(this.messages)
+      : before;
+    return {
+      ...result,
+      previousEstimatedInputTokens: before,
+      estimatedInputTokens: after,
+    };
   }
 
   /**
@@ -1726,15 +1804,17 @@ export class Conversation {
    * activations are no longer deduped against the prior session.
    */
   async forceClean(): Promise<CleanResult> {
-    const previousEstimatedInputTokens =
-      this.contextWindowManager.estimateInputTokens(this.messages);
+    // Use the provider's real tokenizer for the displayed before/after (see
+    // `forceCompact` for why); falls back to the local estimate when count
+    // isn't available.
+    const previousEstimatedInputTokens = await this.calculateTokens(
+      this.messages,
+    );
     const stripped = stripInjectionsForCompaction(this.messages);
     this.messages = stripped;
     await this.graphMemory.onCompacted(0);
     setConversationHistoryStrippedAt(this.conversationId, Date.now());
-    const estimatedInputTokens = this.contextWindowManager.estimateInputTokens(
-      this.messages,
-    );
+    const estimatedInputTokens = await this.calculateTokens(this.messages);
     return {
       previousEstimatedInputTokens,
       estimatedInputTokens,

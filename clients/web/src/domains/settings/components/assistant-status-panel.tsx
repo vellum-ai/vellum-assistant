@@ -14,6 +14,7 @@ import {
     getAssistant,
     getAssistantHealthz,
 } from "@/assistant/api";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { CapacityBar } from "@/domains/settings/components/capacity-bar";
 import { DevModeVersionUnlock } from "@/domains/settings/components/dev-mode-version-unlock";
 import type { HealthzGetResponse } from "@/generated/daemon/types.gen";
@@ -24,7 +25,7 @@ import { isTransientNetworkError } from "@/utils/is-transient-network-error";
 import { toast } from "@vellumai/design-library";
 import { Tag } from "@vellumai/design-library/components/tag";
 
-const CURRENT_ASSISTANT_QUERY_KEY = ["currentAssistant"] as const;
+const CURRENT_ASSISTANT_QUERY_KEY = "currentAssistant";
 
 // A resize rolls the assistant pod, so the new allocation only appears once it
 // comes back up. Poll /v1/health for a bounded window, tolerating the restart
@@ -63,14 +64,15 @@ export interface AssistantWithHealthz {
 }
 
 export function useAssistantWithHealthz(): AssistantWithHealthz {
+  const activeAssistantId = useActiveAssistantId();
   const {
     data: assistant = null,
     isLoading: assistantLoading,
     refetch: refetchAssistant,
   } = useQuery({
-    queryKey: CURRENT_ASSISTANT_QUERY_KEY,
+    queryKey: [CURRENT_ASSISTANT_QUERY_KEY, activeAssistantId],
     queryFn: async () => {
-      const result = await getAssistant();
+      const result = await getAssistant(activeAssistantId);
       return result.ok ? result.data : null;
     },
     retry: false,

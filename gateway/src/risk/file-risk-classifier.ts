@@ -93,6 +93,16 @@ export interface FileClassifierInput {
   filePath: string;
   workingDir: string;
   /**
+   * The target path with symlinks resolved, canonicalized by the caller (the
+   * daemon, which owns the workspace filesystem). When present, this is used
+   * for the security escalation prefix checks instead of a lexical
+   * resolve(workingDir, filePath) — so a symlink whose name looks benign but
+   * whose real target is a protected directory is still escalated. When absent
+   * (e.g. caller could not access the filesystem), classification falls back to
+   * lexical resolution.
+   */
+  resolvedPath?: string;
+  /**
    * For `host_file_transfer` with `direction: "to_sandbox"`: the workspace-side
    * destination path (where the copied file lands). `filePath` carries the
    * host-side `source_path`, so without this the workspace write destination —
@@ -103,6 +113,12 @@ export interface FileClassifierInput {
   transferSandboxDestPath?: string;
   /** Sandbox working directory used to resolve {@link transferSandboxDestPath}. */
   transferSandboxWorkingDir?: string;
+  /**
+   * The `to_sandbox` destination with symlinks resolved, canonicalized by the
+   * caller. Preferred over a lexical resolve of {@link transferSandboxDestPath}
+   * for the code-injection-sink check; falls back to lexical when absent.
+   */
+  resolvedTransferDestPath?: string;
 }
 
 // -- Helpers ------------------------------------------------------------------
@@ -355,6 +371,33 @@ function classifyCodeInjectionSink(
   return null;
 }
 
+/**
+ * Run {@link classifyCodeInjectionSink} against both the lexical and the
+ * symlink-resolved path, escalating if EITHER lands in a sink. A symlink can
+ * mask a protected target two ways — a benign name pointing into a protected
+ * dir (caught by the real path), or a path lexically inside a protected dir
+ * pointing elsewhere, where the loader still executes the file through the
+ * protected location (caught by the lexical path). When the two paths are
+ * equal the check runs once.
+ */
+function classifyCodeInjectionSinkEither(
+  lexicalPath: string,
+  realPath: string,
+  context: FileClassificationContext,
+  verb: "Writes" | "Transfers",
+  allowlistOptions: AllowlistOption[],
+): RiskAssessment | null {
+  const lexicalSink = classifyCodeInjectionSink(
+    lexicalPath,
+    context,
+    verb,
+    allowlistOptions,
+  );
+  if (lexicalSink) return lexicalSink;
+  if (realPath === lexicalPath) return null;
+  return classifyCodeInjectionSink(realPath, context, verb, allowlistOptions);
+}
+
 // -- Classifier ---------------------------------------------------------------
 
 /**
@@ -379,8 +422,10 @@ export class FileRiskClassifier implements RiskClassifier<
       toolName,
       filePath,
       workingDir,
+      resolvedPath,
       transferSandboxDestPath,
       transferSandboxWorkingDir,
+      resolvedTransferDestPath,
     } = input;
     const allowlistOptions = filePath
       ? buildFileAllowlistOptions(toolName, filePath)
@@ -393,8 +438,18 @@ export class FileRiskClassifier implements RiskClassifier<
     switch (toolName) {
       case "file_read": {
         if (filePath) {
-          const resolvedPath = resolveSandboxPath(filePath, workingDir);
-          if (isActorTokenSigningKeyPath(resolvedPath, workingDir, context)) {
+          // Check BOTH the lexical path and the symlink-resolved path. A
+          // symlink can mask a protected target two ways: a benign-looking
+          // name that points into a protected dir (caught by the real path),
+          // or a path lexically inside a protected dir that points elsewhere
+          // (caught by the lexical path — the loader still reads it through the
+          // protected location). Escalate if either matches.
+          const lexicalPath = resolveSandboxPath(filePath, workingDir);
+          const realPath = resolvedPath ?? lexicalPath;
+          if (
+            isActorTokenSigningKeyPath(lexicalPath, workingDir, context) ||
+            isActorTokenSigningKeyPath(realPath, workingDir, context)
+          ) {
             assessment = {
               riskLevel: "high",
               reason: "Reads actor token signing key",
@@ -418,9 +473,11 @@ export class FileRiskClassifier implements RiskClassifier<
       case "file_write":
       case "file_edit": {
         if (filePath) {
-          const resolvedPath = resolveSandboxPath(filePath, workingDir);
-          const sink = classifyCodeInjectionSink(
-            resolvedPath,
+          const lexicalPath = resolveSandboxPath(filePath, workingDir);
+          const realPath = resolvedPath ?? lexicalPath;
+          const sink = classifyCodeInjectionSinkEither(
+            lexicalPath,
+            realPath,
             context,
             "Writes",
             allowlistOptions,
@@ -466,12 +523,14 @@ export class FileRiskClassifier implements RiskClassifier<
         // source in `filePath` — is the code-injection sink. Check it first,
         // resolving with the same /workspace remap as sandbox file writes.
         if (transferSandboxDestPath) {
-          const destResolved = resolveSandboxPath(
+          const lexicalDest = resolveSandboxPath(
             transferSandboxDestPath,
             transferSandboxWorkingDir ?? process.cwd(),
           );
-          const destSink = classifyCodeInjectionSink(
-            destResolved,
+          const realDest = resolvedTransferDestPath ?? lexicalDest;
+          const destSink = classifyCodeInjectionSinkEither(
+            lexicalDest,
+            realDest,
             context,
             "Transfers",
             allowlistOptions,
@@ -484,10 +543,13 @@ export class FileRiskClassifier implements RiskClassifier<
 
         if (filePath) {
           // Host file tools resolve paths without workingDir — resolve(filePath)
-          // treats the path as absolute or relative to cwd.
-          const resolvedPath = resolve(filePath);
-          const sink = classifyCodeInjectionSink(
-            resolvedPath,
+          // treats the path as absolute or relative to cwd. Check both the
+          // lexical path and the symlink-resolved path from the caller.
+          const lexicalPath = resolve(filePath);
+          const realPath = resolvedPath ?? lexicalPath;
+          const sink = classifyCodeInjectionSinkEither(
+            lexicalPath,
+            realPath,
             context,
             actionVerb,
             allowlistOptions,

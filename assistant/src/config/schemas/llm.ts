@@ -79,6 +79,7 @@ export const LLMCallSiteEnum = z.enum([
   "meetChatOpportunity",
   "inference",
   "advisor",
+  "vision",
   "trustRuleSuggestion",
   "homeGreeting",
   "homeSuggestedPrompts",
@@ -128,6 +129,11 @@ const VerbosityEnum = z.enum(["low", "medium", "high"]);
 const ModelSchema = z.string().min(1);
 const MaxTokensSchema = z.number().int().positive();
 const TemperatureSchema = z.number().min(0).max(2).nullable();
+// `top_p` (nucleus sampling). Range 0–1; `null` = "no opinion — let the
+// provider pick its own default" (matches TemperatureSchema's null
+// semantics). `RetryProvider` renames `topP`→`top_p` and only forwards a
+// non-null value, so providers never receive `top_p: null`.
+const TopPSchema = z.number().min(0).max(1).nullable();
 // Named, code-resolved logit-bias preset a profile may opt into. The value is a
 // preset *name*, not an inline token→bias map, so the workspace config stays
 // small. This is profile-identity metadata, not inheritable config: the resolver
@@ -328,6 +334,7 @@ export const LLMConfigBase = z.object({
   speed: SpeedEnum.default("standard"),
   verbosity: VerbosityEnum.default("medium"),
   temperature: TemperatureSchema.default(null),
+  topP: TopPSchema.default(null),
   thinking: ThinkingSchema.default(ThinkingSchema.parse({})),
   contextWindow: ContextWindowSchema.default(ContextWindowSchema.parse({})),
   openrouter: OpenRouterSchema.default(OpenRouterSchema.parse({})),
@@ -363,6 +370,7 @@ export const LLMConfigFragment = z
     speed: SpeedEnum.optional(),
     verbosity: VerbosityEnum.optional(),
     temperature: TemperatureSchema.optional(),
+    topP: TopPSchema.optional(),
     thinking: ThinkingFragmentSchema.optional(),
     contextWindow: ContextWindowDeepPartialSchema.optional(),
     openrouter: OpenRouterDeepPartialSchema.optional(),

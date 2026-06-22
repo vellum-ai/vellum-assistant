@@ -42,6 +42,7 @@ import {
 import type { ReplaySubscriber } from "../assistant-stream-state.js";
 import { getReplayWindow } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
+import { DEFAULT_HEARTBEAT_INTERVAL_MS } from "../client-health.js";
 import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import {
   BadRequestError,
@@ -51,9 +52,6 @@ import {
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("events-routes");
-
-/** Keep-alive comment sent to idle clients every 7 s by default. */
-const DEFAULT_HEARTBEAT_INTERVAL_MS = 7_000;
 
 /**
  * Resolution of the event-loop delay histogram, per

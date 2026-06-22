@@ -29,7 +29,7 @@ import { isProviderVisible } from "../oauth/provider-visibility.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
-initializeDb();
+await initializeDb();
 
 /** Create a minimal AssistantConfig for testing. */
 function makeConfig(): AssistantConfig {

@@ -39,6 +39,17 @@ const INLINE_COMMAND_ELIGIBLE_SOURCES = new Set([
   "workspace",
 ]);
 
+/** Matches raw `` !`...` `` inline command tokens in a skill body. */
+const INLINE_COMMAND_TOKEN_PATTERN = /!`[^`]*`/g;
+
+/**
+ * Replacement for inline command tokens when they are not rendered during
+ * disk-pressure cleanup mode — keeps the raw tokens out of the prompt without
+ * executing any shell.
+ */
+const INLINE_COMMAND_CLEANUP_STUB =
+  "[inline command skipped: storage cleanup mode]";
+
 const log = getLogger("skill-load");
 
 /**
@@ -159,11 +170,18 @@ export const skillLoadTool = {
       };
     }
 
+    // During disk-pressure cleanup mode, skill_load must not produce side
+    // effects: no auto-install (workspace writes / `bun install`) and no inline
+    // command execution. Instructions are still returned so the assistant can
+    // load the system-storage-cleanup skill (and any already-installed skill).
+    const cleanupMode = context.diskPressureCleanupModeActive === true;
+
     let loaded = loadSkillBySelector(selector);
 
     // Auto-install from catalog if the skill isn't found locally
     if (
       !loaded.skill &&
+      !cleanupMode &&
       (loaded.errorCode === "not_found" || loaded.errorCode === "empty_catalog")
     ) {
       try {
@@ -220,6 +238,10 @@ export const skillLoadTool = {
       for (let round = 0; round < MAX_INSTALL_ROUNDS; round++) {
         const missing = collectAllMissing(skill.id, catalogIndex);
         if (missing.size === 0) break;
+
+        // Under the disk-pressure lock, never auto-install missing includes
+        // (that writes to the workspace). Leave them advisory ("not loaded").
+        if (cleanupMode) break;
 
         // Lazily resolve catalog on first round with missing includes
         if (!remoteCatalog) {
@@ -289,7 +311,19 @@ export const skillLoadTool = {
     const hasInlineCommands =
       skill.inlineCommandExpansions && skill.inlineCommandExpansions.length > 0;
 
-    if (hasInlineCommands) {
+    if (hasInlineCommands && cleanupMode) {
+      // Under the disk-pressure lock, loading a skill must not execute shell.
+      // Strip inline command tokens instead of rendering them; the rest of the
+      // instructions are still returned.
+      body = body.replace(
+        INLINE_COMMAND_TOKEN_PATTERN,
+        INLINE_COMMAND_CLEANUP_STUB,
+      );
+      log.info(
+        { skillId: skill.id },
+        "Skipped inline command expansion during disk pressure cleanup mode",
+      );
+    } else if (hasInlineCommands) {
       if (skill.source === "extra" || skill.source === "plugin") {
         // Third-party skill roots — `extra` dirs and skills shipped inside
         // installed plugins — are out of scope for inline command expansion.
@@ -368,7 +402,14 @@ export const skillLoadTool = {
             childLoaded.skill.inlineCommandExpansions &&
             childLoaded.skill.inlineCommandExpansions.length > 0;
 
-          if (childHasInlineCommands) {
+          if (childHasInlineCommands && cleanupMode) {
+            // No shell execution under the disk-pressure lock — strip the
+            // child's inline command tokens rather than rendering them.
+            childBody = childBody.replace(
+              INLINE_COMMAND_TOKEN_PATTERN,
+              INLINE_COMMAND_CLEANUP_STUB,
+            );
+          } else if (childHasInlineCommands) {
             if (
               childLoaded.skill.source === "extra" ||
               childLoaded.skill.source === "plugin"

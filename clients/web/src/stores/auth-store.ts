@@ -21,6 +21,7 @@ import {
   isSessionSettled,
   isSettledSessionRejection,
   hasLivePlatformSession,
+  isConfirmedPlatformSession,
   type PlatformSessionStatus,
   type SessionStatus,
 } from "@/stores/session-status";
@@ -53,6 +54,7 @@ import {
 import { listAssistants } from "@/assistant/api";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
+import { unregisterFromRemotePush } from "@/runtime/push-registration";
 import { fetchConsent, patchConsent } from "@/domains/account/profile";
 import {
   restoreConsentForUser,
@@ -63,6 +65,10 @@ import {
   PRIVACY_CONSENT_VERSION,
 } from "@/utils/onboarding-cleanup";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
+import {
+  applyResolvedDiagnosticsConsent,
+  setDiagnosticsReportingGate,
+} from "@/lib/consent/diagnostics-consent";
 import {
   clearOrganization,
   useOrganizationStore,
@@ -119,6 +125,10 @@ interface AuthState {
   sessionStatus: SessionStatus;
   user: AuthUser | null;
   platformSession: PlatformSessionStatus;
+  // True while `platformSession: "present"` is a believed offline restore
+  // (LUM-2412) rather than a session a live probe confirmed. Telemetry gates on
+  // a confirmed-live session, so it must not treat the restored state as live.
+  platformSessionRestoredOffline: boolean;
 }
 
 interface AuthActions {
@@ -173,6 +183,8 @@ const authenticatedPlatformUser = (
     sessionStatus: "authenticated",
     user,
     platformSession: "present",
+    // Confirmed by a live probe; `restoreOfflineSession` overrides this to true.
+    platformSessionRestoredOffline: false,
   };
 };
 
@@ -229,7 +241,10 @@ async function restoreOfflineSession(set: AuthSet): Promise<boolean> {
   // Consent/org sync falls back to device-cached keys when the server
   // fetch fails (it will, offline) — same continuity as an online boot.
   await syncUserScopedState(cached.id);
-  set(authenticatedPlatformUser(cached));
+  set({
+    ...authenticatedPlatformUser(cached),
+    platformSessionRestoredOffline: true,
+  });
   return true;
 }
 
@@ -250,18 +265,27 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       const consent = await fetchConsent();
       const resolved = resolveServerConsent(consent);
       const store = useOnboardingStore.getState();
-      // Only adopt the server's share-preference booleans when the server has a
-      // real consent record. For an empty record they're just the API defaults
-      // and would clobber the device-local `device:share_*` choices that the
-      // fallback below relies on (the store already holds them from init). A
-      // real record's share values are authoritative even when its legal
-      // consent versions are stale (the nav layer routes to review-terms).
-      if (resolved.hasServerRecord) {
-        if (resolved.shareAnalytics !== null)
-          store.setShareAnalytics(resolved.shareAnalytics);
-        if (resolved.shareDiagnostics !== null)
-          store.setShareDiagnostics(resolved.shareDiagnostics);
+      // Only adopt the server's share-analytics boolean when the server has a
+      // real consent record. For an empty record it's just the API default and
+      // would clobber the device-local `device:share_analytics` choice that the
+      // fallback below relies on (the store already holds it from init). A real
+      // record's share value is authoritative even when its legal consent
+      // versions are stale (the nav layer routes to review-terms).
+      if (resolved.hasServerRecord && resolved.shareAnalytics !== null) {
+        store.setShareAnalytics(resolved.shareAnalytics);
       }
+
+      // Diagnostics routes through the single version-aware, direction-
+      // asymmetric chokepoint: a stale-version acceptance never keeps
+      // diagnostics on, and an unknown grant leaves the mirror untouched.
+      applyResolvedDiagnosticsConsent(
+        {
+          shareDiagnostics: resolved.shareDiagnostics,
+          diagnosticsVersionCurrent: resolved.diagnosticsCurrent,
+          hasServerRecord: resolved.hasServerRecord,
+        },
+        store.setShareDiagnostics,
+      );
 
       // Resolve the FINAL consent values before persisting or mutating the
       // store. The endpoint always returns an object, so empty/stale versions
@@ -281,6 +305,12 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
         const deviceConsent = restoreConsentForUser(nextUserId);
         analyticsCurrent = deviceConsent.analyticsCurrent;
         diagnosticsCurrent = deviceConsent.diagnosticsCurrent;
+        // The chokepoint above closed the reporting gate because the server has
+        // no record yet. Reopen it from the device-confirmed consent so an
+        // opted-in user whose acceptance lives only in the per-device cache
+        // isn't left with Sentry disabled. The live-session requirement still
+        // applies via sentry-control's composed gate.
+        setDiagnosticsReportingGate(store.shareDiagnostics && diagnosticsCurrent);
         if (deviceConsent.tos && deviceConsent.privacy) {
           tos = true;
           privacy = true;
@@ -427,7 +457,11 @@ function probePlatformSession(
           }
         }
         if (isStale()) return;
-        set({ platformSession: "present", ...userUpdate });
+        set({
+          platformSession: "present",
+          platformSessionRestoredOffline: false,
+          ...userUpdate,
+        });
       } else if (options.clearOnFailure) {
         set({ platformSession: "absent" });
       }
@@ -510,6 +544,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
   sessionStatus: "initializing",
   user: null,
   platformSession: "unknown",
+  platformSessionRestoredOffline: false,
 
   initSession: async () => {
     if (isRemoteGatewayMode()) {
@@ -817,6 +852,10 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     }
 
     suppressPlatformProbe = true;
+    // Delete the APNs device token from the platform BEFORE clearing the
+    // session — the platform delete is authenticated by the still-valid
+    // session cookie. No-ops off native iOS. Best-effort: never blocks logout.
+    await unregisterFromRemotePush();
     try {
       await allauthLogout();
     } finally {
@@ -860,6 +899,17 @@ export const useIsSessionInitializing = (): boolean =>
 
 export const useHasPlatformSession = (): boolean =>
   hasLivePlatformSession(useAuthStore.use.platformSession());
+
+/**
+ * A platform session a live probe confirmed — excludes the believed offline
+ * restore (LUM-2412). Telemetry consent gates on this, not the routing-oriented
+ * {@link useHasPlatformSession}, so it never enables offline.
+ */
+export const useHasConfirmedPlatformSession = (): boolean =>
+  isConfirmedPlatformSession(
+    useAuthStore.use.platformSession(),
+    useAuthStore.use.platformSessionRestoredOffline(),
+  );
 
 /**
  * Subscribe to app-resume signals on the layout-scoped event bus and to

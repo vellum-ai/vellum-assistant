@@ -10,13 +10,17 @@ import { RiskToleranceSettings } from "@/domains/settings/components/risk-tolera
 import { TrustRules } from "@/domains/settings/components/trust-rules/trust-rules";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
+import {
+  useAuthStore,
+  useHasConfirmedPlatformSession,
+} from "@/stores/auth-store";
 import {
     getDeviceBool,
     getDeviceSetting,
     setDeviceSetting,
 } from "@/utils/device-settings";
 import { savePreferenceToggle } from "@/utils/onboarding-cleanup";
+import { legalUrl, routes } from "@/utils/routes";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 
 const RETENTION_OPTIONS: { value: string; label: string }[] = [
@@ -42,7 +46,13 @@ export function PrivacyPage() {
   // `AccessConsentSetting` exactly.
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   const channelTrustFloors = useAssistantFeatureFlagStore.use.channelTrustFloors();
-  const hasPlatformSession = useHasPlatformSession();
+  // The Share toggles control telemetry (browser Sentry, daemon analytics) that
+  // only runs with a probe-confirmed live platform session, so gate both the
+  // visibility and the consent write on it — matching `sentry-control.ts`. A
+  // believed offline restore (LUM-2412) is not live, so the toggles hide and a
+  // flip can't stamp version-currency offline.
+  const hasPlatformSession = useHasConfirmedPlatformSession();
+  const showShareConsent = hasPlatformSession;
   const userId = useAuthStore.use.user()?.id ?? null;
   const [shareAnalytics, setShareAnalytics] = useState(
     () => getDeviceBool("shareAnalytics", true),
@@ -78,24 +88,46 @@ export function PrivacyPage() {
       <TrustRules />
       {channelTrustFloors && <ChannelPolicyCard />}
       <RiskToleranceSettings />
-      <DetailCard title="Privacy">
+      <DetailCard
+        title="Privacy"
+        subtitle={
+          hasPlatformSession ? (
+            <>
+              View details about what data we collect and how it's used in our{" "}
+              <a
+                href={legalUrl(routes.docs.legal.privacyPolicy)}
+                target="_blank"
+                rel="noreferrer"
+                className="underline"
+              >
+                privacy policy
+              </a>
+              .
+            </>
+          ) : undefined
+        }
+      >
         <div className="space-y-4">
-          <SettingRow
-            label="Share Analytics"
-            helperText="Send anonymous product usage data."
-            checked={shareAnalytics}
-            onChange={handleAnalyticsToggle}
-            variant="toggle-trailing"
-          />
-          <Divider />
-          <SettingRow
-            label="Share Diagnostics"
-            helperText="Send crash reports and performance metrics."
-            checked={shareDiagnostics}
-            onChange={handleDiagnosticsToggle}
-            variant="toggle-trailing"
-          />
-          <Divider />
+          {showShareConsent && (
+            <>
+              <SettingRow
+                label="Share Analytics"
+                helperText="Send aggregated product usage data"
+                checked={shareAnalytics}
+                onChange={handleAnalyticsToggle}
+                variant="toggle-trailing"
+              />
+              <Divider />
+              <SettingRow
+                label="Share Diagnostics"
+                helperText="Send crash reports, conversation traces, and session replay data"
+                checked={shareDiagnostics}
+                onChange={handleDiagnosticsToggle}
+                variant="toggle-trailing"
+              />
+              <Divider />
+            </>
+          )}
           <AccessConsentSetting />
           {/*
             `AccessConsentSetting` returns null when gated (self-hosted

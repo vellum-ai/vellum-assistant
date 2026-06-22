@@ -21,6 +21,7 @@ import type {
   CommitMessageResult,
 } from "../workspace/commit-message-provider.js";
 import {
+  _getConsecutiveFailures,
   _resetGitServiceRegistry,
   WorkspaceGitService,
 } from "../workspace/git-service.js";
@@ -87,6 +88,50 @@ describe("WorkspaceHeartbeatService", () => {
       expect(result.checked).toBe(1);
       expect(result.committed).toBe(0);
       expect(result.skipped).toBe(1);
+    });
+
+    test("continues (does not circuit-break) when a status read fails", async () => {
+      writeFileSync(join(testDir, "dirty.txt"), "content");
+
+      // Force the streamed status read to fail the way a maxBuffer overflow
+      // over a bloated working tree would.
+      const proto = Object.getPrototypeOf(service);
+      const originalStreaming = proto.execGitStreaming;
+      proto.execGitStreaming = async function () {
+        const err = new Error("stdout maxBuffer length exceeded") as Error & {
+          code?: string;
+        };
+        err.code = "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
+        throw err;
+      };
+
+      try {
+        const heartbeat = new WorkspaceHeartbeatService({
+          ageThresholdMs: 0,
+          fileThreshold: 1,
+          getServices: () => services,
+        });
+
+        const result = await heartbeat.check();
+
+        // The cycle is skipped, not failed — and the breaker stays closed.
+        expect(result.checked).toBe(1);
+        expect(result.failed).toBe(0);
+        expect(result.committed).toBe(0);
+        expect(_getConsecutiveFailures(service)).toBe(0);
+      } finally {
+        proto.execGitStreaming = originalStreaming;
+      }
+
+      // Once status recovers, the still-dirty workspace auto-commits — the
+      // heartbeat was never disabled.
+      const recovered = new WorkspaceHeartbeatService({
+        ageThresholdMs: 0,
+        fileThreshold: 1,
+        getServices: () => services,
+      });
+      const recoveredResult = await recovered.check();
+      expect(recoveredResult.committed).toBe(1);
     });
 
     test("does not commit when changes are below age and file thresholds", async () => {

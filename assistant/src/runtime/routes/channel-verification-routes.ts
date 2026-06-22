@@ -6,6 +6,17 @@
  * DELETE /v1/channel-verification-sessions         — cancel all active sessions (inbound + outbound)
  * POST   /v1/channel-verification-sessions/revoke  — cancel all sessions and revoke binding
  * GET    /v1/channel-verification-sessions/status   — check guardian binding status
+ *
+ * Source-of-truth split:
+ * - Verification SESSION state (pending sessions, codes, resend, rate-limit) is assistant-owned.
+ * - The channel-verified OUTCOME (status / verifiedAt / verifiedVia) is gateway-owned, written
+ *   in-process by the HTTP guardian-attest handler (`ContactStore.markChannelVerified`) and by the
+ *   inbound code-match path (`gateway/src/verification/text-verification.ts`).
+ * - The revoke/downgrade OUTCOME is relayed from the daemon via
+ *   `ipcCallPersistent("mark_channel_revoked", …)` to `ContactStore.markChannelRevoked`.
+ * - The `mark_channel_verified` IPC method exists as the daemon/CLI relay surface (symmetric with
+ *   `mark_channel_revoked`) but has no caller: the trusted-contact CLI path sends codes only, and the
+ *   outcome arrives via the inbound code-match path.
  */
 
 import { z } from "zod";
@@ -263,7 +274,7 @@ async function handleRevokeVerificationBinding({
 }: RouteHandlerArgs) {
   const { channel } = body as { channel?: ChannelId };
 
-  const result = revokeVerificationForChannel(channel);
+  const result = await revokeVerificationForChannel(channel);
   if (!result.success) {
     throw new BadRequestError(
       (result as { message?: string }).message ?? "Revocation failed",

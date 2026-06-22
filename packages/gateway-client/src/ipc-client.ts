@@ -219,11 +219,13 @@ export class PersistentIpcClient {
   async call(
     method: string,
     params?: Record<string, unknown>,
+    timeoutMs?: number,
   ): Promise<unknown> {
     await this.ensureConnected();
 
     const id = String(this.nextId++);
     const req: IpcRequest = { id, method, params };
+    const callTimeoutMs = timeoutMs ?? this.callTimeoutMs;
 
     return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -232,11 +234,11 @@ export class PersistentIpcClient {
           this.pending.delete(id);
           entry.reject(
             new Error(
-              `IPC call "${method}" timed out after ${this.callTimeoutMs}ms`,
+              `IPC call "${method}" timed out after ${callTimeoutMs}ms`,
             ),
           );
         }
-      }, this.callTimeoutMs);
+      }, callTimeoutMs);
       timer.unref();
 
       this.pending.set(id, { resolve, reject, timer });

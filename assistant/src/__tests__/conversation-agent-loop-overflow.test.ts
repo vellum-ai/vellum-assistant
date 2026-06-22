@@ -68,6 +68,7 @@ const defaultLlmConfig: LLMConfig = {
     speed: "standard" as const,
     verbosity: "medium" as const,
     temperature: null,
+    topP: null,
     thinking: { enabled: false, streamThinking: true },
     contextWindow: {
       enabled: true,
@@ -649,6 +650,9 @@ function makeCtx(
       userMessageChannel: "vellum" as const,
       assistantMessageChannel: "vellum" as const,
     }),
+
+    buildCurrentSystemPrompt: () => "system prompt",
+    modelOverride: undefined,
 
     graphMemory: {
       onCompacted: async () => {},

@@ -63,7 +63,7 @@ describe.skipIf(!apiKey)(
     test(
       "200-leaf fan-out at default concurrency does not rate-limit-collapse",
       async () => {
-        initializeDb();
+        await initializeDb();
 
         // Non-trivial per-leaf context mirrors the real fan-out shape: each
         // leaf judges a distinct synthetic record, not a one-token prompt.

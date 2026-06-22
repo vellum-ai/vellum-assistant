@@ -19,6 +19,7 @@
  * Design doc: `.private/plans/agent-plugin-system.md`.
  */
 
+import { getUserHooksFor } from "./mtime-cache.js";
 import {
   type Plugin,
   PluginExecutionError,
@@ -145,22 +146,32 @@ export function getRegisteredPlugins(): Plugin[] {
  * `user-prompt-submit` where each plugin's hook may transform a shared
  * context.
  *
+ * This function is async because it pulls user-land hooks from the mtime
+ * cache (filesystem-as-truth), which may need to re-import changed surface
+ * files. First-party default plugin hooks are read synchronously from the
+ * registry and prepended.
+ *
  * The `TCtx` generic mirrors {@link PluginHookFn}'s — callers parameterize
  * over the concrete context type their hook receives. Hooks that mutate
  * the context in place return `void`; hooks that return a new context
  * replace the threaded value for the next hook in the chain.
  */
-export function getHooksFor<TCtx = unknown>(
+export async function getHooksFor<TCtx = unknown>(
   name: string,
-): PluginHookFn<TCtx>[] {
-  const out: PluginHookFn<TCtx>[] = [];
+): Promise<PluginHookFn<TCtx>[]> {
+  // First-party defaults from the registry (synchronous).
+  const defaultHooks: PluginHookFn<TCtx>[] = [];
   for (const plugin of registeredPlugins.values()) {
     const hook = plugin.hooks?.[name];
     if (hook) {
-      out.push(hook as PluginHookFn<TCtx>);
+      defaultHooks.push(hook as PluginHookFn<TCtx>);
     }
   }
-  return out;
+
+  // User-land hooks from the mtime cache (async, may re-import).
+  const userHooks = await getUserHooksFor<TCtx>(name);
+
+  return [...defaultHooks, ...userHooks];
 }
 
 /**

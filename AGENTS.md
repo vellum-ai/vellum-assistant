@@ -147,6 +147,8 @@ We have real users — maintain backwards compatibility for all interfaces, pers
 
 Migrations must be **idempotent** (safe to re-run if interrupted) and **append-only** (never reorder or remove existing entries). Test migrations — see `assistant/src/__tests__/workspace-migration-*.test.ts` and `assistant/src/__tests__/db-*.test.ts` for patterns. Flag breaking changes in PR descriptions. If a migration is infeasible, call it out explicitly for human review.
 
+DB migration steps registered in `db-init.ts` are checkpointed by function name in the shared `memory_checkpoints` ledger (under the `step:` namespace) and run at most once per database, so each step needs a stable, non-empty name. Add a new migration as its own entry in the list — every step is imported directly and listed individually so it is checkpointed on its own. Never hide a growing set of migrations behind a single stably-named wrapper function (or spread a shared array of them into the list under one import): once that name is checkpointed the whole group is skipped, so anything added to it later never runs. Crash recovery runs unconditionally inside `runMigrationSteps` before the step loop. Rolling a migration back (`rollbackMemoryMigration`) discards all `step:` checkpoints, so a later upgrade re-runs every step and restores any schema a `down()` reversed.
+
 ## Multi-Client Assistant State Sync
 
 Persisted assistant state that must converge across macOS, web/Capacitor iOS, and CLI should use the generic `sync_changed` invalidation contract instead of adding a new bespoke server message for each resource. The event payload is `{ type: "sync_changed", tags: [...] }`; tags describe which cached resource is stale, not the new value.
@@ -280,6 +282,24 @@ When making changes that could affect the cloud platform, review the sibling `..
 ## Sentry & Linear Integration
 
 Error reporting uses Sentry. The daemon/runtime (Node) project's DSN is configured via the `SENTRY_DSN_ASSISTANT` environment variable — see `.env.example`.
+
+### Sentry projects & DSNs
+
+Surfaces map onto Sentry projects as below. The Electron renderer reports to the macOS project, sharing the `SENTRY_DSN_MACOS` secret with the main process. Per-host flavor + DSN selection in the shared clients/web bundle is live: `flavor.ts` `selectSentryFlavor()` picks the capacitor flavor on native iOS and the react flavor everywhere else (web + Electron renderer); `sentry-init.ts` `resolveDsn()` picks `VITE_SENTRY_DSN_MACOS` (Electron) / `VITE_SENTRY_DSN_IOS` (iOS) / `VITE_SENTRY_DSN` (web). All flavors share one `options` object (ignoreErrors, denyUrls, beforeBreadcrumb URL sanitize, enhanceFetchErrorMessages, attachStacktrace) so PII/noise filtering is uniform. An empty DSN no-ops.
+
+| Surface | Project | DSN source | Delivered via |
+| --- | --- | --- | --- |
+| Web SPA | `vellum-assistant-web` | `VITE_SENTRY_DSN` (vars) | web build |
+| Electron main | `vellum-assistant-macos` | `SENTRY_DSN_MACOS` (secret) → `__SENTRY_DSN_MACOS__` | macOS build define |
+| Electron renderer | `vellum-assistant-macos` | `SENTRY_DSN_MACOS` (secret) → `VITE_SENTRY_DSN_MACOS` | macOS build |
+| iOS webview + native | `vellum-assistant-ios` | `SENTRY_DSN_IOS` (secret) → `VITE_SENTRY_DSN_IOS` | web-SPA build (loaded at runtime on iOS) |
+| Assistant daemon | (unchanged) | `SENTRY_DSN_ASSISTANT` | runtime env |
+
+The iOS DSN is baked into the deployed web SPA bundle rather than the iOS build, because the iOS app runs the deployed SPA via `server.url` (see `clients/web/capacitor.config.ts`) and bundles no web assets at `cap sync`.
+
+The Electron renderer uses `@sentry/react` (not `@sentry/electron/renderer`): `@sentry/electron` pins `@sentry/core` 10.50 while `@sentry/capacitor` pins `@sentry/react`/`@sentry/browser` 10.52, and Sentry's current-client carrier is version-specific, so an `@sentry/electron/renderer` client couldn't see `@sentry/react` captures. Renderer native crashes still reach `vellum-assistant-macos` via `@sentry/electron/main` (separate process).
+
+**Version pins**: `@sentry/react`/`@sentry/browser` are pinned to 10.52.0 to satisfy `@sentry/capacitor`'s exact peer; `@sentry/electron` (Electron main process only) is on its own 10.50 line. Bumping any one requires checking the others.
 
 **Sentry CLI**: Use the newer `sentry` CLI (not the legacy `sentry-cli`). Install from `https://cli.sentry.dev/install`. Authenticate with `sentry auth login`.
 

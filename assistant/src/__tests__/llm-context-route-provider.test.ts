@@ -7,13 +7,13 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { getDb } from "../memory/db-connection.js";
+import { getLogsDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { llmRequestLogs } from "../memory/schema.js";
 import { ROUTES } from "../runtime/routes/conversation-query-routes.js";
 import { NotFoundError } from "../runtime/routes/errors.js";
 
-initializeDb();
+await initializeDb();
 
 const llmContextRoute = ROUTES.find(
   (r) => r.method === "GET" && r.endpoint === "messages/:id/llm-context",
@@ -32,7 +32,7 @@ function dispatchLogPayload(logId: string) {
 }
 
 function clearRequestLogs(): void {
-  getDb().delete(llmRequestLogs).run();
+  getLogsDb()!.delete(llmRequestLogs).run();
 }
 
 function seedRequestLog(overrides: {
@@ -43,7 +43,7 @@ function seedRequestLog(overrides: {
   responsePayload: string;
   createdAt?: number;
 }): void {
-  getDb()
+  getLogsDb()!
     .insert(llmRequestLogs)
     .values({
       id: overrides.id,
@@ -246,6 +246,71 @@ describe("GET /v1/messages/:id/llm-context provider preference", () => {
     expect(body.logs).toHaveLength(1);
     expect(body.logs[0]?.summary).toEqual(
       expect.objectContaining({ provider: "openai" }),
+    );
+  });
+});
+
+describe("GET /v1/messages/:id/llm-context estimated cost cache accounting", () => {
+  const anthropicRequestPayload = JSON.stringify({
+    model: "claude-opus-4-6",
+    messages: [{ role: "user", content: "Hello there." }],
+  });
+
+  // Anthropic Messages usage reports `input_tokens` net of cache; cache-read is
+  // a separate, additive bucket. 19,091 fresh + 17,096 cache-read on Opus 4.6
+  // ($5/M input, $0.50/M cache-read, $25/M output).
+  const anthropicResponsePayload = JSON.stringify({
+    model: "claude-opus-4-6",
+    stop_reason: "end_turn",
+    content: [{ type: "text", text: "Hello back." }],
+    usage: {
+      input_tokens: 19091,
+      cache_read_input_tokens: 17096,
+      output_tokens: 440,
+    },
+  });
+
+  // 19091*5/1e6 + 17096*0.5/1e6 + 440*25/1e6
+  const expectedCostUsd = 0.115003;
+
+  test("prices full input at full rate for OpenRouter→Anthropic (cache not double-subtracted)", async () => {
+    seedRequestLog({
+      id: "log-cost-openrouter-anthropic",
+      messageId: "msg-cost-openrouter-anthropic",
+      provider: "openrouter",
+      requestPayload: anthropicRequestPayload,
+      responsePayload: anthropicResponsePayload,
+    });
+
+    const body = (await dispatchLlmContext(
+      "msg-cost-openrouter-anthropic",
+    )) as {
+      logs: Array<{ summary?: { estimatedCostUsd?: number | null } }>;
+    };
+
+    const cost = body.logs[0]?.summary?.estimatedCostUsd;
+    expect(cost).toBeCloseTo(expectedCostUsd, 5);
+    // The pre-fix bug subtracted cache-read from the already-net input, pricing
+    // only 1,995 fresh tokens → ~$0.0295. Guard against regressing to that.
+    expect(cost).toBeGreaterThan(0.11);
+  });
+
+  test("prices full input at full rate for native Anthropic", async () => {
+    seedRequestLog({
+      id: "log-cost-anthropic",
+      messageId: "msg-cost-anthropic",
+      provider: "anthropic",
+      requestPayload: anthropicRequestPayload,
+      responsePayload: anthropicResponsePayload,
+    });
+
+    const body = (await dispatchLlmContext("msg-cost-anthropic")) as {
+      logs: Array<{ summary?: { estimatedCostUsd?: number | null } }>;
+    };
+
+    expect(body.logs[0]?.summary?.estimatedCostUsd).toBeCloseTo(
+      expectedCostUsd,
+      5,
     );
   });
 });

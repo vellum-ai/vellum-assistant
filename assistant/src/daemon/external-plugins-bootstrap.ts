@@ -56,7 +56,7 @@
  * plugin level so the plugin name is attributed.
  */
 
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
@@ -64,13 +64,7 @@ import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import { registerDefaultPlugins } from "../plugins/defaults/index.js";
-import { buildExternalPlugin } from "../plugins/external-plugin-loader.js";
-import {
-  getRegisteredPlugin,
-  getRegisteredPlugins,
-  setRegisteredPlugin,
-  unregisterPlugin,
-} from "../plugins/registry.js";
+import { getRegisteredPlugins, unregisterPlugin } from "../plugins/registry.js";
 import {
   type Plugin,
   PluginExecutionError,
@@ -88,7 +82,7 @@ import {
   unregisterPluginTools,
 } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
+import { getWorkspaceDir, getWorkspacePluginsDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
 
@@ -264,6 +258,29 @@ export async function bootstrapPlugins(): Promise<void> {
       log.info(
         { plugin: name, flag: disabledFlag },
         `skipping plugin ${name}: feature flag ${disabledFlag} is disabled`,
+      );
+      unregisterPlugin(name);
+      continue;
+    }
+
+    // Check for the .disabled sentinel. Both default and user plugins
+    // can be disabled by creating a `.disabled` file at
+    // <workspace>/plugins/<manifest-name>/.disabled. For user plugins
+    // this is the plugin's own directory; for default plugins (which
+    // live in the source tree) the workspace directory acts as an
+    // out-of-band kill switch — the operator creates a directory named
+    // after the plugin's manifest name (e.g. `plugins/default-advisor/`)
+    // and drops a `.disabled` file inside it. Runs before init so no
+    // hooks, tools, or routes from the disabled plugin are ever wired.
+    const disabledSentinelPath = join(
+      getWorkspacePluginsDir(),
+      name,
+      ".disabled",
+    );
+    if (existsSync(disabledSentinelPath)) {
+      log.info(
+        { plugin: name, sentinel: disabledSentinelPath },
+        `skipping plugin ${name}: disabled via .disabled sentinel`,
       );
       unregisterPlugin(name);
       continue;
@@ -466,75 +483,4 @@ async function teardownPlugin(
       );
     }
   }
-}
-
-/** Rebuild a changed external plugin and swap it into the live registry. */
-export async function reregisterExternalPlugin(
-  pluginName: string,
-): Promise<void> {
-  const pluginDir = join(getWorkspaceDir(), "plugins", pluginName);
-  const plugin = await buildExternalPlugin(pluginDir);
-  if (plugin === undefined) return;
-
-  if (plugin.manifest.name !== pluginName) {
-    log.warn(
-      { plugin: pluginName, manifestName: plugin.manifest.name, pluginDir },
-      `external plugin reload skipped: directory name "${pluginName}" does not match manifest.name "${plugin.manifest.name}"`,
-    );
-    return;
-  }
-
-  const assistantConfig = getConfig();
-  const disabledFlag = getDisabledPluginFlag(plugin, assistantConfig);
-  if (disabledFlag !== undefined) {
-    log.info(
-      { plugin: pluginName, flag: disabledFlag },
-      `external plugin reload skipped: feature flag ${disabledFlag} is disabled`,
-    );
-    return;
-  }
-
-  const existing = getRegisteredPlugin(pluginName);
-  if (existing === undefined) {
-    try {
-      await initializePlugin(plugin, assistantConfig);
-      setRegisteredPlugin(plugin);
-      log.info({ plugin: pluginName }, "external plugin registered post-boot");
-    } catch (err) {
-      log.error(
-        { err, plugin: pluginName },
-        "external plugin post-boot registration failed",
-      );
-    }
-    return;
-  }
-
-  try {
-    unregisterPluginTools(pluginName);
-  } catch (err) {
-    log.warn(
-      { err, plugin: pluginName },
-      "external plugin reload: tool unregister failed (continuing)",
-    );
-  }
-
-  setRegisteredPlugin(plugin);
-
-  if (plugin.tools && plugin.tools.length > 0) {
-    try {
-      const accepted = registerPluginTools(pluginName, plugin.tools);
-      log.info(
-        { plugin: pluginName, count: accepted.length },
-        "external plugin reloaded",
-      );
-    } catch (err) {
-      log.error(
-        { err, plugin: pluginName },
-        "external plugin reload: tool registration failed",
-      );
-    }
-    return;
-  }
-
-  log.info({ plugin: pluginName }, "external plugin reloaded");
 }

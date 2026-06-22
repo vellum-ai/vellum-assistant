@@ -47,7 +47,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 
-initializeDb();
+await initializeDb();
 
 /**
  * Build a session that emits multiple events via the onEvent callback,

@@ -90,7 +90,7 @@ import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { initializeDb } from "../memory/db-init.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 
-initializeDb();
+await initializeDb();
 
 describe("startVerificationCall — voice binding", () => {
   beforeEach(() => {

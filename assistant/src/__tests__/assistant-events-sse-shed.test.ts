@@ -21,7 +21,7 @@ import {
   type SseSubscriberInstrumentation,
 } from "../runtime/routes/events-routes.js";
 
-initializeDb();
+await initializeDb();
 
 function clearTables() {
   const db = getDb();

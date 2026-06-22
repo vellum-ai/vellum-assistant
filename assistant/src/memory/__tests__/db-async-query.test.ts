@@ -24,7 +24,7 @@ const { runAsyncSqlite, _resetFallbackWarning } =
   await import("../db-async-query.js");
 const { findSqlite3 } = await import("../../util/sqlite3-runtime.js");
 
-initializeDb();
+await initializeDb();
 
 const sqlite3Available = findSqlite3() !== undefined;
 

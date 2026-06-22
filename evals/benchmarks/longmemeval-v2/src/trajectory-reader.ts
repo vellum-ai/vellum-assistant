@@ -40,12 +40,12 @@
  *
  * On `openTrajectories`:
  *
- *   1. Stat the JSONL file (helpful "missing — run `data/download.sh`"
+ *   1. Stat the JSONL file (helpful "missing — run `data/download.ts`"
  *      error if absent).
  *   2. If a sibling index exists AND its recorded `source.filename`,
  *      `source.size` and `source.mtimeMs` match the JSONL's actual
  *      values, load it. The size+mtime guard catches operators who
- *      re-ran `data/download.sh` and got a fresh file under the same
+ *      re-ran `data/download.ts` and got a fresh file under the same
  *      name.
  *   3. Otherwise scan the JSONL once: parse + validate every line
  *      with the same Zod schema the original loader used, record
@@ -159,7 +159,7 @@ class LRU<K, V> {
 /**
  * Open a `TrajectoryReader` rooted at `dataRoot`.
  *
- * The first call after a fresh `data/download.sh` scans the JSONL
+ * The first call after a fresh `data/download.ts` scans the JSONL
  * once to build a sibling index. Subsequent calls reuse the index
  * unless the JSONL's size or mtime has changed.
  */
@@ -179,7 +179,7 @@ export async function openTrajectories(
     if (code === "ENOENT") {
       throw new Error(
         `LongMemEval-V2 trajectories.jsonl not found at ${jsonlPath}. ` +
-          "Run `bash data/download.sh` from the benchmark directory.",
+          "Run `bun run data/download.ts` from the benchmark directory.",
       );
     }
     throw err;

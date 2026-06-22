@@ -259,7 +259,7 @@ import { conversations } from "../memory/schema.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
-initializeDb();
+await initializeDb();
 
 afterAll(() => {
   resetDbForTesting();

@@ -61,7 +61,7 @@ import { findActiveSession } from "../runtime/channel-verification-service.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -256,5 +256,4 @@ describe("Slack inbound trusted contact verification", () => {
 
     // No Slack DM was sent
   });
-
 });

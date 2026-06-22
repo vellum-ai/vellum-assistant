@@ -460,6 +460,39 @@ describe("OpenAIChatCompletionsProvider reasoning parsing", () => {
     expect(params.messages[0].content).toBeNull();
   });
 
+  test("forwards config.top_p onto the request body", async () => {
+    const { provider, requests } = stubProvider([
+      {
+        choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 2, completion_tokens: 1 },
+      },
+    ]);
+
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      { config: { top_p: 0.95 } },
+    );
+
+    const params = requests[0] as { top_p?: number };
+    expect(params.top_p).toBe(0.95);
+  });
+
+  test("omits top_p from the request body when not configured", async () => {
+    const { provider, requests } = stubProvider([
+      {
+        choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 2, completion_tokens: 1 },
+      },
+    ]);
+
+    await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+    ]);
+
+    const params = requests[0] as { top_p?: number };
+    expect(params.top_p).toBeUndefined();
+  });
+
   test("skips Anthropic-originated thinking blocks (with signatures)", async () => {
     const { provider, requests } = stubProvider(
       [

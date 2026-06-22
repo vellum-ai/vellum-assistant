@@ -285,18 +285,38 @@ describe("persistToggleConsent + restoreConsentForUser round-trip", () => {
     expect(r.diagnosticsCurrent).toBe(false);
   });
 
-  test("migrates the previous version's per-user 'ai' key into 'privacy'", () => {
-    // An existing offline user consented under the old field name.
-    const legacyAiKey = `device:consent:ai:v${PRIVACY_CONSENT_VERSION}:user-1`;
+  test("cleans up the legacy 'ai' key without satisfying the current privacy version", () => {
+    // A user consented under the old field name at the previous privacy version.
+    // The privacy version has since been bumped, so that stale consent must not
+    // be promoted as current — the key is cleaned up and privacy stays un-set.
+    const legacyAiKey = `device:consent:ai:v2026-06-08:user-1`;
     const privacyKey = `device:consent:privacy:v${PRIVACY_CONSENT_VERSION}:user-1`;
     localStorage.setItem(legacyAiKey, "true");
 
     const r = restoreConsentForUser("user-1");
 
-    expect(r.privacy).toBe(true);
-    // The old key is promoted to the new one and removed.
-    expect(localStorage.getItem(privacyKey)).toBe("true");
+    expect(r.privacy).toBe(false);
+    // The stale key is removed and privacy is not stamped current.
     expect(localStorage.getItem(legacyAiKey)).toBeNull();
+    expect(localStorage.getItem(privacyKey)).toBeNull();
+  });
+
+  test("migrates legacy unversioned ToS but forces privacy re-review", () => {
+    // A pre-versioning user with only the legacy active keys. ToS is unchanged
+    // so it migrates as current; the unversioned privacy consent predates the
+    // current privacy version, so it must NOT be promoted as current.
+    localStorage.setItem("vellum:onboarding:tosAccepted", "true");
+    localStorage.setItem("vellum:onboarding:aiDataConsent", "true");
+    const privacyKey = `device:consent:privacy:v${PRIVACY_CONSENT_VERSION}:user-1`;
+    const tosKey = `device:consent:tos:v${TOS_CONSENT_VERSION}:user-1`;
+
+    const r = restoreConsentForUser("user-1");
+
+    expect(r.tos).toBe(true);
+    expect(r.privacy).toBe(false);
+    // ToS is promoted; privacy is not stamped current.
+    expect(localStorage.getItem(tosKey)).toBe("true");
+    expect(localStorage.getItem(privacyKey)).toBe("false");
   });
 });
 
@@ -382,6 +402,17 @@ describe("savePreferenceToggle", () => {
     const body = patchConsentMock.mock.calls[0][0];
     expect(body.share_diagnostics).toBe(false);
     expect(body.share_diagnostics_accepted_version).toBe(PRIVACY_CONSENT_VERSION);
+  });
+
+  test("offline persists the on/off value but skips the currency stamp, ack key, and server patch", () => {
+    savePreferenceToggle("share_analytics", true, { userId: "user-1", hasPlatformSession: false });
+    // The chosen value is still recorded device-locally...
+    expect(storeState.setShareAnalytics).toHaveBeenCalledWith(true);
+    expect(setDeviceBoolMock).toHaveBeenCalledWith("shareAnalytics", true);
+    // ...but no version-currency is stamped without a session to record against.
+    expect(storeState.setAnalyticsConsentCurrent).not.toHaveBeenCalled();
+    expect(localStorage.getItem(analyticsKey("user-1"))).toBeNull();
+    expect(patchConsentMock).not.toHaveBeenCalled();
   });
 });
 

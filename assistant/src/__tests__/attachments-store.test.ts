@@ -42,7 +42,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { rawGet, rawRun } from "../memory/raw-query.js";
 import { getConversationsDir } from "../util/platform.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables() {
   const db = getDb();

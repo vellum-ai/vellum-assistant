@@ -124,18 +124,18 @@ function makeCapabilityNode(content: string, capId: string): NewNode {
 }
 
 describe("loadContextMemory — query/sparse vector surfacing", () => {
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     embedShouldThrow = false;
     embedVector = [0.1, 0.2, 0.3];
     embedCallCount = 0;
     embedRouter = null;
     searchRouter = null;
     resetDbForTesting();
-    initializeDb();
+    await initializeDb();
   });
 
   test("returns the dense queryVector when embedding succeeds", async () => {
@@ -180,18 +180,18 @@ describe("loadContextMemory — query/sparse vector surfacing", () => {
 });
 
 describe("retrieveForTurn — query/sparse vector surfacing", () => {
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     embedShouldThrow = false;
     embedVector = [0.1, 0.2, 0.3];
     embedCallCount = 0;
     embedRouter = null;
     searchRouter = null;
     resetDbForTesting();
-    initializeDb();
+    await initializeDb();
   });
 
   test("returns the dense queryVector when embedding succeeds", async () => {
@@ -309,8 +309,8 @@ describe("retrieveForTurn — topic-pivot recovery", () => {
     };
   }
 
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   beforeEach(() => {
@@ -458,8 +458,8 @@ describe("loadContextMemory — dual-query capability ranking", () => {
     return [];
   }
 
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   beforeEach(() => {

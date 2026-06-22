@@ -25,12 +25,21 @@ export class RateLimitProvider implements Provider {
 
   private requestTimestamps: number[];
 
+  // Forward the optional token-counting endpoint so the capability survives
+  // the wrapper chain. Bound straight to the inner provider — count_tokens is
+  // a cheap separate endpoint outside the message rate budget, and its caller
+  // falls back on error.
+  public readonly countInputTokens?: NonNullable<Provider["countInputTokens"]>;
+
   constructor(
     private readonly inner: Provider,
     private readonly config: RateLimitConfig,
     sharedRequestTimestamps?: number[],
   ) {
     this.requestTimestamps = sharedRequestTimestamps ?? [];
+    if (inner.countInputTokens) {
+      this.countInputTokens = inner.countInputTokens.bind(inner);
+    }
   }
 
   async sendMessage(

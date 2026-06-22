@@ -48,6 +48,8 @@ interface MockInteraction {
     orderedIds: string[];
     optionsById: Record<string, string[]>;
   };
+  toolUseId?: string;
+  questionDetails?: { entries: Array<{ id: string; question: string }> };
 }
 const _piStore = new Map<string, MockInteraction>();
 mock.module("../runtime/pending-interactions.js", () => ({
@@ -203,6 +205,31 @@ describe("QuestionPrompter", () => {
       overall: "completed",
     });
     expect(_piStore.has(req.requestId)).toBe(false);
+  });
+
+  test("persists the full question entries on the interaction for rehydration", async () => {
+    // GIVEN a batched prompt with a tool-use id
+    const { prompter, sent } = makePrompter();
+
+    const promise = prompter.prompt({
+      ...threeQuestionParams,
+      toolUseId: "tool-q",
+    });
+    const req = sent[0] as QuestionRequestEvent;
+
+    // THEN the registered interaction carries the full entries (not just the
+    // id maps in `metadata`) so a history-load render can rehydrate the card
+    const interaction = _piStore.get(req.requestId);
+    expect(interaction?.toolUseId).toBe("tool-q");
+    expect(interaction?.questionDetails?.entries).toHaveLength(3);
+    expect(interaction?.questionDetails?.entries).toEqual(req.questions);
+
+    resolveBatch(req.requestId, [
+      { questionId: "q1", kind: "option", optionId: "a" },
+      { questionId: "q2", kind: "option", optionId: "x" },
+      { questionId: "q3", kind: "skip" },
+    ]);
+    await promise;
   });
 
   test("free-text resolution", async () => {

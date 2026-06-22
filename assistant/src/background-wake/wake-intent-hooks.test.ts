@@ -102,7 +102,7 @@ const { getDb } = await import("../memory/db-connection.js");
 const { createSchedule, deleteSchedule, updateSchedule } =
   await import("../schedule/schedule-store.js");
 
-initializeDb();
+await initializeDb();
 
 describe("background wake intent publisher hooks", () => {
   beforeEach(() => {

@@ -25,7 +25,7 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import { getDb } from "../memory/db-connection.js";
+import { getLogsDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
   getRequestLogById,
@@ -34,11 +34,11 @@ import {
 } from "../memory/llm-request-log-store.js";
 import { llmRequestLogs } from "../memory/schema.js";
 
-initializeDb();
+await initializeDb();
 
+// llm_request_logs lives in the dedicated logs connection.
 function resetLogs(): void {
-  const db = getDb();
-  db.delete(llmRequestLogs).run();
+  getLogsDb()!.delete(llmRequestLogs).run();
 }
 
 describe("setAgentLoopExitReasonOnLatestLog", () => {
@@ -105,7 +105,11 @@ describe("setAgentLoopExitReasonOnLatestLog", () => {
 
     // Current run lands a new log, then exits.
     Bun.sleepSync(2);
-    const current = recordRequestLog("conv-1", '{"cur_req":1}', '{"cur_res":1}');
+    const current = recordRequestLog(
+      "conv-1",
+      '{"cur_req":1}',
+      '{"cur_res":1}',
+    );
     setAgentLoopExitReasonOnLatestLog("conv-1", "yield_to_user");
 
     expect(getRequestLogById(prev)?.agentLoopExitReason).toBe("no_tool_calls");

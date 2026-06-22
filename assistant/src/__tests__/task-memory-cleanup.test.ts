@@ -40,7 +40,7 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-import { getDb } from "../memory/db-connection.js";
+import { getDb, getMemoryDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import {
@@ -66,14 +66,15 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
   const convId = "conv-task-cleanup";
   const otherConvId = "conv-other";
 
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   beforeEach(() => {
     const db = getDb();
     db.run("DELETE FROM memory_graph_nodes");
-    db.run("DELETE FROM memory_jobs");
+    // memory_jobs lives in the dedicated memory connection.
+    getMemoryDb()!.run("DELETE FROM memory_jobs");
     db.run("DELETE FROM messages");
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
@@ -525,7 +526,8 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
     db.insert(memoryGraphNodes)
       .values({
         id: "item-cross-sched",
-        content: "cross-sourced schedule claim\nClaim from two failed schedules.",
+        content:
+          "cross-sourced schedule claim\nClaim from two failed schedules.",
         type: "semantic",
         created: now + 10,
         lastAccessed: now + 20,
@@ -742,7 +744,8 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
     seedConversations();
     seedMessages();
 
-    const db = getDb();
+    // memory_jobs lives in the dedicated memory connection.
+    const db = getMemoryDb()!;
 
     // Enqueue graph_extract jobs for the target conversation
     enqueueMemoryJob("graph_extract", {

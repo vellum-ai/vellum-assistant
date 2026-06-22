@@ -42,6 +42,10 @@ const ClassifyRiskSchema = z.object({
   command: z.string().optional(),
   url: z.string().optional(),
   path: z.string().optional(),
+  // Symlink-resolved target path for file tools, canonicalized by the daemon.
+  // Used for security escalation checks so a symlink cannot mask the real
+  // target. Falls back to lexical resolution of `path` when absent.
+  resolvedPath: z.string().optional(),
   skill: z.string().optional(),
   mode: z.string().optional(),
   script: z.string().optional(),
@@ -87,6 +91,8 @@ const ClassifyRiskSchema = z.object({
    */
   transferSandboxDestPath: z.string().optional(),
   transferSandboxWorkingDir: z.string().optional(),
+  // Symlink-resolved to_sandbox destination, canonicalized by the daemon.
+  resolvedTransferDestPath: z.string().optional(),
 });
 
 type ClassifyRiskParams = z.infer<typeof ClassifyRiskSchema>;
@@ -450,8 +456,10 @@ export async function handleClassifyRisk(
           toolName: tool,
           filePath,
           workingDir,
+          resolvedPath: params.resolvedPath,
           transferSandboxDestPath: params.transferSandboxDestPath,
           transferSandboxWorkingDir: params.transferSandboxWorkingDir,
+          resolvedTransferDestPath: params.resolvedTransferDestPath,
         },
         context,
       );

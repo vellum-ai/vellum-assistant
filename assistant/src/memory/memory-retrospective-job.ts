@@ -313,6 +313,13 @@ async function runForkBasedRetrospective(
       // {@link WakeToolContextPin}.
       toolGateMode: "execution" as const,
       toolContextPin,
+      // Message-tier cache-prefix parity — reproducing the source's
+      // `<background_turn>` / `<channel_capabilities>` / `<non_interactive_context>`
+      // blocks — is handled by metadata rehydration, not by re-running runtime
+      // injection on the fork: the source's live turns persist those blocks onto
+      // message metadata, the fork copies that metadata, and
+      // `Conversation.loadFromDb` rehydrates them byte-for-byte. The wake never
+      // re-runs the injection pipeline, so it needs no interactivity hint here.
       // Profile forcing (model/thinking/effort parity) is a separate concern
       // and stays keyed on `matchConversationProfile` via `matchedProfile`.
       ...(matchedProfile !== undefined
@@ -768,9 +775,14 @@ function extractRememberContents(messages: MessageLike[]): string[] {
       const input = b.input;
       if (!input || typeof input !== "object") continue;
       const content = (input as Record<string, unknown>).content;
-      if (typeof content !== "string") continue;
-      const trimmed = content.trim();
-      if (trimmed.length > 0) contents.push(trimmed);
+      // `remember` accepts a single string or an array of facts (batch form);
+      // flatten both so batched saves still feed the dedup baseline.
+      const facts = Array.isArray(content) ? content : [content];
+      for (const fact of facts) {
+        if (typeof fact !== "string") continue;
+        const trimmed = fact.trim();
+        if (trimmed.length > 0) contents.push(trimmed);
+      }
     }
   }
   return contents;
@@ -840,7 +852,7 @@ function buildForkInstruction({
     ? "Your review window is the full conversation above, ending just before this instruction message."
     : `Your review window starts at ${anchorDescription} and ends just before this instruction message. If you cannot locate that anchoring turn in your visible history (for example, it is behind the compaction summary), fail closed: review only the most recent visible messages after the summary, not the whole conversation.`;
 
-  return `This is an automated background memory pass over the conversation above — not a message from the user. Do not reply conversationally or in persona; just perform the review described here. Only the \`remember\` tool is available for this pass — any other tool call will be rejected, so don't attempt one.
+  return `This is an automated background memory pass over the conversation above — not a message from the user. Do not reply conversationally; just perform the review described here. Only the \`remember\` tool is available for this pass — any other tool call will be rejected, so don't attempt one.
 
 ${windowAnchor}
 
@@ -856,6 +868,6 @@ Two dedup sources to skip:
 1. Anything semantically captured in <already_remembered> above (from prior retrospective passes).
 2. Anything you already called \`remember\` on inline within your review window — those appear as \`tool_use\` blocks with \`name: "remember"\` in your history.
 
-For everything else in your review window, use the \`remember\` tool on facts, plans, decisions, preferences, names, dates, felt moments, corrections, commitments, or anything else concrete and worth carrying forward. One \`remember\` call per fact. If nothing new is worth saving, say "Nothing new to save." and stop.
+For everything else in your review window, use the \`remember\` tool on facts, plans, decisions, preferences, names, dates, felt moments, corrections, commitments, or anything else concrete and worth carrying forward. When several facts are worth saving, pass them all as an array to a single \`remember\` call rather than calling it once per fact. If nothing new is worth saving, say "Nothing new to save." and stop.
 `;
 }

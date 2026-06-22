@@ -88,6 +88,7 @@ import {
   loadSlackActiveThreadFocusBlock,
   loadSlackChronologicalContext,
   loadSlackChronologicalMessages,
+  NON_INTERACTIVE_CONTEXT_BLOCK,
   resolveChannelCapabilities,
   resolveTurnInboundActorContext,
   resolveTurnModelProfileLabel,
@@ -123,7 +124,7 @@ import { getWorkspacePromptPath } from "../util/platform.js";
 // `applyRuntimeInjections` self-resolves the Slack active-thread focus block by
 // reading the live conversation's persisted message rows, so the schema must
 // exist before any Slack-channel assembly test runs.
-initializeDb();
+await initializeDb();
 
 // The pkb-reminder injector derives PKB-active state from the workspace itself
 // — `readPkbContext()` returning content behind the personal-memory trust gate
@@ -939,6 +940,32 @@ describe("applyRuntimeInjections — injection mode", () => {
     expect(allText).toContain("<NOW.md");
     expect(allText).toContain("<system_reminder>");
     expect(allText).toContain("<knowledge_base>");
+  });
+
+  test("captures background-turn / channel-capabilities / non-interactive-context for metadata persistence", async () => {
+    // These three blocks must be captured into `blocks` so persistInjectionBlocks
+    // writes them to message metadata and loadFromDb rehydrates them on a
+    // reload/fork (background-source memory retrospective cache parity — see the
+    // rehydration-order tests in conversation-lifecycle.test.ts). background-turn
+    // fires only for a background/scheduled live conversation, so register one
+    // under the turn's conversation id.
+    setConversation("injection-mode-conv", {
+      conversationId: "injection-mode-conv",
+      workingDir: "/sandbox",
+      workspaceTopLevelContext: "",
+      workspaceTopLevelDirty: false,
+      surfaceState: new Map(),
+      channelCapabilities,
+      conversationType: "background",
+    } as never);
+
+    const { blocks } = await applyRuntimeInjections(baseMessages, fullOptions);
+
+    expect(blocks.backgroundTurnBlock).toContain("<background_turn>");
+    expect(blocks.channelCapabilitiesBlock).toContain("<channel_capabilities>");
+    expect(blocks.nonInteractiveContextBlock).toBe(
+      NON_INTERACTIVE_CONTEXT_BLOCK,
+    );
   });
 
   test("explicit mode: 'full' behaves the same as default", async () => {

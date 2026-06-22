@@ -75,6 +75,7 @@ type UsageBreakdownState = {
 
 const RANGE_OPTIONS: { value: UsageTimeRange; label: string }[] = [
   { value: "today", label: "Today" },
+  { value: "yesterday", label: "Yesterday" },
   { value: "7d", label: "Last 7 days" },
   { value: "30d", label: "Last 30 days" },
   { value: "90d", label: "Last 90 days" },
@@ -723,7 +724,7 @@ function GroupByPicker({
   );
 }
 
-type BreakdownOptionalColumn = "pct" | "tokens";
+type BreakdownOptionalColumn = "pct" | "tokens" | "turns";
 
 function BreakdownSection({
   query,
@@ -762,6 +763,11 @@ function BreakdownSection({
             active={visibleColumns.has("tokens")}
             onClick={() => toggleColumn("tokens")}
           />
+          <ColumnToggle
+            label="Turns"
+            active={visibleColumns.has("turns")}
+            onClick={() => toggleColumn("turns")}
+          />
         </div>
         <QueryState
           query={query}
@@ -771,6 +777,7 @@ function BreakdownSection({
               groups={decoratedGroups ?? breakdown.response.breakdown}
               showPct={visibleColumns.has("pct")}
               showTokens={visibleColumns.has("tokens")}
+              showTurns={visibleColumns.has("turns")}
             />
           )}
         />
@@ -812,10 +819,12 @@ function BreakdownTable({
   groups,
   showPct,
   showTokens,
+  showTurns,
 }: {
   groups: UsageGroupBreakdown[];
   showPct: boolean;
   showTokens: boolean;
+  showTurns: boolean;
 }) {
   if (groups.length === 0) {
     return (
@@ -848,6 +857,14 @@ function BreakdownTable({
                 style={{ color: "var(--content-tertiary)", width: "35%" }}
               >
                 Tokens
+              </th>
+            ) : null}
+            {showTurns ? (
+              <th
+                className="px-3 py-2.5 text-right text-label-medium-default"
+                style={{ color: "var(--content-tertiary)", width: "72px" }}
+              >
+                Turns
               </th>
             ) : null}
             {showPct ? (
@@ -907,6 +924,18 @@ function BreakdownTable({
                       title={tokenDetail}
                     >
                       {tokenShort}
+                    </span>
+                  </td>
+                ) : null}
+                {showTurns ? (
+                  <td className="whitespace-nowrap px-3 py-2 text-right">
+                    <span
+                      className="text-body-small-default"
+                      style={{ color: "var(--content-tertiary)" }}
+                    >
+                      {group.turnCount == null
+                        ? "—"
+                        : group.turnCount.toLocaleString()}
                     </span>
                   </td>
                 ) : null}

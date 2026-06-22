@@ -7,8 +7,8 @@
  * - `user-prompt-submit` — first-pass generation from the submitted prompt,
  *   scheduled on a later macrotask so the main agent-loop LLM request is
  *   issued first.
- * - `stop` — second-pass regeneration once the conversation reaches its third
- *   user turn (turn count derived from the user prompts in history).
+ * - `stop` — fallback retry for replaceable titles and second-pass
+ *   regeneration once the conversation reaches its third user turn.
  *
  * Both let the title service resolve the provider, persist the title, and
  * broadcast the resulting `conversation_title_updated` / `sync_changed`
@@ -31,11 +31,40 @@ const queueGenerateConversationTitleMock = mock(
   }): void => undefined,
 );
 const queueRegenerateConversationTitleMock = mock(
-  (_params: { conversationId: string; provider?: unknown }): void => undefined,
+  (_params: {
+    conversationId: string;
+    provider?: unknown;
+    onlyIfReplaceable?: boolean;
+  }): void => undefined,
 );
 mock.module("../memory/conversation-title-service.js", () => ({
+  AUTO_TITLE_DETERMINISTIC: 2,
+  isReplaceableTitle: (title: string | null) =>
+    title == null ||
+    title === "" ||
+    title === "Generating title..." ||
+    title === "New Conversation" ||
+    title === "Untitled" ||
+    title === "Untitled Conversation" ||
+    title.startsWith("Runtime: "),
   queueGenerateConversationTitle: queueGenerateConversationTitleMock,
   queueRegenerateConversationTitle: queueRegenerateConversationTitleMock,
+}));
+
+const mockGetConversation = mock(
+  (_conversationId: string) =>
+    ({
+      title: "Existing Title",
+      isAutoTitle: 1,
+      conversationType: "standard",
+    }) as {
+      title: string;
+      isAutoTitle: number;
+      conversationType: string;
+    },
+);
+mock.module("../memory/conversation-crud.js", () => ({
+  getConversation: mockGetConversation,
 }));
 
 // The `stop` hook reads `conversations.skipAutoRetitling`; stub the loader so
@@ -192,6 +221,19 @@ describe("title-generate stop hook", () => {
     resetPluginRegistryForTests();
     queueRegenerateConversationTitleMock.mockReset();
     queueRegenerateConversationTitleMock.mockImplementation(() => undefined);
+    mockGetConversation.mockReset();
+    mockGetConversation.mockImplementation(
+      (_conversationId: string) =>
+        ({
+          title: "Existing Title",
+          isAutoTitle: 1,
+          conversationType: "standard",
+        }) as {
+          title: string;
+          isAutoTitle: number;
+          conversationType: string;
+        },
+    );
     skipAutoRetitling = false;
   });
 
@@ -210,6 +252,61 @@ describe("title-generate stop hook", () => {
     expect(call?.conversationId).toBe("conv-1");
     expect(call).not.toHaveProperty("provider");
     expect(call).not.toHaveProperty("signal");
+    expect(call).not.toHaveProperty("onlyIfReplaceable");
+  });
+
+  test("retries a replaceable fallback title after a successful turn", async () => {
+    mockGetConversation.mockReturnValueOnce({
+      title: "Untitled Conversation",
+      isAutoTitle: 2,
+      conversationType: "standard",
+    });
+    const ctx = makeStopCtx({ messages: historyWithUserTurns(1) });
+
+    await stop(ctx);
+    await flushMacrotasks();
+
+    expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(1);
+    expect(queueRegenerateConversationTitleMock).toHaveBeenCalledWith({
+      conversationId: "conv-1",
+      onlyIfReplaceable: true,
+    });
+  });
+
+  test("preserves the third-turn retitle when the title is still replaceable", async () => {
+    mockGetConversation.mockReturnValueOnce({
+      title: "Untitled Conversation",
+      isAutoTitle: 2,
+      conversationType: "standard",
+    });
+    const ctx = makeStopCtx({ messages: historyWithUserTurns(3) });
+
+    await stop(ctx);
+    await flushMacrotasks();
+
+    expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(1);
+    const call = queueRegenerateConversationTitleMock.mock.calls[0]?.[0];
+    expect(call?.conversationId).toBe("conv-1");
+    expect(call).not.toHaveProperty("onlyIfReplaceable");
+  });
+
+  test("fallback title retry is not blocked by the retitling opt-out", async () => {
+    skipAutoRetitling = true;
+    mockGetConversation.mockReturnValueOnce({
+      title: "Generating title...",
+      isAutoTitle: 1,
+      conversationType: "standard",
+    });
+    const ctx = makeStopCtx({ messages: historyWithUserTurns(1) });
+
+    await stop(ctx);
+    await flushMacrotasks();
+
+    expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(1);
+    expect(queueRegenerateConversationTitleMock).toHaveBeenCalledWith({
+      conversationId: "conv-1",
+      onlyIfReplaceable: true,
+    });
   });
 
   test("defers the regeneration so the completed turn is persisted first", async () => {

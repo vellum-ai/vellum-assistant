@@ -21,7 +21,10 @@ import { startTransition, useEffect } from "react";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { reconcileMessagesWithSeq } from "@/domains/chat/utils/reconcile-with-seq";
-import { extractWirePendingConfirmation } from "@/domains/chat/utils/chat";
+import {
+  extractWirePendingConfirmation,
+  extractWirePendingQuestion,
+} from "@/domains/chat/utils/chat";
 import { filterDismissedSurfaces } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import { mapMessageSurfaces } from "@/domains/chat/utils/map-message-surfaces";
 import { recordDiagnostic } from "@/lib/diagnostics";
@@ -234,6 +237,20 @@ export function useConversationHistory({
             wirePendingConfirmation.toolUseId,
           );
         }
+      }
+
+      // Restore an in-flight ask_question prompt the snapshot carries on a tool
+      // call (stamped by the daemon from the pending-interactions registry at
+      // render time). On a cold reconnect — e.g. the live `question_request`
+      // event was broadcast while no SSE client was connected — the prompt
+      // rides the snapshot rather than a replayed event. Skipped when a prompt
+      // is already active so a live in-progress question is never clobbered.
+      const wirePendingQuestion = extractWirePendingQuestion(filteredMessages);
+      if (
+        wirePendingQuestion &&
+        !useInteractionStore.getState().pendingQuestion
+      ) {
+        useInteractionStore.getState().showQuestion(wirePendingQuestion);
       }
     } else {
       recordDiagnostic("history_tq_empty", {

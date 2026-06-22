@@ -860,6 +860,123 @@ describe("loadFromDb metadata injection rehydration", () => {
     ]);
   });
 
+  test("rehydration order matches live assembly for background-turn / channel-capabilities / non-interactive-context", async () => {
+    // A background/scheduled source's live turns inject three extra blocks that
+    // the metadata persist layer now captures so a reloaded or forked
+    // conversation (memory retrospective) reproduces them byte-for-byte.
+    // Live assembly lands them at:
+    //   - `<background_turn>` — prepend-user-tail injector order 15, between
+    //     `<workspace>` (10) and `<turn_context>` (20).
+    //   - `<channel_capabilities>` — Step-3 prepend, just below `<turn_context>`
+    //     and above the after-memory region.
+    //   - `<non_interactive_context>` — Step-3 APPEND, the very last block.
+    // Expected layout (cf. live `applyRuntimeInjections`):
+    //   [<workspace>, <background_turn>, <turn_context>, <channel_capabilities>,
+    //    <memory>dynamic</memory>, <info>v2static</info>, <memory>v3</memory>,
+    //    <NOW.md>, <system_reminder>, <knowledge_base>, ...original,
+    //    <non_interactive_context>]
+    // Rehydration must reproduce this or a background-source fork busts the
+    // message-tier prefix cache at the first divergent block.
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        metadata: JSON.stringify({
+          workspaceBlock: "<workspace>\nworkspace body\n</workspace>",
+          backgroundTurnBlock: "<background_turn>\nbg body\n</background_turn>",
+          turnContextBlock: "<turn_context>\nctx payload\n</turn_context>",
+          channelCapabilitiesBlock:
+            "<channel_capabilities>\nchannel: vellum\n</channel_capabilities>",
+          memoryInjectedBlock: "mem payload",
+          memoryV2StaticBlock:
+            "<info>\n## Essentials\n\nAlice prefers VS Code.\n</info>",
+          memoryV3InjectedBlock:
+            "header line\n\n# memory/concepts/page-a.md\nhead a",
+          nowScratchpadBlock: "<NOW.md>\nnow body\n</NOW.md>",
+          pkbSystemReminderBlock:
+            "<system_reminder>\npkb reminder body\n</system_reminder>",
+          pkbContextBlock: "<knowledge_base>\nkb body\n</knowledge_base>",
+          nonInteractiveContextBlock:
+            "<non_interactive_context>\nno human present\n</non_interactive_context>",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages).toHaveLength(3);
+    expect(messages[0].content).toEqual([
+      { type: "text", text: "<workspace>\nworkspace body\n</workspace>" },
+      { type: "text", text: "<background_turn>\nbg body\n</background_turn>" },
+      { type: "text", text: "<turn_context>\nctx payload\n</turn_context>" },
+      {
+        type: "text",
+        text: "<channel_capabilities>\nchannel: vellum\n</channel_capabilities>",
+      },
+      { type: "text", text: "<memory>\nmem payload\n</memory>" },
+      {
+        type: "text",
+        text: "<info>\n## Essentials\n\nAlice prefers VS Code.\n</info>",
+      },
+      {
+        type: "text",
+        text: "<memory>\nheader line\n\n# memory/concepts/page-a.md\nhead a\n</memory>",
+      },
+      { type: "text", text: "<NOW.md>\nnow body\n</NOW.md>" },
+      {
+        type: "text",
+        text: "<system_reminder>\npkb reminder body\n</system_reminder>",
+      },
+      { type: "text", text: "<knowledge_base>\nkb body\n</knowledge_base>" },
+      { type: "text", text: "First turn" },
+      {
+        type: "text",
+        text: "<non_interactive_context>\nno human present\n</non_interactive_context>",
+      },
+    ]);
+  });
+
+  test("tail user row skips background-turn / channel-capabilities / non-interactive-context", async () => {
+    // The tail row re-injects these fresh next turn, so rehydration must skip
+    // them on the tail — mirroring `<turn_context>` / `<workspace>`.
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+        metadata: JSON.stringify({
+          backgroundTurnBlock: "<background_turn>\nbg body\n</background_turn>",
+          channelCapabilitiesBlock:
+            "<channel_capabilities>\nchannel: vellum\n</channel_capabilities>",
+          nonInteractiveContextBlock:
+            "<non_interactive_context>\nno human present\n</non_interactive_context>",
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].content).toEqual([{ type: "text", text: "Tail" }]);
+  });
+
   test("untrusted-actor view does not rehydrate memoryV2StaticBlock", async () => {
     mockConversation = defaultConv();
     // Rows with `trusted_contact` / `unknown` provenance survive the

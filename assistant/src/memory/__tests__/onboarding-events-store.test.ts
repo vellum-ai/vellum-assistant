@@ -22,7 +22,7 @@ import {
 } from "../onboarding-events-store.js";
 import { onboardingEvents } from "../schema.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTable(): void {
   getDb().delete(onboardingEvents).run();

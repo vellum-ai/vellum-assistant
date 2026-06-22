@@ -37,7 +37,7 @@ import type { RouteDefinition } from "../types.js";
 // DB bootstrap
 // ---------------------------------------------------------------------------
 
-initializeDb();
+await initializeDb();
 
 function clearConversations(): void {
   getDb().delete(conversations).run();

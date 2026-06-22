@@ -45,7 +45,7 @@ const { consumeScopedApprovalGrantByToolSignature, createScopedApprovalGrant } =
   _internal;
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 
-initializeDb();
+await initializeDb();
 
 function clearTables(): void {
   const db = getDb();
@@ -229,7 +229,7 @@ describe("security matrix: concurrent consume (CAS)", () => {
 describe("security matrix: persistence and fail-closed behavior", () => {
   beforeEach(() => clearTables());
 
-  test("grants survive DB re-initialization (simulating daemon restart)", () => {
+  test("grants survive DB re-initialization (simulating daemon restart)", async () => {
     const digest = computeToolApprovalDigest("bash", { cmd: "ls" });
 
     // Create a grant
@@ -242,7 +242,7 @@ describe("security matrix: persistence and fail-closed behavior", () => {
     expect(grant.status).toBe("active");
 
     // Re-initialize the DB (simulates daemon restart — the SQLite file persists)
-    initializeDb();
+    await initializeDb();
 
     // The grant should still be consumable after restart
     const result = consumeScopedApprovalGrantByToolSignature({
@@ -254,7 +254,7 @@ describe("security matrix: persistence and fail-closed behavior", () => {
     expect(result.grant!.id).toBe(grant.id);
   });
 
-  test("consumed grants remain consumed after DB re-initialization", () => {
+  test("consumed grants remain consumed after DB re-initialization", async () => {
     const digest = computeToolApprovalDigest("bash", { cmd: "ls" });
 
     createScopedApprovalGrant(
@@ -273,7 +273,7 @@ describe("security matrix: persistence and fail-closed behavior", () => {
     expect(first.ok).toBe(true);
 
     // Re-initialize the DB (simulates daemon restart)
-    initializeDb();
+    await initializeDb();
 
     // The consumed grant must NOT be consumable again after restart
     const second = consumeScopedApprovalGrantByToolSignature({

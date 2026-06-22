@@ -56,12 +56,14 @@ mock.module("../contacts/contact-store.js", () => ({
 
 // Import AFTER mocks so the module under test binds to the stubbed
 // implementations.
+import type { TrustContext } from "../daemon/trust-context.js";
 import {
   ensureGuardianPersonaFile,
   isGuardianPersonaCustomized,
   resolveGuardianPersona,
   resolveGuardianPersonaPath,
   resolveGuardianPersonaStrict,
+  resolveUserSlug,
 } from "../prompts/persona-resolver.js";
 
 // ── Temp workspace scaffold ───────────────────────────────────────
@@ -244,5 +246,41 @@ describe("isGuardianPersonaCustomized", () => {
     );
 
     expect(isGuardianPersonaCustomized(filePath)).toBe(true);
+  });
+});
+
+// ── resolveUserSlug — background/scheduled guardian turns ──────────
+//
+// Background and scheduled turns carry a guardian trust context with no
+// `requesterExternalUserId`. They must resolve the guardian's user file
+// (parity with foreground guardian turns), not fall through to default.
+
+describe("resolveUserSlug (guardian trust, no requester identity)", () => {
+  test("guardian trust context without requesterExternalUserId resolves the guardian user file", () => {
+    mockVellumGuardian = {
+      contact: { userFile: "alice.md" },
+      channel: {},
+    };
+
+    const trustContext = {
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+    } as TrustContext;
+
+    expect(resolveUserSlug(trustContext)).toBe("alice");
+  });
+
+  test("non-guardian trust context without requesterExternalUserId does not borrow the guardian persona", () => {
+    mockVellumGuardian = {
+      contact: { userFile: "alice.md" },
+      channel: {},
+    };
+
+    const trustContext = {
+      sourceChannel: "vellum",
+      trustClass: "trusted_contact",
+    } as TrustContext;
+
+    expect(resolveUserSlug(trustContext)).toBeNull();
   });
 });

@@ -21,7 +21,7 @@ import {
 import type { PricingResult, UsageEventInput } from "../usage/types.js";
 
 // Initialize db once before all tests
-initializeDb();
+await initializeDb();
 
 function makeInput(overrides?: Partial<UsageEventInput>): UsageEventInput {
   return {
@@ -1306,6 +1306,41 @@ describe("getUsageGroupBreakdown", () => {
     expect(groups[0].totalOutputTokens).toBe(125);
     expect(groups[0].totalEstimatedCostUsd).toBeCloseTo(0.05);
     expect(groups[0].eventCount).toBe(2);
+    // No user messages were inserted, so the conversation has zero turns.
+    expect(groups[0].turnCount).toBe(0);
+  });
+
+  test("counts conversation turns from eligible user messages when grouping by conversation", () => {
+    const db = getDb();
+    const conversationId = "conv-turns-1";
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('${conversationId}', 'Turn counting', ${now}, ${now})`,
+    );
+    // Two user turns; the second turn has two LLM calls, but the count comes
+    // from the user messages (2), not the number of LLM calls (3).
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('u1', '${conversationId}', 'user', 'first', 500)`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('u2', '${conversationId}', 'user', 'second', 2000)`,
+    );
+    // Tool-result user messages are not real turns and must be excluded.
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('tr1', '${conversationId}', 'user', '[{"type":"tool_result","tool_use_id":"x","content":""}]', 2100)`,
+    );
+    insertEventAt(1000, { conversationId, inputTokens: 100 });
+    insertEventAt(2500, { conversationId, inputTokens: 100 });
+    insertEventAt(2600, { conversationId, inputTokens: 100 });
+
+    const groups = getUsageGroupBreakdown(
+      { from: 0, to: 5000 },
+      "conversation",
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].groupId).toBe(conversationId);
+    expect(groups[0].eventCount).toBe(3);
+    expect(groups[0].turnCount).toBe(2);
   });
 
   test("returns groupId null for the Other bucket when grouping by conversation and events have no conversation id", () => {
@@ -1329,6 +1364,8 @@ describe("getUsageGroupBreakdown", () => {
     expect(groups[0].groupId).toBeNull();
     expect(groups[0].totalInputTokens).toBe(300);
     expect(groups[0].eventCount).toBe(2);
+    // The Other bucket has no parent conversation, so turns are undefined.
+    expect(groups[0].turnCount).toBeNull();
   });
 
   test("returns groupId null for every row when grouping by a non-conversation dimension", () => {
@@ -1348,6 +1385,8 @@ describe("getUsageGroupBreakdown", () => {
     expect(groups.length).toBeGreaterThan(0);
     for (const row of groups) {
       expect(row.groupId).toBeNull();
+      // Turns are only computed for the conversation grouping.
+      expect(row.turnCount).toBeNull();
     }
   });
 });

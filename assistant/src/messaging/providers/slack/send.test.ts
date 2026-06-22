@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-type CallSlackApi = (
-  method: string,
-  body: Record<string, unknown>,
-) => Promise<Record<string, unknown>>;
+// Derive the mock signature from the real export so it cannot drift from the
+// production response shape (`SlackApiResponse`). A hand-rolled
+// `Promise<Record<string, unknown>>` here would let a test pass against a
+// response shape production never actually returns.
+type CallSlackApi = typeof import("./api.js").callSlackApi;
 
 const callSlackApiMock = mock<CallSlackApi>(async () => ({ ok: true }));
 
@@ -85,9 +86,15 @@ describe("sendSlackAssistantThreadStatus", () => {
 
 describe("sendSlackReply update path", () => {
   const messageTs = "1700000000.000100";
+  const threadTs = "1700000000.000001";
   const blocks = [
     { type: "section", text: { type: "mrkdwn", text: "Final reply" } },
   ];
+
+  const postMessageCalls = () =>
+    callSlackApiMock.mock.calls.filter(
+      (call) => call[0] === "chat.postMessage",
+    );
 
   beforeEach(() => {
     callSlackApiMock.mockReset();
@@ -103,13 +110,13 @@ describe("sendSlackReply update path", () => {
 
     const result = await sendSlackReply("C123", "Final reply", {
       messageTs,
-      threadTs: "1700000000.000001",
+      threadTs,
       blocks,
     });
 
     expect(result).toEqual({ ok: true, ts: messageTs });
     // Two chat.update calls (with then without blocks); never chat.postMessage,
-    // so the placeholder is edited in place rather than duplicated.
+    // so the message is edited in place rather than duplicated.
     expect(callSlackApiMock).toHaveBeenCalledTimes(2);
     expect(callSlackApiMock).toHaveBeenNthCalledWith(1, "chat.update", {
       channel: "C123",
@@ -122,68 +129,107 @@ describe("sendSlackReply update path", () => {
       text: "Final reply",
       ts: messageTs,
     });
-    const postMessageCalls = callSlackApiMock.mock.calls.filter(
-      (call) => call[0] === "chat.postMessage",
-    );
-    expect(postMessageCalls).toHaveLength(0);
+    expect(postMessageCalls()).toHaveLength(0);
   });
 
-  test("falls back to chat.postMessage only after the no-block update retry also fails", async () => {
+  test("throws when the no-block update retry also fails, never posting a duplicate", async () => {
     callSlackApiMock
       .mockImplementationOnce(async () => {
         throw new SlackApiError("invalid_blocks");
       })
       .mockImplementationOnce(async () => {
         throw new SlackApiError("message_not_found");
-      })
-      .mockImplementationOnce(async () => ({
-        ok: true,
-        ts: "1700000000.000200",
-      }));
+      });
 
-    const result = await sendSlackReply("C123", "Final reply", {
-      messageTs,
-      threadTs: "1700000000.000001",
-      blocks,
-    });
+    await expect(
+      sendSlackReply("C123", "Final reply", { messageTs, threadTs, blocks }),
+    ).rejects.toThrow();
 
-    expect(result).toEqual({ ok: true, ts: "1700000000.000200" });
-    expect(callSlackApiMock).toHaveBeenCalledTimes(3);
-    expect(callSlackApiMock.mock.calls[0]?.[0]).toBe("chat.update");
-    expect(callSlackApiMock.mock.calls[1]?.[0]).toBe("chat.update");
-    // The post fallback drops the rejected blocks.
-    expect(callSlackApiMock).toHaveBeenNthCalledWith(3, "chat.postMessage", {
-      channel: "C123",
-      text: "Final reply",
-      thread_ts: "1700000000.000001",
-    });
-  });
-
-  test("non-invalid_blocks update failure still falls back to chat.postMessage", async () => {
-    callSlackApiMock
-      .mockImplementationOnce(async () => {
-        throw new SlackApiError("internal_error");
-      })
-      .mockImplementationOnce(async () => ({
-        ok: true,
-        ts: "1700000000.000200",
-      }));
-
-    const result = await sendSlackReply("C123", "Final reply", {
-      messageTs,
-      threadTs: "1700000000.000001",
-      blocks,
-    });
-
-    expect(result).toEqual({ ok: true, ts: "1700000000.000200" });
-    // One failed chat.update, then a single chat.postMessage (no extra retry).
+    // Two in-place chat.update attempts (with then without blocks), then give
+    // up — it must not fall back to chat.postMessage and duplicate the message.
     expect(callSlackApiMock).toHaveBeenCalledTimes(2);
     expect(callSlackApiMock.mock.calls[0]?.[0]).toBe("chat.update");
-    expect(callSlackApiMock).toHaveBeenNthCalledWith(2, "chat.postMessage", {
-      channel: "C123",
-      text: "Final reply",
-      thread_ts: "1700000000.000001",
+    expect(callSlackApiMock.mock.calls[1]?.[0]).toBe("chat.update");
+    expect(postMessageCalls()).toHaveLength(0);
+  });
+
+  test("throws on a transient chat.update failure instead of posting a duplicate", async () => {
+    callSlackApiMock.mockImplementationOnce(async () => {
+      throw new SlackApiError("internal_error");
+    });
+
+    await expect(
+      sendSlackReply("C123", "Final reply", { messageTs, threadTs, blocks }),
+    ).rejects.toThrow();
+
+    // A single failed chat.update, no chat.postMessage fallback: a transient
+    // failure must not spawn a "ghost" reply beside the message we failed to
+    // edit. Re-delivery is the delivery layer's job.
+    expect(callSlackApiMock).toHaveBeenCalledTimes(1);
+    expect(callSlackApiMock.mock.calls[0]?.[0]).toBe("chat.update");
+    expect(postMessageCalls()).toHaveLength(0);
+  });
+
+  test("throws when the edit target is gone rather than re-posting it", async () => {
+    // Even when the target message no longer exists, this function does not
+    // post a fresh one — re-delivery is owned by the delivery layer, which
+    // would otherwise double-post.
+    callSlackApiMock.mockImplementationOnce(async () => {
+      throw new SlackApiError("message_not_found");
+    });
+
+    await expect(
+      sendSlackReply("C123", "Final reply", { messageTs, threadTs, blocks }),
+    ).rejects.toThrow();
+
+    expect(callSlackApiMock).toHaveBeenCalledTimes(1);
+    expect(callSlackApiMock.mock.calls[0]?.[0]).toBe("chat.update");
+    expect(postMessageCalls()).toHaveLength(0);
+  });
+});
+
+describe("sendSlackReply post path", () => {
+  const threadTs = "1700000000.000001";
+  const blocks = [
+    { type: "section", text: { type: "mrkdwn", text: "Fresh reply" } },
+  ];
+
+  beforeEach(() => {
+    callSlackApiMock.mockReset();
+    callSlackApiMock.mockImplementation(async () => ({ ok: true }));
+  });
+
+  test("retries chat.postMessage without blocks on invalid_blocks", async () => {
+    callSlackApiMock
+      .mockImplementationOnce(async () => {
+        throw new SlackApiError("invalid_blocks");
+      })
+      .mockImplementationOnce(async () => ({
+        ok: true,
+        ts: "1700000000.000200",
+      }));
+
+    const result = await sendSlackReply("C123", "Fresh reply", {
+      threadTs,
       blocks,
     });
+
+    expect(result).toEqual({ ok: true, ts: "1700000000.000200" });
+    // Two chat.postMessage calls (with then without blocks); never chat.update.
+    expect(callSlackApiMock).toHaveBeenCalledTimes(2);
+    expect(callSlackApiMock).toHaveBeenNthCalledWith(1, "chat.postMessage", {
+      channel: "C123",
+      text: "Fresh reply",
+      thread_ts: threadTs,
+      blocks,
+    });
+    expect(callSlackApiMock).toHaveBeenNthCalledWith(2, "chat.postMessage", {
+      channel: "C123",
+      text: "Fresh reply",
+      thread_ts: threadTs,
+    });
+    expect(
+      callSlackApiMock.mock.calls.filter((call) => call[0] === "chat.update"),
+    ).toHaveLength(0);
   });
 });

@@ -90,7 +90,7 @@ export interface LoadOptions {
   /**
    * Absolute path to the LME-V2 data root (the directory that contains
    * `questions.jsonl` and `haystacks/`). Typically the directory that
-   * `data/download.sh` writes into.
+   * `data/download.ts` writes into.
    */
   dataRoot: string;
   /**
@@ -138,7 +138,7 @@ export async function loadLongMemEvalV2(
     if (code === "ENOENT") {
       throw new Error(
         `LongMemEval-V2 questions.jsonl not found at ${questionsPath}. ` +
-          `Run \`bash data/download.sh\` from the benchmark directory.`,
+          `Run \`bun run data/download.ts\` from the benchmark directory.`,
       );
     }
     throw err;
@@ -152,7 +152,7 @@ export async function loadLongMemEvalV2(
     if (code === "ENOENT") {
       throw new Error(
         `LongMemEval-V2 haystack mapping for tier "${opts.tier}" not found at ${haystackPath}. ` +
-          `Run \`bash data/download.sh\` from the benchmark directory.`,
+          `Run \`bun run data/download.ts\` from the benchmark directory.`,
       );
     }
     throw err;

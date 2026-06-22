@@ -69,6 +69,7 @@ describe("WorkspaceGitService", () => {
       expect(content).toContain("*.sock");
       expect(content).toContain("*.pid");
       expect(content).toContain("session-token");
+      expect(content).toContain("plugins/*/node_modules/");
     });
 
     test("sets git identity correctly", async () => {
@@ -400,6 +401,30 @@ describe("WorkspaceGitService", () => {
 
       expect(status.clean).toBe(false);
       expect(status.staged).toContain("file.txt");
+    });
+
+    test("tolerates porcelain output larger than 1 MB without throwing", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // git status --porcelain prints one line per untracked entry. Enough
+      // long-named entries push the output well past Node's 1 MB execFile
+      // maxBuffer; the streamed read must handle it without surfacing
+      // ERR_CHILD_PROCESS_STDIO_MAXBUFFER. Files live in the (tracked) root
+      // so git reports them individually instead of collapsing a dir.
+      const fileCount = 6000;
+      const pad = "a".repeat(200);
+      for (let i = 0; i < fileCount; i++) {
+        writeFileSync(
+          join(testDir, `f${String(i).padStart(6, "0")}-${pad}`),
+          "",
+        );
+      }
+
+      const status = await service.getStatus();
+
+      expect(status.clean).toBe(false);
+      expect(status.untracked.length).toBe(fileCount);
     });
   });
 
@@ -805,7 +830,7 @@ describe("WorkspaceGitService", () => {
         cwd: testDir,
       });
       const gitignoreContent =
-        "# Runtime state - excluded from git tracking\ndata/db/\ndata/qdrant/\nlogs/\n*.log\n*.sock\n*.pid\n*.sqlite\n*.sqlite-journal\n*.sqlite-wal\n*.sqlite-shm\n*.db\n*.db-journal\n*.db-wal\n*.db-shm\nvellum.pid\nsession-token\n";
+        "# Runtime state - excluded from git tracking\ndata/db/\ndata/qdrant/\nplugins/*/node_modules/\nlogs/\n*.log\n*.sock\n*.pid\n*.sqlite\n*.sqlite-journal\n*.sqlite-wal\n*.sqlite-shm\n*.db\n*.db-journal\n*.db-wal\n*.db-shm\nvellum.pid\nsession-token\n";
       writeFileSync(join(testDir, ".gitignore"), gitignoreContent);
       writeFileSync(join(testDir, "file.txt"), "content");
       execFileSync("git", ["add", "-A"], { cwd: testDir });
@@ -905,6 +930,54 @@ describe("WorkspaceGitService", () => {
 
       expect(status.untracked).toContain("config.json");
       expect(status.untracked).toContain("README.md");
+    });
+
+    test("excludes plugin node_modules from computed status", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // Track the plugin dir first so git reports finer-grained untracked
+      // entries — an entirely-untracked dir collapses to a single line and
+      // would hide whether node_modules was filtered.
+      mkdirSync(join(testDir, "plugins", "image-fallback"), {
+        recursive: true,
+      });
+      writeFileSync(
+        join(testDir, "plugins", "image-fallback", "index.js"),
+        "x",
+      );
+      await service.commitChanges("add plugin");
+
+      // Plugin dependencies (ignored) alongside a real source change.
+      mkdirSync(
+        join(testDir, "plugins", "image-fallback", "node_modules", "dep"),
+        { recursive: true },
+      );
+      writeFileSync(
+        join(
+          testDir,
+          "plugins",
+          "image-fallback",
+          "node_modules",
+          "dep",
+          "big.js",
+        ),
+        "module.exports = {}",
+      );
+      writeFileSync(
+        join(testDir, "plugins", "image-fallback", "other.js"),
+        "y",
+      );
+
+      const status = await service.getStatus();
+
+      const allEntries = [
+        ...status.staged,
+        ...status.modified,
+        ...status.untracked,
+      ];
+      expect(allEntries.some((f) => f.includes("node_modules"))).toBe(false);
+      expect(status.untracked).toContain("plugins/image-fallback/other.js");
     });
   });
 
@@ -1099,6 +1172,46 @@ describe("WorkspaceGitService", () => {
         { bypassBreaker: true },
       );
       expect(result.committed).toBe(true);
+    });
+  });
+
+  describe("commitIfDirty status read resilience", () => {
+    test("status read failure does not trip the circuit breaker", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, "test.txt"), "content");
+
+      // Simulate an oversized/failed `git status` read by making the streamed
+      // status call throw the way Node's maxBuffer overflow would.
+      const proto = Object.getPrototypeOf(service);
+      const originalStreaming = proto.execGitStreaming;
+      proto.execGitStreaming = async function () {
+        const err = new Error(
+          "Git command failed: git status --porcelain\n" +
+            "Error: stdout maxBuffer length exceeded",
+        ) as Error & { code?: string };
+        err.code = "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
+        throw err;
+      };
+
+      try {
+        const result = await service.commitIfDirty(() => ({
+          message: "should not commit",
+        }));
+        // Degrades to "no commit this tick" rather than throwing.
+        expect(result.committed).toBe(false);
+        // Breaker stays closed so the next cycle still runs.
+        expect(_getConsecutiveFailures(service)).toBe(0);
+      } finally {
+        proto.execGitStreaming = originalStreaming;
+      }
+
+      // Once status recovers, auto-commit proceeds — it was never disabled.
+      const recovered = await service.commitIfDirty(() => ({
+        message: "after status recovery",
+      }));
+      expect(recovered.committed).toBe(true);
     });
   });
 

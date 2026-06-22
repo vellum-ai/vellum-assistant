@@ -20,6 +20,7 @@ import {
   describe,
   expect,
   mock,
+  spyOn,
   test,
 } from "bun:test";
 
@@ -274,6 +275,46 @@ describe("api-interceptors / self-hosted rewriting", () => {
     expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
   });
 
+  test("rewrites user-defined route handler (`/x/`) calls to the ingress", async () => {
+    // Sandboxed apps POST to their backend handlers under `/v1/x/*`
+    // through the platform client; in local / self-hosted mode these
+    // must route to the gateway rather than fall through to the
+    // platform proxy.
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    const userRoutePath = `/v1/assistants/${SELF_HOSTED_ID}/x/us-vs-the-world`;
+    const input = new Request(`https://platform.test${userRoutePath}`, {
+      method: "POST",
+    });
+    const output = await requestInterceptor(input);
+    const outUrl = new URL(output.url);
+    expect(outUrl.origin).toBe(INGRESS);
+    expect(outUrl.pathname).toBe(userRoutePath);
+    expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
+  });
+
+  test("rewrites daemon/gateway-owned segments reached via the platform client", async () => {
+    // config / permissions / trust-rules are daemon- or gateway-owned and
+    // are called through the platform client via raw `client.*` requests
+    // (e.g. the background `TimezoneSync` PATCH to `config`). In local /
+    // self-hosted mode they must route to the gateway like conversations
+    // rather than fall through to the dead platform proxy and flood the
+    // console with 502s. (contacts / contact-channels / artifacts are NOT
+    // listed — their assistant-scoped routes aren't served by the gateway
+    // or daemon, so forwarding them would only 404.)
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    for (const segment of ["config", "permissions", "trust-rules"]) {
+      const path = `/v1/assistants/${SELF_HOSTED_ID}/${segment}/`;
+      const input = new Request(`https://platform.test${path}`, {
+        method: "POST",
+      });
+      const output = await requestInterceptor(input);
+      const outUrl = new URL(output.url);
+      expect(outUrl.origin).toBe(INGRESS);
+      expect(outUrl.pathname).toBe(path);
+      expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
+    }
+  });
+
   test("prepends the ingress path prefix when the ingress URL has a path", async () => {
     const prefixedIngress = "http://localhost:3000/__gateway/20100";
     setSelfHostedConnection({ url: prefixedIngress, token: ACTOR_TOKEN });
@@ -367,9 +408,10 @@ describe("api-interceptors / self-hosted rewriting", () => {
   });
 
   test("does NOT rewrite first segments outside the allowlist", async () => {
-    // The platform client's narrow allowlist ensures platform-owned
-    // routes fall through to Django. Pin the non-rewriting contract
-    // for the routes most likely to get mistakenly captured.
+    // The platform client's narrow allowlist ensures platform-owned routes
+    // (and runtime routes not yet mirrored on the gateway) fall through
+    // rather than being rewritten. Pin the non-rewriting contract for the
+    // routes most likely to get mistakenly captured.
     setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
     for (const segment of [
       "activate",
@@ -385,6 +427,16 @@ describe("api-interceptors / self-hosted rewriting", () => {
       "domains",
       "email-addresses",
       "oauth",
+      // `/a2a/invites/redeem` is a platform broker (Django) route.
+      "a2a",
+      // contacts / contact-channels / artifacts are daemon/gateway-owned but
+      // their assistant-scoped routes aren't served (the contacts control
+      // plane is registered at flat `/v1/contacts...` paths; there is no
+      // artifacts route), so they must NOT be rewritten — forwarding would
+      // 404 rather than reach a handler.
+      "contacts",
+      "contact-channels",
+      "artifacts",
     ]) {
       const input = new Request(
         `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/${segment}/`,
@@ -984,5 +1036,80 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
 
     // THEN only one reload fires
     expect(reloadCalls).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Local-mode body buffering — large uploads must not stall
+// ---------------------------------------------------------------------------
+//
+// Over plain HTTP the body can't stream (Chrome refuses a `duplex: "half"`
+// body without TLS), so it's buffered. It MUST be buffered to a Blob, not an
+// ArrayBuffer: an ArrayBuffer body is streamed to the network process through
+// a fixed-capacity (~1-2 MB) data pipe, so a larger upload stalls forever when
+// the local consumer (a busy dev server) drains the pipe slowly — the symptom
+// being image/file uploads above ~1.5 MB hanging on "Stalled". A Blob is
+// passed by reference (blob handle), so there is no renderer-side data pipe to
+// block on. The preload sets VITE_PLATFORM_MODE=true; these tests clear it so
+// isLocalMode() returns true and the buffering path runs.
+
+describe("api-interceptors / local-mode body buffering", () => {
+  let savedPlatformMode: string | undefined;
+
+  beforeAll(() => {
+    savedPlatformMode = process.env.VITE_PLATFORM_MODE;
+    delete process.env.VITE_PLATFORM_MODE;
+    useOrganizationStore.setState({ currentOrganizationId: TEST_ORG_ID });
+  });
+
+  afterAll(() => {
+    if (savedPlatformMode !== undefined) {
+      process.env.VITE_PLATFORM_MODE = savedPlatformMode;
+    }
+  });
+
+  afterEach(() => {
+    setSelfHostedConnection(null);
+  });
+
+  test("buffers the request body via .blob()", async () => {
+    // .blob() yields a by-reference body; reverting to .arrayBuffer() (which
+    // never calls .blob()) would fail this and reintroduce the >1.5 MB stall.
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    const blobSpy = spyOn(Request.prototype, "blob");
+    try {
+      const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}`, {
+        method: "POST",
+        body: "upload-payload",
+      });
+      await daemonRequestInterceptor(input);
+      expect(blobSpy).toHaveBeenCalled();
+    } finally {
+      blobSpy.mockRestore();
+    }
+  });
+
+  test("the rewritten request carries the buffered body content", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}`, {
+      method: "POST",
+      body: "upload-payload",
+    });
+    const output = await daemonRequestInterceptor(input);
+    expect(new URL(output.url).origin).toBe(INGRESS);
+    expect(await output.text()).toBe("upload-payload");
+  });
+
+  test("a bodyless GET is rewritten without buffering", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    const blobSpy = spyOn(Request.prototype, "blob");
+    try {
+      const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}`);
+      const output = await daemonRequestInterceptor(input);
+      expect(new URL(output.url).origin).toBe(INGRESS);
+      expect(blobSpy).not.toHaveBeenCalled();
+    } finally {
+      blobSpy.mockRestore();
+    }
   });
 });

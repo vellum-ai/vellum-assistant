@@ -232,6 +232,14 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
     {
+      id: "accounts/fireworks/models/glm-5p2",
+      displayName: "GLM 5.2",
+      contextWindowTokens: 1_040_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+    },
+    {
       id: "accounts/fireworks/models/kimi-k2p5",
       displayName: "Kimi K2.5",
       contextWindowTokens: 256_000,

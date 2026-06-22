@@ -111,7 +111,9 @@ export function AnimatedRightDrawer({
   const clamp = useCallback(
     (next: number) => {
       const container = containerRef.current;
-      if (!container) return Math.max(minWidth, next);
+      // Unmeasured container (offsetWidth 0): keep the requested width instead
+      // of collapsing to the minimum on a negative max.
+      if (!container || container.offsetWidth <= 0) return Math.max(minWidth, next);
       const maxWidth = Math.max(
         minWidth,
         container.offsetWidth - minLeftWidth - SEPARATOR_WIDTH_PX,

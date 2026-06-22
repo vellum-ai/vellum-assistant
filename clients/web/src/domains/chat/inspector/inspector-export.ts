@@ -141,6 +141,143 @@ export async function buildInspectorExportZipBlob(
   return zip.generateAsync({ type: "blob", mimeType: "application/zip" });
 }
 
+/** Default number of in-flight network requests during an export. */
+export const INSPECTOR_EXPORT_CONCURRENCY = 10;
+
+export interface InspectorExportProgress {
+  /** Network requests that have resolved so far. */
+  completed: number;
+  /** Total network requests the export will issue. */
+  total: number;
+}
+
+export type LlmLogPayloadFetcher = (logId: string) => Promise<LlmLogPayload>;
+
+export interface BuildInspectorExportBatchedOptions {
+  /** Fetches the raw provider request/response payload for one log. */
+  fetchPayload: LlmLogPayloadFetcher;
+  /** Fetches normalized sections for logs that don't carry them inline. */
+  fetchCallSections?: LlmCallSectionsFetcher;
+  /** Maximum concurrent requests. Defaults to {@link INSPECTOR_EXPORT_CONCURRENCY}. */
+  concurrency?: number;
+  /** Invoked after every request resolves so callers can render a progress bar. */
+  onProgress?: (progress: InspectorExportProgress) => void;
+  /** Aborts in-flight batching; the returned promise rejects with the abort reason. */
+  signal?: AbortSignal;
+}
+
+/**
+ * Concurrency-limited variant of {@link buildInspectorExportZipBlob}.
+ *
+ * The original export issued one `Promise.all` over every log for provider
+ * payloads and a second over every log for normalized sections — so a
+ * conversation with N calls fired up to 2·N simultaneous requests (≈2k for a
+ * 1k-call conversation), hammering the daemon. This version pulls both phases
+ * through a fixed-size worker pool (default 10) and reports progress so the UI
+ * can show a determinate progress bar instead of an open-ended spinner.
+ */
+export async function buildInspectorExportZipBlobBatched(
+  context: LlmContextResponse,
+  {
+    fetchPayload,
+    fetchCallSections,
+    concurrency = INSPECTOR_EXPORT_CONCURRENCY,
+    onProgress,
+    signal,
+  }: BuildInspectorExportBatchedOptions,
+): Promise<Blob> {
+  const sectionLessLogs = fetchCallSections
+    ? context.logs.filter(
+        (log) => !log.requestSections && !log.responseSections,
+      )
+    : [];
+
+  const total = context.logs.length + sectionLessLogs.length;
+  let completed = 0;
+  const tick = (): void => {
+    completed += 1;
+    onProgress?.({ completed, total });
+  };
+  onProgress?.({ completed, total });
+
+  // Phase 1 — raw provider payloads, one per log.
+  const payloads = await mapWithConcurrency(
+    context.logs,
+    concurrency,
+    async (log): Promise<LlmLogPayload> => {
+      const payload = await fetchPayload(log.id);
+      tick();
+      return payload;
+    },
+    signal,
+  );
+
+  // Phase 2 — normalized sections, only for logs that lack them inline.
+  const sectionsByLogId = new Map<
+    string,
+    Pick<LLMRequestLogEntry, "requestSections" | "responseSections">
+  >();
+  if (fetchCallSections) {
+    await mapWithConcurrency(
+      sectionLessLogs,
+      concurrency,
+      async (log): Promise<void> => {
+        const detail = await fetchCallSections(log.id);
+        tick();
+        if (detail) sectionsByLogId.set(log.id, detail);
+      },
+      signal,
+    );
+  }
+
+  const hydratedLogs = context.logs.map((log): LLMRequestLogEntry => {
+    const detail = sectionsByLogId.get(log.id);
+    if (!detail) return log;
+    return {
+      ...log,
+      requestSections: detail.requestSections,
+      responseSections: detail.responseSections,
+    };
+  });
+
+  const zip = new JSZip();
+  for (const file of buildInspectorExportFiles(
+    { ...context, logs: hydratedLogs },
+    payloads,
+  )) {
+    zip.file(file.path, file.contents);
+  }
+  return zip.generateAsync({ type: "blob", mimeType: "application/zip" });
+}
+
+/**
+ * Maps `items` through `mapper` with at most `limit` calls in flight at once,
+ * preserving input order in the result. Rejects (and stops scheduling new work)
+ * as soon as the signal aborts or any mapper rejects.
+ */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  mapper: (item: T, index: number) => Promise<R>,
+  signal?: AbortSignal,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  let nextIndex = 0;
+
+  async function worker(): Promise<void> {
+    while (true) {
+      signal?.throwIfAborted();
+      const current = nextIndex++;
+      if (current >= items.length) return;
+      results[current] = await mapper(items[current], current);
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
 /**
  * Lists fetched with `view=summary` omit per-log sections, so the
  * export hydrates each call from the per-log context endpoint. Logs

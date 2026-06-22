@@ -41,19 +41,18 @@ COPY addon.py usage_parser.py mock_github_handler.py /opt/recording/
 RUN chmod +x /opt/recording/apply-recording-jail.sh /opt/recording/entrypoint.sh \
   && chown -R mitmproxy:mitmproxy /opt/recording
 
-# Pre-generate the mitmproxy CA at build time. The CA file is needed
-# in the assistant container's trust store before any plugin install
-# runs — the entrypoint copies it to /recording at startup, then
-# docker-jail.ts grabs it from the bind-mount and installs it into
-# the assistant container.
+# Pre-generate the mitmproxy CA at build time and immediately copy it
+# to a non-VOLUME path. The base image declares /home/mitmproxy/.mitmproxy
+# as a Docker VOLUME — writes to that path during a RUN are NOT persisted
+# to the next layer, so the generation and copy MUST happen in the same
+# RUN command. Without this, mitmproxy regenerates a new CA at runtime
+# that doesn't match what the assistant container trusts, causing every
+# TLS-intercepted request to fail with "Connection error."
 #
 # mitmproxy generates the CA on first launch in `confdir`. Running
 # mitmdump briefly on an unused port forces the cert chain to land on
-# disk; we then kill it and assert the file exists so the build fails
-# loudly if the upstream image ever changes this behavior. Pinning
-# the CA at build means every container instance trusts the same CA
-# (acceptable for an eval-local sidecar; would not be for a multi-
-# tenant proxy).
+# disk; we then kill it, assert the cert exists, and copy the entire
+# confdir (CA cert + private key + DH params) to /opt/recording/mitmproxy-conf/.
 RUN su -s /bin/sh -c '\
   mitmdump --set confdir=/home/mitmproxy/.mitmproxy --listen-port 19999 & \
   PID=$!; \
@@ -64,7 +63,9 @@ RUN su -s /bin/sh -c '\
   done; \
   kill $PID 2>/dev/null; \
   wait $PID 2>/dev/null || true; \
-  [ -f /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem ]\
+  [ -f /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem ] && \
+  cp -a /home/mitmproxy/.mitmproxy /opt/recording/mitmproxy-conf && \
+  chown -R mitmproxy:mitmproxy /opt/recording/mitmproxy-conf\
 ' mitmproxy
 
 # Recording output volume target. The `evals run` harness mounts the

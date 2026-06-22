@@ -234,6 +234,24 @@ const OPERATIONAL_STATUS_TITLES: Record<AssistantOperationalState, string> = {
   retiring: "Assistant is retiring",
 };
 
+// Titles shown when a transient operation fails. The platform keeps the
+// in-progress `state` (e.g. `upgrading_assistant_version`) but flips
+// `detail_state` to `"failed"`, so we surface a terminal failure message
+// rather than spinning on the operation forever.
+const OPERATIONAL_STATUS_FAILED_TITLES: Partial<
+  Record<AssistantOperationalState, string>
+> = {
+  initializing: "Assistant failed to initialize",
+  provisioning: "Assistant failed to provision",
+  waking: "Assistant failed to wake",
+  restarting: "Assistant restart failed",
+  restoring_backup: "Backup restore failed",
+  upgrading_assistant_version: "Assistant upgrade failed",
+  resizing_machine: "Machine resize failed",
+  resizing_storage: "Storage resize failed",
+  retiring: "Assistant failed to retire",
+};
+
 function maintenanceModeBannerConfig(): BannerConfig {
   return {
     tone: "warning",
@@ -260,6 +278,22 @@ function operationalStatusBannerConfig(
   showDoctorAction: boolean,
 ): BannerConfig | null {
   if (!status || isHealthyOperationalStatus(status)) return null;
+
+  // A transient operation (upgrade, resize, restart, …) can fail while the
+  // reported `state` is still the in-progress operation. The platform signals
+  // this via `detail_state: "failed"`. Surface it as an error so the banner
+  // doesn't spin indefinitely on a dead operation.
+  if (status.detail_state === "failed") {
+    const failedTitle = OPERATIONAL_STATUS_FAILED_TITLES[status.state];
+    if (failedTitle) {
+      return {
+        tone: "error",
+        title: failedTitle,
+        children: status.detail?.message ?? undefined,
+        actions: showDoctorAction ? doctorAction() : undefined,
+      };
+    }
+  }
 
   switch (status.state) {
     case "crash_loop":

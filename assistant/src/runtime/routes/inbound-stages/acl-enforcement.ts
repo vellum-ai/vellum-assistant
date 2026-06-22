@@ -875,7 +875,7 @@ async function handleInviteTokenIntercept(params: {
     };
   }
 
-  const outcome = redeemInvite({
+  const outcome = await redeemInvite({
     rawToken,
     sourceChannel,
     externalUserId: senderExternalUserId,
@@ -1077,9 +1077,9 @@ async function handleInviteCodeIntercept(params: {
     };
   }
 
-  let outcome: ReturnType<typeof redeemInviteByCode>;
+  let outcome: Awaited<ReturnType<typeof redeemInviteByCode>>;
   try {
-    outcome = redeemInviteByCode({
+    outcome = await redeemInviteByCode({
       code,
       sourceChannel,
       externalUserId: senderExternalUserId,

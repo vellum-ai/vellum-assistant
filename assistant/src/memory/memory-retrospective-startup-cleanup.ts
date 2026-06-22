@@ -54,7 +54,7 @@ import {
 import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { deleteConversation } from "./conversation-crud.js";
-import { getDb } from "./db-connection.js";
+import { getDb, getMemoryDb } from "./db-connection.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
 import { loadRetrospectiveRunMessages } from "./memory-retrospective-fork-boundary.js";
 import { conversations, memoryJobs } from "./schema.js";
@@ -98,6 +98,14 @@ export function sweepOrphanMemoryRetrospectiveConversations(
   const cutoff = now - ORPHAN_AGE_MS;
   const db = getDb();
 
+  // `memory_jobs` lives on the dedicated memory connection. If it is unavailable
+  // we cannot tell which sources have in-flight retrospective jobs, so skip the
+  // sweep rather than risk deleting a conversation whose job is still running.
+  const memoryDb = getMemoryDb();
+  if (!memoryDb) {
+    return { swept: 0 };
+  }
+
   // Job payloads encode the SOURCE conversation id (the conversation being
   // analyzed), not the background-conversation id of the retrospective itself.
   // The background conversation links back to its source via
@@ -105,7 +113,7 @@ export function sweepOrphanMemoryRetrospectiveConversations(
   // memory-retrospective-job.ts). To protect in-flight jobs we therefore
   // compare source-id to source-id by filtering on
   // `conversations.forkParentConversationId`, not `conversations.id`.
-  const activeJobSourceConversationIds = db
+  const activeJobSourceConversationIds = memoryDb
     .select({
       conversationId: sql<string>`json_extract(${memoryJobs.payload}, '$.conversationId')`,
     })

@@ -3,10 +3,16 @@ import {
   toTimezoneDateString,
 } from "@/components/charts/format-date-label";
 
-export type UsageRangeWindowId = "today" | "7d" | "30d" | "90d" | "all";
+export type UsageRangeWindowId =
+  | "today"
+  | "yesterday"
+  | "7d"
+  | "30d"
+  | "90d"
+  | "all";
 
 const RANGE_START_DAY_OFFSETS: Record<
-  Exclude<UsageRangeWindowId, "all">,
+  Exclude<UsageRangeWindowId, "all" | "yesterday">,
   number
 > = {
   today: 0,
@@ -31,6 +37,17 @@ export function resolveUsageRangeWindow(
   const to = typeof now === "number" ? now : now.getTime();
   if (range === "all") {
     return { from: 0, to };
+  }
+
+  // "Yesterday" is the only bounded-on-both-ends preset: its window spans the
+  // full prior calendar day in `tz`, so `to` is zone-local midnight of today
+  // (i.e. the end of yesterday) rather than the current instant.
+  if (range === "yesterday") {
+    const { fromDate, toDate } = resolveLastTimezoneCalendarDays(2, tz, to);
+    return {
+      from: timezoneDayStartEpoch(fromDate, tz),
+      to: timezoneDayStartEpoch(toDate, tz),
+    };
   }
 
   const dayOffset = RANGE_START_DAY_OFFSETS[range];

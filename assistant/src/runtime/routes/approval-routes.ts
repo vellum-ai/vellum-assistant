@@ -116,20 +116,34 @@ function handleConfirm({ body }: RouteHandlerArgs) {
  */
 function handleSecret({ body }: RouteHandlerArgs) {
   const requestId = body?.requestId as string | undefined;
-  const value = body?.value as string | undefined;
   const delivery = body?.delivery as string | undefined;
 
   if (!requestId || typeof requestId !== "string") {
     throw new BadRequestError("requestId is required");
   }
 
+  // Legacy compat shim: already-shipped web clients send `delivery: "none"` to
+  // cancel a secret prompt. Normalize it to the cancellation path (value
+  // undefined) so the request settles cleanly rather than 400-ing and stranding
+  // the pending interaction.
+  const isCancel = delivery === "none";
+  const value = isCancel
+    ? undefined
+    : (body?.value as string | undefined);
+
   if (
     delivery !== undefined &&
     delivery !== "store" &&
-    delivery !== "transient_send"
+    delivery !== "transient_send" &&
+    delivery !== "none"
   ) {
     throw new BadRequestError('delivery must be "store" or "transient_send"');
   }
+
+  const effectiveDelivery =
+    isCancel || delivery === undefined
+      ? undefined
+      : (delivery as "store" | "transient_send");
 
   const interaction = pendingInteractions.get(requestId);
   if (!interaction) {
@@ -153,11 +167,7 @@ function handleSecret({ body }: RouteHandlerArgs) {
     ? findConversation(interaction.conversationId)
     : undefined;
   if (conversation?.hasPendingSecret(requestId)) {
-    conversation.handleSecretResponse(
-      requestId,
-      value,
-      delivery as "store" | "transient_send" | undefined,
-    );
+    conversation.handleSecretResponse(requestId, value, effectiveDelivery);
     return { accepted: true };
   }
 
@@ -170,7 +180,7 @@ function handleSecret({ body }: RouteHandlerArgs) {
   );
   (resolved?.rpcResolve as ((r: SecretPromptResult) => void) | undefined)?.({
     value: value ?? null,
-    delivery: (delivery as SecretDelivery) ?? "store",
+    delivery: (effectiveDelivery as SecretDelivery) ?? "store",
   });
   return { accepted: true };
 }
@@ -246,6 +256,15 @@ function handleListPendingInteractions({ queryParams }: RouteHandlerArgs) {
     pendingSecret: secret
       ? {
           requestId: secret.requestId,
+          service: secret.secretDetails?.service,
+          field: secret.secretDetails?.field,
+          label: secret.secretDetails?.label,
+          description: secret.secretDetails?.description,
+          placeholder: secret.secretDetails?.placeholder,
+          purpose: secret.secretDetails?.purpose,
+          allowedTools: secret.secretDetails?.allowedTools,
+          allowedDomains: secret.secretDetails?.allowedDomains,
+          allowOneTimeSend: secret.secretDetails?.allowOneTimeSend,
         }
       : null,
   };
@@ -340,8 +359,20 @@ export const ROUTES: RouteDefinition[] = [
         .describe("Pending confirmation details or null")
         .optional(),
       pendingSecret: z
-        .object({})
+        .object({
+          requestId: z.string(),
+          service: z.string().optional(),
+          field: z.string().optional(),
+          label: z.string().optional(),
+          description: z.string().optional(),
+          placeholder: z.string().optional(),
+          purpose: z.string().optional(),
+          allowedTools: z.array(z.string()).optional(),
+          allowedDomains: z.array(z.string()).optional(),
+          allowOneTimeSend: z.boolean().optional(),
+        })
         .passthrough()
+        .nullable()
         .describe("Pending secret request or null")
         .optional(),
       interactions: z

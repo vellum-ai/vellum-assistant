@@ -35,7 +35,7 @@ import {
   recordGuardianRequestDeliveries,
 } from "../notifications/canonical-delivery-recorder.js";
 
-initializeDb();
+await initializeDb();
 
 const PRINCIPAL_ID = "withdrawal-test-principal";
 
