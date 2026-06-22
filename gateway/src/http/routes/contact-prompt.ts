@@ -14,12 +14,9 @@
  * Auth: edge (same as all ingress contact routes).
  */
 
-import { eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 
-import {
-  assistantDbQuery,
-  assistantDbRun,
-} from "../../db/assistant-db-proxy.js";
+import { assistantDbRun } from "../../db/assistant-db-proxy.js";
 import { getGatewayDb } from "../../db/connection.js";
 import { ContactStore } from "../../db/contact-store.js";
 import {
@@ -39,6 +36,25 @@ function getStore(): ContactStore {
     store = new ContactStore();
   }
   return store;
+}
+
+/**
+ * Resolve the id of the just-bound channel from the gateway DB (the source of
+ * truth `upsertContact` wrote to). Returns "" if not found.
+ */
+function resolveChannelId(
+  contactId: string,
+  channelType: string,
+  address: string,
+): string {
+  const channel = getStore()
+    .getChannelsForContact(contactId)
+    .find(
+      (ch) =>
+        ch.type === channelType &&
+        ch.address.toLowerCase() === address.toLowerCase(),
+    );
+  return channel?.id ?? "";
 }
 
 // ---------------------------------------------------------------------------
@@ -112,41 +128,49 @@ export async function handleContactPromptSubmit(
     let createdNewContact = false;
 
     if (effectiveRole === "guardian") {
-      const guardianRows = await assistantDbQuery<{ id: string }>(
-        `SELECT id FROM contacts WHERE role = 'guardian' ORDER BY created_at ASC LIMIT 1`,
-        [],
-      );
-      if (guardianRows.length > 0) {
-        contactId = guardianRows[0].id;
+      // Guardian lives in the gateway DB (source of truth) — bootstrap
+      // dual-writes it there. Resolve from there, not the assistant mirror.
+      const guardianRow = getGatewayDb()
+        .select({ id: gwContacts.id })
+        .from(gwContacts)
+        .where(eq(gwContacts.role, "guardian"))
+        .orderBy(asc(gwContacts.createdAt))
+        .get();
+      if (guardianRow) {
+        contactId = guardianRow.id;
       } else {
-        // Bootstrap hasn't run yet — create the guardian contact.
+        // Bootstrap hasn't run yet — create the guardian contact gateway-first.
+        // upsertContact can't be used here: its create path forces
+        // role="contact". Guardian role writes stay raw per the
+        // ContactStore.upsertContact SECURITY note, but hit the gateway DB
+        // (source of truth) first, then mirror to the assistant DB best-effort.
         log.warn(
           { channelType, address: normalizedAddress },
           "contact-prompt-submit: no guardian contact found, creating one",
         );
         contactId = crypto.randomUUID();
         createdNewContact = true;
-        await assistantDbRun(
-          `INSERT INTO contacts (id, display_name, role, contact_type, created_at, updated_at)
-           VALUES (?, ?, 'guardian', 'human', ?, ?)`,
-          [contactId, effectiveDisplayName, now, now],
-        );
+        getGatewayDb()
+          .insert(gwContacts)
+          .values({
+            id: contactId,
+            displayName: effectiveDisplayName,
+            role: "guardian",
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoNothing()
+          .run();
         try {
-          getGatewayDb()
-            .insert(gwContacts)
-            .values({
-              id: contactId,
-              displayName: effectiveDisplayName,
-              role: "guardian",
-              createdAt: now,
-              updatedAt: now,
-            })
-            .onConflictDoNothing()
-            .run();
-        } catch (gwErr) {
+          await assistantDbRun(
+            `INSERT INTO contacts (id, display_name, role, contact_type, created_at, updated_at)
+             VALUES (?, ?, 'guardian', 'human', ?, ?)`,
+            [contactId, effectiveDisplayName, now, now],
+          );
+        } catch (mirrorErr) {
           log.warn(
-            { err: gwErr },
-            "contact-prompt-submit: gateway DB guardian contact INSERT dual-write failed",
+            { err: mirrorErr },
+            "contact-prompt-submit: assistant DB guardian contact mirror INSERT failed",
           );
         }
       }
@@ -165,14 +189,7 @@ export async function handleContactPromptSubmit(
         ],
       });
       contactId = contact.id;
-      const channel = store
-        .getChannelsForContact(contactId)
-        .find(
-          (ch) =>
-            ch.type === channelType &&
-            ch.address.toLowerCase() === normalizedAddress.toLowerCase(),
-        );
-      channelId = channel?.id ?? "";
+      channelId = resolveChannelId(contactId, channelType, normalizedAddress);
 
       log.info(
         { channelType, address: normalizedAddress, contactId, channelId },
@@ -198,24 +215,27 @@ export async function handleContactPromptSubmit(
     // is a conflict the caller must resolve — return 409.  Otherwise create a
     // new channel bound to the resolved contact.
     // -----------------------------------------------------------------------
-    const existingChannel = await assistantDbQuery<{
-      id: string;
-      contactId: string;
-    }>(
-      `SELECT id, contact_id AS contactId FROM contact_channels WHERE type = ? AND address = ? COLLATE NOCASE LIMIT 1`,
-      [channelType, normalizedAddress],
-    );
+    const existingChannel = getGatewayDb()
+      .select({
+        id: gwContactChannels.id,
+        contactId: gwContactChannels.contactId,
+      })
+      .from(gwContactChannels)
+      .where(
+        and(
+          eq(gwContactChannels.type, channelType),
+          sql`${gwContactChannels.address} = ${normalizedAddress} COLLATE NOCASE`,
+        ),
+      )
+      .get();
 
-    if (
-      existingChannel.length > 0 &&
-      existingChannel[0].contactId === contactId
-    ) {
-      channelId = existingChannel[0].id;
+    if (existingChannel && existingChannel.contactId === contactId) {
+      channelId = existingChannel.id;
       log.info(
         { channelType, address: normalizedAddress, contactId, channelId },
         "contact-prompt-submit: channel already exists",
       );
-    } else if (existingChannel.length > 0) {
+    } else if (existingChannel) {
       // Channel exists but belongs to a different contact.  The caller must
       // clean up the stale binding before a guardian channel can be created.
       log.warn(
@@ -223,7 +243,7 @@ export async function handleContactPromptSubmit(
           channelType,
           address: normalizedAddress,
           contactId,
-          existingContactId: existingChannel[0].contactId,
+          existingContactId: existingChannel.contactId,
         },
         "contact-prompt-submit: channel already assigned to another contact",
       );
@@ -239,56 +259,39 @@ export async function handleContactPromptSubmit(
         { status: 409 },
       );
     } else {
-      channelId = crypto.randomUUID();
-
       try {
-        await assistantDbRun(
-          `INSERT INTO contact_channels (id, contact_id, type, address, is_primary, status, policy, interaction_count, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 1, 'unverified', 'allow', 0, ?, ?)`,
-          [channelId, contactId, channelType, normalizedAddress, now, now],
-        );
-        try {
-          getGatewayDb()
-            .insert(gwContactChannels)
-            .values({
-              id: channelId,
-              contactId,
-              type: channelType,
-              address: normalizedAddress,
-              isPrimary: true,
-              status: "unverified",
-              policy: "allow",
-              interactionCount: 0,
-              createdAt: now,
-              updatedAt: now,
-            })
-            .onConflictDoNothing()
-            .run();
-        } catch (gwErr) {
-          log.warn(
-            { err: gwErr },
-            "contact-prompt-submit: gateway DB channel INSERT dual-write failed",
-          );
-        }
+        // Bind gateway-first. Passing the guardian's id keys the update to the
+        // existing guardian and preserves role="guardian" (upsertContact's
+        // id-path role preservation); the gateway channel is the source of
+        // truth, the assistant mirror is dual-written best-effort.
+        await getStore().upsertContact({
+          id: contactId,
+          channels: [
+            { type: channelType, address: normalizedAddress, isPrimary: true },
+          ],
+        });
+        channelId = resolveChannelId(contactId, channelType, normalizedAddress);
       } catch (channelErr) {
         // Compensating delete — only remove the contact if we created it here.
+        // "Stale over lost": delete gateway-first, then mirror the delete to
+        // the assistant DB best-effort.
         log.error(
           { channelErr, contactId, channelType },
-          "contact-prompt-submit: channel INSERT failed, rolling back contact",
+          "contact-prompt-submit: channel bind failed, rolling back contact",
         );
         if (createdNewContact) {
-          await assistantDbRun("DELETE FROM contacts WHERE id = ?", [
-            contactId,
-          ]);
+          getGatewayDb()
+            .delete(gwContacts)
+            .where(eq(gwContacts.id, contactId))
+            .run();
           try {
-            getGatewayDb()
-              .delete(gwContacts)
-              .where(eq(gwContacts.id, contactId))
-              .run();
-          } catch (gwErr) {
+            await assistantDbRun("DELETE FROM contacts WHERE id = ?", [
+              contactId,
+            ]);
+          } catch (mirrorErr) {
             log.warn(
-              { err: gwErr },
-              "contact-prompt-submit: gateway DB contact rollback DELETE dual-write failed",
+              { err: mirrorErr },
+              "contact-prompt-submit: assistant DB contact rollback mirror DELETE failed",
             );
           }
         }
