@@ -20,7 +20,9 @@ import {
   DefaultStepPill,
   groupStepsByPhase,
   phaseHeaderStatus,
+  stepKey,
   sumDurationLabels,
+  TimelineConnector,
   TimelineNode,
   type PhaseSection,
 } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
@@ -28,15 +30,29 @@ import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils
 import { cn } from "@/utils/misc";
 
 /**
- * Stable per-step key — a tool step's non-empty `toolCallId`, else the
- * positional `${kind}-${index}` fallback. Historical/older subagent events can
- * carry an empty `toolCallId` (see `use-subagent-card-data.ts`), so guarding on
- * a non-empty string keeps keys unique instead of collapsing onto `""`.
- * Shared by the section key and the expanded body's pill list.
+ * Whether a step renders a non-null body in `DefaultStepPill` — i.e. whether it
+ * carries detail worth revealing. Mirrors `DefaultStepPill`'s per-kind logic:
+ * `tool_error` / `web_search_error` always render a message; `thinking` renders
+ * only when its text is non-empty; a `tool` step renders only when it has
+ * non-empty `info` OR a failing (`error`/`denied`) status; `web_search` renders
+ * its title. A single-step phase is expandable only when its lone step has
+ * detail — otherwise expanding it would reveal nothing.
  */
-function stepKey(step: ToolCallCardStep, index: number): string {
-  if (step.kind === "tool" && step.toolCallId) return step.toolCallId;
-  return `${step.kind}-${index}`;
+function stepHasDetail(step: ToolCallCardStep): boolean {
+  switch (step.kind) {
+    case "tool_error":
+    case "web_search_error":
+    case "web_search":
+      return true;
+    case "thinking":
+      return step.text.length > 0;
+    case "tool":
+      return (
+        step.info.length > 0 ||
+        step.status === "error" ||
+        step.status === "denied"
+      );
+  }
 }
 
 /**
@@ -121,9 +137,14 @@ function SubagentPhaseRow({
   const isThinking = section.steps[0]?.kind === "thinking";
   const stepCount = section.steps.length;
 
-  // A row is interactive only when it has step pills worth revealing. Rows with
-  // a single step carry no separate body, so they render no chevron / toggle.
-  const isExpandable = stepCount >= 2;
+  // The "N steps" pill only makes sense for a multi-step phase.
+  const showStepCount = stepCount >= 2;
+  // A row is interactive (chevron + toggle) when it has a body worth revealing:
+  // any multi-step phase, OR a single-step phase whose lone step carries detail
+  // (an error message, tool input, response text, …). A lone info-less success
+  // step renders a null `DefaultStepPill`, so it stays non-expandable.
+  const isExpandable =
+    stepCount >= 2 || (stepCount === 1 && stepHasDetail(section.steps[0]!));
 
   const totalDuration =
     status === "running"
@@ -146,14 +167,8 @@ function SubagentPhaseRow({
       data-phase-label={section.label}
       className="relative flex flex-col gap-2"
     >
-      {/* Connector line mirroring the main-chat timeline: starts below this
-          node and runs to the section bottom, omitted on the last row. */}
-      {!isLast && (
-        <div
-          aria-hidden
-          className="absolute bottom-0 left-[6.5px] top-6 w-px bg-[var(--border-element)]"
-        />
-      )}
+      {/* No connector trails below the final row. */}
+      {!isLast && <TimelineConnector />}
 
       <button
         type="button"
@@ -210,17 +225,19 @@ function SubagentPhaseRow({
               aria-hidden="true"
               className="h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]"
             />
-            <span
-              data-testid="subagent-phase-step-count"
-              className="rounded-[100px] bg-[var(--surface-base)] px-1.5 py-1"
-            >
-              <Typography
-                variant="body-small-default"
-                className="text-[var(--content-secondary)]"
+            {showStepCount && (
+              <span
+                data-testid="subagent-phase-step-count"
+                className="rounded-[100px] bg-[var(--surface-base)] px-1.5 py-1"
               >
-                {stepCountLabel}
-              </Typography>
-            </span>
+                <Typography
+                  variant="body-small-default"
+                  className="text-[var(--content-secondary)]"
+                >
+                  {stepCountLabel}
+                </Typography>
+              </span>
+            )}
           </span>
         )}
       </button>
