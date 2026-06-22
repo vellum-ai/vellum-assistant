@@ -39,6 +39,12 @@ export interface SubagentTimelineEvent {
    * tool (which `toolName` alone cannot disambiguate).
    */
   toolUseId?: string;
+  /**
+   * `content` remains the ≤120-char summary that drives labels; `input`/
+   * `result` are the raw payloads used only by the nested tool-detail view.
+   */
+  input?: Record<string, unknown>;
+  result?: string;
 }
 
 export interface SubagentEntry {
@@ -469,6 +475,14 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       isError: params.event.isError,
       timestamp: params.timestamp,
       toolUseId: params.event.toolUseId,
+      // Preserve raw payloads for the nested tool-detail view without
+      // disturbing the `content` summary computed above.
+      input:
+        params.event.type === "tool_use_start" ? params.event.input : undefined,
+      result:
+        eventType === "tool_result"
+          ? params.event.result ?? params.event.content ?? params.event.text
+          : undefined,
     };
 
     set({

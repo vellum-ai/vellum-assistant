@@ -609,6 +609,90 @@ describe("receiveEvent", () => {
     expect(getState().byId).toEqual(before.byId);
     expect(getState().orderedIds).toEqual(before.orderedIds);
   });
+
+  it("preserves raw input on tool_use_start alongside the content summary", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+
+    getState().receiveEvent({
+      subagentId: "sa-1",
+      event: {
+        type: "tool_use_start",
+        toolName: "bash",
+        input: { command: "ls -la" },
+      },
+      timestamp: NOW + 100,
+    });
+
+    const ev = getState().byId["sa-1"]!.events[0]!;
+    expect(ev.type).toBe("tool_call");
+    expect(ev.input?.command).toBe("ls -la");
+    // The summary that drives labels is still derived from the input.
+    expect(ev.content).toBe("ls -la");
+    expect(ev.result).toBeUndefined();
+  });
+
+  it("preserves raw result on tool_result", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+
+    getState().receiveEvent({
+      subagentId: "sa-1",
+      event: { type: "tool_result", result: "total 0\nfile.txt" },
+      timestamp: NOW + 200,
+    });
+
+    const ev = getState().byId["sa-1"]!.events[0]!;
+    expect(ev.type).toBe("tool_result");
+    expect(ev.result).toBe("total 0\nfile.txt");
+    expect(ev.input).toBeUndefined();
+  });
+
+  it("falls back to content for tool_result result when result is absent", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+
+    getState().receiveEvent({
+      subagentId: "sa-1",
+      event: { type: "tool_result", content: "File contents here" },
+      timestamp: NOW + 300,
+    });
+
+    const ev = getState().byId["sa-1"]!.events[0]!;
+    expect(ev.type).toBe("tool_result");
+    expect(ev.result).toBe("File contents here");
+  });
+
+  it("leaves input/result unset for text events", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+
+    getState().receiveEvent({
+      subagentId: "sa-1",
+      event: { type: "assistant_text_delta", content: "Hello" },
+      timestamp: NOW + 100,
+    });
+
+    const ev = getState().byId["sa-1"]!.events[0]!;
+    expect(ev.input).toBeUndefined();
+    expect(ev.result).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
