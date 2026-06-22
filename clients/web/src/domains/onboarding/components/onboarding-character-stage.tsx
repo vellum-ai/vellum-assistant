@@ -240,7 +240,12 @@ export function OnboardingCharacterStage({
             >
               {/* Lands tilted in its destination slot. */}
               <div style={{ transform: `rotate(${slotRotation(exiting.toSlot)}deg)` }}>
-                <AnimatedAvatar components={components} traits={traits} size={size} />
+                <AnimatedAvatar
+                  components={components}
+                  traits={traits}
+                  size={size}
+                  breathe={false}
+                />
               </div>
             </motion.div>
           );
@@ -269,7 +274,9 @@ export function OnboardingCharacterStage({
             }
             onClick={isCenter ? undefined : () => onSelectChar(i)}
           >
-            {/* Edge avatars sit slightly tilted; the center one stays upright. */}
+            {/* Edge avatars sit slightly tilted; the center one stays upright.
+                Only the centered (selected) avatar breathes — the scattered
+                edge characters stay still. */}
             <div
               style={{
                 transform: isCenter
@@ -277,7 +284,12 @@ export function OnboardingCharacterStage({
                   : `rotate(${slotRotation(slotOfChar.get(i) ?? 0)}deg)`,
               }}
             >
-              <AnimatedAvatar components={components} traits={traits} size={size} />
+              <AnimatedAvatar
+                components={components}
+                traits={traits}
+                size={size}
+                breathe={isCenter}
+              />
             </div>
           </motion.div>
         );

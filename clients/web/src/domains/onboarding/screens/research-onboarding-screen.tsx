@@ -95,7 +95,7 @@ export function ResearchOnboardingScreen({
           className="mt-3 text-center text-body-medium-lighter text-[var(--content-secondary)]"
           style={riseIn(0.12)}
         >
-          A few details so I can get to know you before we dive in.
+          A few details so I can get to know you.
         </p>
 
         <div className="mt-10 flex w-full flex-col gap-5">
