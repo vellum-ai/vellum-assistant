@@ -257,6 +257,60 @@ export async function persistWakeTailMessage(
 }
 
 /**
+ * Persist a wake's trigger as a single visible user message — the
+ * append-only counterpart to the legacy ephemeral hint injection. Keeping the
+ * trigger in durable history (instead of splicing a non-persisted message per
+ * wake) lets the provider prompt-cache treat repeated wakes like normal user
+ * turns rather than re-creating the whole prefix each time.
+ *
+ * Mirrors {@link persistWakeTailMessage}'s channel/interface/provenance
+ * metadata, but stamps `kind: "background-event"` (+ the originating `source`)
+ * for identification, skips indexing (the body may carry untrusted command
+ * output), and is NOT flagged hidden so the trigger shows in the transcript.
+ */
+export async function persistWakeTriggerMessage(
+  conversation: Conversation,
+  message: Message,
+  source: string,
+): Promise<void> {
+  const turnChannelCtx = conversation.getTurnChannelContext();
+  const turnInterfaceCtx = conversation.getTurnInterfaceContext();
+  const metadata: Record<string, unknown> = {
+    ...provenanceFromTrustContext(conversation.trustContext),
+    userMessageChannel: turnChannelCtx?.userMessageChannel ?? "vellum",
+    assistantMessageChannel:
+      turnChannelCtx?.assistantMessageChannel ?? "vellum",
+    userMessageInterface: turnInterfaceCtx?.userMessageInterface ?? "web",
+    assistantMessageInterface:
+      turnInterfaceCtx?.assistantMessageInterface ?? "web",
+    kind: "background-event",
+    backgroundEventSource: source,
+    automated: true,
+  };
+  const persisted = await addMessage(
+    conversation.conversationId,
+    message.role,
+    JSON.stringify(message.content),
+    { metadata, skipIndexing: true },
+  );
+  try {
+    const convRow = getConversation(conversation.conversationId);
+    if (convRow) {
+      syncMessageToDisk(
+        conversation.conversationId,
+        persisted.id,
+        convRow.createdAt,
+      );
+    }
+  } catch (err) {
+    log.warn(
+      { err, conversationId: conversation.conversationId },
+      "wake trigger persist: syncMessageToDisk failed (non-fatal)",
+    );
+  }
+}
+
+/**
  * Temporarily restrict the tools visible/executable during a wake by
  * reusing the conversation's subagent allowlist slot. Returns a restore
  * callback that reinstates the previous allowlist so the wake can release

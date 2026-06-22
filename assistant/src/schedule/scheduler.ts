@@ -355,6 +355,7 @@ export async function runScheduleDueWorkOnce(
           conversationId: wakeConversationId,
           hint: job.message,
           source: "defer",
+          persistTriggerAsEvent: true,
           ...(job.inferenceProfile
             ? { forceOverrideProfile: job.inferenceProfile }
             : {}),

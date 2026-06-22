@@ -103,6 +103,7 @@ describe("scheduler wake mode", () => {
       conversationId: "conv-xyz",
       hint: "Check back on this",
       source: "defer",
+      persistTriggerAsEvent: true,
     });
 
     // AND processMessage is never called (wake mode doesn't use it)

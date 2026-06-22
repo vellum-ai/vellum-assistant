@@ -406,11 +406,16 @@ export const shellTool = {
           timeoutSec,
         );
 
-        const hint = `Background command completed (id=${bgId}, exit=${code ?? "unknown"}):\n${fmtResult.content}`;
+        const framing = `Background command completed (id=${bgId}, exit=${code ?? "unknown"}):`;
         void wakeAgentForOpportunity({
           conversationId: context.conversationId,
-          hint,
+          hint: framing,
           source: "background-tool",
+          persistTriggerAsEvent: true,
+          untrustedOutput: {
+            content: fmtResult.content,
+            source: "tool_result",
+          },
         });
       });
 
@@ -433,11 +438,11 @@ export const shellTool = {
           spawnError: err.message,
         });
 
-        const hint = `Background command failed (id=${bgId}): ${err.message}`;
         void wakeAgentForOpportunity({
           conversationId: context.conversationId,
-          hint,
+          hint: `Background command failed (id=${bgId}): ${err.message}`,
           source: "background-tool",
+          persistTriggerAsEvent: true,
         });
       });
 
