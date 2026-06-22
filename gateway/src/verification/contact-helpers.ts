@@ -180,7 +180,7 @@ function writeVerifiedGatewayChannel(params: {
  * (type, address) COLLATE NOCASE. The gateway is the source of truth; the
  * assistant mirror can lag behind a block/revoke landed gateway-side.
  */
-function gatewayChannelStatus(type: string, address: string): string | null {
+export function gatewayChannelStatus(type: string, address: string): string | null {
   const row = getGatewayDb()
     .select({ status: gwContactChannels.status })
     .from(gwContactChannels)
@@ -250,6 +250,19 @@ export async function upsertVerifiedContactChannel(params: {
     [sourceChannel, address],
   );
 
+  // The gateway is the source of truth: a blocked/revoked gateway row rejects
+  // the verification, gating BOTH the existing-channel update and the
+  // new-insert path so no active mirror is created for a blocked actor. A
+  // missing gateway row is the legitimate happy path (legacy/unmirrored).
+  const gwStatus = gatewayChannelStatus(sourceChannel, address);
+  if (gwStatus === "blocked" || gwStatus === "revoked") {
+    log.warn(
+      { sourceChannel, address, status: gwStatus },
+      "Skipping upsert: authoritative gateway channel is blocked or revoked",
+    );
+    return { verified: false };
+  }
+
   if (existing.length > 0) {
     const row = existing[0];
 
@@ -258,19 +271,6 @@ export async function upsertVerifiedContactChannel(params: {
       log.warn(
         { sourceChannel, address, status: row.channelStatus },
         "Skipping upsert: channel is blocked or revoked",
-      );
-      return { verified: false };
-    }
-
-    // The gateway is the source of truth: a blocked/revoked gateway row rejects
-    // the verification even when the assistant mirror is still claimable. Don't
-    // activate the assistant mirror and signal the caller to suppress success.
-    // A missing gateway row is the legitimate happy path (legacy/unmirrored).
-    const gwStatus = gatewayChannelStatus(sourceChannel, address);
-    if (gwStatus === "blocked" || gwStatus === "revoked") {
-      log.warn(
-        { sourceChannel, address, status: gwStatus },
-        "Skipping upsert: authoritative gateway channel is blocked or revoked",
       );
       return { verified: false };
     }

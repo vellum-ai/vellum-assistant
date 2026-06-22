@@ -32,6 +32,7 @@ import {
 } from "./code-parsing.js";
 import {
   findContactChannelByAddress,
+  gatewayChannelStatus,
   upsertVerifiedContactChannel,
 } from "./contact-helpers.js";
 import { canonicalizeInboundIdentity } from "./identity.js";
@@ -334,6 +335,20 @@ async function applyGuardianSideEffects(params: {
       username: actorUsername,
     });
     return verified;
+  }
+
+  // The gateway is the source of truth: a blocked/revoked gateway row rejects
+  // the binding. Check BEFORE the same-user revoke below so a legitimately
+  // re-verifying guardian (whose current row is active) isn't blocked by their
+  // own about-to-be-revoked row. createGuardianBinding writes "active"
+  // unconditionally, so this guard is the only thing stopping a blocked actor.
+  const gwStatus = gatewayChannelStatus(sourceChannel, canonicalUserId);
+  if (gwStatus === "blocked" || gwStatus === "revoked") {
+    log.warn(
+      { sourceChannel, address: canonicalUserId, status: gwStatus },
+      "Skipping guardian binding: authoritative gateway channel is blocked or revoked",
+    );
+    return false;
   }
 
   // Revoke existing binding (same-user re-verification)

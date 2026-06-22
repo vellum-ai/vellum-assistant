@@ -256,6 +256,54 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     expect(inserts).toHaveLength(2);
   });
 
+  test("new-insert path returns verified:false and writes nothing when gateway row is blocked", async () => {
+    // No existing assistant channel, but the authoritative gateway DB already
+    // has a blocked row for the same (type,address): no new active channel.
+    queryRows = [];
+    gwSelectStatus = "blocked";
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550009999",
+      externalChatId: "+15550009999",
+    });
+
+    expect(result).toEqual({ verified: false });
+    expect(runCalls.filter((c) => c.sql.includes("INSERT"))).toHaveLength(0);
+    expect(gwInserts).toHaveLength(0);
+    expect(gwUpdates).toHaveLength(0);
+  });
+
+  test("new-insert path returns verified:false and writes nothing when gateway row is revoked", async () => {
+    queryRows = [];
+    gwSelectStatus = "revoked";
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550009999",
+      externalChatId: "+15550009999",
+    });
+
+    expect(result).toEqual({ verified: false });
+    expect(runCalls.filter((c) => c.sql.includes("INSERT"))).toHaveLength(0);
+    expect(gwInserts).toHaveLength(0);
+    expect(gwUpdates).toHaveLength(0);
+  });
+
+  test("new-insert path returns verified:true when no gateway row exists", async () => {
+    queryRows = [];
+    gwSelectStatus = null;
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550009999",
+      externalChatId: "+15550009999",
+    });
+
+    expect(result).toEqual({ verified: true });
+    expect(runCalls.filter((c) => c.sql.includes("INSERT"))).toHaveLength(2);
+  });
+
   test("update path stamps verified_at + verified_via='challenge'", async () => {
     queryRows = [
       { channelId: "ch-6", contactId: "co-6", channelStatus: "active" },
