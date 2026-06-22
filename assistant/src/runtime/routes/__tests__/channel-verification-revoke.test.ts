@@ -181,9 +181,10 @@ describe("verification revoke relay", () => {
   });
 
   test("malformed gateway response surfaces as an error", async () => {
-    ipcCallPersistentMock.mockImplementationOnce(async () => ({
-      ok: "nope",
-    }));
+    // Deliberately malformed shape: must fail schema validation, not pass.
+    ipcCallPersistentMock.mockImplementationOnce(
+      async () => ({ ok: "nope" }) as never,
+    );
 
     let thrown: Error | undefined;
     try {
@@ -208,7 +209,7 @@ describe("verification revoke relay", () => {
         type: "telegram",
         address: "addr",
         status: "active",
-        revokedReason: null,
+        revokedReason: "still_active",
       },
     }));
 
