@@ -264,12 +264,15 @@ describe("executeDocumentUpdate — input validation", () => {
     seedFixtureDocuments();
   });
 
-  test("returns Invalid input when surface_id is missing", () => {
-    const result = executeDocumentUpdate({}, makeContext());
-    expect(result.isError).toBe(true);
-    const body = parseResult<{ error: string }>(result);
-    expect(body.error).toContain("Invalid input: surface_id is required");
-    expect(body.error).not.toContain("Document not found");
+  test("resolves to the conversation's document when surface_id is omitted", () => {
+    const result = executeDocumentUpdate(
+      { content: "appended chunk" },
+      makeContext({ sendToClient: () => {} }),
+    );
+    expect(result.isError).toBe(false);
+    const body = parseResult<{ surface_id: string; success: boolean }>(result);
+    expect(body.success).toBe(true);
+    expect(body.surface_id).toBe("doc-current");
   });
 
   test("returns Invalid input when content is missing", () => {

@@ -292,6 +292,32 @@ export function markSurfaceCompleted(
 }
 
 /**
+ * Complete a `ui_surface` card and notify live clients, addressed only by
+ * conversation + surface id.
+ *
+ * Unlike {@link completeSurfaceFromAction}, this needs no live `Conversation`
+ * instance, so it can run from flows that don't own one — projecting a
+ * terminal guardian-request status onto its in-app approval card when the
+ * request was resolved on another surface (or by the expiry sweep). Persists
+ * the completion (reload-safe) and broadcasts `ui_surface_complete` so every
+ * connected client of this guardian converges. No-ops when the surface block
+ * isn't found in the conversation.
+ */
+export function completeSurfaceAndNotify(
+  conversationId: string,
+  surfaceId: string,
+  summary: string,
+): void {
+  markSurfaceCompleted({ conversationId }, surfaceId, summary);
+  broadcastMessage({
+    type: "ui_surface_complete",
+    conversationId,
+    surfaceId,
+    summary,
+  });
+}
+
+/**
  * Remove a `ui_surface` content block from history so a passively dismissed
  * surface does not survive a reload. The live client drops a dismissed surface
  * entirely; this converges persisted state with that behaviour. Cancels any

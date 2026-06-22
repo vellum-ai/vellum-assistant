@@ -2435,6 +2435,9 @@ export async function dispatchAgentEvent(
           );
         }
         break;
+      case "system_prompt_changed":
+        deps.ctx.systemPrompt = event.systemPrompt;
+        break;
     }
   } catch (err) {
     log.error(

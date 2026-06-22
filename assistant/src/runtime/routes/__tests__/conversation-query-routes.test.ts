@@ -57,7 +57,7 @@ mock.module("../../../memory/embedding-backend.js", () => ({
 }));
 
 import type { ConversationCreateType } from "../../../memory/conversation-crud.js";
-import { getDb } from "../../../memory/db-connection.js";
+import { getDb, getLogsDb } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
 import {
   backfillMemoryV2ActivationMessageId,
@@ -84,7 +84,7 @@ const sampleConcepts: MemoryV2ConceptRowRecord[] = sharedSampleConcepts.slice(
   1,
 );
 
-initializeDb();
+await initializeDb();
 
 const llmContextRoute = ROUTES.find(
   (r) => r.method === "GET" && r.endpoint === "messages/:id/llm-context",
@@ -108,7 +108,7 @@ function dispatchConversationLlmContext(queryParams: Record<string, string>) {
 
 function clearTables(): void {
   const db = getDb();
-  db.delete(llmRequestLogs).run();
+  getLogsDb()!.delete(llmRequestLogs).run();
   db.delete(memoryV2ActivationLogs).run();
   db.delete(messages).run();
   db.delete(conversationKeys).run();
@@ -156,7 +156,7 @@ function seedRequestLog(
   id: string,
   options: { agentLoopExitReason?: string | null } = {},
 ): void {
-  getDb()
+  getLogsDb()!
     .insert(llmRequestLogs)
     .values({
       id,
@@ -176,7 +176,7 @@ function seedRequestLog(
 }
 
 function seedRequestLogWithSections(messageId: string, id: string): void {
-  getDb()
+  getLogsDb()!
     .insert(llmRequestLogs)
     .values({
       id,
@@ -243,7 +243,7 @@ describe("GET /v1/conversations/llm-context", () => {
     seedConversationKey("conv-key", "conv-1");
     seedRequestLog("msg-2", "log-b");
     seedRequestLog("msg-1", "log-a");
-    getDb()
+    getLogsDb()!
       .insert(llmRequestLogs)
       .values({
         id: "log-other",
@@ -630,7 +630,7 @@ describe("GET /v1/messages/:id/llm-context — synthetic call_site projection", 
     // loop was about to send; response = the notice text the user saw),
     // `call_site = "syntheticAgentErrorMessage"`, exit reason stamped at
     // insert time.
-    getDb()
+    getLogsDb()!
       .insert(llmRequestLogs)
       .values({
         id: "log-yield",
@@ -681,7 +681,7 @@ describe("GET /v1/messages/:id/llm-context — synthetic call_site projection", 
       source: "user",
       conversationType: "standard",
     });
-    getDb()
+    getLogsDb()!
       .insert(llmRequestLogs)
       .values({
         id: "log-regular",

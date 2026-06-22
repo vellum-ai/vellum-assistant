@@ -38,13 +38,10 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
-import {
-  BadRequestError,
-  NotFoundError,
-} from "../runtime/routes/errors.js";
+import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
 import { handleSubscribeAssistantEvents } from "../runtime/routes/events-routes.js";
 
-initializeDb();
+await initializeDb();
 
 describe("GET /v1/events — bilingual scope query params", () => {
   beforeEach(() => {
@@ -75,7 +72,9 @@ describe("GET /v1/events — bilingual scope query params", () => {
     expect(new TextDecoder().decode(heartbeat.value)).toBe(": heartbeat\n\n");
 
     // Publish an event scoped to that conversation — should be delivered.
-    await testHub.publish(buildAssistantEvent({ type: "pong" }, conversationId));
+    await testHub.publish(
+      buildAssistantEvent({ type: "pong" }, conversationId),
+    );
 
     const { value, done } = await reader.read();
     ac.abort();
@@ -99,9 +98,8 @@ describe("GET /v1/events — bilingual scope query params", () => {
     // Materialise two distinct conversations: one we'll subscribe to by id,
     // one we'll publish to via the ignored key.
     const { conversationId: idConv } = getOrCreateConversation("sse-id-wins");
-    const { conversationId: keyConv } = getOrCreateConversation(
-      "sse-key-ignored",
-    );
+    const { conversationId: keyConv } =
+      getOrCreateConversation("sse-key-ignored");
     expect(idConv).not.toBe(keyConv);
 
     const ac = new AbortController();

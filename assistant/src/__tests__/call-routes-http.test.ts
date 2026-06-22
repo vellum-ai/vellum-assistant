@@ -110,7 +110,7 @@ import { RuntimeHttpServer } from "../runtime/http-server.js";
 
 import "../calls/call-state.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers

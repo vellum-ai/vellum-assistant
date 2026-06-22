@@ -58,9 +58,14 @@ let mockExtensionAvailable = false;
 mock.module("../daemon/host-browser-proxy.js", () => ({
   HostBrowserProxy: {
     get instance() {
-      return mockExtensionAvailable
-        ? { isAvailable: () => true, request: mock(async () => ({})) }
-        : undefined;
+      // The real proxy is a lazily-created singleton that always exists;
+      // `isAvailable`/`waitForExtensionClient` reflect whether an extension
+      // is connected rather than the instance being absent.
+      return {
+        isAvailable: () => mockExtensionAvailable,
+        waitForExtensionClient: async () => mockExtensionAvailable,
+        request: mock(async () => ({})),
+      };
     },
   },
 }));

@@ -18,7 +18,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 
-initializeDb();
+await initializeDb();
 
 function clearTables(): void {
   const db = getDb();

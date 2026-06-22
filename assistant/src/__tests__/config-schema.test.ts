@@ -122,6 +122,8 @@ describe("AssistantConfigSchema", () => {
       permissionTimeoutSec: 300,
       toolExecutionTimeoutSec: 120,
       providerStreamTimeoutSec: 1800,
+      backgroundTurnTimeoutSec: 1800,
+      scheduleTurnTimeoutSec: 1800,
     });
     expect(result.rateLimit).toEqual({
       maxRequestsPerMinute: 0,
@@ -143,6 +145,40 @@ describe("AssistantConfigSchema", () => {
 
     expect(result.services["web-search"].provider).toBe("tavily");
     expect(result.services["web-search"].mode).toBe("your-own");
+  });
+
+  test("accepts Firecrawl as a web search provider", () => {
+    const result = AssistantConfigSchema.parse({
+      services: {
+        "web-search": { mode: "your-own", provider: "firecrawl" },
+      },
+    });
+
+    expect(result.services["web-search"].provider).toBe("firecrawl");
+    expect(result.services["web-search"].mode).toBe("your-own");
+  });
+
+  test("defaults the web-fetch provider to the built-in fetcher", () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.services["web-fetch"].provider).toBe("default");
+  });
+
+  test("accepts Firecrawl as a web fetch provider", () => {
+    const result = AssistantConfigSchema.parse({
+      services: {
+        "web-fetch": { mode: "your-own", provider: "firecrawl" },
+      },
+    });
+
+    expect(result.services["web-fetch"].provider).toBe("firecrawl");
+  });
+
+  test("rejects an unknown web-fetch provider", () => {
+    expect(() =>
+      AssistantConfigSchema.parse({
+        services: { "web-fetch": { provider: "nope" } },
+      }),
+    ).toThrow();
   });
 
   test("accepts valid complete config", () => {
@@ -185,6 +221,7 @@ describe("AssistantConfigSchema", () => {
       speed: "standard",
       verbosity: "medium",
       temperature: null,
+      topP: null,
       thinking: { enabled: true, streamThinking: true },
       contextWindow: {
         enabled: true,
@@ -629,6 +666,38 @@ describe("AssistantConfigSchema", () => {
     expect(result.timeouts.shellDefaultTimeoutSec).toBe(30);
     expect(result.timeouts.shellMaxTimeoutSec).toBe(600);
     expect(result.timeouts.permissionTimeoutSec).toBe(300);
+  });
+
+  test("background/schedule turn timeouts default to 1800s when unset", () => {
+    const result = AssistantConfigSchema.parse({
+      timeouts: { shellDefaultTimeoutSec: 30 },
+    });
+    expect(result.timeouts.backgroundTurnTimeoutSec).toBe(1800);
+    expect(result.timeouts.scheduleTurnTimeoutSec).toBe(1800);
+  });
+
+  test("custom background/schedule turn timeouts flow through to resolved config", () => {
+    const result = AssistantConfigSchema.parse({
+      timeouts: {
+        backgroundTurnTimeoutSec: 3600,
+        scheduleTurnTimeoutSec: 10800,
+      },
+    });
+    expect(result.timeouts.backgroundTurnTimeoutSec).toBe(3600);
+    expect(result.timeouts.scheduleTurnTimeoutSec).toBe(10800);
+  });
+
+  test("rejects non-integer and out-of-range turn timeouts", () => {
+    expect(
+      AssistantConfigSchema.safeParse({
+        timeouts: { backgroundTurnTimeoutSec: 12.5 },
+      }).success,
+    ).toBe(false);
+    expect(
+      AssistantConfigSchema.safeParse({
+        timeouts: { scheduleTurnTimeoutSec: 2147484 },
+      }).success,
+    ).toBe(false);
   });
 
   test("accepts zero for non-negative fields", () => {

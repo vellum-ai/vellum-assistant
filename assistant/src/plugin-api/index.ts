@@ -132,6 +132,13 @@ export type {
 export { assistantEventHub } from "../runtime/assistant-event-hub.js";
 export { getSecureKeyAsync } from "../security/secure-keys.js";
 export { getModelProfiles } from "./model-profiles.js";
+// Check whether a profile's resolved model can process image input. Resolves
+// the effective (provider, model) by merging over the workspace default and
+// inferring the provider for model-only profiles, then looks up the model
+// catalog's `supportsVision` flag. Handles mix profiles (true if any arm
+// supports vision). Fail-open for unknown models. Pair with
+// `getModelProfiles()` to inspect the active or candidate profiles.
+export { doesSupportVision } from "./vision-support.js";
 // Resolve a provider for a call site (optionally overriding the profile) so a
 // plugin can run inference through the workspace's configured profiles and
 // credentials — managed-proxy or BYOK — without supplying its own API key.

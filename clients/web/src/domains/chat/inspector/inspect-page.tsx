@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, ArrowLeft, Download, MessageSquare } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
@@ -12,16 +12,13 @@ import {
 } from "@/domains/chat/inspector/inspector-api";
 import {
     buildInspectorExportFilename,
-    buildInspectorExportZipBlob,
+    buildInspectorExportZipBlobBatched,
 } from "@/domains/chat/inspector/inspector-export";
 import {
     llmCallDetailQueryOptions,
     useLlmCallDetail,
 } from "@/domains/chat/inspector/inspector-detail-api";
-import {
-    llmLogPayloadQueryOptions,
-    type LlmLogPayload,
-} from "@/domains/chat/inspector/inspector-payload-api";
+import { llmLogPayloadQueryOptions } from "@/domains/chat/inspector/inspector-payload-api";
 import { normalizeContentBlocks } from "@/domains/chat/api/messages";
 import {
     supportsLlmContextSummaryView,
@@ -40,6 +37,10 @@ import type {
 import { Button } from "@vellumai/design-library";
 
 import { CallRail } from "./components/call-rail";
+import {
+    ExportProgressModal,
+    type ExportPhase,
+} from "./components/export-progress-modal";
 import { MobileCallSelector } from "./components/mobile-call-selector";
 import { TabBar, type InspectorTab } from "./components/tab-bar";
 import { CompactionTab } from "./components/tabs/compaction-tab";
@@ -243,6 +244,14 @@ interface HeaderProps {
   callCount: number | null;
 }
 
+/** Drives the {@link ExportProgressModal}; `null` means no export in flight. */
+interface ExportRun {
+  phase: ExportPhase;
+  completed: number;
+  total: number;
+  error: string | null;
+}
+
 function Header({
   assistantId,
   conversationId,
@@ -251,8 +260,9 @@ function Header({
   callCount,
 }: HeaderProps): ReactNode {
   const queryClient = useQueryClient();
-  const [isExporting, setIsExporting] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportRun, setExportRun] = useState<ExportRun | null>(null);
+  const exportAbortRef = useRef<AbortController | null>(null);
+  const isExporting = exportRun?.phase === "running";
 
   const { data: scopeMessages } = useConversationMessageList(
     assistantId,
@@ -268,25 +278,40 @@ function Header({
 
   async function handleExport(): Promise<void> {
     if (!assistantId || !context || isExporting) return;
-    setIsExporting(true);
-    setExportError(null);
+
+    const controller = new AbortController();
+    exportAbortRef.current = controller;
+    setExportRun({
+      phase: "running",
+      completed: 0,
+      total: context.logs.length,
+      error: null,
+    });
+
     try {
-      const payloads = await Promise.all(
-        context.logs.map((log): Promise<LlmLogPayload> => {
-          const options = llmLogPayloadQueryOptions(assistantId, log.id);
-          return queryClient.fetchQuery(options);
-        }),
-      );
-      const blob = await buildInspectorExportZipBlob(
-        context,
-        payloads,
-        (logId) =>
+      // Batched fetch (10 in flight) so a long conversation doesn't fire
+      // thousands of simultaneous requests at the daemon. Progress drives
+      // the modal's determinate progress bar.
+      const blob = await buildInspectorExportZipBlobBatched(context, {
+        fetchPayload: (logId) =>
+          queryClient.fetchQuery(
+            llmLogPayloadQueryOptions(assistantId, logId),
+          ),
+        fetchCallSections: (logId) =>
           supportsLlmContextSummaryView()
             ? queryClient.fetchQuery(
                 llmCallDetailQueryOptions(assistantId, logId),
               )
             : Promise.resolve(null),
-      );
+        onProgress: ({ completed, total }) =>
+          setExportRun((prev) =>
+            prev && prev.phase === "running"
+              ? { ...prev, completed, total }
+              : prev,
+          ),
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
       const { saveFile } = await import("@/runtime/native-file");
       await saveFile(
         blob,
@@ -294,15 +319,29 @@ function Header({
           context.conversationId ?? conversationId,
         ),
       );
+      setExportRun((prev) => (prev ? { ...prev, phase: "done" } : prev));
     } catch (err) {
-      setExportError(
-        err && typeof err === "object" && "message" in err
-          ? String((err as { message: unknown }).message)
-          : "Failed to export inspector data",
-      );
+      if (controller.signal.aborted) return; // user cancelled
+      setExportRun((prev) => ({
+        phase: "error",
+        completed: prev?.completed ?? 0,
+        total: prev?.total ?? 0,
+        error:
+          err && typeof err === "object" && "message" in err
+            ? String((err as { message: unknown }).message)
+            : "Failed to export inspector data",
+      }));
     } finally {
-      setIsExporting(false);
+      if (exportAbortRef.current === controller) {
+        exportAbortRef.current = null;
+      }
     }
+  }
+
+  function handleCancelExport(): void {
+    exportAbortRef.current?.abort();
+    exportAbortRef.current = null;
+    setExportRun(null);
   }
 
   // Mobile-responsive layout:
@@ -352,38 +391,28 @@ function Header({
           >
             {isExporting ? "Exporting…" : "Export ZIP"}
           </Button>
-          <div className="hidden flex-col items-end gap-0.5 md:flex">
-            {callCount != null ? (
-              <span
-                className="text-label-default"
-                style={{ color: "var(--content-secondary)" }}
-              >
-                {callCount === 1 ? "1 LLM call" : `${callCount} LLM calls`}
-              </span>
-            ) : null}
-            {exportError ? (
-              <span
-                className="max-w-72 text-right text-body-small-default"
-                role="alert"
-                style={{ color: "var(--system-negative-strong)" }}
-              >
-                {exportError}
-              </span>
-            ) : null}
-          </div>
+          {callCount != null ? (
+            <span
+              className="hidden text-label-default md:inline"
+              style={{ color: "var(--content-secondary)" }}
+            >
+              {callCount === 1 ? "1 LLM call" : `${callCount} LLM calls`}
+            </span>
+          ) : null}
         </div>
-        {/* Mobile fallback for export errors — the desktop slot above is
-            hidden on narrow viewports so the error needs its own row. */}
-        {exportError ? (
-          <span
-            className="order-4 w-full text-body-small-default md:hidden"
-            role="alert"
-            style={{ color: "var(--system-negative-strong)" }}
-          >
-            {exportError}
-          </span>
-        ) : null}
       </div>
+      {exportRun ? (
+        <ExportProgressModal
+          open
+          phase={exportRun.phase}
+          completed={exportRun.completed}
+          total={exportRun.total}
+          error={exportRun.error}
+          onCancel={handleCancelExport}
+          onRetry={() => void handleExport()}
+          onClose={() => setExportRun(null)}
+        />
+      ) : null}
       <ScopeControls
         assistantId={assistantId}
         conversationId={conversationId}

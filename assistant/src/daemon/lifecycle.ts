@@ -20,6 +20,7 @@ import {
 import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
+import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { createCesClient } from "../credential-execution/client.js";
 import { refreshManagedConnectionCache } from "../credential-execution/managed-catalog.js";
@@ -75,7 +76,10 @@ import {
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
 import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
-import { publishConversationListChanged } from "../runtime/sync/resource-sync-events.js";
+import {
+  publishConfigChanged,
+  publishConversationListChanged,
+} from "../runtime/sync/resource-sync-events.js";
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import {
@@ -289,9 +293,10 @@ export async function runDaemon(): Promise<void> {
   log.info({ version: APP_VERSION }, "Daemon starting");
 
   try {
-    // Initialize crash reporting eagerly so early startup failures are
-    // captured. After config loads we check the opt-out flag and call
-    // closeSentry() if the user has disabled it.
+    // Initialize crash reporting eagerly so the Sentry client is ready before
+    // early startup failures occur. Events are dropped (beforeSend) until the
+    // consent gate below confirms share_diagnostics opt-in; dev mode and the
+    // legacy local opt-out hard-disable via closeSentry().
     initSentry();
 
     ensureDataDir();
@@ -370,8 +375,23 @@ export async function runDaemon(): Promise<void> {
     // this fetch completes, so without this follow-up sync a flag-enabled
     // assistant would not expose the gated tools until a restart (which can lose
     // the same race). Enable-direction only; chained so it sees the fresh cache.
+    // Then reconcile flag-gated managed profiles (OS Beta): `seedInferenceProfiles()`
+    // runs synchronously earlier in boot before flags are available, so this lands
+    // the profile on the same boot once the flag cache is populated. When this
+    // reconcile is the call that mutates config (it raced ahead of the gateway
+    // flag listener), publish the config invalidation so any client that already
+    // fetched `GET /v1/config` refreshes its profile picker.
+    // Profiles are reconciled only when flags actually loaded from the gateway:
+    // a failed fetch leaves the cache unset and resolves `os-beta` to its
+    // registry default `false`, which would remove the user's profile and reset
+    // their selection. Tool sync tolerates the default and stays unconditional.
     void initFeatureFlagOverrides()
-      .then(() => syncFlagGatedTools())
+      .then(async (loaded) => {
+        await syncFlagGatedTools();
+        if (loaded && reconcileFlagGatedProfiles()) {
+          publishConfigChanged();
+        }
+      })
       .catch((err) => log.warn({ err }, "Background feature flag init failed"));
 
     startGatewayFlagListener();
@@ -390,7 +410,7 @@ export async function runDaemon(): Promise<void> {
     // remains reachable for health checks and diagnostics.
     let dbReady = false;
     try {
-      initializeDb();
+      await initializeDb();
       dbReady = true;
       log.info("Daemon startup: DB initialized");
     } catch (err) {
@@ -412,8 +432,14 @@ export async function runDaemon(): Promise<void> {
     }
 
     if (dbReady) {
-      await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
-      log.info("Daemon startup: workspace migrations complete");
+      const migrationSummary = await runWorkspaceMigrations(
+        getWorkspaceDir(),
+        WORKSPACE_MIGRATIONS,
+      );
+      log.info(
+        migrationSummary,
+        "Daemon startup: workspace migrations complete",
+      );
 
       // Seed canonical inference provider_connections and backfill any legacy
       // profiles that pre-date the connection field. Runs after workspace
@@ -641,13 +667,17 @@ export async function runDaemon(): Promise<void> {
       });
     }
 
-    // Privacy gating: Sentry crash/error reporting is gated by sendDiagnostics,
-    // while the usage telemetry reporter re-checks the platform share_analytics
-    // consent on every flush. Both are disabled in dev mode. Early-startup
-    // crashes before this point are still captured.
+    // Privacy gating: Sentry crash/error reporting follows the platform owner's
+    // share_diagnostics consent; the usage telemetry reporter re-checks
+    // share_analytics on every flush. Both are disabled in dev mode. Sentry was
+    // initialized early, but beforeSend re-reads getCachedShareDiagnostics() on
+    // every event, so it drops events until consent confirms opt-in and honors a
+    // later revocation within one refresh cycle (the cache is refreshed by
+    // startConsentRefresh() below, mirroring the share_analytics posture).
     const isDevMode = process.env.VELLUM_DEV === "1";
-    const sendDiagnostics = !isDevMode && config.sendDiagnostics;
-    if (!sendDiagnostics) {
+    if (isDevMode || config.legacyDiagnosticsOptOut === true) {
+      // Dev mode and a preserved legacy local opt-out both disable Sentry
+      // unconditionally, without waiting on platform consent.
       await closeSentry();
     }
 

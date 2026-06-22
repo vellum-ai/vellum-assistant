@@ -48,7 +48,7 @@ import { UsageTrackingProvider } from "../providers/usage-tracking.js";
 import type { PricingUsage } from "../usage/types.js";
 import { resolvePricingForUsageWithOverrides } from "../util/pricing.js";
 
-initializeDb();
+await initializeDb();
 
 function createMockLlmConfig() {
   return {

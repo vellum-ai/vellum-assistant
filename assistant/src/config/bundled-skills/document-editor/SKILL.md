@@ -33,13 +33,13 @@ Write and edit long-form documents using the built-in rich text editor. Document
 
 This is the default path when the user asks you to write something.
 
-1. **Create the document**: Call `document_create` with a title (inferred from the request). Call the tool immediately, not after conversational preamble. Capture the `surface_id` from the response — every subsequent `document_update` call must reference it.
+1. **Create the document**: Call `document_create` with a title (inferred from the request). Call the tool immediately, not after conversational preamble.
 2. **Write content in Markdown**: Use proper structure (`#` for titles, `##` for sections), **bold**, _italic_, code blocks, tables, lists, blockquotes as appropriate.
-3. **CRITICAL - Stream content in chunks**: Call `document_update` MULTIPLE times, not just once. Break content into logical chunks (paragraphs, sections, or every 200-300 words). Call `document_update` with `mode: "append"` for EACH chunk separately. The user experiences real-time content appearing as you write.
+3. **CRITICAL - Stream content in chunks**: Call `document_update` MULTIPLE times, not just once. Break content into logical chunks (paragraphs, sections, or every 200-300 words). Call `document_update` with `mode: "append"` for EACH chunk separately. When you are streaming into the document you just created, `surface_id` is optional — omit it and pass only `content`, and the update targets that document. The user experiences real-time content appearing as you write.
 
 ### Recovering from a failed update
 
-If a `document_update` call fails with an `Invalid input` error (for example because `surface_id` was missing), do NOT call `document_create` again. The `surface_id` you need is in the tool result of the most recent `document_create` call in this turn. Retry `document_update` with that `surface_id` and the same content. Creating a second document with the same title produces a duplicate for the user.
+If a `document_update` call fails with an `Invalid input` error, do NOT call `document_create` again — that produces a duplicate for the user. The most common cause is a missing `content` field: resend the call with the chunk's Markdown in `content`. You can omit `surface_id` to target the document you are currently writing; pass it explicitly only when editing a different existing document.
 
 ## Editing an existing document
 

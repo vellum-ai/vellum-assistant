@@ -133,13 +133,9 @@ export const MemoryCleanupConfigSchema = z
       .nonnegative(
         "memory.cleanup.llmRequestLogRetentionMs must be non-negative",
       )
-      // Upper bound must match gateway MAX_LLM_REQUEST_LOG_RETENTION_MS in
-      // gateway/src/http/routes/privacy-config.ts. If a manually edited
-      // config.json sets a value larger than this, the gateway GET would
-      // return it and the macOS picker would snap it to its largest known
-      // option, and the next PATCH would silently truncate the value —
-      // causing quiet data loss. Enforcing the same cap here prevents the
-      // daemon from accepting out-of-range values in the first place.
+      // Cap retention at 365 days. Enforced daemon-side only: the cleanup jobs
+      // honor this bound, so a manually edited config.json with a larger value
+      // is rejected here rather than silently retained.
       .max(
         365 * 24 * 60 * 60 * 1000,
         "memory.cleanup.llmRequestLogRetentionMs must be <= 365 days in ms",
@@ -173,7 +169,7 @@ export const MemoryMaintenanceConfigSchema = z
       .positive("memory.maintenance.intervalMs must be a positive integer")
       .default(24 * 60 * 60 * 1000)
       .describe(
-        "Minimum interval between database maintenance (VACUUM / PRAGMA optimize) runs, in milliseconds",
+        "Minimum interval between database maintenance (PRAGMA optimize / WAL checkpoint) runs, in milliseconds",
       ),
     quietPeriodMs: z
       .number({ error: "memory.maintenance.quietPeriodMs must be a number" })
@@ -181,10 +177,12 @@ export const MemoryMaintenanceConfigSchema = z
       .nonnegative("memory.maintenance.quietPeriodMs must be non-negative")
       .default(3 * 60 * 60 * 1000)
       .describe(
-        "Database maintenance is deferred unless at least this many milliseconds have elapsed since the last user message, so the VACUUM's exclusive lock never collides with an active user (0 disables the quiet-period gate)",
+        "Database maintenance is deferred unless at least this many milliseconds have elapsed since the last user message, so maintenance's write locks never collide with an active user (0 disables the quiet-period gate)",
       ),
   })
-  .describe("Database maintenance (VACUUM / PRAGMA optimize) scheduling");
+  .describe(
+    "Database maintenance (PRAGMA optimize / WAL checkpoint) scheduling",
+  );
 
 export type MemoryJobsConfig = z.infer<typeof MemoryJobsConfigSchema>;
 export type MemoryRetentionConfig = z.infer<typeof MemoryRetentionConfigSchema>;

@@ -8,6 +8,10 @@ import { describe, expect, mock, test } from "bun:test";
 
 import type { AcpSessionState } from "../types.js";
 
+// Records every `cancel(protocolSessionId)` the manager dispatches to a fake
+// process, so tests can assert which sessions were cancelled.
+const cancelCalls: string[] = [];
+
 // Stub the agent-process module so spawn() does not actually launch a child
 // process. Each fake instance records the cwd it was spawned in and resolves
 // every protocol method synchronously. The mock is process-global (Bun's
@@ -30,7 +34,9 @@ mock.module("../agent-process.js", () => ({
       // the duration of the test so cleanup logic doesn't tear it down.
       return new Promise(() => {});
     }
-    async cancel(): Promise<void> {}
+    async cancel(sessionId: string): Promise<void> {
+      cancelCalls.push(sessionId);
+    }
     kill(): void {}
   },
 }));
@@ -79,5 +85,70 @@ describe("AcpSessionManager — parentConversationId population", () => {
     const states = manager.getStatus() as AcpSessionState[];
     const parents = states.map((s) => s.parentConversationId).sort();
     expect(parents).toEqual(["conv-parent-1", "conv-parent-2"]);
+  });
+});
+
+describe("AcpSessionManager — cancelForParent", () => {
+  const noopSend = () => {};
+
+  test("cancels only the sessions spawned by the given parent", async () => {
+    cancelCalls.length = 0;
+    const manager = new AcpSessionManager(5);
+
+    const a1 = await manager.spawn(
+      "agent-a1",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "parent-A",
+      noopSend,
+    );
+    const a2 = await manager.spawn(
+      "agent-a2",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "parent-A",
+      noopSend,
+    );
+    const b1 = await manager.spawn(
+      "agent-b1",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "parent-B",
+      noopSend,
+    );
+
+    // WHEN parent-A is cancelled
+    const count = manager.cancelForParent("parent-A");
+
+    // THEN it reports the two parent-A sessions and leaves parent-B alone
+    expect(count).toBe(2);
+
+    // Let the detached per-session cancels settle (each awaits a protocol
+    // notification before flipping status).
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect((manager.getStatus(a1.acpSessionId) as AcpSessionState).status).toBe(
+      "cancelled",
+    );
+    expect((manager.getStatus(a2.acpSessionId) as AcpSessionState).status).toBe(
+      "cancelled",
+    );
+    expect((manager.getStatus(b1.acpSessionId) as AcpSessionState).status).toBe(
+      "running",
+    );
+
+    // AND the cancel reached each parent-A agent process exactly once.
+    expect(cancelCalls.sort()).toEqual(["proto-agent-a1", "proto-agent-a2"]);
+  });
+
+  test("returns 0 and dispatches nothing when the parent has no sessions", () => {
+    cancelCalls.length = 0;
+    const manager = new AcpSessionManager(5);
+
+    expect(manager.cancelForParent("parent-with-nothing")).toBe(0);
+    expect(cancelCalls).toEqual([]);
   });
 });

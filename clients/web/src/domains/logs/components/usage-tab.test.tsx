@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { createElement, type ReactElement } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 
@@ -71,6 +77,7 @@ const usageBreakdownGetMock = mock(
             totalCacheReadTokens: 0,
             totalEstimatedCostUsd: 0.03,
             eventCount: 2,
+            turnCount: null,
           },
         ],
       },
@@ -288,5 +295,27 @@ describe("UsageTab", () => {
       "active",
       "inactive",
     ]);
+  });
+
+  test("reveals a Turns column when the Turns toggle is enabled", async () => {
+    renderUsageTab("/assistant/logs/usage?range=7d&groupBy=schedule");
+
+    await waitFor(() =>
+      expect(usageBreakdownGetMock.mock.calls.length).toBeGreaterThan(0),
+    );
+
+    // Hidden by default.
+    expect(
+      screen.queryByRole("columnheader", { name: "Turns" }),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Turns" }));
+
+    expect(
+      screen.getByRole("columnheader", { name: "Turns" }),
+    ).toBeTruthy();
+    // The mocked breakdown row has turnCount: null (a non-conversation
+    // grouping), so the cell renders an em dash rather than a number.
+    expect(screen.getByText("—")).toBeTruthy();
   });
 });

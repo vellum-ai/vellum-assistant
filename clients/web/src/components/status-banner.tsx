@@ -36,9 +36,13 @@ import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
 import { useConnectivityState } from "@/hooks/use-connectivity-state";
 import { useNetworkStatus } from "@/hooks/use-network-status";
+import { isCliWakeableAssistant } from "@/lib/local-mode";
 import { captureError } from "@/lib/sentry/capture-error";
 import { isElectron } from "@/runtime/is-electron";
-import { wakeLocalAssistantHost } from "@/runtime/local-mode-host";
+import {
+  isLocalModeHostAvailable,
+  wakeLocalAssistantHost,
+} from "@/runtime/local-mode-host";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { cn } from "@/utils/misc";
@@ -230,6 +234,24 @@ const OPERATIONAL_STATUS_TITLES: Record<AssistantOperationalState, string> = {
   retiring: "Assistant is retiring",
 };
 
+// Titles shown when a transient operation fails. The platform keeps the
+// in-progress `state` (e.g. `upgrading_assistant_version`) but flips
+// `detail_state` to `"failed"`, so we surface a terminal failure message
+// rather than spinning on the operation forever.
+const OPERATIONAL_STATUS_FAILED_TITLES: Partial<
+  Record<AssistantOperationalState, string>
+> = {
+  initializing: "Assistant failed to initialize",
+  provisioning: "Assistant failed to provision",
+  waking: "Assistant failed to wake",
+  restarting: "Assistant restart failed",
+  restoring_backup: "Backup restore failed",
+  upgrading_assistant_version: "Assistant upgrade failed",
+  resizing_machine: "Machine resize failed",
+  resizing_storage: "Storage resize failed",
+  retiring: "Assistant failed to retire",
+};
+
 function maintenanceModeBannerConfig(): BannerConfig {
   return {
     tone: "warning",
@@ -256,6 +278,22 @@ function operationalStatusBannerConfig(
   showDoctorAction: boolean,
 ): BannerConfig | null {
   if (!status || isHealthyOperationalStatus(status)) return null;
+
+  // A transient operation (upgrade, resize, restart, …) can fail while the
+  // reported `state` is still the in-progress operation. The platform signals
+  // this via `detail_state: "failed"`. Surface it as an error so the banner
+  // doesn't spin indefinitely on a dead operation.
+  if (status.detail_state === "failed") {
+    const failedTitle = OPERATIONAL_STATUS_FAILED_TITLES[status.state];
+    if (failedTitle) {
+      return {
+        tone: "error",
+        title: failedTitle,
+        children: status.detail?.message ?? undefined,
+        actions: showDoctorAction ? doctorAction() : undefined,
+      };
+    }
+  }
 
   switch (status.state) {
     case "crash_loop":
@@ -599,13 +637,30 @@ function useAssistantBannerConfig(): BannerConfig | null {
     };
   }
 
+  // A local / self-hosted assistant can surface where local-mode operations
+  // aren't available (managed web, remote-web tunnel). There's no transport to
+  // wake it from here, so the banner is informative and action-free.
+  if (!isLocalModeHostAvailable() && canWakeLocalHealth(localHealth)) {
+    return {
+      tone: "neutral",
+      title: "Your assistant runs locally",
+      icon: <Moon className="h-4 w-4" aria-hidden="true" />,
+      children:
+        "Open the Vellum desktop app or run vellum wake in your terminal to start it.",
+    };
+  }
+
   const effectiveLocalHealth =
     (isWakingLocalAssistant || isLocalWakeSettling) &&
     canWakeLocalHealth(localHealth)
       ? "starting"
       : localHealth;
+  // Only offer "Wake up" when the CLI can actually start this assistant —
+  // `vellum wake` works on plain local entries, not Docker/apple-container.
   const localWakeAction =
-    canWakeLocalHealth(effectiveLocalHealth) ? (
+    canWakeLocalHealth(effectiveLocalHealth) &&
+    !!activeAssistantId &&
+    isCliWakeableAssistant(activeAssistantId) ? (
       <Button
         variant="outlined"
         size="compact"

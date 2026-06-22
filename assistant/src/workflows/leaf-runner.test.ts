@@ -150,7 +150,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { runLeaf, WorkflowUnknownProfileError } from "./leaf-runner.js";
 
-initializeDb();
+await initializeDb();
 
 const trustContext = {
   sourceChannel: "vellum" as const,

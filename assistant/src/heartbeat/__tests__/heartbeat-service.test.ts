@@ -88,6 +88,9 @@ const stubConfig: {
     maxDailyRuns: number | null;
     disposition: string;
   };
+  timeouts: {
+    backgroundTurnTimeoutSec: number;
+  };
 } = {
   heartbeat: {
     enabled: true,
@@ -97,6 +100,9 @@ const stubConfig: {
     maxConsecutiveRuns: null,
     maxDailyRuns: null,
     disposition: "Default disposition text.",
+  },
+  timeouts: {
+    backgroundTurnTimeoutSec: 1800,
   },
 };
 mock.module("../../config/loader.js", () => ({

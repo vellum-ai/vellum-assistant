@@ -27,6 +27,12 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
 }));
 
+mock.module("../daemon/conversation-registry.js", () => ({
+  findConversationOrSubagent: () => ({
+    systemPrompt: "you are a test assistant",
+  }),
+}));
+
 // ── Module-level mock state ───────────────────────────────────────────
 // Per-test mocks key off these — keeps closures simple and avoids the
 // "declared after mockImplementation references it" TDZ trap.
@@ -177,7 +183,6 @@ function makeConfig(maxAttempts: number = 3) {
 function buildManager(maxAttempts: number = 3): ContextWindowManager {
   return new ContextWindowManager({
     provider: makeProvider(),
-    systemPrompt: "you are a test assistant",
     config: makeConfig(maxAttempts),
     conversationId: "conv-test",
   });
@@ -446,7 +451,6 @@ describe("ContextWindowManager.emergencyCompact", () => {
     // GIVEN a manager constructed without a conversation id
     const manager = new ContextWindowManager({
       provider: makeProvider(),
-      systemPrompt: "you are a test assistant",
       config: makeConfig(),
     });
 

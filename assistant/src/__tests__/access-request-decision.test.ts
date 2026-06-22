@@ -50,7 +50,7 @@ import {
   notifyRequesterOfDenial,
 } from "../runtime/routes/access-request-decision.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -52,6 +52,13 @@ const DEFAULT_MAX_OUTPUT_TOKENS = 64_000;
 interface ProfileAdvancedParamsProps {
   visibility: ProfileParamVisibility;
   isReadOnly: boolean;
+  /**
+   * Overrides `isReadOnly` for the Top P toggle/slider only. Top P is
+   * user-editable wherever it's visible — including managed-profile view mode,
+   * where the rest of the advanced params stay locked. Defaults to `isReadOnly`
+   * when omitted so callers that don't opt in keep the old behavior.
+   */
+  topPReadOnly?: boolean;
   model: string;
   /** Resolved catalog entry for the selected model (null if not in catalog). */
   selectedModel: {
@@ -86,6 +93,10 @@ interface ProfileAdvancedParamsProps {
   onTemperatureEnabledChange: (v: boolean) => void;
   temperature: number;
   onTemperatureChange: (v: number) => void;
+  topPEnabled: boolean;
+  onTopPEnabledChange: (v: boolean) => void;
+  topP: number;
+  onTopPChange: (v: number) => void;
   thinkingEnabled: boolean;
   onThinkingEnabledChange: (v: boolean) => void;
   thinkingStreamThinking: boolean;
@@ -241,6 +252,7 @@ function TokenBudgetField({
 export function ProfileAdvancedParams({
   visibility,
   isReadOnly,
+  topPReadOnly,
   model,
   selectedModel,
   defaultMaxOutputTokens,
@@ -259,6 +271,10 @@ export function ProfileAdvancedParams({
   onTemperatureEnabledChange,
   temperature,
   onTemperatureChange,
+  topPEnabled,
+  onTopPEnabledChange,
+  topP,
+  onTopPChange,
   thinkingEnabled,
   onThinkingEnabledChange,
   thinkingStreamThinking,
@@ -285,6 +301,11 @@ export function ProfileAdvancedParams({
     defaultContextWindowMaxInputTokens ?? DEFAULT_CONTEXT_WINDOW_BUDGET_TOKENS,
     contextWindowCeiling,
   );
+
+  // Top P stays editable even when the rest of the params are locked (managed
+  // view mode). Fall back to the shared `isReadOnly` when the caller omits the
+  // override.
+  const topPDisabled = topPReadOnly ?? isReadOnly;
 
   return (
     // space-y-4 matches the modal body's rhythm so each advanced param gets
@@ -383,6 +404,38 @@ export function ProfileAdvancedParams({
                   max={2}
                   step={0.01}
                   disabled={isReadOnly}
+                  showValue
+                  formatValue={(v) =>
+                    typeof v === "number" ? v.toFixed(2) : String(v)
+                  }
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Top P */}
+      {visibility.topP && (
+        <div className="space-y-2">
+          <Toggle
+            checked={topPEnabled}
+            onChange={(v) => onTopPEnabledChange(v)}
+            label="Top P"
+            disabled={topPDisabled}
+          />
+          {topPEnabled && (
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <Slider
+                  value={topP}
+                  onValueChange={(v) =>
+                    onTopPChange(typeof v === "number" ? v : v[0])
+                  }
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  disabled={topPDisabled}
                   showValue
                   formatValue={(v) =>
                     typeof v === "number" ? v.toFixed(2) : String(v)

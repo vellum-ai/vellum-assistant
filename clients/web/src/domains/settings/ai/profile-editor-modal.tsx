@@ -177,6 +177,10 @@ function ProfileEditorModalInner({
     initialValues?.provider_connection ?? "",
   );
   const [status, setStatus] = useState<ProfileStatus>(initialValues?.status ?? "active");
+  // Per-profile advisor toggle. Absent/null means ENABLED (default on); only an
+  // explicit `false` disables — so coalesce nil to `true`.
+  const initialAdvisorEnabled = initialValues?.advisorEnabled ?? true;
+  const [advisorEnabled, setAdvisorEnabled] = useState(initialAdvisorEnabled);
   // Connections created inline this session, before the parent's `connections`
   // prop has refetched. Unioned into the available-connections set so a
   // just-created binding is treated as valid immediately — otherwise
@@ -186,11 +190,6 @@ function ProfileEditorModalInner({
   const [locallyCreatedConnections, setLocallyCreatedConnections] = useState<
     ProviderConnection[]
   >([]);
-  // True when in view mode and the user has touched either of the two
-  // fields that view mode permits editing (label, status). Drives the
-  // view-mode Save button's enabled state and the partial-update save path.
-  const hasViewModeChanges =
-    isReadOnly && (label !== initialLabel || status !== initialStatus);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -217,6 +216,28 @@ function ProfileEditorModalInner({
   const [temperature, setTemperature] = useState<number>(
     typeof initialValues?.temperature === "number" ? initialValues.temperature : 0.7,
   );
+
+  // Advanced params — top P. Top P is editable in view mode (managed
+  // profiles), so capture its initial enabled flag + value as the baseline
+  // `hasViewModeChanges` compares against — mirroring `initialAdvisorEnabled`.
+  const initialTopPEnabled = typeof initialValues?.topP === "number";
+  const initialTopP =
+    typeof initialValues?.topP === "number" ? initialValues.topP : 0.95;
+  const [topPEnabled, setTopPEnabled] = useState<boolean>(initialTopPEnabled);
+  const [topP, setTopP] = useState<number>(initialTopP);
+
+  // True when in view mode and the user has touched one of the fields that
+  // view mode permits editing (label, status, advisor, Top P). Drives the
+  // view-mode Save button's enabled state and the partial-update save path.
+  // Top P is compared on both the enabled flag and the value so flipping the
+  // toggle or dragging the slider both arm Save.
+  const hasViewModeChanges =
+    isReadOnly &&
+    (label !== initialLabel ||
+      status !== initialStatus ||
+      advisorEnabled !== initialAdvisorEnabled ||
+      topPEnabled !== initialTopPEnabled ||
+      (topPEnabled && topP !== initialTopP));
 
   // Advanced params — thinking
   const [thinkingEnabled, setThinkingEnabled] = useState<boolean>(
@@ -329,6 +350,8 @@ function ProfileEditorModalInner({
     setVerbosity("medium");
     setTemperatureEnabled(false);
     setTemperature(0.7);
+    setTopPEnabled(false);
+    setTopP(0.95);
     setThinkingEnabled(false);
     setThinkingStreamThinking(false);
     setThinkingLevel(THINKING_LEVEL_INHERIT);
@@ -457,7 +480,16 @@ function ProfileEditorModalInner({
         const entry: ProfileEntry = {
           label: label.trim() || null,
           status,
+          advisorEnabled,
         };
+        // Top P is the one advanced param managed profiles may override.
+        // Mirror the create/edit build-entry logic: enabled → number,
+        // cleared → null. Only when the selected provider/model surfaces the
+        // control. `mode: "merge"` means sending just this changed subset
+        // leaves the seed-owned fields intact.
+        if (visibility.topP) {
+          entry.topP = topPEnabled ? topP : null;
+        }
         await onSave(keyTrimmed, entry, { mode: "merge" });
       } catch {
         setSaveError("Failed to save profile. Please try again.");
@@ -522,6 +554,14 @@ function ProfileEditorModalInner({
         }
         // create mode + toggle off → omit
       }
+      if (visibility.topP) {
+        if (topPEnabled) {
+          entry.topP = topP;
+        } else if (effectiveMode === "edit") {
+          entry.topP = null;
+        }
+        // create mode + toggle off → omit
+      }
       if (visibility.thinking) {
         entry.thinking = {
           enabled: thinkingEnabled,
@@ -538,6 +578,13 @@ function ProfileEditorModalInner({
         entry.status = status;
       } else if (status !== "active") {
         entry.status = status;
+      }
+      // Advisor toggle — always include in edit mode; omit in create when
+      // enabled (absent/null already means enabled, so the default round-trips).
+      if (effectiveMode === "edit") {
+        entry.advisorEnabled = advisorEnabled;
+      } else if (!advisorEnabled) {
+        entry.advisorEnabled = advisorEnabled;
       }
       // Do NOT include source or name
       await onSave(keyTrimmed, entry);
@@ -628,10 +675,22 @@ function ProfileEditorModalInner({
     />
   );
 
+  const advisorToggle = (
+    <Toggle
+      checked={advisorEnabled}
+      onChange={setAdvisorEnabled}
+      label="Advisor"
+      helperText="Let the model consult a stronger advisor model while using this profile."
+    />
+  );
+
   const advancedParamsNode = !isAutoProfile ? (
     <ProfileAdvancedParams
       visibility={visibility}
       isReadOnly={isReadOnly}
+      // Top P is user policy on managed profiles too, so it stays editable in
+      // view mode while the other advanced params remain locked by isReadOnly.
+      topPReadOnly={false}
       model={model}
       selectedModel={selectedModel}
       defaultMaxOutputTokens={defaultMaxOutputTokens}
@@ -650,6 +709,10 @@ function ProfileEditorModalInner({
       onTemperatureEnabledChange={setTemperatureEnabled}
       temperature={temperature}
       onTemperatureChange={setTemperature}
+      topPEnabled={topPEnabled}
+      onTopPEnabledChange={setTopPEnabled}
+      topP={topP}
+      onTopPChange={setTopP}
       thinkingEnabled={thinkingEnabled}
       onThinkingEnabledChange={setThinkingEnabled}
       thinkingStreamThinking={thinkingStreamThinking}
@@ -820,6 +883,7 @@ function ProfileEditorModalInner({
             {keyField}
             {descriptionField}
             {activeToggle}
+            {advisorToggle}
 
             {/* Advanced params — collapsed by default in create mode. */}
             {createAdvancedDisclosure}
@@ -835,6 +899,7 @@ function ProfileEditorModalInner({
             {descriptionField}
             {keyField}
             {activeToggle}
+            {advisorToggle}
 
             {isAutoProfile && (
               <div className="rounded-lg bg-[var(--surface-info-subtle)] p-3">

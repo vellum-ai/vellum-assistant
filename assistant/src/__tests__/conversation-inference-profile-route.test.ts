@@ -37,7 +37,7 @@ import { ROUTES } from "../runtime/routes/conversation-management-routes.js";
 import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
-initializeDb();
+await initializeDb();
 
 const profileRoute = ROUTES.find(
   (r) => r.operationId === "setConversationInferenceProfile",

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
-import { client } from "@/generated/api/client.gen";
+import { assistantFeatureFlagsPatch } from "@/generated/gateway/sdk.gen";
 import {
   ASSISTANT_FLAG_DEFAULTS,
   ASSISTANT_STRING_FLAG_DEFAULTS,
@@ -141,12 +141,11 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
           return;
         }
         pendingFlagRequestIds[key] = requestId;
-        void client
-          .patch({
-            url: `/v1/assistants/${assistantId}/feature-flags/${flagKey}`,
-            body: { enabled: value },
-            throwOnError: false,
-          } as Parameters<typeof client.patch>[0])
+        void assistantFeatureFlagsPatch({
+          path: { assistant_id: assistantId, flag_key: flagKey },
+          body: { enabled: value },
+          throwOnError: false,
+        })
           .then((result) => {
             const response = (result as { response?: Response }).response;
             if (response?.ok) {
@@ -207,12 +206,11 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
           return;
         }
         pendingFlagRequestIds[key] = requestId;
-        void client
-          .patch({
-            url: `/v1/assistants/${assistantId}/feature-flags/${flagKey}`,
-            body: { enabled: value },
-            throwOnError: false,
-          } as Parameters<typeof client.patch>[0])
+        void assistantFeatureFlagsPatch({
+          path: { assistant_id: assistantId, flag_key: flagKey },
+          body: { enabled: value },
+          throwOnError: false,
+        })
           .then((result) => {
             const response = (result as { response?: Response }).response;
             if (response?.ok) {

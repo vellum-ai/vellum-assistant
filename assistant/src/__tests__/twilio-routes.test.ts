@@ -362,7 +362,7 @@ import {
 import { credentialKey } from "../security/credential-key.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
-initializeDb();
+await initializeDb();
 
 // ── Helpers ────────────────────────────────────────────────────────────
 

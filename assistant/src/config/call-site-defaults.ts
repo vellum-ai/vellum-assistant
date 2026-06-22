@@ -69,6 +69,15 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   meetConsentMonitor: { profile: "cost-optimized" },
   meetChatOpportunity: { profile: "cost-optimized" },
   inference: { profile: "cost-optimized" },
+  // The advisor consults the strongest managed profile by default; a workspace
+  // overrides this via `llm.advisorProfile` (which floats above this).
+  advisor: { profile: "quality-optimized" },
+  // Vision captioning for the image-fallback plugin. No pinned profile — the
+  // plugin resolves a vision-capable profile itself via `doesSupportVision` and
+  // passes it as an `overrideProfile`, so the call-site default is a fallback
+  // that inherits the workspace default. Pinning a managed profile would break
+  // BYOK installs where managed profiles are uncredentialed.
+  vision: {},
 
   heartbeatAgent: {
     profile: "cost-optimized",

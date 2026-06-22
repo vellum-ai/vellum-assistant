@@ -93,11 +93,13 @@ describe("advisor — agent-loop integration", () => {
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
-    // The advisor sub-call happened, routed through the inference call site.
+    // The advisor sub-call happened, routed through the dedicated advisor call site.
     expect(advisorProvider!.calls).toHaveLength(1);
     const sub = advisorProvider!.calls[0];
-    expect(sub.options?.config?.callSite).toBe("inference");
-    expect(sub.options?.config?.overrideProfile).toBe("quality-optimized");
+    expect(sub.options?.config?.callSite).toBe("advisor");
+    // No `advisorProfile` configured in the default test config, so no override
+    // is passed and the `advisor` call site resolves its own default profile.
+    expect(sub.options?.config?.overrideProfile).toBeUndefined();
     expect(sub.options?.config?.tool_choice).toEqual({ type: "none" });
     // No advisor-specific output cap — the resolver applies the profile budget.
     expect(sub.options?.config?.max_tokens).toBeUndefined();

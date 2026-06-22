@@ -227,3 +227,95 @@ describe("handleRemember — memory.v2.enabled off (v1 PKB path)", () => {
     }
   });
 });
+
+describe("handleRemember — batch (array) content", () => {
+  test("v2: writes every fact from an array in a single call", () => {
+    const result = handleRemember(
+      { content: ["fact one", "fact two", "fact three"] },
+      "conv-batch-1",
+      "default",
+      CONFIG,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain("3");
+
+    const memoryDir = join(tmpWorkspace, "memory");
+    const buffer = readFileSync(join(memoryDir, "buffer.md"), "utf-8");
+    expect(buffer).toContain("fact one");
+    expect(buffer).toContain("fact two");
+    expect(buffer).toContain("fact three");
+    // Three independent timestamped bullets from the one call.
+    expect(buffer.match(/^- /gm)?.length).toBe(3);
+
+    const archive = readFileSync(
+      join(memoryDir, "archive", todaysArchiveBasename()),
+      "utf-8",
+    );
+    expect(archive).toContain("fact one");
+    expect(archive).toContain("fact three");
+  });
+
+  test("v1: a batched call still enqueues exactly two re-index jobs (per file, not per fact)", () => {
+    const result = handleRemember(
+      { content: ["alpha", "beta", "gamma"] },
+      "conv-batch-2",
+      "default",
+      CONFIG_V2_OFF,
+    );
+
+    expect(result.success).toBe(true);
+
+    const pkbDir = join(tmpWorkspace, "pkb");
+    const buffer = readFileSync(join(pkbDir, "buffer.md"), "utf-8");
+    expect(buffer).toContain("alpha");
+    expect(buffer).toContain("beta");
+    expect(buffer).toContain("gamma");
+    expect(buffer.match(/^- /gm)?.length).toBe(3);
+
+    // One enqueue per written file (buffer + archive), regardless of fact count.
+    expect(enqueueCalls).toHaveLength(2);
+  });
+
+  test("drops blank entries and rejects an all-empty array", () => {
+    const ok = handleRemember(
+      { content: ["   ", "kept fact", ""] },
+      "conv-batch-3",
+      "default",
+      CONFIG,
+    );
+    expect(ok.success).toBe(true);
+    const buffer = readFileSync(
+      join(tmpWorkspace, "memory", "buffer.md"),
+      "utf-8",
+    );
+    expect(buffer).toContain("kept fact");
+    expect(buffer.match(/^- /gm)?.length).toBe(1);
+
+    const empty = handleRemember(
+      { content: ["   ", ""] },
+      "conv-batch-4",
+      "default",
+      CONFIG,
+    );
+    expect(empty.success).toBe(false);
+    expect(empty.message).toContain("content is required");
+  });
+
+  test("single-string content still records exactly one fact", () => {
+    const result = handleRemember(
+      { content: "lone fact" },
+      "conv-batch-5",
+      "default",
+      CONFIG,
+    );
+    expect(result.success).toBe(true);
+    expect(result.message).toBe("Saved to knowledge base.");
+    const buffer = readFileSync(
+      join(tmpWorkspace, "memory", "buffer.md"),
+      "utf-8",
+    );
+    expect(buffer).toContain("lone fact");
+    expect(buffer.match(/^- /gm)?.length).toBe(1);
+  });
+});

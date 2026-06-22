@@ -22,7 +22,7 @@ mock.module("../util/logger.js", () => ({
 import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-initializeDb();
+await initializeDb();
 
 function resetContactTables(): void {
   const sqlite = getSqlite();
@@ -76,5 +76,4 @@ describe("guardian persona seeding and trust-cache invariants", () => {
     const personaPath = userFilePath(slug);
     expect(existsSync(personaPath)).toBe(false);
   });
-
 });

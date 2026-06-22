@@ -44,6 +44,8 @@ export interface ChatError {
 export interface PendingSecretState {
   requestId: string;
   label?: string;
+  service?: string;
+  field?: string;
   description?: string;
   placeholder?: string;
   allowOneTimeSend?: boolean;

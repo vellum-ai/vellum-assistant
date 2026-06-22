@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.9.0
+  version: 0.10.0
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -4800,6 +4800,10 @@ paths:
                           - type: "null"
                       interactionCount:
                         type: number
+                      createdAt:
+                        type: number
+                      updatedAt:
+                        type: number
                       channels:
                         type: array
                         items:
@@ -4871,6 +4875,8 @@ paths:
                       - displayName
                       - role
                       - interactionCount
+                      - createdAt
+                      - updatedAt
                       - channels
                     additionalProperties: false
                 required:
@@ -4955,6 +4961,10 @@ paths:
                             - type: "null"
                         interactionCount:
                           type: number
+                        createdAt:
+                          type: number
+                        updatedAt:
+                          type: number
                         channels:
                           type: array
                           items:
@@ -5026,6 +5036,8 @@ paths:
                         - displayName
                         - role
                         - interactionCount
+                        - createdAt
+                        - updatedAt
                         - channels
                       additionalProperties: false
                     description: Contact objects with channels and metadata
@@ -5078,6 +5090,10 @@ paths:
                           - type: number
                           - type: "null"
                       interactionCount:
+                        type: number
+                      createdAt:
+                        type: number
+                      updatedAt:
                         type: number
                       channels:
                         type: array
@@ -5150,6 +5166,8 @@ paths:
                       - displayName
                       - role
                       - interactionCount
+                      - createdAt
+                      - updatedAt
                       - channels
                     additionalProperties: false
                   assistantMetadata:
@@ -5270,6 +5288,9 @@ paths:
                     properties: {}
                     additionalProperties: {}
                     description: Created invite
+                  rawToken:
+                    description: One-time raw invite token (returned at creation only)
+                    type: string
                 required:
                   - ok
                   - invite
@@ -5454,6 +5475,10 @@ paths:
                           - type: "null"
                       interactionCount:
                         type: number
+                      createdAt:
+                        type: number
+                      updatedAt:
+                        type: number
                       channels:
                         type: array
                         items:
@@ -5525,6 +5550,8 @@ paths:
                       - displayName
                       - role
                       - interactionCount
+                      - createdAt
+                      - updatedAt
                       - channels
                     additionalProperties: false
                     description: Merged contact
@@ -5643,6 +5670,10 @@ paths:
                         - type: "null"
                     interactionCount:
                       type: number
+                    createdAt:
+                      type: number
+                    updatedAt:
+                      type: number
                     channels:
                       type: array
                       items:
@@ -5714,6 +5745,8 @@ paths:
                     - displayName
                     - role
                     - interactionCount
+                    - createdAt
+                    - updatedAt
                     - channels
                   additionalProperties: false
   /v1/content-source:
@@ -16239,6 +16272,7 @@ paths:
                                           - brave
                                           - perplexity
                                           - tavily
+                                          - firecrawl
                                       resultCount:
                                         type: number
                                       durationMs:
@@ -16286,6 +16320,11 @@ paths:
                                         type: string
                                       finalUrl:
                                         type: string
+                                      provider:
+                                        type: string
+                                        enum:
+                                          - default
+                                          - firecrawl
                                       status:
                                         type: number
                                       contentType:
@@ -16401,6 +16440,48 @@ paths:
                                     type: boolean
                                 required:
                                   - requestId
+                                additionalProperties: false
+                              pendingQuestion:
+                                type: object
+                                properties:
+                                  requestId:
+                                    type: string
+                                  entries:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        id:
+                                          type: string
+                                        question:
+                                          type: string
+                                        description:
+                                          type: string
+                                        options:
+                                          type: array
+                                          items:
+                                            type: object
+                                            properties:
+                                              id:
+                                                type: string
+                                              label:
+                                                type: string
+                                              description:
+                                                type: string
+                                            required:
+                                              - id
+                                              - label
+                                            additionalProperties: false
+                                        freeTextPlaceholder:
+                                          type: string
+                                      required:
+                                        - id
+                                        - question
+                                        - options
+                                      additionalProperties: false
+                                required:
+                                  - requestId
+                                  - entries
                                 additionalProperties: false
                             required:
                               - name
@@ -16621,6 +16702,7 @@ paths:
                                                   - brave
                                                   - perplexity
                                                   - tavily
+                                                  - firecrawl
                                               resultCount:
                                                 type: number
                                               durationMs:
@@ -16668,6 +16750,11 @@ paths:
                                                 type: string
                                               finalUrl:
                                                 type: string
+                                              provider:
+                                                type: string
+                                                enum:
+                                                  - default
+                                                  - firecrawl
                                               status:
                                                 type: number
                                               contentType:
@@ -16783,6 +16870,48 @@ paths:
                                             type: boolean
                                         required:
                                           - requestId
+                                        additionalProperties: false
+                                      pendingQuestion:
+                                        type: object
+                                        properties:
+                                          requestId:
+                                            type: string
+                                          entries:
+                                            type: array
+                                            items:
+                                              type: object
+                                              properties:
+                                                id:
+                                                  type: string
+                                                question:
+                                                  type: string
+                                                description:
+                                                  type: string
+                                                options:
+                                                  type: array
+                                                  items:
+                                                    type: object
+                                                    properties:
+                                                      id:
+                                                        type: string
+                                                      label:
+                                                        type: string
+                                                      description:
+                                                        type: string
+                                                    required:
+                                                      - id
+                                                      - label
+                                                    additionalProperties: false
+                                                freeTextPlaceholder:
+                                                  type: string
+                                              required:
+                                                - id
+                                                - question
+                                                - options
+                                              additionalProperties: false
+                                        required:
+                                          - requestId
+                                          - entries
                                         additionalProperties: false
                                     required:
                                       - name
@@ -19219,9 +19348,37 @@ paths:
                     additionalProperties: {}
                     description: Pending confirmation details or null
                   pendingSecret:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
+                    anyOf:
+                      - type: object
+                        properties:
+                          requestId:
+                            type: string
+                          service:
+                            type: string
+                          field:
+                            type: string
+                          label:
+                            type: string
+                          description:
+                            type: string
+                          placeholder:
+                            type: string
+                          purpose:
+                            type: string
+                          allowedTools:
+                            type: array
+                            items:
+                              type: string
+                          allowedDomains:
+                            type: array
+                            items:
+                              type: string
+                          allowOneTimeSend:
+                            type: boolean
+                        required:
+                          - requestId
+                        additionalProperties: {}
+                      - type: "null"
                     description: Pending secret request or null
                   interactions:
                     type: array
@@ -20235,6 +20392,67 @@ paths:
             install-time baseline cannot be reconstructed.
         "503":
           description: The plugin source (GitHub) was temporarily unavailable; the upgrade is retryable.
+  /v1/plugins/{name}/versions:
+    get:
+      operationId: plugins_by_name_versions_get
+      summary: List a plugin's reviewed marketplace pins
+      description:
+        Report the distinct marketplace pins a plugin has been promoted to over time, newest first (the first entry
+        is the current pin), capped at `limit` (default 5). The curated `marketplace.json` stores only the current pin,
+        so this is reconstructed from the manifest's own commit history on the default branch — every entry is therefore
+        a reviewed, known-good revision. Pair with `POST /v1/plugins/install`'s `pin` field to roll a plugin back to an
+        older reviewed version. An unknown name (never in the manifest) returns an empty array, not 404.
+      tags:
+        - plugins
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Maximum number of pins to return (positive integer; default 5).
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    pin:
+                      type: string
+                      description: Plugin commit SHA pinned at this point in marketplace history.
+                    marketplaceCommit:
+                      type: string
+                      description: Marketplace-manifest commit to install this pin from (the newest commit carrying it).
+                    promotedAt:
+                      anyOf:
+                        - type: string
+                        - type: "null"
+                      description: ISO-8601 committer date (UTC) of the marketplace commit that promoted this pin; null when unreadable.
+                    current:
+                      type: boolean
+                      description: True for the pin currently active on the default branch.
+                  required:
+                    - pin
+                    - marketplaceCommit
+                    - promotedAt
+                    - current
+                  additionalProperties: false
+                description:
+                  Distinct marketplace pins a plugin has been promoted to, newest first; the first entry is the current pin.
+                  Empty when the plugin has no resolvable history.
+        "400":
+          description: The plugin name failed sanitization, or `limit` was not a positive integer.
+        "503":
+          description: The marketplace pin history could not be read from GitHub (rate-limited or upstream error); retryable.
   /v1/plugins/install:
     post:
       operationId: plugins_install_post
@@ -20261,6 +20479,13 @@ paths:
                 force:
                   description: Overwrite an existing install in place. Defaults to false.
                   type: boolean
+                pin:
+                  description:
+                    Install a specific reviewed marketplace pin (full commit SHA) instead of the current one. The pin is
+                    validated against the plugin's marketplace pin history (`GET /v1/plugins/:name/versions`) and
+                    installed from the marketplace revision that introduced it; an unreviewed SHA is rejected. Use this
+                    to roll a plugin back to an older reviewed version.
+                  type: string
               required:
                 - name
       responses:
@@ -26928,6 +27153,10 @@ paths:
                           type: number
                         eventCount:
                           type: number
+                        turnCount:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                       required:
                         - group
                         - groupId
@@ -26937,6 +27166,7 @@ paths:
                         - totalCacheReadTokens
                         - totalEstimatedCostUsd
                         - eventCount
+                        - turnCount
                       additionalProperties: false
                     description: Grouped usage entries
                 required:
@@ -28627,6 +28857,14 @@ components:
                               maximum: 2
                             - type: "null"
                         - type: "null"
+                    topP:
+                      anyOf:
+                        - anyOf:
+                            - type: number
+                              minimum: 0
+                              maximum: 1
+                            - type: "null"
+                        - type: "null"
                     thinking:
                       anyOf:
                         - type: object
@@ -28733,6 +28971,10 @@ components:
               anyOf:
                 - type: string
                 - type: "null"
+            advisorProfile:
+              anyOf:
+                - type: string
+                - type: "null"
             callSites:
               type: object
               propertyNames:
@@ -28759,6 +29001,16 @@ components:
           type: object
           properties:
             web-search:
+              anyOf:
+                - type: object
+                  properties:
+                    mode:
+                      $ref: "#/components/schemas/ServiceMode"
+                    provider:
+                      type: string
+                  additionalProperties: {}
+                - type: "null"
+            web-fetch:
               anyOf:
                 - type: object
                   properties:
@@ -28848,6 +29100,14 @@ components:
                 - type: number
                   minimum: 0
                   maximum: 2
+                - type: "null"
+            - type: "null"
+        topP:
+          anyOf:
+            - anyOf:
+                - type: number
+                  minimum: 0
+                  maximum: 1
                 - type: "null"
             - type: "null"
         thinking:
@@ -28963,6 +29223,12 @@ components:
                 - $ref: "#/components/schemas/ProfileStatus"
                 - type: "null"
             - type: "null"
+        advisorEnabled:
+          anyOf:
+            - anyOf:
+                - type: boolean
+                - type: "null"
+            - type: "null"
         mix:
           anyOf:
             - minItems: 2
@@ -29036,6 +29302,14 @@ components:
                 - type: number
                   minimum: 0
                   maximum: 2
+                - type: "null"
+            - type: "null"
+        topP:
+          anyOf:
+            - anyOf:
+                - type: number
+                  minimum: 0
+                  maximum: 1
                 - type: "null"
             - type: "null"
         thinking:
@@ -29261,6 +29535,12 @@ components:
                       minimum: 0
                       maximum: 2
                     - type: "null"
+                topP:
+                  anyOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 1
+                    - type: "null"
                 thinking:
                   type: object
                   properties:
@@ -29354,6 +29634,8 @@ components:
                 type: string
             activeProfile:
               type: string
+            advisorProfile:
+              type: string
             callSites:
               type: object
               propertyNames:
@@ -29396,6 +29678,12 @@ components:
                           - type: number
                             minimum: 0
                             maximum: 2
+                          - type: "null"
+                      topP:
+                        anyOf:
+                          - type: number
+                            minimum: 0
+                            maximum: 1
                           - type: "null"
                       thinking:
                         type: object
@@ -29504,6 +29792,14 @@ components:
                 provider:
                   type: string
               additionalProperties: {}
+            web-fetch:
+              type: object
+              properties:
+                mode:
+                  $ref: "#/components/schemas/ServiceMode"
+                provider:
+                  type: string
+              additionalProperties: {}
             image-generation:
               type: object
               properties:
@@ -29555,6 +29851,12 @@ components:
             - type: number
               minimum: 0
               maximum: 2
+            - type: "null"
+        topP:
+          anyOf:
+            - type: number
+              minimum: 0
+              maximum: 1
             - type: "null"
         thinking:
           type: object
@@ -29652,6 +29954,10 @@ components:
         status:
           anyOf:
             - $ref: "#/components/schemas/ProfileStatus"
+            - type: "null"
+        advisorEnabled:
+          anyOf:
+            - type: boolean
             - type: "null"
         mix:
           minItems: 2

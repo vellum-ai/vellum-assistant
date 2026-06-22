@@ -27,7 +27,10 @@ type ManagedProfileTemplate = Omit<
   ProfileEntry,
   "provider" | "model" | "provider_connection"
 > & {
-  intent: ModelIntent;
+  // Exactly one of `intent` or `model` must be set. `intent` resolves the
+  // model from the catalog at seed time; `model` pins an explicit model id.
+  intent?: ModelIntent;
+  model?: string;
   provider: NonNullable<ProfileEntry["provider"]>;
   connectionName: string;
 };
@@ -38,17 +41,20 @@ type ManagedProfileTemplate = Omit<
  * (`preserveProfileNames`) take precedence when present.
  */
 const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
+  // Served by MiniMax M3 on Fireworks via managed platform inference: a strong
+  // open model at a lower price point than the managed Anthropic route.
   balanced: {
     intent: "balanced",
-    provider: "anthropic",
-    connectionName: "anthropic-managed",
+    provider: "fireworks",
+    connectionName: "fireworks-managed",
     source: "managed",
     label: "Balanced",
     description: "Good balance of quality, cost, and speed",
-    maxTokens: 16000,
+    maxTokens: 32000,
     effort: "high",
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+    topP: 0.95,
   },
   "quality-optimized": {
     intent: "quality-optimized",
@@ -61,6 +67,9 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     effort: "high",
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+    // This is the advisor's own (strongest) profile: when it's also the chat
+    // profile there's nothing stronger to consult, so the advisor defaults off.
+    advisorEnabled: false,
   },
   "cost-optimized": {
     intent: "latency-optimized",
@@ -72,20 +81,6 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     maxTokens: 8192,
     effort: "low",
     thinking: { enabled: false, streamThinking: false },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
-  // Open-weight economy option: MiniMax M3 served by Fireworks via managed
-  // platform inference.
-  "balanced-economy": {
-    intent: "balanced",
-    provider: "fireworks",
-    connectionName: "fireworks-managed",
-    source: "managed",
-    label: "Balanced Economy",
-    description: "Strong open model (MiniMax M3) at a lower price point",
-    maxTokens: 32000,
-    effort: "high",
-    thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
 };
@@ -144,8 +139,37 @@ const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
  */
 export const AUTO_PROFILE_KEY = "auto";
 
+export const OS_BETA_PROFILE_KEY = "os-beta";
+export const OS_BETA_FEATURE_FLAG_KEY = "os-beta";
+
+/**
+ * Flag-gated managed profile. NOT in MANAGED_PROFILE_TEMPLATES, so the
+ * unconditional boot seed never creates it. Reconciled in/out by
+ * the flag-gated profile reconcile based on the `os-beta` feature flag.
+ * Balanced-parity defaults; GLM 5.2 pinned explicitly via `model`.
+ */
+export const OS_BETA_PROFILE_TEMPLATE: ManagedProfileTemplate = {
+  model: "accounts/fireworks/models/glm-5p2",
+  provider: "fireworks",
+  connectionName: "fireworks-managed",
+  source: "managed",
+  label: "OS Beta",
+  description: "Open-source frontier model (GLM 5.2), in beta",
+  maxTokens: 32000,
+  effort: "high",
+  thinking: { enabled: true, streamThinking: true },
+  contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+};
+
+// Membership here marks a name as managed. The route layer applies managed
+// restrictions (blocking model/provider edits and deletion) only to entries
+// whose on-disk `source` is `managed`, so a user-owned profile sharing one of
+// these names is not locked. `OS_BETA_PROFILE_KEY` is flag-gated: it is
+// materialized by the flag-gated profile reconcile, which refuses to touch a
+// same-named user profile.
 export const MANAGED_PROFILE_NAMES = new Set([
   ...Object.keys(MANAGED_PROFILE_TEMPLATES),
+  OS_BETA_PROFILE_KEY,
   AUTO_PROFILE_KEY,
 ]);
 
@@ -167,13 +191,17 @@ export type SeedInferenceProfilesOptions = {
  *
  * Runs on every daemon startup. Two responsibilities:
  *
- * 1. **Managed profiles** (`balanced`, `quality-optimized`, `cost-optimized`,
- *    `balanced-economy`): reconciled from the code templates on every boot —
+ * 1. **Managed profiles** (`balanced`, `quality-optimized`,
+ *    `cost-optimized`): reconciled from the code templates on every boot —
  *    on-platform and off-platform alike — so Vellum can push model/config
  *    updates to customers in a release without a workspace migration. The
- *    templates own all profile content; only `label` and `status` are
- *    user-overridable and survive reseeds. Platform overlays
- *    (`preserveProfileNames`) take precedence for the boot they are supplied.
+ *    templates own all profile content; `label`, `status`, `advisorEnabled`,
+ *    and `topP` are user overrides that survive reseeds. Of those, only
+ *    `label`, `status`, and `topP` are editable through the managed PUT route
+ *    allowlist; `advisorEnabled` is edited via the generic config path but is
+ *    still preserved here so it survives reboots.
+ *    Platform overlays (`preserveProfileNames`) take precedence for the boot
+ *    they are supplied.
  *
  * 2. **User profiles** (`custom-balanced`, `custom-quality-optimized`,
  *    `custom-cost-optimized`): materialized once at hatch time for
@@ -225,13 +253,17 @@ export function seedInferenceProfiles(
   //    its first merge), so on subsequent boots the templates reconcile content
   //    as usual.
   //
-  //    Two user-editable fields survive the reconcile: `label` (display
-  //    rename) and `status` (active/disabled toggle) — the only fields a user
-  //    may override. The PUT route `/v1/config/llm/profiles/:name` lets users
-  //    patch these on managed profiles without duplicating; we honor those
-  //    edits across reseeds or they'd silently revert on every boot. Carry by
-  //    key-presence rather than truthiness so an explicit `null` (user
-  //    cleared the label) survives too.
+  //    A whitelist of user-editable fields survives the reconcile: `label`
+  //    (display rename), `status` (active/disabled toggle), `advisorEnabled`
+  //    (per-profile advisor toggle), and `topP` (sampling override) — the only
+  //    fields a user may override. The managed PUT route
+  //    `/v1/config/llm/profiles/:name` lets users patch `label`, `status`, and
+  //    `topP` on managed profiles without duplicating (its editable allowlist,
+  //    `MANAGED_PROFILE_EDITABLE_KEYS`, deliberately excludes `advisorEnabled`,
+  //    which is set through the generic config path). We honor every one of
+  //    these overrides across reseeds or they'd silently revert on every boot.
+  //    Carry by key-presence rather than truthiness so an explicit `null` (user
+  //    cleared the field) survives too.
   //
   //    BYOK seed defaults (off-platform only):
   //      • label: " (Managed)" suffix disambiguates managed profile labels
@@ -286,6 +318,18 @@ export function seedInferenceProfiles(
             : previous.label;
       }
       if ("status" in previous) next.status = previous.status;
+      // The per-profile advisor toggle is a user override — preserve it across
+      // reseeds so a user's choice survives reboots (the template value only
+      // seeds the initial default, e.g. off for quality-optimized).
+      if ("advisorEnabled" in previous) {
+        next.advisorEnabled = previous.advisorEnabled;
+      }
+      // `topP` is user-editable on managed profiles (see the managed-profile
+      // editable allowlist on the PUT route) — preserve a user override across
+      // reseeds, including an explicit `null` clear, or it would silently revert
+      // to the template value on every boot. Carry by key-presence (not
+      // truthiness) so `null` survives too.
+      if ("topP" in previous) next.topP = previous.topP;
     }
     profiles[name] = next as ProfileEntry;
   }
@@ -369,6 +413,17 @@ export function seedInferenceProfiles(
     }
   }
 
+  // Advisor profile: default to the strongest managed profile when unset, so
+  // the advisor consults `quality-optimized` out of the box. Guarded on
+  // existence so it never names a missing profile (superRefine rejects that);
+  // off-platform/BYOK installs can repoint it at one of their own profiles.
+  if (
+    readString(llm.advisorProfile) === undefined &&
+    readObject(profiles["quality-optimized"]) !== null
+  ) {
+    llm.advisorProfile = "quality-optimized";
+  }
+
   // Profile ordering — ensure all seeded profiles appear in the order array.
   // "auto" is prepended so it appears first in the picker.
   const profileOrder = Array.isArray(llm.profileOrder)
@@ -410,21 +465,26 @@ export function seedInferenceProfiles(
   saveRawConfig(config);
 }
 
-function materializeProfile(
+export function materializeProfile(
   template: ManagedProfileTemplate,
   provider: NonNullable<ProfileEntry["provider"]>,
   connectionName: string,
 ): ProfileEntry {
-  const { intent, provider: _p, connectionName: _c, ...rest } = template;
+  const { intent, model, provider: _p, connectionName: _c, ...rest } = template;
+  const resolvedModel =
+    model ?? (intent ? resolveModelIntent(provider, intent) : undefined);
+  if (!resolvedModel) {
+    throw new Error("ManagedProfileTemplate requires `intent` or `model`");
+  }
   return {
     ...rest,
     provider,
     provider_connection: connectionName,
-    model: resolveModelIntent(provider, intent),
+    model: resolvedModel,
   };
 }
 
-function readObject(value: unknown): Record<string, unknown> | null {
+export function readObject(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;

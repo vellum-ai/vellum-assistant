@@ -1,6 +1,6 @@
 /**
  * Family-level classification of "weak open models" — open-weight models
- * (Kimi, DeepSeek, MiniMax) that disregard static instructions and have
+ * (Kimi, DeepSeek, MiniMax, GLM) that disregard static instructions and have
  * capability gaps that capable models (Claude, GPT) do not. Used by harness
  * levers that coach or redirect these models without touching capable-model
  * behavior: the task-progress-nudge plugin and the empty-dynamic_page surface
@@ -14,7 +14,7 @@
  * Distinct from exploration-drift's narrower `LOOP_PRONE_MODEL_PATTERN`, which
  * targets specific loop-prone versions rather than the whole capability family.
  */
-export const WEAK_OPEN_MODEL_PATTERN = /kimi|deepseek|minimax/i;
+export const WEAK_OPEN_MODEL_PATTERN = /kimi|deepseek|minimax|glm/i;
 
 /** True when `model` is a weak open model (see {@link WEAK_OPEN_MODEL_PATTERN}). */
 export function isWeakOpenModel(model: string | null | undefined): boolean {

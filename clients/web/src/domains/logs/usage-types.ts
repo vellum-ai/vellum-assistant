@@ -13,7 +13,13 @@ import type {
   UsageTotalsGetResponse,
 } from "@/generated/daemon/types.gen";
 
-export type UsageTimeRange = "today" | "7d" | "30d" | "90d" | "all";
+export type UsageTimeRange =
+  | "today"
+  | "yesterday"
+  | "7d"
+  | "30d"
+  | "90d"
+  | "all";
 
 export type UsageGranularity = "daily" | "hourly";
 

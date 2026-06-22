@@ -3,7 +3,8 @@
 // ---------------------------------------------------------------------------
 //
 // Small focused module that holds the gating + dispatch logic for v2-specific
-// startup work invoked from `lifecycle.ts`. Lives in its own file so the unit
+// startup work invoked from `lifecycle.ts` (and, for the post-credential
+// capability reseed, from the secrets route). Lives in its own file so the unit
 // test for the gate does not have to mount the entire lifecycle import graph.
 
 import type { AssistantConfig } from "../config/schema.js";
@@ -46,6 +47,104 @@ export function maybeSeedMemoryV2CliCommands(config: AssistantConfig): void {
   void import("../memory/v2/cli-command-store.js")
     .then(({ seedV2CliCommandEntries }) => seedV2CliCommandEntries())
     .catch((err) => log.warn({ err }, "Failed to seed v2 CLI-command entries"));
+}
+
+/**
+ * Re-seed the v2 skill and CLI-command capability entries once a managed-proxy
+ * credential lands, closing the first-boot race where the daemon's startup seed
+ * runs before the platform has provisioned the managed embedding credential.
+ *
+ * On a brand-new managed assistant the memory worker fires the startup seed
+ * (`maybeSeedMemoryV2Skills` / `maybeSeedMemoryV2CliCommands`) seconds after
+ * boot, but the platform pushes `vellum:assistant_api_key` (the credential the
+ * managed Gemini embedding backend needs) tens of seconds later. The seed's
+ * `embedWithBackend` call throws `EmbeddingBackendUnavailableError` before the
+ * skill/CLI `entries` cache is replaced, so `listSkillEntries()` /
+ * `listCliCommandEntries()` stay empty and the synthetic `skills/<id>` and
+ * `cli-commands/<name>` rows never reach the page index — leaving the v3 needle
+ * finder lane and always-candidate skill pinning with nothing to surface until
+ * the next daemon restart. Re-running the seed when the credential arrives
+ * restores the capability pages without a restart.
+ *
+ * Gated on the managed-proxy prerequisites now being satisfied (both the
+ * platform base URL and the assistant API key present) so a non-managed
+ * credential write — or a partial update that has not yet completed the pair —
+ * does not kick a doomed embed. Idempotent: `seedV2SkillEntries` /
+ * `seedV2CliCommandEntries` atomically replace their caches, so a redundant
+ * reseed (the startup seed already succeeded) is cheap and harmless. The two
+ * catalogs are independent, so they reseed in parallel. Callers invoke this
+ * detached (`void`) — it must not block the credential-store response.
+ *
+ * Reseeding alone only repopulates the shared page index — v3 reads its
+ * synthetic capability rows from the v2 stores, but its memoized lanes and its
+ * `memory_v3_sections` dense store refresh only on the v3 maintain pass (6-hour
+ * backstop). So when v3 is live, enqueue a `memory_v3_maintain` job after the
+ * reseed: its capability-reconcile stage embeds the freshly-seeded rows into the
+ * dense store and its lane-invalidation stage forces a rebuild against the now-
+ * populated index, so v3 surfaces the skill/CLI pages within seconds instead of
+ * waiting out the backstop.
+ */
+export async function maybeReseedCapabilitiesAfterManagedCredential(
+  config: AssistantConfig,
+): Promise<void> {
+  if (!config.memory.v2.enabled) return;
+
+  const { hasManagedProxyPrereqs } =
+    await import("../providers/platform-proxy/context.js");
+  if (!(await hasManagedProxyPrereqs())) return;
+
+  // Skills and CLI commands are independent catalogs sharing the unified
+  // collection — reseed in parallel, each contained so one catalog's embed
+  // failure does not abort the other or reject the detached caller.
+  const catalogs: ReadonlyArray<[label: string, seed: () => Promise<void>]> = [
+    [
+      "skill",
+      async () => {
+        const { seedV2SkillEntries } =
+          await import("../memory/v2/skill-store.js");
+        await seedV2SkillEntries({ throwOnError: true });
+      },
+    ],
+    [
+      "CLI-command",
+      async () => {
+        const { seedV2CliCommandEntries } =
+          await import("../memory/v2/cli-command-store.js");
+        await seedV2CliCommandEntries({ throwOnError: true });
+      },
+    ],
+  ];
+
+  await Promise.all(
+    catalogs.map(async ([label, seed]) => {
+      try {
+        await seed();
+        log.info(
+          `Memory v2 ${label} entries seeded after managed proxy credential update`,
+        );
+      } catch (err) {
+        log.warn(
+          { err },
+          `Failed to seed v2 ${label} entries after managed proxy credential update`,
+        );
+      }
+    }),
+  );
+
+  // The stores (and the page index) are now populated; when v3 is live, kick a
+  // maintain pass so it embeds the capability rows into `memory_v3_sections` and
+  // invalidates its lanes immediately rather than waiting out the 6h backstop.
+  const { isMemoryV3Live } = await import("../config/memory-v3-gate.js");
+  if (!isMemoryV3Live(config)) return;
+  try {
+    const { enqueueMemoryJob } = await import("../memory/jobs-store.js");
+    enqueueMemoryJob("memory_v3_maintain", {});
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to enqueue memory_v3_maintain after managed proxy credential update",
+    );
+  }
 }
 
 /**

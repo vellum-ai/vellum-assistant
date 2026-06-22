@@ -178,6 +178,9 @@ function makeCtx(overrides: Partial<Context> = {}): Conversation {
     drainQueue: async () => {},
     getTurnInterfaceContext: () => null,
     getTurnChannelContext: () => null,
+
+    buildCurrentSystemPrompt: () => "system prompt",
+    modelOverride: undefined,
     graphMemory: {} as Context["graphMemory"],
     ...overrides,
   } as unknown as Conversation;

@@ -22,7 +22,7 @@ import {
   recordSkillLoadedEvent,
 } from "./skill-loaded-events-store.js";
 
-initializeDb();
+await initializeDb();
 
 function insertEvent(
   id: string,

@@ -47,6 +47,9 @@ let mockConfig = {
     activeHoursEnd: undefined as number | undefined,
     disposition: "Default disposition text mentioning notifications skill.",
   },
+  timeouts: {
+    backgroundTurnTimeoutSec: 1800,
+  },
 };
 
 mock.module("../config/loader.js", () => ({
@@ -398,6 +401,9 @@ describe("HeartbeatService", () => {
         activeHoursStart: undefined,
         activeHoursEnd: undefined,
         disposition: "Default disposition text mentioning notifications skill.",
+      },
+      timeouts: {
+        backgroundTurnTimeoutSec: 1800,
       },
     };
   });

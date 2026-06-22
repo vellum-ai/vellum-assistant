@@ -20,7 +20,7 @@ benchmarks/longmemeval-v2/
 ├── README.md                  # this file
 ├── data/                      # 7+ GB dataset payload (gitignored)
 │   ├── .gitignore
-│   ├── download.sh            # huggingface-cli download wrapper
+│   ├── download.ts            # huggingface-cli download wrapper
 │   └── …                      # questions.jsonl, trajectories.jsonl,
 │                              #   haystacks/lme_v2_{small,medium}.json,
 │                              #   question_screenshots/, trajectory_screenshots/
@@ -39,10 +39,10 @@ benchmarks/longmemeval-v2/
 
 ```bash
 cd evals/benchmarks/longmemeval-v2/data
-./download.sh
+bun run data/download.ts
 ```
 
-`download.sh` is idempotent. The dataset is 7.12 GB; the `data/` directory stays gitignored.
+`download.ts` is idempotent. The dataset is 7.12 GB; the `data/` directory stays gitignored.
 
 ## Loader
 
@@ -110,7 +110,7 @@ we get one off disk" strategy:
   indexed positional reader over `trajectories.jsonl` backed by a
   persistent sibling `trajectories.index.json` (`id → {offset, length}`,
   ~150 KB at the small tier). First open after a fresh
-  `data/download.sh` scans the JSONL once, validates each line through
+  `data/download.ts` scans the JSONL once, validates each line through
   the canonical schema, and atomically writes the index via
   `.tmp + rename`. Subsequent opens reuse the index unless the JSONL's
   size or mtime has changed. `reader.get(id)` does a positional
@@ -226,7 +226,7 @@ Operator surface (env vars):
 
 | Variable                      | Default                          | Meaning                                                          |
 | ----------------------------- | -------------------------------- | ---------------------------------------------------------------- |
-| `EVALS_LONGMEMEVAL_DATA_ROOT` | `benchmarks/longmemeval-v2/data` | Where `download.sh` wrote `questions.jsonl` etc.                 |
+| `EVALS_LONGMEMEVAL_DATA_ROOT` | `benchmarks/longmemeval-v2/data` | Where `download.ts` wrote `questions.jsonl` etc.                 |
 | `EVALS_LONGMEMEVAL_TIER`      | `small`                          | `small` (~115k tokens/haystack) or `medium` (~115M, memory-only) |
 
 `--filter <ids>` selects a subset by V2 `question_id`. Omit to run every

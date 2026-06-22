@@ -25,7 +25,7 @@ import {
   createConversation,
   forkConversation,
 } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
+import { getDb, getLogsDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
   backfillMessageIdOnLogs,
@@ -35,11 +35,16 @@ import {
 } from "../memory/llm-request-log-store.js";
 import { llmRequestLogs, toolInvocations } from "../memory/schema.js";
 
-initializeDb();
+await initializeDb();
+
+// llm_request_logs lives in the dedicated logs connection.
+function logsDb() {
+  return getLogsDb()!;
+}
 
 function resetTables(): void {
   const db = getDb();
-  db.delete(llmRequestLogs).run();
+  logsDb().delete(llmRequestLogs).run();
   db.delete(toolInvocations).run();
   db.run("DELETE FROM message_attachments");
   db.run("DELETE FROM attachments");
@@ -220,7 +225,8 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     );
 
     // Orphaned log 1: message_id points to a deleted message
-    db.insert(llmRequestLogs)
+    logsDb()
+      .insert(llmRequestLogs)
       .values({
         id: "log-orphan-1",
         conversationId: conv.id,
@@ -233,7 +239,8 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
       .run();
 
     // Orphaned log 2
-    db.insert(llmRequestLogs)
+    logsDb()
+      .insert(llmRequestLogs)
       .values({
         id: "log-orphan-2",
         conversationId: conv.id,
@@ -246,7 +253,8 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
       .run();
 
     // Surviving log: backfilled to the surviving assistant message
-    db.insert(llmRequestLogs)
+    logsDb()
+      .insert(llmRequestLogs)
       .values({
         id: "log-surviving",
         conversationId: conv.id,
@@ -280,7 +288,8 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     );
 
     // Unlinked log: messageId is NULL (backfill hasn't run yet)
-    db.insert(llmRequestLogs)
+    logsDb()
+      .insert(llmRequestLogs)
       .values({
         id: "log-unlinked-1",
         conversationId: conv.id,
@@ -293,7 +302,8 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
       .run();
 
     // Linked log: already backfilled to the assistant message
-    db.insert(llmRequestLogs)
+    logsDb()
+      .insert(llmRequestLogs)
       .values({
         id: "log-linked-1",
         conversationId: conv.id,
@@ -311,7 +321,7 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     expect(logs[1]?.id).toBe("log-linked-1");
 
     // Verify opportunistic backfill ran: the unlinked log should now have a messageId
-    const backfilledLog = db
+    const backfilledLog = logsDb()
       .select({ messageId: llmRequestLogs.messageId })
       .from(llmRequestLogs)
       .where(sql`${llmRequestLogs.id} = 'log-unlinked-1'`)
@@ -332,7 +342,8 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     db.run(
       sql`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('a1-a', ${convA.id}, 'assistant', '"Hi A"', ${T + 10000})`,
     );
-    db.insert(llmRequestLogs)
+    logsDb()
+      .insert(llmRequestLogs)
       .values({
         id: "log-conv-a",
         conversationId: convA.id,
@@ -351,7 +362,8 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     db.run(
       sql`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('a1-b', ${convB.id}, 'assistant', '"Hi B"', ${T + 10000})`,
     );
-    db.insert(llmRequestLogs)
+    logsDb()
+      .insert(llmRequestLogs)
       .values({
         id: "log-conv-b",
         conversationId: convB.id,
@@ -386,7 +398,8 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     db.run(
       sql`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('a1-t', ${conv.id}, 'assistant', '"Answer 1"', ${T + 10000})`,
     );
-    db.insert(llmRequestLogs)
+    logsDb()
+      .insert(llmRequestLogs)
       .values({
         id: "log-turn1-unlinked",
         conversationId: conv.id,
@@ -405,7 +418,8 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     db.run(
       sql`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('a2-t', ${conv.id}, 'assistant', '"Answer 2"', ${T + 70000})`,
     );
-    db.insert(llmRequestLogs)
+    logsDb()
+      .insert(llmRequestLogs)
       .values({
         id: "log-turn2-unlinked",
         conversationId: conv.id,

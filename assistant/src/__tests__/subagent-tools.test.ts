@@ -8,6 +8,7 @@ let mockGetMessages: (
 ) => Array<{ role: string; content: string }> | null = () => null;
 const mockProfiles = {
   balanced: {},
+  "cost-optimized": {},
   disabled: { status: "disabled" },
   "quality-optimized": {},
 };
@@ -470,6 +471,155 @@ describe("Subagent spawn success and failure", () => {
       expect(result.isError).toBe(false);
       expect(capturedConfig).toBeDefined();
       expect(capturedConfig!.overrideProfile).toBe("quality-optimized");
+      expect(capturedConfig!.forceOverrideProfile).toBe(true);
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("spawn inherits the invoking call site's default profile when no override is present", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "inherit-default-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Inherit default", objective: "Do it" },
+        makeContext("sess-inherit-default", {
+          sendToClient: () => {},
+          invokingCallSite: "mainAgent",
+        }),
+      );
+
+      expect(result.isError).toBe(false);
+      // No explicit profile and no per-turn override → the child matches the
+      // invoking call site's resolved default profile (balanced for mainAgent
+      // in the test config).
+      expect(capturedConfig!.overrideProfile).toBe("balanced");
+      expect(capturedConfig!.forceOverrideProfile).toBeUndefined();
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("spawn inherits a non-main invoker's call-site default profile", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "inherit-heartbeat-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Heartbeat child", objective: "Do it" },
+        makeContext("sess-inherit-heartbeat", {
+          sendToClient: () => {},
+          invokingCallSite: "heartbeatAgent",
+        }),
+      );
+
+      expect(result.isError).toBe(false);
+      // A subagent spawned from a heartbeat turn matches heartbeatAgent's own
+      // cost-optimized default, not the mainAgent default.
+      expect(capturedConfig!.overrideProfile).toBe("cost-optimized");
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("spawn prefers a per-turn override profile over the invoker default", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "inherit-override-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Override child", objective: "Do it" },
+        makeContext("sess-inherit-override", {
+          sendToClient: () => {},
+          invokingCallSite: "mainAgent",
+          overrideProfile: "quality-optimized",
+        }),
+      );
+
+      expect(result.isError).toBe(false);
+      // The live per-turn override (per-conversation or tool-routed) wins over
+      // the call-site default, and is forwarded non-forced.
+      expect(capturedConfig!.overrideProfile).toBe("quality-optimized");
+      expect(capturedConfig!.forceOverrideProfile).toBeUndefined();
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("spawn skips the auto profile so the child keeps its own default", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "inherit-auto-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Auto child", objective: "Do it" },
+        makeContext("sess-inherit-auto", {
+          sendToClient: () => {},
+          invokingCallSite: "mainAgent",
+          // "auto" is metadata-only; forwarding it would collapse the child to
+          // llm.default, so the inherited path drops it and the child keeps its
+          // own subagentSpawn default.
+          overrideProfile: "auto",
+        }),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(capturedConfig!.overrideProfile).toBeUndefined();
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("spawn still forces an explicit inference_profile over the invoker default", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "inherit-explicit-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        {
+          label: "Explicit child",
+          objective: "Do it",
+          inference_profile: "cost-optimized",
+        },
+        makeContext("sess-inherit-explicit", {
+          sendToClient: () => {},
+          invokingCallSite: "mainAgent",
+        }),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(capturedConfig!.overrideProfile).toBe("cost-optimized");
       expect(capturedConfig!.forceOverrideProfile).toBe(true);
     } finally {
       manager.spawn = originalSpawn;

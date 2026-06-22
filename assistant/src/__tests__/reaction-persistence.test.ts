@@ -59,11 +59,11 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 import {
   isSlackReactionEvent,
   parseSlackReactionCallbackData,
-} from "../runtime/routes/inbound-message-handler.js";
+} from "../runtime/routes/inbound-stages/reaction-intercept.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -573,5 +573,114 @@ describe("guardian approval-by-reaction integration via handleChannelInbound", (
       }
     });
     expect(reactionRows.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reaction access-control regression (LUM-2489)
+// ---------------------------------------------------------------------------
+//
+// A reaction is a passive signal, not an access attempt. Because reactions are
+// dispatched before the ingress pipeline, an unknown user's 👍 must never run
+// ACL (no trusted-contact verification handshake), create a conversation, or
+// write a binding — it is dropped as channel noise. A known contact's reaction
+// is recorded; neither triggers a verification challenge.
+
+describe("reaction access control (no verification handshake)", () => {
+  const STRANGER_USER_ID = "U_REACTION_STRANGER";
+  const CONTACT_USER_ID = "U_REACTION_CONTACT";
+  // Guardian's approval channel is a DM, distinct from the public channel the
+  // reaction lands in (mirroring production). Reusing the public channel id
+  // would let a reactor match the guardian's channel via findContactChannel's
+  // externalChatId fallback and mask the bug.
+  const GUARDIAN_DM_CHAT = "D_GUARDIAN_DM";
+
+  function tableCount(table: string): number {
+    return (
+      getDb().$client.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as {
+        n: number;
+      }
+    ).n;
+  }
+
+  beforeEach(() => {
+    resetState();
+    getDb().run("DELETE FROM channel_verification_sessions");
+    // The assistant has a guardian (as in production); the reactors below are
+    // different users.
+    createGuardianBinding({
+      channel: "slack",
+      guardianExternalUserId: GUARDIAN_USER_ID,
+      guardianDeliveryChatId: GUARDIAN_DM_CHAT,
+      guardianPrincipalId: GUARDIAN_USER_ID,
+    });
+    msgCounter = 0;
+  });
+
+  test("stranger's reaction is dropped — no challenge, session, conversation, or row", async () => {
+    let agentDispatched = false;
+    const processMessage = async (): Promise<{ messageId: string }> => {
+      agentDispatched = true;
+      return { messageId: "should-not-be-called" };
+    };
+
+    const req = buildReactionRequest("reaction:thumbsup", {
+      actorExternalId: STRANGER_USER_ID,
+      actorDisplayName: "Outside Reactor",
+      actorUsername: "outsider",
+    });
+    const resp = await handleChannelInbound(
+      req,
+      processMessage,
+      TEST_BEARER_TOKEN,
+    );
+    const json = (await resp.json()) as Record<string, unknown>;
+
+    // Accepted as a passive signal — never denied or turned into a challenge.
+    expect(json.accepted).toBe(true);
+    expect(json.denied).not.toBe(true);
+    expect(json.reason).not.toBe("verification_challenge_sent");
+    expect(json.verificationSessionId).toBeUndefined();
+    expect(agentDispatched).toBe(false);
+
+    // No verification handshake, and no side effects: a dropped reaction leaves
+    // no transcript row, no conversation, and no binding.
+    expect(tableCount("channel_verification_sessions")).toBe(0);
+    expect(readPersistedMessages().length).toBe(0);
+    expect(tableCount("conversations")).toBe(0);
+    expect(tableCount("external_conversation_bindings")).toBe(0);
+  });
+
+  test("known contact's reaction is recorded — no challenge", async () => {
+    // A pending contact classifies as `unverified_contact` — a known tier, so
+    // its reactions are recorded. On a real message it would be re-challenged,
+    // but a reaction must not trigger that.
+    upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: CONTACT_USER_ID,
+      externalChatId: SLACK_CHANNEL_ID,
+      status: "pending",
+      policy: "allow",
+      displayName: "Pending Contact",
+    });
+
+    const req = buildReactionRequest("reaction:tada", {
+      actorExternalId: CONTACT_USER_ID,
+      actorDisplayName: "Pending Contact",
+      actorUsername: "pending_contact",
+    });
+    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    const json = (await resp.json()) as Record<string, unknown>;
+
+    expect(json.denied).not.toBe(true);
+    expect(json.reason).not.toBe("verification_challenge_sent");
+    expect(tableCount("channel_verification_sessions")).toBe(0);
+
+    const rows = readPersistedMessages();
+    expect(rows.length).toBe(1);
+    const envelope = JSON.parse(rows[0].metadata!) as Record<string, unknown>;
+    const slackMeta = readSlackMetadata(envelope.slackMeta as string);
+    expect(slackMeta?.eventKind).toBe("reaction");
+    expect(slackMeta?.reaction?.emoji).toBe("tada");
   });
 });

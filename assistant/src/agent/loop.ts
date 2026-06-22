@@ -391,6 +391,17 @@ export type AgentEvent =
        */
       type: "agent_loop_exit";
       reason: AgentLoopExitReason;
+    }
+  | {
+      /**
+       * Emitted when the `pre-model-call` hook chain mutates the system
+       * prompt for the current call — i.e. `finalPreModelCtx.systemPrompt`
+       * differs from the value the loop handed the hook. Carries the
+       * post-hook string so consumers can observe exactly what the provider
+       * received.
+       */
+      type: "system_prompt_changed";
+      systemPrompt: string;
     };
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
@@ -482,12 +493,6 @@ export function shouldCaptureAgentLoopError(err: Error): boolean {
   return true;
 }
 
-export interface ResolvedSystemPrompt {
-  systemPrompt: string;
-  maxTokens?: number;
-  model?: string;
-}
-
 export interface AgentLoopRunOptions {
   /** Input history the run starts from; the loop appends its output onto a copy. */
   messages: Message[];
@@ -495,6 +500,12 @@ export interface AgentLoopRunOptions {
   onEvent: (event: AgentEvent) => void | Promise<void>;
   signal?: AbortSignal;
   requestId: string;
+  /**
+   * Explicit model override (provider/model string) for every LLM call in
+   * this run. When omitted, the model is resolved through the normal
+   * call-site / profile resolution path.
+   */
+  model?: string;
   onCheckpoint?: (
     checkpoint: CheckpointInfo,
   ) => CheckpointDecision | Promise<CheckpointDecision>;
@@ -623,7 +634,6 @@ export interface AgentLoopConstructorOptions {
   tools?: ToolDefinition[];
   toolExecutor?: LoopToolExecutor;
   resolveTools?: (history: Message[]) => ToolDefinition[];
-  resolveSystemPrompt?: (history: Message[]) => ResolvedSystemPrompt;
   /**
    * Conversation this loop drives. Scopes the loop-held compaction circuit
    * breaker and is the source of truth the loop's pipeline contexts and
@@ -648,9 +658,6 @@ export class AgentLoop {
   private config: AgentLoopConfig;
   private tools: ToolDefinition[];
   private resolveTools: ((history: Message[]) => ToolDefinition[]) | null;
-  private resolveSystemPrompt:
-    | ((history: Message[]) => ResolvedSystemPrompt)
-    | null;
   private toolExecutor: LoopToolExecutor | null;
 
   /**
@@ -681,7 +688,6 @@ export class AgentLoop {
       tools,
       toolExecutor,
       resolveTools,
-      resolveSystemPrompt,
       conversationId,
       resolveConversationDir,
     } = options;
@@ -690,7 +696,6 @@ export class AgentLoop {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.tools = tools ?? [];
     this.resolveTools = resolveTools ?? null;
-    this.resolveSystemPrompt = resolveSystemPrompt ?? null;
     this.toolExecutor = toolExecutor ?? null;
     this.conversationId = conversationId;
     this.resolveConversationDir = resolveConversationDir ?? null;
@@ -899,7 +904,14 @@ export class AgentLoop {
       compactInPlace = false,
       isNonInteractive = false,
       modelProfileKey = null,
+      model: runModel,
     } = options;
+    // Snapshot the system prompt once per run. The instance field is mutable
+    // (the conversation may update it between turns), but a single run must
+    // use one consistent prompt — an aborted run left detached after the
+    // watchdog rejects must not pick up a later turn's prompt on its next
+    // provider call.
+    const runSystemPrompt = this.systemPrompt;
     let history = [...messages];
     // Index into `history` where this run's appended output begins. It starts
     // after the input and resets to the new base whenever the loop rewrites the
@@ -1207,15 +1219,8 @@ export class AgentLoop {
           ? this.resolveTools(history)
           : this.tools;
 
-        // Resolve system prompt, per-turn maxTokens, and model
-        const resolved = this.resolveSystemPrompt
-          ? this.resolveSystemPrompt(history)
-          : null;
-        const turnSystemPrompt = resolved?.systemPrompt ?? this.systemPrompt;
-        const turnModel = resolved?.model;
-
         // Field precedence (highest wins):
-        //   1. Per-turn explicit (`resolved.maxTokens` / `resolved.model`)
+        //   1. Per-run explicit (`runModel`)
         //   2. Call-site resolved values (filled by
         //      `RetryProvider.normalizeSendMessageOptions` from
         //      `resolveCallSiteConfig(callSite, llm)`)
@@ -1233,14 +1238,12 @@ export class AgentLoop {
         // they always come from `this.config` regardless of `callSite`.
         const providerConfig: Record<string, unknown> = {};
 
-        if (resolved?.maxTokens !== undefined) {
-          providerConfig.max_tokens = resolved.maxTokens;
-        } else if (!callSite) {
+        if (!callSite) {
           providerConfig.max_tokens = this.config.maxTokens;
         }
 
-        if (turnModel) {
-          providerConfig.model = turnModel;
+        if (runModel) {
+          providerConfig.model = runModel;
         }
 
         if (!callSite) {
@@ -1334,7 +1337,7 @@ export class AgentLoop {
           currentTools.length > 0 ? estimateToolsTokens(currentTools) : 0;
         const preSendEstimatedTokens = estimatePromptTokensRaw(
           history,
-          turnSystemPrompt,
+          runSystemPrompt,
           {
             providerName: getCalibrationProviderKey(this.provider),
             toolTokenBudget,
@@ -1366,7 +1369,7 @@ export class AgentLoop {
         // type through unchanged.
         const providerOptions: SendMessageOptions = {
           tools: currentTools.length > 0 ? currentTools : undefined,
-          systemPrompt: turnSystemPrompt,
+          systemPrompt: runSystemPrompt,
           config: providerConfig,
           onEvent: (event) => {
             if (event.type === "text_delta") {
@@ -1447,6 +1450,21 @@ export class AgentLoop {
             HOOKS.PRE_MODEL_CALL,
             preModelCtx,
           );
+          // Emit a changed event when the hook mutated the prompt. Compare
+          // against the pre-hook value from providerOptions, not
+          // preModelCtx — the hook may mutate the context object in place,
+          // which would make preModelCtx.systemPrompt already reflect the
+          // change and hide the diff.
+          const preHookSystemPrompt = providerOptions.systemPrompt ?? null;
+          if (
+            typeof finalPreModelCtx.systemPrompt === "string" &&
+            finalPreModelCtx.systemPrompt !== preHookSystemPrompt
+          ) {
+            await onEvent({
+              type: "system_prompt_changed",
+              systemPrompt: finalPreModelCtx.systemPrompt,
+            });
+          }
           providerOptions.systemPrompt =
             finalPreModelCtx.systemPrompt ?? undefined;
           // Route this call to the hook's chosen inference profile. The

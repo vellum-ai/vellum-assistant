@@ -5,7 +5,7 @@
  * written to `device:` localStorage keys on every setter call and synced
  * across tabs via `watchSetting`. They survive logout.
  *
- * **In-memory-only fields** (`tosAccepted`, `aiDataConsent`,
+ * **In-memory-only fields** (`tosAccepted`, `privacyConsent`,
  * `analyticsConsentCurrent`, `diagnosticsConsentCurrent`) start `false` and
  * are populated on session sync (e.g. `restoreConsentForUser`, called from
  * the auth store once the user id is known). Persistence to durable per-user
@@ -17,7 +17,6 @@
 
 import { create } from "zustand";
 
-import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
 import { createSelectors } from "@/utils/create-selectors";
 import {
   getLocalBool,
@@ -41,7 +40,7 @@ export interface OnboardingState {
   shareAnalytics: boolean;
   shareDiagnostics: boolean;
   tosAccepted: boolean;
-  aiDataConsent: boolean;
+  privacyConsent: boolean;
   analyticsConsentCurrent: boolean;
   diagnosticsConsentCurrent: boolean;
 }
@@ -50,7 +49,7 @@ export interface OnboardingActions {
   setShareAnalytics: (value: boolean) => void;
   setShareDiagnostics: (value: boolean) => void;
   setTosAccepted: (value: boolean) => void;
-  setAiDataConsent: (value: boolean) => void;
+  setPrivacyConsent: (value: boolean) => void;
   setAnalyticsConsentCurrent: (value: boolean) => void;
   setDiagnosticsConsentCurrent: (value: boolean) => void;
 }
@@ -65,7 +64,7 @@ const useOnboardingStoreBase = create<OnboardingStore>()((set) => ({
   shareAnalytics: getLocalBool(KEY_SHARE_ANALYTICS, true),
   shareDiagnostics: getLocalBool(KEY_SHARE_DIAGNOSTICS, true),
   tosAccepted: false,
-  aiDataConsent: false,
+  privacyConsent: false,
   analyticsConsentCurrent: false,
   diagnosticsConsentCurrent: false,
 
@@ -75,14 +74,17 @@ const useOnboardingStoreBase = create<OnboardingStore>()((set) => ({
   },
   setShareDiagnostics: (value) => {
     set({ shareDiagnostics: value });
+    // Writes only the saved preference. The effective reporting gate
+    // (`device:diagnostics_reporting`) — which actually drives the Sentry
+    // clients via the `sentry-control.ts` watcher — is written separately by
+    // the consent chokepoint (`setDiagnosticsReportingGate`).
     setLocalBool(KEY_SHARE_DIAGNOSTICS, value);
-    syncDiagnosticsToMain(value);
   },
   setTosAccepted: (value) => {
     set({ tosAccepted: value });
   },
-  setAiDataConsent: (value) => {
-    set({ aiDataConsent: value });
+  setPrivacyConsent: (value) => {
+    set({ privacyConsent: value });
   },
   setAnalyticsConsentCurrent: (value) => {
     set({ analyticsConsentCurrent: value });

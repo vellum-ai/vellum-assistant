@@ -20,9 +20,27 @@ describe("resolveProfileParamVisibility", () => {
     expect(vis.contextWindow).toBe(true);
     expect(vis.effort).toBe(true);
     expect(vis.temperature).toBe(true);
+    expect(vis.topP).toBe(true);
     expect(vis.thinking).toBe(true);
     expect(vis.thinkingLevel).toBe(false);
     expect(vis.verbosity).toBe(false);
+  });
+
+  test("topP is true for anthropic, fireworks, openrouter, and openai-compatible, false for gemini", () => {
+    expect(resolveProfileParamVisibility("anthropic", "claude-3-opus-20240229").topP).toBe(true);
+    expect(
+      resolveProfileParamVisibility("fireworks", "accounts/fireworks/models/minimax-m3").topP,
+    ).toBe(true);
+    expect(resolveProfileParamVisibility("openrouter", "anthropic/claude-fable-5").topP).toBe(true);
+    // Custom OpenAI-compatible connections route through the OpenAI adapter,
+    // which forwards top_p — so the control must be visible for them too.
+    expect(resolveProfileParamVisibility("openai-compatible", "some-custom-model").topP).toBe(true);
+    // Native `openai` uses the Responses API, which doesn't forward sampling
+    // params — topP is hidden there (same as temperature).
+    expect(resolveProfileParamVisibility("openai", "gpt-5").topP).toBe(false);
+    expect(resolveProfileParamVisibility("openai", "gpt-4o").topP).toBe(false);
+    expect(resolveProfileParamVisibility("gemini", "gemini-2.5-flash").topP).toBe(false);
+    expect(VISIBILITY_NONE.topP).toBe(false);
   });
 
   test("anthropic haiku disables effort but supports thinking", () => {
@@ -67,10 +85,12 @@ describe("resolveProfileParamVisibility", () => {
     expect(vis.thinking).toBe(false);
   });
 
-  test("ollama gets only maxTokens and contextWindow", () => {
+  test("ollama gets maxTokens, contextWindow, and topP", () => {
     const vis = resolveProfileParamVisibility("ollama", "llama3");
     expect(vis.maxTokens).toBe(true);
     expect(vis.contextWindow).toBe(true);
+    // ollama is OpenAI-compatible, so it forwards top_p
+    expect(vis.topP).toBe(true);
     expect(vis.effort).toBe(false);
     expect(vis.speed).toBe(false);
     expect(vis.verbosity).toBe(false);

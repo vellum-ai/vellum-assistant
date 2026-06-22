@@ -3,11 +3,12 @@ import { Loader2 } from "lucide-react";
 import { useState } from "react";
 
 import { hatchAssistant, listAssistants } from "@/assistant/api";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { DetailCard } from "@/components/detail-card";
 import { isLocalMode, syncPlatformAssistantsToLockfile } from "@/lib/local-mode";
 import {
-    assistantsActiveRetrieveOptions,
     assistantsListOptions,
+    assistantsRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { Assistant } from "@/generated/api/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
@@ -23,8 +24,10 @@ export function AssistantLifecyclePanel() {
   const [hatchConfirmOpen, setHatchConfirmOpen] = useState(false);
   const isOrgReady = useIsOrgReady();
 
+  const activeAssistantId = useActiveAssistantId();
+
   const { data: assistant, isLoading: assistantLoading } = useQuery({
-    ...assistantsActiveRetrieveOptions(),
+    ...assistantsRetrieveOptions({ path: { id: activeAssistantId } }),
     enabled: isOrgReady,
   });
 
@@ -77,7 +80,7 @@ export function AssistantLifecyclePanel() {
         // the info + list cards refresh (the previous `["assistants"]` key
         // matched none of them).
         void queryClient.invalidateQueries({
-          queryKey: assistantsActiveRetrieveOptions().queryKey,
+          queryKey: [{ _id: "assistantsRetrieve" }],
         });
         void queryClient.invalidateQueries({
           queryKey: assistantsListOptions({ query: { hosting: "all" } })
@@ -103,7 +106,7 @@ export function AssistantLifecyclePanel() {
 
       <AssistantListCard
         assistants={allAssistants}
-        activeAssistantId={assistant?.id ?? null}
+        activeAssistantId={activeAssistantId}
         loading={loading}
       />
 
@@ -217,7 +220,7 @@ function AssistantInfoCard({ assistant, loading }: AssistantInfoCardProps) {
 
 interface AssistantListCardProps {
   assistants: Assistant[];
-  activeAssistantId: string | null;
+  activeAssistantId: string;
   loading: boolean;
 }
 

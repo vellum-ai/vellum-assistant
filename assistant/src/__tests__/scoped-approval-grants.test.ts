@@ -28,7 +28,7 @@ import {
   computeToolApprovalDigest,
 } from "../security/tool-approval-digest.js";
 
-initializeDb();
+await initializeDb();
 
 function clearTables(): void {
   const db = getDb();

@@ -15,12 +15,12 @@ mock.module("react-router", () => ({
 const setShareAnalytics = mock((_next: boolean) => {});
 const setShareDiagnostics = mock((_next: boolean) => {});
 const setTosAccepted = mock((_next: boolean) => {});
-const setAiDataConsent = mock((_next: boolean) => {});
+const setPrivacyConsent = mock((_next: boolean) => {});
 mock.module("@/domains/onboarding/prefs", () => ({
   useShareAnalytics: () => [false, setShareAnalytics],
   useShareDiagnostics: () => [false, setShareDiagnostics],
   useTosAccepted: () => [true, setTosAccepted],
-  useAiDataConsent: () => [true, setAiDataConsent],
+  usePrivacyConsent: () => [true, setPrivacyConsent],
   useAnalyticsConsentCurrent: () => [true, mock(() => {})],
   useDiagnosticsConsentCurrent: () => [true, mock(() => {})],
 }));

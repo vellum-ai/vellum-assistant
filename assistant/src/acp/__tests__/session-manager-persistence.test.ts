@@ -28,7 +28,7 @@ import {
   insertHistoryRow,
   readHistoryRow,
 } from "./helpers/acp-history-db.js";
-initializeDb();
+await initializeDb();
 
 /**
  * Builds a manager with a fake session pre-injected and returns the handles

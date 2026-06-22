@@ -9,6 +9,7 @@ import {
   refreshRemoteGatewaySession,
   remoteGatewayApiPath,
   remoteGatewayPublicPathPrefix,
+  RemoteWebPairingError,
 } from "@/lib/auth/remote-gateway-session";
 import {
   getSelfHostedActorToken,
@@ -110,6 +111,38 @@ describe("remote gateway token exchange", () => {
         publicBaseUrl: "http://localhost:3000/assistant-123",
       }),
     );
+  });
+
+  test("surfaces a non-JSON challenge error as a RemoteWebPairingError, not a parse error", async () => {
+    globalThis.fetch = mock(
+      async () =>
+        new Response("<html><body>502</body></html>", {
+          status: 502,
+          headers: { "Content-Type": "text/html" },
+        }),
+    ) as unknown as typeof fetch;
+
+    const error = await createRemoteWebPairingChallenge().catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(RemoteWebPairingError);
+    expect((error as RemoteWebPairingError).status).toBe(502);
+  });
+
+  test("surfaces a non-JSON token-exchange error as a RemoteWebPairingError, not a parse error", async () => {
+    globalThis.fetch = mock(
+      async () =>
+        new Response("<html><body>502</body></html>", {
+          status: 502,
+          headers: { "Content-Type": "text/html" },
+        }),
+    ) as unknown as typeof fetch;
+
+    const error = await exchangeRemoteWebPairingToken("device-code").catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(RemoteWebPairingError);
+    expect((error as RemoteWebPairingError).status).toBe(502);
   });
 
   test("posts the device code with cookie credentials", async () => {

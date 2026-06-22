@@ -59,6 +59,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "trace-collection",
+      "scope": "assistant",
+      "key": "trace-collection",
+      "label": "Trace Collection",
+      "description": "Gate per-turn conversation trace (user/assistant/tool-call/tool-response) collection. The daemon attaches a trace to its turn telemetry only when this flag AND the owner's share_diagnostics consent are both on. Defaults off (fail-closed) — the live value is delivered from LaunchDarkly.",
+      "defaultEnabled": false
+    },
+    {
       "id": "workspace-tools-watcher",
       "scope": "assistant",
       "key": "workspace-tools-watcher",
@@ -416,6 +424,14 @@
       "key": "mcp-settings",
       "label": "MCP Settings",
       "description": "Show the MCP page in Settings for managing Model Context Protocol server connections: view status, enable/disable, configure, and inspect registered tools per server.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "os-beta",
+      "scope": "assistant",
+      "key": "os-beta",
+      "label": "OS Beta",
+      "description": "Enable the OS Beta model profile (GLM 5.2 / Fireworks) in the assistant's model profile selection.",
       "defaultEnabled": false
     }
   ]

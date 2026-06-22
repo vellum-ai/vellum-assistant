@@ -298,7 +298,23 @@ export async function runIngestAsk(
     // no answer). Approving on receipt unblocks the turn. A failed approval
     // is logged but not fatal — the run still fails loudly if the turn never
     // completes, and the captured events are persisted for inspection.
+    //
+    // Also abort early on `conversation_error` — e.g. a provider connection
+    // failure. Without this the collector waits the full timeout (600s for
+    // ingest, 360s for question) before failing, wasting 10 minutes on a
+    // turn that died in the first few seconds. Throwing from onEvent
+    // propagates through the collector's drain loop, so the error surfaces
+    // in seconds rather than after the full wall-clock cap.
     const autoConfirm = async (event: AgentEvent): Promise<void> => {
+      if (event.message?.type === "conversation_error") {
+        const errMsg =
+          (event.message as { userMessage?: string })?.userMessage ??
+          (event.message as { debugDetails?: string })?.debugDetails ??
+          "unknown conversation error";
+        throw new IngestAskError(
+          `Ingest turn failed with conversation error: ${errMsg}`,
+        );
+      }
       const requestId = confirmationRequestId(event);
       if (requestId === undefined || typeof agent.confirm !== "function") {
         return;

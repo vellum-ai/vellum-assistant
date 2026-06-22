@@ -105,6 +105,23 @@ export const oneTimeMigrations = sqliteTable("one_time_migrations", {
 // ---------------------------------------------------------------------------
 // Contacts (auth/authz — gateway-owned)
 // ---------------------------------------------------------------------------
+//
+// ACL / INFO SPLIT — see memory/concepts/decision/contact-data-split.md.
+//
+// The gateway DB owns ONLY the data the ACL needs to answer "can this contact
+// do X?". Informational / UX / product data that does NOT affect access
+// decisions lives in the assistant DB and is joined at read time via
+// `assistantDbQuery` (see contacts-info-joiner.ts).
+//
+// Gateway-owned (this table + contact_channels): id, role, principalId,
+// displayName (cache only — NOT used for ACL, kept for log readability),
+// and every contact_channels column (type, address, status, policy,
+// verifiedAt, verifiedVia, inviteId, lastSeenAt, interactionCount,
+// lastInteraction, revokedReason, blockedReason).
+//
+// Assistant-owned (DO NOT add here): notes, userFile, contactType,
+// assistant_contact_metadata (species + metadata blob). Adding any of these
+// to the gateway schema violates the split and will be rejected in review.
 
 export const contacts = sqliteTable("contacts", {
   id: text("id").primaryKey(),

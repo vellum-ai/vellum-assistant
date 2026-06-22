@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
@@ -16,6 +16,7 @@ import {
   looksLikePathOnlyInput,
 } from "../tools/network/url-safety.js";
 import { getTool, getToolOwner } from "../tools/registry.js";
+import { resolveRealPath } from "../tools/shared/filesystem/path-policy.js";
 import type { Tool } from "../tools/types.js";
 import {
   getDeprecatedDir,
@@ -101,6 +102,7 @@ function riskCacheKey(
   input: Record<string, unknown>,
   workingDir?: string,
   manifestOverride?: ManifestOverride,
+  fsStateKey?: string,
 ): string {
   // Strip `reason` and `activity` before computing the cache key — they are
   // cosmetic status text that varies per invocation even for identical tool
@@ -113,8 +115,29 @@ function riskCacheKey(
     .update(workingDir ?? "")
     .update("\0")
     .update(manifestOverride ? JSON.stringify(manifestOverride) : "")
+    // For file tools, fold in the symlink-resolved target path(s). File risk
+    // depends on filesystem state (a symlink can be retargeted under a
+    // protected dir between calls), so the same raw input must miss the cache
+    // when its canonicalized target changes.
+    .update("\0")
+    .update(fsStateKey ?? "")
     .digest("hex");
   return `${toolName}\0${hash}`;
+}
+
+/**
+ * Compute the filesystem-state component of the risk cache key for file tools:
+ * the symlink-resolved target path(s). Returns `undefined` for non-file tools
+ * (whose risk does not depend on filesystem state).
+ */
+function fileToolFsStateKey(
+  toolName: string,
+  input: Record<string, unknown>,
+  workingDir?: string,
+): string | undefined {
+  if (!FILE_TOOL_NAMES.has(toolName)) return undefined;
+  const resolved = resolveFileToolPaths(toolName, input, workingDir);
+  return `${resolved.resolvedPath ?? ""}\0${resolved.resolvedTransferDestPath ?? ""}`;
 }
 
 /** Clear the risk classification cache. Called when trust rules change. Exported for test setup. */
@@ -275,18 +298,153 @@ import type {
 
 function buildFileContext(): FileContext {
   const config = getConfig();
+  // Canonicalize the protected directories via realpath so that a symlinked
+  // component anywhere in their path still prefix-matches the canonicalized
+  // target path computed in buildClassifyRiskParams. Both sides must be
+  // symlink-resolved for the gateway's lexical prefix checks to be sound.
+  const protectedDir = resolveRealPath(getProtectedDir());
   return {
-    protectedDir: getProtectedDir(),
-    deprecatedDir: getDeprecatedDir(),
-    hooksDir: getWorkspaceHooksDir(),
-    pluginsDir: getWorkspacePluginsDir(),
-    toolsDir: getWorkspaceToolsDir(),
-    routesDir: getWorkspaceRoutesDir(),
-    actorTokenSigningKeyPath: join(
-      getProtectedDir(),
-      "actor-token-signing-key",
+    protectedDir,
+    deprecatedDir: resolveRealPath(getDeprecatedDir()),
+    hooksDir: resolveRealPath(getWorkspaceHooksDir()),
+    pluginsDir: resolveRealPath(getWorkspacePluginsDir()),
+    toolsDir: resolveRealPath(getWorkspaceToolsDir()),
+    routesDir: resolveRealPath(getWorkspaceRoutesDir()),
+    actorTokenSigningKeyPath: join(protectedDir, "actor-token-signing-key"),
+    skillSourceDirs: getSkillRoots(config.skills.load.extraDirs).map(
+      resolveRealPath,
     ),
-    skillSourceDirs: getSkillRoots(config.skills.load.extraDirs),
+  };
+}
+
+/**
+ * Canonicalize the security-sensitive path of a file tool invocation by
+ * resolving symlinks before it is sent to the gateway risk classifier.
+ *
+ * The gateway classifies file risk by lexically prefix-matching the target
+ * path against protected directories (skill source, hooks, plugins, the actor
+ * token signing key). Lexical resolution alone does not follow symlinks, so a
+ * symlink whose name looks benign but whose real target is a protected
+ * directory would be under-classified and could skip the High-risk approval
+ * prompt. Resolving symlinks here — on the daemon, which owns the workspace
+ * filesystem — closes that gap while keeping the gateway free of filesystem
+ * access (it cannot see the workspace in Docker mode).
+ *
+ * `resolveRealPath` falls back to the lexical path when the target lives on a
+ * filesystem this process cannot see (e.g. host_file paths proxied to a remote
+ * client), so this never regresses below today's lexical behavior.
+ */
+// The Docker sandbox mounts the workspace at /workspace, and the model emits
+// container-scoped paths (e.g. "/workspace/tools/evil.ts") even on local turns.
+// Mirror the gateway's resolveSandboxPath remap so the symlink-resolved path we
+// forward lines up with the gateway's lexical fallback and the protected dirs.
+const CONTAINER_WORKSPACE_PREFIX = "/workspace/";
+const CONTAINER_WORKSPACE_EXACT = "/workspace";
+
+function resolveSandboxBase(rawPath: string, workingDir: string): string {
+  let effectivePath = rawPath;
+  if (!rawPath.startsWith(workingDir + "/") && rawPath !== workingDir) {
+    if (rawPath.startsWith(CONTAINER_WORKSPACE_PREFIX)) {
+      effectivePath = rawPath.slice(CONTAINER_WORKSPACE_PREFIX.length);
+    } else if (rawPath === CONTAINER_WORKSPACE_EXACT) {
+      effectivePath = ".";
+    }
+  }
+  return resolve(workingDir, effectivePath);
+}
+
+function resolveClassificationPath(
+  filePath: string,
+  workingDir: string,
+  isHostTool: boolean,
+): string | undefined {
+  if (!filePath) return undefined;
+  // Mirror the gateway classifier's lexical base: host tools resolve the path
+  // as absolute/relative-to-cwd; sandbox tools apply the /workspace remap and
+  // resolve against workingDir. Then follow symlinks so a benign-looking name
+  // whose real target is a protected directory is still escalated.
+  const base = isHostTool
+    ? resolve(filePath)
+    : resolveSandboxBase(filePath, workingDir);
+  return resolveRealPath(base);
+}
+
+const FILE_TOOL_NAMES = new Set([
+  "file_read",
+  "file_write",
+  "file_edit",
+  "host_file_read",
+  "host_file_write",
+  "host_file_edit",
+  "host_file_transfer",
+]);
+
+interface FileToolResolution {
+  filePath: string;
+  effectiveWorkingDir: string;
+  isHostTool: boolean;
+  resolvedPath?: string;
+  transferSandboxDestPath?: string;
+  transferSandboxWorkingDir?: string;
+  resolvedTransferDestPath?: string;
+}
+
+/**
+ * Resolve the security-sensitive path(s) of a file tool invocation, including
+ * symlink canonicalization. Shared by the IPC param builder and the risk cache
+ * key so both observe the same filesystem state — file risk now depends on
+ * symlink targets, so the cache must key on the canonicalized path, not just
+ * the raw tool input.
+ */
+function resolveFileToolPaths(
+  toolName: string,
+  input: Record<string, unknown>,
+  workingDir?: string,
+): FileToolResolution {
+  const isHostTool = toolName.startsWith("host_");
+  let filePath: string;
+  // For host_file_transfer to_sandbox, the file is written into the workspace
+  // at dest_path — capture it (plus the sandbox working dir) so the gateway can
+  // escalate writes that land in a code-injection sink, since `path` carries
+  // the host-side source.
+  let transferSandboxDestPath: string | undefined;
+  let transferSandboxWorkingDir: string | undefined;
+  if (toolName === "host_file_transfer") {
+    // The security-sensitive host-side path is source_path when reading from
+    // the host (to_sandbox), dest_path when writing to the host (to_host).
+    const direction = getStringField(input, "direction");
+    if (direction === "to_sandbox") {
+      filePath = getStringField(input, "source_path");
+      transferSandboxDestPath = getStringField(input, "dest_path");
+      transferSandboxWorkingDir = workingDir ?? process.cwd();
+    } else {
+      filePath = getStringField(input, "dest_path");
+    }
+  } else {
+    filePath = getStringField(input, "path", "file_path");
+  }
+  const effectiveWorkingDir = isHostTool ? "/" : (workingDir ?? process.cwd());
+  return {
+    filePath,
+    effectiveWorkingDir,
+    isHostTool,
+    resolvedPath: resolveClassificationPath(
+      filePath,
+      effectiveWorkingDir,
+      isHostTool,
+    ),
+    transferSandboxDestPath,
+    transferSandboxWorkingDir,
+    // The to_sandbox destination is a workspace write — symlink-resolve it too
+    // so it can't mask a code-injection sink.
+    resolvedTransferDestPath:
+      transferSandboxDestPath != null
+        ? resolveClassificationPath(
+            transferSandboxDestPath,
+            transferSandboxWorkingDir ?? process.cwd(),
+            false,
+          )
+        : undefined,
   };
 }
 
@@ -351,36 +509,16 @@ function buildClassifyRiskParams(
       "host_file_transfer",
     ].includes(toolName)
   ) {
-    const isHostTool = toolName.startsWith("host_");
-    let filePath: string;
-    // For host_file_transfer to_sandbox, the file is written into the
-    // workspace at dest_path — forward it (plus the sandbox working dir) so the
-    // gateway can escalate writes that land in a code-injection sink, since
-    // `path` carries the host-side source.
-    let transferSandboxDestPath: string | undefined;
-    let transferSandboxWorkingDir: string | undefined;
-    if (toolName === "host_file_transfer") {
-      // For host_file_transfer the security-sensitive host-side path is
-      // source_path when reading from the host (to_sandbox), dest_path when
-      // writing to the host (to_host).
-      const direction = getStringField(input, "direction");
-      if (direction === "to_sandbox") {
-        filePath = getStringField(input, "source_path");
-        transferSandboxDestPath = getStringField(input, "dest_path");
-        transferSandboxWorkingDir = workingDir ?? process.cwd();
-      } else {
-        filePath = getStringField(input, "dest_path");
-      }
-    } else {
-      filePath = getStringField(input, "path", "file_path");
-    }
+    const resolved = resolveFileToolPaths(toolName, input, workingDir);
     return {
       tool: toolName,
-      path: filePath,
-      workingDir: isHostTool ? "/" : (workingDir ?? process.cwd()),
+      path: resolved.filePath,
+      resolvedPath: resolved.resolvedPath,
+      workingDir: resolved.effectiveWorkingDir,
       fileContext: buildFileContext(),
-      transferSandboxDestPath,
-      transferSandboxWorkingDir,
+      transferSandboxDestPath: resolved.transferSandboxDestPath,
+      transferSandboxWorkingDir: resolved.transferSandboxWorkingDir,
+      resolvedTransferDestPath: resolved.resolvedTransferDestPath,
     };
   }
 
@@ -463,7 +601,13 @@ export async function classifyRisk(
   signal?.throwIfAborted();
 
   // Check cache first.
-  const cacheKey = riskCacheKey(toolName, input, workingDir, manifestOverride);
+  const cacheKey = riskCacheKey(
+    toolName,
+    input,
+    workingDir,
+    manifestOverride,
+    fileToolFsStateKey(toolName, input, workingDir),
+  );
   const cached = riskCache.get(cacheKey);
   if (cached !== undefined) {
     // LRU refresh

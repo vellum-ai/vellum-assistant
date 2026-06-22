@@ -34,7 +34,7 @@
     "wait-on": "8.0.1"
   },
   "dependencies": {
-    "@sentry/node": "10.58.0",
+    "@sentry/electron": "7.13.0",
     "@vellumai/environments": "file:../../packages/environments",
     "@vellumai/ipc-contract": "file:../../packages/ipc-contract",
     "@vellumai/local-mode": "file:../../packages/local-mode",

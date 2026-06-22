@@ -7,12 +7,12 @@ import { attachmentsByIdContentGet } from "@/generated/daemon/sdk.gen";
 import { Button, Typography } from "@vellumai/design-library";
 
 import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-preview";
+import { PreviewMessageCard } from "@/domains/chat/components/chat-attachments/preview-message-card";
 import { TextPreview } from "@/domains/chat/components/chat-attachments/text-preview";
 import { formatAttachmentSize } from "@/domains/chat/components/chat-attachments/utils";
 
-// File extensions we route to the TextPreview branch even when the upstream
-// MIME type is something generic like application/octet-stream. Keep in sync
-// with the language map inside `_TextPreview.tsx`.
+// File extensions routed to the inline text preview even when the upstream
+// MIME type is generic (e.g. application/octet-stream).
 const TEXT_PREVIEW_EXTENSIONS = new Set([
   "ts",
   "tsx",
@@ -209,22 +209,12 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
 
     if (previewError) {
       return (
-        <div className="w-full max-w-sm rounded-lg border border-white/15 bg-white/[0.08] p-8 text-center">
-          <p className="text-body-medium-lighter text-white/80">
-            {previewError}
-          </p>
-          <Button
-            variant="ghost"
-            leftIcon={<Download />}
-            onClick={handleDownload}
-            disabled={!effectiveUrl}
-            aria-label={`Download ${attachment.filename}`}
-            className="mt-4 text-white/70 hover:bg-white/10 hover:text-white max-md:bg-transparent"
-            tintColor="currentColor"
-          >
-            Download
-          </Button>
-        </div>
+        <PreviewMessageCard
+          message={previewError}
+          filename={attachment.filename}
+          onDownload={handleDownload}
+          downloadDisabled={!effectiveUrl}
+        />
       );
     }
 
@@ -258,6 +248,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
           url={effectiveUrl}
           filename={attachment.filename}
           mimeType={attachment.mimeType}
+          sizeBytes={attachment.sizeBytes}
         />
       );
     }

@@ -31,7 +31,14 @@ let assistantStateMock:
   { kind: "active", isLocal: false };
 let requestedOperationalStatusAssistantId: string | null | undefined;
 let operationalStatusQueryMock: {
-  data: { state: string } | null | undefined;
+  data:
+    | {
+        state: string;
+        detail_state?: string;
+        detail?: { reason?: string | null; message?: string | null };
+      }
+    | null
+    | undefined;
   isError: boolean;
   refetch?: () => void;
 } = {
@@ -52,6 +59,8 @@ let refetchOperationalStatusMock = mock(async () => {});
 let wakeLocalAssistantHostMock = mock(async (_assistantId: string) => ({
   ok: true,
 }));
+let isLocalModeHostAvailableMock = true;
+let isCliWakeableMock = true;
 let StatusBanner: ComponentType<{
   className?: string;
   placement?: "web" | "electron";
@@ -118,6 +127,11 @@ mock.module("@/assistant/local-health", () => ({
 mock.module("@/runtime/local-mode-host", () => ({
   wakeLocalAssistantHost: (assistantId: string) =>
     wakeLocalAssistantHostMock(assistantId),
+  isLocalModeHostAvailable: () => isLocalModeHostAvailableMock,
+}));
+
+mock.module("@/lib/local-mode", () => ({
+  isCliWakeableAssistant: () => isCliWakeableMock,
 }));
 
 mock.module("@/assistant/lifecycle-store", () => ({
@@ -180,6 +194,8 @@ beforeEach(() => {
   wakeLocalAssistantHostMock = mock(async (_assistantId: string) => ({
     ok: true,
   }));
+  isLocalModeHostAvailableMock = true;
+  isCliWakeableMock = true;
 });
 
 afterEach(() => {
@@ -296,6 +312,61 @@ describe("StatusBanner", () => {
       expect(html).toContain("text-[color:var(--system-info-strong)]");
       expect(html).toContain("animate-spin");
     }
+  });
+
+  test("renders a failed operation as an error instead of a spinner", () => {
+    operationalStatusQueryMock = {
+      data: {
+        state: "upgrading_assistant_version",
+        detail_state: "failed",
+        detail: { reason: "readiness_poll", message: null },
+      },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(html).toContain("Assistant upgrade failed");
+    expect(html).not.toContain("Assistant is upgrading");
+    expect(html).toContain('data-tone="error"');
+    expect(html).toContain("bg-[var(--system-negative-weak)]");
+    expect(html).toContain("lucide-triangle-alert");
+    expect(html).not.toContain("animate-spin");
+    expect(html).toContain("Go to Doctor");
+  });
+
+  test("surfaces the failure detail message when present", () => {
+    operationalStatusQueryMock = {
+      data: {
+        state: "resizing_machine",
+        detail_state: "failed",
+        detail: { reason: "quota_exceeded", message: "Out of capacity" },
+      },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(html).toContain("Machine resize failed");
+    expect(html).toContain("Out of capacity");
+    expect(html).toContain('data-tone="error"');
+  });
+
+  test("does not render Doctor action for local assistant failed operations", () => {
+    assistantStateMock = { kind: "active", isLocal: true };
+    operationalStatusQueryMock = {
+      data: {
+        state: "upgrading_assistant_version",
+        detail_state: "failed",
+        detail: { reason: "readiness_poll", message: null },
+      },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(html).toContain("Assistant upgrade failed");
+    expect(html).not.toContain("Go to Doctor");
   });
 
   test("uses a blue pulsing dot for waking", () => {
@@ -462,6 +533,34 @@ describe("StatusBanner", () => {
       expect(html).toContain("Wake up");
       expect(html).toContain('data-tone="neutral"');
       expect(html).not.toContain("Your assistant is unreachable");
+    });
+
+    test("shows an informative, action-free banner when no local-mode host is available", () => {
+      // Where local-mode operations aren't available, the banner must not offer
+      // a "Wake up" button that can't work.
+      localHealthMock = "unreachable";
+      isLocalModeHostAvailableMock = false;
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toContain("Your assistant runs locally");
+      expect(html).toContain("Open the Vellum desktop app");
+      expect(html).not.toContain("Wake up");
+      expect(html).toContain('data-tone="neutral"');
+    });
+
+    test("hides the Wake up button for an assistant vellum wake can't start (e.g. Docker)", () => {
+      // Capable host, but the active assistant isn't CLI-wakeable (Docker /
+      // apple-container) — offering "Wake up" would call `vellum wake`, which
+      // refuses those. Show status without the button.
+      localHealthMock = "unreachable";
+      isLocalModeHostAvailableMock = true;
+      isCliWakeableMock = false;
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toContain("Your assistant is asleep");
+      expect(html).not.toContain("Wake up");
     });
 
     test("wakes the active local assistant from the banner action", async () => {

@@ -16,6 +16,7 @@ const fullDefault = {
   speed: "standard" as const,
   verbosity: "medium" as const,
   temperature: null,
+  topP: null,
   thinking: { enabled: true, streamThinking: true },
   contextWindow: {
     enabled: true,
@@ -201,6 +202,26 @@ describe("resolveCallSiteConfig", () => {
     // Profile fields must not appear because mainAgent didn't reference them.
     expect(resolved.speed).toBe("standard");
     expect(resolved.effort).toBe("max");
+  });
+
+  test("topP defaults to null when no profile or override sets it", () => {
+    const llm = LLMSchema.parse({ default: fullDefault });
+    const resolved = resolveCallSiteConfig("mainAgent", llm);
+    expect(resolved.topP).toBeNull();
+  });
+
+  test("profile-level topP resolves onto the merged config", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        nucleus: { topP: 0.9 },
+      },
+      callSites: {
+        memoryExtraction: { profile: "nucleus" },
+      },
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+    expect(resolved.topP).toBe(0.9);
   });
 
   test("returns isolated nested objects (not aliased to llm.default)", () => {

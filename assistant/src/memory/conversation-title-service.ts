@@ -166,6 +166,7 @@ export async function generateAndPersistConversationTitle(
     const fallback = deriveFallbackTitle(context) ?? UNTITLED_FALLBACK;
     updateConversationTitle(conversationId, fallback, AUTO_TITLE_DETERMINISTIC);
     publishConversationTitleChanged(conversationId, fallback);
+    logRetryableFallback(params, "no_provider");
     return { title: fallback, updated: true };
   }
 
@@ -206,6 +207,7 @@ export async function generateAndPersistConversationTitle(
   const fallback = deriveFallbackTitle(context) ?? UNTITLED_FALLBACK;
   updateConversationTitle(conversationId, fallback, AUTO_TITLE_DETERMINISTIC);
   publishConversationTitleChanged(conversationId, fallback);
+  logRetryableFallback(params, "empty_output");
   return { title: fallback, updated: true };
 }
 
@@ -230,7 +232,7 @@ export const titleMutex = new Mutex();
 /**
  * Fire-and-forget wrapper for title generation. Failures are logged
  * but do not propagate. On failure, replaces loading placeholder with
- * a stable fallback title so loading state is never permanent.
+ * a retryable fallback title so loading state is never permanent.
  *
  * Calls are serialized via {@link titleMutex} so burst conversation
  * creation does not overwhelm the LLM provider.
@@ -244,16 +246,20 @@ export function queueGenerateConversationTitle(
     })
     .catch((err) => {
       log.warn(
-        { err, conversationId: params.conversationId },
-        "Failed to generate conversation title (non-fatal)",
+        retryableFallbackLogFields(params, "generation_error", err),
+        "Conversation title generation used retryable fallback",
       );
-      // Replace loading placeholder with stable fallback
+      // Replace loading placeholder with a retryable fallback.
       try {
         const conversation = getConversation(params.conversationId);
         if (conversation && conversation.title === GENERATING_TITLE) {
           const fallback =
             deriveFallbackTitle(params.context) ?? UNTITLED_FALLBACK;
-          updateConversationTitle(params.conversationId, fallback);
+          updateConversationTitle(
+            params.conversationId,
+            fallback,
+            AUTO_TITLE_DETERMINISTIC,
+          );
           publishConversationTitleChanged(params.conversationId, fallback);
         }
       } catch {
@@ -268,6 +274,11 @@ export interface RegenerateTitleParams {
   conversationId: string;
   provider?: Provider;
   signal?: AbortSignal;
+  /**
+   * Limit regeneration to placeholder or deterministic titles. Used for retrying
+   * failed initial generation without racing against a successful initial title.
+   */
+  onlyIfReplaceable?: boolean;
 }
 
 /**
@@ -278,11 +289,14 @@ export interface RegenerateTitleParams {
 export async function regenerateConversationTitle(
   params: RegenerateTitleParams,
 ): Promise<{ title: string; updated: boolean }> {
-  const { conversationId, signal } = params;
+  const { conversationId, onlyIfReplaceable, signal } = params;
 
   const conversation = getConversation(conversationId);
   if (!conversation || !conversation.isAutoTitle) {
     return { title: conversation?.title ?? UNTITLED_FALLBACK, updated: false };
+  }
+  if (onlyIfReplaceable && !canReplaceTitle(conversation)) {
+    return { title: conversation.title ?? UNTITLED_FALLBACK, updated: false };
   }
 
   const provider =
@@ -317,7 +331,11 @@ export async function regenerateConversationTitle(
   if (title) {
     // Re-check isAutoTitle before persisting (race guard against manual rename)
     const current = getConversation(conversationId);
-    if (!current || !current.isAutoTitle) {
+    if (
+      !current ||
+      !current.isAutoTitle ||
+      (onlyIfReplaceable && !canReplaceTitle(current))
+    ) {
       return { title: current?.title ?? UNTITLED_FALLBACK, updated: false };
     }
 
@@ -406,6 +424,45 @@ function buildTitlePrompt(
   }
 
   return parts.join("\n");
+}
+
+function titleGenerationLogFields(params: GenerateTitleParams) {
+  return {
+    conversationId: params.conversationId,
+    contextOrigin: params.context?.origin,
+    hasContext: Boolean(params.context),
+    userMessageLength: params.userMessage?.length ?? 0,
+    assistantResponseLength: params.assistantResponse?.length ?? 0,
+  };
+}
+
+type TitleGenerationFallbackReason =
+  | "no_provider"
+  | "empty_output"
+  | "generation_error";
+
+function retryableFallbackLogFields(
+  params: GenerateTitleParams,
+  reason: TitleGenerationFallbackReason,
+  err?: unknown,
+): Record<string, unknown> {
+  const fields: Record<string, unknown> = {
+    ...titleGenerationLogFields(params),
+    reason,
+    fallbackSource: params.context ? "context" : "untitled",
+  };
+  if (err) fields.err = err;
+  return fields;
+}
+
+function logRetryableFallback(
+  params: GenerateTitleParams,
+  reason: TitleGenerationFallbackReason,
+): void {
+  log.warn(
+    retryableFallbackLogFields(params, reason),
+    "Conversation title generation used retryable fallback",
+  );
 }
 
 const META_FAILURE_TITLES = new Set([

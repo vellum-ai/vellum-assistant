@@ -22,6 +22,7 @@ import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import { backfillMessageIdOnLogs } from "../memory/llm-request-log-store.js";
 import type { Message } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
+import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import type { ServerMessage } from "./message-protocol.js";
@@ -147,6 +148,7 @@ function translateAgentEventToServerMessage(
     case "compaction_completed":
     case "history_stripped":
     case "agent_loop_exit":
+    case "system_prompt_changed":
       return null;
     case "llm_call_started":
       // The wake path persists its assistant tail via
@@ -251,6 +253,74 @@ export async function persistWakeTailMessage(
     log.warn(
       { err, conversationId: conversation.conversationId },
       "wake persist: syncMessageToDisk failed (non-fatal)",
+    );
+  }
+}
+
+/**
+ * Persist a wake's trigger as a single visible user message — the
+ * append-only counterpart to the legacy ephemeral hint injection. Keeping the
+ * trigger in durable history (instead of splicing a non-persisted message per
+ * wake) lets the provider prompt-cache treat repeated wakes like normal user
+ * turns rather than re-creating the whole prefix each time.
+ *
+ * Mirrors {@link persistWakeTailMessage}'s channel/interface/provenance
+ * metadata, but stamps `kind: "background-event"` (+ the originating `source`)
+ * for identification, skips indexing (the body may carry untrusted command
+ * output), and is NOT flagged hidden so the trigger shows in the transcript.
+ */
+export async function persistWakeTriggerMessage(
+  conversation: Conversation,
+  message: Message,
+  source: string,
+): Promise<void> {
+  const turnChannelCtx = conversation.getTurnChannelContext();
+  const turnInterfaceCtx = conversation.getTurnInterfaceContext();
+  const metadata: Record<string, unknown> = {
+    ...provenanceFromTrustContext(conversation.trustContext),
+    userMessageChannel: turnChannelCtx?.userMessageChannel ?? "vellum",
+    assistantMessageChannel:
+      turnChannelCtx?.assistantMessageChannel ?? "vellum",
+    userMessageInterface: turnInterfaceCtx?.userMessageInterface ?? "web",
+    assistantMessageInterface:
+      turnInterfaceCtx?.assistantMessageInterface ?? "web",
+    kind: "background-event",
+    backgroundEventSource: source,
+    automated: true,
+  };
+  const persisted = await addMessage(
+    conversation.conversationId,
+    message.role,
+    JSON.stringify(message.content),
+    { metadata, skipIndexing: true },
+  );
+  try {
+    const convRow = getConversation(conversation.conversationId);
+    if (convRow) {
+      syncMessageToDisk(
+        conversation.conversationId,
+        persisted.id,
+        convRow.createdAt,
+      );
+    }
+  } catch (err) {
+    log.warn(
+      { err, conversationId: conversation.conversationId },
+      "wake trigger persist: syncMessageToDisk failed (non-fatal)",
+    );
+  }
+  // Tell connected clients the message list changed so they refetch and the
+  // visible trigger renders live. The normal user-send path publishes the same
+  // invalidation after persisting a user message; without it a wake that
+  // produces no assistant stream (silent no-op), or a conversation open in
+  // another client, would not show the <background_event> row until a manual
+  // reload.
+  try {
+    publishConversationMessagesChanged(conversation.conversationId);
+  } catch (err) {
+    log.warn(
+      { err, conversationId: conversation.conversationId },
+      "wake trigger persist: publishConversationMessagesChanged failed (non-fatal)",
     );
   }
 }
