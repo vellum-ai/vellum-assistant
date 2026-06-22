@@ -133,7 +133,6 @@ export const ListContactsIpcParamsSchema = z
   .object({
     limit: z.number().optional(),
     role: z.string().optional(),
-    contactType: z.string().optional(),
   })
   .strict()
   .default({});

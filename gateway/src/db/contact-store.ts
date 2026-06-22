@@ -205,11 +205,10 @@ export class ContactStore {
    * channels joined to assistant-DB info fields.
    *
    * Filters: `role` (gateway DB), `limit` (default 50, capped 200 to mirror
-   * the daemon's listContacts). `contactType` is assistant-owned and is NOT
-   * filtered here — the daemon serves contactType-filtered list reads natively
-   * (filtering in SQL before the limit) so a tight limit doesn't under-return
-   * and an assistant-DB outage degrades rather than dropping every row. The
-   * param is retained for forward-compat but not exercised on the relay path.
+   * the daemon's listContacts). The daemon serves contactType-filtered list
+   * reads natively (filtering in SQL before the limit) so a tight limit doesn't
+   * under-return and an assistant-DB outage degrades rather than dropping every
+   * row — the relay never carries a contactType filter.
    *
    * Thin adapter over `listContactsWithInfo` (shared assembly/soft-fail logic),
    * projected down to the ContactRead subset.
@@ -220,15 +219,12 @@ export class ContactStore {
   async listContactsRich(opts?: {
     limit?: number;
     role?: string;
-    contactType?: string;
   }): Promise<ContactRead[]> {
     const withInfo = await this.listContactsWithInfo({
       limit: opts?.limit,
       role: opts?.role,
     });
-    return withInfo
-      .filter((c) => !opts?.contactType || c.contactType === opts.contactType)
-      .map((c) => this.toContactRead(c));
+    return withInfo.map((c) => this.toContactRead(c));
   }
 
   /**
@@ -262,9 +258,10 @@ export class ContactStore {
   /**
    * Project a ContactWithInfo down to the ContactRead subset (drops the
    * assistant-only/ACL-internal fields not on the shared contract). Channel
-   * `externalUserId` echoes `address` to match the daemon's withChannelCompat;
-   * status/policy default like the DB columns (notNull, so a no-op on real
-   * rows) to satisfy the non-null ContactRead channel contract.
+   * `externalUserId` is left null — the daemon's withChannelCompat is the sole
+   * producer of that compat field on the relayed payload. status/policy default
+   * like the DB columns (notNull, so a no-op on real rows) to satisfy the
+   * non-null ContactRead channel contract.
    */
   private toContactRead(c: ContactWithInfo): ContactRead {
     return {
@@ -281,7 +278,7 @@ export class ContactStore {
         type: ch.type,
         address: ch.address,
         isPrimary: ch.isPrimary,
-        externalUserId: ch.address,
+        externalUserId: null,
         status: ch.status ?? "unverified",
         policy: ch.policy ?? "allow",
         verifiedAt: ch.verifiedAt,
