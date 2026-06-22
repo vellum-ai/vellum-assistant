@@ -264,4 +264,126 @@ describe("runMigrationSteps — checkpointing", () => {
       "flakyAsyncStep",
     ]);
   });
+
+  test("detects and recovers step-level 'started' markers from a prior crash", async () => {
+    /**
+     * If the process crashes mid-step, the runner leaves a `step:<name>` =
+     * 'started' checkpoint. On the next boot, recoverCrashedMigrations
+     * detects it, clears it, and the step re-runs.
+     */
+
+    // GIVEN a database with a stalled step: checkpoint left by a crash
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+    raw.run(
+      `CREATE TABLE IF NOT EXISTS memory_checkpoints (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)`,
+    );
+    raw.run(
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:crashedStep', 'started', 0)`,
+    );
+
+    let ran = false;
+    const steps: MigrationStep[] = [
+      function crashedStep() {
+        ran = true;
+      },
+    ];
+
+    // WHEN the runner executes — recoverCrashedMigrations should clear
+    // the 'started' marker and let the step run.
+    await runMigrationSteps(db, steps);
+
+    // THEN the stalled checkpoint was cleared and the step ran
+    expect(ran).toBe(true);
+    const stalled = raw
+      .query(
+        `SELECT 1 FROM memory_checkpoints WHERE key = 'step:crashedStep' AND value = 'started'`,
+      )
+      .get();
+    expect(stalled).toBeNull();
+    // And the step was checkpointed as '1' (completed)
+    const completed = raw
+      .query(
+        `SELECT 1 FROM memory_checkpoints WHERE key = 'step:crashedStep' AND value = '1'`,
+      )
+      .get();
+    expect(completed).not.toBeNull();
+  });
+
+  test("does not skip a step whose only checkpoint is 'started' (not '1')", async () => {
+    /**
+     * The skip query filters for value = '1', so a 'started' marker
+     * alone must not cause a step to be skipped — the step should run.
+     * (recoverCrashedMigrations clears 'started' markers first, but
+     * even if it didn't, the skip logic is independent and correct.)
+     */
+
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+    raw.run(
+      `CREATE TABLE IF NOT EXISTS memory_checkpoints (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)`,
+    );
+    // Insert a 'started' marker without running recoverCrashedMigrations.
+    // We simulate this by inserting directly and checking the applied set.
+    raw.run(
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:someStep', 'started', 0)`,
+    );
+
+    let ran = false;
+    const steps: MigrationStep[] = [
+      function someStep() {
+        ran = true;
+      },
+    ];
+
+    // WHEN the runner executes, recoverCrashedMigrations clears the
+    // 'started' marker, so the step is not in the applied set and runs.
+    const result = await runMigrationSteps(db, steps);
+
+    // THEN the step ran (was not skipped)
+    expect(ran).toBe(true);
+    expect(result.applied).toEqual(["someStep"]);
+    expect(result.skipped).toEqual([]);
+  });
+
+  test("writes 'started' marker for async steps before awaiting", async () => {
+    /**
+     * For async steps, the runner writes a 'started' marker before
+     * awaiting the promise, so a crash between the write and promise
+     * resolution leaves a detectable checkpoint. Sync steps don't get
+     * a 'started' marker because they complete before the event loop
+     * can process the write (a crash during a sync step loses it too).
+     */
+
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+
+    const seen: { marker: string | null } = { marker: null };
+    const steps: MigrationStep[] = [
+      async function asyncWithInspection() {
+        // Read the checkpoint while the step is "in flight" — the
+        // 'started' marker should already be written.
+        const row = raw
+          .query<{ value: string }, []>(
+            `SELECT value FROM memory_checkpoints WHERE key = 'step:asyncWithInspection'`,
+          )
+          .get();
+        seen.marker = row?.value ?? null;
+        await Promise.resolve();
+      },
+    ];
+
+    await runMigrationSteps(db, steps);
+
+    // The 'started' marker was visible during the async step's execution
+    expect(seen.marker).toBe("started");
+
+    // After completion, the checkpoint is '1'
+    const final = raw
+      .query<{ value: string }, []>(
+        `SELECT value FROM memory_checkpoints WHERE key = 'step:asyncWithInspection'`,
+      )
+      .get();
+    expect(final?.value).toBe("1");
+  });
 });

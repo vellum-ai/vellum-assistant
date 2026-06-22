@@ -3,6 +3,11 @@ import { type Database } from "bun:sqlite";
 import { and, desc, eq, ne, sql } from "drizzle-orm";
 
 import {
+  type AssistantContactMetadata,
+  type ContactRead,
+} from "@vellumai/gateway-client/gateway-ipc-contracts";
+
+import {
   type SqliteValue,
   assistantDbQuery,
   assistantDbRun,
@@ -18,6 +23,13 @@ import { getLogger } from "../logger.js";
 import { canonicalizeInboundIdentity } from "../verification/identity.js";
 
 const log = getLogger("contact-store");
+
+/**
+ * Reason that marks the sanctioned guardian-binding teardown. A guardian
+ * channel may only be downgraded with this reason; any other reason is
+ * rejected by the guardian guard (invariant 4).
+ */
+export const GUARDIAN_BINDING_REVOKE_REASON = "guardian_binding_revoked";
 
 export type Contact = typeof contacts.$inferSelect;
 export type ContactChannel = typeof contactChannels.$inferSelect;
@@ -206,6 +218,114 @@ export class ContactStore {
     return joined[0] ?? null;
   }
 
+  // ── Rich reads (gateway ACL + assistant info, ContactRead contract) ──────
+  //
+  // listContactsRich / getContactRich assemble the shared ContactRead shape
+  // (packages/gateway-client/src/gateway-ipc-contracts.ts) so the daemon can
+  // relay its full contact read responses through the gateway IPC surface.
+  // Identity + ACL/channel fields come from the gateway DB (source of truth);
+  // info fields (notes, contactType, interactionCount, lastInteraction) come
+  // from the assistant DB via assistantDbQuery. The assistant join is soft:
+  // a failed or missing read degrades to gateway-DB-only values + a warning.
+  //
+  // Guardian display-name override is intentionally NOT applied here — the
+  // daemon relay handler re-applies prepareContactResponse on the relayed
+  // payload, keeping prompt logic on the daemon side.
+
+  /**
+   * List contacts in the shared ContactRead shape: gateway-DB identity + ACL
+   * channels joined to assistant-DB info fields.
+   *
+   * Filters: `role` (gateway DB), `limit` (default 50, capped 200 to mirror
+   * the daemon's listContacts). The daemon serves contactType-filtered list
+   * reads natively (filtering in SQL before the limit) so a tight limit doesn't
+   * under-return and an assistant-DB outage degrades rather than dropping every
+   * row — the relay never carries a contactType filter.
+   *
+   * Thin adapter over `listContactsWithInfo` (shared assembly/soft-fail logic),
+   * projected down to the ContactRead subset.
+   *
+   * Ordering mirrors the daemon's listContacts: guardian role first, then
+   * updatedAt desc.
+   */
+  async listContactsRich(opts?: {
+    limit?: number;
+    role?: string;
+  }): Promise<ContactRead[]> {
+    const withInfo = await this.listContactsWithInfo({
+      limit: opts?.limit,
+      role: opts?.role,
+    });
+    return withInfo.map((c) => this.toContactRead(c));
+  }
+
+  /**
+   * Get a single contact in the shared ContactRead shape, plus the assistant
+   * metadata block for assistant-species contacts. Returns null if the
+   * contact is absent from the gateway DB.
+   *
+   * Thin adapter over `getContactWithInfo`, projected down to ContactRead.
+   */
+  async getContactRich(contactId: string): Promise<{
+    contact: ContactRead;
+    assistantMetadata?: AssistantContactMetadata;
+  } | null> {
+    const withInfo = await this.getContactWithInfo(contactId);
+    if (!withInfo) return null;
+
+    const read = this.toContactRead(withInfo);
+    if (withInfo.contactType === "assistant" && withInfo.assistantMetadata) {
+      return {
+        contact: read,
+        assistantMetadata: {
+          contactId,
+          species: withInfo.assistantMetadata.species,
+          metadata: withInfo.assistantMetadata.metadata,
+        },
+      };
+    }
+    return { contact: read };
+  }
+
+  /**
+   * Project a ContactWithInfo down to the ContactRead subset (drops the
+   * assistant-only/ACL-internal fields not on the shared contract). Channel
+   * `externalUserId` is left null — the daemon's withChannelCompat is the sole
+   * producer of that compat field on the relayed payload. status/policy default
+   * like the DB columns (notNull, so a no-op on real rows) to satisfy the
+   * non-null ContactRead channel contract.
+   */
+  private toContactRead(c: ContactWithInfo): ContactRead {
+    return {
+      id: c.id,
+      displayName: c.displayName,
+      role: c.role,
+      notes: c.notes,
+      contactType: c.contactType,
+      interactionCount: c.interactionCount,
+      lastInteraction: c.lastInteraction,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+      channels: c.channels.map((ch) => ({
+        id: ch.id,
+        contactId: ch.contactId,
+        type: ch.type,
+        address: ch.address,
+        isPrimary: ch.isPrimary,
+        externalUserId: null,
+        status: ch.status ?? "unverified",
+        policy: ch.policy ?? "allow",
+        verifiedAt: ch.verifiedAt,
+        verifiedVia: ch.verifiedVia,
+        lastSeenAt: ch.lastSeenAt,
+        interactionCount: ch.interactionCount ?? 0,
+        lastInteraction: ch.lastInteraction,
+        revokedReason: ch.revokedReason,
+        blockedReason: ch.blockedReason,
+      })),
+    };
+  }
+
   /**
    * Group gateway contact+channel rows by contact, fetch info for all contact
    * IDs in one batch, and merge. Soft-fails on assistant DB error.
@@ -371,62 +491,24 @@ export class ContactStore {
       reason?: string | null;
     },
   ): Promise<ContactChannel | null> {
-    let gwChannel = this.db
-      .select()
-      .from(contactChannels)
-      .where(eq(contactChannels.id, channelId))
-      .get();
+    let gwChannel = await this.resolveGatewayChannel(channelId);
 
-    // If not found in the gateway DB, resolve from the assistant DB by id.
+    // Still absent → legacy assistant-only channel. Mirror it (plus its parent
+    // contact) into the gateway DB so the status write resolves instead of
+    // 404ing — matching the verify path. The mirror reuses the assistant-side
+    // id; soft-fails to null when the assistant DB is unreachable.
     if (!gwChannel) {
-      const assistantChannel = await assistantDbQuery<{
-        type: string;
-        address: string;
-      }>("SELECT type, address FROM contact_channels WHERE id = ?", [
+      const mirrored = await this.mirrorChannelFromAssistantIfMissing(
         channelId,
-      ]).catch(() => []);
-
-      if (assistantChannel.length > 0) {
-        const { type, address } = assistantChannel[0];
-        // A gateway row may already exist under a DIFFERENT id (same logical
-        // channel). `(type, address)` is globally UNIQUE, so resolve it
-        // globally — a split-brain row living under a different contact id is
-        // the existing gateway ACL we must update, not a row to re-mirror
-        // (which would hit the unique constraint and 404).
-        gwChannel = this.db
-          .select()
-          .from(contactChannels)
-          .where(
-            and(
-              eq(contactChannels.type, type),
-              sql`${contactChannels.address} = ${address} COLLATE NOCASE`,
-            ),
-          )
-          .get();
-
-        // Still absent → legacy assistant-only channel. Mirror it (plus its
-        // parent contact) into the gateway DB so the status write resolves
-        // instead of 404ing — matching the verify path. The mirror reuses the
-        // assistant-side id; soft-fails to 404 when the assistant DB is
-        // unreachable.
-        if (!gwChannel) {
-          const mirrored = await this.mirrorChannelFromAssistantIfMissing(
-            channelId,
-          ).catch((err) => {
-            log.warn(
-              { channelId, err },
-              "updateChannelStatus: assistant-only backfill failed (best-effort)",
-            );
-            return false;
-          });
-          if (mirrored) {
-            gwChannel = this.db
-              .select()
-              .from(contactChannels)
-              .where(eq(contactChannels.id, channelId))
-              .get();
-          }
-        }
+      ).catch((err) => {
+        log.warn(
+          { channelId, err },
+          "updateChannelStatus: assistant-only backfill failed (best-effort)",
+        );
+        return false;
+      });
+      if (mirrored) {
+        gwChannel = await this.resolveGatewayChannel(channelId);
       }
     }
 
@@ -694,12 +776,53 @@ export class ContactStore {
   }
 
   /**
-   * Mark a channel as verified by guardian attestation, bypassing the
-   * standard challenge-code exchange. Sets `status="active"`, stamps
-   * `verifiedAt=now`, and sets `verifiedVia="manual"` for audit trail.
+   * Resolve a gateway channel row by id, falling back to its logical
+   * (type, address) key when the id-based lookup misses. Legacy channels can
+   * live under a different gateway UUID than the assistant id, so the id
+   * passed by callers may not be the gateway row's id. `(type, address)` is
+   * globally unique, so a split-brain row living under a different contact id
+   * is the canonical gateway ACL to resolve to — not a row to re-mirror
+   * (which would hit the unique constraint).
+   */
+  private async resolveGatewayChannel(
+    channelId: string,
+  ): Promise<ContactChannel | undefined> {
+    const byId = this.db
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, channelId))
+      .get();
+    if (byId) return byId;
+
+    const assistantChannel = await assistantDbQuery<{
+      type: string;
+      address: string;
+    }>("SELECT type, address FROM contact_channels WHERE id = ?", [
+      channelId,
+    ]);
+    if (assistantChannel.length === 0) return undefined;
+
+    const { type, address } = assistantChannel[0];
+    return this.db
+      .select()
+      .from(contactChannels)
+      .where(
+        and(
+          eq(contactChannels.type, type),
+          sql`${contactChannels.address} = ${address} COLLATE NOCASE`,
+        ),
+      )
+      .get();
+  }
+
+  /**
+   * Mark a channel as verified. Sets `status="active"`, stamps
+   * `verifiedAt=now`, and records `verifiedVia` (default `"manual"` for the
+   * guardian-attestation path; `"challenge"` for the code-exchange path) on
+   * the audit trail.
    *
    * Atomic + idempotent. The UPDATE is gated on the row not already being
-   * `(status="active" AND verified_via="manual")`, so two concurrent
+   * `(status="active" AND verified_via=verifiedVia)`, so two concurrent
    * verify requests can't both write — exactly one will see `changes=1`
    * and the other will see `changes=0`. Both still return the post-state
    * row.
@@ -711,54 +834,27 @@ export class ContactStore {
    * When the channel is missing on the gateway but present on the assistant,
    * it (plus its parent contact) is mirrored into the gateway first.
    */
-  async markChannelVerified(channelId: string): Promise<{
+  async markChannelVerified(
+    channelId: string,
+    verifiedVia: "challenge" | "manual" = "manual",
+  ): Promise<{
     channel: ContactChannel;
     didWrite: boolean;
   } | null> {
-    // Resolve the gateway row id to write. The caller's `channelId` may be the
-    // assistant channel's id while the gateway row lives under a different id
-    // (pre-canonical-id split). Defense-in-depth mirroring updateChannelStatus:
-    // resolve by (type,address) before falling back to mirroring, so a verify
-    // by the assistant id hits the existing gateway ACL instead of 404ing.
-    let targetId = channelId;
-    const gwExisting = this.db
-      .select({ id: contactChannels.id })
-      .from(contactChannels)
-      .where(eq(contactChannels.id, channelId))
-      .get();
-    if (!gwExisting) {
-      const assistantChannel = await assistantDbQuery<{
-        type: string;
-        address: string;
-      }>("SELECT type, address FROM contact_channels WHERE id = ?", [
-        channelId,
-      ]).catch(() => []);
-      const resolved = assistantChannel.length
-        ? this.db
-            .select({ id: contactChannels.id })
-            .from(contactChannels)
-            .where(
-              and(
-                eq(contactChannels.type, assistantChannel[0].type),
-                sql`${contactChannels.address} = ${assistantChannel[0].address} COLLATE NOCASE`,
-              ),
-            )
-            .get()
-        : undefined;
-      if (resolved) {
-        targetId = resolved.id;
-      } else {
-        // Migration-window backfill: the gateway DB has never seen this
-        // channel, but the assistant DB has it. Mirror channel + parent contact
-        // (reusing the assistant id) before the verify write. Without this, any
-        // contact channel created before the dual-write was wired would 404
-        // here even though the user can see the channel in their UI.
-        const mirrored = await this.mirrorChannelFromAssistantIfMissing(
-          channelId,
-        );
-        if (!mirrored) return null;
-      }
-    }
+    // Migration-window backfill: if the gateway DB has never seen this
+    // channel, but the assistant DB has it, mirror channel + parent contact
+    // into the gateway DB before attempting the verify write. Without this,
+    // any contact channel created before the dual-write was wired would
+    // 404 here even though the user can see the channel in their UI.
+    const mirrored = await this.mirrorChannelFromAssistantIfMissing(channelId);
+    if (!mirrored) return null;
+
+    // Legacy channels may live under a different gateway id than the assistant
+    // channel id passed in; resolve the gateway row (by id, then by logical
+    // (type,address) key) before keying writes on it.
+    const gwChannel = await this.resolveGatewayChannel(channelId);
+    if (!gwChannel) return null;
+    const gwChannelId = gwChannel.id;
 
     const now = Date.now();
     const raw = (this.db as unknown as { $client: Database }).$client;
@@ -769,12 +865,12 @@ export class ContactStore {
          WHERE id = ?
            AND (status != ? OR verified_via != ? OR verified_via IS NULL)`,
       )
-      .run("active", now, "manual", now, targetId, "active", "manual");
+      .run("active", now, verifiedVia, now, gwChannelId, "active", verifiedVia);
 
     const after = this.db
       .select()
       .from(contactChannels)
-      .where(eq(contactChannels.id, targetId))
+      .where(eq(contactChannels.id, gwChannelId))
       .get();
 
     if (!after) return null;
@@ -786,26 +882,117 @@ export class ContactStore {
     // calls. The gateway DB remains source of truth.
     //
     // Key the mirror by the ORIGINAL assistant channel id, not the resolved
-    // gateway `targetId`: on the split-id path they differ and the assistant
-    // row is keyed by `channelId`, so mirroring by `targetId` would no-op.
-    // The dual-write's logical (contactId,type,address) fallback covers rows
-    // keyed differently from the id.
+    // gateway `gwChannelId`: on the split-id path they differ and the assistant
+    // row is keyed by the original id, so mirroring by the gateway id would
+    // no-op. The dual-write's logical (contactId,type,address) fallback covers
+    // rows keyed differently from the id.
     if (didWrite) {
       try {
         await this.dualWriteChannelStatusToAssistantDb(channelId, {
           status: "active",
           verifiedAt: now,
-          verifiedVia: "manual",
+          verifiedVia,
         });
       } catch (err) {
         log.warn(
-          { channelId, targetId, err },
+          { channelId, gwChannelId, err },
           "markChannelVerified: assistant DB dual-write failed (best-effort)",
         );
       }
     }
 
     return { channel: after, didWrite };
+  }
+
+  /**
+   * Downgrade a channel to `revoked` (verification-revoke outcome), then
+   * best-effort dual-write to the assistant DB. Gateway DB is source of truth.
+   *
+   * Guardian guard (invariant 4): a guardian contact's channel may only be
+   * downgraded via the sanctioned guardian-binding teardown
+   * (`reason="guardian_binding_revoked"`). Any other reason on a guardian
+   * channel is rejected here at the boundary rather than silently applied.
+   *
+   * Mirrors `markChannelVerified`: when the channel is missing on the gateway
+   * but present on the assistant, it (plus its parent contact) is mirrored in
+   * first so a UI-visible channel id doesn't 404.
+   *
+   * Returns the channel after the write, or `null` if neither DB has the id.
+   */
+  async markChannelRevoked(
+    channelId: string,
+    reason?: string,
+  ): Promise<{ channel: ContactChannel; didWrite: boolean } | null> {
+    const mirrored = await this.mirrorChannelFromAssistantIfMissing(channelId);
+    if (!mirrored) return null;
+
+    // Legacy channels may live under a different gateway id than the assistant
+    // channel id passed in; resolve the gateway row before keying writes on it.
+    const channel = await this.resolveGatewayChannel(channelId);
+    if (!channel) return null;
+    const gwChannelId = channel.id;
+
+    const contact = this.getContact(channel.contactId);
+    if (
+      contact?.role === "guardian" &&
+      reason !== GUARDIAN_BINDING_REVOKE_REASON
+    ) {
+      log.warn(
+        { channelId, reason },
+        "markChannelRevoked: rejected guardian channel downgrade",
+      );
+      throw new CannotDowngradeGuardianError(channelId);
+    }
+
+    // A blocked channel stays blocked: blocked is stricter than revoked, and
+    // downgrading it would clear blockedReason and make the actor re-claimable.
+    // Mirrors the blocked→revoked guard in updateChannelStatus; here it's a
+    // no-op so a guardian-binding teardown over a blocked channel doesn't fail.
+    if (channel.status === "blocked") {
+      return { channel, didWrite: false };
+    }
+
+    // Idempotent: a row already revoked with this reason is a no-op — skip the
+    // write + dual-write (matches markChannelVerified).
+    const alreadyRevoked =
+      channel.status === "revoked" &&
+      channel.revokedReason === (reason ?? null);
+    if (alreadyRevoked) {
+      return { channel, didWrite: false };
+    }
+
+    this.db
+      .update(contactChannels)
+      .set({
+        status: "revoked",
+        revokedReason: reason ?? null,
+        blockedReason: null,
+        updatedAt: Date.now(),
+      })
+      .where(eq(contactChannels.id, gwChannelId))
+      .run();
+
+    const after = this.db
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, gwChannelId))
+      .get();
+    if (!after) return null;
+
+    try {
+      await this.dualWriteChannelStatusToAssistantDb(gwChannelId, {
+        status: "revoked",
+        revokedReason: reason ?? null,
+        blockedReason: null,
+      });
+    } catch (err) {
+      log.warn(
+        { channelId, err },
+        "markChannelRevoked: assistant DB dual-write failed (best-effort)",
+      );
+    }
+
+    return { channel: after, didWrite: true };
   }
 
   // ---------------------------------------------------------------------------
@@ -2160,6 +2347,24 @@ export class CannotRevokeBlockedError extends Error {
       "Cannot revoke a blocked channel. Unblock it first or leave it blocked.",
     );
     this.name = "CannotRevokeBlockedError";
+    this.channelId = channelId;
+  }
+}
+
+/**
+ * Thrown by `markChannelRevoked` when a downgrade would strip a guardian
+ * contact's channel via anything other than the sanctioned guardian-binding
+ * teardown. The caller maps this to HTTP 409.
+ */
+export class CannotDowngradeGuardianError extends Error {
+  readonly channelId: string;
+  readonly statusCode = 409;
+  readonly code = "CONFLICT";
+  constructor(channelId: string) {
+    super(
+      "Cannot downgrade a guardian channel. Revoke the guardian binding instead.",
+    );
+    this.name = "CannotDowngradeGuardianError";
     this.channelId = channelId;
   }
 }

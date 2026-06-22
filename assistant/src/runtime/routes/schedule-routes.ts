@@ -1061,6 +1061,7 @@ async function handleRunScheduleNow(id: string) {
         conversationId: schedule.wakeConversationId,
         hint: schedule.message,
         source: "defer",
+        persistTriggerAsEvent: true,
         ...(schedule.inferenceProfile
           ? { forceOverrideProfile: schedule.inferenceProfile }
           : {}),

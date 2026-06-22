@@ -107,3 +107,143 @@ export const UpdateContactChannelIpcResponseSchema = z.object({
 export type UpdateContactChannelIpcResponse = z.infer<
   typeof UpdateContactChannelIpcResponseSchema
 >;
+
+export const MarkChannelVerifiedIpcParamsSchema = z.object({
+  contactChannelId: z.string().min(1),
+  // Audit source for the verification. CLI/session-driven verifications
+  // pass "challenge"; manual guardian attest uses "manual" (HTTP path).
+  verifiedVia: z.enum(["challenge", "manual"]).default("challenge"),
+});
+
+export type MarkChannelVerifiedIpcParams = z.infer<
+  typeof MarkChannelVerifiedIpcParamsSchema
+>;
+
+export const MarkChannelVerifiedIpcResponseSchema = z.object({
+  ok: z.boolean(),
+  didWrite: z.boolean(),
+  channel: z.object({
+    id: z.string(),
+    contactId: z.string(),
+    type: z.string(),
+    address: z.string(),
+    status: z.string(),
+    verifiedAt: z.number().nullable(),
+    verifiedVia: z.string().nullable(),
+  }),
+});
+
+export type MarkChannelVerifiedIpcResponse = z.infer<
+  typeof MarkChannelVerifiedIpcResponseSchema
+>;
+
+export const MarkChannelRevokedIpcParamsSchema = z.object({
+  contactChannelId: z.string().min(1),
+  // Audit reason for the downgrade. The verification-revoke flow passes
+  // "guardian_binding_revoked", the only reason allowed to downgrade a
+  // guardian channel (guardian guard, invariant 4).
+  reason: z.string().optional(),
+});
+
+export type MarkChannelRevokedIpcParams = z.infer<
+  typeof MarkChannelRevokedIpcParamsSchema
+>;
+
+export const MarkChannelRevokedIpcResponseSchema = z.object({
+  ok: z.boolean(),
+  didWrite: z.boolean(),
+  channel: z.object({
+    id: z.string(),
+    contactId: z.string(),
+    type: z.string(),
+    address: z.string(),
+    status: z.string(),
+    revokedReason: z.string().nullable(),
+  }),
+});
+
+export type MarkChannelRevokedIpcResponse = z.infer<
+  typeof MarkChannelRevokedIpcResponseSchema
+>;
+
+export const ContactReadChannelSchema = z.object({
+  id: z.string(),
+  contactId: z.string(),
+  type: z.string(),
+  address: z.string(),
+  isPrimary: z.boolean(),
+  externalUserId: z.string().nullable(),
+  status: z.string(),
+  policy: z.string(),
+  verifiedAt: z.number().nullable(),
+  verifiedVia: z.string().nullable(),
+  lastSeenAt: z.number().nullable(),
+  interactionCount: z.number(),
+  lastInteraction: z.number().nullable(),
+  revokedReason: z.string().nullable(),
+  blockedReason: z.string().nullable(),
+});
+
+export type ContactReadChannel = z.infer<typeof ContactReadChannelSchema>;
+
+export const ContactReadSchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  role: z.string(),
+  notes: z.string().nullable().optional(),
+  contactType: z.string().nullable().optional(),
+  lastInteraction: z.number().nullable().optional(),
+  interactionCount: z.number(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  channels: z.array(ContactReadChannelSchema),
+});
+
+export type ContactRead = z.infer<typeof ContactReadSchema>;
+
+export const AssistantContactMetadataSchema = z.object({
+  contactId: z.string(),
+  species: z.string(),
+  metadata: z.object({}).passthrough().nullable(),
+});
+
+export type AssistantContactMetadata = z.infer<
+  typeof AssistantContactMetadataSchema
+>;
+
+export const ListContactsIpcParamsSchema = z
+  .object({
+    limit: z.number().optional(),
+    role: z.string().optional(),
+  })
+  .strict()
+  .default({});
+
+export type ListContactsIpcParams = z.infer<
+  typeof ListContactsIpcParamsSchema
+>;
+
+export const ListContactsIpcResponseSchema = z.object({
+  ok: z.boolean(),
+  contacts: z.array(ContactReadSchema),
+});
+
+export type ListContactsIpcResponse = z.infer<
+  typeof ListContactsIpcResponseSchema
+>;
+
+export const GetContactIpcParamsSchema = z
+  .object({ contactId: z.string() })
+  .strict();
+
+export type GetContactIpcParams = z.infer<typeof GetContactIpcParamsSchema>;
+
+export const GetContactIpcResponseSchema = z.object({
+  ok: z.boolean(),
+  contact: ContactReadSchema,
+  assistantMetadata: AssistantContactMetadataSchema.optional(),
+});
+
+export type GetContactIpcResponse = z.infer<
+  typeof GetContactIpcResponseSchema
+>;

@@ -8,7 +8,11 @@
  * they don't shadow more-specific sub-paths like contacts/invites.
  */
 
-import { UpdateContactChannelIpcResponseSchema } from "@vellumai/gateway-client/gateway-ipc-contracts";
+import {
+  GetContactIpcResponseSchema,
+  ListContactsIpcResponseSchema,
+  UpdateContactChannelIpcResponseSchema,
+} from "@vellumai/gateway-client/gateway-ipc-contracts";
 import { IpcCallError } from "@vellumai/gateway-client/ipc-client";
 import { z } from "zod";
 
@@ -22,6 +26,7 @@ import {
 import type { ContactRole, ContactType } from "../../contacts/types.js";
 import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
+import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   redeemIngressInvite,
@@ -30,6 +35,8 @@ import {
 } from "../invite-service.js";
 import { BadRequestError, NotFoundError, RouteError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+const log = getLogger("contact-routes");
 
 /**
  * Re-throw a relayed gateway `IpcCallError` as a `RouteError` so the IPC/HTTP
@@ -121,6 +128,8 @@ const contactSchema = z.object({
   contactType: z.string().nullable().optional(),
   lastInteraction: z.number().nullable().optional(),
   interactionCount: z.number(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
   channels: z.array(contactChannelSchema),
 });
 
@@ -128,7 +137,40 @@ const contactSchema = z.object({
 // Contact handlers (transport-agnostic)
 // ---------------------------------------------------------------------------
 
-function handleListContacts(queryParams: Record<string, string>) {
+/**
+ * Relay a non-search contact list read to the gateway (source of truth for ACL
+ * fields), falling back to the assistant DB on IPC failure. Shared by the GET
+ * `contacts` list and the `search_contacts` no-filter case so both serve
+ * gateway-sourced data consistently.
+ */
+async function relayListContacts(
+  limit: number,
+  role: ContactRole | undefined,
+) {
+  try {
+    const result = await ipcCallPersistent("contacts_list_rich", {
+      limit,
+      ...(role ? { role } : {}),
+    });
+    const { contacts } = ListContactsIpcResponseSchema.parse(result);
+    return {
+      ok: true,
+      contacts: contacts.map(prepareContactResponse),
+    };
+  } catch (err) {
+    log.warn(
+      { err },
+      "relayListContacts: gateway relay failed; falling back to assistant DB",
+    );
+    const contacts = listContacts(limit, role);
+    return {
+      ok: true,
+      contacts: contacts.map(prepareContactResponse),
+    };
+  }
+}
+
+export async function handleListContacts(queryParams: Record<string, string>) {
   const limit = Number(queryParams.limit ?? 50);
   const role = (queryParams.role as ContactRole) || undefined;
   const contactTypeParam = queryParams.contactType;
@@ -146,7 +188,11 @@ function handleListContacts(queryParams: Record<string, string>) {
     ? (contactTypeParam as ContactType)
     : undefined;
 
+  // True search stays daemon-native: gateway-native search is design-blocked.
   if (query || channelAddress || channelType) {
+    log.debug(
+      "handleListContacts: search served daemon-native (gateway-native search is design-blocked)",
+    );
     const contacts = searchContacts({
       query,
       channelAddress,
@@ -161,27 +207,59 @@ function handleListContacts(queryParams: Record<string, string>) {
     };
   }
 
-  const contacts = listContacts(limit, role, contactType);
-  return {
-    ok: true,
-    contacts: contacts.map(prepareContactResponse),
-  };
+  // contactType is assistant-owned: serve daemon-native so it's filtered in SQL
+  // BEFORE the limit. The gateway relay filtered it AFTER its limit, which
+  // under-returned (and returned empty on an assistant-DB outage, since the
+  // soft-fail map dropped every row). Mirrors the search boundary.
+  if (contactType) {
+    log.debug(
+      "handleListContacts: contactType-filtered read served daemon-native (gateway-native contactType filtering is design-blocked, pending ACL classification)",
+    );
+    const contacts = listContacts(limit, role, contactType);
+    return {
+      ok: true,
+      contacts: contacts.map(prepareContactResponse),
+    };
+  }
+
+  return relayListContacts(limit, role);
 }
 
-function handleGetContact(contactId: string) {
-  const contact = getContact(contactId);
-  if (!contact) {
-    throw new NotFoundError(`Contact "${contactId}" not found`);
+export async function handleGetContact(contactId: string) {
+  try {
+    const result = await ipcCallPersistent("contacts_get_rich", { contactId });
+    // The gateway returns null (no `contact`) on a clean not-found.
+    if (!result || (result as { contact?: unknown }).contact === undefined) {
+      throw new NotFoundError(`Contact "${contactId}" not found`);
+    }
+    const { contact, assistantMetadata } =
+      GetContactIpcResponseSchema.parse(result);
+    return {
+      ok: true,
+      contact: prepareContactResponse(contact),
+      assistantMetadata: assistantMetadata ?? undefined,
+    };
+  } catch (err) {
+    // A clean not-found is a real 404 — don't fall back or mask it.
+    if (err instanceof NotFoundError) throw err;
+    log.warn(
+      { err, contactId },
+      "handleGetContact: gateway relay failed; falling back to assistant DB",
+    );
+    const contact = getContact(contactId);
+    if (!contact) {
+      throw new NotFoundError(`Contact "${contactId}" not found`);
+    }
+    const assistantMeta =
+      contact.contactType === "assistant"
+        ? getAssistantContactMetadata(contact.id)
+        : undefined;
+    return {
+      ok: true,
+      contact: prepareContactResponse(contact),
+      assistantMetadata: assistantMeta ?? undefined,
+    };
   }
-  const assistantMeta =
-    contact.contactType === "assistant"
-      ? getAssistantContactMetadata(contact.id)
-      : undefined;
-  return {
-    ok: true,
-    contact: prepareContactResponse(contact),
-    assistantMetadata: assistantMeta ?? undefined,
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -575,7 +653,7 @@ export const ROUTES: RouteDefinition[] = [
       limit: z.number().optional(),
     }),
     responseBody: z.array(contactSchema),
-    handler: ({ body = {} }: RouteHandlerArgs) => {
+    handler: async ({ body = {} }: RouteHandlerArgs) => {
       const parsed = z
         .object({
           query: z.string().optional(),
@@ -584,6 +662,23 @@ export const ROUTES: RouteDefinition[] = [
           limit: z.number().optional(),
         })
         .parse(body);
+
+      const hasFilter =
+        Boolean(parsed.query?.trim()) ||
+        Boolean(parsed.channelAddress) ||
+        Boolean(parsed.channelType);
+
+      // No-filter "search" is a list read — relay to the gateway so it returns
+      // the same source-of-truth data as `contacts list`.
+      if (!hasFilter) {
+        const { contacts } = await relayListContacts(parsed.limit ?? 50, undefined);
+        return contacts;
+      }
+
+      // True search stays daemon-native: gateway-native search is design-blocked.
+      log.debug(
+        "search_contacts: search served daemon-native (gateway-native search is design-blocked)",
+      );
       return searchContacts(parsed).map(prepareContactResponse);
     },
   },
