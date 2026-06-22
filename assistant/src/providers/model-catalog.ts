@@ -781,9 +781,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       {
         id: "MiniMaxAI/MiniMax-M3",
         displayName: "MiniMax M3",
-        // Together serves MiniMax M3 — the managed route that replaces the
-        // Fireworks copy (which mishandles forced tool_choice + object-typed
-        // tool args). Window + pricing from Together's published rate card.
+        // Managed route for MiniMax M3. Together honors forced tool_choice
+        // and serializes object-typed tool args correctly. Window and pricing
+        // are from Together's published rate card.
         contextWindowTokens: 524288,
         maxOutputTokens: 512000,
         supportsThinking: true,

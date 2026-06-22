@@ -277,6 +277,16 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
   ],
+  together: [
+    {
+      id: "MiniMaxAI/MiniMax-M3",
+      displayName: "MiniMax M3",
+      contextWindowTokens: 524_288,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 512_000,
+      supportsThinking: true,
+    },
+  ],
   openrouter: [
     {
       id: "anthropic/claude-fable-5",
@@ -615,6 +625,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
   openai: "gpt-5.5",
   gemini: "gemini-2.5-flash",
   fireworks: "accounts/fireworks/models/kimi-k2p5",
+  together: "MiniMaxAI/MiniMax-M3",
   openrouter: "x-ai/grok-4.20-beta",
   minimax: "MiniMax-M2.7",
   atlascloud: "deepseek-ai/deepseek-v4-pro",
@@ -633,6 +644,7 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   gemini: "Google Gemini",
   ollama: "Ollama",
   fireworks: "Fireworks",
+  together: "Together AI",
   openrouter: "OpenRouter",
   "openai-compatible": "OpenAI-compatible",
   minimax: "MiniMax",
@@ -652,6 +664,7 @@ export const PROVIDER_SUPPORTS_PLATFORM_AUTH: Record<string, boolean> = {
   gemini: true,
   ollama: false,
   fireworks: true,
+  together: true,
   openrouter: false,
   "openai-compatible": false,
   minimax: false,
