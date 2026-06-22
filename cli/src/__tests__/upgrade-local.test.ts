@@ -88,9 +88,6 @@ function makeGuardianToken(
   };
 }
 
-const loadGuardianTokenMock = mock<typeof guardianToken.loadGuardianToken>(() =>
-  makeGuardianToken(),
-);
 const leaseGuardianTokenMock = mock<typeof guardianToken.leaseGuardianToken>(
   async () => makeGuardianToken({ isNew: true }),
 );
@@ -104,7 +101,6 @@ const seedGuardianTokenFromSiblingEnvMock = mock<
 mock.module("../lib/guardian-token.js", () => ({
   ...realGuardianToken,
   leaseGuardianToken: leaseGuardianTokenMock,
-  loadGuardianToken: loadGuardianTokenMock,
   resetGuardianBootstrap: resetGuardianBootstrapMock,
   seedGuardianTokenFromSiblingEnv: seedGuardianTokenFromSiblingEnvMock,
 }));
@@ -247,8 +243,6 @@ beforeEach(() => {
   pruneOldBackupsMock.mockReturnValue(undefined);
   restoreBackupMock.mockReset();
   restoreBackupMock.mockResolvedValue(true);
-  loadGuardianTokenMock.mockReset();
-  loadGuardianTokenMock.mockReturnValue(makeGuardianToken());
   leaseGuardianTokenMock.mockReset();
   leaseGuardianTokenMock.mockResolvedValue(makeGuardianToken({ isNew: true }));
   resetGuardianBootstrapMock.mockReset();
@@ -414,8 +408,15 @@ describe("vellum upgrade local", () => {
     expect(seedGuardianTokenFromSiblingEnvMock).toHaveBeenCalledWith(
       "local-assistant",
     );
-    expect(resetGuardianBootstrapMock).not.toHaveBeenCalled();
-    expect(leaseGuardianTokenMock).not.toHaveBeenCalled();
+    expect(resetGuardianBootstrapMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:7830",
+      "existing-bootstrap-secret",
+    );
+    expect(leaseGuardianTokenMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:7830",
+      "local-assistant",
+      "existing-bootstrap-secret",
+    );
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7830,
       join(tempDir, ".vellum", "workspace"),
@@ -427,42 +428,6 @@ describe("vellum upgrade local", () => {
       expect.stringContaining("topology: local"),
     );
     expect(consoleLogSpy.mock.calls.flat().join("\n")).toContain("upgraded to");
-  });
-
-  test("re-provisions guardian token when the local token is missing after restart", async () => {
-    loadGuardianTokenMock.mockReturnValue(null);
-
-    await upgrade();
-
-    expect(resetGuardianBootstrapMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:7830",
-      "existing-bootstrap-secret",
-    );
-    expect(leaseGuardianTokenMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:7830",
-      "local-assistant",
-      "existing-bootstrap-secret",
-    );
-  });
-
-  test("re-provisions guardian token when the local refresh token is expired after restart", async () => {
-    loadGuardianTokenMock.mockReturnValue(
-      makeGuardianToken({
-        refreshTokenExpiresAt: new Date(Date.now() - 1_000).toISOString(),
-      }),
-    );
-
-    await upgrade();
-
-    expect(resetGuardianBootstrapMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:7830",
-      "existing-bootstrap-secret",
-    );
-    expect(leaseGuardianTokenMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:7830",
-      "local-assistant",
-      "existing-bootstrap-secret",
-    );
   });
 
   test("skips restart when the local assistant is already on the target version", async () => {

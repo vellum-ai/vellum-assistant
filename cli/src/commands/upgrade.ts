@@ -72,7 +72,6 @@ import {
 import { maybeStartNgrokTunnel } from "../lib/ngrok.js";
 import {
   leaseGuardianToken,
-  loadGuardianToken,
   resetGuardianBootstrap,
   seedGuardianTokenFromSiblingEnv,
 } from "../lib/guardian-token.js";
@@ -764,14 +763,6 @@ function localAdminUrl(entry: AssistantEntry): string {
   return entry.localUrl ?? entry.runtimeUrl;
 }
 
-function guardianTokenRefreshExpired(entry: AssistantEntry): boolean {
-  const token = loadGuardianToken(entry.assistantId);
-  if (!token) return true;
-
-  const refreshExpiry = new Date(token.refreshTokenExpiresAt).getTime();
-  return !Number.isFinite(refreshExpiry) || refreshExpiry <= Date.now();
-}
-
 async function ensureGuardianTokenAfterLocalUpgrade(
   entry: AssistantEntry,
   gatewayPort: number,
@@ -780,8 +771,6 @@ async function ensureGuardianTokenAfterLocalUpgrade(
   if (seedGuardianTokenFromSiblingEnv(entry.assistantId)) {
     console.log("   Seeded guardian token from sibling environment.");
   }
-
-  if (!guardianTokenRefreshExpired(entry)) return;
 
   const loopbackUrl = `http://127.0.0.1:${gatewayPort}`;
   const maxAttempts = 3;
