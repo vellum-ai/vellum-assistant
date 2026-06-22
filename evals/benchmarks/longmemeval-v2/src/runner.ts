@@ -42,19 +42,18 @@ import {
   appendAssistantEvents,
   ensureRunArtifacts,
   type MetricResult,
+  readTranscript,
   updateRunMetadata,
   writeIngestAssistantEvents,
   writeRunMetadata,
-  writeTranscript,
   writeUsage,
 } from "../../../src/lib/metrics";
 import type { Profile } from "../../../src/lib/profile";
-import type { TranscriptTurn } from "../../../src/lib/transcript";
 import {
   DEFAULT_QUESTION_MAX_MS,
   IngestAskError,
   runIngestAsk,
-} from "../../../src/lib/runner/run-ingest-ask";
+} from "./run-ingest-ask";
 import { summarizeAssistantUsage } from "../../../src/lib/usage";
 
 import { type EvalOverrides, type EvalResult, evalFromSpec } from "./judge";
@@ -322,25 +321,10 @@ export async function runLongMemEvalV2Unit(
       detail: `${ingestAskResult.hypothesis.length} chars`,
     });
 
-    // Build a three-turn transcript: ingest prompt → question prompt →
-    // assistant hypothesis. This is the deliberately-coarse Phase 1
-    // shape — per-event transcript reconstruction lives with the full
-    // event capture in a later PR.
-    const transcriptStamp = new Date().toISOString();
-    const transcript: TranscriptTurn[] = [
-      { role: "simulator", content: ingestMessage, emittedAt: transcriptStamp },
-      {
-        role: "simulator",
-        content: questionMessage,
-        emittedAt: transcriptStamp,
-      },
-      {
-        role: "assistant",
-        content: ingestAskResult.hypothesis,
-        emittedAt: transcriptStamp,
-      },
-    ];
-    await writeTranscript(input.runId, transcript);
+    // The transcript is written by `runIngestAsk` itself — it appends
+    // simulator + assistant turns to `transcript.json` as each
+    // conversation progresses, tagged with the real conversation keys.
+    // The benchmark runner no longer constructs the transcript manually.
 
     // Persist the question-turn events as the run's `assistant-events.json`
     // (what the agent said in response to the question), and the ingest-turn
@@ -430,6 +414,11 @@ export async function runLongMemEvalV2Unit(
           }
         : undefined,
     );
+
+    // Read back the transcript that `runIngestAsk` wrote incrementally
+    // as each conversation progressed — the benchmark runner no longer
+    // constructs it manually.
+    const transcript = await readTranscript(input.runId);
 
     return {
       runId: input.runId,

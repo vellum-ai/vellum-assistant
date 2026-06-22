@@ -140,10 +140,7 @@ describe("invite relay routes", () => {
             note: "hi",
             maxUses: 2,
             expiresInMs: undefined,
-            contactName: undefined,
             expectedExternalUserId: undefined,
-            friendName: undefined,
-            guardianName: undefined,
           },
           // The create relay uses a generous timeout (gateway invites_mint can
           // spend ~5s in generateInviteInstruction); list/revoke use the default.

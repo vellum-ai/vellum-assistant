@@ -615,20 +615,8 @@ Examples:
         .option("--max-uses <n>", "Max redemptions")
         .option("--expires-in-ms <ms>", "Expiry duration in milliseconds")
         .option(
-          "--contact-name <name>",
-          "Contact name for personalizing instructions",
-        )
-        .option(
           "--expected-external-user-id <id>",
           "E.164 phone number (required for voice invites)",
-        )
-        .option(
-          "--friend-name <name>",
-          "Friend name (required for voice invites)",
-        )
-        .option(
-          "--guardian-name <name>",
-          "Guardian name (required for voice invites)",
         )
         .requiredOption(
           "--contact-id <id>",
@@ -640,20 +628,20 @@ Examples:
 Creates a new invite token for the specified source channel. The --source-channel
 flag is required and must be one of: telegram, phone, email, whatsapp.
 
+The invitee's display name is read from the bound contact (--contact-id);
+the guardian label is resolved at runtime. There are no free-text name flags.
+
 Optional fields:
   --note                        Free-text note attached to the invite
   --max-uses                    Maximum number of times the invite can be redeemed
   --expires-in-ms               Expiry duration in milliseconds from creation
-  --contact-name                Name used to personalize invite instructions
 
-Voice invites require three additional fields:
+Voice invites also require:
   --expected-external-user-id   E.164 phone number of the expected caller (e.g. +15551234567)
-  --friend-name                 Name the contact uses for the assistant's owner
-  --guardian-name                Name of the guardian associated with this invite
 
 Examples:
-  $ assistant contacts invites create --source-channel telegram --note "For Alice" --max-uses 1
-  $ assistant contacts invites create --source-channel phone --expected-external-user-id "+15551234567" --friend-name "Alice" --guardian-name "Bob" --contact-name "Alice Smith"`,
+  $ assistant contacts invites create --source-channel telegram --contact-id <id> --note "For Alice" --max-uses 1
+  $ assistant contacts invites create --source-channel phone --contact-id <id> --expected-external-user-id "+15551234567"`,
         )
         .action(
           async (
@@ -662,10 +650,7 @@ Examples:
               note?: string;
               maxUses?: string;
               expiresInMs?: string;
-              contactName?: string;
               expectedExternalUserId?: string;
-              friendName?: string;
-              guardianName?: string;
               contactId: string;
             },
             cmd: Command,
@@ -704,10 +689,7 @@ Examples:
                 note: opts.note,
                 maxUses,
                 expiresInMs,
-                contactName: opts.contactName,
                 expectedExternalUserId: opts.expectedExternalUserId,
-                friendName: opts.friendName,
-                guardianName: opts.guardianName,
                 contactId: opts.contactId,
               },
             });

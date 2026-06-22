@@ -60,6 +60,7 @@ import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { ResearchResultsOverlay } from "@/domains/chat/onboarding-research/research-results-overlay";
 import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overlay";
+import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatLayoutHeader } from "./chat-layout-header";
 import { RenameDialogFromStore } from "./rename-dialog-from-store";
@@ -682,6 +683,9 @@ export function ChatLayout() {
           shown over the streaming research output until connect/skip. Self-gates
           on `checkinPending`; top-level so it can compose the onboarding screen. */}
       <OnboardingCheckinOverlay />
+      {/* Applies the research-onboarding picker's avatar once the assistant is
+          hatched (avatar isn't part of the pre-chat handoff context). */}
+      <OnboardingAvatarApplier />
 
       <RenameDialogFromStore assistantId={assistantId} />
       {commandPalette.isOpen ? (

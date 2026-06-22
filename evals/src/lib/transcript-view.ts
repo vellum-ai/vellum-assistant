@@ -67,12 +67,16 @@ export interface AssistantMessageView {
    */
   endedAt?: string;
   blocks: AssistantBlock[];
+  /** Which conversation this message belongs to (inferred from interleaved simulator turns). */
+  conversationKey?: string;
 }
 
 export interface SimulatorTurnView {
   role: "simulator";
   emittedAt: string;
   content: string;
+  /** Which conversation this turn belongs to (forwarded from TranscriptTurn). */
+  conversationKey?: string;
 }
 
 export type TranscriptViewItem = SimulatorTurnView | AssistantMessageView;
@@ -189,11 +193,13 @@ export function buildTranscriptView(
             role: "simulator",
             emittedAt: turn.emittedAt,
             content: turn.content,
+            conversationKey: turn.conversationKey,
           }
         : {
             role: "assistant",
             emittedAt: turn.emittedAt,
             endedAt: turn.emittedAt,
+            conversationKey: turn.conversationKey,
             blocks: [
               {
                 kind: "text",
@@ -210,15 +216,21 @@ export function buildTranscriptView(
   const items: TranscriptViewItem[] = [];
   let current: AssistantMessageView | undefined;
   let simulatorIdx = 0;
+  /** The conversationKey of the most recently flushed simulator turn —
+   * assistant messages built from the question-turn event stream inherit
+   * this so they group with the correct conversation in the UI. */
+  let activeConversationKey: string | undefined;
 
   const flushSimulatorTurnsBefore = (emittedAt: string | undefined) => {
     while (simulatorIdx < simulatorTurns.length) {
       const turn = simulatorTurns[simulatorIdx];
       if (emittedAt !== undefined && turn.emittedAt > emittedAt) break;
+      activeConversationKey = turn.conversationKey ?? activeConversationKey;
       items.push({
         role: "simulator",
         emittedAt: turn.emittedAt,
         content: turn.content,
+        conversationKey: turn.conversationKey,
       });
       simulatorIdx += 1;
       current = undefined;
@@ -245,6 +257,7 @@ export function buildTranscriptView(
         emittedAt: event.emittedAt,
         endedAt: event.emittedAt,
         blocks: [],
+        conversationKey: activeConversationKey,
       };
       items.push(current);
     }

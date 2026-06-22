@@ -16,6 +16,10 @@ import { getConfig } from "../../config/loader.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { getDb } from "../../memory/db-connection.js";
 import { runMemoryEval } from "../../memory/v3-eval/eval-packets.js";
+import {
+  type TallyResult,
+  tallyVerdicts,
+} from "../../memory/v3-eval/eval-tally.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS, type RoutePolicy } from "../auth/route-policy.js";
@@ -35,16 +39,30 @@ const MemoryEvalRunParamsSchema = z.object({
   k: z.number().int().positive().optional(),
   dense: z.boolean().optional(),
   seed: z.number().int().optional(),
+  /** Pin the exact turns to re-mine (turn ids from a prior key.json/packets.json). */
+  turnIds: z.array(z.string()).optional(),
+  /** Conversations to omit from recency mining (e.g. the migration's own chat). */
+  excludeConversationIds: z.array(z.string()).optional(),
 });
 
 const MemoryEvalRunResultSchema = z.object({
   turnsMined: z.number(),
+  turnsRequested: z.number(),
   packetsWritten: z.number(),
   packetsPath: z.string(),
   keyPath: z.string(),
+  metaPath: z.string(),
   snapshotPages: z.number(),
   stagingPages: z.number(),
   dense: z.boolean(),
+  seed: z.number(),
+  k: z.number(),
+  embedding: z.object({
+    provider: z.string(),
+    model: z.string(),
+    dims: z.number().nullable(),
+  }),
+  turnIds: z.array(z.string()),
 });
 export type MemoryEvalRunResult = z.infer<typeof MemoryEvalRunResultSchema>;
 
@@ -62,7 +80,69 @@ export async function handleMemoryEvalRun(
     workspaceDir: getWorkspaceDir(),
     db: getDb(),
   });
+  if (result.turnsMined < result.turnsRequested) {
+    log.warn(
+      { requested: result.turnsRequested, mined: result.turnsMined },
+      "Fewer eval turns mined than requested — pinned turns may have been " +
+        "deleted, or there are too few recent user turns",
+    );
+  }
   log.info(result, "memory eval packets written");
+  return result;
+}
+
+const MemoryEvalTallyParamsSchema = z.object({
+  /** Judge verdicts (one or more per turn for a panel); winner derived from scores if absent. */
+  verdicts: z.array(
+    z.object({
+      turn: z.string(),
+      winner: z.string().optional(),
+      scoreA: z.number(),
+      scoreB: z.number(),
+    }),
+  ),
+  /** The per-turn A/B → snapshot/staging unblinding map from `eval` (key.json). */
+  key: z.array(
+    z.object({
+      turn: z.string(),
+      a: z.enum(["snapshot", "staging"]),
+      b: z.enum(["snapshot", "staging"]),
+    }),
+  ),
+  /** Sign-test significance threshold (default 0.05). */
+  alpha: z.number().positive().optional(),
+});
+
+const MemoryEvalTallyResultSchema = z.object({
+  turns: z.number(),
+  verdictsCounted: z.number(),
+  unmatchedVerdicts: z.number(),
+  panel: z.object({ min: z.number(), max: z.number(), mean: z.number() }),
+  snapshotWins: z.number(),
+  stagingWins: z.number(),
+  ties: z.number(),
+  decided: z.number(),
+  meanSnapshot: z.number(),
+  meanStaging: z.number(),
+  signTestP: z.number(),
+  verdict: z.enum(["wiki-wins", "tie", "wiki-loses"]),
+  gate: z.enum(["pass", "fail"]),
+  confident: z.boolean(),
+  notes: z.array(z.string()),
+});
+export type MemoryEvalTallyResult = z.infer<typeof MemoryEvalTallyResultSchema>;
+
+/**
+ * Pure: join the judge verdicts to the unblinding key and return the noise-aware
+ * gate verdict. The CLI reads the verdicts/key files and passes the arrays.
+ */
+export function handleMemoryEvalTally(body: unknown): MemoryEvalTallyResult {
+  const params = MemoryEvalTallyParamsSchema.parse(body ?? {});
+  const result: TallyResult = tallyVerdicts(
+    params.verdicts,
+    params.key,
+    params.alpha !== undefined ? { alpha: params.alpha } : {},
+  );
   return result;
 }
 
@@ -83,5 +163,17 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["memory"],
     requestBody: MemoryEvalRunParamsSchema,
     responseBody: MemoryEvalRunResultSchema,
+  },
+  {
+    operationId: "memory_eval_tally",
+    method: "POST",
+    policy: WRITE_POLICY,
+    endpoint: "memory/eval/tally",
+    handler: ({ body }) => handleMemoryEvalTally(body),
+    summary:
+      "Unblind + tally blind-judge verdicts against the key with a noise-aware win/tie/loss verdict",
+    tags: ["memory"],
+    requestBody: MemoryEvalTallyParamsSchema,
+    responseBody: MemoryEvalTallyResultSchema,
   },
 ];

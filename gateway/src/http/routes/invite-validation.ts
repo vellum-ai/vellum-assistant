@@ -22,10 +22,7 @@ export interface CreateInviteInput {
   note?: string;
   maxUses?: number;
   expiresInMs?: number;
-  contactName?: string;
   expectedExternalUserId?: string;
-  friendName?: string;
-  guardianName?: string;
 }
 
 export type ParseResult<T> =
@@ -42,10 +39,7 @@ export const createInviteSchema = z.object({
   note: z.string().optional(),
   maxUses: positiveNumber.optional(),
   expiresInMs: positiveNumber.optional(),
-  contactName: z.string().optional(),
   expectedExternalUserId: z.string().optional(),
-  friendName: z.string().optional(),
-  guardianName: z.string().optional(),
 });
 
 function firstIssueMessage(error: z.ZodError): string {
