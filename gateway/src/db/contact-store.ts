@@ -24,8 +24,11 @@ export type ContactChannel = typeof contactChannels.$inferSelect;
 export type IngressInviteRow = typeof ingressInvites.$inferSelect;
 
 /** ACL fields of an adopted assistant channel, carried through the create-heal
- * path so syncChannels' INSERT preserves them instead of defaulting. */
+ * path so syncChannels' INSERT preserves them instead of defaulting. `id` is the
+ * assistant channel's own id, adopted so the gateway row shares one canonical
+ * channel id (verify-by-id can't split). */
 type AdoptedChannelAcl = {
+  id: string;
   type: string;
   address: string;
   isPrimary: boolean;
@@ -696,13 +699,50 @@ export class ContactStore {
     channel: ContactChannel;
     didWrite: boolean;
   } | null> {
-    // Migration-window backfill: if the gateway DB has never seen this
-    // channel, but the assistant DB has it, mirror channel + parent contact
-    // into the gateway DB before attempting the verify write. Without this,
-    // any contact channel created before the dual-write was wired would
-    // 404 here even though the user can see the channel in their UI.
-    const mirrored = await this.mirrorChannelFromAssistantIfMissing(channelId);
-    if (!mirrored) return null;
+    // Resolve the gateway row id to write. The caller's `channelId` may be the
+    // assistant channel's id while the gateway row lives under a different id
+    // (pre-canonical-id split). Defense-in-depth mirroring updateChannelStatus:
+    // resolve by (type,address) before falling back to mirroring, so a verify
+    // by the assistant id hits the existing gateway ACL instead of 404ing.
+    let targetId = channelId;
+    const gwExisting = this.db
+      .select({ id: contactChannels.id })
+      .from(contactChannels)
+      .where(eq(contactChannels.id, channelId))
+      .get();
+    if (!gwExisting) {
+      const assistantChannel = await assistantDbQuery<{
+        type: string;
+        address: string;
+      }>("SELECT type, address FROM contact_channels WHERE id = ?", [
+        channelId,
+      ]).catch(() => []);
+      const resolved = assistantChannel.length
+        ? this.db
+            .select({ id: contactChannels.id })
+            .from(contactChannels)
+            .where(
+              and(
+                eq(contactChannels.type, assistantChannel[0].type),
+                sql`${contactChannels.address} = ${assistantChannel[0].address} COLLATE NOCASE`,
+              ),
+            )
+            .get()
+        : undefined;
+      if (resolved) {
+        targetId = resolved.id;
+      } else {
+        // Migration-window backfill: the gateway DB has never seen this
+        // channel, but the assistant DB has it. Mirror channel + parent contact
+        // (reusing the assistant id) before the verify write. Without this, any
+        // contact channel created before the dual-write was wired would 404
+        // here even though the user can see the channel in their UI.
+        const mirrored = await this.mirrorChannelFromAssistantIfMissing(
+          channelId,
+        );
+        if (!mirrored) return null;
+      }
+    }
 
     const now = Date.now();
     const raw = (this.db as unknown as { $client: Database }).$client;
@@ -713,12 +753,12 @@ export class ContactStore {
          WHERE id = ?
            AND (status != ? OR verified_via != ? OR verified_via IS NULL)`,
       )
-      .run("active", now, "manual", now, channelId, "active", "manual");
+      .run("active", now, "manual", now, targetId, "active", "manual");
 
     const after = this.db
       .select()
       .from(contactChannels)
-      .where(eq(contactChannels.id, channelId))
+      .where(eq(contactChannels.id, targetId))
       .get();
 
     if (!after) return null;
@@ -734,11 +774,11 @@ export class ContactStore {
           `UPDATE contact_channels
              SET status = 'active', verified_at = ?, verified_via = 'manual', updated_at = ?
            WHERE id = ?`,
-          [now, now, channelId],
+          [now, now, targetId],
         );
       } catch (err) {
         log.warn(
-          { channelId, err },
+          { channelId, targetId, err },
           "markChannelVerified: assistant DB dual-write failed (best-effort)",
         );
       }
@@ -938,6 +978,10 @@ export class ContactStore {
       metadata?: Record<string, unknown> | null;
     };
     channels?: Array<{
+      // Internal: heal/adopt path sets this to the assistant channel's id so the
+      // gateway INSERT shares one canonical id. Public callers omit it (a fresh
+      // UUID is minted). Never honored on the existing-channel UPDATE path.
+      id?: string;
       type: string;
       address: string;
       isPrimary?: boolean;
@@ -1444,11 +1488,12 @@ export class ContactStore {
         .get();
       if (conflict) continue;
 
-      // New channel
+      // New channel. Honor an adopted assistant channel id (heal path) so both
+      // DBs share one canonical id; otherwise mint a fresh UUID.
       this.db
         .insert(contactChannels)
         .values({
-          id: crypto.randomUUID(),
+          id: ch.id ?? crypto.randomUUID(),
           contactId,
           type: ch.type,
           address: ch.address,
@@ -1488,6 +1533,8 @@ export class ContactStore {
       if (!sameAddress) return ch;
       return {
         ...ch,
+        // Adopt the assistant channel id so syncChannels' INSERT shares it.
+        id: ch.id ?? acl.id,
         isPrimary: ch.isPrimary ?? acl.isPrimary,
         externalChatId: ch.externalChatId ?? acl.externalChatId,
         status: ch.status ?? acl.status,
@@ -1718,6 +1765,7 @@ export class ContactStore {
         const rows = await assistantDbQuery<{
           contactId: string;
           displayName: string | null;
+          id: string;
           type: string;
           address: string;
           isPrimary: number;
@@ -1732,6 +1780,7 @@ export class ContactStore {
         }>(
           `SELECT cc.contact_id      AS contactId,
                   c.display_name     AS displayName,
+                  cc.id,
                   cc.type,
                   cc.address,
                   cc.is_primary      AS isPrimary,
@@ -1755,6 +1804,7 @@ export class ContactStore {
             contactId: r.contactId,
             displayName: r.displayName,
             channelAcl: {
+              id: r.id,
               type: r.type,
               address: r.address,
               isPrimary: Boolean(r.isPrimary),

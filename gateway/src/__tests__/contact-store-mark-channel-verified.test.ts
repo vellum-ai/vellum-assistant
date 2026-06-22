@@ -314,6 +314,36 @@ describe("ContactStore.markChannelVerified", () => {
     expect(contactInGateway!.role).toBe("guardian");
   });
 
+  test("verifies the existing gateway row when (type,address) lives under a different id", async () => {
+    // Split-brain: the caller's channelId is the assistant id, but the gateway
+    // already holds the same (type,address) under a DIFFERENT id (pre-canonical
+    // split). Resolve by (type,address) and verify that row instead of 404ing.
+    seedContact("c-gw", "contact");
+    seedChannel({ id: "gw-ch", contactId: "c-gw", status: "unverified" });
+    seedAssistantContact("c-asst", "contact");
+    seedAssistantChannel({
+      id: "asst-ch",
+      contactId: "c-asst",
+      status: "unverified",
+    });
+    fakeAssistantDb.channels.get("asst-ch")!.address = "addr-gw-ch";
+
+    const result = await new ContactStore().markChannelVerified("asst-ch");
+
+    // Existing gateway row was verified; no 404, no duplicate mirror.
+    expect(result).not.toBeNull();
+    expect(result!.channel.id).toBe("gw-ch");
+    expect(result!.channel.status).toBe("active");
+    expect(result!.channel.verifiedVia).toBe("manual");
+    expect(
+      getGatewayDb()
+        .select()
+        .from(contactChannels)
+        .where(eq(contactChannels.id, "asst-ch"))
+        .get(),
+    ).toBeUndefined();
+  });
+
   test("refuses to mirror when assistant channel references a missing contact", async () => {
     // Channel present, parent contact absent — broken state, refuse silently.
     seedAssistantChannel({

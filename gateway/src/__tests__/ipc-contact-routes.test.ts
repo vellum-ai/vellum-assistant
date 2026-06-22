@@ -402,6 +402,10 @@ describe("IPC contact routes", () => {
     const channels = store.getChannelsForContact(contactId);
     expect(channels).toHaveLength(1);
     expect(channels[0].id).toBe(channelId);
+    // No assistant adoption match → a freshly minted UUID, not an adopted id.
+    expect(channels[0].id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
     expect(channels[0].type).toBe("email");
     expect(channels[0].address).toBe("new@example.com");
     expect(channels[0].isPrimary).toBe(true);
@@ -759,10 +763,17 @@ describe("IPC contact routes", () => {
     });
 
     expect(res.error).toBeUndefined();
-    const { contactId } = res.result as { contactId: string };
+    const { contactId, channelId } = res.result as {
+      contactId: string;
+      channelId: string;
+    };
 
     // The returned (gateway) id IS the existing assistant id — one canonical id.
     expect(contactId).toBe(assistantContactId);
+    // The gateway channel row adopts the assistant channel id (one canonical
+    // channel id), so the returned channelId equals it — a follow-up verify by
+    // this id can't 404 on a split-brain row.
+    expect(channelId).toBe(assistantChannelId);
 
     // No duplicate assistant contact INSERT; the existing channel is updated,
     // not re-inserted.
@@ -790,6 +801,9 @@ describe("IPC contact routes", () => {
     const gwChannels = store.getChannelsForContact(contactId);
     expect(gwChannels).toHaveLength(1);
     expect(gwChannels[0].address).toBe("existing-person@example.com");
+    // Canonical channel id: the gateway row shares the assistant channel's id
+    // (not a freshly minted UUID), so verify-by-id resolves the gateway row.
+    expect(gwChannels[0].id).toBe(assistantChannelId);
 
     // The heal must carry the assistant channel's ACL state into the new
     // gateway row — NOT default it to unverified/allow. An active/verified
