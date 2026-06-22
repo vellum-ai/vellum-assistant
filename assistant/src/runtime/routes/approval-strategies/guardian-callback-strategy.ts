@@ -14,6 +14,10 @@ import {
 } from "../../../memory/guardian-approvals.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
 import type { NotificationSourceChannel } from "../../../notifications/signal.js";
+import type {
+  TrustedContactDecisionPayload,
+  TrustedContactVerificationSentPayload,
+} from "../../../notifications/trusted-contact-payloads.js";
 import { getLogger } from "../../../util/logger.js";
 import { runApprovalConversationTurn } from "../../approval-conversation-turn.js";
 import { composeApprovalMessageGenerative } from "../../approval-message-composer.js";
@@ -789,14 +793,14 @@ async function handleAccessRequestApproval(
 
     // Emit both guardian_decision and denied signals so all lifecycle
     // observers are notified of the denial.
-    const deniedPayload = {
+    const deniedPayload: TrustedContactDecisionPayload = {
       sourceChannel: approval.channel as NotificationSourceChannel,
       requesterExternalUserId: approval.requesterExternalUserId,
       requesterChatId: approval.requesterChatId,
       decidedByExternalUserId,
       requesterDisplayName,
       decidedByDisplayName,
-      decision: "denied" as const,
+      decision: "denied",
     };
 
     void emitNotificationSignal({
@@ -909,6 +913,16 @@ async function handleAccessRequestApproval(
   // The guardian_decision signal should only fire once access is fully granted
   // (i.e. after code consumption), which is handled in the verification path.
   if (!decisionResult.verificationSessionId) {
+    const approvedPayload: TrustedContactDecisionPayload = {
+      sourceChannel: approval.channel as NotificationSourceChannel,
+      requesterExternalUserId: approval.requesterExternalUserId,
+      requesterChatId: approval.requesterChatId,
+      decidedByExternalUserId,
+      requesterDisplayName,
+      decidedByDisplayName,
+      decision: "approved",
+    };
+
     void emitNotificationSignal({
       sourceEventName: "ingress.trusted_contact.guardian_decision",
       sourceChannel: approval.channel as NotificationSourceChannel,
@@ -919,15 +933,7 @@ async function handleAccessRequestApproval(
         isAsyncBackground: false,
         visibleInSourceNow: false,
       },
-      contextPayload: {
-        sourceChannel: approval.channel as NotificationSourceChannel,
-        requesterExternalUserId: approval.requesterExternalUserId,
-        requesterChatId: approval.requesterChatId,
-        decidedByExternalUserId,
-        requesterDisplayName,
-        decidedByDisplayName,
-        decision: "approved",
-      },
+      contextPayload: approvedPayload,
       dedupeKey: `trusted-contact:guardian-decision:${approval.id}`,
     });
   }
@@ -937,6 +943,15 @@ async function handleAccessRequestApproval(
   // verification code directly. Without this flag, the pipeline generates
   // a redundant LLM message like "Good news! Your request has been approved."
   if (decisionResult.verificationSessionId && codeDelivered) {
+    const verificationSentPayload: TrustedContactVerificationSentPayload = {
+      sourceChannel: approval.channel as NotificationSourceChannel,
+      requesterExternalUserId: approval.requesterExternalUserId,
+      requesterChatId: approval.requesterChatId,
+      requesterDisplayName,
+      decidedByDisplayName,
+      verificationSessionId: decisionResult.verificationSessionId,
+    };
+
     void emitNotificationSignal({
       sourceEventName: "ingress.trusted_contact.verification_sent",
       sourceChannel: approval.channel as NotificationSourceChannel,
@@ -947,14 +962,7 @@ async function handleAccessRequestApproval(
         isAsyncBackground: true,
         visibleInSourceNow: true,
       },
-      contextPayload: {
-        sourceChannel: approval.channel as NotificationSourceChannel,
-        requesterExternalUserId: approval.requesterExternalUserId,
-        requesterChatId: approval.requesterChatId,
-        requesterDisplayName,
-        decidedByDisplayName,
-        verificationSessionId: decisionResult.verificationSessionId,
-      },
+      contextPayload: verificationSentPayload,
       dedupeKey: `trusted-contact:verification-sent:${decisionResult.verificationSessionId}`,
     });
   }
