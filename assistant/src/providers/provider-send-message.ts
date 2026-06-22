@@ -30,6 +30,17 @@ const log = getLogger("provider-send-message");
 export interface ConfiguredProviderResult {
   provider: Provider;
   configuredProviderName: string;
+  /**
+   * Resolved model id (e.g. `"accounts/fireworks/models/minimax-m3"`).
+   * Sourced from `resolveCallSiteConfig(...)` — already merged over
+   * `llm.default` and routed through the call-site profile layers, so this
+   * is the same model id the call site would dispatch to with no further
+   * resolution. Plugins that need to compare `(provider, model)` identities
+   * across two `getConfiguredProvider` calls should use this alongside
+   * `provider.name` rather than walking `provider.inner.*` (which is
+   * an internal layering detail and may change without notice).
+   */
+  model: string;
 }
 
 /**
@@ -184,6 +195,7 @@ export async function resolveConfiguredProvider(
       opts.forceOverrideProfile,
     ),
     configuredProviderName: inferenceProvider,
+    model: resolved.model,
   };
 }
 
@@ -201,6 +213,24 @@ export async function getConfiguredProvider(
 ): Promise<Provider | null> {
   const result = await resolveConfiguredProvider(callSite, opts);
   return result?.provider ?? null;
+}
+
+/**
+ * Resolve just the model id a call site would dispatch to under the given
+ * profile override. Returns `null` when no provider is configured.
+ *
+ * Use this when a plugin needs to compare two profiles' resolved
+ * `(provider, model)` identities without instantiating both Providers —
+ * `getConfiguredProvider` only exposes the wrapped provider, whose
+ * underlying model id lives in an internal `inner.*` chain that callers
+ * should not depend on.
+ */
+export async function getConfiguredModelId(
+  callSite: LLMCallSite,
+  opts: { overrideProfile?: string; forceOverrideProfile?: boolean } = {},
+): Promise<string | null> {
+  const result = await resolveConfiguredProvider(callSite, opts);
+  return result?.model ?? null;
 }
 
 /**

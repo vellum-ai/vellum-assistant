@@ -10,6 +10,7 @@
 
 import {
   doesSupportVision,
+  getConfiguredModelId,
   getConfiguredProvider,
   getModelProfiles,
   type ImageContent,
@@ -39,8 +40,8 @@ const CAPTION_USER_PROMPT = "Describe this image concisely for a text-only assis
  * the `/model` picker shows them) and returns the first enabled profile that:
  *   1. has a different key than `activeProfileKey` (when provided), AND
  *   2. `doesSupportVision` reports as vision-capable, AND
- *   3. resolves to a provider whose name differs from the active profile's
- *      resolved provider.
+ *   3. resolves to a `(provider, model)` tuple different from the active
+ *      profile's resolved `(provider, model)`.
  *
  * Returns `null` when no such profile exists — the hook fails-open in that
  * case, leaving a placeholder text block.
@@ -50,26 +51,39 @@ const CAPTION_USER_PROMPT = "Describe this image concisely for a text-only assis
  * and `auto` both → fireworks / glm-5p2). `doesSupportVision` may return
  * `true` for the candidate due to a catalog miss — `vision-support.ts` is
  * fail-open (`catalogModel?.supportsVision ?? true`), so we cross-check by
- * resolving the candidate's provider and comparing provider names. The cost
- * is one extra config resolution per candidate, no LLM traffic.
+ * resolving the candidate's `(provider, model)` and comparing against the
+ * active profile's. The comparison must include the model id, not just the
+ * provider name, because two profiles sharing a provider can legitimately
+ * use different models (e.g. `os-beta → fireworks / glm-5p2` and
+ * `balanced → fireworks / minimax-m3`) — only the model id distinguishes
+ * text-only from vision-capable under the same provider. The cost is one
+ * extra config resolution per candidate, no LLM traffic.
  *
- * `getConfiguredProvider` is a thin async wrapper around
- * `resolveConfiguredProvider` that loads credentials and instantiates the
- * provider — it does NOT make any LLM request.
+ * `getConfiguredModelId` and `getConfiguredProvider` are thin async wrappers
+ * around `resolveConfiguredProvider` that load credentials and instantiate
+ * the provider — they do NOT make any LLM request.
  */
 export async function findVisionProfile(
   activeProfileKey?: string | null,
 ): Promise<string | null> {
-  // Resolve the active profile's provider name once so each candidate's
+  // Resolve the active profile's (provider, model) once so each candidate's
   // resolution can be compared against it. Catch any resolution failure so
   // a transient config issue does not take the whole caption path offline.
-  let activeProviderName: string | null = null;
+  let activeIdentity: { provider: string; model: string } | null = null;
   if (activeProfileKey != null) {
-    const activeProvider = await getConfiguredProvider("vision", {
-      overrideProfile: activeProfileKey,
-      forceOverrideProfile: true,
-    }).catch(() => null);
-    activeProviderName = activeProvider?.name ?? null;
+    const [activeProvider, activeModel] = await Promise.all([
+      getConfiguredProvider("vision", {
+        overrideProfile: activeProfileKey,
+        forceOverrideProfile: true,
+      }).catch(() => null),
+      getConfiguredModelId("vision", {
+        overrideProfile: activeProfileKey,
+        forceOverrideProfile: true,
+      }).catch(() => null),
+    ]);
+    if (activeProvider?.name != null && activeModel != null) {
+      activeIdentity = { provider: activeProvider.name, model: activeModel };
+    }
   }
 
   for (const profile of getModelProfiles()) {
@@ -77,16 +91,30 @@ export async function findVisionProfile(
     if (activeProfileKey != null && profile.key === activeProfileKey) continue;
     if (!doesSupportVision(profile)) continue;
 
-    // Skip candidates whose resolved provider matches the active profile's.
-    // Without this guard, a misconfigured workspace (catalog miss on the
-    // candidate model) would route the caption call back to the same
-    // text-only model the hook is trying to caption around.
-    if (activeProviderName != null) {
-      const candidateProvider = await getConfiguredProvider("vision", {
-        overrideProfile: profile.key,
-        forceOverrideProfile: true,
-      }).catch(() => null);
-      if (candidateProvider?.name === activeProviderName) continue;
+    // Skip candidates whose resolved (provider, model) matches the active
+    // profile's. Without this guard, a misconfigured workspace (catalog miss
+    // on the candidate model) would route the caption call back to the same
+    // text-only model the hook is trying to caption around. We compare on
+    // both fields: a candidate sharing the active's PROVIDER but with a
+    // different MODEL (e.g. balanced → fireworks/minimax-m3 vs os-beta →
+    // fireworks/glm-5p2) is a legitimate vision-capable fallback.
+    if (activeIdentity != null) {
+      const [candidateProvider, candidateModel] = await Promise.all([
+        getConfiguredProvider("vision", {
+          overrideProfile: profile.key,
+          forceOverrideProfile: true,
+        }).catch(() => null),
+        getConfiguredModelId("vision", {
+          overrideProfile: profile.key,
+          forceOverrideProfile: true,
+        }).catch(() => null),
+      ]);
+      if (
+        candidateProvider?.name === activeIdentity.provider &&
+        candidateModel === activeIdentity.model
+      ) {
+        continue;
+      }
     }
 
     return profile.key;

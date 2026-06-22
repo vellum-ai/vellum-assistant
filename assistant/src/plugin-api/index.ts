@@ -148,4 +148,4 @@ export { doesSupportVision } from "./vision-support.js";
 // profile), so it loses to that pin; pass `forceOverrideProfile: true` to
 // float the chosen profile above the call-site layers when the plugin must
 // run on a specific profile regardless of workspace tuning.
-export { getConfiguredProvider } from "../providers/provider-send-message.js";
+export { getConfiguredModelId,getConfiguredProvider } from "../providers/provider-send-message.js";

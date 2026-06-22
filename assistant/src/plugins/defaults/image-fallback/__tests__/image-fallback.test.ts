@@ -15,7 +15,11 @@ import type {
 // state containers in place instead of reassigning them.
 const visionProfiles = new Set<string>();
 const mockProfiles: ModelProfileInfo[] = [];
+// Map of profile key → provider name. `providerMap` and `modelMap` together
+// describe each profile's resolved `(provider, model)` identity — the same
+// tuple `findVisionProfile` now compares on.
 const providerMap = new Map<string, string>();
+const modelMap = new Map<string, string>();
 let sendMessageResponse = {
   content: [{ type: "text", text: "A red chart showing Q3 revenue." }],
 };
@@ -50,6 +54,14 @@ mock.module("@vellumai/plugin-api", () => ({
     if (name == null) return null;
     return makeMockProvider(name);
   },
+  getConfiguredModelId: async (
+    _callSite: string,
+    opts?: { overrideProfile?: string },
+  ) => {
+    if (!providerResolves) return null;
+    if (opts?.overrideProfile == null) return "mock-default-model";
+    return modelMap.get(opts.overrideProfile) ?? null;
+  },
 }));
 
 // Helper to reset the in-place state containers with the default values.
@@ -57,6 +69,7 @@ function resetMockState(overrides?: {
   vision?: string[];
   profiles?: ModelProfileInfo[];
   providers?: Array<[string, string]>;
+  models?: Array<[string, string]>;
 }) {
   visionProfiles.clear();
   for (const v of overrides?.vision ?? ["vision-profile"]) visionProfiles.add(v);
@@ -72,6 +85,12 @@ function resetMockState(overrides?: {
     ["text-only", "fireworks"],
     ["vision-profile", "anthropic"],
   ]) providerMap.set(k, v);
+
+  modelMap.clear();
+  for (const [k, v] of overrides?.models ?? [
+    ["text-only", "accounts/fireworks/models/glm-5p2"],
+    ["vision-profile", "anthropic/claude-opus-4-8"],
+  ]) modelMap.set(k, v);
 }
 
 // Mock the image-persist module to avoid filesystem side effects in tests.
@@ -360,35 +379,60 @@ describe("findVisionProfile", () => {
     expect(await findVisionProfile(null)).toBe("vision-profile");
   });
 
-  // ── Regression: skip candidates whose resolved PROVIDER matches the
-  //    active profile's, even when the candidate has a different key.
+  // ── Regression: skip candidates whose resolved (provider, MODEL) matches
+  //    the active profile's, even when the candidate has a different key.
   //    This is the actual bug from the log: `auto` resolves to the same
-  //    fireworks provider as the active `os-beta`, but doesSupportVision
+  //    fireworks/glm-5p2 model as the active `os-beta`, but doesSupportVision
   //    returns true for `auto` due to a catalog miss (vision-support.ts
   //    is fail-open: `catalogModel?.supportsVision ?? true`). ────────────
-  test("skips candidates that resolve to the same provider as the active profile", async () => {
+  test("skips candidates that resolve to the same (provider, model) as the active profile", async () => {
     visionProfiles.clear();
     visionProfiles.add("auto");
-    visionProfiles.add("balanced");
     visionProfiles.add("quality-optimized");
     mockProfiles.length = 0;
     mockProfiles.push(
       profile("os-beta", { label: "OS Beta", isActive: true }),
       profile("auto", { label: "Auto" }),
-      profile("balanced", { label: "Balanced" }),
       profile("quality-optimized", { label: "Quality" }),
     );
-    // os-beta, auto, balanced all resolve to fireworks (same text-only model).
-    // Only quality-optimized resolves to a different provider.
+    // os-beta and auto both resolve to fireworks + glm-5p2 (the actual bug).
+    // quality-optimized resolves to a different (provider, model) entirely.
     providerMap.clear();
     providerMap.set("os-beta", "fireworks");
     providerMap.set("auto", "fireworks");
-    providerMap.set("balanced", "fireworks");
     providerMap.set("quality-optimized", "anthropic");
+    modelMap.clear();
+    modelMap.set("os-beta", "accounts/fireworks/models/glm-5p2");
+    modelMap.set("auto", "accounts/fireworks/models/glm-5p2");
+    modelMap.set("quality-optimized", "anthropic/claude-opus-4-8");
     expect(await findVisionProfile("os-beta")).toBe("quality-optimized");
   });
 
-  test("returns null when every vision-capable profile resolves to the active provider", async () => {
+  // ── Regression: candidates sharing the active's provider but with a
+  //    DIFFERENT model are legitimate vision-capable fallbacks. This is
+  //    the case the previous fix got wrong — `balanced` shares the
+  //    fireworks provider with `os-beta` but routes to `minimax-m3`
+  //    (vision-capable per the catalog), so it must be eligible. ────────
+  test("does NOT skip a candidate that shares provider but uses a different model", async () => {
+    visionProfiles.clear();
+    visionProfiles.add("balanced");
+    mockProfiles.length = 0;
+    mockProfiles.push(
+      profile("os-beta", { label: "OS Beta", isActive: true }),
+      profile("balanced", { label: "Balanced" }),
+    );
+    // Both resolve to fireworks, but the model differs — the candidate
+    // is genuinely vision-capable and must be returned.
+    providerMap.clear();
+    providerMap.set("os-beta", "fireworks");
+    providerMap.set("balanced", "fireworks");
+    modelMap.clear();
+    modelMap.set("os-beta", "accounts/fireworks/models/glm-5p2");
+    modelMap.set("balanced", "accounts/fireworks/models/minimax-m3");
+    expect(await findVisionProfile("os-beta")).toBe("balanced");
+  });
+
+  test("returns null when every vision-capable profile resolves to the active (provider, model)", async () => {
     visionProfiles.clear();
     visionProfiles.add("auto");
     visionProfiles.add("balanced");
@@ -398,10 +442,15 @@ describe("findVisionProfile", () => {
       profile("auto", { label: "Auto" }),
       profile("balanced", { label: "Balanced" }),
     );
+    // All three resolve to the same text-only model. Nothing to fall back to.
     providerMap.clear();
     providerMap.set("os-beta", "fireworks");
     providerMap.set("auto", "fireworks");
     providerMap.set("balanced", "fireworks");
+    modelMap.clear();
+    modelMap.set("os-beta", "accounts/fireworks/models/glm-5p2");
+    modelMap.set("auto", "accounts/fireworks/models/glm-5p2");
+    modelMap.set("balanced", "accounts/fireworks/models/glm-5p2");
     expect(await findVisionProfile("os-beta")).toBeNull();
   });
 
@@ -410,6 +459,7 @@ describe("findVisionProfile", () => {
     // candidates without exploding. The fallback is "no active identity
     // to compare against" → behavior matches the no-active-key case.
     providerMap.clear(); // every resolution returns null
+    modelMap.clear();
     expect(await findVisionProfile("text-only")).toBe("vision-profile");
   });
 });
