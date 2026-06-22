@@ -51,12 +51,14 @@ const userPromptSubmit: PluginHookFn<UserPromptSubmitContext> = async (ctx) => {
   // If the active model already supports vision, nothing to do.
   if (doesSupportVision(activeProfile)) return;
 
-  // Find a vision-capable profile for captioning, explicitly excluding the
-  // active profile. If the workspace has no other vision-capable profile,
-  // `findVisionProfile` returns `null` and we fall through to the placeholder
-  // path below — the same fail-open behavior as before, but without the risk
-  // of routing the vision call back to the same text-only model.
-  const visionProfileKey = findVisionProfile(activeProfile.key);
+  // Find a vision-capable profile for captioning, excluding both the active
+  // profile key AND any candidate that resolves to the same provider as the
+  // active profile. Without the resolved-provider skip, a workspace whose
+  // candidate profile has a different key but the same text-only model as
+  // the active profile (a known issue when `doesSupportVision` is fail-open
+  // for catalog misses) would route the caption call back to the same model
+  // and the provider would 400 with "doesn't support image input".
+  const visionProfileKey = await findVisionProfile(activeProfile.key);
 
   // Scan all messages for image blocks and replace them with captions.
   let imageCount = 0;

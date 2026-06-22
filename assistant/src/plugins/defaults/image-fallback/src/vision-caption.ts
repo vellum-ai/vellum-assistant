@@ -36,27 +36,60 @@ const CAPTION_USER_PROMPT = "Describe this image concisely for a text-only assis
  * Find a vision-capable, enabled profile key for captioning.
  *
  * Scans the workspace's profiles in `getModelProfiles()` order (the same order
- * the `/model` picker shows them) and returns the first enabled profile whose
- * resolved model supports vision. Returns `null` when no vision profile exists
- * — the hook fails-open in that case, leaving a placeholder text block.
+ * the `/model` picker shows them) and returns the first enabled profile that:
+ *   1. has a different key than `activeProfileKey` (when provided), AND
+ *   2. `doesSupportVision` reports as vision-capable, AND
+ *   3. resolves to a provider whose name differs from the active profile's
+ *      resolved provider.
  *
- * Pass `activeProfileKey` (the profile the main agent loop is currently
- * running on) to skip that profile even when it is flagged as
- * vision-capable. This is a defensive guard against a misconfigured workspace
- * where the active profile's resolved `(provider, model)` is the same
- * text-only model the hook is trying to caption around — without this guard,
- * captioning would route the vision call back to the same model and the
- * provider would reject the image input. The hook's caller is responsible for
- * resolving `activeProfileKey` from `ctx.modelProfileKey` (or the workspace's
- * active profile when that field is `null`) before invoking.
+ * Returns `null` when no such profile exists — the hook fails-open in that
+ * case, leaving a placeholder text block.
+ *
+ * Condition 3 is the belt-and-suspenders against the bug where two
+ * different profile keys resolve to the same text-only model (e.g. `os-beta`
+ * and `auto` both → fireworks / glm-5p2). `doesSupportVision` may return
+ * `true` for the candidate due to a catalog miss — `vision-support.ts` is
+ * fail-open (`catalogModel?.supportsVision ?? true`), so we cross-check by
+ * resolving the candidate's provider and comparing provider names. The cost
+ * is one extra config resolution per candidate, no LLM traffic.
+ *
+ * `getConfiguredProvider` is a thin async wrapper around
+ * `resolveConfiguredProvider` that loads credentials and instantiates the
+ * provider — it does NOT make any LLM request.
  */
-export function findVisionProfile(activeProfileKey?: string | null): string | null {
+export async function findVisionProfile(
+  activeProfileKey?: string | null,
+): Promise<string | null> {
+  // Resolve the active profile's provider name once so each candidate's
+  // resolution can be compared against it. Catch any resolution failure so
+  // a transient config issue does not take the whole caption path offline.
+  let activeProviderName: string | null = null;
+  if (activeProfileKey != null) {
+    const activeProvider = await getConfiguredProvider("vision", {
+      overrideProfile: activeProfileKey,
+      forceOverrideProfile: true,
+    }).catch(() => null);
+    activeProviderName = activeProvider?.name ?? null;
+  }
+
   for (const profile of getModelProfiles()) {
     if (profile.isDisabled) continue;
     if (activeProfileKey != null && profile.key === activeProfileKey) continue;
-    if (doesSupportVision(profile)) {
-      return profile.key;
+    if (!doesSupportVision(profile)) continue;
+
+    // Skip candidates whose resolved provider matches the active profile's.
+    // Without this guard, a misconfigured workspace (catalog miss on the
+    // candidate model) would route the caption call back to the same
+    // text-only model the hook is trying to caption around.
+    if (activeProviderName != null) {
+      const candidateProvider = await getConfiguredProvider("vision", {
+        overrideProfile: profile.key,
+        forceOverrideProfile: true,
+      }).catch(() => null);
+      if (candidateProvider?.name === activeProviderName) continue;
     }
+
+    return profile.key;
   }
   return null;
 }
