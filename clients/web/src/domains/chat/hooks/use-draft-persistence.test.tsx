@@ -105,10 +105,8 @@ describe("cold-load restore", () => {
   });
 
   /**
-   * Regression: restoreDraftIfEmpty must not fire on navigation switches —
-   * only on the initial mount. When it fired on every activeConversationId
-   * change it raced with handleConversationSwitch, polluting other
-   * conversations' draft entries (LUM-2523).
+   * Cold-load restore is mount-only; navigation switches are exclusively
+   * handled by handleConversationSwitch to avoid racing with it.
    */
   test("does not restore drafts on subsequent conversation switches", () => {
     // GIVEN conversation B has a saved draft
