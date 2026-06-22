@@ -140,16 +140,14 @@ export function ResearchResultsStep({
   const [claims, setClaims] = useState(initial);
 
   return (
-    <div className="absolute inset-0 z-10 overflow-y-auto" style={{ color: tone.fg }}>
+    <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
       <OnboardingTopBar current={4} total={5} label="Almost there" onBack={onBack} />
 
-      <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col justify-center px-6 py-24">
-        <div className="mb-1 flex items-center gap-3">
-          <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
-            Alright, this is what I got:
-          </h1>
-        </div>
-        <p className="mb-7 text-[15px]" style={{ color: tone.fgMuted }}>
+      <div className="absolute left-1/2 top-[24%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6">
+        <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
+          Alright, this is what I got:
+        </h1>
+        <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
           Feel free to remove anything that&rsquo;s not true
         </p>
 
@@ -224,14 +222,14 @@ export function SuggestionsStep({
   const reduce = useReducedMotion();
 
   return (
-    <div className="absolute inset-0 z-10 overflow-y-auto" style={{ color: tone.fg }}>
+    <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
       <OnboardingTopBar current={4} total={5} label="Almost there" onBack={onBack} />
 
-      <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col justify-center px-6 py-24">
-        <h1 className="mb-2 text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
+      <div className="absolute left-1/2 top-[24%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6">
+        <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
           Here&rsquo;s what we could do first
         </h1>
-        <p className="mb-7 text-[15px]" style={{ color: tone.fgMuted }}>
+        <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
           Pick one to jump in — or start your own thing.
         </p>
 
