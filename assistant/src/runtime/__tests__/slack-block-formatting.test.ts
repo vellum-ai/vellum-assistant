@@ -475,3 +475,36 @@ describe("textToSlackBlocks long-text splitting", () => {
     }
   });
 });
+
+describe("textToSlackBlocks block-limit guard", () => {
+  test("caps output at Slack's 50-block limit with a truncation note", () => {
+    // 40 headings → 40 header blocks + 39 dividers = 79 blocks, over the limit.
+    // (Blank-line paragraphs collapse into one segment, so headings are what
+    // actually produce many blocks.)
+    const text = Array.from({ length: 40 }, (_, i) => `# Heading ${i}`).join(
+      "\n",
+    );
+
+    const blocks = textToSlackBlocks(text);
+
+    expect(blocks).toBeDefined();
+    expect(blocks!.length).toBe(50);
+    const last = blocks![49];
+    expect(last.type).toBe("context");
+    expect(JSON.stringify(last)).toContain("omitted");
+  });
+
+  test("leaves output untouched when under the 50-block limit", () => {
+    const text = Array.from({ length: 5 }, (_, i) => `# Heading ${i}`).join(
+      "\n",
+    );
+
+    const blocks = textToSlackBlocks(text);
+
+    expect(blocks).toBeDefined();
+    expect(blocks!.length).toBeLessThanOrEqual(50);
+    expect(blocks!.some((b) => JSON.stringify(b).includes("omitted"))).toBe(
+      false,
+    );
+  });
+});

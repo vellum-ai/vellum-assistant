@@ -9,6 +9,9 @@
 
 import type { KnownBlock } from "@slack/types";
 
+/** Slack rejects messages with more than 50 Block Kit blocks. */
+const SLACK_BLOCK_LIMIT = 50;
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -91,6 +94,25 @@ export function textToSlackBlocks(text: string): KnownBlock[] | undefined {
         });
       }
     }
+  }
+
+  if (blocks.length > SLACK_BLOCK_LIMIT) {
+    // Slack rejects payloads with more than 50 blocks. Keep the first 49 and
+    // append a context note so long content degrades gracefully instead of
+    // failing the entire Block Kit payload with invalid_blocks.
+    const omitted = blocks.length - (SLACK_BLOCK_LIMIT - 1);
+    return [
+      ...blocks.slice(0, SLACK_BLOCK_LIMIT - 1),
+      {
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: `_${omitted} more block${omitted === 1 ? "" : "s"} omitted (Slack's ${SLACK_BLOCK_LIMIT}-block limit)._`,
+          },
+        ],
+      },
+    ];
   }
 
   return blocks.length > 0 ? blocks : undefined;
