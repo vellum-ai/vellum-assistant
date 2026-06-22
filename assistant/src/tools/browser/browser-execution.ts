@@ -350,6 +350,11 @@ function collectRemediationHints(
  * Store / extensions gallery (which yields "The extensions gallery
  * cannot be scripted."). The latter is especially common right after
  * install, when the Web Store page is still the active tab.
+ *
+ * Keep this restricted-error match in sync with the Page.navigate
+ * recovery in the chrome-extension dispatcher (host-browser-dispatcher.ts,
+ * separate package, duplicated by necessity): the status side reports the
+ * tab as recoverable, and the navigate side must actually recover it.
  */
 function isRestrictedChromePageProbeError(error: CdpError): boolean {
   const message = error.message.toLowerCase();
