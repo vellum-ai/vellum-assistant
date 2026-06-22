@@ -1709,33 +1709,6 @@ export function getMessages(conversationId: string): MessageRow[] {
 }
 
 /**
- * Return up to `limit` of a conversation's most recent `user`-role messages,
- * newest first. A bounded, indexed seek (the `(role, created_at)` index backs
- * the ordering) so callers that only need the latest inbound message — e.g.
- * resolving a guardian card's triggering message — don't materialize the whole
- * history.
- */
-export function getRecentUserMessages(
-  conversationId: string,
-  limit: number,
-): MessageRow[] {
-  const db = getDb();
-  return db
-    .select()
-    .from(messages)
-    .where(
-      and(
-        eq(messages.conversationId, conversationId),
-        eq(messages.role, "user"),
-      ),
-    )
-    .orderBy(desc(messages.createdAt))
-    .limit(limit)
-    .all()
-    .map(parseMessage);
-}
-
-/**
  * Return raw `metadata` strings for messages whose metadata looks like it may
  * contain Slack metadata, capped at `limit` and skipping the first `offset`
  * matches. Pushes `LIKE` + `LIMIT`/`OFFSET` into SQL so warm Slack DM

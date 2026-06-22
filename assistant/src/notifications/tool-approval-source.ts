@@ -16,7 +16,7 @@
  */
 
 import type { MessageRow } from "../memory/conversation-crud.js";
-import { getRecentUserMessages } from "../memory/conversation-crud.js";
+import { getRecentUserMessages } from "../memory/recent-user-messages.js";
 import { readSlackMetadataFromMessageMetadata } from "../messaging/providers/slack/message-metadata.js";
 import type { ToolGrantGuardianPayload } from "./guardian-question-mode.js";
 import { nonEmpty } from "./notification-utils.js";

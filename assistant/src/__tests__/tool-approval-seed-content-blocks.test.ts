@@ -1,17 +1,27 @@
 import { describe, expect, test } from "bun:test";
 
+import type {
+  ApprovalCardBlock,
+  ApprovalCardFallbackBlock,
+  ApprovalCardSurfaceBlock,
+} from "../notifications/approval-card-builder.js";
 import { buildToolApprovalSeedContentBlocks } from "../notifications/approval-card-data.js";
 
-type Block = Record<string, unknown>;
-
-function surfaceOf(blocks: unknown[]): Block {
-  return blocks[0] as Block;
+// The builder returns a schema-derived `ApprovalCardBlock[]`, so tests narrow by
+// the block's discriminant instead of casting to `Record<string, unknown>`.
+function surfaceOf(blocks: ApprovalCardBlock[]): ApprovalCardSurfaceBlock {
+  const block = blocks[0];
+  if (block?.type !== "ui_surface") {
+    throw new Error("expected a ui_surface block at index 0");
+  }
+  return block;
 }
-function dataOf(blocks: unknown[]): Block {
-  return (blocks[0] as Block).data as Block;
-}
-function textOf(blocks: unknown[]): Block {
-  return blocks[1] as Block;
+function textOf(blocks: ApprovalCardBlock[]): ApprovalCardFallbackBlock {
+  const block = blocks[1];
+  if (block?.type !== "text") {
+    throw new Error("expected a text fallback block at index 1");
+  }
+  return block;
 }
 
 /**
@@ -51,33 +61,34 @@ describe("buildToolApprovalSeedContentBlocks", () => {
   test("emits a ui_surface card + flagged text fallback", () => {
     const blocks = buildToolApprovalSeedContentBlocks(slackChannelGrant)!;
     expect(blocks).toHaveLength(2);
-    expect(surfaceOf(blocks).type).toBe("ui_surface");
     expect(surfaceOf(blocks).surfaceType).toBe("card");
     expect(surfaceOf(blocks).surfaceId).toBe("tool-approval-req-grant-1");
-    expect(textOf(blocks).type).toBe("text");
     expect(textOf(blocks)._surfaceFallback).toBe(true);
   });
 
   test("primary line is the assistant-as-actor title, not the contact", () => {
-    const data = dataOf(buildToolApprovalSeedContentBlocks(slackChannelGrant)!);
-    expect(data.title).toBe('Assistant wants to use "web_fetch"');
-    expect(data.title).not.toContain("Noa");
+    const surface = surfaceOf(
+      buildToolApprovalSeedContentBlocks(slackChannelGrant)!,
+    );
+    expect(surface.data.title).toBe('Assistant wants to use "web_fetch"');
+    expect(surface.data.title).not.toContain("Noa");
     // Generic category header lives in surface.title, not the contact's name.
-    expect(
-      surfaceOf(buildToolApprovalSeedContentBlocks(slackChannelGrant)!).title,
-    ).toBe("Tool approval");
+    expect(surface.title).toBe("Tool approval");
   });
 
   test("channel message: subtitle attributes the sender + channel", () => {
-    const data = dataOf(buildToolApprovalSeedContentBlocks(slackChannelGrant)!);
-    expect(data.subtitle).toBe(
+    const surface = surfaceOf(
+      buildToolApprovalSeedContentBlocks(slackChannelGrant)!,
+    );
+    expect(surface.data.subtitle).toBe(
       "in response to Noa Flaherty's message in #general",
     );
   });
 
   test("body shows the requester's words, the command, and a Slack link", () => {
-    const data = dataOf(buildToolApprovalSeedContentBlocks(slackChannelGrant)!);
-    const body = data.body as string;
+    const { body } = surfaceOf(
+      buildToolApprovalSeedContentBlocks(slackChannelGrant)!,
+    ).data;
     expect(body).toContain(
       '> "can you pull this? https://example.com/article"',
     );
@@ -88,9 +99,9 @@ describe("buildToolApprovalSeedContentBlocks", () => {
   });
 
   test("metadata carries the tool and a resolved Slack source", () => {
-    const metadata = dataOf(
+    const { metadata } = surfaceOf(
       buildToolApprovalSeedContentBlocks(slackChannelGrant)!,
-    ).metadata as Array<{ label: string; value: string }>;
+    ).data;
     expect(metadata).toContainEqual({ label: "Tool", value: "web_fetch" });
     expect(metadata).toContainEqual({
       label: "Source",
@@ -113,8 +124,9 @@ describe("buildToolApprovalSeedContentBlocks", () => {
   });
 
   test("text fallback reuses the one-line phrasing + request-code instruction", () => {
-    const text = textOf(buildToolApprovalSeedContentBlocks(slackChannelGrant)!)
-      .text as string;
+    const { text } = textOf(
+      buildToolApprovalSeedContentBlocks(slackChannelGrant)!,
+    );
     expect(text).toContain('Assistant wants to use "web_fetch"');
     expect(text).toContain("in response to Noa Flaherty's message in #general");
     expect(text).toContain("XYZ789");
@@ -123,19 +135,15 @@ describe("buildToolApprovalSeedContentBlocks", () => {
 
   // ── Connective branch: DM (drop the channel) ───────────────────────────────
   test("DM source: subtitle drops the channel; source reads Direct message", () => {
-    const blocks = buildToolApprovalSeedContentBlocks({
-      ...slackChannelGrant,
-      conversationExternalId: "D01XYZ",
-      channelName: undefined,
-    })!;
-    expect(dataOf(blocks).subtitle).toBe(
-      "in response to Noa Flaherty's message",
+    const surface = surfaceOf(
+      buildToolApprovalSeedContentBlocks({
+        ...slackChannelGrant,
+        conversationExternalId: "D01XYZ",
+        channelName: undefined,
+      })!,
     );
-    const metadata = dataOf(blocks).metadata as Array<{
-      label: string;
-      value: string;
-    }>;
-    expect(metadata).toContainEqual({
+    expect(surface.data.subtitle).toBe("in response to Noa Flaherty's message");
+    expect(surface.data.metadata).toContainEqual({
       label: "Source",
       value: "Slack — Direct message",
     });
@@ -143,40 +151,36 @@ describe("buildToolApprovalSeedContentBlocks", () => {
 
   // ── Connective branch: no inbound trigger (self / scheduled) ────────────────
   test("no requester: falls back to a generic subtitle, no connective", () => {
-    const blocks = buildToolApprovalSeedContentBlocks({
-      requestId: "req-self-1",
-      requestCode: "AAA111",
-      requestKind: "tool_approval",
-      toolName: "bash",
-      questionText: 'Assistant wants to use "bash".',
-      sourceChannel: "slack",
-    })!;
-    expect(dataOf(blocks).title).toBe('Assistant wants to use "bash"');
-    expect(dataOf(blocks).subtitle).toBe(
-      "Requesting approval to run this tool",
+    const surface = surfaceOf(
+      buildToolApprovalSeedContentBlocks({
+        requestId: "req-self-1",
+        requestCode: "AAA111",
+        requestKind: "tool_approval",
+        toolName: "bash",
+        questionText: 'Assistant wants to use "bash".',
+        sourceChannel: "slack",
+      })!,
     );
+    expect(surface.data.title).toBe('Assistant wants to use "bash"');
+    expect(surface.data.subtitle).toBe("Requesting approval to run this tool");
   });
 
   // ── Connective branch: voice (caller, but no "message") ─────────────────────
   test("voice (pending_question, phone): generic subtitle, no permalink", () => {
-    const blocks = buildToolApprovalSeedContentBlocks({
-      requestId: "req-voice-1",
-      requestCode: "VOICE1",
-      requestKind: "pending_question",
-      toolName: "bash",
-      questionText: 'Assistant wants to use "bash".',
-      sourceChannel: "phone",
-      requesterIdentifier: "Bob",
-    })!;
-    expect(dataOf(blocks).subtitle).toBe(
-      "Requesting approval to run this tool",
+    const { data } = surfaceOf(
+      buildToolApprovalSeedContentBlocks({
+        requestId: "req-voice-1",
+        requestCode: "VOICE1",
+        requestKind: "pending_question",
+        toolName: "bash",
+        questionText: 'Assistant wants to use "bash".',
+        sourceChannel: "phone",
+        requesterIdentifier: "Bob",
+      })!,
     );
-    const metadata = dataOf(blocks).metadata as Array<{
-      label: string;
-      value: string;
-    }>;
-    expect(metadata).toContainEqual({ label: "Tool", value: "bash" });
-    expect(metadata).toContainEqual({ label: "Source", value: "phone" });
+    expect(data.subtitle).toBe("Requesting approval to run this tool");
+    expect(data.metadata).toContainEqual({ label: "Tool", value: "bash" });
+    expect(data.metadata).toContainEqual({ label: "Source", value: "phone" });
   });
 
   test("returns null for pending_question without a tool", () => {
