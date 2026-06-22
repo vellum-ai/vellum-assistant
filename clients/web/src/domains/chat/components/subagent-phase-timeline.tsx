@@ -28,21 +28,26 @@ import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils
 import { cn } from "@/utils/misc";
 
 /**
- * Stable per-step key — `toolCallId` for a tool step, else `${kind}-${index}`.
+ * Stable per-step key — a tool step's non-empty `toolCallId`, else the
+ * positional `${kind}-${index}` fallback. Historical/older subagent events can
+ * carry an empty `toolCallId` (see `use-subagent-card-data.ts`), so guarding on
+ * a non-empty string keeps keys unique instead of collapsing onto `""`.
  * Shared by the section key and the expanded body's pill list.
  */
 function stepKey(step: ToolCallCardStep, index: number): string {
-  return step.kind === "tool" ? step.toolCallId : `${step.kind}-${index}`;
+  if (step.kind === "tool" && step.toolCallId) return step.toolCallId;
+  return `${step.kind}-${index}`;
 }
 
 /**
- * Stable key for a phase section — its label plus the first step's identity, so
- * two same-labelled sections (e.g. two non-contiguous "Working" phases) get
- * distinct expand keys.
+ * Stable key for a phase section — its positional index plus its label and the
+ * first step's identity. The index keeps two same-labelled sections (e.g. two
+ * non-contiguous "Working" phases) distinct even when their first steps share a
+ * key (both empty `toolCallId`).
  */
 function sectionKey(section: PhaseSection, index: number): string {
   const first = section.steps[0];
-  return `${section.label}-${first ? stepKey(first, index) : index}`;
+  return `${index}-${section.label}-${first ? stepKey(first, index) : ""}`;
 }
 
 /**

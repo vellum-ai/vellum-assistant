@@ -39,6 +39,10 @@ function bash(
   };
 }
 
+function thinking(text: string, duration = "1s"): ToolCallCardStep {
+  return { kind: "thinking", durationLabel: duration, text };
+}
+
 describe("SubagentPhaseTimeline — empty input", () => {
   test("renders nothing when there are no steps (panel owns the empty state)", () => {
     const { container } = render(<SubagentPhaseTimeline steps={[]} />);
@@ -137,5 +141,52 @@ describe("SubagentPhaseTimeline — phase grouping", () => {
     const sections = getAllByTestId("subagent-phase-section");
     expect(sections.length).toBe(1);
     expect(sections[0]!.getAttribute("data-phase-label")).toBe("Working");
+  });
+
+  // Regression: historical/older subagent events can carry an empty
+  // `toolCallId` (`use-subagent-card-data.ts` maps `event.toolUseId ?? ""`).
+  // Two same-label "Working" phases whose first steps both have empty
+  // `toolCallId` must still get distinct section keys, so expanding one does
+  // not expand the other.
+  test("same-label phases with empty toolCallId expand/collapse independently", () => {
+    const steps: ToolCallCardStep[] = [
+      // First "Working" group — empty toolCallId on every step.
+      bash("ls", "completed", "1s", ""),
+      bash("pwd", "completed", "1s", ""),
+      // Thinking step splits the timeline into two "Working" sections.
+      thinking("Considering options"),
+      // Second "Working" group — also empty toolCallId.
+      bash("cat x", "completed", "1s", ""),
+      bash("cat y", "completed", "1s", ""),
+    ];
+    const { getAllByTestId, queryAllByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} />,
+    );
+
+    // Two distinct "Working" rows (plus the "Thinking" row between them).
+    const sections = getAllByTestId("subagent-phase-section");
+    const working = sections.filter(
+      (s) => s.getAttribute("data-phase-label") === "Working",
+    );
+    expect(working.length).toBe(2);
+
+    const headerOf = (section: Element) =>
+      section.querySelector('[data-testid="subagent-phase-header"]')!;
+
+    // Collapsed by default.
+    expect(queryAllByTestId("phase-step-pill").length).toBe(0);
+
+    // Expanding the first "Working" row reveals only its 2 pills.
+    fireEvent.click(headerOf(working[0]!));
+    expect(queryAllByTestId("phase-step-pill").length).toBe(2);
+
+    // Expanding the second "Working" row reveals its own 2 pills (4 total) —
+    // the two same-label phases are keyed independently.
+    fireEvent.click(headerOf(working[1]!));
+    expect(queryAllByTestId("phase-step-pill").length).toBe(4);
+
+    // Collapsing the first leaves the second's pills visible.
+    fireEvent.click(headerOf(working[0]!));
+    expect(queryAllByTestId("phase-step-pill").length).toBe(2);
   });
 });
