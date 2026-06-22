@@ -1,6 +1,5 @@
 import { computeUserFileBaseSlug } from "../../contacts/contact-store.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
 
 /**
  * Reverse is a no-op. This migration only consolidates `user_file` across
@@ -85,106 +84,100 @@ export function isAutoIncrementedUserFile(
 export function migrateNormalizeUserFileByPrincipal(
   database: DrizzleDb,
 ): void {
-  withCrashRecovery(
-    database,
-    "migration_normalize_user_file_by_principal_v1",
-    () => {
-      const raw = getSqliteFrom(database);
+  const raw = getSqliteFrom(database);
 
-      const tableExists = raw
-        .query(
-          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'contacts'`,
-        )
-        .get();
-      if (!tableExists) return;
+  const tableExists = raw
+    .query(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'contacts'`,
+    )
+    .get();
+  if (!tableExists) return;
 
-      const userFileColExists = raw
-        .query(
-          `SELECT 1 FROM pragma_table_info('contacts') WHERE name = 'user_file'`,
-        )
-        .get();
-      const principalColExists = raw
-        .query(
-          `SELECT 1 FROM pragma_table_info('contacts') WHERE name = 'principal_id'`,
-        )
-        .get();
-      if (!userFileColExists || !principalColExists) return;
+  const userFileColExists = raw
+    .query(
+      `SELECT 1 FROM pragma_table_info('contacts') WHERE name = 'user_file'`,
+    )
+    .get();
+  const principalColExists = raw
+    .query(
+      `SELECT 1 FROM pragma_table_info('contacts') WHERE name = 'principal_id'`,
+    )
+    .get();
+  if (!userFileColExists || !principalColExists) return;
 
-      try {
-        raw.exec("BEGIN");
+  try {
+    raw.exec("BEGIN");
 
-        const principals = raw
-          .query(
-            /*sql*/ `
-            SELECT principal_id
-            FROM contacts
-            WHERE principal_id IS NOT NULL
-            GROUP BY principal_id
-            HAVING COUNT(DISTINCT COALESCE(user_file, '')) > 1
-          `,
-          )
-          .all() as Array<{ principal_id: string }>;
+    const principals = raw
+      .query(
+        /*sql*/ `
+        SELECT principal_id
+        FROM contacts
+        WHERE principal_id IS NOT NULL
+        GROUP BY principal_id
+        HAVING COUNT(DISTINCT COALESCE(user_file, '')) > 1
+      `,
+      )
+      .all() as Array<{ principal_id: string }>;
 
-        // Fetch all non-null candidates and rank in JS. The auto-increment
-        // classification is a regex that SQLite's GLOB can't express cleanly
-        // (unbounded digit count, date-pattern exclusion), and keeping the
-        // logic in one place avoids SQL/JS drift.
-        const selectCandidates = raw.prepare(
-          /*sql*/ `
-          SELECT user_file, display_name, created_at, id FROM contacts
-          WHERE principal_id = ? AND user_file IS NOT NULL
-          `,
-        );
+    // Fetch all non-null candidates and rank in JS. The auto-increment
+    // classification is a regex that SQLite's GLOB can't express cleanly
+    // (unbounded digit count, date-pattern exclusion), and keeping the
+    // logic in one place avoids SQL/JS drift.
+    const selectCandidates = raw.prepare(
+      /*sql*/ `
+      SELECT user_file, display_name, created_at, id FROM contacts
+      WHERE principal_id = ? AND user_file IS NOT NULL
+      `,
+    );
 
-        const updateSiblings = raw.prepare(
-          /*sql*/ `
-          UPDATE contacts
-          SET user_file = ?, updated_at = ?
-          WHERE principal_id = ?
-            AND (user_file IS NULL OR user_file != ?)
-          `,
-        );
+    const updateSiblings = raw.prepare(
+      /*sql*/ `
+      UPDATE contacts
+      SET user_file = ?, updated_at = ?
+      WHERE principal_id = ?
+        AND (user_file IS NULL OR user_file != ?)
+      `,
+    );
 
-        for (const { principal_id } of principals) {
-          const candidates = selectCandidates.all(principal_id) as Array<{
-            user_file: string;
-            display_name: string;
-            created_at: number;
-            id: string;
-          }>;
-          if (candidates.length === 0) continue;
+    for (const { principal_id } of principals) {
+      const candidates = selectCandidates.all(principal_id) as Array<{
+        user_file: string;
+        display_name: string;
+        created_at: number;
+        id: string;
+      }>;
+      if (candidates.length === 0) continue;
 
-          candidates.sort((a, b) => {
-            const aAuto = isAutoIncrementedUserFile(a.user_file, a.display_name)
-              ? 1
-              : 0;
-            const bAuto = isAutoIncrementedUserFile(b.user_file, b.display_name)
-              ? 1
-              : 0;
-            if (aAuto !== bAuto) return aAuto - bAuto;
-            if (a.created_at !== b.created_at)
-              return a.created_at - b.created_at;
-            return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-          });
+      candidates.sort((a, b) => {
+        const aAuto = isAutoIncrementedUserFile(a.user_file, a.display_name)
+          ? 1
+          : 0;
+        const bAuto = isAutoIncrementedUserFile(b.user_file, b.display_name)
+          ? 1
+          : 0;
+        if (aAuto !== bAuto) return aAuto - bAuto;
+        if (a.created_at !== b.created_at)
+          return a.created_at - b.created_at;
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+      });
 
-          const canonical = candidates[0]!.user_file;
-          updateSiblings.run(
-            canonical,
-            Date.now(),
-            principal_id,
-            canonical,
-          );
-        }
+      const canonical = candidates[0]!.user_file;
+      updateSiblings.run(
+        canonical,
+        Date.now(),
+        principal_id,
+        canonical,
+      );
+    }
 
-        raw.exec("COMMIT");
-      } catch (e) {
-        try {
-          raw.exec("ROLLBACK");
-        } catch {
-          /* no active transaction */
-        }
-        throw e;
-      }
-    },
-  );
+    raw.exec("COMMIT");
+  } catch (e) {
+    try {
+      raw.exec("ROLLBACK");
+    } catch {
+      /* no active transaction */
+    }
+    throw e;
+  }
 }

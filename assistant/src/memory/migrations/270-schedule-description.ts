@@ -1,7 +1,4 @@
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
-
-const CHECKPOINT_KEY = "migration_schedule_description_backfill_v1";
 
 export function migrateScheduleDescription(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
@@ -20,15 +17,13 @@ export function migrateScheduleDescription(database: DrizzleDb): void {
     // Column already exists.
   }
 
-  withCrashRecovery(database, CHECKPOINT_KEY, () => {
-    raw
-      .query(
-        `UPDATE cron_jobs
-         SET description = name
-         WHERE created_by <> 'defer' AND description = ''`,
-      )
-      .run();
-  });
+  raw
+    .query(
+      `UPDATE cron_jobs
+       SET description = name
+       WHERE created_by <> 'defer' AND description = ''`,
+    )
+    .run();
 }
 
 export function downScheduleDescription(): void {

@@ -1,8 +1,5 @@
 import type { DrizzleDb } from "../db-connection.js";
 import { getSqliteFrom } from "../db-connection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
-
-const CHECKPOINT_KEY = "migration_memory_v3_auto_edges_v1";
 
 /**
  * Create the memory_v3_auto_edges table — the **learned** edge graph, a
@@ -26,22 +23,20 @@ const CHECKPOINT_KEY = "migration_memory_v3_auto_edges_v1";
  * graph grows.
  */
 export function migrateMemoryV3AutoEdges(database: DrizzleDb): void {
-  withCrashRecovery(database, CHECKPOINT_KEY, () => {
-    const raw = getSqliteFrom(database);
-    raw.exec(/*sql*/ `
-      CREATE TABLE IF NOT EXISTS memory_v3_auto_edges (
-        source_slug TEXT NOT NULL,
-        target_slug TEXT NOT NULL,
-        weight REAL NOT NULL,
-        last_reinforced_at INTEGER NOT NULL,
-        PRIMARY KEY (source_slug, target_slug)
-      )
-    `);
-    raw.exec(/*sql*/ `
-      CREATE INDEX IF NOT EXISTS idx_memory_v3_auto_edges_weight
-        ON memory_v3_auto_edges (weight)
-    `);
-  });
+  const raw = getSqliteFrom(database);
+  raw.exec(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS memory_v3_auto_edges (
+      source_slug TEXT NOT NULL,
+      target_slug TEXT NOT NULL,
+      weight REAL NOT NULL,
+      last_reinforced_at INTEGER NOT NULL,
+      PRIMARY KEY (source_slug, target_slug)
+    )
+  `);
+  raw.exec(/*sql*/ `
+    CREATE INDEX IF NOT EXISTS idx_memory_v3_auto_edges_weight
+      ON memory_v3_auto_edges (weight)
+  `);
 }
 
 export function downMemoryV3AutoEdges(database: DrizzleDb): void {
