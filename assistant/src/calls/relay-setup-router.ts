@@ -298,13 +298,12 @@ export function routeSetup(ctx: SetupContext): {
       );
       // Resolve the invitee's name from the bound contact's displayName so
       // the post-redemption greeting matches what the guardian sees in the
-      // contact graph. The legacy `friend_name` column is consulted only as a
-      // fallback for pre-contact-binding rows.
-      const boundContact = matchedInvite.contactId
-        ? getContact(matchedInvite.contactId)
-        : null;
-      const inviteeName =
-        boundContact?.displayName?.trim() || matchedInvite.friendName;
+      // contact graph. `contact_id` is NOT NULL on the invite row, so every
+      // invite is bound — when the contact has no displayName the greeting
+      // falls through to the neutral "Hi there" copy in relay-server.ts
+      // rather than a stale free-text `friend_name` label.
+      const boundContact = getContact(matchedInvite.contactId);
+      const inviteeName = boundContact?.displayName?.trim() || null;
       return {
         outcome: {
           action: "invite_redemption",

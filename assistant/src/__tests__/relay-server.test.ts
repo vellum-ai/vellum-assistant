@@ -4920,6 +4920,71 @@ describe("relay-server", () => {
     relay.destroy();
   });
 
+  test("invite redemption success: empty contact displayName with stale friendName column still greets 'Hi there'", async () => {
+    // Guards the Codex P2 on #35581 (discussion_r3453033493): when a bound
+    // contact's displayName is blank and the invite row carries a stale
+    // free-text friend_name, the greeting must NOT fall back to that stale
+    // label. contact_id is NOT NULL, so every invite is bound — empty
+    // displayName falls through to the neutral "Hi there" copy.
+    ensureConversation("conv-invite-stale-friend");
+    mockUserReference = "my human";
+    mockAssistantName = "";
+    const session = createCallSession({
+      conversationId: "conv-invite-stale-friend",
+      provider: "twilio",
+      fromNumber: "+15557774444",
+      toNumber: "+15551111111",
+    });
+
+    const code = generateVoiceCode(6);
+    const codeHash = hashVoiceCode(code);
+    createInvite({
+      sourceChannel: "phone",
+      contactId: createTargetContact("   "),
+      maxUses: 1,
+      expectedExternalUserId: "+15557774444",
+      voiceCodeHash: codeHash,
+      voiceCodeDigits: 6,
+      friendName: "Stale Legacy Name",
+    });
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["I'd be happy to help."]),
+    );
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_invite_stale_friend",
+        from: "+15557774444",
+        to: "+15551111111",
+      }),
+    );
+
+    for (const digit of code) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(relay.getConnectionState()).toBe("connected");
+
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === "text");
+    expect(
+      textMessages.some((m) => (m.token ?? "").startsWith("Hi there!")),
+    ).toBe(true);
+    expect(
+      textMessages.every(
+        (m) => !(m.token ?? "").includes("Stale Legacy Name"),
+      ),
+    ).toBe(true);
+
+    relay.destroy();
+  });
+
   // ── resolveGuardianLabel resolution priority ─────────────────────────
 
   test("guardian label: guardian persona name takes precedence over Contact.displayName", async () => {

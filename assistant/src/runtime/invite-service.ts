@@ -370,11 +370,12 @@ export async function triggerInviteCall(
   if (!invite.expectedExternalUserId) {
     return { ok: false, error: "Invite is missing required voice metadata" };
   }
-  // Resolve the invitee's name from the bound contact's displayName,
-  // falling back to the legacy friend_name column for pre-binding rows.
+  // Resolve the invitee's name from the bound contact's displayName.
+  // `contact_id` is NOT NULL on the invite row, so every invite is bound;
+  // an empty displayName falls through to the neutral "Hi there" greeting
+  // downstream rather than a stale free-text `friend_name` label.
   const boundContact = getContact(invite.contactId);
-  const friendName =
-    boundContact?.displayName?.trim() || invite.friendName || "";
+  const friendName = boundContact?.displayName?.trim() || "";
   // Guardian label is resolved at runtime by the relay; mirror the legacy
   // value into the session so STT hints continue to seed correctly.
   const guardianName = invite.guardianName || resolveGuardianName() || "";
