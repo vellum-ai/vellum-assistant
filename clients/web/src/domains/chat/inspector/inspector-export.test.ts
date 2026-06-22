@@ -7,6 +7,9 @@ import {
   buildInspectorExportFilename,
   buildInspectorExportFiles,
   buildInspectorExportZipBlob,
+  buildInspectorExportZipBlobBatched,
+  INSPECTOR_EXPORT_CONCURRENCY,
+  type InspectorExportProgress,
 } from "@/domains/chat/inspector/inspector-export";
 
 function makeContext(): LlmContextResponse {
@@ -181,5 +184,104 @@ describe("inspector export", () => {
         throw new Error("detail fetch failed");
       }),
     ).rejects.toThrow("detail fetch failed");
+  });
+});
+
+function makeManyLogContext(count: number): LlmContextResponse {
+  return {
+    conversationId: "conv",
+    conversationKind: "chat",
+    conversationTotalEstimatedCostUsd: null,
+    memoryRecall: null,
+    memoryV2Activation: null,
+    // Section-less logs so the export hits both the payload and section fetchers.
+    logs: Array.from({ length: count }, (_, index) => ({
+      id: `log/${index}`,
+      createdAt: 1_715_200_000_000 + index,
+      requestPayload: null,
+      responsePayload: null,
+    })),
+  };
+}
+
+function payloadFor(logId: string): LlmLogPayload {
+  return { id: logId, requestPayload: null, responsePayload: null };
+}
+
+describe("inspector export (batched)", () => {
+  test("never exceeds the concurrency cap across both fetch phases", async () => {
+    const context = makeManyLogContext(35);
+    let inFlight = 0;
+    let peak = 0;
+
+    const track = async <T,>(produce: () => T): Promise<T> => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await Promise.resolve();
+      await Promise.resolve();
+      inFlight -= 1;
+      return produce();
+    };
+
+    const blob = await buildInspectorExportZipBlobBatched(context, {
+      fetchPayload: (logId) => track(() => payloadFor(logId)),
+      fetchCallSections: (logId) =>
+        track(() => ({
+          requestSections: [
+            { kind: "message", role: "user", label: "User", text: logId },
+          ],
+          responseSections: [],
+        })),
+    });
+
+    expect(blob.size).toBeGreaterThan(0);
+    expect(peak).toBeLessThanOrEqual(INSPECTOR_EXPORT_CONCURRENCY);
+  });
+
+  test("reports monotonic progress that ends at the total request count", async () => {
+    const context = makeManyLogContext(7);
+    const updates: InspectorExportProgress[] = [];
+
+    await buildInspectorExportZipBlobBatched(context, {
+      fetchPayload: async (logId) => payloadFor(logId),
+      fetchCallSections: async (logId) => ({
+        requestSections: [
+          { kind: "message", role: "user", label: "User", text: logId },
+        ],
+        responseSections: [],
+      }),
+      onProgress: (progress) => updates.push({ ...progress }),
+    });
+
+    // 7 payload fetches + 7 section fetches.
+    const total = 14;
+    expect(updates[0]).toEqual({ completed: 0, total });
+    expect(updates.at(-1)).toEqual({ completed: total, total });
+    for (let i = 1; i < updates.length; i += 1) {
+      expect(updates[i]!.completed).toBeGreaterThanOrEqual(
+        updates[i - 1]!.completed,
+      );
+      expect(updates[i]!.total).toBe(total);
+    }
+  });
+
+  test("stops fetching once the signal aborts", async () => {
+    const context = makeManyLogContext(40);
+    const controller = new AbortController();
+    let fetchCount = 0;
+
+    const promise = buildInspectorExportZipBlobBatched(context, {
+      concurrency: 4,
+      fetchPayload: async (logId) => {
+        fetchCount += 1;
+        if (fetchCount === 6) controller.abort();
+        return payloadFor(logId);
+      },
+      signal: controller.signal,
+    });
+
+    await expect(promise).rejects.toThrow();
+    // A few in-flight workers may finish, but it must not run all 40 logs.
+    expect(fetchCount).toBeLessThan(context.logs.length);
   });
 });

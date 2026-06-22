@@ -110,7 +110,7 @@ mock.module("../memory/db-maintenance.js", () => ({
   maybeRunDbMaintenance: () => {},
 }));
 
-import { getDb } from "../memory/db-connection.js";
+import { getMemoryDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { runMemoryJobsOnce } from "../memory/jobs-worker.js";
@@ -118,12 +118,12 @@ import { _resetQdrantBreaker } from "../memory/qdrant-circuit-breaker.js";
 import { memoryJobs } from "../memory/schema.js";
 
 describe("memory jobs worker lane scheduling", () => {
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   beforeEach(() => {
-    const db = getDb();
+    const db = getMemoryDb()!;
     db.run("DELETE FROM memory_jobs");
     completions.length = 0;
     _resetQdrantBreaker();
@@ -185,7 +185,7 @@ describe("memory jobs worker lane scheduling", () => {
 function countSlowByStatus(
   status: "pending" | "running" | "completed",
 ): number {
-  const db = getDb();
+  const db = getMemoryDb()!;
   return db
     .select()
     .from(memoryJobs)

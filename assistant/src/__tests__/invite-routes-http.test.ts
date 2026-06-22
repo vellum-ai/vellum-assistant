@@ -37,58 +37,40 @@ mock.module("../calls/call-domain.js", () => ({
 import { upsertContact } from "../contacts/contact-store.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import { revokeInvite } from "../memory/invite-store.js";
 import {
-  handleCreateInvite as _handleCreateInvite,
-  handleListInvites as _handleListInvites,
-  handleRedeemInvite as _handleRedeemInvite,
-  handleRevokeInvite as _handleRevokeInvite,
-  handleTriggerInviteCall as _handleTriggerInviteCall,
-} from "../runtime/routes/contact-routes.js";
+  createIngressInvite,
+  triggerInviteCall,
+} from "../runtime/invite-service.js";
+import { handleRedeemInvite as _handleRedeemInvite } from "../runtime/routes/contact-routes.js";
 import { RouteError } from "../runtime/routes/errors.js";
 
 /**
- * Compatibility wrappers: translate old handler call signatures into the new
- * RouteHandlerArgs pattern and wrap the result in a Response-like object so
- * existing test assertions (res.status / res.json()) keep working.
+ * The CLI/HTTP create/list/revoke/trigger route handlers relay to the gateway
+ * (see invite-relay-routes.test.ts). The assistant-native invite logic the
+ * gateway invokes via `invites_mint` + its native handlers is exercised here
+ * against the assistant DB through the `invite-service` functions. Redemption
+ * stays daemon-local and is driven through the route handler.
  */
 function fakeResponse(body: unknown, status = 200) {
   return { status, json: async () => body };
 }
 
 async function handleCreateInvite(req: Request) {
-  const body = (await req.json()) as Record<string, unknown>;
-  try {
-    const result = await _handleCreateInvite({ body });
-    return fakeResponse(result, 201);
-  } catch (err) {
-    if (err instanceof RouteError)
-      return fakeResponse({ ok: false, error: err.message }, err.statusCode);
-    throw err;
-  }
-}
-
-function handleListInvites(url: URL) {
-  const queryParams: Record<string, string> = {};
-  for (const [k, v] of url.searchParams.entries()) queryParams[k] = v;
-  try {
-    const result = _handleListInvites({ queryParams });
-    return fakeResponse(result);
-  } catch (err) {
-    if (err instanceof RouteError)
-      return fakeResponse({ ok: false, error: err.message }, err.statusCode);
-    throw err;
-  }
-}
-
-function handleRevokeInvite(inviteId: string) {
-  try {
-    const result = _handleRevokeInvite({ pathParams: { id: inviteId } });
-    return fakeResponse(result);
-  } catch (err) {
-    if (err instanceof RouteError)
-      return fakeResponse({ ok: false, error: err.message }, err.statusCode);
-    throw err;
-  }
+  const body = (await req.json()) as Record<string, string | number>;
+  const result = await createIngressInvite({
+    sourceChannel: body.sourceChannel as string | undefined,
+    note: body.note as string | undefined,
+    maxUses: body.maxUses as number | undefined,
+    expiresInMs: body.expiresInMs as number | undefined,
+    contactName: body.contactName as string | undefined,
+    expectedExternalUserId: body.expectedExternalUserId as string | undefined,
+    friendName: body.friendName as string | undefined,
+    guardianName: body.guardianName as string | undefined,
+    contactId: body.contactId as string,
+  });
+  if (!result.ok) return fakeResponse({ ok: false, error: result.error }, 400);
+  return fakeResponse({ ok: true, invite: result.data }, 201);
 }
 
 async function handleRedeemInvite(req: Request) {
@@ -104,19 +86,12 @@ async function handleRedeemInvite(req: Request) {
 }
 
 async function handleTriggerInviteCall(inviteId: string) {
-  try {
-    const result = await _handleTriggerInviteCall({
-      pathParams: { id: inviteId },
-    });
-    return fakeResponse(result);
-  } catch (err) {
-    if (err instanceof RouteError)
-      return fakeResponse({ ok: false, error: err.message }, err.statusCode);
-    throw err;
-  }
+  const result = await triggerInviteCall(inviteId);
+  if (!result.ok) return fakeResponse({ ok: false, error: result.error }, 400);
+  return fakeResponse({ ok: true, callSid: result.data.callSid });
 }
 
-initializeDb();
+await initializeDb();
 
 /** Create a throwaway contact and return its ID, for use as the invite's contactId. */
 function createTargetContact(displayName = "Test Contact"): string {
@@ -210,66 +185,6 @@ describe("ingress invite HTTP routes", () => {
     expect(body.error).toContain("sourceChannel");
   });
 
-  test("GET /v1/contacts/invites — lists invites", async () => {
-    // Create two invites
-    await handleCreateInvite(
-      new Request("http://localhost/v1/contacts/invites", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceChannel: "telegram",
-          contactId: createTargetContact(),
-        }),
-      }),
-    );
-    await handleCreateInvite(
-      new Request("http://localhost/v1/contacts/invites", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceChannel: "telegram",
-          contactId: createTargetContact(),
-        }),
-      }),
-    );
-
-    const url = new URL("http://localhost/v1/contacts/invites");
-    const res = handleListInvites(url);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(res.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(Array.isArray(body.invites)).toBe(true);
-    expect((body.invites as unknown[]).length).toBe(2);
-  });
-
-  test("DELETE /v1/contacts/invites/:id — revokes an invite", async () => {
-    const createRes = await handleCreateInvite(
-      new Request("http://localhost/v1/contacts/invites", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceChannel: "telegram",
-          contactId: createTargetContact(),
-        }),
-      }),
-    );
-    const created = (await createRes.json()) as { invite: { id: string } };
-
-    const res = handleRevokeInvite(created.invite.id);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(res.status).toBe(200);
-    expect(body.ok).toBe(true);
-    const invite = body.invite as Record<string, unknown>;
-    expect(invite.status).toBe("revoked");
-  });
-
-  test("DELETE /v1/contacts/invites/:id — not found returns 404", () => {
-    const res = handleRevokeInvite("nonexistent-id");
-    expect(res.status).toBe(404);
-  });
-
   test("POST /v1/contacts/invites/redeem — redeems an invite", async () => {
     // Create an invite first
     const createRes = await handleCreateInvite(
@@ -359,12 +274,9 @@ describe("ingress service shared logic", () => {
     };
     expect(created.invite.status).toBe("active");
 
-    const revokeRes = handleRevokeInvite(created.invite.id);
-    const revoked = (await revokeRes.json()) as {
-      invite: { id: string; status: string };
-    };
-    expect(revoked.invite.status).toBe("revoked");
-    expect(revoked.invite.id).toBe(created.invite.id);
+    const revoked = revokeInvite(created.invite.id);
+    expect(revoked?.status).toBe("revoked");
+    expect(revoked?.id).toBe(created.invite.id);
   });
 });
 
@@ -716,7 +628,7 @@ describe("POST /v1/contacts/invites/:id/call", () => {
     const created = (await createRes.json()) as { invite: { id: string } };
 
     // Revoke the invite
-    handleRevokeInvite(created.invite.id);
+    revokeInvite(created.invite.id);
 
     const res = await handleTriggerInviteCall(created.invite.id);
     const body = (await res.json()) as Record<string, unknown>;

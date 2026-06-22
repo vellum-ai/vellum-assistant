@@ -190,8 +190,8 @@ export interface AssistantSurface {
 // ── abort watchdog ───────────────────────────────────────────────────
 
 /**
- * Generous backstop that drives an aborted turn to its `finally` even if some
- * awaited operation fails to observe the abort signal.
+ * Backstop that drives an aborted turn to its `finally` even if some awaited
+ * operation fails to observe the abort signal.
  *
  * Abort is otherwise cooperative and already wired into the slow paths: the
  * provider call forwards the signal to its HTTP/streaming fetch, and tool
@@ -199,10 +199,11 @@ export interface AssistantSurface {
  * watchdog only fires when a future code path silently ignores abort — without
  * it, such a path would hang the loop forever and latch the conversation's
  * `processing` flag true (the wedged "Thinking…" indicator). It is
- * defense-in-depth, not the primary mechanism, so the timeout is deliberately
- * generous; in the common case abort settles in-flight work well before it.
+ * defense-in-depth, not the primary mechanism: in the common case abort settles
+ * in-flight work in well under a second, so a few seconds is ample headroom for
+ * a cooperative unwind while still releasing a genuinely wedged turn promptly.
  */
-const ABORT_WATCHDOG_MS = 45_000;
+const ABORT_WATCHDOG_MS = 5_000;
 
 /**
  * Race `work` against an abort watchdog. The watchdog stays disarmed until the
@@ -980,6 +981,7 @@ export async function runAgentLoopImpl(
           compactInPlace,
           isNonInteractive,
           modelProfileKey,
+          ...(ctx.modelOverride ? { model: ctx.modelOverride } : {}),
         }),
         abortController.signal,
         watchdogMs,

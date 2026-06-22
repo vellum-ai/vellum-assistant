@@ -52,8 +52,8 @@ function makeUploadArgs(
 }
 
 describe("attachment upload — trustedSource flag", () => {
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   beforeEach(() => {

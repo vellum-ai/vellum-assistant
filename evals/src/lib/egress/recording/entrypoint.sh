@@ -37,12 +37,13 @@ chown -R "$MITM_UID":"$MITM_UID" "$(dirname "$RECORDING_OUTPUT_PATH")"
 # Copy mitmproxy CA to the host-mounted recording dir so the evals
 # harness can `docker cp` it into the assistant container's trust
 # store before any plugin install runs. The CA is pre-generated at
-# image build time (see Dockerfile); without it landing in the
-# assistant container, the TLS handshake to api.anthropic.com /
+# image build time and copied to /opt/recording/mitmproxy-conf/ (a
+# non-VOLUME path) so it survives container start. Without it landing
+# in the assistant container, the TLS handshake to api.anthropic.com /
 # api.github.com / raw.githubusercontent.com fails closed and the
 # addon never sees the request.
-if [ -f /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem ]; then
-  cp /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem /recording/mitmproxy-ca-cert.pem
+if [ -f /opt/recording/mitmproxy-conf/mitmproxy-ca-cert.pem ]; then
+  cp /opt/recording/mitmproxy-conf/mitmproxy-ca-cert.pem /recording/mitmproxy-ca-cert.pem
   chmod 644 /recording/mitmproxy-ca-cert.pem
 fi
 
@@ -84,5 +85,5 @@ exec su -s /bin/sh -c "exec mitmdump \
   --showhost \
   --allow-hosts \"$RECORDING_TLS_HOSTS_RE\" \
   --set block_global=false \
-  --set confdir=/home/mitmproxy/.mitmproxy \
+  --set confdir=/opt/recording/mitmproxy-conf \
   --scripts /opt/recording/addon.py" mitmproxy

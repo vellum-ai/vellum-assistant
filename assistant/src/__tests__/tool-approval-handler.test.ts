@@ -47,7 +47,7 @@ import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { ToolApprovalHandler } from "../tools/tool-approval-handler.js";
 import type { ToolContext, ToolLifecycleEvent } from "../tools/types.js";
 
-initializeDb();
+await initializeDb();
 
 function clearTables(): void {
   const db = getDb();

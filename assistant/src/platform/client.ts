@@ -19,6 +19,13 @@ let _missingPrereqsWarned = false;
 export interface OwnerConsent {
   shareAnalytics: boolean;
   shareDiagnostics: boolean;
+  /**
+   * Version of the diagnostics-sharing consent the owner accepted
+   * ("YYYY-MM-DD", or "" if never accepted). Composes the per-turn
+   * trace-collection gate: traces are only collected once this is >= the
+   * disclosing version (see telemetry/trace-collection-policy.ts).
+   */
+  shareDiagnosticsAcceptedVersion: string;
 }
 
 export class VellumPlatformClient {
@@ -142,6 +149,7 @@ export class VellumPlatformClient {
       const body = (await res.json()) as {
         share_analytics?: unknown;
         share_diagnostics?: unknown;
+        share_diagnostics_accepted_version?: unknown;
       };
       if (
         typeof body.share_analytics !== "boolean" ||
@@ -154,6 +162,12 @@ export class VellumPlatformClient {
       return {
         shareAnalytics: body.share_analytics,
         shareDiagnostics: body.share_diagnostics,
+        // Back-compat: an older platform that doesn't return this field yields
+        // "" → fails the trace-collection version gate → fail-closed (no trace).
+        shareDiagnosticsAcceptedVersion:
+          typeof body.share_diagnostics_accepted_version === "string"
+            ? body.share_diagnostics_accepted_version
+            : "",
       };
     } catch (err) {
       log.debug({ err }, "owner-consent fetch failed — treating as unknown");

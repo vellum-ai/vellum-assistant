@@ -1,3 +1,4 @@
+import { AUTO_PROFILE_KEY } from "../api/constants/inference-profiles.js";
 import { getConfig } from "../config/loader.js";
 import { orderProfileKeys } from "../config/profile-order.js";
 import type { ModelProfileInfo } from "./types.js";
@@ -10,6 +11,9 @@ import type { ModelProfileInfo } from "./types.js";
  * flagged via {@link ModelProfileInfo.isMix}, since a mix is itself a valid
  * routing target (it resolves to one constituent per conversation).
  *
+ * The meta-"auto" profile is excluded — it has no concrete provider/model and
+ * cannot be used as a dispatch target by a plugin sending an actual LLM call.
+ *
  * Reads the live in-memory config, so the result reflects the current profile
  * set each time it is called.
  */
@@ -18,6 +22,7 @@ export function getModelProfiles(): ModelProfileInfo[] {
   const { profiles, activeProfile } = llm;
   const result: ModelProfileInfo[] = [];
   for (const key of orderProfileKeys(profiles, llm.profileOrder)) {
+    if (key === AUTO_PROFILE_KEY) continue;
     const entry = profiles[key];
     if (entry == null) continue;
     result.push({

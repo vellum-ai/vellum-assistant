@@ -57,7 +57,7 @@ function routePolicy(endpoint: string, method?: string) {
 }
 import { BadRequestError } from "../runtime/routes/errors.js";
 
-initializeDb();
+await initializeDb();
 
 /** Build a synthetic AuthContext for testing. */
 function buildAuthContext(overrides?: {

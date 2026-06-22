@@ -8,6 +8,7 @@ import {
   buildUsageSearchParams,
   readUsageUrlState,
   resolveRangeWindow,
+  resolveUsageGranularity,
 } from "@/domains/logs/usage-tab-state";
 
 const UTC = "UTC";
@@ -92,6 +93,14 @@ describe("resolveRangeWindow", () => {
     expect(from).toBe(Date.UTC(2026, 5, 2, 0, 0, 0));
   });
 
+  test("'yesterday' spans the prior calendar day; 'to' is today's midnight", () => {
+    const now = Date.UTC(2026, 5, 2, 18, 30, 0);
+    const { from, to } = resolveRangeWindow("yesterday", UTC, now);
+    // UTC midnight of 2026-06-01 .. UTC midnight of 2026-06-02
+    expect(from).toBe(Date.UTC(2026, 5, 1, 0, 0, 0));
+    expect(to).toBe(Date.UTC(2026, 5, 2, 0, 0, 0));
+  });
+
   test("'7d' from is six zone-local days before today (UTC)", () => {
     const now = Date.UTC(2026, 5, 2, 18, 30, 0);
     const { from } = resolveRangeWindow("7d", UTC, now);
@@ -136,6 +145,15 @@ describe("resolveRangeWindow", () => {
   });
 });
 
+describe("resolveUsageGranularity", () => {
+  test("single-day ranges are hourly, multi-day ranges are daily", () => {
+    expect(resolveUsageGranularity("today")).toBe("hourly");
+    expect(resolveUsageGranularity("yesterday")).toBe("hourly");
+    expect(resolveUsageGranularity("7d")).toBe("daily");
+    expect(resolveUsageGranularity("all")).toBe("daily");
+  });
+});
+
 describe("usage URL state", () => {
   test("reads valid range, group-by, and schedule id params", () => {
     const params = new URLSearchParams(
@@ -151,7 +169,7 @@ describe("usage URL state", () => {
 
   test("falls back for invalid range and group-by params", () => {
     const params = new URLSearchParams(
-      "range=yesterday&groupBy=not-real&scheduleId=",
+      "range=not-real&groupBy=not-real&scheduleId=",
     );
 
     expect(readUsageUrlState(params)).toEqual({

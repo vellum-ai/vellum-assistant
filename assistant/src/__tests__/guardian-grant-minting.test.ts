@@ -41,7 +41,7 @@ import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 
 import "../memory/scoped-approval-grants.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers

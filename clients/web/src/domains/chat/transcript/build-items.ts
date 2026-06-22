@@ -70,11 +70,9 @@ export function buildTranscriptItems(
   for (const message of messages) {
     // Subagent notification messages are injected by the daemon as user-role
     // messages for state reconstruction (history.ts extracts them). They
-    // should not render as user bubbles. Matches macOS ChatVisibleMessageFilter.
-    if (message.isSubagentNotification) {
-      continue;
-    }
-
+    // pass through as normal `MessageItem`s so reconciliation sees the full
+    // row context — `TranscriptMessageBody` branches on `isSubagentNotification`
+    // and renders a narrow system pill instead of the user bubble.
     const isQueuedUser =
       message.role === "user" && message.queueStatus === "queued";
 

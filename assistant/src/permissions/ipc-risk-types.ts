@@ -83,6 +83,13 @@ export interface ClassifyRiskParams {
   command?: string;
   url?: string;
   path?: string;
+  /**
+   * The file tool's target path with symlinks resolved (canonicalized by the
+   * daemon, which owns the workspace filesystem). The gateway uses this for its
+   * security escalation prefix checks so a symlink cannot mask a write into a
+   * protected directory. Falls back to lexical `path` resolution when absent.
+   */
+  resolvedPath?: string;
   skill?: string;
   mode?: string;
   script?: string;
@@ -105,4 +112,11 @@ export interface ClassifyRiskParams {
    */
   transferSandboxDestPath?: string;
   transferSandboxWorkingDir?: string;
+  /**
+   * The `to_sandbox` workspace destination with symlinks resolved
+   * (canonicalized by the daemon). Used for the code-injection-sink check so a
+   * symlinked destination cannot mask the real target. Falls back to lexical
+   * resolution of `transferSandboxDestPath` when absent.
+   */
+  resolvedTransferDestPath?: string;
 }

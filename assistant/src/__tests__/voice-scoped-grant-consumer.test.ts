@@ -95,7 +95,7 @@ const { createScopedApprovalGrant } = _internal;
 import type { TrustContext } from "../daemon/trust-context.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Mock session that triggers a confirmation_request on processMessage

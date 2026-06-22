@@ -20,7 +20,7 @@ import { publishConversationTitleChanged } from "../runtime/sync/resource-sync-e
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { waitFor } from "./helpers/wait-for.js";
 
-initializeDb();
+await initializeDb();
 
 function clearTables(): void {
   const db = getDb();

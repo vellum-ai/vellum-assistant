@@ -18,7 +18,7 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { conversations } from "../memory/schema.js";
 
-initializeDb();
+await initializeDb();
 
 function ensureConversation(
   id: string,
@@ -354,9 +354,8 @@ describe("addPointerMessage", () => {
     });
 
     // Confirm the durable snapshot round-trips through the schema parser.
-    const { getConversationRecentProvenanceTrustClass } = await import(
-      "../memory/conversation-crud.js"
-    );
+    const { getConversationRecentProvenanceTrustClass } =
+      await import("../memory/conversation-crud.js");
     expect(getConversationRecentProvenanceTrustClass(convId)).toBe(
       "unverified_contact",
     );

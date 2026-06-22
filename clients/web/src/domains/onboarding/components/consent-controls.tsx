@@ -108,7 +108,7 @@ export function PrivacyPreferencesCard({
           {showAnalytics && (
             <SettingRow
               label="Share Analytics"
-              helperText="Send anonymous product usage data."
+              helperText="Send aggregated product usage data"
               checked={shareAnalytics}
               onChange={onShareAnalyticsChange}
             />
@@ -117,7 +117,7 @@ export function PrivacyPreferencesCard({
           {showDiagnostics && (
             <SettingRow
               label="Share Diagnostics"
-              helperText="Send crash reports and performance metrics."
+              helperText="Send crash reports, conversation traces, and session replay data"
               checked={shareDiagnostics}
               onChange={onShareDiagnosticsChange}
             />

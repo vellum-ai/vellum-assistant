@@ -177,7 +177,7 @@ import {
 } from "../tools/tool-approval-handler.js";
 import type { ToolContext, ToolLifecycleEvent } from "../tools/types.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();

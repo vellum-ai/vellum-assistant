@@ -40,7 +40,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { persistUnsendableImageDowngrades } from "../plugins/defaults/image-recovery/recover.js";
 import type { ContentBlock } from "../providers/types.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();

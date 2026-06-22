@@ -20,7 +20,7 @@ import { cliIpcCall } from "../cli-client.js";
 // DB setup (attachment store needs SQLite)
 // ---------------------------------------------------------------------------
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers

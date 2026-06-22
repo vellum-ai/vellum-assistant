@@ -17,17 +17,19 @@ import type { LLMCallSite } from "../config/schemas/llm.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
+import { advisorEnabledForProfile } from "../plugins/defaults/advisor/advisor-gate.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
-import { getMcpToolDefinitions } from "../tools/registry.js";
+import { getMcpToolDefinitions, getTool } from "../tools/registry.js";
 import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
 } from "../tools/schema-transforms.js";
 import {
   augmentSkillExecuteError,
+  recoverSkillExecuteEnvelope,
   resolveSkillExecuteInput,
 } from "../tools/skills/execute.js";
 import { resolveToolInvocationAlias } from "../tools/tool-name-aliases.js";
@@ -59,8 +61,8 @@ import { FALLBACK_TURN_TRUST, resolveTrustClass } from "./trust-context.js";
 
 const log = getLogger("conversation-tool-setup");
 
+import { AUTO_PROFILE_KEY } from "../api/constants/inference-profiles.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { AUTO_PROFILE_KEY } from "../config/seed-inference-profiles.js";
 import {
   buildSwitchInferenceProfileToolDef,
   SWITCH_INFERENCE_PROFILE_TOOL_NAME,
@@ -91,8 +93,10 @@ export type {
  * agent's). The conversation id is threaded as the mix selection seed so
  * mix-profile arms match what the dispatch path actually ran.
  *
- * Returns `null` on any failure: attribution is telemetry-only and must
- * never break tool execution (or skill loads, which reuse this helper).
+ * Returns `null` on any failure: attribution must never break tool execution
+ * (or skill loads, which reuse this helper). Consumers read it best-effort —
+ * usage telemetry, and `subagent_spawn`, which inherits the resolved
+ * `appliedProfile` so a child defaults to the invoking turn's profile.
  */
 export function resolveConversationAttribution(
   ctx: Pick<
@@ -218,6 +222,7 @@ export function createToolExecutor(
       isPlatformHosted: getIsPlatform(),
       transportInterface: ctx.transportInterface,
       overrideProfile: ctx.currentTurnOverrideProfile,
+      invokingCallSite: ctx.currentCallSite ?? "mainAgent",
       attribution: resolveConversationAttribution(ctx),
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {
@@ -302,9 +307,16 @@ export function createToolExecutor(
     // risk level, permission checks, hooks, and lifecycle events all fire
     // with the real tool name.
     if (executionName === "skill_execute") {
+      // Recover an envelope the provider wrapped as unparseable when MiniMax's
+      // coercion failed to JSON-decode a bare-string `input` (see
+      // recoverSkillExecuteEnvelope), then resolve the inner tool + params.
+      const envelope = recoverSkillExecuteEnvelope(executionInput);
       const rawToolName =
-        typeof executionInput.tool === "string" ? executionInput.tool : "";
-      const rawToolInput = resolveSkillExecuteInput(executionInput);
+        typeof envelope.tool === "string" ? envelope.tool : "";
+      const innerSchema = rawToolName
+        ? getTool(rawToolName)?.input_schema
+        : undefined;
+      const rawToolInput = resolveSkillExecuteInput(envelope, innerSchema);
 
       // Clone to avoid mutating shared input objects
       const { name: toolName, input: toolInput } = resolveToolInvocationAlias(
@@ -587,6 +599,16 @@ export function isToolActiveForContext(
     } catch {
       return true;
     }
+  }
+  if (name === "advisor") {
+    // Gated per chat-profile (`ProfileEntry.advisorEnabled`): when the resolved
+    // profile disables the advisor, omit the tool from the wire list so the
+    // model never sees a tool it can only no-op on. Resolves the profile the
+    // same way the advisor's execution-time guard does (the per-turn override,
+    // else the active profile). The wire list is fixed before PRE_MODEL_CALL
+    // hooks run, so a hook that re-routes the profile mid-turn (the model-router
+    // lever on `PreModelCallContext.modelProfile`) is not reflected here.
+    return advisorEnabledForProfile(ctx.currentTurnOverrideProfile ?? null);
   }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
     if (

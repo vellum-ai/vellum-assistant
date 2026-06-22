@@ -348,3 +348,35 @@ describe("rememberTool.execute — PKB re-index enqueue", () => {
     expect(archiveContents).toContain("enqueue will throw");
   });
 });
+
+describe("rememberTool.execute — batch (array) content", () => {
+  beforeEach(() => {
+    enqueueCalls.length = 0;
+    enqueueShouldThrow = false;
+  });
+
+  test("records every fact from an array and enqueues per file, not per fact", async () => {
+    const result = await rememberTool.execute(
+      { content: ["batch fact A", "batch fact B"] },
+      makeContext(),
+    );
+    expect(result.isError).toBe(false);
+
+    const pkbRoot = join(tmpWorkspace, "pkb");
+    const bufferContents = readFileSync(join(pkbRoot, "buffer.md"), "utf-8");
+    expect(bufferContents).toContain("batch fact A");
+    expect(bufferContents).toContain("batch fact B");
+
+    // buffer + archive, regardless of how many facts the call carried.
+    expect(enqueueCalls).toHaveLength(2);
+  });
+
+  test("rejects an all-blank array without writing or enqueueing", async () => {
+    const result = await rememberTool.execute(
+      { content: ["  ", ""] },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(enqueueCalls).toHaveLength(0);
+  });
+});

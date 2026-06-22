@@ -1,13 +1,21 @@
 /**
- * In-memory cache of the platform owner's `share_analytics` and
- * `share_diagnostics` consent.
+ * In-memory cache of the platform owner's telemetry consent.
+ *
+ * Three values are cached, all refreshed from the same owner-consent fetch:
+ *  - `share_analytics`: gates usage telemetry collection.
+ *  - `share_diagnostics`: gates crash diagnostics (read by Sentry `beforeSend`),
+ *    and composes the per-turn trace-collection gate alongside the
+ *    `trace-collection` feature flag.
+ *  - `share_diagnostics_accepted_version`: the consent version the owner
+ *    accepted; the disclosing-version half of the trace-collection gate (see
+ *    telemetry/trace-collection-policy.ts).
  *
  * Hot-path gates (record-time telemetry writes, Sentry `beforeSend`) need a
- * synchronous, I/O-free read, so this module owns both consent values and
- * refreshes them periodically in the background. Default-off until the first
- * successful fetch: an absent session, a disabled platform, or a transient
- * fetch failure all leave the values untouched (initial `false`), so we never
- * report analytics or send crash diagnostics without a confirmed opt-in.
+ * synchronous, I/O-free read, so this module owns the values and refreshes them
+ * periodically in the background. Default-off until the first successful fetch:
+ * an absent session, a disabled platform, or a transient fetch failure all leave
+ * the values untouched (initial `false`), so we never report analytics or send
+ * crash diagnostics without a confirmed opt-in.
  */
 
 import { getConfigReadOnly } from "../config/loader.js";
@@ -20,6 +28,7 @@ const REFRESH_INTERVAL_MS = 5 * 60_000; // refresh consent every 5 min
 
 let cachedShareAnalytics = false; // default-off until first success
 let cachedShareDiagnostics = false; // default-off until first success
+let cachedShareDiagnosticsVersion = ""; // "" fails the trace disclosure gate
 // Fail-closed marker for a workspace that locally opted out of usage data
 // before telemetry moved to platform `share_analytics` consent (migration 106).
 // While set, telemetry stays off regardless of platform consent. Cleared by a
@@ -48,6 +57,15 @@ export function getCachedShareDiagnostics(): boolean {
 }
 
 /**
+ * Synchronous hot-path accessor for the owner's accepted diagnostics-consent
+ * version ("YYYY-MM-DD", or "" until a successful refresh / if never accepted).
+ * The disclosing-version half of the per-turn trace-collection gate.
+ */
+export function getCachedShareDiagnosticsVersion(): string {
+  return cachedShareDiagnosticsVersion;
+}
+
+/**
  * Refresh the cached consent from the platform.
  *
  * No platform session / features disabled (`create()` is null) → default-off.
@@ -63,6 +81,7 @@ export async function refreshConsentCache(): Promise<void> {
   if (!client) {
     setCachedShareAnalytics(false);
     setCachedShareDiagnostics(false);
+    setCachedShareDiagnosticsVersion("");
     return;
   }
 
@@ -70,6 +89,7 @@ export async function refreshConsentCache(): Promise<void> {
   if (!client.platformAssistantId) {
     setCachedShareAnalytics(false);
     setCachedShareDiagnostics(false);
+    setCachedShareDiagnosticsVersion("");
     return;
   }
 
@@ -77,6 +97,7 @@ export async function refreshConsentCache(): Promise<void> {
   if (consent) {
     setCachedShareAnalytics(consent.shareAnalytics);
     setCachedShareDiagnostics(consent.shareDiagnostics);
+    setCachedShareDiagnosticsVersion(consent.shareDiagnosticsAcceptedVersion);
   }
 }
 
@@ -97,6 +118,16 @@ function setCachedShareDiagnostics(value: boolean): void {
       "share_diagnostics consent changed",
     );
     cachedShareDiagnostics = value;
+  }
+}
+
+function setCachedShareDiagnosticsVersion(value: string): void {
+  if (value !== cachedShareDiagnosticsVersion) {
+    log.debug(
+      { from: cachedShareDiagnosticsVersion, to: value },
+      "share_diagnostics_accepted_version changed",
+    );
+    cachedShareDiagnosticsVersion = value;
   }
 }
 
@@ -135,4 +166,9 @@ export function __setCachedShareAnalyticsForTest(value: boolean): void {
 /** Test-only: override the cached diagnostics value without going through a refresh. */
 export function __setCachedShareDiagnosticsForTest(value: boolean): void {
   cachedShareDiagnostics = value;
+}
+
+/** Test-only: override the cached diagnostics-consent version directly. */
+export function __setCachedShareDiagnosticsVersionForTest(value: string): void {
+  cachedShareDiagnosticsVersion = value;
 }

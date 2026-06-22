@@ -49,7 +49,7 @@ import {
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
 import { BadRequestError } from "../runtime/routes/errors.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables() {
   const db = getDb();

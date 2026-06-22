@@ -38,14 +38,14 @@ mock.module("../../../util/logger.js", () => ({
 
 import { invalidateConfigCache } from "../../../config/loader.js";
 import { createConversation } from "../../../memory/conversation-crud.js";
-import { getDb } from "../../../memory/db-connection.js";
+import { getDb, getMemorySqlite } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
 import { recordUsageEvent } from "../../../memory/llm-usage-store.js";
-import { rawAll, rawRun } from "../../../memory/raw-query.js";
+import { rawRun } from "../../../memory/raw-query.js";
 import { ROUTES } from "../consolidation-routes.js";
 import type { RouteDefinition } from "../types.js";
 
-initializeDb();
+await initializeDb();
 
 let workspaceDir: string;
 let origWorkspaceDir: string | undefined;
@@ -56,7 +56,7 @@ function resetTables(): void {
   db.run(`DELETE FROM llm_usage_events`);
   db.run(`DELETE FROM messages`);
   db.run(`DELETE FROM conversations`);
-  db.run(`DELETE FROM memory_jobs`);
+  getMemorySqlite()!.run(`DELETE FROM memory_jobs`);
 }
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
@@ -117,16 +117,20 @@ function readMemoryJobRows(): Array<{
   lastError: string | null;
   payload: string;
 }> {
-  return rawAll<{
+  return getMemorySqlite()!
+    .query(
+      `
+    SELECT id, status, last_error AS lastError, payload
+    FROM memory_jobs
+    ORDER BY id
+  `,
+    )
+    .all() as Array<{
     id: string;
     status: string;
     lastError: string | null;
     payload: string;
-  }>(`
-    SELECT id, status, last_error AS lastError, payload
-    FROM memory_jobs
-    ORDER BY id
-  `);
+  }>;
 }
 
 interface RunRecord {

@@ -51,7 +51,7 @@ import {
   listSchedules,
 } from "../schedule/schedule-store.js";
 
-initializeDb();
+await initializeDb();
 
 function clearTables(): void {
   const db = getDb();

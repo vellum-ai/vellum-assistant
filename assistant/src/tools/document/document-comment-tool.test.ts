@@ -20,7 +20,7 @@ import {
   executeCommentResolve,
 } from "./document-comment-tool.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers

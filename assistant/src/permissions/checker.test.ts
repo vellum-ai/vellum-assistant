@@ -126,6 +126,16 @@ mock.module("../ipc/gateway-client.js", () => ({
 // ── Import the module under test AFTER mocks are set up ──────────────────────
 
 import {
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import {
   check,
   classifyRisk,
   generateAllowlistOptions,
@@ -229,6 +239,47 @@ describe("Permission Checker (gateway IPC)", () => {
       const result2 = await classifyRisk("file_read", { path: "/tmp/a.txt" });
       expect(result2.level).toBe(RiskLevel.Low);
       expect(result2.reason).toBe("Cached test");
+    });
+
+    test("file-tool cache misses when a symlink target is retargeted", async () => {
+      // File risk depends on filesystem state: the cache key folds in the
+      // symlink-resolved target, so the same raw input must NOT return a stale
+      // cached result after the symlink is pointed somewhere new.
+      const dir = mkdtempSync(join(tmpdir(), "risk-cache-symlink-"));
+      try {
+        const benign = join(dir, "benign.txt");
+        const other = join(dir, "other.txt");
+        writeFileSync(benign, "ok");
+        writeFileSync(other, "ok");
+        const link = join(dir, "link.txt");
+        symlinkSync(benign, link);
+
+        mockIpcClassifyRiskResult = {
+          risk: "low",
+          reason: "benign",
+          matchType: "registry",
+          scopeOptions: [],
+        };
+        const first = await classifyRisk("file_read", { path: link });
+        expect(first.level).toBe(RiskLevel.Low);
+
+        // Retarget the symlink to a different real file; raw input unchanged.
+        unlinkSync(link);
+        symlinkSync(other, link);
+
+        mockIpcClassifyRiskResult = {
+          risk: "high",
+          reason: "now sensitive",
+          matchType: "registry",
+          scopeOptions: [],
+        };
+        const second = await classifyRisk("file_read", { path: link });
+        // Cache must have missed and re-classified against the new target.
+        expect(second.level).toBe(RiskLevel.High);
+        expect(second.reason).toBe("now sensitive");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
 
     test("preserves commandCandidates from gateway response", async () => {

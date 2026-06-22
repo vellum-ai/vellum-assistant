@@ -7,6 +7,36 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+const gatewayIpc = {
+  claim: { ok: true, updated: true, mirrored: true } as {
+    ok: boolean;
+    updated: boolean;
+    mirrored: boolean;
+  },
+  claimThrows: false,
+  calls: [] as { method: string; params?: Record<string, unknown> }[],
+};
+
+mock.module("../ipc/gateway-client.js", () => ({
+  ipcCallPersistent: async (
+    method: string,
+    params?: Record<string, unknown>,
+  ) => {
+    gatewayIpc.calls.push({ method, params });
+    if (method === "record_invite_redemption") {
+      if (gatewayIpc.claimThrows) throw new Error("gateway unreachable");
+      return gatewayIpc.claim;
+    }
+    return undefined;
+  },
+}));
+
+function resetGatewayIpc() {
+  gatewayIpc.claim = { ok: true, updated: true, mirrored: true };
+  gatewayIpc.claimThrows = false;
+  gatewayIpc.calls = [];
+}
+
 import {
   findContactChannel,
   getContact,
@@ -19,7 +49,7 @@ import { createInvite, revokeInvite } from "../memory/invite-store.js";
 import { redeemVoiceInviteCode } from "../runtime/invite-redemption-service.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables() {
   getSqlite().run("DELETE FROM assistant_ingress_invites");
@@ -37,13 +67,13 @@ function createTargetContact(displayName = "Target Contact"): string {
 // ---------------------------------------------------------------------------
 
 describe("generateVoiceCode", () => {
-  test("generates a code with the default 6 digits", () => {
+  test("generates a code with the default 6 digits", async () => {
     const code = generateVoiceCode();
     expect(code.length).toBe(6);
     expect(/^\d{6}$/.test(code)).toBe(true);
   });
 
-  test("generates a code with the requested digit count", () => {
+  test("generates a code with the requested digit count", async () => {
     for (const digits of [4, 5, 6, 7, 8, 9, 10]) {
       const code = generateVoiceCode(digits);
       expect(code.length).toBe(digits);
@@ -51,15 +81,15 @@ describe("generateVoiceCode", () => {
     }
   });
 
-  test("throws for digit count below 4", () => {
+  test("throws for digit count below 4", async () => {
     expect(() => generateVoiceCode(3)).toThrow(/between 4 and 10/);
   });
 
-  test("throws for digit count above 10", () => {
+  test("throws for digit count above 10", async () => {
     expect(() => generateVoiceCode(11)).toThrow(/between 4 and 10/);
   });
 
-  test("produces different codes across multiple calls (randomness)", () => {
+  test("produces different codes across multiple calls (randomness)", async () => {
     // Generate many codes and check that we don't get the same one every time.
     // With 6 digits there are 900,000 possibilities, so getting 10 identical
     // codes would be astronomically unlikely.
@@ -71,7 +101,7 @@ describe("generateVoiceCode", () => {
     expect(codes.size).toBeGreaterThanOrEqual(2);
   });
 
-  test("generated code is within the valid numeric range", () => {
+  test("generated code is within the valid numeric range", async () => {
     for (let i = 0; i < 20; i++) {
       const code = generateVoiceCode(6);
       const num = parseInt(code, 10);
@@ -87,20 +117,20 @@ describe("generateVoiceCode", () => {
 // ---------------------------------------------------------------------------
 
 describe("hashVoiceCode", () => {
-  test("produces a deterministic hash", () => {
+  test("produces a deterministic hash", async () => {
     const code = "123456";
     const hash1 = hashVoiceCode(code);
     const hash2 = hashVoiceCode(code);
     expect(hash1).toBe(hash2);
   });
 
-  test("produces a hex-encoded SHA-256 hash (64 chars)", () => {
+  test("produces a hex-encoded SHA-256 hash (64 chars)", async () => {
     const hash = hashVoiceCode("654321");
     expect(hash.length).toBe(64);
     expect(/^[0-9a-f]{64}$/.test(hash)).toBe(true);
   });
 
-  test("different codes produce different hashes", () => {
+  test("different codes produce different hashes", async () => {
     const hash1 = hashVoiceCode("111111");
     const hash2 = hashVoiceCode("222222");
     expect(hash1).not.toBe(hash2);
@@ -112,7 +142,10 @@ describe("hashVoiceCode", () => {
 // ---------------------------------------------------------------------------
 
 describe("redeemVoiceInviteCode", () => {
-  beforeEach(resetTables);
+  beforeEach(() => {
+    resetTables();
+    resetGatewayIpc();
+  });
 
   /**
    * Helper: create a voice invite with a known code and return the
@@ -147,11 +180,11 @@ describe("redeemVoiceInviteCode", () => {
     return { invite, code };
   }
 
-  test("happy path: correct caller + correct code redeems successfully", () => {
+  test("happy path: correct caller + correct code redeems successfully", async () => {
     const phone = "+15551234567";
     const { code } = createVoiceInvite({ callerPhone: phone });
 
-    const result = redeemVoiceInviteCode({
+    const result = await redeemVoiceInviteCode({
       callerExternalUserId: phone,
       sourceChannel: "phone",
       code,
@@ -164,13 +197,73 @@ describe("redeemVoiceInviteCode", () => {
       memberId: expect.any(String),
       inviteId: expect.any(String),
     });
+
+    // The redemption claimed the gateway-canonical row before mutating.
+    const claim = gatewayIpc.calls.find(
+      (c) => c.method === "record_invite_redemption",
+    );
+    expect(claim).toBeDefined();
+    expect(claim!.params).toMatchObject({ redeemedByExternalUserId: phone });
   });
 
-  test("marks channel as verified via invite on voice redemption", () => {
+  test("rejects voice redemption when the gateway claim is not consumable (no mutation)", async () => {
     const phone = "+15551234567";
     const { code } = createVoiceInvite({ callerPhone: phone });
 
-    const result = redeemVoiceInviteCode({
+    // Gateway row exists but was NOT consumable (revoked/exhausted/raced).
+    gatewayIpc.claim = { ok: true, updated: false, mirrored: true };
+
+    const result = await redeemVoiceInviteCode({
+      callerExternalUserId: phone,
+      sourceChannel: "phone",
+      code,
+    });
+
+    expect(result).toEqual({ ok: false, reason: "invalid_or_expired" });
+    expect(findContactChannel({ channelType: "phone", address: phone })).toBeNull();
+  });
+
+  test("proceeds for a legacy voice invite the gateway has never seen (mirrored:false)", async () => {
+    const phone = "+15551234567";
+    const { code } = createVoiceInvite({ callerPhone: phone });
+
+    gatewayIpc.claim = { ok: true, updated: false, mirrored: false };
+
+    const result = await redeemVoiceInviteCode({
+      callerExternalUserId: phone,
+      sourceChannel: "phone",
+      code,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(
+      findContactChannel({ channelType: "phone", address: phone }),
+    ).not.toBeNull();
+  });
+
+  test("fails open when the gateway claim throws on voice redemption", async () => {
+    const phone = "+15551234567";
+    const { code } = createVoiceInvite({ callerPhone: phone });
+
+    gatewayIpc.claimThrows = true;
+
+    const result = await redeemVoiceInviteCode({
+      callerExternalUserId: phone,
+      sourceChannel: "phone",
+      code,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(
+      findContactChannel({ channelType: "phone", address: phone }),
+    ).not.toBeNull();
+  });
+
+  test("marks channel as verified via invite on voice redemption", async () => {
+    const phone = "+15551234567";
+    const { code } = createVoiceInvite({ callerPhone: phone });
+
+    const result = await redeemVoiceInviteCode({
       callerExternalUserId: phone,
       sourceChannel: "phone",
       code,
@@ -189,10 +282,10 @@ describe("redeemVoiceInviteCode", () => {
     expect(channelResult!.channel.status).toBe("active");
   });
 
-  test("wrong caller identity fails with generic error", () => {
+  test("wrong caller identity fails with generic error", async () => {
     const { code } = createVoiceInvite({ callerPhone: "+15551234567" });
 
-    const result = redeemVoiceInviteCode({
+    const result = await redeemVoiceInviteCode({
       callerExternalUserId: "+19999999999",
       sourceChannel: "phone",
       code,
@@ -201,10 +294,10 @@ describe("redeemVoiceInviteCode", () => {
     expect(result).toEqual({ ok: false, reason: "invalid_or_expired" });
   });
 
-  test("wrong code fails with generic error", () => {
+  test("wrong code fails with generic error", async () => {
     createVoiceInvite({ callerPhone: "+15551234567" });
 
-    const result = redeemVoiceInviteCode({
+    const result = await redeemVoiceInviteCode({
       callerExternalUserId: "+15551234567",
       sourceChannel: "phone",
       code: "000000",
@@ -213,11 +306,11 @@ describe("redeemVoiceInviteCode", () => {
     expect(result).toEqual({ ok: false, reason: "invalid_or_expired" });
   });
 
-  test("expired invite fails", () => {
+  test("expired invite fails", async () => {
     const phone = "+15551234567";
     const { code } = createVoiceInvite({ callerPhone: phone, expiresInMs: -1 });
 
-    const result = redeemVoiceInviteCode({
+    const result = await redeemVoiceInviteCode({
       callerExternalUserId: phone,
       sourceChannel: "phone",
       code,
@@ -226,12 +319,12 @@ describe("redeemVoiceInviteCode", () => {
     expect(result).toEqual({ ok: false, reason: "invalid_or_expired" });
   });
 
-  test("max uses exhausted fails", () => {
+  test("max uses exhausted fails", async () => {
     const phone = "+15551234567";
     const { code } = createVoiceInvite({ callerPhone: phone, maxUses: 1 });
 
     // First redemption succeeds
-    const first = redeemVoiceInviteCode({
+    const first = await redeemVoiceInviteCode({
       callerExternalUserId: phone,
       sourceChannel: "phone",
       code,
@@ -239,7 +332,7 @@ describe("redeemVoiceInviteCode", () => {
     expect(first.ok).toBe(true);
 
     // Second redemption fails — max uses exhausted
-    const second = redeemVoiceInviteCode({
+    const second = await redeemVoiceInviteCode({
       callerExternalUserId: phone,
       sourceChannel: "phone",
       code,
@@ -247,13 +340,13 @@ describe("redeemVoiceInviteCode", () => {
     expect(second).toEqual({ ok: false, reason: "invalid_or_expired" });
   });
 
-  test("revoked invite fails", () => {
+  test("revoked invite fails", async () => {
     const phone = "+15551234567";
     const { invite, code } = createVoiceInvite({ callerPhone: phone });
 
     revokeInvite(invite.id);
 
-    const result = redeemVoiceInviteCode({
+    const result = await redeemVoiceInviteCode({
       callerExternalUserId: phone,
       sourceChannel: "phone",
       code,
@@ -262,7 +355,7 @@ describe("redeemVoiceInviteCode", () => {
     expect(result).toEqual({ ok: false, reason: "invalid_or_expired" });
   });
 
-  test("voice-only invite cannot be redeemed if sourceChannel on invite is not voice", () => {
+  test("voice-only invite cannot be redeemed if sourceChannel on invite is not voice", async () => {
     // Create a non-voice invite with voice code metadata to simulate a
     // hypothetical misconfiguration. The redemption service filters by
     // sourceChannel='phone', so non-phone invites are invisible.
@@ -279,7 +372,7 @@ describe("redeemVoiceInviteCode", () => {
       voiceCodeDigits: 6,
     });
 
-    const result = redeemVoiceInviteCode({
+    const result = await redeemVoiceInviteCode({
       callerExternalUserId: "+15551234567",
       sourceChannel: "phone",
       code,
@@ -290,7 +383,7 @@ describe("redeemVoiceInviteCode", () => {
     expect(result).toEqual({ ok: false, reason: "invalid_or_expired" });
   });
 
-  test("already-member caller gets already_member outcome", () => {
+  test("already-member caller gets already_member outcome", async () => {
     const phone = "+15551234567";
 
     // Pre-create an active member for this phone on voice channel
@@ -307,7 +400,7 @@ describe("redeemVoiceInviteCode", () => {
       contactId: member!.contact.id,
     });
 
-    const result = redeemVoiceInviteCode({
+    const result = await redeemVoiceInviteCode({
       callerExternalUserId: phone,
       sourceChannel: "phone",
       code,
@@ -319,9 +412,14 @@ describe("redeemVoiceInviteCode", () => {
       type: "already_member",
       memberId: expect.any(String),
     });
+
+    // No gateway claim — already_member must not consume a use.
+    expect(
+      gatewayIpc.calls.some((c) => c.method === "record_invite_redemption"),
+    ).toBe(false);
   });
 
-  test("blocked member gets generic failure to avoid leaking membership status", () => {
+  test("blocked member gets generic failure to avoid leaking membership status", async () => {
     const phone = "+15551234567";
 
     // Pre-create a blocked member and find their contact
@@ -338,7 +436,7 @@ describe("redeemVoiceInviteCode", () => {
       contactId: member!.contact.id,
     });
 
-    const result = redeemVoiceInviteCode({
+    const result = await redeemVoiceInviteCode({
       callerExternalUserId: phone,
       sourceChannel: "phone",
       code,
@@ -347,8 +445,8 @@ describe("redeemVoiceInviteCode", () => {
     expect(result).toEqual({ ok: false, reason: "invalid_or_expired" });
   });
 
-  test("empty callerExternalUserId fails", () => {
-    const result = redeemVoiceInviteCode({
+  test("empty callerExternalUserId fails", async () => {
+    const result = await redeemVoiceInviteCode({
       callerExternalUserId: "",
       sourceChannel: "phone",
       code: "123456",
@@ -357,7 +455,7 @@ describe("redeemVoiceInviteCode", () => {
     expect(result).toEqual({ ok: false, reason: "invalid_or_expired" });
   });
 
-  test("binds redeemer to the invite's target contact, not the guardian, on voice redemption", () => {
+  test("binds redeemer to the invite's target contact, not the guardian, on voice redemption", async () => {
     const phone = "+15559998888";
 
     // Pre-create a guardian contact with a revoked phone channel
@@ -385,7 +483,7 @@ describe("redeemVoiceInviteCode", () => {
       contactId: momContact.id,
     });
 
-    const result = redeemVoiceInviteCode({
+    const result = await redeemVoiceInviteCode({
       callerExternalUserId: phone,
       sourceChannel: "phone",
       code,

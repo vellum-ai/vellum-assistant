@@ -39,7 +39,7 @@ import type { RouteDefinition } from "../types.js";
 // DB bootstrap
 // ---------------------------------------------------------------------------
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Config fixture — must expose at least one profile so the handler can

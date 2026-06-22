@@ -81,6 +81,35 @@ const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>([
   // platform client, so it must be forwarded to the gateway in local /
   // self-hosted mode like any other runtime route.
   "events",
+  // User-defined route handlers (`/v1/x/*`). Sandboxed apps reach their
+  // backend handlers through the platform client (the sandbox fetch
+  // proxy in `useSandboxFetchProxy`, gated to `/v1/x/` paths), so these
+  // must be forwarded to the gateway in local / self-hosted mode rather
+  // than falling through to the platform proxy.
+  "x",
+  // Daemon- and gateway-owned per-assistant resources that are reached
+  // through the platform client via raw `client.*` calls (their gateway
+  // SDK functions aren't generated yet) instead of the daemon client.
+  // Like `events`/`x` above they must be forwarded to the gateway in
+  // local / self-hosted mode rather than falling through to the dead
+  // platform proxy — otherwise e.g. the background `TimezoneSync` PATCH to
+  // `config` retries against a nonexistent platform and floods the console
+  // with 502s. Each is listed only because the gateway (or the daemon it
+  // proxies to) actually serves the assistant-scoped routes the call sites
+  // hit: `config` (daemon GET/PATCH), and `permissions/thresholds` +
+  // `trust-rules` (gateway, all methods).
+  //
+  // Deliberately NOT listed: `contacts`, `contact-channels`, `artifacts`,
+  // and `a2a`. Their assistant-scoped routes aren't served by the gateway
+  // or daemon — the contacts control plane is registered at flat
+  // `/v1/contacts...` paths (only an assistant-scoped contacts DELETE
+  // exists), there is no `artifacts` route, and `/a2a/invites/redeem` is a
+  // platform broker route. Forwarding them would only turn the existing
+  // failure into a 404, so they stay on the platform until the
+  // assistant-scoped routes are mirrored.
+  "config",
+  "permissions",
+  "trust-rules",
 ]);
 
 const ASSISTANT_PATH_RE =
@@ -159,11 +188,16 @@ export async function rewriteForSelfHostedIngress(
 
   // In local mode the gateway proxy runs over plain HTTP, and Chrome
   // refuses to send a streaming (duplex: "half") body without TLS
-  // (ERR_ALPN_NEGOTIATION_FAILED). Buffer the body as an ArrayBuffer so
-  // the Request carries a finite-length payload. Platform self-hosted
-  // uses TLS, so keep the streaming body to avoid buffering large uploads.
+  // (ERR_ALPN_NEGOTIATION_FAILED), so the body must be buffered into a
+  // finite-length payload. Buffer to a Blob rather than an ArrayBuffer:
+  // an ArrayBuffer body is streamed to the network process through a
+  // fixed-capacity (~1-2 MB) data pipe, so a larger upload stalls forever
+  // when the local consumer drains the pipe slowly. A Blob is passed by
+  // reference (blob handle) and read directly, with no renderer-side data
+  // pipe to block on. Platform self-hosted uses TLS, so keep the streaming
+  // body there to avoid buffering large uploads.
   const body = isLocalMode()
-    ? (request.body ? await request.arrayBuffer() : null)
+    ? (request.body ? await request.blob() : null)
     : request.body;
 
   const init: RequestInit = {

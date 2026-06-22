@@ -68,7 +68,7 @@ import {
   updateState,
 } from "../task-store.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Global fetch intercept

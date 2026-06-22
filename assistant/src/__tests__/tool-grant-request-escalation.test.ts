@@ -112,7 +112,7 @@ import type { ToolContext, ToolLifecycleEvent } from "../tools/types.js";
 /** Short wait config for tests — avoids blocking test suite on the 60s default. */
 const TEST_INLINE_WAIT_CONFIG = { maxWaitMs: 100, intervalMs: 20 };
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();
@@ -226,7 +226,6 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
     });
     expect(requests.length).toBe(0);
   });
-
 });
 
 // ---------------------------------------------------------------------------

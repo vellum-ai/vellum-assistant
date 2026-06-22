@@ -60,7 +60,7 @@ import type { RouteDefinition } from "../types.js";
 // DB bootstrap
 // ---------------------------------------------------------------------------
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -35,7 +35,10 @@ import {
   registerBackgroundTool,
   removeBackgroundTool,
 } from "../background-tool-registry.js";
-import { formatShellOutput } from "../shared/shell-output.js";
+import {
+  formatShellOutput,
+  MAX_OUTPUT_LENGTH,
+} from "../shared/shell-output.js";
 import { buildSanitizedEnv } from "../terminal/safe-env.js";
 import type {
   ToolContext,
@@ -296,13 +299,20 @@ export const hostShellTool = {
 
         proxyPromise
           .then((result) => {
-            const hint = result.isError
-              ? `Background host command failed (id=${bgId}):\n${result.content}`
-              : `Background host command completed (id=${bgId}):\n${result.content || "(no output)"}`;
+            const framing = result.isError
+              ? `Background host command failed (id=${bgId}):`
+              : `Background host command completed (id=${bgId}):`;
             void wakeAgentForOpportunity({
               conversationId: context.conversationId,
-              hint,
+              hint: framing,
               source: "background-tool",
+              persistTriggerAsEvent: true,
+              untrustedOutput: {
+                content: result.content || "(no output)",
+                source: "tool_result",
+                // Preserve formatShellOutput's recovery marker (see shell.ts).
+                maxChars: MAX_OUTPUT_LENGTH * 2,
+              },
             });
           })
           .catch((err) => {
@@ -310,6 +320,7 @@ export const hostShellTool = {
               conversationId: context.conversationId,
               hint: `Background host command failed (id=${bgId}): ${err instanceof Error ? err.message : String(err)}`,
               source: "background-tool",
+              persistTriggerAsEvent: true,
             });
           })
           .finally(() => removeBackgroundTool(bgId));
@@ -440,13 +451,20 @@ export const hostShellTool = {
           timedOut,
           timeoutSec,
         );
-        const hint = result.isError
-          ? `Background host command failed (id=${bgId}):\n${result.content}`
-          : `Background host command completed (id=${bgId}):\n${result.content || "(no output)"}`;
+        const framing = result.isError
+          ? `Background host command failed (id=${bgId}):`
+          : `Background host command completed (id=${bgId}):`;
         void wakeAgentForOpportunity({
           conversationId: context.conversationId,
-          hint,
+          hint: framing,
           source: "background-tool",
+          persistTriggerAsEvent: true,
+          untrustedOutput: {
+            content: result.content || "(no output)",
+            source: "tool_result",
+            // Preserve formatShellOutput's recovery marker (see shell.ts).
+            maxChars: MAX_OUTPUT_LENGTH * 2,
+          },
         });
         removeBackgroundTool(bgId);
       });
@@ -459,6 +477,7 @@ export const hostShellTool = {
           conversationId: context.conversationId,
           hint: `Background host command failed (id=${bgId}): ${err.message}`,
           source: "background-tool",
+          persistTriggerAsEvent: true,
         });
         removeBackgroundTool(bgId);
       });

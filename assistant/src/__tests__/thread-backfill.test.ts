@@ -124,7 +124,7 @@ import {
   setAdapterProcessMessage,
 } from "./helpers/channel-test-adapter.js";
 
-initializeDb();
+await initializeDb();
 
 // Spy on backfillThreadWindowPage so the stub is scoped to this test file
 // only. Existing tests drive the message array through `backfillThreadMock`;

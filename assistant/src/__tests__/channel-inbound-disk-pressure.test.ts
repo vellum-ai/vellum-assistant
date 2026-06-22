@@ -75,7 +75,7 @@ import {
 } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();

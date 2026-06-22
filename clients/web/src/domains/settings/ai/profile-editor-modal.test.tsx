@@ -214,6 +214,87 @@ function renderCreate(
   );
 }
 
+/** Render the editor in edit mode for an existing profile. */
+function renderEdit(
+  initialValues: Record<string, unknown>,
+  onSave: (name: string, entry: unknown) => Promise<void> = () =>
+    Promise.resolve(),
+) {
+  return render(
+    <Wrapper>
+      <ProfileEditorModal
+        isOpen
+        mode="edit"
+        profileName={(initialValues.name as string) ?? "balanced"}
+        initialValues={initialValues as never}
+        existingNames={[(initialValues.name as string) ?? "balanced"]}
+        connections={[makeConnection("anthropic-personal")]}
+        assistantId={ASSISTANT_ID}
+        onSave={onSave}
+        onCancel={() => {}}
+      />
+    </Wrapper>,
+  );
+}
+
+/** Render the editor in view mode for a managed (platform-seeded) profile. */
+function renderView(
+  initialValues: Record<string, unknown>,
+  onSave: (
+    name: string,
+    entry: unknown,
+    options?: { mode?: "merge" | "replace" },
+  ) => Promise<void> = () => Promise.resolve(),
+) {
+  return render(
+    <Wrapper>
+      <ProfileEditorModal
+        isOpen
+        mode="view"
+        profileName={(initialValues.name as string) ?? "balanced"}
+        initialValues={initialValues as never}
+        existingNames={[(initialValues.name as string) ?? "balanced"]}
+        connections={[makeConnection("anthropic-personal")]}
+        assistantId={ASSISTANT_ID}
+        onSave={onSave}
+        onCancel={() => {}}
+      />
+    </Wrapper>,
+  );
+}
+
+/** The Top P toggle is a switch labelled (via aria-labelledby) "Top P". */
+function topPSwitch(): HTMLElement {
+  const sw = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="switch"]'),
+  ).find((el) => {
+    const labelId = el.getAttribute("aria-labelledby");
+    const labelEl = labelId ? document.getElementById(labelId) : null;
+    return labelEl?.textContent?.trim() === "Top P";
+  });
+  if (!sw) throw new Error("expected a Top P switch");
+  return sw;
+}
+
+/**
+ * The Top P value slider, or null when absent. Its range is 0..1
+ * (aria-valuemax "1"), which distinguishes it from temperature (0..2) and the
+ * token sliders (large maxes).
+ */
+function findTopPSlider(): HTMLElement | null {
+  return (
+    Array.from(
+      document.querySelectorAll<HTMLElement>('[role="slider"]'),
+    ).find((el) => el.getAttribute("aria-valuemax") === "1") ?? null
+  );
+}
+
+function topPSlider(): HTMLElement {
+  const slider = findTopPSlider();
+  if (!slider) throw new Error("expected a Top P slider (aria-valuemax=1)");
+  return slider;
+}
+
 /** Drive a provider-first create up to a Save-enabled state. */
 function fillCreateForm(): void {
   selectProvider("Anthropic");
@@ -483,5 +564,267 @@ describe("ProfileEditorModal create mode — provider-first", () => {
       expect(resolved).toBe(true);
     });
     expect(toastSuccessCalls).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Edit mode — a bound model that isn't in the static catalog (JARVIS-1180)
+// ---------------------------------------------------------------------------
+
+describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
+  function renderEdit(initialValues: Record<string, unknown>, connection: ProviderConnection) {
+    return render(
+      <Wrapper>
+        <ProfileEditorModal
+          isOpen
+          mode="edit"
+          profileName={initialValues.name as string}
+          initialValues={initialValues as unknown as never}
+          existingNames={[initialValues.name as string]}
+          connections={[connection]}
+          assistantId={ASSISTANT_ID}
+          onSave={() => Promise.resolve()}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+  }
+
+  test("renders the bound OpenRouter model (raw-id fallback) instead of an empty picker, and keeps Save enabled", () => {
+    // Reproduces JARVIS-1180: the "Fusion" profile is bound to an OpenRouter
+    // model id that isn't in this build's static catalog (it connects in Chat,
+    // which dispatches the id straight to OpenRouter). The editor used to show
+    // the empty "Select a model" placeholder, drop the binding via auto-clear,
+    // and block Save with a validation error.
+    renderEdit(
+      {
+        name: "fusion",
+        label: "Fusion",
+        provider: "openrouter",
+        model: "openrouter/fusion",
+        provider_connection: "openrouter",
+        status: "active",
+      },
+      makeConnection("openrouter", "openrouter"),
+    );
+
+    // The Model trigger surfaces the bound id (no catalog/connection name
+    // available, so it falls back to the raw id) rather than the empty
+    // placeholder...
+    const triggerLabels = dropdownTriggers().map((t) => t.textContent?.trim());
+    expect(triggerLabels).toContain("openrouter/fusion");
+    expect(triggerLabels).not.toContain("Select a model");
+
+    // ...the bound model isn't auto-cleared, so the validation hint stays away
+    // and Save remains enabled (the binding would persist intact).
+    expect(document.body.textContent).not.toContain("Select a model.");
+    expect(getSaveBtn().disabled).toBe(false);
+  });
+
+  test("offers the bound model as a selectable option in the Model dropdown", () => {
+    renderEdit(
+      {
+        name: "fusion",
+        label: "Fusion",
+        provider: "openrouter",
+        model: "openrouter/fusion",
+        provider_connection: "openrouter",
+        status: "active",
+      },
+      makeConnection("openrouter", "openrouter"),
+    );
+
+    // Open each combobox; the Model dropdown must list the bound id so it can
+    // be re-selected manually (the second reported surface of JARVIS-1180).
+    const optionLabels = dropdownTriggers().flatMap((trigger) => {
+      fireEvent.click(trigger);
+      const labels = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).map((o) => o.textContent?.trim());
+      fireEvent.click(trigger);
+      return labels;
+    });
+    expect(optionLabels).toContain("openrouter/fusion");
+  });
+
+  test("clears a catalog model the connection's subscription filters out, rather than offering it", async () => {
+    // A ChatGPT-subscription OpenAI connection only accepts the Codex-compatible
+    // model set, so a profile pinned to an in-catalog but non-Codex model
+    // (gpt-5.5-pro) is a known-incompatible binding: the editor clears it rather
+    // than presenting it as a valid, saveable choice.
+    const subscriptionConnection = {
+      name: "openai-chatgpt",
+      label: null,
+      provider: "openai",
+      auth: {
+        type: "oauth_subscription",
+        credential: "credential/openai/oauth_subscription",
+      },
+      models: null,
+    } as unknown as ProviderConnection;
+
+    renderEdit(
+      {
+        name: "codex",
+        label: "Codex",
+        provider: "openai",
+        model: "gpt-5.5-pro",
+        provider_connection: "openai-chatgpt",
+        status: "active",
+      },
+      subscriptionConnection,
+    );
+
+    // The incompatible model is auto-cleared: the Model trigger falls back to the
+    // placeholder and never surfaces "GPT-5.5 Pro".
+    await waitFor(() => {
+      const labels = dropdownTriggers().map((t) => t.textContent?.trim());
+      expect(labels).toContain("Select a model");
+    });
+    expect(dropdownTriggers().map((t) => t.textContent?.trim())).not.toContain(
+      "GPT-5.5 Pro",
+    );
+
+    // The dropdown offers the Codex-compatible models but not the filtered one.
+    const optionLabels = dropdownTriggers().flatMap((trigger) => {
+      fireEvent.click(trigger);
+      const labels = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).map((o) => o.textContent?.trim());
+      fireEvent.click(trigger);
+      return labels;
+    });
+    expect(optionLabels).toContain("GPT-5.5");
+    expect(optionLabels).not.toContain("GPT-5.5 Pro");
+  });
+});
+
+describe("ProfileEditorModal — Top P wiring", () => {
+  // Anthropic opus → visibility.topP is true, so the control renders.
+  const balancedProfile = {
+    name: "balanced",
+    label: "Balanced",
+    provider: "anthropic",
+    model: "claude-opus-4-8",
+    topP: 0.9,
+  };
+
+  test("opens a profile with topP showing the toggle on at that value", () => {
+    renderEdit(balancedProfile);
+
+    expect(topPSwitch().getAttribute("aria-checked")).toBe("true");
+    expect(topPSlider().getAttribute("aria-valuenow")).toBe("0.9");
+  });
+
+  test("a profile without topP shows the toggle off and no slider", () => {
+    renderEdit({ ...balancedProfile, topP: undefined });
+
+    expect(topPSwitch().getAttribute("aria-checked")).toBe("false");
+    expect(findTopPSlider()).toBeNull();
+  });
+
+  test("saving with Top P enabled submits topP as a number", async () => {
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+
+    renderEdit(balancedProfile, onSave);
+
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.topP).toBe(0.9);
+    expect(typeof saveCalls[0].entry.topP).toBe("number");
+  });
+
+  test("disabling Top P in edit mode submits topP: null", async () => {
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+
+    renderEdit(balancedProfile, onSave);
+
+    // Toggle Top P off, then save — edit mode clears it explicitly with null.
+    fireEvent.click(topPSwitch());
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.topP).toBeNull();
+  });
+
+  describe("managed profile in view mode", () => {
+    // A managed (platform-seeded) Balanced profile. Anthropic opus →
+    // visibility.topP is true, so the Top P control renders even in view mode.
+    const managedProfile = {
+      name: "balanced",
+      label: "Balanced",
+      provider: "anthropic",
+      model: "claude-opus-4-8",
+      source: "managed",
+    };
+
+    test("the Top P control is editable even though the modal is read-only", () => {
+      renderView(managedProfile);
+
+      // The Top P toggle stays interactive while the rest of the editor is
+      // locked (provider/model dropdowns are disabled in view mode).
+      expect((topPSwitch() as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    test("enabling Top P arms the otherwise close-only Save button", () => {
+      renderView(managedProfile);
+
+      // View mode opens with Save disabled (no policy fields touched yet).
+      expect(getSaveBtn().disabled).toBe(true);
+
+      // Turning Top P on is a tracked view-mode change → Save unlocks.
+      fireEvent.click(topPSwitch());
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+
+    test("saving sends topP in a merge entry without seed-owned fields", async () => {
+      const saveCalls: {
+        name: string;
+        entry: Record<string, unknown>;
+        options?: { mode?: "merge" | "replace" };
+      }[] = [];
+      const onSave = (
+        name: string,
+        entry: unknown,
+        options?: { mode?: "merge" | "replace" },
+      ) => {
+        saveCalls.push({
+          name,
+          entry: entry as Record<string, unknown>,
+          options,
+        });
+        return Promise.resolve();
+      };
+
+      renderView(managedProfile, onSave);
+
+      // Enable Top P, then save.
+      fireEvent.click(topPSwitch());
+      fireEvent.click(getSaveBtn());
+
+      await waitFor(() => {
+        expect(saveCalls.length).toBe(1);
+      });
+      // The merge entry carries the new topP number...
+      expect(saveCalls[0].entry.topP).toBe(0.95);
+      expect(typeof saveCalls[0].entry.topP).toBe("number");
+      // ...as a deep-merge so seed-owned fields are never sent.
+      expect(saveCalls[0].options?.mode).toBe("merge");
+      expect(saveCalls[0].entry.provider).toBeUndefined();
+      expect(saveCalls[0].entry.model).toBeUndefined();
+    });
   });
 });

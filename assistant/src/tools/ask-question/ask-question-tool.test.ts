@@ -59,7 +59,9 @@ beforeEach(() => {
   };
 });
 
-const validInput = {
+// A single question used to build batches. The tool only accepts the
+// batched `{ questions: [...] }` shape.
+const singleQ = {
   question: "Which fruit?",
   description: "Pick one to add to the smoothie.",
   options: [
@@ -69,12 +71,7 @@ const validInput = {
   freeTextPlaceholder: "Type a fruit",
 };
 
-const singleQ = {
-  question: validInput.question,
-  description: validInput.description,
-  options: validInput.options,
-  freeTextPlaceholder: validInput.freeTextPlaceholder,
-};
+const validInput = { questions: [singleQ] };
 
 describe("askQuestionTool definition", () => {
   test("exposes the expected schema shape and description language", () => {
@@ -91,7 +88,6 @@ describe("askQuestionTool definition", () => {
     expect(def.description).toContain("remove guessing");
     expect(def.description).toContain("a question is skipped");
     expect(def.description).toContain("every question in the batch is skipped");
-    // Batching language is back now that the prompter handles batches.
     expect(def.description).toContain("Batch related clarifications");
     expect(def.description).toContain("up to 5");
     expect(def.description).toContain("Skip button");
@@ -99,13 +95,23 @@ describe("askQuestionTool definition", () => {
     const schema = def.input_schema as {
       properties: Record<
         string,
-        { type?: string; minItems?: number; maxItems?: number }
+        {
+          type?: string;
+          items?: {
+            properties?: Record<
+              string,
+              { type?: string; minItems?: number; maxItems?: number }
+            >;
+          };
+        }
       >;
       required?: string[];
     };
-    expect(schema.properties.options?.type).toBe("array");
-    expect(schema.properties.options?.minItems).toBe(2);
-    expect(schema.properties.options?.maxItems).toBe(4);
+    const optionsSchema =
+      schema.properties.questions?.items?.properties?.options;
+    expect(optionsSchema?.type).toBe("array");
+    expect(optionsSchema?.minItems).toBe(2);
+    expect(optionsSchema?.maxItems).toBe(4);
   });
 });
 
@@ -132,17 +138,17 @@ describe("AskQuestionTool.execute", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.conversationId).toBe("conv-1");
     expect(calls[0]?.questions).toHaveLength(1);
-    expect(calls[0]?.questions[0]?.question).toBe(validInput.question);
-    expect(calls[0]?.questions[0]?.description).toBe(validInput.description);
-    expect(calls[0]?.questions[0]?.options).toEqual(validInput.options);
+    expect(calls[0]?.questions[0]?.question).toBe(singleQ.question);
+    expect(calls[0]?.questions[0]?.description).toBe(singleQ.description);
+    expect(calls[0]?.questions[0]?.options).toEqual(singleQ.options);
     expect(calls[0]?.questions[0]?.freeTextPlaceholder).toBe(
-      validInput.freeTextPlaceholder,
+      singleQ.freeTextPlaceholder,
     );
     expect(calls[0]?.toolUseId).toBe("tu-1");
 
     expect(result.isError).toBe(false);
     expect(result.content).toBe(
-      `Question "${validInput.question}" → Option: a (Apple)`,
+      `Question "${singleQ.question}" → Option: a (Apple)`,
     );
   });
 
@@ -150,7 +156,7 @@ describe("AskQuestionTool.execute", () => {
     setNextResult(singleCompleted({ decision: "option", optionId: "b" }));
     const result = await askQuestionTool.execute(validInput, makeContext());
     expect(result.content).toBe(
-      `Question "${validInput.question}" → Option: b (Banana)`,
+      `Question "${singleQ.question}" → Option: b (Banana)`,
     );
     expect(result.isError).toBe(false);
   });
@@ -159,7 +165,7 @@ describe("AskQuestionTool.execute", () => {
     setNextResult(singleCompleted({ decision: "option", optionId: "ghost" }));
     const result = await askQuestionTool.execute(validInput, makeContext());
     expect(result.content).toBe(
-      `Question "${validInput.question}" → Option: ghost ((unknown))`,
+      `Question "${singleQ.question}" → Option: ghost ((unknown))`,
     );
     expect(result.isError).toBe(false);
   });
@@ -168,7 +174,7 @@ describe("AskQuestionTool.execute", () => {
     setNextResult(singleCompleted({ decision: "free_text", text: "Cherry" }));
     const result = await askQuestionTool.execute(validInput, makeContext());
     expect(result.content).toBe(
-      `Question "${validInput.question}" → Free text: Cherry`,
+      `Question "${singleQ.question}" → Free text: Cherry`,
     );
     expect(result.isError).toBe(false);
   });
@@ -176,7 +182,7 @@ describe("AskQuestionTool.execute", () => {
   test("formats skipped result", async () => {
     setNextResult(singleCompleted({ decision: "skipped" }));
     const result = await askQuestionTool.execute(validInput, makeContext());
-    expect(result.content).toBe(`Question "${validInput.question}" → Skipped`);
+    expect(result.content).toBe(`Question "${singleQ.question}" → Skipped`);
     expect(result.isError).toBe(false);
   });
 
@@ -200,10 +206,10 @@ describe("AskQuestionTool.execute", () => {
     expect(result.content).toBe("Question aborted");
   });
 
-  test("rejects input with fewer than 2 options", async () => {
+  test("rejects a question with fewer than 2 options", async () => {
     setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
     const result = await askQuestionTool.execute(
-      { ...validInput, options: [{ id: "a", label: "Apple" }] },
+      { questions: [{ ...singleQ, options: [{ id: "a", label: "Apple" }] }] },
       makeContext(),
     );
     expect(result.isError).toBe(true);
@@ -211,17 +217,21 @@ describe("AskQuestionTool.execute", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test("rejects input with more than 4 options", async () => {
+  test("rejects a question with more than 4 options", async () => {
     setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
     const result = await askQuestionTool.execute(
       {
-        ...validInput,
-        options: [
-          { id: "a", label: "A" },
-          { id: "b", label: "B" },
-          { id: "c", label: "C" },
-          { id: "d", label: "D" },
-          { id: "e", label: "E" },
+        questions: [
+          {
+            ...singleQ,
+            options: [
+              { id: "a", label: "A" },
+              { id: "b", label: "B" },
+              { id: "c", label: "C" },
+              { id: "d", label: "D" },
+              { id: "e", label: "E" },
+            ],
+          },
         ],
       },
       makeContext(),
@@ -230,10 +240,10 @@ describe("AskQuestionTool.execute", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test("rejects input with empty question", async () => {
+  test("rejects a question with empty text", async () => {
     setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
     const result = await askQuestionTool.execute(
-      { ...validInput, question: "" },
+      { questions: [{ ...singleQ, question: "" }] },
       makeContext(),
     );
     expect(result.isError).toBe(true);
@@ -254,18 +264,6 @@ describe("AskQuestionTool.execute", () => {
 // ── Batched input ───────────────────────────────────────────────────
 
 describe("AskQuestionTool batched input", () => {
-  test("normalizes legacy flat input into a one-element batch forwarded to the prompter", async () => {
-    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
-
-    const result = await askQuestionTool.execute(validInput, makeContext());
-
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.questions).toHaveLength(1);
-    expect(calls[0]?.questions[0]?.question).toBe(validInput.question);
-    expect(calls[0]?.questions[0]?.options).toEqual(validInput.options);
-    expect(result.isError).toBe(false);
-  });
-
   test("accepts a single-element `questions` batch", async () => {
     setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
 
@@ -454,7 +452,7 @@ describe("AskQuestionTool batched input", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test("rejects input missing both `questions` and flat fields", async () => {
+  test("rejects input missing `questions`", async () => {
     setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
 
     const result = await askQuestionTool.execute({}, makeContext());
@@ -464,11 +462,17 @@ describe("AskQuestionTool batched input", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test("rejects legacy `question` without `options`", async () => {
+  test("rejects the dropped flat single-question shape", async () => {
     setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
 
     const result = await askQuestionTool.execute(
-      { question: "Hi?" },
+      {
+        question: "Hi?",
+        options: [
+          { id: "a", label: "A" },
+          { id: "b", label: "B" },
+        ],
+      },
       makeContext(),
     );
 
@@ -479,7 +483,7 @@ describe("AskQuestionTool batched input", () => {
 });
 
 describe("askQuestionTool definition (batched schema)", () => {
-  test("exposes `questions[]` shape, keeps legacy fields, omits per-question id", () => {
+  test("exposes `questions[]` shape, requires it, and drops the flat fields", () => {
     const def = askQuestionTool;
     const schema = def.input_schema as unknown as {
       properties: Record<
@@ -517,8 +521,12 @@ describe("askQuestionTool definition (batched schema)", () => {
 
     expect(questions?.items?.required).toEqual(["question", "options"]);
 
-    // Legacy fields still present.
-    expect(schema.properties.question).toBeDefined();
-    expect(schema.properties.options).toBeDefined();
+    // `questions` is the only top-level input now.
+    expect(schema.required).toEqual(["questions"]);
+    expect(Object.keys(schema.properties)).toEqual(["questions"]);
+
+    // The legacy flat fields are gone.
+    expect(schema.properties.question).toBeUndefined();
+    expect(schema.properties.options).toBeUndefined();
   });
 });

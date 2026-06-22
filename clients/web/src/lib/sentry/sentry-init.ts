@@ -1,12 +1,28 @@
 import type { BrowserOptions } from "@sentry/react";
 
+import { diagnosticsConsentGranted } from "@/lib/sentry/consent-gate";
 import {
   installSentryControlListeners,
   syncSentryClient,
 } from "@/lib/sentry/sentry-control";
 import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
 import { sanitizeUrl } from "@/lib/sentry/url-sanitize";
-import { getDeviceBool } from "@/utils/device-settings";
+import { isElectron } from "@/runtime/is-electron";
+import { isNativePlatform } from "@/runtime/native-auth";
+
+/**
+ * Resolve the Sentry DSN for the current host. The shared bundle reports to a
+ * per-host project: Electron renderer → `VITE_SENTRY_DSN_MACOS`
+ * (vellum-assistant-macos), iOS WKWebview → `VITE_SENTRY_DSN_IOS`
+ * (vellum-assistant-ios), web → `VITE_SENTRY_DSN` (vellum-assistant-web).
+ *
+ * The Electron check comes first since the renderer also runs the web bundle.
+ */
+function resolveDsn(): string | undefined {
+  if (isElectron()) return import.meta.env.VITE_SENTRY_DSN_MACOS;
+  if (isNativePlatform()) return import.meta.env.VITE_SENTRY_DSN_IOS;
+  return import.meta.env.VITE_SENTRY_DSN;
+}
 
 /**
  * Browser-side Sentry initialization, gated on the user's Share Diagnostics
@@ -28,7 +44,6 @@ import { getDeviceBool } from "@/utils/device-settings";
  * Reference: https://docs.sentry.io/security-legal-pii/scrubbing/
  */
 const options: BrowserOptions = {
-  dsn: import.meta.env.VITE_SENTRY_DSN,
   environment: import.meta.env.VITE_SENTRY_ENVIRONMENT ?? "local",
   release: import.meta.env.VITE_APP_VERSION,
   tracesSampleRate: 0,
@@ -103,14 +118,16 @@ const options: BrowserOptions = {
 
 /**
  * Bootstrap Sentry consent gating. Must be called after
- * `migrateDeviceSettings()` so the `device:share_diagnostics` key
- * is available when `readConsent()` reads localStorage.
+ * `migrateDeviceSettings()` so the `device:diagnostics_reporting` key
+ * is available when the consent gate reads localStorage.
  *
- * Also syncs the current consent state to the Electron main process
- * (no-op on web/iOS) so the main-process Sentry client matches.
+ * Also syncs the effective (session-gated) reporting gate to the Electron main
+ * process (no-op on web/iOS) so the main-process Sentry client matches.
  */
 export function initSentry(): void {
-  syncSentryClient(options);
-  installSentryControlListeners(options);
-  syncDiagnosticsToMain(getDeviceBool("shareDiagnostics", false));
+  // Resolve the DSN at init time (post host-detection), not at module load.
+  const resolved: BrowserOptions = { ...options, dsn: resolveDsn() };
+  syncSentryClient(resolved);
+  installSentryControlListeners(resolved);
+  syncDiagnosticsToMain(diagnosticsConsentGranted());
 }

@@ -46,6 +46,8 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
       mockClients.filter((c) => c.capabilities.includes(cap)),
     listClientsByInterface: (interfaceId: string) =>
       mockClients.filter((c) => c.interfaceId === interfaceId),
+    getClientById: (clientId: string) =>
+      mockClients.find((c) => c.clientId === clientId),
     getActorPrincipalIdForClient: (clientId: string) =>
       mockClients.find((c) => c.clientId === clientId)?.actorPrincipalId,
   },
@@ -106,6 +108,91 @@ describe("HostBrowserProxy", () => {
   afterEach(() => {
     HostBrowserProxy.reset();
     pendingInteractions.clear();
+  });
+
+  describe("waitForExtensionClient", () => {
+    const EXTENSION: MockClient = {
+      clientId: "ext-client",
+      interfaceId: "chrome-extension",
+      capabilities: ["host_browser"],
+    };
+
+    test("returns true immediately when an extension is connected", async () => {
+      mockClients = [EXTENSION];
+      expect(await proxy.waitForExtensionClient(undefined, undefined, 1_000)).toBe(
+        true,
+      );
+    });
+
+    test("returns false after the timeout when none connects", async () => {
+      mockClients = [DEFAULT_CLIENT]; // macos only, no extension
+      expect(await proxy.waitForExtensionClient(undefined, undefined, 100)).toBe(
+        false,
+      );
+    });
+
+    test("returns true when an extension appears within the window", async () => {
+      mockClients = [DEFAULT_CLIENT];
+      setTimeout(() => {
+        mockClients = [DEFAULT_CLIENT, EXTENSION];
+      }, 50);
+      expect(await proxy.waitForExtensionClient(undefined, undefined, 2_000)).toBe(
+        true,
+      );
+    });
+
+    test("respects sourceActorPrincipalId", async () => {
+      mockClients = [
+        {
+          clientId: "other-actor-ext",
+          interfaceId: "chrome-extension",
+          actorPrincipalId: "actor-b",
+          capabilities: ["host_browser"],
+        },
+      ];
+      // Caller is actor-a; the connected extension belongs to actor-b.
+      expect(await proxy.waitForExtensionClient("actor-a", undefined, 100)).toBe(
+        false,
+      );
+    });
+
+    test("with a targetClientId, waits for that exact client (not a sibling)", async () => {
+      // A sibling extension is connected, but the targeted client is not —
+      // the wait must not return early on the sibling's presence.
+      mockClients = [
+        {
+          clientId: "sibling-ext",
+          interfaceId: "chrome-extension",
+          capabilities: ["host_browser"],
+        },
+      ];
+      expect(
+        await proxy.waitForExtensionClient(undefined, "target-ext", 100),
+      ).toBe(false);
+    });
+
+    test("with a targetClientId, returns true once that client appears", async () => {
+      mockClients = [
+        {
+          clientId: "sibling-ext",
+          interfaceId: "chrome-extension",
+          capabilities: ["host_browser"],
+        },
+      ];
+      setTimeout(() => {
+        mockClients = [
+          ...mockClients,
+          {
+            clientId: "target-ext",
+            interfaceId: "chrome-extension",
+            capabilities: ["host_browser"],
+          },
+        ];
+      }, 50);
+      expect(
+        await proxy.waitForExtensionClient(undefined, "target-ext", 2_000),
+      ).toBe(true);
+    });
   });
 
   describe("request/resolve lifecycle (happy path)", () => {

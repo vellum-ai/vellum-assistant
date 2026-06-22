@@ -105,6 +105,7 @@ import { recheckAdaptiveThinkingModelImpliedAnthropicMigration } from "./104-rec
 import { enableMemoryV3LiveForNewWorkspacesMigration } from "./105-enable-memory-v3-live-for-new-workspaces.js";
 import { dropCollectUsageDataMigration } from "./106-drop-collect-usage-data.js";
 import { dropSendDiagnosticsMigration } from "./107-drop-send-diagnostics.js";
+import { dropBalancedEconomyProfileMigration } from "./108-drop-balanced-economy-profile.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -221,4 +222,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   enableMemoryV3LiveForNewWorkspacesMigration,
   dropCollectUsageDataMigration,
   dropSendDiagnosticsMigration,
+  dropBalancedEconomyProfileMigration,
 ];

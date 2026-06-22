@@ -28,7 +28,7 @@ import { getSqlite } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
 import { getA2AConfig, redeemA2AInvite } from "../config-a2a.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const sqlite = getSqlite();

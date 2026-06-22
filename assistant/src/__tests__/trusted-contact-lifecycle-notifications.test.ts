@@ -72,7 +72,7 @@ import { createApprovalRequest } from "../memory/guardian-approvals.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -493,5 +493,4 @@ describe("trusted contact activated notification signal", () => {
     expect(resolver).toBeDefined();
     expect(resolver!.kind).toBe("access_request");
   });
-
 });

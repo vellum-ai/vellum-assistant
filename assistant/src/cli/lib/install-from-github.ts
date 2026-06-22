@@ -112,6 +112,16 @@ export interface InstallPluginOptions {
   readonly force?: boolean;
   /** Git ref (branch, tag, SHA) to fetch from. Defaults to {@link DEFAULT_PLUGIN_REF}. */
   readonly ref?: string;
+  /**
+   * Materialize this exact plugin commit SHA instead of the pin the marketplace
+   * manifest records, while still resolving the plugin's owner/repo/path (and
+   * the curated adapter stub) from the manifest at {@link InstallPluginOptions.ref}.
+   * This is the CLI-only escape hatch for installing an unreviewed revision; the
+   * adapter stub therefore comes from the manifest's `ref`, not the override's
+   * era, so an adapted plugin may not reproduce a historical version faithfully.
+   * Unset for normal installs, which take the reviewed pin from the manifest.
+   */
+  readonly commitOverride?: string;
 }
 
 /** Dependencies injected by the caller. */
@@ -144,9 +154,11 @@ export interface InstallPluginResult {
 
 /** Plugin name failed sanitization. */
 export class InvalidPluginNameError extends Error {
-  constructor(name: string) {
+  constructor(name: string, reason?: string) {
     super(
-      `Invalid plugin name "${name}". Names must match /^[a-z0-9][a-z0-9_-]*$/.`,
+      reason
+        ? `Invalid plugin name "${name}". ${reason}`
+        : `Invalid plugin name "${name}". Names must match /^[a-z0-9][a-z0-9_-]*$/.`,
     );
     this.name = "InvalidPluginNameError";
   }
@@ -280,10 +292,22 @@ async function resolvePluginSource(
 }
 
 /**
+ * Prefix reserved for first-party default plugins that ship in the assistant
+ * source tree. User-installable plugins must not use it — the `.disabled`
+ * sentinel and the plugin registry both key on manifest names, and a
+ * user plugin with a `default-` name would shadow or collide with the
+ * built-in.
+ */
+export const RESERVED_PLUGIN_PREFIX = "default-";
+
+/**
  * Reject plugin names that could escape the canonical source path or the
  * install target. The source convention is a flat namespace under
  * `plugins/`, so a legitimate name is a single path segment
  * built from kebab-case alphanumerics.
+ *
+ * Names prefixed with {@link RESERVED_PLUGIN_PREFIX} (`default-`) are also
+ * rejected — that prefix is reserved for first-party default plugins.
  *
  * Exported so callers (e.g. the CLI input prompt) can validate up front
  * before invoking {@link installPlugin}.
@@ -292,6 +316,12 @@ export function sanitizePluginName(name: string): string {
   const trimmed = name.trim();
   if (!/^[a-z0-9][a-z0-9_-]*$/.test(trimmed)) {
     throw new InvalidPluginNameError(name);
+  }
+  if (trimmed.startsWith(RESERVED_PLUGIN_PREFIX)) {
+    throw new InvalidPluginNameError(
+      name,
+      `The "${RESERVED_PLUGIN_PREFIX}" prefix is reserved for first-party default plugins.`,
+    );
   }
   return trimmed;
 }
@@ -345,7 +375,13 @@ export async function installPlugin(
       "plugins/marketplace.json",
     );
   }
-  const ref = source.ref;
+  // A commit override installs a specific plugin revision while still taking
+  // owner/repo/path (and the adapter stub, via `marketplaceRef`) from the
+  // manifest; otherwise the reviewed pin from the manifest is materialized.
+  const effectiveSource: PluginFetchSource = opts.commitOverride
+    ? { ...source, ref: opts.commitOverride }
+    : source;
+  const ref = effectiveSource.ref;
 
   const pluginsDir = deps.workspacePluginsDir ?? getWorkspacePluginsDir();
   const target = join(pluginsDir, name);
@@ -377,7 +413,12 @@ export async function installPlugin(
   let committedAt: string | null = null;
   try {
     const materialized = await materializePluginTree(
-      { source, name, stubRef: marketplaceRef, destDir: stagingDir },
+      {
+        source: effectiveSource,
+        name,
+        stubRef: marketplaceRef,
+        destDir: stagingDir,
+      },
       deps,
     );
     fileCount = materialized.fileCount;
@@ -390,12 +431,12 @@ export async function installPlugin(
 
   if (fileCount === 0) {
     rmSync(stagingDir, { recursive: true, force: true });
-    throw new PluginNotFoundError(name, ref, sourceLabel(source));
+    throw new PluginNotFoundError(name, ref, sourceLabel(effectiveSource));
   }
 
   finalizeStagedInstall(stagingDir, {
     name,
-    source,
+    source: effectiveSource,
     ref,
     commit,
     committedAt,

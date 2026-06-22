@@ -30,7 +30,7 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables() {
   const db = getDb();

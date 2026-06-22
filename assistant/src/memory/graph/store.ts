@@ -450,7 +450,10 @@ export function getEdgesForNode(
       ? eq(memoryGraphEdges.sourceNodeId, nodeId)
       : direction === "incoming"
         ? eq(memoryGraphEdges.targetNodeId, nodeId)
-        : or(eq(memoryGraphEdges.sourceNodeId, nodeId), eq(memoryGraphEdges.targetNodeId, nodeId));
+        : or(
+            eq(memoryGraphEdges.sourceNodeId, nodeId),
+            eq(memoryGraphEdges.targetNodeId, nodeId),
+          );
 
   // Exclude edges where either endpoint has fidelity='gone' (soft-deleted)
   const condition = and(
@@ -577,12 +580,7 @@ export function getActiveTriggersByType(
       memoryGraphNodes,
       eq(memoryGraphTriggers.nodeId, memoryGraphNodes.id),
     )
-    .where(
-      and(
-        ...conditions,
-        sql`${memoryGraphNodes.fidelity} != 'gone'`,
-      ),
-    )
+    .where(and(...conditions, sql`${memoryGraphNodes.fidelity} != 'gone'`))
     .all();
   return rows.map((r) => rowToTrigger(r.trigger));
 }
@@ -680,19 +678,20 @@ export function applyDiff(
     createdNodeIds: [],
   };
 
+  // Qdrant-cleanup jobs target the dedicated memory connection (`memory_jobs`
+  // lives in its own file), so they can't share this main-DB transaction —
+  // collect the deleted node ids and enqueue them after the transaction commits.
+  const deletedNodeIds: string[] = [];
+
   db.transaction((tx) => {
-    // Soft-delete nodes (set fidelity='gone' and enqueue Qdrant cleanup)
+    // Soft-delete nodes (set fidelity='gone'); the Qdrant cleanup is enqueued
+    // after commit.
     for (const id of diff.deleteNodeIds) {
       tx.update(memoryGraphNodes)
         .set({ fidelity: "gone", lastAccessed: Date.now() })
         .where(eq(memoryGraphNodes.id, id))
         .run();
-      enqueueMemoryJob(
-        "delete_qdrant_vectors",
-        { targetType: "graph_node", targetId: id },
-        Date.now(),
-        tx,
-      );
+      deletedNodeIds.push(id);
       result.nodesDeleted++;
     }
 
@@ -861,6 +860,16 @@ export function applyDiff(
       result.triggersCreated++;
     }
   });
+
+  // Flush Qdrant-cleanup jobs onto the memory connection now the node soft-
+  // deletes have committed — enqueue only on success, mirroring the prior
+  // in-transaction behavior without spanning the two connections.
+  for (const id of deletedNodeIds) {
+    enqueueMemoryJob("delete_qdrant_vectors", {
+      targetType: "graph_node",
+      targetId: id,
+    });
+  }
 
   return result;
 }

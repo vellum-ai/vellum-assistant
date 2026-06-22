@@ -10,7 +10,10 @@ import {
   createAssistantMessage,
   createUserMessage,
 } from "../../agent/message-types.js";
-import { ConversationMessageSchema } from "../../api/responses/conversation-message.js";
+import {
+  type ConversationContentBlock,
+  ConversationMessageSchema,
+} from "../../api/responses/conversation-message.js";
 import {
   CHANNEL_IDS,
   INTERFACE_IDS,
@@ -120,7 +123,10 @@ import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { getPersistedSeq } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { routeGuardianReply } from "../guardian-reply-router.js";
+import {
+  type GuardianPendingScope,
+  routeGuardianReply,
+} from "../guardian-reply-router.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
 import type {
   ApprovalConversationGenerator,
@@ -148,6 +154,10 @@ import {
   collectPendingConfirmations,
   enrichToolCallsWithConfirmation,
 } from "./tool-call-confirmation-enrichment.js";
+import {
+  collectPendingQuestions,
+  enrichToolCallsWithQuestion,
+} from "./tool-call-question-enrichment.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { RouteResponse } from "./types.js";
 
@@ -486,12 +496,14 @@ async function tryConsumeCanonicalGuardianReply(params: {
     sourceChannel,
     conversation,
   );
-  // Always pass the hints array (even when empty) so
-  // findPendingCanonicalRequests respects the in-memory staleness filter
-  // applied by collectCanonicalGuardianRequestHintIds. Converting empty
-  // hints to `undefined` caused the router to fall through to raw DB
-  // queries that rediscovered stale canonical requests.
-  const pendingRequestIds = pendingRequestHintIds;
+  // An empty hint set is `blocked`, not absence: the in-memory staleness
+  // filter in collectCanonicalGuardianRequestHintIds found no live requests,
+  // so the router must not fall back to identity/DB lookup (which rediscovered
+  // stale canonical requests). A non-empty set scopes resolution to it.
+  const pendingScope: GuardianPendingScope =
+    pendingRequestHintIds.length > 0
+      ? { mode: "scoped", requestIds: pendingRequestHintIds }
+      : { mode: "blocked" };
 
   const routerResult = await routeGuardianReply({
     messageText: trimmedContent,
@@ -503,7 +515,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
       guardianPrincipalId: verifiedActorPrincipalId,
     },
     conversationId,
-    pendingRequestIds,
+    pendingScope,
     approvalConversationGenerator,
     emissionContext: {
       source: "inline_nl",
@@ -817,6 +829,7 @@ export function handleListMessages({
   const pendingConfirmations = collectPendingConfirmations(
     resolvedConversationId,
   );
+  const pendingQuestions = collectPendingQuestions(resolvedConversationId);
 
   const messages: RuntimeMessagePayload[] = parsed.map((m) => {
     const mergedMessageIds = m.id ? (mergedIdMap.get(m.id) ?? []) : [];
@@ -880,10 +893,13 @@ export function handleListMessages({
       m.id ?? undefined,
     );
 
-    const toolCalls = enrichToolCallsWithConfirmation(rendered.toolCalls, {
-      workspaceDir,
-      pendingConfirmations,
-    });
+    const toolCalls = enrichToolCallsWithQuestion(
+      enrichToolCallsWithConfirmation(rendered.toolCalls, {
+        workspaceDir,
+        pendingConfirmations,
+      }),
+      { pendingQuestions },
+    );
 
     // Strip <no_response/> markers from assistant messages so web/API clients
     // never see the raw sentinel. Only assistant messages produce it; user
@@ -930,7 +946,25 @@ export function handleListMessages({
         .filter((block) => block.type !== "text" || block.text.length > 0);
     }
 
-    const alignedContentOrder = aligned.rewriteContentOrder(contentOrder);
+  // Ensure every hydrated attachment has a corresponding content block.
+  // renderHistoryContent inlines attachment blocks only when it has
+  // file-block refs with matching DB rows; directives (assistant-authored
+  // <vellum-attachment/> tags) don't leave a file block after stripping,
+  // so their attachments end up in the flat `attachments` array but not in
+  // `contentBlocks`. Append any that are missing so the canonical
+  // projection is complete.
+  const existingAttachmentIds = new Set(
+    contentBlocks
+      .filter((b): b is Extract<ConversationContentBlock, { type: "attachment" }> => b.type === "attachment")
+      .map((b) => b.attachment.id),
+  );
+  for (const att of msgAttachments) {
+    if (!existingAttachmentIds.has(att.id)) {
+      contentBlocks.push({ type: "attachment", attachment: att });
+    }
+  }
+
+  const alignedContentOrder = aligned.rewriteContentOrder(contentOrder);
 
     // Use sentAt (actual event time) for the display timestamp when available,
     // falling back to createdAt (persistence time). Clients use this display
@@ -958,7 +992,7 @@ export function handleListMessages({
       ...(alignedContentOrder.length > 0
         ? { contentOrder: alignedContentOrder }
         : {}),
-      ...(contentBlocks.length > 0 ? { contentBlocks } : {}),
+      contentBlocks,
       ...(m.subagentNotification
         ? { subagentNotification: m.subagentNotification }
         : {}),

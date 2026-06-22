@@ -31,7 +31,7 @@ import { executeScheduleUpdate } from "../tools/schedule/update.js";
 import type { Tool, ToolContext } from "../tools/types.js";
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
-initializeDb();
+await initializeDb();
 
 function getRawDb(): Database {
   return (getDb() as unknown as { $client: Database }).$client;

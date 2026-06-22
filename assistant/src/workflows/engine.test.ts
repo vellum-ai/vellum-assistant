@@ -24,7 +24,7 @@ import {
 import * as journalStore from "./journal-store.js";
 import type { LeafResult, RunLeafOptions } from "./leaf-runner.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   getSqlite().exec("DELETE FROM workflow_journal");

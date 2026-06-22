@@ -32,6 +32,7 @@ import {
   PluginPostinstallError,
   PluginSourceUnavailableError,
   type PostinstallRunner,
+  readInstallMeta,
   sanitizePluginName,
 } from "../install-from-github.js";
 
@@ -290,6 +291,36 @@ describe("installPlugin — install lifecycle", () => {
     expect(existsSync(join(target, "stale.txt"))).toBe(false);
     expect(existsSync(join(target, "package.json"))).toBe(true);
     expect(existsSync(join(target, "README.md"))).toBe(true);
+  });
+
+  test("commitOverride materializes a specific commit, keeping repo from the manifest", async () => {
+    // GIVEN a manifest pinning the current SHA, but an override to an older one
+    const OLD_SHA = "1".repeat(40);
+    const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
+    const calls: string[][] = [];
+    const runGit = fakeGitRunner({
+      tree: { "package.json": '{"name":"caveman"}' },
+      commit: OLD_SHA,
+      calls,
+    });
+
+    // WHEN we install with the commit override
+    const result = await installPlugin(
+      { name: "caveman", force: false, ref: "main", commitOverride: OLD_SHA },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the clone fetched the override commit, not the manifest's pin
+    expect(calls.find((c) => c[0] === "fetch")?.at(-1)).toBe(OLD_SHA);
+    expect(result.commit).toBe(OLD_SHA);
+    expect(result.ref).toBe(OLD_SHA);
+
+    // AND provenance records the override as the installed ref while still
+    // resolving owner/repo from the manifest entry
+    const meta = readInstallMeta(join(pluginsDir, "caveman"));
+    expect(meta?.source.ref).toBe(OLD_SHA);
+    expect(meta?.source.repo).toBe("caveman");
+    expect(meta?.source.owner).toBe("JuliusBrussee");
   });
 
   test("--force preserves the existing install when the clone fails", async () => {
@@ -822,5 +853,14 @@ describe("sanitizePluginName", () => {
     expect(sanitizePluginName("simple-memory")).toBe("simple-memory");
     expect(sanitizePluginName("plugin_2")).toBe("plugin_2");
     expect(sanitizePluginName("a")).toBe("a");
+  });
+
+  test.each([
+    "default-advisor",
+    "default-memory-retrieval",
+    "default-",
+    "default-x",
+  ])("rejects reserved prefix name %p", (reserved) => {
+    expect(() => sanitizePluginName(reserved)).toThrow(InvalidPluginNameError);
   });
 });

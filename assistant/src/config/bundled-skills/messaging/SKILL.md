@@ -28,6 +28,8 @@ When the user mentions "email" - sending, reading, checking, decluttering, draft
 
 Do not offer the assistant's own email as an option unless the user specifically asks. If Gmail and Outlook are not connected, guide them through setup.
 
+Reading, searching, or summarizing the user's inbox is a **messaging task** — use the messaging tools (or the Gmail connection flow below if nothing is connected). Never run `assistant channels` commands for a mailbox request: channels are the assistant's own inbound delivery routes, not the user's mailbox, and inspecting them sends you down the wrong path.
+
 When a platform is connected (auth test succeeds), always use the messaging API tools for that platform. Never fall back to browser automation, shell commands (bash, curl), or any other approach for operations that messaging tools can handle. The messaging tools handle authentication internally - never try to access tokens or call APIs directly. Browser automation is only appropriate for initial credential setup (OAuth consent screens), not for day-to-day messaging operations.
 
 **Exception: Slack.** Slack messaging should use the Slack Web API directly via CLI, not messaging tools. See the **slack** skill for details.
@@ -50,13 +52,13 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
 
 ### Gmail
 
-1. **Try connecting directly first.** Run `assistant oauth status google`. This will show whether or not the user had previously connected their google account. If so, they are ready to go.
-2. **If no connections are found:** Call `skill_load` with `skill: "vellum-oauth-integrations"`. The skill will evaluate whether managed or your-own mode is appropriate and guide the user accordingly.
+1. **Check the connection.** Run `assistant oauth status google`. If a connection exists, the user is ready to go — proceed with their request.
+2. **If no connections are found, render the connect button in one step:** call `ui_show` with `surface_type: "oauth_connect"` and `data.providerKey: "google"`. That surface is always available — do **not** run `assistant channels`, `oauth providers get`, or load `vellum-oauth-integrations` just to display the button, and do **not** fall back to `assistant oauth connect`. Only load `vellum-oauth-integrations` when the managed-vs-your-own-credentials decision genuinely needs handling (e.g. a BYOK setup where the managed connect surface isn't available).
 
 ### Outlook
 
-1. **Try connecting directly first.** Run `assistant oauth status outlook`. This will show whether the user has previously connected their Outlook account.
-2. **If no connections are found:** Call `skill_load` with `skill: "vellum-oauth-integrations"`. The skill will evaluate whether managed or your-own mode is appropriate and guide the user accordingly.
+1. **Check the connection.** Run `assistant oauth status outlook`. If a connection exists, the user is ready to go — proceed with their request.
+2. **If no connections are found, render the connect button in one step:** call `ui_show` with `surface_type: "oauth_connect"` and `data.providerKey: "outlook"`. The same rules as Gmail apply — don't probe further or load a setup skill just to show the button; only load `vellum-oauth-integrations` when a managed-vs-your-own-credentials decision genuinely needs handling.
 
 ### Slack
 
