@@ -263,7 +263,7 @@ describe("handleContactPromptSubmit", () => {
     expect(typeof ipcCall.body.error).toBe("string");
   });
 
-  test("non-guardian prompt — creates new contact and channel", async () => {
+  test("non-guardian prompt — creates new contact and channel (gateway-first)", async () => {
     const res = await handleContactPromptSubmit(
       makeRequest({
         requestId: "req-4",
@@ -276,31 +276,102 @@ describe("handleContactPromptSubmit", () => {
 
     expect(res.status).toBe(200);
 
-    const contacts = testAssistantDb!
-      .prepare(`SELECT id, role FROM contacts WHERE display_name = 'Alice'`)
-      .all() as { id: string; role: string }[];
-    expect(contacts).toHaveLength(1);
-    expect(contacts[0].role).toBe("contact");
+    // Gateway DB is the source of truth: contact + channel rows must exist
+    // (unverified / allow / primary).
+    const gwContactRows = getGatewayDb()
+      .select()
+      .from(gwContacts)
+      .where(eq(gwContacts.displayName, "Alice"))
+      .all();
+    expect(gwContactRows).toHaveLength(1);
+    expect(gwContactRows[0].role).toBe("contact");
 
-    const channels = testAssistantDb!
-      .prepare(`SELECT contact_id FROM contact_channels WHERE type = 'email' AND address = ?`)
-      .all("alice@example.com") as { contact_id: string }[];
-    expect(channels).toHaveLength(1);
-    expect(channels[0].contact_id).toBe(contacts[0].id);
+    const gwChannelRows = getGatewayDb()
+      .select()
+      .from(gwContactChannels)
+      .where(eq(gwContactChannels.address, "alice@example.com"))
+      .all();
+    expect(gwChannelRows).toHaveLength(1);
+    expect(gwChannelRows[0].contactId).toBe(gwContactRows[0].id);
+    expect(gwChannelRows[0].status).toBe("unverified");
+    expect(gwChannelRows[0].policy).toBe("allow");
+    expect(gwChannelRows[0].isPrimary).toBe(true);
+
+    // The channel id handed to resolve_contact_prompt matches the gateway row.
+
+    const ipcCall = (ipcMock.mock.calls as any[][])[0][1] as { body: Record<string, unknown> };
+    expect(ipcCall.body.channelId).toBe(gwChannelRows[0].id);
+    expect(ipcCall.body.contactId).toBe(gwContactRows[0].id);
   });
 
-  test("non-guardian prompt — reuses existing contact when channel already known", async () => {
+  test("non-guardian prompt — accepted even when assistant-DB mirror throws (gateway-first)", async () => {
+    // Make the best-effort assistant-DB mirror fail. The gateway-first write
+    // must still succeed and the request still be accepted.
+    const realDb = testAssistantDb!;
+    testAssistantDb = {
+      prepare() {
+        throw new Error("assistant DB mirror unavailable");
+      },
+    } as unknown as Database;
+
+    let res: Response;
+    try {
+      res = await handleContactPromptSubmit(
+        makeRequest({
+          requestId: "req-mirror",
+          address: "bob@example.com",
+          channelType: "email",
+          role: "trusted-contact",
+          displayName: "Bob",
+        }),
+      );
+    } finally {
+      testAssistantDb = realDb;
+    }
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.accepted).toBe(true);
+
+    // Gateway DB rows are present despite the mirror failure.
+    const gwChannelRows = getGatewayDb()
+      .select()
+      .from(gwContactChannels)
+      .where(eq(gwContactChannels.address, "bob@example.com"))
+      .all();
+    expect(gwChannelRows).toHaveLength(1);
+
+    const gwContactRows = getGatewayDb()
+      .select()
+      .from(gwContacts)
+      .where(eq(gwContacts.id, gwChannelRows[0].contactId))
+      .all();
+    expect(gwContactRows).toHaveLength(1);
+  });
+
+  test("non-guardian prompt — reuses existing gateway contact and preserves name when displayName omitted", async () => {
     const now = Date.now();
-    testAssistantDb!.run(
-      `INSERT INTO contacts (id, display_name, role, contact_type, created_at, updated_at)
-       VALUES ('contact-1', 'Alice', 'contact', 'human', ?, ?)`,
-      [now, now],
-    );
-    testAssistantDb!.run(
-      `INSERT INTO contact_channels (id, contact_id, type, address, is_primary, status, policy, interaction_count, created_at, updated_at)
-       VALUES ('chan-alice', 'contact-1', 'email', 'alice@example.com', 1, 'active', 'allow', 3, ?, ?)`,
-      [now, now],
-    );
+    // Seed an existing gateway contact + channel (gateway DB is the source of
+    // truth for the reuse-by-channel lookup).
+    getGatewayDb()
+      .insert(gwContacts)
+      .values({ id: "contact-1", displayName: "Alice", role: "contact", createdAt: now, updatedAt: now })
+      .run();
+    getGatewayDb()
+      .insert(gwContactChannels)
+      .values({
+        id: "chan-alice",
+        contactId: "contact-1",
+        type: "email",
+        address: "alice@example.com",
+        isPrimary: true,
+        status: "active",
+        policy: "allow",
+        interactionCount: 3,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
 
     const res = await handleContactPromptSubmit(
       makeRequest({ requestId: "req-5", address: "alice@example.com", channelType: "email" }),
@@ -308,14 +379,14 @@ describe("handleContactPromptSubmit", () => {
 
     expect(res.status).toBe(200);
 
-    // Should not have created a second contact.
-    const contacts = testAssistantDb!
-      .prepare(`SELECT id FROM contacts`)
-      .all() as { id: string }[];
-    expect(contacts).toHaveLength(1);
-    expect(contacts[0].id).toBe("contact-1");
+    // No duplicate contact row; the existing contact id is reused.
+    const gwContactRows = getGatewayDb().select().from(gwContacts).all();
+    expect(gwContactRows).toHaveLength(1);
+    expect(gwContactRows[0].id).toBe("contact-1");
+    // display_name not clobbered when displayName omitted from the body.
+    expect(gwContactRows[0].displayName).toBe("Alice");
 
-     
+
     const ipcCall = (ipcMock.mock.calls as any[][])[0][1] as { body: Record<string, unknown> };
     expect(ipcCall.body.contactId).toBe("contact-1");
   });

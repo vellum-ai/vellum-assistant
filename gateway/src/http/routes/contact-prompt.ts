@@ -6,7 +6,8 @@
  * Called by the client after the user fills in a contact address in response
  * to a `contact_request` broadcast from the daemon. This route:
  *   1. Validates the submitted contact info.
- *   2. Upserts the contact + channel via the assistant DB proxy (gateway owns writes).
+ *   2. Upserts the contact + channel gateway-first via ContactStore.upsertContact
+ *      (gateway DB is the source of truth; assistant DB is a best-effort mirror).
  *   3. Calls daemon IPC `resolve_contact_prompt` to unblock the waiting CLI.
  *   4. Returns { accepted: true } to the client.
  *
@@ -20,6 +21,7 @@ import {
   assistantDbRun,
 } from "../../db/assistant-db-proxy.js";
 import { getGatewayDb } from "../../db/connection.js";
+import { ContactStore } from "../../db/contact-store.js";
 import {
   contactChannels as gwContactChannels,
   contacts as gwContacts,
@@ -29,6 +31,15 @@ import { getLogger } from "../../logger.js";
 import { canonicalizeInboundIdentity } from "../../verification/identity.js";
 
 const log = getLogger("contact-prompt");
+
+let store: ContactStore | null = null;
+
+function getStore(): ContactStore {
+  if (!store) {
+    store = new ContactStore();
+  }
+  return store;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -140,40 +151,43 @@ export async function handleContactPromptSubmit(
         }
       }
     } else {
-      // Reuse an existing contact if this channel address is already known.
-      const existingForChannel = await assistantDbQuery<{ contactId: string }>(
-        `SELECT contact_id AS contactId FROM contact_channels WHERE type = ? AND address = ? COLLATE NOCASE LIMIT 1`,
-        [channelType, normalizedAddress],
-      );
-      if (existingForChannel.length > 0) {
-        contactId = existingForChannel[0].contactId;
-      } else {
-        contactId = crypto.randomUUID();
-        createdNewContact = true;
-        await assistantDbRun(
-          `INSERT INTO contacts (id, display_name, role, contact_type, created_at, updated_at)
-           VALUES (?, ?, ?, 'human', ?, ?)`,
-          [contactId, effectiveDisplayName, effectiveRole, now, now],
+      // Non-guardian: resolve/create the contact + channel gateway-first via
+      // ContactStore.upsertContact. The gateway DB is the source of truth; the
+      // assistant DB receives a best-effort mirror.
+      const store = getStore();
+      const { contact } = await store.upsertContact({
+        // omit-to-preserve: pass the caller's optional displayName, NOT
+        // effectiveDisplayName. An existing contact keeps its name; a brand-new
+        // contact falls back to the canonical channel address inside upsertContact.
+        displayName,
+        channels: [
+          { type: channelType, address: normalizedAddress, isPrimary: true },
+        ],
+      });
+      contactId = contact.id;
+      const channel = store
+        .getChannelsForContact(contactId)
+        .find(
+          (ch) =>
+            ch.type === channelType &&
+            ch.address.toLowerCase() === normalizedAddress.toLowerCase(),
         );
-        try {
-          getGatewayDb()
-            .insert(gwContacts)
-            .values({
-              id: contactId,
-              displayName: effectiveDisplayName,
-              role: effectiveRole,
-              createdAt: now,
-              updatedAt: now,
-            })
-            .onConflictDoNothing()
-            .run();
-        } catch (gwErr) {
-          log.warn(
-            { err: gwErr },
-            "contact-prompt-submit: gateway DB contact INSERT dual-write failed",
-          );
-        }
-      }
+      channelId = channel?.id ?? "";
+
+      log.info(
+        { channelType, address: normalizedAddress, contactId, channelId },
+        "contact-prompt-submit: upserted contact + channel via ContactStore",
+      );
+
+      // Non-guardian is fully resolved by upsertContact; skip the guardian-only
+      // Phase 2 channel-creation block below and go straight to resolve.
+      return await resolveContactPrompt({
+        requestId,
+        contactId,
+        channelId,
+        channelType,
+        address: normalizedAddress,
+      });
     }
 
     // -----------------------------------------------------------------------
@@ -304,16 +318,31 @@ export async function handleContactPromptSubmit(
     );
   }
 
-  // Notify daemon to unblock the waiting contacts/prompt IPC call.
+  return await resolveContactPrompt({
+    requestId,
+    contactId,
+    channelId,
+    channelType,
+    address: normalizedAddress,
+  });
+}
+
+/**
+ * Notify the daemon to unblock the waiting contacts/prompt IPC call, then
+ * return { accepted: true }. IPC failures are best-effort — they only mean the
+ * CLI may time out, not that the write failed.
+ */
+async function resolveContactPrompt(args: {
+  requestId: string;
+  contactId: string;
+  channelId: string;
+  channelType: string;
+  address: string;
+}): Promise<Response> {
+  const { requestId, contactId, channelId, channelType, address } = args;
   try {
     const ipcResult = await ipcCallAssistant("resolve_contact_prompt", {
-      body: {
-        requestId,
-        contactId,
-        channelId,
-        channelType,
-        address: normalizedAddress,
-      },
+      body: { requestId, contactId, channelId, channelType, address },
     });
     if ((ipcResult as { resolved?: boolean }).resolved === false) {
       log.warn(
