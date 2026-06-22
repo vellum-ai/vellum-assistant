@@ -14,7 +14,7 @@ describe("contact read contracts", () => {
   test("ContactReadSchema parses a fully-populated contact", () => {
     const contact = {
       id: "c1",
-      displayName: "Ada Lovelace",
+      displayName: "Example User",
       role: "guardian",
       notes: "primary guardian",
       contactType: "human",
@@ -25,9 +25,9 @@ describe("contact read contracts", () => {
           id: "ch1",
           contactId: "c1",
           type: "imessage",
-          address: "+15551234567",
+          address: "+15555550100",
           isPrimary: true,
-          externalUserId: "+15551234567",
+          externalUserId: "+15555550100",
           status: "active",
           policy: "allow",
           verifiedAt: 1699999999,
