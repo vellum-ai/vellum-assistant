@@ -1031,14 +1031,18 @@ export class AnthropicProvider implements Provider {
       // anchor can land far ahead of the previous-turn anchor and Anthropic's
       // ~20-block cache lookback can't bridge the gap — forcing a full
       // re-creation of the prefix. The 5m breakpoint gives the next call an
-      // exact, reachable boundary; cross-turn it expires harmlessly. Skip
+      // exact, reachable boundary; cross-turn it expires harmlessly. The
+      // first-of-turn bridge lands on the turn-start block, so it honors
+      // `disableTurnStartCache` like the long-TTL anchor above. Skip
       // thinking/redacted_thinking blocks — Anthropic doesn't allow
       // cache_control on those types.
       if (
         !disableCache &&
         turnStartIdx >= 0 &&
         (turnStartIdx < sentMessages.length - 1 ||
-          (skipVolatileTurnStartAnchor && turnStartIdx > 0))
+          (skipVolatileTurnStartAnchor &&
+            turnStartIdx > 0 &&
+            !disableTurnStartCache))
       ) {
         const lastMsg = sentMessages[sentMessages.length - 1];
         if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {

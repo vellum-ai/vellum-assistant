@@ -905,6 +905,43 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(turn1Last.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
+  test("mutableLatestUserMessage + disableTurnStartCache: the first-of-turn tail bridge is suppressed on the volatile latest block", async () => {
+    // The volatile-latest tail bridge lands on the turn-start block, so it must
+    // honor disableTurnStartCache (the explicit opt-out from paid cache writes
+    // on volatile turn-start content) just like the long-TTL anchor does. The
+    // previous-turn anchor is unaffected — it targets a stable prior block.
+    const messages: Message[] = [
+      userMsg("Turn 1"),
+      assistantMsg("Response 1"),
+      userMsg("Turn 2 (volatile)"),
+    ];
+    await provider.sendMessage(messages, {
+      config: { mutableLatestUserMessage: true, disableTurnStartCache: true },
+    });
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        text: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
+    const userMessages = sent.filter((m) => m.role === "user");
+
+    // Latest (turn-start) user message gets NO breakpoint — disableTurnStartCache
+    // suppresses the 5m bridge.
+    const latest = userMessages[userMessages.length - 1];
+    for (const block of latest.content) {
+      expect(block.cache_control).toBeUndefined();
+    }
+
+    // Previous stable user message (Turn 1) still gets the 1h anchor.
+    const prev = userMessages[userMessages.length - 2];
+    const prevLast = prev.content[prev.content.length - 1];
+    expect(prevLast.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+  });
+
   test("mutableLatestUserMessage is not forwarded to the Anthropic API", async () => {
     await provider.sendMessage([userMsg("Hi")], {
       config: { mutableLatestUserMessage: true },
