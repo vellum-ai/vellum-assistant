@@ -854,4 +854,13 @@ describe("sanitizePluginName", () => {
     expect(sanitizePluginName("plugin_2")).toBe("plugin_2");
     expect(sanitizePluginName("a")).toBe("a");
   });
+
+  test.each([
+    "default-advisor",
+    "default-memory-retrieval",
+    "default-",
+    "default-x",
+  ])("rejects reserved prefix name %p", (reserved) => {
+    expect(() => sanitizePluginName(reserved)).toThrow(InvalidPluginNameError);
+  });
 });

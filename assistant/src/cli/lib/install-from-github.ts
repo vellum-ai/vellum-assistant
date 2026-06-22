@@ -154,9 +154,11 @@ export interface InstallPluginResult {
 
 /** Plugin name failed sanitization. */
 export class InvalidPluginNameError extends Error {
-  constructor(name: string) {
+  constructor(name: string, reason?: string) {
     super(
-      `Invalid plugin name "${name}". Names must match /^[a-z0-9][a-z0-9_-]*$/.`,
+      reason
+        ? `Invalid plugin name "${name}". ${reason}`
+        : `Invalid plugin name "${name}". Names must match /^[a-z0-9][a-z0-9_-]*$/.`,
     );
     this.name = "InvalidPluginNameError";
   }
@@ -290,10 +292,22 @@ async function resolvePluginSource(
 }
 
 /**
+ * Prefix reserved for first-party default plugins that ship in the assistant
+ * source tree. User-installable plugins must not use it — the `.disabled`
+ * sentinel and the plugin registry both key on manifest names, and a
+ * user plugin with a `default-` name would shadow or collide with the
+ * built-in.
+ */
+export const RESERVED_PLUGIN_PREFIX = "default-";
+
+/**
  * Reject plugin names that could escape the canonical source path or the
  * install target. The source convention is a flat namespace under
  * `plugins/`, so a legitimate name is a single path segment
  * built from kebab-case alphanumerics.
+ *
+ * Names prefixed with {@link RESERVED_PLUGIN_PREFIX} (`default-`) are also
+ * rejected — that prefix is reserved for first-party default plugins.
  *
  * Exported so callers (e.g. the CLI input prompt) can validate up front
  * before invoking {@link installPlugin}.
@@ -302,6 +316,12 @@ export function sanitizePluginName(name: string): string {
   const trimmed = name.trim();
   if (!/^[a-z0-9][a-z0-9_-]*$/.test(trimmed)) {
     throw new InvalidPluginNameError(name);
+  }
+  if (trimmed.startsWith(RESERVED_PLUGIN_PREFIX)) {
+    throw new InvalidPluginNameError(
+      name,
+      `The "${RESERVED_PLUGIN_PREFIX}" prefix is reserved for first-party default plugins.`,
+    );
   }
   return trimmed;
 }
