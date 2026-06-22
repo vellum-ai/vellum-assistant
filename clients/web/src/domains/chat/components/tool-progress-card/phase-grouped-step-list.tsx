@@ -189,7 +189,7 @@ export function sumDurationLabels(labels: string[]): string {
  * an in-flight retry inside a phase that has already produced a failure
  * still reads as in-progress.
  */
-export type PhaseHeaderStatus = "completed" | "failed" | "running";
+type PhaseHeaderStatus = "completed" | "failed" | "running";
 
 /**
  * Classify a phase's overall status for header icon rendering.
