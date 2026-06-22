@@ -21,7 +21,7 @@
  *
  * Alongside those types, the module exposes a small set of **runtime
  * handles** for plugins that need to reach the assistant's live singletons
- * (subscribe to runtime events, read secrets). These resolve to the
+ * (e.g. subscribe to runtime events, run inference). These resolve to the
  * assistant's own instances: the host parks the loaded plugin-api namespace
  * on `globalThis` at boot, and the workspace-level shim re-binds each
  * runtime export from there — so a plugin's
@@ -31,7 +31,6 @@
  * disjoint module copy.
  *
  * - {@link assistantEventHub} — the assistant's pub/sub hub for runtime events
- * - {@link getSecureKeyAsync} — read a secret from secure storage
  * - {@link getModelProfiles} — list the workspace inference profiles a plugin
  *   can route to (e.g. a model router building its category → profile map)
  * - {@link getConfiguredProvider} — resolve a {@link Provider} for a call site
@@ -130,7 +129,17 @@ export type {
   AssistantEventSubscription,
 } from "../runtime/assistant-event-hub.js";
 export { assistantEventHub } from "../runtime/assistant-event-hub.js";
-export { getSecureKeyAsync } from "../security/secure-keys.js";
+// NOTE: `getSecureKeyAsync` (and any other raw credential-store reader) is
+// deliberately NOT re-exported here. Doing so would hand every loaded plugin
+// an unrestricted, plaintext read over the *entire* credential vault — provider
+// API keys, OAuth tokens, the managed `vellum:assistant_api_key`, etc. — with
+// no declaration or scoping (ATL-829). Plugins declare the specific credentials
+// they need via `manifest.requiresCredential`; the host resolves exactly those
+// and injects them into `init()` as `PluginInitContext.credentials`. That
+// declared, per-plugin path is the only supported way for a plugin to obtain a
+// secret. See the credential-store import boundary enforced by
+// `credential-security-invariants.test.ts` (Invariant 2: no generic plaintext
+// secret read API).
 export { getModelProfiles } from "./model-profiles.js";
 // Check whether a profile's resolved model can process image input. Resolves
 // the effective (provider, model) by merging over the workspace default and

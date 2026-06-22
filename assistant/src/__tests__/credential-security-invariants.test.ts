@@ -222,7 +222,13 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "runtime/routes/platform-routes.ts", // CLI platform connect/disconnect/status routes (CLI-migrated to IPC)
       "ipc/skill-routes/providers.ts", // host.providers.secureKeys.getProviderKey IPC route (out-of-process SkillHost companion)
       "daemon/external-plugins-bootstrap.ts", // reads credentials at plugin init (manifest.requiresCredential) via the CES-mediated getSecureKeyAsync path
-      "plugin-api/index.ts", // public @vellumai/plugin-api surface re-exports getSecureKeyAsync to dynamically-imported workspace plugins via the boot-time shim (compiled-binary plugin loading)
+      // NOTE: plugin-api/index.ts is intentionally NOT allowlisted. The public
+      // @vellumai/plugin-api surface must never re-export a raw credential-store
+      // reader to dynamically-imported workspace plugins — that exposed an
+      // unrestricted plaintext read over the whole vault (ATL-829). Plugins
+      // receive only their declared `manifest.requiresCredential` values via
+      // PluginInitContext.credentials, resolved host-side in
+      // external-plugins-bootstrap.ts.
       "inbound/platform-callback-registration.ts", // managed credential lookup for platform base URL, assistant ID, and API key
       "tts/providers/elevenlabs-provider.ts", // ElevenLabs TTS API key lookup
       "tts/providers/deepgram-provider.ts", // Deepgram TTS API key lookup

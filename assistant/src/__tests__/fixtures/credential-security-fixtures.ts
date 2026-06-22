@@ -60,6 +60,15 @@ export const directReadCases: DirectReadCase[] = [
     modulePath: "tools/credentials/broker",
     exportName: "getCredentialValue",
   },
+  {
+    // ATL-829: the public @vellumai/plugin-api surface must not hand workspace
+    // plugins a generic plaintext reader over the whole credential vault.
+    // Plugins get only their declared `manifest.requiresCredential` values via
+    // PluginInitContext.credentials.
+    label: "plugin-api re-exports getSecureKeyAsync",
+    modulePath: "plugin-api/index",
+    exportName: "getSecureKeyAsync",
+  },
 ];
 
 // ---------------------------------------------------------------------------

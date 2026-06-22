@@ -222,7 +222,8 @@ What to import:
 - Hook context types and the `HOOKS` constant, when you need to refer to event names inside a hook body.
 - `ToolDefinition`, `ToolContext`, `ToolExecutionResult`, `RiskLevel`.
 - `PluginLogger` (Pino-compatible, scoped to your plugin, threaded onto contexts).
-- Runtime handles: `assistantEventHub` (the pub/sub hub for runtime events) and `getSecureKeyAsync` (read a secret by key). Both rebind to the assistant's live singletons via a boot-time shim; do not wrap them.
+- Runtime handles: `assistantEventHub` (the pub/sub hub for runtime events) and `getConfiguredProvider` / `getModelProfiles` (run inference through the workspace's configured profiles). These rebind to the assistant's live singletons via a boot-time shim; do not wrap them.
+- Credentials are **not** read through a generic getter. Declare the specific keys your plugin needs in `manifest.requiresCredential`; the host resolves exactly those and hands them to your `init` hook as `ctx.credentials[key]`. There is no API to read arbitrary secrets from the vault — that is by design (a plugin must never be able to read credentials it didn't declare).
 
 What not to import:
 
