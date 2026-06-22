@@ -44,6 +44,7 @@ import { Menu } from "@vellumai/design-library/components/menu";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { PanelItem } from "@vellumai/design-library/components/panel-item";
 import { Popover } from "@vellumai/design-library/components/popover";
+import { toast } from "@vellumai/design-library/components/toast";
 
 interface SnoozeMenuProps {
   notificationId: string;
@@ -531,24 +532,25 @@ export function NotificationsPage() {
     [queryClient],
   );
 
-  const handleAck = (id: string, acknowledged: boolean) => {
+  const handleAck = async (id: string, acknowledged: boolean) => {
     setAckingIds((prev) => new Set(prev).add(id));
-    // `ackMutation` is a single observer shared by every row, and TanStack
-    // only runs per-`mutate` callbacks for the latest call — so overlapping
-    // acks would leave earlier ids stuck in `ackingIds`. Drive each ack with
-    // its own promise chain instead; the `.catch` keeps a failed request from
-    // escaping as an unhandled rejection.
-    void ackMutation
-      .mutateAsync({ path: { id }, body: { acknowledged } })
-      .then(() => invalidateLists())
-      .catch(toastOnError("Failed to update notification"))
-      .finally(() => {
-        setAckingIds((prev) => {
-          const next = new Set(prev);
-          next.delete(id);
-          return next;
-        });
+    // `ackMutation` is one observer shared by every row, so await this call's
+    // own promise (rather than `.mutate` callbacks, which only fire for the
+    // latest call) to keep overlapping acks from leaving a row stuck.
+    try {
+      await ackMutation.mutateAsync({ path: { id }, body: { acknowledged } });
+      invalidateLists();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to update notification",
+      );
+    } finally {
+      setAckingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
       });
+    }
   };
 
   const handleMarkAllRead = async () => {
@@ -766,7 +768,7 @@ export function NotificationsPage() {
             <NotificationCard
               key={notification.id}
               notification={notification}
-              onAck={(id, ack) => handleAck(id, ack)}
+              onAck={(id, ack) => void handleAck(id, ack)}
               isAcking={ackingIds.has(notification.id)}
             />
           ))}
