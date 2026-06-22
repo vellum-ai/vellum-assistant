@@ -322,18 +322,19 @@ export function hasAssistants(): boolean {
 /**
  * A local-kind assistant, by origin: a plain on-machine assistant the web client
  * drives through its local flows (gateway connect, wake, local retire) — cloud
- * `"local"`, or a legacy entry with no `cloud`. Identity only — whether it
- * currently has a reachable gateway is a separate, connect-time question (see
- * `getLocalGatewayUrl`).
+ * `"local"`. (Legacy entries that predate the `cloud` field are normalized to
+ * `"local"` at the parse seam, so `cloud` is always set by the time it reaches
+ * here.) Identity only — whether it currently has a reachable gateway is a
+ * separate, connect-time question (see `getLocalGatewayUrl`).
  *
  * Deliberately excludes the externally-managed container runtimes (`docker`,
  * `apple-container`) and remote self-hosted clouds (`paired`/`gcp`/`aws`/
  * `custom`, reached at their own `runtimeUrl`), along with platform (`vellum`):
- * the web client manages none of those through its local flows. See the `cloud`
- * taxonomy in `cli/src/lib/assistant-config.ts`.
+ * the web client manages none of those through its local flows. See the
+ * `KNOWN_CLOUDS` taxonomy in `@vellumai/local-mode/contract`.
  */
 export function isLocalAssistant(a: LockfileAssistant): boolean {
-  return a.cloud == null || a.cloud === "local";
+  return a.cloud === "local";
 }
 
 export function isPlatformAssistant(a: LockfileAssistant): boolean {

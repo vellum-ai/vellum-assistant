@@ -11,7 +11,8 @@ mock.module("@vellumai/local-mode", () => ({
   resolveLockfilePaths: () => mockPaths,
 }));
 
-// Stub @vellumai/local-mode/contract — passthrough the real parseLockfile.
+// Passthrough the real parseLockfile — stubbing the @vellumai/local-mode
+// entry above doesn't touch the /contract subpath it lives in.
 const { parseLockfile } = await import("@vellumai/local-mode/contract");
 mock.module("@vellumai/local-mode/contract", () => ({
   parseLockfile,
@@ -26,8 +27,8 @@ const {
 
 const SAMPLE_LOCKFILE: Lockfile = {
   assistants: [
-    { assistantId: "ast-1", name: "Alpha" },
-    { assistantId: "ast-2", name: "Beta" },
+    { assistantId: "ast-1", name: "Alpha", cloud: "local" },
+    { assistantId: "ast-2", name: "Beta", cloud: "local" },
   ],
   activeAssistant: "ast-1",
 };
@@ -141,7 +142,7 @@ describe("lockfile-watcher", () => {
       // filesystem registers a different mtime than the initial read).
       await new Promise((resolve) => setTimeout(resolve, 50));
       const updated: Lockfile = {
-        assistants: [{ assistantId: "ast-3", name: "Gamma" }],
+        assistants: [{ assistantId: "ast-3", name: "Gamma", cloud: "local" }],
         activeAssistant: "ast-3",
       };
       writeLockfile(updated);
@@ -250,7 +251,7 @@ describe("lockfile-watcher", () => {
       // WHEN a write creates the canonical file (simulating a CLI write)
       await new Promise((resolve) => setTimeout(resolve, 50));
       const updated: Lockfile = {
-        assistants: [{ assistantId: "ast-new", name: "NewAssistant" }],
+        assistants: [{ assistantId: "ast-new", name: "NewAssistant", cloud: "local" }],
         activeAssistant: "ast-new",
       };
       writeLockfile(updated, CANONICAL_PATH);

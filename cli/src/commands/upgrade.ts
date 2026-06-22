@@ -6,7 +6,6 @@ import {
   findAssistantByName,
   getActiveAssistant,
   loadAllAssistants,
-  resolveCloud,
   saveAssistantEntry,
   type AssistantEntry,
 } from "../lib/assistant-config";
@@ -1211,7 +1210,7 @@ export async function upgrade(): Promise<void> {
     effectiveVersion = latestTag;
   }
 
-  const cloud = resolveCloud(entry);
+  const cloud = entry.cloud;
 
   try {
     if (cloud === "docker") {
