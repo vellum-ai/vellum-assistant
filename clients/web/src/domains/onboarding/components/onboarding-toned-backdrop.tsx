@@ -123,16 +123,24 @@ const EXTRA_PEEKERS: {
   { bodyShape: "flower", eyeStyle: "quirky", colorIdx: 0, pos: (s) => ({ right: -s * 0.34, top: "58%" }) },
 ];
 
+const DARK_SURFACE = "#17191C";
+
 export function OnboardingTonedBackdrop({
   talkStyle,
   eyesBumpNonce = 0,
   extraPeekLevel = 0,
+  darkBg = false,
+  showBottomEyes = true,
 }: {
   talkStyle: TalkStyle | null;
   /** Increment to make the bottom eyes jolt (Mario bump on the coin). */
   eyesBumpNonce?: number;
   /** How many extra edge characters to reveal (one more per research step). */
   extraPeekLevel?: number;
+  /** Blend the background from the avatar color to black (after the calendar). */
+  darkBg?: boolean;
+  /** Show the giant eyes peeking from the bottom (off once they've collapsed). */
+  showBottomEyes?: boolean;
 }) {
   const components = useBundledAvatarComponents();
   const characters = useOnboardingAvatarPoolStore.use.characters();
@@ -160,13 +168,16 @@ export function OnboardingTonedBackdrop({
 
   return (
     <>
-      <div
+      <motion.div
         className="absolute inset-0 z-0"
-        style={{ backgroundColor: bg }}
+        initial={false}
+        animate={{ backgroundColor: darkBg ? DARK_SURFACE : bg }}
+        transition={reduce ? { duration: 0 } : { duration: 1, ease: "easeInOut" }}
       />
 
-      {/* The assistant's eyes peek up from the bottom. */}
-      <OnboardingPeekingEyes bumpNonce={eyesBumpNonce} />
+      {/* The assistant's eyes peek up from the bottom (until they collapse into
+          the small avatar at the calendar step). */}
+      {showBottomEyes && <OnboardingPeekingEyes bumpNonce={eyesBumpNonce} />}
 
       {/* The chosen tone's character(s) peek in from the top and stay. */}
       {components && (

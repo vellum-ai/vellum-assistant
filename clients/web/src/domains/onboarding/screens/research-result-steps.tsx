@@ -24,8 +24,6 @@ import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-av
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 
-const DARK_SURFACE = "#17191C";
-
 function useViewportSize() {
   const [size, setSize] = useState(() => ({
     w: typeof window === "undefined" ? 1280 : window.innerWidth,
@@ -40,15 +38,58 @@ function useViewportSize() {
   return size;
 }
 
+/** The chosen avatar's traits + (for the collapse) its eye-style paths/bbox. */
+function useChosenAvatar() {
+  const components = useBundledAvatarComponents();
+  const characters = useOnboardingAvatarPoolStore.use.characters();
+  const selectedIndex = useOnboardingAvatarPoolStore.use.selectedIndex();
+  const chosen = characters.length > 0 ? characters[selectedIndex] : undefined;
+
+  const eye = useMemo(() => {
+    if (!components || !chosen) return null;
+    const def = components.eyeStyles.find((e) => e.id === chosen.eyeStyle);
+    if (!def) return null;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const re = /-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?/gi;
+    for (const p of def.paths) {
+      const nums = p.svgPath.match(re)?.map(Number) ?? [];
+      for (let i = 0; i + 1 < nums.length; i += 2) {
+        const x = nums[i]!, y = nums[i + 1]!;
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+    return { paths: def.paths, x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  }, [components, chosen]);
+
+  return { components, chosen, eye };
+}
+
+/** The chosen assistant as a small live avatar (for the heading rows). */
+export function MiniAssistant({ size = 48 }: { size?: number }) {
+  const { components, chosen } = useChosenAvatar();
+  if (!components || !chosen) return <div style={{ width: size, height: size }} />;
+  return (
+    <div className="shrink-0" style={{ width: size, height: size }}>
+      <AnimatedAvatar components={components} traits={chosen} size={size} />
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Meeting Created
 // ---------------------------------------------------------------------------
 
+const MINI = 48;
+
 /**
- * Reverse of the Introduction grow-in: the full-screen colored avatar (eyes
- * peeking from the bottom) shrinks up + in to a small avatar beside the
- * "Meeting Created!" text while the background blends from the avatar color to
- * black. Self-contained (owns its background) — not the shared toned backdrop.
+ * Reverse of the Introduction grow-in. The toned backdrop (behind) blends to
+ * black and hides its bottom eyes; here the eyes lead — shrinking and rising
+ * up out of the bottom (the opposite of growing + sinking) — and the body
+ * follows a beat later, shrinking into a small avatar beside the "Meeting
+ * Created!" text. The edge characters stay (they live in the backdrop).
  */
 export function MeetingCreatedStep({
   onDone,
@@ -57,39 +98,22 @@ export function MeetingCreatedStep({
   onDone: () => void;
   onBack: () => void;
 }) {
-  const components = useBundledAvatarComponents();
-  const characters = useOnboardingAvatarPoolStore.use.characters();
-  const selectedIndex = useOnboardingAvatarPoolStore.use.selectedIndex();
+  const { components, chosen, eye } = useChosenAvatar();
   const reduce = useReducedMotion();
   const { w, h } = useViewportSize();
-
-  const chosen = characters.length > 0 ? characters[selectedIndex] : undefined;
-  const color = useMemo(() => {
-    const c = components?.colors.find((x) => x.id === chosen?.color);
-    return c?.hex ?? DARK_SURFACE;
-  }, [components, chosen]);
 
   useEffect(() => {
     const t = setTimeout(onDone, 2600);
     return () => clearTimeout(t);
   }, [onDone]);
 
-  // The avatar lives in a fixed 64px slot beside the title; it starts blown up
-  // to cover the screen (pushed down so the eyes sit low, like the intro's end
-  // state) and springs down into the slot.
-  const SLOT = 64;
-  const bigScale = Math.round((1.3 * Math.max(w, h)) / SLOT);
+  // Mini avatar slot: left of the title, in a left-anchored group.
+  const groupLeft = w / 2 - 170;
+  const slotCx = groupLeft + MINI / 2;
+  const slotCy = h * 0.26 + MINI / 2;
 
   return (
-    <div data-theme="dark" className="absolute inset-0 z-10 overflow-hidden text-white">
-      {/* Background blends from the avatar color to black. */}
-      <motion.div
-        className="absolute inset-0"
-        initial={reduce ? false : { backgroundColor: color }}
-        animate={{ backgroundColor: DARK_SURFACE }}
-        transition={reduce ? { duration: 0 } : { duration: 1, ease: "easeInOut" }}
-      />
-
+    <div className="absolute inset-0 z-10 overflow-hidden text-white">
       <OnboardingTopBar
         current={4}
         total={5}
@@ -98,34 +122,73 @@ export function MeetingCreatedStep({
         tone="light"
       />
 
-      {/* Small avatar + title row, centered at the shared step height. */}
-      <div className="absolute left-1/2 top-[26%] flex -translate-x-1/2 items-center gap-4">
-        <div
-          className="relative shrink-0"
-          style={{ width: SLOT, height: SLOT }}
+      {/* Lead: the eyes shrink + rise up out of the bottom (reverse of the
+          intro), then fade as the body arrives. */}
+      {eye && !reduce && (
+        <motion.div
+          aria-hidden="true"
+          className="pointer-events-none absolute"
+          style={{ left: slotCx - MINI / 2, top: slotCy - MINI / 2, width: MINI, height: MINI, transformOrigin: "center" }}
+          initial={{
+            scale: (w * 0.55) / MINI,
+            x: w / 2 - slotCx,
+            y: h * 0.95 - slotCy,
+            opacity: 1,
+          }}
+          animate={{ scale: 1, x: 0, y: 0, opacity: 0 }}
+          transition={{ duration: 0.85, ease: "easeInOut", times: [0, 1] }}
         >
+          <svg
+            viewBox={`${eye.x} ${eye.y} ${eye.w} ${eye.h}`}
+            width={MINI}
+            height={MINI}
+            style={{ overflow: "visible" }}
+          >
+            {eye.paths.map((p, i) => (
+              <path key={i} d={p.svgPath} fill={p.color} />
+            ))}
+          </svg>
+        </motion.div>
+      )}
+
+      {/* Avatar + title group. The body follows the eyes a beat later, shrinking
+          from large into the slot. */}
+      <div
+        className="absolute flex items-center gap-4"
+        style={{ left: groupLeft, top: h * 0.26 }}
+      >
+        <div className="relative" style={{ width: MINI, height: MINI }}>
           {components && chosen && (
             <motion.div
               className="absolute inset-0"
               style={{ transformOrigin: "center" }}
-              initial={reduce ? false : { scale: bigScale, y: h * 0.34, opacity: 1 }}
-              animate={{ scale: 1, y: 0, opacity: 1 }}
+              initial={
+                reduce
+                  ? false
+                  : {
+                      scale: (1.3 * Math.max(w, h)) / MINI,
+                      x: w / 2 - slotCx,
+                      y: h / 2 - slotCy,
+                      opacity: 0,
+                    }
+              }
+              animate={{ scale: 1, x: 0, y: 0, opacity: 1 }}
               transition={
                 reduce
                   ? { duration: 0 }
-                  : { type: "spring", stiffness: 70, damping: 18, mass: 1 }
+                  : { type: "spring", stiffness: 80, damping: 18, mass: 1, delay: 0.2 }
               }
             >
-              <AnimatedAvatar components={components} traits={chosen} size={SLOT} />
+              <AnimatedAvatar components={components} traits={chosen} size={MINI} />
             </motion.div>
           )}
         </div>
         <motion.span
-          className="text-[2.6rem] leading-none"
+          className="whitespace-nowrap text-[2.6rem] leading-none"
           style={{ fontFamily: "var(--font-serif)" }}
           initial={reduce ? false : { opacity: 0, x: -8 }}
           animate={{ opacity: 1, x: 0 }}
-          transition={reduce ? { duration: 0 } : { duration: 0.4, delay: 0.7 }}
+          transition={reduce ? { duration: 0 } : { duration: 0.4, delay: 0.8 }}
         >
           Meeting Created!
         </motion.span>
@@ -167,11 +230,12 @@ export function LookingYouUpStep({
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
       <OnboardingTopBar current={4} total={5} label="Quick setup" onBack={onBack} />
-      <div className="absolute left-1/2 top-[26%] w-full max-w-xl -translate-x-1/2 px-6 text-center">
+      <div className="absolute left-1/2 top-[26%] flex max-w-xl -translate-x-1/2 items-center gap-4">
+        <MiniAssistant />
         <AnimatePresence mode="wait">
           <motion.p
             key={index}
-            className="text-[1.6rem]"
+            className="whitespace-nowrap text-[1.6rem]"
             style={{ fontFamily: "var(--font-serif)" }}
             initial={{ y: 12, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -222,9 +286,12 @@ export function ResearchResultsStep({
       <OnboardingTopBar current={4} total={5} label="Almost there" onBack={onBack} />
 
       <div className="absolute left-1/2 top-[26%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6">
-        <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
-          Alright, this is what I got:
-        </h1>
+        <div className="flex items-center gap-3">
+          <MiniAssistant />
+          <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
+            Alright, this is what I got:
+          </h1>
+        </div>
         <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
           Feel free to remove anything that&rsquo;s not true
         </p>
@@ -304,9 +371,12 @@ export function SuggestionsStep({
       <OnboardingTopBar current={4} total={5} label="Almost there" onBack={onBack} />
 
       <div className="absolute left-1/2 top-[26%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6">
-        <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
-          Here&rsquo;s what we could do first
-        </h1>
+        <div className="flex items-center gap-3">
+          <MiniAssistant />
+          <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
+            Here&rsquo;s what we could do first
+          </h1>
+        </div>
         <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
           Pick one to jump in — or start your own thing.
         </p>

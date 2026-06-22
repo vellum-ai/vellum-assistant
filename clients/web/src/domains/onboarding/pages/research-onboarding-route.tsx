@@ -167,22 +167,23 @@ export function ResearchOnboardingRoute() {
   // The later steps share one persistent toned backdrop (assistant color +
   // eyes + tone characters) so the avatars stay put while the foreground
   // content swaps. Extra edge characters pop in per step to build excitement.
-  // Meeting Created owns its own background (it blends the avatar color to
-  // black), so it renders standalone rather than over the toned backdrop.
-  if (step === "meeting" && formValues) {
-    return (
-      <MeetingCreatedStep
-        onDone={() => setStep("looking")}
-        onBack={() => setStep("letschat")}
-      />
-    );
-  }
-
-  const tonedSteps = ["talk", "integration", "letschat", "looking", "results", "suggestions"];
+  const tonedSteps = [
+    "talk",
+    "integration",
+    "letschat",
+    "meeting",
+    "looking",
+    "results",
+    "suggestions",
+  ];
   if (tonedSteps.includes(step) && formValues) {
+    // After the calendar, the background blends to black, the giant bottom eyes
+    // collapse into the small avatar beside the text, and extra edge characters
+    // build up per step.
+    const postCalendar = ["meeting", "looking", "results", "suggestions"].includes(step);
     const extraPeekLevel =
-      { looking: 1, results: 2, suggestions: 3 }[
-        step as "looking" | "results" | "suggestions"
+      { meeting: 0, looking: 1, results: 2, suggestions: 3 }[
+        step as "meeting" | "looking" | "results" | "suggestions"
       ] ?? 0;
     return (
       <div data-theme="dark" className="relative h-full overflow-hidden">
@@ -190,6 +191,8 @@ export function ResearchOnboardingRoute() {
           talkStyle={talkStyle}
           eyesBumpNonce={eyesBump}
           extraPeekLevel={extraPeekLevel}
+          darkBg={postCalendar}
+          showBottomEyes={!postCalendar}
         />
         {step === "talk" && (
           <HowShouldITalkScreen
@@ -212,6 +215,12 @@ export function ResearchOnboardingRoute() {
             onConnect={() => setStep("meeting")}
             onSkip={() => setStep("looking")}
             onBack={() => setStep("integration")}
+          />
+        )}
+        {step === "meeting" && (
+          <MeetingCreatedStep
+            onDone={() => setStep("looking")}
+            onBack={() => setStep("letschat")}
           />
         )}
         {step === "looking" && (
