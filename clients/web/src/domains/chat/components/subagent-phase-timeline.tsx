@@ -138,10 +138,12 @@ function SubagentPhaseRow({
   const stepCountLabel = `${stepCount} step${stepCount === 1 ? "" : "s"}`;
 
   return (
+    // Non-last rows reserve 16px below (`pb-4`) so consecutive group rows sit
+    // 16px apart; the absolute connector spans this padding to bridge bullets.
     <div
       data-testid="subagent-phase-section"
       data-phase-label={section.label}
-      className="relative flex flex-col gap-2"
+      className={cn("relative flex flex-col gap-2", !isLast && "pb-4")}
     >
       {/* No connector trails below the final row. `-bottom-2` extends the line
           lower than the main-chat default so the gap between segments is
