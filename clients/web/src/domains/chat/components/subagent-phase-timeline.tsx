@@ -11,7 +11,7 @@
  * empty state, so this returns `null` for an empty input.
  */
 
-import { Brain, ChevronDown, ChevronRight } from "lucide-react";
+import { Brain } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import { Typography } from "@vellumai/design-library";
@@ -114,10 +114,11 @@ function SubagentPhaseRow({
 
   // The "N steps" pill only makes sense for a multi-step phase.
   const showStepCount = stepCount >= 2;
-  // A row is interactive (chevron + toggle) when at least one step actually
-  // renders a pill — `stepRendersPill` is `DefaultStepPill`'s own predicate, so
-  // the chevron can never expand to an empty body. A lone info-less tool step
-  // (whether successful or failed) renders no pill, so it stays non-expandable.
+  // A row is interactive (the whole row is a pointer-cursor toggle) when at
+  // least one step actually renders a pill — `stepRendersPill` is
+  // `DefaultStepPill`'s own predicate, so expanding can never reveal an empty
+  // body. A lone info-less tool step (successful or failed) renders no pill, so
+  // it stays non-expandable.
   const isExpandable = section.steps.some(stepRendersPill);
 
   const totalDuration =
@@ -133,7 +134,6 @@ function SubagentPhaseRow({
   // faint `|` separator only renders when one does.
   const hasTrailingDetail = status === "running" || Boolean(totalDuration);
   const stepCountLabel = `${stepCount} step${stepCount === 1 ? "" : "s"}`;
-  const Chevron = expanded ? ChevronDown : ChevronRight;
 
   return (
     <div
@@ -193,25 +193,17 @@ function SubagentPhaseRow({
           </Typography>
         ) : null}
 
-        {isExpandable && (
-          <span className="ml-auto flex items-center gap-1">
-            <Chevron
-              aria-hidden="true"
-              className="h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]"
-            />
-            {showStepCount && (
-              <span
-                data-testid="subagent-phase-step-count"
-                className="rounded-[100px] bg-[var(--surface-base)] px-1.5 py-1"
-              >
-                <Typography
-                  variant="body-small-default"
-                  className="text-[var(--content-secondary)]"
-                >
-                  {stepCountLabel}
-                </Typography>
-              </span>
-            )}
+        {isExpandable && showStepCount && (
+          <span
+            data-testid="subagent-phase-step-count"
+            className="ml-auto rounded-[100px] bg-[var(--surface-base)] px-1.5 py-1"
+          >
+            <Typography
+              variant="body-small-default"
+              className="text-[var(--content-secondary)]"
+            >
+              {stepCountLabel}
+            </Typography>
           </span>
         )}
       </button>

@@ -136,8 +136,8 @@ describe("SubagentPhaseTimeline — step-count pill", () => {
 
 describe("SubagentPhaseTimeline — single-step expandability", () => {
   // A single `tool_error` phase carries its message only in the step pill, so
-  // the row is expandable (chevron shown) even without an "N steps" pill and
-  // the error text stays reachable.
+  // the row is expandable even without an "N steps" pill and the error text
+  // stays reachable.
   test("a single tool_error phase is expandable and reveals its error on click", () => {
     const steps: ToolCallCardStep[] = [toolError("context window exceeded")];
     const { getByTestId, queryByTestId, queryAllByTestId } = render(
@@ -160,8 +160,8 @@ describe("SubagentPhaseTimeline — single-step expandability", () => {
   });
 
   // A lone successful tool step with no `info` renders a null `DefaultStepPill`
-  // (nothing to reveal), so the row stays non-expandable — no chevron, no
-  // toggle, disabled header.
+  // (nothing to reveal), so the row stays non-expandable — no toggle, disabled
+  // header.
   test("a single info-less successful tool step is NOT expandable", () => {
     const steps: ToolCallCardStep[] = [bash("", "completed", "1s", "tc-a")];
     const { getByTestId, queryByTestId } = render(
