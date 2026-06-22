@@ -9,6 +9,10 @@
 import {
   GetContactIpcParamsSchema,
   ListContactsIpcParamsSchema,
+  MarkChannelRevokedIpcParamsSchema,
+  MarkChannelRevokedIpcResponseSchema,
+  MarkChannelVerifiedIpcParamsSchema,
+  MarkChannelVerifiedIpcResponseSchema,
 } from "@vellumai/gateway-client/gateway-ipc-contracts";
 import { z } from "zod";
 
@@ -186,6 +190,63 @@ export const contactRoutes: IpcRoute[] = [
       );
 
       return { contactId, channelId };
+    },
+  },
+  {
+    method: "mark_channel_verified",
+    schema: MarkChannelVerifiedIpcParamsSchema,
+    handler: async (params?: Record<string, unknown>) => {
+      const { contactChannelId, verifiedVia } =
+        MarkChannelVerifiedIpcParamsSchema.parse(params);
+      const result = await getStore().markChannelVerified(
+        contactChannelId,
+        verifiedVia,
+      );
+      if (!result) {
+        throw new Error(`Channel "${contactChannelId}" not found`);
+      }
+      const { channel, didWrite } = result;
+      return MarkChannelVerifiedIpcResponseSchema.parse({
+        ok: true,
+        didWrite,
+        channel: {
+          id: channel.id,
+          contactId: channel.contactId,
+          type: channel.type,
+          address: channel.address,
+          status: channel.status,
+          verifiedAt: channel.verifiedAt,
+          verifiedVia: channel.verifiedVia,
+        },
+      });
+    },
+  },
+  {
+    method: "mark_channel_revoked",
+    schema: MarkChannelRevokedIpcParamsSchema,
+    handler: async (params?: Record<string, unknown>) => {
+      const { contactChannelId, reason } =
+        MarkChannelRevokedIpcParamsSchema.parse(params);
+      const result = await getStore().markChannelRevoked(
+        contactChannelId,
+        reason,
+      );
+      if (!result) {
+        throw new Error(`Channel "${contactChannelId}" not found`);
+      }
+      const { channel, didWrite } = result;
+      return MarkChannelRevokedIpcResponseSchema.parse({
+        ok: true,
+        didWrite,
+        channel: {
+          id: channel.id,
+          contactId: channel.contactId,
+          type: channel.type,
+          address: channel.address,
+          status: channel.status,
+          revokedReason: channel.revokedReason,
+        },
+      });
     },
   },
 ];
