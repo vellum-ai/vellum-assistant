@@ -341,7 +341,8 @@ export async function runLongMemEvalV2Unit(
     const ingestStamp =
       firstEventTime(ingestAskResult.ingestEvents) ?? new Date().toISOString();
     const questionStamp =
-      firstEventTime(ingestAskResult.questionEvents) ?? new Date().toISOString();
+      firstEventTime(ingestAskResult.questionEvents) ??
+      new Date().toISOString();
     const answerStamp =
       lastEventTime(ingestAskResult.questionEvents) ?? questionStamp;
 

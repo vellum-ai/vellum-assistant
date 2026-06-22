@@ -218,7 +218,12 @@ function renderMarkdownWithMath(text: string): string {
   let processed = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, expr: string) => {
     const i = mathBlocks.length;
     try {
-      mathBlocks.push(katex.renderToString(expr.trim(), { displayMode: true, throwOnError: false }));
+      mathBlocks.push(
+        katex.renderToString(expr.trim(), {
+          displayMode: true,
+          throwOnError: false,
+        }),
+      );
     } catch {
       mathBlocks.push(`<code>$$${expr}$$</code>`);
     }
@@ -226,20 +231,29 @@ function renderMarkdownWithMath(text: string): string {
   });
 
   // Extract $...$ (inline math) — but not inside code spans or after $.
-  processed = processed.replace(/(^|[^$])\$(?!\s)([^\n$]+?)(?!\s)\$(?!\d)/g, (_, pre: string, expr: string) => {
-    const i = mathBlocks.length;
-    try {
-      mathBlocks.push(katex.renderToString(expr.trim(), { displayMode: false, throwOnError: false }));
-    } catch {
-      mathBlocks.push(`<code>$${expr}$</code>`);
-    }
-    return `${pre}${PLACEHOLDER(i)}`;
-  });
+  processed = processed.replace(
+    /(^|[^$])\$(?!\s)([^\n$]+?)(?!\s)\$(?!\d)/g,
+    (_, pre: string, expr: string) => {
+      const i = mathBlocks.length;
+      try {
+        mathBlocks.push(
+          katex.renderToString(expr.trim(), {
+            displayMode: false,
+            throwOnError: false,
+          }),
+        );
+      } catch {
+        mathBlocks.push(`<code>$${expr}$</code>`);
+      }
+      return `${pre}${PLACEHOLDER(i)}`;
+    },
+  );
 
   // Render markdown, then reinsert math blocks.
   const html = markdown.render(processed);
-  return html.replace(/MATHBLOCK(\d+)ENDMATHBLOCK/g, (_, i: string) =>
-    mathBlocks[Number(i)] ?? "",
+  return html.replace(
+    /MATHBLOCK(\d+)ENDMATHBLOCK/g,
+    (_, i: string) => mathBlocks[Number(i)] ?? "",
   );
 }
 
@@ -1495,7 +1509,10 @@ function Transcript({
     return (
       <div className="transcript">
         {(groups[0]?.items ?? items).map((item, index) => (
-          <TranscriptItem key={`${item.emittedAt ?? ""}-${index}`} item={item} />
+          <TranscriptItem
+            key={`${item.emittedAt ?? ""}-${index}`}
+            item={item}
+          />
         ))}
       </div>
     );
@@ -1531,10 +1548,7 @@ function Transcript({
 }
 
 /** Human-readable label for a conversation key, derived from the turns. */
-function conversationLabel(
-  key: string,
-  turns: TranscriptTurn[],
-): string {
+function conversationLabel(key: string, turns: TranscriptTurn[]): string {
   if (key === "__default__") return "Conversation";
   // The first simulator turn with this conversationKey tells us which
   // phase it is — ingest prompts mention "staged" / "trajectory" /
@@ -1544,7 +1558,11 @@ function conversationLabel(
   );
   if (!firstSim) return key.length > 12 ? `${key.slice(0, 12)}…` : key;
   const content = firstSim.content.toLowerCase();
-  if (content.includes("staged") || content.includes("trajectory") || content.includes("memory")) {
+  if (
+    content.includes("staged") ||
+    content.includes("trajectory") ||
+    content.includes("memory")
+  ) {
     return "Ingest";
   }
   return "Question";
@@ -1557,10 +1575,7 @@ function TranscriptItem({
 }) {
   const stamp = item.role === "simulator" ? item.emittedAt : item.endedAt;
   return (
-    <article
-      key={`${item.emittedAt ?? ""}`}
-      className={`turn ${item.role}`}
-    >
+    <article key={`${item.emittedAt ?? ""}`} className={`turn ${item.role}`}>
       <div className="turn-head">
         <span>{item.role}</span>
       </div>
@@ -1995,17 +2010,21 @@ function PhaseTiming({ run }: { run: ReportRunDetail }) {
   const metricsMs = span(metricsStart, sendEnd);
 
   // Ingest vs question split from the event streams.
-  const ingestFirst = run.ingestAssistantEvents.find((e) => e.emittedAt)?.emittedAt;
+  const ingestFirst = run.ingestAssistantEvents.find(
+    (e) => e.emittedAt,
+  )?.emittedAt;
   const ingestLast = (() => {
     for (let i = run.ingestAssistantEvents.length - 1; i >= 0; i--) {
-      if (run.ingestAssistantEvents[i].emittedAt) return run.ingestAssistantEvents[i].emittedAt;
+      if (run.ingestAssistantEvents[i].emittedAt)
+        return run.ingestAssistantEvents[i].emittedAt;
     }
     return undefined;
   })();
   const questionFirst = run.assistantEvents.find((e) => e.emittedAt)?.emittedAt;
   const questionLast = (() => {
     for (let i = run.assistantEvents.length - 1; i >= 0; i--) {
-      if (run.assistantEvents[i].emittedAt) return run.assistantEvents[i].emittedAt;
+      if (run.assistantEvents[i].emittedAt)
+        return run.assistantEvents[i].emittedAt;
     }
     return undefined;
   })();
@@ -2014,7 +2033,11 @@ function PhaseTiming({ run }: { run: ReportRunDetail }) {
   const questionMs = span(questionFirst, questionLast);
 
   // Only render if we have at least the total send duration.
-  if (totalSendMs === undefined && ingestMs === undefined && questionMs === undefined) {
+  if (
+    totalSendMs === undefined &&
+    ingestMs === undefined &&
+    questionMs === undefined
+  ) {
     return null;
   }
 
@@ -2024,13 +2047,15 @@ function PhaseTiming({ run }: { run: ReportRunDetail }) {
     { label: "Question", ms: questionMs },
     { label: "Grading", ms: metricsMs },
   ];
-  const totalMs = totalSendMs ?? ((ingestMs ?? 0) + (questionMs ?? 0) || undefined);
+  const totalMs =
+    totalSendMs ?? ((ingestMs ?? 0) + (questionMs ?? 0) || undefined);
 
   return (
     <div className="phase-timing">
       <div className="phase-timing-bar">
         {phases.map((phase) => {
-          if (phase.ms === undefined || totalMs === undefined || totalMs === 0) return null;
+          if (phase.ms === undefined || totalMs === undefined || totalMs === 0)
+            return null;
           const pct = Math.max(2, (phase.ms / totalMs) * 100);
           return (
             <div
@@ -2103,14 +2128,10 @@ function ExecutionPage({
               method="post"
               action={`/api/runs/${encodeURIComponent(run.runId)}/delete`}
             >
-              <input
-                type="hidden"
-                name="backToSession"
-                value={run.sessionId}
-              />
+              <input type="hidden" name="backToSession" value={run.sessionId} />
               <p className="confirm-prompt">
-                This deletes <code>{run.runId}</code> permanently. It cannot
-                be undone.
+                This deletes <code>{run.runId}</code> permanently. It cannot be
+                undone.
               </p>
               <button className="bad" type="submit">
                 Yes, delete this run
@@ -2388,7 +2409,11 @@ function ReportDocument({
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{pageTitle(input)}</title>
         <style dangerouslySetInnerHTML={{ __html: STYLES }} />
-        <style dangerouslySetInnerHTML={{ __html: katexCssText.replace(/@font-face\{[^}]*\}/g, "") }} />
+        <style
+          dangerouslySetInnerHTML={{
+            __html: katexCssText.replace(/@font-face\{[^}]*\}/g, ""),
+          }}
+        />
       </head>
       <body>
         <div className="shell">
