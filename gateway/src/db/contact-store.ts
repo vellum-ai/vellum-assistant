@@ -851,8 +851,14 @@ export class ContactStore {
    *
    * Resolution order (mirrors the assistant's upsertContact):
    *  1. Match by `params.id` if provided.
-   *  2. Match by (type, address) on any provided channel.
-   *  3. Create a new contact with a generated id.
+   *  2. Match by (type, address) on a provided channel in the gateway DB.
+   *  3. Create: adopt an existing assistant-DB contact id for the same channel
+   *     (canonical-id heal), else mint a fresh id.
+   *
+   * Steps 2 and 3 (channel-match + assistant-id adoption) run on the create
+   * path only — when no explicit `id` is supplied. An explicit id is an update
+   * and keys the gateway row + assistant mirror to that id directly, so an edit
+   * can't retarget another contact's metadata.
    *
    * Channel sync follows the same no-reassignment path: existing channels
    * on the same contact are updated; conflicting channels on a different
@@ -985,20 +991,41 @@ export class ContactStore {
     }
 
     // ── 3. Create new ─────────────────────────────────────────────────
+    // Create-only canonical-id adoption: before minting a fresh id, check the
+    // assistant DB for an existing contact owning one of these channels (by
+    // (type, address)). Adopting that id keeps both DBs keyed by ONE canonical
+    // id — the gateway INSERT, syncChannels, and the assistant mirror all use
+    // it, so a "healed" assistant-only contact's info reads back via the
+    // join-by-id read path. Soft-fails to a minted id if the lookup throws
+    // (daemon down / tests) — the assistant-mirror best-effort invariant.
     if (!contactId) {
-      contactId = crypto.randomUUID();
-      this.db
-        .insert(contacts)
-        .values({
-          id: contactId,
-          displayName: newContactName,
-          role: "contact",
-          principalId: null,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run();
-      created = true;
+      const adoptedId = await this.adoptAssistantContactId(canonicalChannels);
+      contactId = adoptedId ?? crypto.randomUUID();
+      // An adopted id may already exist as a gateway row (different channels);
+      // preserve it (name omit-to-preserve) instead of a conflicting INSERT.
+      const existing = adoptedId
+        ? this.db
+            .select({ id: contacts.id })
+            .from(contacts)
+            .where(eq(contacts.id, contactId))
+            .get()
+        : undefined;
+      if (existing) {
+        updateContactName(contactId);
+      } else {
+        this.db
+          .insert(contacts)
+          .values({
+            id: contactId,
+            displayName: newContactName,
+            role: "contact",
+            principalId: null,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+        created = true;
+      }
     }
 
     // ── 4. Sync channels (gateway DB) ─────────────────────────────────
@@ -1412,16 +1439,14 @@ export class ContactStore {
     params: Parameters<ContactStore["upsertContact"]>[0],
     now: number,
   ): Promise<void> {
-    // Reconcile against an assistant-only contact: when the gateway minted a
-    // new id but the assistant DB already holds one of the provided channels
-    // (by (type, address)), adopt that existing assistant contact id instead
-    // of inserting a duplicate keyed by the new gateway id. Heals the
-    // split-brain case where the contact pre-dates the gateway dual-write.
-    const targetId = await this.resolveAssistantContactId(contactId, params);
-
+    // The mirror always targets the gateway contactId — the SAME id the gateway
+    // row + channels were written under. On create, any assistant-only contact
+    // was already adopted onto this id in upsertContact, so both DBs converge.
+    // On update (explicit id), this matches syncChannels' skip-on-cross-contact
+    // behavior so an edit can't retarget another contact's metadata.
     const existing = await assistantDbQuery<{ userFile: string | null }>(
       "SELECT user_file AS userFile FROM contacts WHERE id = ?",
-      [targetId],
+      [contactId],
     );
 
     if (existing.length) {
@@ -1445,7 +1470,7 @@ export class ContactStore {
         setParts.push("contact_type = ?");
         setParams.push(params.contactType);
       }
-      setParams.push(targetId);
+      setParams.push(contactId);
 
       await assistantDbRun(
         `UPDATE contacts SET ${setParts.join(", ")} WHERE id = ?`,
@@ -1464,7 +1489,7 @@ export class ContactStore {
             user_file, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          targetId,
+          contactId,
           displayName,
           params.notes ?? null,
           "contact",
@@ -1486,7 +1511,7 @@ export class ContactStore {
            species  = excluded.species,
            metadata = excluded.metadata`,
         [
-          targetId,
+          contactId,
           params.assistantMetadata.species,
           params.assistantMetadata.metadata != null
             ? JSON.stringify(params.assistantMetadata.metadata)
@@ -1499,7 +1524,7 @@ export class ContactStore {
     for (const ch of params.channels ?? []) {
       const existingCh = await assistantDbQuery<{ id: string; status: string }>(
         "SELECT id, status FROM contact_channels WHERE contact_id = ? AND type = ? AND address = ? COLLATE NOCASE",
-        [targetId, ch.type, ch.address],
+        [contactId, ch.type, ch.address],
       );
 
       if (existingCh.length) {
@@ -1536,9 +1561,8 @@ export class ContactStore {
         );
         if (conflict.length) continue;
 
-        // Reuse the gateway channel ID so assistant and gateway channel
-        // rows share the same UUID for the same logical channel. The gateway
-        // row lives under the gateway contactId regardless of reconciliation.
+        // Reuse the gateway channel ID so assistant and gateway channel rows
+        // share the same UUID for the same logical channel.
         const gatewayChannel = this.db
           .select({ id: contactChannels.id })
           .from(contactChannels)
@@ -1560,7 +1584,7 @@ export class ContactStore {
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
           [
             channelId,
-            targetId,
+            contactId,
             ch.type,
             ch.address,
             ch.isPrimary ? 1 : 0,
@@ -1576,32 +1600,37 @@ export class ContactStore {
   }
 
   /**
-   * Resolve which assistant-DB contact id the dual-write should target.
+   * Create-only canonical-id adoption.
    *
-   * Returns the gateway `contactId` unless one of the provided channels
-   * already exists in the assistant DB under a different contact (by (type,
-   * address)). In that split-brain case it returns the existing assistant
-   * contact id so the mirror reconciles into it instead of inserting a
-   * duplicate keyed by the gateway id.
+   * When creating a contact (no explicit id, no gateway (type, address) match),
+   * look up an existing contact in the ASSISTANT DB owning one of the provided
+   * channels (by the same logical key the gateway uses). If found, return its
+   * id so the gateway INSERT + channels + mirror all share ONE canonical id —
+   * healing a legacy assistant-only contact instead of forking the two DBs onto
+   * different ids. Returns null when there's no match or the lookup soft-fails
+   * (daemon down / tests), so the caller falls back to a freshly minted id.
    *
-   * The lookup is by (type, address) — the same logical key the gateway uses
-   * — so a legacy assistant-only contact heals onto the gateway id at the
-   * channel layer while its assistant row/identity is preserved.
+   * Never called on the explicit-id update path — an edit must not retarget
+   * another contact (the gateway syncChannels skips cross-contact channels).
    */
-  private async resolveAssistantContactId(
-    contactId: string,
-    params: Parameters<ContactStore["upsertContact"]>[0],
-  ): Promise<string> {
-    for (const ch of params.channels ?? []) {
-      const rows = await assistantDbQuery<{ contactId: string }>(
-        "SELECT contact_id AS contactId FROM contact_channels WHERE type = ? AND address = ? COLLATE NOCASE LIMIT 1",
-        [ch.type, ch.address],
-      );
-      if (rows.length && rows[0].contactId !== contactId) {
-        return rows[0].contactId;
+  private async adoptAssistantContactId(
+    channels: Parameters<ContactStore["upsertContact"]>[0]["channels"],
+  ): Promise<string | null> {
+    try {
+      for (const ch of channels ?? []) {
+        const rows = await assistantDbQuery<{ contactId: string }>(
+          "SELECT contact_id AS contactId FROM contact_channels WHERE type = ? AND address = ? COLLATE NOCASE LIMIT 1",
+          [ch.type, ch.address],
+        );
+        if (rows.length) return rows[0].contactId;
       }
+    } catch (err) {
+      log.warn(
+        { err },
+        "adoptAssistantContactId: assistant DB lookup failed; minting a new id",
+      );
     }
-    return contactId;
+    return null;
   }
 
   /**
