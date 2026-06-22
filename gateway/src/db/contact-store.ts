@@ -633,12 +633,13 @@ export class ContactStore {
   }
 
   /**
-   * Mark a channel as verified by guardian attestation, bypassing the
-   * standard challenge-code exchange. Sets `status="active"`, stamps
-   * `verifiedAt=now`, and sets `verifiedVia="manual"` for audit trail.
+   * Mark a channel as verified. Sets `status="active"`, stamps
+   * `verifiedAt=now`, and records `verifiedVia` (default `"manual"` for the
+   * guardian-attestation path; `"challenge"` for the code-exchange path) on
+   * the audit trail.
    *
    * Atomic + idempotent. The UPDATE is gated on the row not already being
-   * `(status="active" AND verified_via="manual")`, so two concurrent
+   * `(status="active" AND verified_via=verifiedVia)`, so two concurrent
    * verify requests can't both write — exactly one will see `changes=1`
    * and the other will see `changes=0`. Both still return the post-state
    * row.
@@ -650,7 +651,10 @@ export class ContactStore {
    * When the channel is missing on the gateway but present on the assistant,
    * it (plus its parent contact) is mirrored into the gateway first.
    */
-  async markChannelVerified(channelId: string): Promise<{
+  async markChannelVerified(
+    channelId: string,
+    verifiedVia: "challenge" | "manual" = "manual",
+  ): Promise<{
     channel: ContactChannel;
     didWrite: boolean;
   } | null> {
@@ -671,7 +675,7 @@ export class ContactStore {
          WHERE id = ?
            AND (status != ? OR verified_via != ? OR verified_via IS NULL)`,
       )
-      .run("active", now, "manual", now, channelId, "active", "manual");
+      .run("active", now, verifiedVia, now, channelId, "active", verifiedVia);
 
     const after = this.db
       .select()
@@ -690,9 +694,9 @@ export class ContactStore {
       try {
         await assistantDbRun(
           `UPDATE contact_channels
-             SET status = 'active', verified_at = ?, verified_via = 'manual', updated_at = ?
+             SET status = 'active', verified_at = ?, verified_via = ?, updated_at = ?
            WHERE id = ?`,
-          [now, now, channelId],
+          [now, verifiedVia, now, channelId],
         );
       } catch (err) {
         log.warn(
