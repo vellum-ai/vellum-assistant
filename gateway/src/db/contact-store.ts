@@ -610,8 +610,10 @@ export class ContactStore {
     if (result.changes > 0) return true;
 
     // Legacy channels may have a different assistant-side ID. If the ID-keyed
-    // update touched zero rows, resolve by (contactId, type, address) and
-    // retry so the assistant mirror stays consistent.
+    // update touched zero rows, resolve by the unique (type, address) key and
+    // retry so the assistant mirror stays consistent. The assistant row may sit
+    // under a different contact than the gateway row (m0006 reconcile), so
+    // contactId is excluded.
     const gwChannel = this.db
       .select()
       .from(contactChannels)
@@ -620,10 +622,10 @@ export class ContactStore {
     if (!gwChannel) return false;
 
     const logicalBind = bind.slice(0, -1); // drop the channelId
-    logicalBind.push(gwChannel.contactId, gwChannel.type, gwChannel.address);
+    logicalBind.push(gwChannel.type, gwChannel.address);
     const retry = await assistantDbRun(
       `UPDATE contact_channels SET ${setClauses.join(", ")}
-         WHERE contact_id = ? AND type = ? AND address = ? COLLATE NOCASE`,
+         WHERE type = ? AND address = ? COLLATE NOCASE`,
       logicalBind,
     );
     return retry.changes > 0;
@@ -797,11 +799,13 @@ export class ContactStore {
     const assistantChannel = await assistantDbQuery<{
       type: string;
       address: string;
-    }>("SELECT type, address FROM contact_channels WHERE id = ?", [
-      channelId,
-    ]);
+    }>("SELECT type, address FROM contact_channels WHERE id = ?", [channelId]);
     if (assistantChannel.length === 0) return undefined;
 
+    // Resolve by the gateway's unique key (type, address). The gateway row may
+    // live under a different contact than the assistant mirror — m0006 reconcile
+    // skips mirroring when (type, address) already exists under any contact — so
+    // contactId is not part of the lookup; the resolved row's contact is trusted.
     const { type, address } = assistantChannel[0];
     return this.db
       .select()
@@ -884,8 +888,8 @@ export class ContactStore {
     // Key the mirror by the ORIGINAL assistant channel id, not the resolved
     // gateway `gwChannelId`: on the split-id path they differ and the assistant
     // row is keyed by the original id, so mirroring by the gateway id would
-    // no-op. The dual-write's logical (contactId,type,address) fallback covers
-    // rows keyed differently from the id.
+    // no-op. The dual-write's logical (type, address) fallback covers rows
+    // keyed differently from the id.
     if (didWrite) {
       try {
         await this.dualWriteChannelStatusToAssistantDb(channelId, {
