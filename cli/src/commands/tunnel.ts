@@ -1,7 +1,12 @@
 import { join } from "path";
 
-import { resolveAssistant } from "../lib/assistant-config";
+import { resolveAssistant, type AssistantEntry } from "../lib/assistant-config";
 import { runCloudflareTunnel } from "../lib/cloudflare-tunnel.js";
+import { GATEWAY_PORT } from "../lib/constants.js";
+import {
+  isAssistantFeatureFlagEnabled,
+  WEB_REMOTE_INGRESS_FLAG,
+} from "../lib/feature-flags.js";
 import { runNgrokTunnel } from "../lib/ngrok";
 
 const VALID_PROVIDERS = ["vellum", "ngrok", "cloudflare", "tailscale"] as const;
@@ -88,6 +93,46 @@ function parseArgs(): TunnelArgs {
   return { assistantName, provider };
 }
 
+function parsePortFromUrl(url: unknown): number | undefined {
+  if (typeof url !== "string" || !url.trim()) return undefined;
+  try {
+    const port = Number(new URL(url).port);
+    return Number.isInteger(port) && port > 0 && port <= 65535
+      ? port
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveEntryGatewayPort(entry: AssistantEntry): number {
+  return (
+    entry.resources?.gatewayPort ??
+    parsePortFromUrl(entry.localUrl) ??
+    parsePortFromUrl(entry.runtimeUrl) ??
+    GATEWAY_PORT
+  );
+}
+
+async function shouldPreferNginxIngress(
+  assistantId: string,
+  gatewayPort: number,
+): Promise<boolean> {
+  try {
+    return await isAssistantFeatureFlagEnabled(
+      assistantId,
+      WEB_REMOTE_INGRESS_FLAG,
+      { runtimeUrl: `http://127.0.0.1:${gatewayPort}` },
+    );
+  } catch (err) {
+    throw new Error(
+      `Could not verify the \`${WEB_REMOTE_INGRESS_FLAG}\` feature flag before starting the tunnel. Is the assistant running? Try \`vellum wake\` and retry. ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+}
+
 export async function tunnel(): Promise<void> {
   const { assistantName, provider } = parseArgs();
 
@@ -104,21 +149,34 @@ export async function tunnel(): Promise<void> {
     process.exit(1);
   }
 
+  const resources = entry.resources;
+  const gatewayPort = resolveEntryGatewayPort(entry);
+  const baseTunnelOpts = {
+    port: gatewayPort,
+    ...(resources
+      ? { workspaceDir: join(resources.instanceDir, ".vellum", "workspace") }
+      : {}),
+  };
+
   if (provider === "ngrok") {
-    await runNgrokTunnel();
+    await runNgrokTunnel({
+      ...baseTunnelOpts,
+      preferNginxIngress: await shouldPreferNginxIngress(
+        entry.assistantId,
+        gatewayPort,
+      ),
+    });
     return;
   }
 
   if (provider === "cloudflare") {
-    const resources = entry.resources;
-    await runCloudflareTunnel(
-      resources
-        ? {
-            port: resources.gatewayPort,
-            workspaceDir: join(resources.instanceDir, ".vellum", "workspace"),
-          }
-        : {},
-    );
+    await runCloudflareTunnel({
+      ...baseTunnelOpts,
+      preferNginxIngress: await shouldPreferNginxIngress(
+        entry.assistantId,
+        gatewayPort,
+      ),
+    });
     return;
   }
 

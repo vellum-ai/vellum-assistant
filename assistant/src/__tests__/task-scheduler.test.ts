@@ -24,6 +24,7 @@ mock.module("../runtime/background-job-runner.js", () => ({
     prompt: string;
     groupId?: string;
     trustContext: { sourceChannel: string; trustClass: string };
+    onConversationCreated?: (conversationId: string) => void;
   }) => {
     const { createConversation } =
       await import("../memory/conversation-crud.js");
@@ -33,6 +34,7 @@ mock.module("../runtime/background-job-runner.js", () => ({
       source: "schedule",
       ...(opts.groupId ? { groupId: opts.groupId } : {}),
     });
+    opts.onConversationCreated?.(conv.id);
     onRunBackgroundJobCall?.({
       conversationId: conv.id,
       prompt: opts.prompt,
@@ -40,6 +42,22 @@ mock.module("../runtime/background-job-runner.js", () => ({
     });
     return { conversationId: conv.id, ok: true };
   },
+}));
+
+// Capture workflow-mode dispatch. The scheduler's `workflow` branch calls
+// `getWorkflowRunManager().start(...)`; we stub the singleton so each trigger
+// is observable without spinning up the real engine.
+const workflowStartCalls: Array<Record<string, unknown>> = [];
+let workflowStartImpl: (opts: Record<string, unknown>) => { runId: string } = (
+  opts,
+) => {
+  workflowStartCalls.push(opts);
+  return { runId: "wf-run-1" };
+};
+mock.module("../workflows/run-manager.js", () => ({
+  getWorkflowRunManager: () => ({
+    start: (opts: Record<string, unknown>) => workflowStartImpl(opts),
+  }),
 }));
 
 // Capture `emitNotificationSignal` calls so tests can assert that scheduled
@@ -58,18 +76,33 @@ mock.module("../notifications/emit-signal.js", () => ({
   },
 }));
 
+// Control the tool-registry readiness gate the scheduler checks before launching
+// workflow schedules. Default ready=true so the existing workflow-mode tests are
+// unaffected; one test flips it to exercise the boot-time deferral path. Only the
+// scheduler consumes registry in this test's graph, so a minimal mock suffices.
+let coreToolsReady = true;
+mock.module("../tools/registry.js", () => ({
+  areCoreToolsInitialized: () => coreToolsReady,
+}));
+
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import { recordUsageEvent } from "../memory/llm-usage-store.js";
 import {
   createSchedule,
+  deferClaimedSchedule,
   getSchedule,
   getScheduleRuns,
 } from "../schedule/schedule-store.js";
-import { startScheduler } from "../schedule/scheduler.js";
+import { getScheduleUsageSummaries } from "../schedule/schedule-usage-store.js";
+import {
+  runScheduleDueWorkOnce,
+  startScheduler,
+} from "../schedule/scheduler.js";
 import { scheduleTask } from "../tasks/task-scheduler.js";
 import { createTask } from "../tasks/task-store.js";
 
-initializeDb();
+await initializeDb();
 
 /** Access the underlying bun:sqlite Database for raw parameterized queries. */
 function getRawDb(): import("bun:sqlite").Database {
@@ -160,6 +193,7 @@ describe("scheduler run_task detection", () => {
     db.run("DELETE FROM cron_jobs");
     db.run("DELETE FROM task_runs");
     db.run("DELETE FROM tasks");
+    db.run("DELETE FROM llm_usage_events");
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
     onRunBackgroundJobCall = null;
@@ -297,5 +331,431 @@ describe("scheduler run_task detection", () => {
     expect(failureSignal?.dedupeKey).toMatch(
       /^activity-failed:task:nonexistent-task-id:\d{4}-\d{2}-\d{2}$/,
     );
+  });
+
+  test("opens a task-backed schedule run before task processing and backfills the real conversation id", async () => {
+    const task = createTask({
+      title: "Usage Attribution Task",
+      template: "Spend scheduled tokens",
+    });
+    const schedule = scheduleTask({
+      taskId: task.id,
+      name: "Usage Attribution Schedule",
+      cronExpression: "* * * * *",
+    });
+    forceScheduleDue(schedule.id);
+
+    const from = Date.now() - 1000;
+    let processingConversationId: string | null = null;
+    let usageEventCreatedAt: number | null = null;
+    let runsDuringProcessing: ReturnType<typeof getScheduleRuns> = [];
+
+    const result = await runScheduleDueWorkOnce(
+      async (conversationId) => {
+        processingConversationId = conversationId;
+        runsDuringProcessing = getScheduleRuns(schedule.id);
+        const event = recordUsageEvent(
+          {
+            conversationId,
+            runId: null,
+            requestId: "req-scheduled-task-usage",
+            actor: "main_agent",
+            callSite: "mainAgent",
+            inferenceProfile: "balanced",
+            provider: "anthropic",
+            model: "claude-sonnet-4-20250514",
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheCreationInputTokens: 0,
+            cacheReadInputTokens: 0,
+            rawUsage: null,
+          },
+          { estimatedCostUsd: 0.25, pricingStatus: "priced" },
+        );
+        usageEventCreatedAt = event.createdAt;
+      },
+      () => {},
+    );
+    const to = Date.now() + 1000;
+
+    expect(result.completed).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(processingConversationId).not.toBeNull();
+    expect(usageEventCreatedAt).not.toBeNull();
+    expect(runsDuringProcessing).toHaveLength(1);
+    expect(runsDuringProcessing[0].status).toBe("running");
+    expect(runsDuringProcessing[0].conversationId).toBeNull();
+    expect(runsDuringProcessing[0].startedAt).toBeLessThanOrEqual(
+      usageEventCreatedAt!,
+    );
+
+    const runs = getScheduleRuns(schedule.id);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].id).toBe(runsDuringProcessing[0].id);
+    expect(runs[0].status).toBe("ok");
+    expect(runs[0].conversationId).toBe(processingConversationId);
+    expect(runs[0].startedAt).toBeLessThanOrEqual(usageEventCreatedAt!);
+    expect(runs[0].finishedAt).not.toBeNull();
+    expect(runs[0].finishedAt!).toBeGreaterThanOrEqual(usageEventCreatedAt!);
+
+    const summary = getScheduleUsageSummaries({ from, to }).find(
+      (row) => row.scheduleId === schedule.id,
+    );
+    expect(summary).toEqual({
+      scheduleId: schedule.id,
+      runCount: 1,
+      totalEstimatedCostUsd: 0.25,
+      eventCount: 1,
+    });
+  });
+
+  test("opens a normal execute schedule run before fresh background processing and records the conversation id", async () => {
+    const schedule = createSchedule({
+      name: "Usage Attribution Message Schedule",
+      cronExpression: "* * * * *",
+      message: "Spend scheduled message tokens",
+      syntax: "cron",
+    });
+    forceScheduleDue(schedule.id);
+
+    const from = Date.now() - 1000;
+    let processingConversationId: string | null = null;
+    let usageEventCreatedAt: number | null = null;
+    let runsDuringProcessing: ReturnType<typeof getScheduleRuns> = [];
+
+    onRunBackgroundJobCall = (info) => {
+      processingConversationId = info.conversationId;
+      runsDuringProcessing = getScheduleRuns(schedule.id);
+      const event = recordUsageEvent(
+        {
+          conversationId: info.conversationId,
+          runId: null,
+          requestId: "req-scheduled-message-usage",
+          actor: "main_agent",
+          callSite: "mainAgent",
+          inferenceProfile: "balanced",
+          provider: "anthropic",
+          model: "claude-sonnet-4-20250514",
+          inputTokens: 80,
+          outputTokens: 20,
+          cacheCreationInputTokens: 0,
+          cacheReadInputTokens: 0,
+          rawUsage: null,
+        },
+        { estimatedCostUsd: 0.1, pricingStatus: "priced" },
+      );
+      usageEventCreatedAt = event.createdAt;
+    };
+
+    const result = await runScheduleDueWorkOnce(
+      async () => {},
+      () => {},
+    );
+    const to = Date.now() + 1000;
+
+    expect(result.completed).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(processingConversationId).not.toBeNull();
+    expect(usageEventCreatedAt).not.toBeNull();
+    expect(runsDuringProcessing).toHaveLength(1);
+    expect(runsDuringProcessing[0].status).toBe("running");
+    expect(runsDuringProcessing[0].conversationId).toBe(
+      processingConversationId,
+    );
+    expect(runsDuringProcessing[0].startedAt).toBeLessThanOrEqual(
+      usageEventCreatedAt!,
+    );
+
+    const runs = getScheduleRuns(schedule.id);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].id).toBe(runsDuringProcessing[0].id);
+    expect(runs[0].status).toBe("ok");
+    expect(runs[0].conversationId).toBe(processingConversationId);
+    expect(runs[0].startedAt).toBeLessThanOrEqual(usageEventCreatedAt!);
+    expect(runs[0].finishedAt).not.toBeNull();
+    expect(runs[0].finishedAt!).toBeGreaterThanOrEqual(usageEventCreatedAt!);
+
+    const summary = getScheduleUsageSummaries({ from, to }).find(
+      (row) => row.scheduleId === schedule.id,
+    );
+    expect(summary).toEqual({
+      scheduleId: schedule.id,
+      runCount: 1,
+      totalEstimatedCostUsd: 0.1,
+      eventCount: 1,
+    });
+  });
+});
+
+// ── Workflow mode dispatch ──────────────────────────────────────────
+
+describe("scheduler workflow mode", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+    workflowStartCalls.length = 0;
+    workflowStartImpl = (opts) => {
+      workflowStartCalls.push(opts);
+      return { runId: "wf-run-1" };
+    };
+    coreToolsReady = true;
+  });
+
+  test("a due workflow-mode job triggers the run manager with name/args", async () => {
+    const schedule = createSchedule({
+      name: "Triage inbox",
+      cronExpression: "0 9 * * *",
+      message: "triage",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "triage-inbox",
+      workflowArgs: { folder: "primary" },
+      wakeConversationId: "conv-origin",
+    });
+    forceScheduleDue(schedule.id);
+
+    const result = await runScheduleDueWorkOnce(
+      async () => {},
+      () => {},
+    );
+
+    expect(result.completed).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(workflowStartCalls).toHaveLength(1);
+    expect(workflowStartCalls[0]).toMatchObject({
+      name: "triage-inbox",
+      args: { folder: "primary" },
+      conversationId: "conv-origin",
+      manifest: { tools: [], hostFunctions: [], persona: false },
+    });
+
+    const runs = getScheduleRuns(schedule.id);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].status).toBe("ok");
+  });
+
+  test("fires with the schedule's stored side-effecting manifest", async () => {
+    const schedule = createSchedule({
+      name: "Side-effecting workflow",
+      cronExpression: "0 9 * * *",
+      message: "go",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "send-report",
+      capabilities: {
+        tools: ["file_write"],
+        hostFunctions: ["notify"],
+        persona: true,
+      },
+    });
+    forceScheduleDue(schedule.id);
+
+    await runScheduleDueWorkOnce(
+      async () => {},
+      () => {},
+    );
+
+    expect(workflowStartCalls).toHaveLength(1);
+    expect(workflowStartCalls[0]).toMatchObject({
+      manifest: {
+        tools: ["file_write"],
+        hostFunctions: ["notify"],
+        persona: true,
+      },
+    });
+  });
+
+  test("a legacy schedule (null capabilities) fires with the read-only baseline", async () => {
+    const schedule = createSchedule({
+      name: "Legacy workflow",
+      cronExpression: "0 9 * * *",
+      message: "go",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "digest",
+      capabilities: null,
+    });
+    forceScheduleDue(schedule.id);
+
+    await runScheduleDueWorkOnce(
+      async () => {},
+      () => {},
+    );
+
+    expect(workflowStartCalls).toHaveLength(1);
+    expect(workflowStartCalls[0]).toMatchObject({
+      manifest: { tools: [], hostFunctions: [], persona: false },
+    });
+  });
+
+  test("falls back to createdFromConversationId for the completion wake", async () => {
+    // Workflow schedules created via schedule_create store the originating
+    // conversation as createdFromConversationId and leave wakeConversationId
+    // unset; without the fallback the completion summary lands nowhere.
+    const schedule = createSchedule({
+      name: "Morning digest",
+      cronExpression: "0 9 * * *",
+      message: "",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "digest",
+      createdFromConversationId: "conv-creator",
+    });
+    forceScheduleDue(schedule.id);
+
+    await runScheduleDueWorkOnce(
+      async () => {},
+      () => {},
+    );
+
+    expect(workflowStartCalls).toHaveLength(1);
+    expect(workflowStartCalls[0]).toMatchObject({
+      conversationId: "conv-creator",
+    });
+  });
+
+  test("prefers an explicit wakeConversationId over createdFromConversationId", async () => {
+    const schedule = createSchedule({
+      name: "Both set",
+      cronExpression: "0 9 * * *",
+      message: "",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "digest",
+      wakeConversationId: "conv-wake",
+      createdFromConversationId: "conv-creator",
+    });
+    forceScheduleDue(schedule.id);
+
+    await runScheduleDueWorkOnce(
+      async () => {},
+      () => {},
+    );
+
+    expect(workflowStartCalls[0]).toMatchObject({
+      conversationId: "conv-wake",
+    });
+  });
+
+  test("defaults workflowArgs to {} when unset", async () => {
+    const schedule = createSchedule({
+      name: "No-args workflow",
+      cronExpression: "0 9 * * *",
+      message: "go",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "nightly",
+    });
+    forceScheduleDue(schedule.id);
+
+    await runScheduleDueWorkOnce(
+      async () => {},
+      () => {},
+    );
+
+    expect(workflowStartCalls).toHaveLength(1);
+    expect(workflowStartCalls[0].args).toEqual({});
+  });
+
+  test("records an error and skips when start() throws", async () => {
+    workflowStartImpl = () => {
+      throw new Error("workflows disabled");
+    };
+    const schedule = createSchedule({
+      name: "Failing workflow",
+      cronExpression: "0 9 * * *",
+      message: "go",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "broken",
+    });
+    forceScheduleDue(schedule.id);
+
+    const result = await runScheduleDueWorkOnce(
+      async () => {},
+      () => {},
+    );
+
+    expect(result.failed).toBe(1);
+    const runs = getScheduleRuns(schedule.id);
+    expect(runs[0].status).toBe("error");
+    expect(runs[0].error).toContain("workflows disabled");
+  });
+
+  test("skips a workflow-mode job with no workflowName", async () => {
+    const schedule = createSchedule({
+      name: "Nameless workflow",
+      cronExpression: "0 9 * * *",
+      message: "go",
+      syntax: "cron",
+      mode: "workflow",
+    });
+    forceScheduleDue(schedule.id);
+
+    const result = await runScheduleDueWorkOnce(
+      async () => {},
+      () => {},
+    );
+
+    expect(result.skipped).toBe(1);
+    expect(workflowStartCalls).toHaveLength(0);
+  });
+
+  test("defers a due workflow job until tools are registered, then fires it", async () => {
+    coreToolsReady = false;
+    const schedule = createSchedule({
+      name: "Boot workflow",
+      cronExpression: "0 9 * * *",
+      message: "go",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "triage-inbox",
+    });
+    forceScheduleDue(schedule.id);
+
+    // Tools not yet registered: the run must be deferred, not launched with an
+    // empty baseline. No run-manager start, no run record, marked skipped.
+    const result = await runScheduleDueWorkOnce(
+      async () => {},
+      () => {},
+    );
+    expect(workflowStartCalls).toHaveLength(0);
+    expect(result.skipped).toBe(1);
+    expect(getScheduleRuns(schedule.id)).toHaveLength(0);
+
+    // Re-armed to due (not consumed): once tools are ready, a later tick fires
+    // it with the full baseline.
+    coreToolsReady = true;
+    await runScheduleDueWorkOnce(
+      async () => {},
+      () => {},
+    );
+    expect(workflowStartCalls).toHaveLength(1);
+    expect(workflowStartCalls[0]).toMatchObject({ name: "triage-inbox" });
+  });
+
+  test("deferring a final/disabled occurrence re-enables it so it isn't lost", async () => {
+    // claimDueSchedules disables a row whose claimed occurrence was its last
+    // (one-shot / exhausted finite RRULE). The due-claim query requires
+    // enabled=true, so a deferred final occurrence must be re-enabled or it is
+    // never re-claimed. Simulate that disabled-on-claim state, then defer.
+    const schedule = createSchedule({
+      name: "Final workflow occurrence",
+      cronExpression: "0 9 * * *",
+      message: "",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "digest",
+      enabled: false, // as claimDueSchedules leaves a last occurrence
+    });
+    expect(getSchedule(schedule.id)?.enabled).toBe(false);
+
+    deferClaimedSchedule(schedule.id);
+
+    const after = getSchedule(schedule.id);
+    expect(after?.enabled).toBe(true);
+    expect(after?.status).toBe("active");
+    expect(after?.nextRunAt).toBeLessThanOrEqual(Date.now());
   });
 });

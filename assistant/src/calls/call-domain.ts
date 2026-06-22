@@ -212,7 +212,7 @@ export async function resolveCallerIdentity(
     return {
       ok: false,
       error:
-        "user_number mode requires a user phone number. Set calls.callerIdentity.userNumber in config or store credential/twilio/user_phone_number via the credential_store tool.",
+        "user_number mode requires a user phone number. Set calls.callerIdentity.userNumber in config or store credential/twilio/user_phone_number via `assistant credentials set`.",
     };
   }
 

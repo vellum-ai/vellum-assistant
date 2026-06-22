@@ -88,7 +88,7 @@ import {
 } from "../messaging/providers/slack/message-metadata.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers

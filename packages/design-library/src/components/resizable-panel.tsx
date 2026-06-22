@@ -63,6 +63,13 @@ export interface ResizablePanelProps extends Omit<ComponentProps<"div">, "childr
   onWidthChange?: (leftWidth: number) => void;
   /** Optional localStorage key for persisting the left pane width across reloads. */
   storageKey?: string;
+  /**
+   * Hide the always-visible 1px divider line between the panes while keeping
+   * the full drag hit-area and the hover grab handle. Useful when the right
+   * pane already has its own container chrome (e.g. a rounded detail drawer)
+   * and the separator line reads as a redundant extra border.
+   */
+  hideDivider?: boolean;
 }
 
 /**
@@ -81,6 +88,7 @@ export function ResizablePanel({
   minRightWidth = 300,
   onWidthChange,
   storageKey,
+  hideDivider = false,
   className,
   ...rest
 }: ResizablePanelProps) {
@@ -96,7 +104,9 @@ export function ResizablePanel({
   const clamp = useCallback(
     (width: number) => {
       const container = containerRef.current;
-      if (!container) return width;
+      // Unmeasured container (offsetWidth 0): keep the requested width instead
+      // of collapsing to the minimum on a negative max.
+      if (!container || container.offsetWidth <= 0) return width;
       const maxLeft = container.offsetWidth - minRightWidth;
       return Math.max(minLeftWidth, Math.min(width, maxLeft));
     },
@@ -211,7 +221,12 @@ export function ResizablePanel({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
       >
-        <div className="h-full w-px bg-[var(--border-base)]" />
+        <div
+          className={cn(
+            "h-full w-px",
+            hideDivider ? "bg-transparent" : "bg-[var(--border-base)]",
+          )}
+        />
         <div
           className={cn(
             "absolute h-8 w-1 rounded-full bg-[var(--content-tertiary)] opacity-0 transition-opacity",

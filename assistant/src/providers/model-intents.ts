@@ -35,7 +35,7 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
     "vision-optimized": "llama3.2",
   },
   fireworks: {
-    balanced: "accounts/fireworks/models/kimi-k2p6",
+    balanced: "accounts/fireworks/models/minimax-m3",
     "latency-optimized": "accounts/fireworks/models/kimi-k2p5",
     "quality-optimized": "accounts/fireworks/models/kimi-k2p6",
     "vision-optimized": "accounts/fireworks/models/kimi-k2p6",

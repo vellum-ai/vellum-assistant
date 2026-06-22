@@ -107,7 +107,6 @@ describe("pre-chat onboarding contract", () => {
       "USER.md",
       "BOOTSTRAP.md",
       "BOOTSTRAP-REFERENCE.md",
-      "UPDATES.md",
       "users",
       "channels",
     ]) {

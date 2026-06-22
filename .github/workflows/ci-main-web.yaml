@@ -5,15 +5,18 @@ on:
   push:
     branches: [main]
     paths:
-      - 'apps/web/**'
+      - 'clients/web/**'
       - 'packages/design-library/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
+      # The web LLM catalog parity test reads this file, so daemon-side catalog
+      # regenerations must run the web tests too.
+      - 'meta/llm-provider-catalog.json'
       - '.github/workflows/ci-main-web.yaml'
       - '.github/actions/install-shared-packages/**'
       # The deploy/publish logic lives in this reusable workflow, so a change to
       # it alone must still exercise the full web CI/CD pipeline.
-      - '.github/workflows/deploy-web-spa.yaml'
+      - '.github/workflows/deploy-platform-web-spa.yaml'
 
 # Serialize runs per branch and cancel any superseded in-flight run, so an
 # older commit's deploy can never finish after — and overwrite the bucket's
@@ -29,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/web
+        working-directory: clients/web
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -61,7 +64,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/web
+        working-directory: clients/web
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -90,7 +93,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/web
+        working-directory: clients/web
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -141,7 +144,7 @@ jobs:
           done
 
   # ── CD: build + publish the SPA to each environment's GCS bucket ──────────
-  # Each environment is an independent instance of the `deploy-web-spa` reusable
+  # Each environment is an independent instance of the `deploy-platform-web-spa` reusable
   # workflow (fail-fast: false), which internally splits an unprivileged build
   # from the privileged GCP publish. Matrixing the *caller* — rather than the
   # build/deploy jobs directly — keeps each environment independent: a failure
@@ -165,7 +168,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: ./.github/workflows/deploy-web-spa.yaml
+    uses: ./.github/workflows/deploy-platform-web-spa.yaml
     with:
       environment: ${{ matrix.environment }}
     secrets: inherit

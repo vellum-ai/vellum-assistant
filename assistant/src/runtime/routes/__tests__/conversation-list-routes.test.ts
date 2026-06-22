@@ -23,7 +23,7 @@ mock.module("../../assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
 }));
 
-import { findConversation } from "../../../daemon/conversation-store.js";
+import { findConversation } from "../../../daemon/conversation-registry.js";
 import { createConversation } from "../../../memory/conversation-crud.js";
 import { getDb } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
@@ -37,7 +37,7 @@ import type { RouteDefinition } from "../types.js";
 // DB bootstrap
 // ---------------------------------------------------------------------------
 
-initializeDb();
+await initializeDb();
 
 function clearConversations(): void {
   getDb().delete(conversations).run();

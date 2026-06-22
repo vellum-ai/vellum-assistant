@@ -1,3 +1,5 @@
+import { loopbackSafeFetch } from "./loopback-fetch.js";
+
 /**
  * Build the base URL for the daemon HTTP server.
  */
@@ -15,7 +17,7 @@ export async function httpHealthCheck(
 ): Promise<boolean> {
   try {
     const url = `${buildDaemonUrl(port)}/healthz`;
-    const response = await fetch(url, {
+    const response = await loopbackSafeFetch(url, {
       signal: AbortSignal.timeout(timeoutMs),
     });
     return response.ok;

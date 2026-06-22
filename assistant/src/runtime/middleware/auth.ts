@@ -12,6 +12,32 @@ export function isLoopbackHost(hostname: string): boolean {
   );
 }
 
+/** Unwrap IPv4-mapped IPv6 (e.g. ::ffff:10.0.0.1) to its IPv4 part. */
+function unwrapV4Mapped(addr: string): string {
+  const v4Mapped = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
+  return v4Mapped ? v4Mapped[1] : addr;
+}
+
+/**
+ * Determine whether an IP address string is a loopback address —
+ * 127.0.0.0/8, ::1, or their IPv4-mapped IPv6 forms. Strictly narrower
+ * than {@link isPrivateAddress}: LAN peers (RFC 1918, link-local) are
+ * private but not loopback.
+ */
+export function isLoopbackAddress(addr: string): boolean {
+  const normalized = unwrapV4Mapped(addr);
+
+  if (normalized.includes(".")) {
+    const parts = normalized.split(".").map(Number);
+    if (parts.length !== 4 || parts.some((p) => isNaN(p) || p < 0 || p > 255))
+      return false;
+    // Loopback: 127.0.0.0/8
+    return parts[0] === 127;
+  }
+
+  return normalized.toLowerCase() === "::1";
+}
+
 /**
  * @internal Exported for testing.
  *
@@ -24,9 +50,7 @@ export function isLoopbackHost(hostname: string): boolean {
  *   - IPv4-mapped IPv6 variants of all of the above (::ffff:x.x.x.x)
  */
 export function isPrivateAddress(addr: string): boolean {
-  // Handle IPv4-mapped IPv6 (e.g. ::ffff:10.0.0.1) -- extract the IPv4 part
-  const v4Mapped = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
-  const normalized = v4Mapped ? v4Mapped[1] : addr;
+  const normalized = unwrapV4Mapped(addr);
 
   // IPv4 checks
   if (normalized.includes(".")) {

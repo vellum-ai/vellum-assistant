@@ -29,7 +29,7 @@
  */
 
 type FlagSlot = {
-  overrides: Record<string, boolean> | null;
+  overrides: Record<string, boolean | string> | null;
   fromGateway: boolean;
 };
 
@@ -44,7 +44,7 @@ function slot(): FlagSlot {
 }
 
 /** Read the current override cache. `null` means not yet populated. */
-export function getCachedOverrides(): Record<string, boolean> | null {
+export function getCachedOverrides(): Record<string, boolean | string> | null {
   return slot().overrides;
 }
 
@@ -66,7 +66,7 @@ export function isCachedFromGateway(): boolean {
  * `initFeatureFlagOverrides()` calls are no-ops.
  */
 export function setCachedOverrides(
-  overrides: Record<string, boolean>,
+  overrides: Record<string, boolean | string>,
   options: { fromGateway: boolean },
 ): void {
   const s = slot();

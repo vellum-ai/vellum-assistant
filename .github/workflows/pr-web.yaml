@@ -4,10 +4,13 @@ on:
   pull_request:
     types: [synchronize, opened, reopened]
     paths:
-      - 'apps/web/**'
+      - 'clients/web/**'
       - 'packages/design-library/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
+      # The web LLM catalog parity test reads this file, so daemon-side catalog
+      # regenerations must run the web tests on the PR that introduces drift.
+      - 'meta/llm-provider-catalog.json'
       - '.github/workflows/pr-web.yaml'
       - '.github/actions/install-shared-packages/**'
 
@@ -24,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/web
+        working-directory: clients/web
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -66,7 +69,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/web
+        working-directory: clients/web
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -95,7 +98,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/web
+        working-directory: clients/web
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -128,7 +131,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/web
+        working-directory: clients/web
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -153,7 +156,11 @@ jobs:
         env:
           VITE_PLATFORM_MODE: "true"
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+          # Baked into the deployed SPA so the iOS webview (which loads this
+          # bundle via `server.url`) reports to the vellum-assistant-ios project.
+          VITE_SENTRY_DSN_IOS: ${{ secrets.SENTRY_DSN_IOS }}
           VITE_SENTRY_ENVIRONMENT: ${{ vars.VITE_SENTRY_ENVIRONMENT }}
+          VITE_SESSION_REPLAY_APP_ID: ${{ vars.VITE_SESSION_REPLAY_APP_ID }}
           VITE_APP_VERSION: ${{ github.sha }}
         run: bun run build
 

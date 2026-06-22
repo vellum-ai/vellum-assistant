@@ -1,3 +1,5 @@
+import { resolveCapabilities } from "../../runtime/capabilities.js";
+import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import { formatIntegrationSummary } from "../../schedule/integration-status.js";
 import { validateRruleSetLines } from "../../schedule/recurrence-engine.js";
 import { normalizeScheduleSyntax } from "../../schedule/recurrence-types.js";
@@ -12,9 +14,13 @@ import {
   formatLocalDate,
   isValidCronExpression,
 } from "../../schedule/schedule-store.js";
+import {
+  CapabilityManifestSchema,
+  resolveCapabilities as resolveWorkflowCapabilities,
+} from "../../workflows/capabilities.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
-const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script"];
+const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script", "workflow"];
 const VALID_ROUTING_INTENTS: RoutingIntent[] = [
   "single_channel",
   "multi_channel",
@@ -25,7 +31,7 @@ export async function executeScheduleCreate(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  if (context.trustClass !== "guardian") {
+  if (!resolveCapabilities(context.trustClass).canManageSchedules) {
     return {
       content:
         "Error: schedule_create is restricted to guardian actors because schedules execute with elevated privileges.",
@@ -33,6 +39,7 @@ export async function executeScheduleCreate(
     };
   }
   const name = input.name as string;
+  const description = input.description as string | undefined;
   const timezone = (input.timezone as string) ?? null;
   const message = (input.message as string) ?? "";
   const script = (input.script as string) ?? null;
@@ -48,6 +55,14 @@ export async function executeScheduleCreate(
   const maxRetries = input.max_retries as number | undefined;
   const retryBackoffMs = input.retry_backoff_ms as number | undefined;
   const timeoutMs = input.timeout_ms as number | undefined;
+  const workflowName =
+    typeof input.workflow_name === "string" ? input.workflow_name.trim() : null;
+  const workflowArgs = input.workflow_args;
+  const inferenceProfile = input.inference_profile as string | undefined;
+
+  // Validated workflow capability manifest, resolved only for workflow mode.
+  // Left null for non-workflow modes so `createSchedule` persists no manifest.
+  let capabilities: unknown = null;
 
   if (timeoutMs !== undefined) {
     const timeoutError = validateScriptTimeoutMs(timeoutMs);
@@ -56,9 +71,33 @@ export async function executeScheduleCreate(
     }
   }
 
+  if (inferenceProfile !== undefined) {
+    if (typeof inferenceProfile !== "string") {
+      return {
+        content: "Error: inference_profile must be a string",
+        isError: true,
+      };
+    }
+    const profileError = validateScheduleInferenceProfile(inferenceProfile);
+    if (profileError) {
+      return { content: `Error: ${profileError}`, isError: true };
+    }
+  }
+
   if (!name || typeof name !== "string") {
     return {
       content: "Error: name is required and must be a string",
+      isError: true,
+    };
+  }
+
+  if (
+    !description ||
+    typeof description !== "string" ||
+    description.trim().length === 0
+  ) {
+    return {
+      content: "Error: description is required and must be a non-empty string",
       isError: true,
     };
   }
@@ -79,6 +118,36 @@ export async function executeScheduleCreate(
           "Error: script is required for script mode and must be a non-empty string",
         isError: true,
       };
+    }
+  } else if (mode === "workflow") {
+    // Workflow mode requires a saved workflow name — mirrors the HTTP route's
+    // create-side validation so the assistant-facing path and the settings route
+    // enforce the same shape.
+    if (!workflowName) {
+      return {
+        content:
+          "Error: workflow_name is required for workflow mode and must be a non-empty string",
+        isError: true,
+      };
+    }
+    // A workflow schedule may carry a capability manifest — the single consent
+    // point for its eventual unattended run. Validate and normalize it here so a
+    // schedule can never persist a malformed or forbidden manifest: parse the
+    // declared shape, then run the same forbidden/unknown/host-tool checks
+    // resolveCapabilities applies at launch. A side-effecting manifest forces a
+    // fresh approval at CREATION (see executor.ts).
+    if (input.capabilities !== undefined) {
+      try {
+        const manifest = CapabilityManifestSchema.parse(input.capabilities);
+        resolveWorkflowCapabilities(manifest);
+        capabilities = manifest;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          content: `Error: invalid capabilities manifest: ${msg}`,
+          isError: true,
+        };
+      }
     }
   } else {
     if (!message || typeof message !== "string") {
@@ -128,6 +197,7 @@ export async function executeScheduleCreate(
     try {
       const job = createSchedule({
         name,
+        description,
         cronExpression: null,
         timezone,
         message,
@@ -144,6 +214,11 @@ export async function executeScheduleCreate(
         maxRetries,
         retryBackoffMs,
         timeoutMs,
+        workflowName,
+        workflowArgs,
+        capabilities,
+        inferenceProfile,
+        createdFromConversationId: context.conversationId,
       });
 
       const fireDate = formatLocalDate(job.nextRunAt);
@@ -153,8 +228,12 @@ export async function executeScheduleCreate(
           `One-shot schedule created successfully.`,
           `  ID: ${job.id}`,
           `  Name: ${job.name}`,
+          `  Description: ${job.description}`,
           `  Type: one-shot`,
           `  Mode: ${job.mode}`,
+          ...(job.inferenceProfile
+            ? [`  Inference profile: ${job.inferenceProfile}`]
+            : []),
           `  Fire at: ${fireDate}`,
           `  Enabled: ${job.enabled}`,
           `  Status: ${job.status}`,
@@ -210,6 +289,7 @@ export async function executeScheduleCreate(
   try {
     const job = createSchedule({
       name,
+      description,
       cronExpression: resolved.expression,
       timezone,
       message,
@@ -225,6 +305,11 @@ export async function executeScheduleCreate(
       maxRetries,
       retryBackoffMs,
       timeoutMs,
+      workflowName,
+      workflowArgs,
+      capabilities,
+      inferenceProfile,
+      createdFromConversationId: context.conversationId,
     });
 
     const scheduleDescription =
@@ -241,8 +326,12 @@ export async function executeScheduleCreate(
         `Recurring schedule created successfully.`,
         `  ID: ${job.id}`,
         `  Name: ${job.name}`,
+        `  Description: ${job.description}`,
         `  Syntax: ${job.syntax}`,
         `  Mode: ${job.mode}`,
+        ...(job.inferenceProfile
+          ? [`  Inference profile: ${job.inferenceProfile}`]
+          : []),
         `  Schedule: ${scheduleDescription}${
           job.timezone ? ` (${job.timezone})` : ""
         }`,

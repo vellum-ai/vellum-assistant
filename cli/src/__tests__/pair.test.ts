@@ -268,4 +268,203 @@ describe("pair command", () => {
     const out = JSON.parse(logs.join("\n"));
     expect(out.gatewayUrl).toBe(OVERRIDE);
   });
+
+  test("--web creates a browser pairing URL without printing tokens", async () => {
+    const calls: Array<[string, RequestInit | undefined]> = [];
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      calls.push([url, init]);
+      if (url === `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`) {
+        return new Response(
+          JSON.stringify({
+            flags: [{ key: "web-remote-ingress", enabled: true }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url === `${LOCAL_URL}/v1/remote-web/pairing-challenge`) {
+        return new Response(
+          JSON.stringify({
+            deviceCode: "device-code",
+            userCode: "ABCD-EFGH",
+            verificationUri:
+              "https://abc123.ngrok.app/assistant-123/assistant/pair",
+            expiresAt: "2026-06-04T00:10:00.000Z",
+            expiresInSeconds: 600,
+            intervalSeconds: 5,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const logs: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation(
+      (...a: unknown[]) => {
+        logs.push(a.join(" "));
+      },
+    );
+
+    process.argv = [
+      "bun",
+      "vellum",
+      "pair",
+      "--web",
+      "--url",
+      "https://abc123.ngrok.app/assistant-123/assistant/",
+      "--json",
+    ];
+    try {
+      await pair();
+    } finally {
+      logSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1][0]).toBe(`${LOCAL_URL}/v1/remote-web/pairing-challenge`);
+    expect(JSON.parse(calls[1][1]?.body as string)).toEqual({
+      publicBaseUrl: "https://abc123.ngrok.app/assistant-123",
+    });
+
+    const out = JSON.parse(logs.join("\n"));
+    expect(out).toEqual({
+      pairUrl:
+        "https://abc123.ngrok.app/assistant-123/assistant/pair#device_code=device-code",
+      userCode: "ABCD-EFGH",
+      verificationUri: "https://abc123.ngrok.app/assistant-123/assistant/pair",
+      expiresAt: "2026-06-04T00:10:00.000Z",
+      expiresInSeconds: 600,
+    });
+    expect(logs.join("\n")).not.toContain("access");
+    expect(logs.join("\n")).not.toContain("refresh");
+  });
+
+  test("--web refuses when the web remote ingress feature flag is off", async () => {
+    const calls: Array<[string, RequestInit | undefined]> = [];
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      calls.push([url, init]);
+      return new Response(
+        JSON.stringify({
+          flags: [{ key: "web-remote-ingress", enabled: false }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation(
+      (...a: unknown[]) => {
+        errors.push(a.join(" "));
+      },
+    );
+    const exitSpy = spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    process.argv = [
+      "bun",
+      "vellum",
+      "pair",
+      "--web",
+      "--url",
+      "https://abc123.ngrok.app",
+    ];
+    let exited = false;
+    try {
+      await pair();
+    } catch (e) {
+      exited = (e as Error).message === "exit:1";
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    expect(exited).toBe(true);
+    expect(errors.join("\n")).toContain("web-remote-ingress");
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toBe(
+      `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`,
+    );
+  });
+
+  test("--web-approve approves a browser pairing code over loopback", async () => {
+    writeFileSync(
+      join(testDir, ".vellum.lock.json"),
+      JSON.stringify({
+        assistants: [
+          {
+            assistantId: "pair-test",
+            runtimeUrl: LOCAL_URL,
+            localUrl: LOCAL_URL,
+            cloud: "local",
+          },
+        ],
+        activeAssistant: "pair-test",
+      }),
+    );
+
+    const calls: Array<[string, RequestInit | undefined]> = [];
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      calls.push([url, init]);
+      if (url === `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`) {
+        return new Response(
+          JSON.stringify({
+            flags: [{ key: "web-remote-ingress", enabled: true }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url === `${LOCAL_URL}/v1/remote-web/pairing-verification`) {
+        return new Response(
+          JSON.stringify({
+            status: "approved",
+            verificationUri: "https://abc123.ngrok.app/assistant/pair",
+            expiresAt: "2026-06-04T00:10:00.000Z",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const logs: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation(
+      (...a: unknown[]) => {
+        logs.push(a.join(" "));
+      },
+    );
+
+    process.argv = [
+      "bun",
+      "vellum",
+      "pair",
+      "--web-approve",
+      "ABCD-EFGH",
+      "--json",
+    ];
+    try {
+      await pair();
+    } finally {
+      logSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1][0]).toBe(`${LOCAL_URL}/v1/remote-web/pairing-verification`);
+    expect(JSON.parse(calls[1][1]?.body as string)).toEqual({
+      userCode: "ABCD-EFGH",
+    });
+    expect(JSON.parse(logs.join("\n"))).toEqual({
+      status: "approved",
+      verificationUri: "https://abc123.ngrok.app/assistant/pair",
+      expiresAt: "2026-06-04T00:10:00.000Z",
+    });
+  });
 });

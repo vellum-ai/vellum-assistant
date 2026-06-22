@@ -1,3 +1,4 @@
+import { optimizeImageForTransport } from "../../agent/image-optimize.js";
 import { getConfig } from "../../config/loader.js";
 import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
 import type { ImageContent } from "../../providers/types.js";
@@ -69,6 +70,7 @@ import type {
   AttemptDiagnostic,
   CdpClient,
   CdpClientKind,
+  InternalBrowserMode,
 } from "./cdp-client/types.js";
 import { clearPinnedTab, setPinnedTab } from "./pinned-tabs.js";
 import { checkBrowserRuntime } from "./runtime-check.js";
@@ -226,6 +228,18 @@ const REMEDIATION_HINTS: Record<string, string[]> = {
     "Verify the configured host:port matches Chrome's DevTools listener.",
     "Consider using browser_mode: 'extension' or 'local' as an alternative.",
   ],
+  // Host-bridge backend (desktop SSE bridge → user's Chrome debug port)
+  "host-bridge:unreachable": [
+    "Ensure Chrome on the user's machine is on version 146 or higher (chrome://settings/help).",
+    'Ensure "Allow remote debugging for this browser instance" is toggled on at chrome://inspect/#remote-debugging.',
+    "Verify the desktop client is running and has an active SSE connection to the assistant.",
+    "Installing the Vellum Chrome extension is the preferred path and avoids the debug-port requirement.",
+  ],
+  "host-bridge:transport_error": [
+    "The desktop client could not reach Chrome's remote-debugging endpoint on the user's machine.",
+    "Ensure Chrome is running with remote debugging enabled, or install the Vellum Chrome extension (preferred).",
+    "Verify the desktop client is running and connected.",
+  ],
   // Local/Playwright backend
   "local:transport_error": [
     "The local Playwright-managed browser failed to start or connect.",
@@ -361,16 +375,17 @@ function isRestrictedChromePageProbeError(error: CdpError): boolean {
  * The returned client is wrapped so its first successful `send()`
  * writes the resolved kind back to the conversation memo.
  */
-function acquireCdpClientWithMode(
+async function acquireCdpClientWithMode(
   input: Record<string, unknown>,
   context: ToolContext,
-):
+): Promise<
   | {
       cdp: ReturnType<typeof getCdpClient>;
       browserMode: BrowserMode;
       errorResult?: never;
     }
-  | { cdp?: never; browserMode?: never; errorResult: ToolExecutionResult } {
+  | { cdp?: never; browserMode?: never; errorResult: ToolExecutionResult }
+> {
   const modeResult = parseBrowserMode(input);
   if (!modeResult.ok) {
     return {
@@ -389,12 +404,24 @@ function acquireCdpClientWithMode(
   );
   // target_client_id requires the extension proxy path — bypass any sticky
   // backend remembered from prior turns so the explicit target always wins.
-  const effectiveMode: BrowserMode =
+  // InternalBrowserMode because the memo may hold "host-bridge", which is
+  // pinnable by the factory but never user-requestable.
+  const effectiveMode: InternalBrowserMode =
     targetClientId != null
       ? "extension"
       : browserMode === "auto" && rememberedKind !== null
         ? rememberedKind
         : browserMode;
+
+  // Extension-pinned dispatch (explicit `--browser-mode extension` or a
+  // `target_client_id`) hard-fails when the extension is momentarily
+  // absent. Absorb a brief reconnect blip before selecting the backend.
+  if (effectiveMode === "extension") {
+    await HostBrowserProxy.instance.waitForExtensionClient(
+      context.sourceActorPrincipalId,
+      targetClientId,
+    );
+  }
 
   try {
     const raw = getCdpClient(context, { mode: effectiveMode, targetClientId });
@@ -639,7 +666,7 @@ export async function executeBrowserNavigate(
   }
 
   // URL validation passed — acquire the CDP client.
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const { cdp, browserMode } = acquired;
 
@@ -653,11 +680,10 @@ export async function executeBrowserNavigate(
   const newTab = input.new_tab === true;
   if (newTab && cdp.kind === "extension") {
     try {
-      const result = await cdp.send<{ tabId?: number | string; clientId?: string }>(
-        "Vellum.createTab",
-        {},
-        context.signal,
-      );
+      const result = await cdp.send<{
+        tabId?: number | string;
+        clientId?: string;
+      }>("Vellum.createTab", {}, context.signal);
       const tabId =
         typeof result?.tabId === "number"
           ? String(result.tabId)
@@ -704,8 +730,7 @@ export async function executeBrowserNavigate(
       // We're early-returning before the main try/finally block below,
       // so we must dispose the cdp client manually to avoid leaking it.
       clearPinnedTab(context.conversationId);
-      const message =
-        err instanceof Error ? err.message : String(err);
+      const message = err instanceof Error ? err.message : String(err);
       log.warn(
         { conversationId: context.conversationId, err },
         "Vellum.createTab failed; aborting --new-tab navigate",
@@ -1059,7 +1084,7 @@ export async function executeBrowserNavigate(
                 "1. Take a snapshot to find the sign-in form elements",
               );
               lines.push(
-                "2. Use credential fill to enter email/password from credential_store",
+                "2. Use credential fill to enter email/password from the credential vault",
               );
               lines.push(
                 "3. For email verification codes, use ui_show with a form to request the code mid-turn",
@@ -1079,14 +1104,14 @@ export async function executeBrowserNavigate(
           }
         } else {
           // Login / 2FA / OAuth - the agent should handle these itself
-          // using browser operations + credential_store. Don't hand off.
+          // using browser operations + stored credentials. Don't hand off.
           lines.push("");
           lines.push(formatAuthChallenge(challenge));
           lines.push("");
           lines.push("Handle this by interacting with the login form:");
           lines.push("1. Take a snapshot to find the sign-in form elements");
           lines.push(
-            "2. Use credential fill to enter email/password from credential_store",
+            "2. Use credential fill to enter email/password from the credential vault",
           );
           lines.push(
             "3. For email verification codes, use ui_show with a form to request the code mid-turn",
@@ -1143,7 +1168,7 @@ export async function executeBrowserSnapshot(
   _input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const acquired = acquireCdpClientWithMode(_input, context);
+  const acquired = await acquireCdpClientWithMode(_input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const { cdp, browserMode } = acquired;
 
@@ -1195,7 +1220,7 @@ export async function executeBrowserScreenshot(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const { cdp, browserMode } = acquired;
   const fullPage = input.full_page === true;
@@ -1206,13 +1231,22 @@ export async function executeBrowserScreenshot(
       { quality: 80, fullPage },
       context.signal,
     );
-    const base64Data = buffer.toString("base64");
+    const rawBase64 = buffer.toString("base64");
+
+    // Downscale before handing the screenshot to the model. A full-page
+    // capture of a tall or high-DPI page can exceed Anthropic's 5 MB
+    // per-image cap, which would otherwise persist into the conversation
+    // history inside this tool_result and reject every subsequent turn.
+    const { data: base64Data, mediaType } = optimizeImageForTransport(
+      rawBase64,
+      "image/jpeg",
+    );
 
     const imageBlock: ImageContent = {
       type: "image" as const,
       source: {
         type: "base64" as const,
-        media_type: "image/jpeg",
+        media_type: mediaType,
         data: base64Data,
       },
     };
@@ -1243,7 +1277,7 @@ export async function executeBrowserAttach(
   _input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const acquired = acquireCdpClientWithMode(_input, context);
+  const acquired = await acquireCdpClientWithMode(_input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -1296,7 +1330,7 @@ export async function executeBrowserDetach(
   _input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const acquired = acquireCdpClientWithMode(_input, context);
+  const acquired = await acquireCdpClientWithMode(_input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -1346,7 +1380,7 @@ export async function executeBrowserClose(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -1373,14 +1407,17 @@ export async function executeBrowserClose(
       };
     }
 
-    // Extension path: the user owns their Chrome tab — we must not
-    // close it. Detach the debugger (so the Chrome debugging banner
-    // clears promptly) and drop the cached snapshot state so stale
+    // Non-local path: the user owns their Chrome tab — we must not
+    // close it. On the extension backend, detach the debugger (so the
+    // Chrome debugging banner clears promptly); other backends have no
+    // Vellum.detach. Either way drop the cached snapshot state so stale
     // eids from prior snapshots cannot be resolved by later tool calls.
-    try {
-      await cdp.send("Vellum.detach", {}, context.signal);
-    } catch {
-      // Tolerate detach failures (already detached, tab closed, etc.)
+    if (cdp.kind === "extension") {
+      try {
+        await cdp.send("Vellum.detach", {}, context.signal);
+      } catch {
+        // Tolerate detach failures (already detached, tab closed, etc.)
+      }
     }
     browserManager.clearSnapshotBackendNodeMap(context.conversationId);
     browserManager.clearPreferredBackendKind(context.conversationId);
@@ -1414,7 +1451,7 @@ export async function executeBrowserClick(
   const { resolved, error } = resolveElement(context.conversationId, input);
   if (error) return { content: error, isError: true };
 
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -1535,7 +1572,7 @@ export async function executeBrowserType(
       ? `element_id "${resolved!.eid}"`
       : resolved!.selector;
 
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -1612,7 +1649,7 @@ export async function executeBrowserPressKey(
         : resolved!.selector;
   }
 
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -1689,7 +1726,7 @@ export async function executeBrowserScroll(
       break;
   }
 
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -1752,7 +1789,7 @@ export async function executeBrowserSelectOption(
       ? `element_id "${resolved!.eid}"`
       : resolved!.selector;
 
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -1868,7 +1905,7 @@ export async function executeBrowserHover(
   const { resolved, error } = resolveElement(context.conversationId, input);
   if (error) return { content: error, isError: true };
 
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -1962,7 +1999,7 @@ export async function executeBrowserWaitFor(
     return { content: `Waited ${waitMs}ms.`, isError: false };
   }
 
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -2011,7 +2048,7 @@ export async function executeBrowserExtract(
 ): Promise<ToolExecutionResult> {
   const includeLinks = input.include_links === true;
 
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -2094,7 +2131,7 @@ export async function executeBrowserFillCredential(
       ? `element_id "${resolved!.eid}"`
       : resolved!.selector;
 
-  const acquired = acquireCdpClientWithMode(input, context);
+  const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
@@ -2147,13 +2184,13 @@ export async function executeBrowserFillCredential(
         reason.includes("no stored value")
       ) {
         return {
-          content: `No credential stored for ${service}/${field}. Use credential_store to save it first.`,
+          content: `No credential stored for ${service}/${field}. Use \`assistant credentials set\` to save it first.`,
           isError: true,
         };
       }
       if (reason.includes("not allowed to use credential")) {
         return {
-          content: `Policy denied: ${reason} Update the credential's allowed_tools via credential_store if this tool should have access.`,
+          content: `Policy denied: ${reason} Update the credential's allowed_tools via \`assistant credentials set\` if this tool should have access.`,
           isError: true,
         };
       }
@@ -2372,7 +2409,7 @@ async function checkExtensionModeStatus(
 ): Promise<BrowserStatusModeResult> {
   const proxy = HostBrowserProxy.instance;
 
-  if (!proxy.hasExtensionClient()) {
+  if (!proxy.hasExtensionClient(context.sourceActorPrincipalId)) {
     return {
       mode: BROWSER_STATUS_MODE.EXTENSION,
       available: false,

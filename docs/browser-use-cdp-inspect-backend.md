@@ -104,7 +104,7 @@ below automatically.
 ### JSON config
 
 Add or update the following keys in your assistant config
-(`~/.vellum/workspace/config.json`):
+(`$VELLUM_WORKSPACE_DIR/config.json`):
 
 ```json
 {

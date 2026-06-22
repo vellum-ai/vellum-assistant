@@ -14,7 +14,8 @@ export type SurfaceType =
   | "dynamic_page"
   | "file_upload"
   | "document_preview"
-  | "task_preferences";
+  | "task_preferences"
+  | "work_result";
 
 export const INTERACTIVE_SURFACE_TYPES: SurfaceType[] = [
   "choice",
@@ -192,6 +193,66 @@ export interface DocumentPreviewSurfaceData {
   subtitle?: string;
 }
 
+export type WorkResultStatus =
+  | "completed"
+  | "partial"
+  | "failed"
+  | "in_progress";
+
+export type WorkResultTone = "neutral" | "positive" | "warning" | "negative";
+
+export type WorkResultSectionType =
+  | "items"
+  | "timeline"
+  | "diff"
+  | "artifacts"
+  | "warnings";
+
+export interface WorkResultMetric {
+  label: string;
+  value: string | number;
+  detail?: string;
+  tone?: WorkResultTone;
+}
+
+export interface WorkResultMetadata {
+  label: string;
+  value: string | number;
+}
+
+export interface WorkResultItem {
+  id?: string;
+  title: string;
+  description?: string;
+  status?: string;
+  tone?: WorkResultTone;
+  metadata?: WorkResultMetadata[];
+  href?: string;
+}
+
+export interface WorkResultDiff {
+  label?: string;
+  before?: string;
+  after?: string;
+}
+
+export interface WorkResultSection {
+  id?: string;
+  title: string;
+  description?: string;
+  type?: WorkResultSectionType;
+  items?: WorkResultItem[];
+  diffs?: WorkResultDiff[];
+}
+
+export interface WorkResultSurfaceData {
+  eyebrow?: string;
+  status?: WorkResultStatus;
+  summary?: string;
+  metrics?: WorkResultMetric[];
+  sections?: WorkResultSection[];
+}
+
 export type SurfaceData =
   | CardSurfaceData
   | ChoiceSurfaceData
@@ -203,7 +264,8 @@ export type SurfaceData =
   | ConfirmationSurfaceData
   | DynamicPageSurfaceData
   | FileUploadSurfaceData
-  | DocumentPreviewSurfaceData;
+  | DocumentPreviewSurfaceData
+  | WorkResultSurfaceData;
 
 // === Client → Server ===
 
@@ -294,6 +356,11 @@ export interface UiSurfaceShowDocumentPreview extends UiSurfaceShowBase {
   data: DocumentPreviewSurfaceData;
 }
 
+export interface UiSurfaceShowWorkResult extends UiSurfaceShowBase {
+  surfaceType: "work_result";
+  data: WorkResultSurfaceData;
+}
+
 export type UiSurfaceShow =
   | UiSurfaceShowCard
   | UiSurfaceShowChoice
@@ -305,7 +372,8 @@ export type UiSurfaceShow =
   | UiSurfaceShowConfirmation
   | UiSurfaceShowDynamicPage
   | UiSurfaceShowFileUpload
-  | UiSurfaceShowDocumentPreview;
+  | UiSurfaceShowDocumentPreview
+  | UiSurfaceShowWorkResult;
 
 export interface UiSurfaceUpdate {
   type: "ui_surface_update";

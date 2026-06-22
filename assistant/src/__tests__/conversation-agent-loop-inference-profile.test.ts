@@ -3,7 +3,7 @@
  * `inferenceProfile` column at turn start and threads it through to
  * `AgentLoop.run()` as the per-turn `overrideProfile`. Background
  * conversations intentionally skip the column so background fan-out
- * (subagents, scheduled tasks, update bulletins) runs on the workspace
+ * (subagents, scheduled tasks) runs on the workspace
  * defaults rather than inheriting an interactive override.
  *
  * This is the "conversation-agent-loop integration" half of the
@@ -15,7 +15,7 @@ import { createRequire } from "node:module";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
-import type { AgentEvent, AgentLoopRunOptions } from "../agent/loop.js";
+import type { AgentLoopRunOptions } from "../agent/loop.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
@@ -102,25 +102,28 @@ mock.module("../context/token-estimator.js", () => ({
   estimateToolsTokens: () => 0,
 }));
 
-mock.module("../daemon/context-overflow-reducer.js", () => ({
-  createInitialReducerState: () => ({
-    appliedTiers: [],
-    injectionMode: "full" as const,
-    exhausted: false,
+mock.module(
+  "../plugins/defaults/compaction/context-overflow-reducer.js",
+  () => ({
+    createInitialReducerState: () => ({
+      appliedTiers: [],
+      injectionMode: "full" as const,
+      exhausted: false,
+    }),
+    reduceContextOverflow: async (msgs: Message[]) => ({
+      messages: msgs,
+      tier: "forced_compaction",
+      state: {
+        appliedTiers: ["forced_compaction"],
+        injectionMode: "full",
+        exhausted: true,
+      },
+      estimatedTokens: 1000,
+    }),
   }),
-  reduceContextOverflow: async (msgs: Message[]) => ({
-    messages: msgs,
-    tier: "forced_compaction",
-    state: {
-      appliedTiers: ["forced_compaction"],
-      injectionMode: "full",
-      exhausted: true,
-    },
-    estimatedTokens: 1000,
-  }),
-}));
+);
 
-mock.module("../daemon/context-overflow-policy.js", () => ({
+mock.module("../plugins/defaults/compaction/overflow-policy.js", () => ({
   resolveOverflowAction: () => "fail_gracefully",
 }));
 
@@ -150,12 +153,26 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateMessageMetadata: () => {},
   getMessages: () => [],
   getConversation: () => mockConversationRow,
-  getConversationOverrideProfileFromRow: (
-    row: { conversationType?: string; inferenceProfile?: string | null } | null,
+  resolveOverrideProfile: (
+    fields: {
+      conversationType?: string | null;
+      inferenceProfile?: string | null;
+      inferenceProfileExpiresAt?: number | null;
+    } | null,
   ) => {
-    if (row?.conversationType === "background") return undefined;
-    const profile = row?.inferenceProfile;
-    return typeof profile === "string" ? profile : undefined;
+    if (
+      fields?.conversationType === "background" ||
+      fields?.conversationType === "scheduled"
+    ) {
+      return undefined;
+    }
+    if (
+      fields?.inferenceProfileExpiresAt != null &&
+      fields.inferenceProfileExpiresAt <= Date.now()
+    ) {
+      return undefined;
+    }
+    return fields?.inferenceProfile ?? undefined;
   },
   provenanceFromTrustContext: () => ({
     source: "user",
@@ -223,10 +240,6 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
     blocks: {},
   }),
   stripInjectionsForCompaction: (msgs: Message[]) => msgs,
-  findLastInjectedNowContent: () => null,
-  readNowScratchpad: () => null,
-  readPkbContext: () => null,
-  getPkbAutoInjectList: () => [],
   isSlackChannelConversation: () => false,
   getSlackCompactionWatermarkForPrefix: () => null,
   loadSlackChronologicalContext: () => null,
@@ -251,6 +264,7 @@ mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
     },
   }),
   deepRepairHistory: (msgs: Message[]) => ({ messages: msgs, stats: {} }),
+  isRepairableOrderingError: () => false,
 }));
 
 mock.module("../daemon/conversation-usage.js", () => ({
@@ -318,10 +332,6 @@ mock.module("../daemon/conversation-error.js", () => ({
   isContextTooLarge: () => false,
 }));
 
-mock.module("../daemon/conversation-slash.js", () => ({
-  isProviderOrderingError: () => false,
-}));
-
 mock.module("../util/truncate.js", () => ({
   truncate: (s: string) => s,
 }));
@@ -347,10 +357,8 @@ mock.module("../memory/llm-request-log-store.js", () => ({
 
 // ── Imports (after mocks) ────────────────────────────────────────────
 
-import {
-  type AgentLoopConversationContext,
-  runAgentLoopImpl,
-} from "../daemon/conversation-agent-loop.js";
+import type { Conversation } from "../daemon/conversation.js";
+import { runAgentLoopImpl } from "../daemon/conversation-agent-loop.js";
 
 // ── Test helpers ─────────────────────────────────────────────────────
 
@@ -358,6 +366,7 @@ import {
 interface CapturedAgentLoopRun {
   callSite: LLMCallSite | undefined;
   overrideProfile: string | undefined;
+  forceOverrideProfile: boolean | undefined;
   resolvedOverrideProfile: string | undefined;
   resolvedMaxInputTokens: number | undefined;
 }
@@ -366,22 +375,21 @@ let mutateBeforeResolveOverrideProfile: (() => void) | undefined;
 
 function makeCtx(
   captured: CapturedAgentLoopRun[],
-  overrides?: Partial<AgentLoopConversationContext>,
-): AgentLoopConversationContext {
+  overrides?: Partial<Conversation>,
+): Conversation {
   const agentLoopRun = async (
-    messages: Message[],
-    _onEvent: (event: AgentEvent) => void,
-    options?: AgentLoopRunOptions,
+    options: AgentLoopRunOptions,
   ): Promise<Message[]> => {
     mutateBeforeResolveOverrideProfile?.();
     captured.push({
-      callSite: options?.callSite,
-      overrideProfile: options?.overrideProfile,
-      resolvedOverrideProfile: options?.resolveOverrideProfile?.(),
-      resolvedMaxInputTokens: options?.resolveContextWindow?.().maxInputTokens,
+      callSite: options.callSite,
+      overrideProfile: options.overrideProfile,
+      forceOverrideProfile: options.forceOverrideProfile,
+      resolvedOverrideProfile: options.resolveOverrideProfile?.(),
+      resolvedMaxInputTokens: options.resolveContextWindow?.().maxInputTokens,
     });
     return [
-      ...messages,
+      ...options.messages,
       {
         role: "assistant" as const,
         content: [{ type: "text" as const, text: "response" }],
@@ -410,7 +418,7 @@ function makeCtx(
       getResolvedTools: () => [] as ToolDefinition[],
       getActiveModel: () => undefined,
       compactionCircuit: new CompactionCircuit("test-conv"),
-    } as unknown as AgentLoopConversationContext["agentLoop"],
+    } as unknown as Conversation["agentLoop"],
     provider: {
       name: "mock-provider",
       sendMessage: async () => ({
@@ -419,13 +427,25 @@ function makeCtx(
         usage: { inputTokens: 0, outputTokens: 0 },
         stopReason: "end_turn",
       }),
-    } as unknown as AgentLoopConversationContext["provider"],
+    } as unknown as Conversation["provider"],
     systemPrompt: "system prompt",
 
     contextWindowManager: {
+      updateConfig: () => {},
       shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
       maybeCompact: async () => ({ compacted: false }),
-    } as unknown as AgentLoopConversationContext["contextWindowManager"],
+      resetOverflowRecovery: () => {},
+      reduceOverflowOneRung: async (msgs: Message[]) => ({
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: true,
+        },
+        estimatedTokens: 1000,
+      }),
+    } as unknown as Conversation["contextWindowManager"],
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
 
@@ -439,8 +459,6 @@ function makeCtx(
     currentTurnSurfaces: [],
 
     workingDir: "/tmp",
-    workspaceTopLevelContext: null,
-    workspaceTopLevelDirty: false,
     channelCapabilities: undefined,
     commandIntent: undefined,
     trustContext: undefined,
@@ -450,15 +468,15 @@ function makeCtx(
     preactivatedSkillIds: undefined,
     skillProjectionState: new Map(),
     skillProjectionCache:
-      new Map() as unknown as AgentLoopConversationContext["skillProjectionCache"],
+      new Map() as unknown as Conversation["skillProjectionCache"],
 
     traceEmitter: {
       emit: () => {},
-    } as unknown as AgentLoopConversationContext["traceEmitter"],
+    } as unknown as Conversation["traceEmitter"],
     profiler: {
       startRequest: () => {},
       emitSummary: () => {},
-    } as unknown as AgentLoopConversationContext["profiler"],
+    } as unknown as Conversation["profiler"],
     usageStats: {
       totalInputTokens: 0,
       totalOutputTokens: 0,
@@ -471,13 +489,12 @@ function makeCtx(
     lastAttachmentWarnings: [],
 
     hasNoClient: false,
-    prompter: {} as unknown as AgentLoopConversationContext["prompter"],
-    queue: {} as unknown as AgentLoopConversationContext["queue"],
+    prompter: {} as unknown as Conversation["prompter"],
+    queue: {} as unknown as Conversation["queue"],
 
     getWorkspaceGitService: () => ({ ensureInitialized: async () => {} }),
     commitTurnChanges: async () => {},
 
-    refreshWorkspaceTopLevelContextIfNeeded: () => {},
     markWorkspaceTopLevelDirty: () => {},
     emitActivityState: () => {},
     getQueueDepth: () => 0,
@@ -489,6 +506,9 @@ function makeCtx(
       userMessageChannel: "vellum" as const,
       assistantMessageChannel: "vellum" as const,
     }),
+
+    buildCurrentSystemPrompt: () => "system prompt",
+    modelOverride: undefined,
 
     graphMemory: {
       onCompacted: async () => {},
@@ -503,10 +523,11 @@ function makeCtx(
         injectedTokens: 0,
       }),
       retrackCachedNodes: () => {},
-    } as unknown as AgentLoopConversationContext["graphMemory"],
+      recordPkbQueryVectors: () => {},
+    } as unknown as Conversation["graphMemory"],
 
     ...overrides,
-  } as AgentLoopConversationContext;
+  } as unknown as Conversation;
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -544,20 +565,11 @@ afterAll(() => {
 
 describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {
   test("non-background conversation with inferenceProfile threads it through as overrideProfile", async () => {
-    mockConversationRow = {
-      id: "conv-1",
+    const captured: CapturedAgentLoopRun[] = [];
+    const ctx = makeCtx(captured, {
       conversationType: "standard",
       inferenceProfile: "quality-optimized",
-      contextSummary: null,
-      contextCompactedMessageCount: 0,
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      totalEstimatedCost: 0,
-      title: null,
-    };
-
-    const captured: CapturedAgentLoopRun[] = [];
-    const ctx = makeCtx(captured);
+    });
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 
@@ -567,21 +579,12 @@ describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {
     }
   });
 
-  test("background conversation ignores inferenceProfile column", async () => {
-    mockConversationRow = {
-      id: "conv-1",
+  test("background conversation ignores inferenceProfile", async () => {
+    const captured: CapturedAgentLoopRun[] = [];
+    const ctx = makeCtx(captured, {
       conversationType: "background",
       inferenceProfile: "quality-optimized",
-      contextSummary: null,
-      contextCompactedMessageCount: 0,
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      totalEstimatedCost: 0,
-      title: null,
-    };
-
-    const captured: CapturedAgentLoopRun[] = [];
-    const ctx = makeCtx(captured);
+    });
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 
@@ -591,22 +594,9 @@ describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {
     }
   });
 
-  test("absence of inferenceProfile column behaves identically to today (no override)", async () => {
-    // `mockConversationRow` already defaults to inferenceProfile: null.
-    // Also explicitly cover the case where the column is missing entirely.
-    mockConversationRow = {
-      id: "conv-1",
-      conversationType: "standard",
-      contextSummary: null,
-      contextCompactedMessageCount: 0,
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      totalEstimatedCost: 0,
-      title: null,
-    };
-
+  test("absence of inferenceProfile behaves identically to today (no override)", async () => {
     const captured: CapturedAgentLoopRun[] = [];
-    const ctx = makeCtx(captured);
+    const ctx = makeCtx(captured, { conversationType: "standard" });
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 
@@ -616,26 +606,17 @@ describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {
     }
   });
 
-  test("explicit options.overrideProfile takes precedence over the column read", async () => {
+  test("explicit options.overrideProfile takes precedence over the conversation override", async () => {
     // Subagent path: SubagentManager forwards the parent's pinned profile
     // into the spawned (background) conversation's runAgentLoop call via
     // `options.overrideProfile`. The agent loop must respect that even
-    // though the subagent's own conversation row is `background` (which
+    // though the subagent's own conversation is `background` (which
     // would otherwise zero out the override per the rule above).
-    mockConversationRow = {
-      id: "conv-1",
+    const captured: CapturedAgentLoopRun[] = [];
+    const ctx = makeCtx(captured, {
       conversationType: "background",
       inferenceProfile: null,
-      contextSummary: null,
-      contextCompactedMessageCount: 0,
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      totalEstimatedCost: 0,
-      title: null,
-    };
-
-    const captured: CapturedAgentLoopRun[] = [];
-    const ctx = makeCtx(captured);
+    });
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", () => {}, {
       overrideProfile: "fast",
@@ -644,30 +625,38 @@ describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {
     expect(captured.length).toBeGreaterThan(0);
     for (const call of captured) {
       expect(call.overrideProfile).toBe("fast");
+      expect(call.forceOverrideProfile).toBeUndefined();
+    }
+  });
+
+  test("explicit options.forceOverrideProfile is passed to AgentLoop.run", async () => {
+    const captured: CapturedAgentLoopRun[] = [];
+    const ctx = makeCtx(captured, {
+      conversationType: "background",
+      inferenceProfile: null,
+    });
+
+    await runAgentLoopImpl(ctx, "hello", "msg-1", () => {}, {
+      overrideProfile: "fast",
+      forceOverrideProfile: true,
+    });
+
+    expect(captured.length).toBeGreaterThan(0);
+    for (const call of captured) {
+      expect(call.overrideProfile).toBe("fast");
+      expect(call.forceOverrideProfile).toBe(true);
     }
   });
 
   test("re-resolves inferenceProfile when a tool changes it mid-turn", async () => {
-    mockConversationRow = {
-      id: "conv-1",
+    const captured: CapturedAgentLoopRun[] = [];
+    const ctx = makeCtx(captured, {
       conversationType: "standard",
       inferenceProfile: null,
-      contextSummary: null,
-      contextCompactedMessageCount: 0,
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      totalEstimatedCost: 0,
-      title: null,
-    };
+    });
     mutateBeforeResolveOverrideProfile = () => {
-      mockConversationRow = {
-        ...mockConversationRow!,
-        inferenceProfile: "quality-optimized",
-      };
+      ctx.inferenceProfile = "quality-optimized";
     };
-
-    const captured: CapturedAgentLoopRun[] = [];
-    const ctx = makeCtx(captured);
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 

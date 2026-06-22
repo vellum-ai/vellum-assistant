@@ -52,6 +52,8 @@ mock.module("../util/platform.js", () => ({
   getWorkspaceRoutesDir: () => workspacePath("routes"),
   vellumRoot: () => testWorkspaceDir,
   getDataDir: () => workspacePath("data"),
+  getConfigQuarantineNoticePath: () =>
+    workspacePath("data", "config-quarantine-notice.json"),
   getDbPath: () => workspacePath("data", "db", "assistant.db"),
   ensureDataDir: () => {
     mkdirSync(workspacePath("data", "db"), { recursive: true });
@@ -100,7 +102,7 @@ const { getDb } = await import("../memory/db-connection.js");
 const { createSchedule, deleteSchedule, updateSchedule } =
   await import("../schedule/schedule-store.js");
 
-initializeDb();
+await initializeDb();
 
 describe("background wake intent publisher hooks", () => {
   beforeEach(() => {

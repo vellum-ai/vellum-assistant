@@ -11,6 +11,7 @@ import { join, dirname } from "path";
 import { getLockfilePlatformBaseUrl } from "./assistant-config.js";
 import { getConfigDir } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
+import { loopbackSafeFetch } from "./loopback-fetch.js";
 
 function getPlatformTokenPath(): string {
   return join(getConfigDir(getCurrentEnvironment()), "platform-token");
@@ -229,7 +230,7 @@ export async function ensureSelfHostedLocalRegistration(
     body.public_ingress_url = publicBaseUrl;
   }
 
-  const response = await fetch(
+  const response = await loopbackSafeFetch(
     `${resolvedUrl}/v1/assistants/self-hosted-local/ensure-registration/`,
     {
       method: "POST",
@@ -292,7 +293,7 @@ export async function reprovisionAssistantApiKey(
     body.assistant_version = assistantVersion;
   }
 
-  const response = await fetch(
+  const response = await loopbackSafeFetch(
     `${resolvedUrl}/v1/assistants/self-hosted-local/reprovision-api-key/`,
     {
       method: "POST",
@@ -358,7 +359,7 @@ export async function readGatewayCredential(
       headers["Authorization"] = `Bearer ${bearerToken}`;
     }
 
-    const response = await fetch(`${gatewayUrl}/v1/secrets/read`, {
+    const response = await loopbackSafeFetch(`${gatewayUrl}/v1/secrets/read`, {
       method: "POST",
       headers,
       body: JSON.stringify({ type: "credential", name, reveal: true }),
@@ -416,7 +417,7 @@ async function injectGatewayCredential(
     headers["Authorization"] = `Bearer ${bearerToken}`;
   }
 
-  const response = await fetch(`${gatewayUrl}/v1/secrets`, {
+  const response = await loopbackSafeFetch(`${gatewayUrl}/v1/secrets`, {
     method: "POST",
     headers,
     body: JSON.stringify({ type: "credential", name, value }),
@@ -486,7 +487,7 @@ export async function hatchAssistant(
   const resolvedUrl = platformUrl || getPlatformUrl();
   const url = `${resolvedUrl}/v1/assistants/hatch/`;
 
-  const response = await fetch(url, {
+  const response = await loopbackSafeFetch(url, {
     method: "POST",
     headers: await authHeaders(token, platformUrl),
     body: JSON.stringify({}),
@@ -545,7 +546,7 @@ export async function checkExistingPlatformAssistant(
   );
 
   try {
-    const response = await fetch(url, {
+    const response = await loopbackSafeFetch(url, {
       signal: controller.signal,
       headers: await authHeaders(token, platformUrl),
     });
@@ -583,7 +584,7 @@ export async function fetchPlatformAssistants(
   );
 
   try {
-    const response = await fetch(url, {
+    const response = await loopbackSafeFetch(url, {
       signal: controller.signal,
       headers: await authHeaders(token, platformUrl),
     });
@@ -597,6 +598,74 @@ export async function fetchPlatformAssistants(
     return (body.results ?? []).filter((a) => a.status === "active");
   } finally {
     clearTimeout(timeoutId);
+  }
+}
+
+export interface PlatformAssistantDetail {
+  currentReleaseVersion: string | null;
+  releaseChannel: "stable" | "preview";
+}
+
+/**
+ * Fetch a single assistant's upgrade-relevant fields from
+ * `GET /v1/assistants/{id}/`. Returns null on any failure (best-effort
+ * pre-flight / polling helper — never throws).
+ */
+export async function fetchAssistantDetail(
+  token: string,
+  assistantId: string,
+  platformUrl?: string,
+): Promise<PlatformAssistantDetail | null> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const url = `${resolvedUrl}/v1/assistants/${encodeURIComponent(assistantId)}/`;
+
+  try {
+    const response = await loopbackSafeFetch(url, {
+      signal: AbortSignal.timeout(PLATFORM_FETCH_TIMEOUT_MS),
+      headers: await authHeaders(token, platformUrl),
+    });
+
+    if (!response.ok) return null;
+
+    const body = (await response.json()) as {
+      current_release_version?: string | null;
+      release_channel?: string;
+    };
+    return {
+      currentReleaseVersion: body.current_release_version ?? null,
+      releaseChannel: body.release_channel === "preview" ? "preview" : "stable",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check whether the platform reports an upgrade in progress for the
+ * assistant via `GET /v1/assistants/{id}/upgrade-status/`. Returns null
+ * when the endpoint is unavailable (404 on older platforms, network
+ * error) so callers can skip the check. Never throws.
+ */
+export async function fetchUpgradeInProgress(
+  token: string,
+  assistantId: string,
+  platformUrl?: string,
+): Promise<boolean | null> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const url = `${resolvedUrl}/v1/assistants/${encodeURIComponent(assistantId)}/upgrade-status/`;
+
+  try {
+    const response = await loopbackSafeFetch(url, {
+      signal: AbortSignal.timeout(PLATFORM_FETCH_TIMEOUT_MS),
+      headers: await authHeaders(token, platformUrl),
+    });
+
+    if (!response.ok) return null;
+
+    const body = (await response.json()) as { in_progress?: boolean };
+    return typeof body.in_progress === "boolean" ? body.in_progress : null;
+  } catch {
+    return null;
   }
 }
 
@@ -624,7 +693,7 @@ export async function fetchOrganizationId(
   );
 
   try {
-    const response = await fetch(url, {
+    const response = await loopbackSafeFetch(url, {
       signal: controller.signal,
       headers: { ...tokenAuthHeader(token) },
     });
@@ -671,7 +740,7 @@ export async function fetchCurrentUser(
   );
 
   try {
-    const response = await fetch(url, {
+    const response = await loopbackSafeFetch(url, {
       signal: controller.signal,
       headers: { "X-Session-Token": token },
     });
@@ -706,11 +775,14 @@ export async function rollbackPlatformAssistant(
   platformUrl?: string,
 ): Promise<{ detail: string; version: string | null }> {
   const resolvedUrl = platformUrl || getPlatformUrl();
-  const response = await fetch(`${resolvedUrl}/v1/assistants/rollback/`, {
-    method: "POST",
-    headers: await authHeaders(token, platformUrl),
-    body: JSON.stringify(version ? { version } : {}),
-  });
+  const response = await loopbackSafeFetch(
+    `${resolvedUrl}/v1/assistants/rollback/`,
+    {
+      method: "POST",
+      headers: await authHeaders(token, platformUrl),
+      body: JSON.stringify(version ? { version } : {}),
+    },
+  );
 
   const body = (await response.json().catch(() => ({}))) as {
     detail?: string;
@@ -744,7 +816,7 @@ export async function platformUploadToSignedUrl(
   uploadUrl: string,
   bundleData: Uint8Array<ArrayBuffer>,
 ): Promise<void> {
-  const response = await fetch(uploadUrl, {
+  const response = await loopbackSafeFetch(uploadUrl, {
     method: "PUT",
     headers: {
       "Content-Type": "application/octet-stream",
@@ -766,7 +838,7 @@ export async function platformImportPreflightFromGcs(
   platformUrl?: string,
 ): Promise<{ statusCode: number; body: Record<string, unknown> }> {
   const resolvedUrl = platformUrl || getPlatformUrl();
-  const response = await fetch(
+  const response = await loopbackSafeFetch(
     `${resolvedUrl}/v1/migrations/import-preflight-from-gcs/`,
     {
       method: "POST",
@@ -789,7 +861,7 @@ export async function platformImportBundleFromGcs(
   platformUrl?: string,
 ): Promise<{ statusCode: number; body: Record<string, unknown> }> {
   const resolvedUrl = platformUrl || getPlatformUrl();
-  const response = await fetch(
+  const response = await loopbackSafeFetch(
     `${resolvedUrl}/v1/migrations/import-from-gcs/`,
     {
       method: "POST",
@@ -970,7 +1042,7 @@ export async function platformRequestSignedUrl(
   }
 
   const doRequest = async (): Promise<Response> =>
-    fetch(`${resolvedUrl}/v1/migrations/signed-url/`, {
+    loopbackSafeFetch(`${resolvedUrl}/v1/migrations/signed-url/`, {
       method: "POST",
       headers: await authHeaders(token, platformUrl),
       body: JSON.stringify(body),
@@ -1040,9 +1112,12 @@ export async function platformPollJobStatus(
   platformUrl?: string,
 ): Promise<UnifiedJobStatus> {
   const resolvedUrl = platformUrl || getPlatformUrl();
-  const response = await fetch(`${resolvedUrl}/v1/migrations/jobs/${jobId}/`, {
-    headers: await authHeaders(token, platformUrl),
-  });
+  const response = await loopbackSafeFetch(
+    `${resolvedUrl}/v1/migrations/jobs/${jobId}/`,
+    {
+      headers: await authHeaders(token, platformUrl),
+    },
+  );
 
   if (response.status === 404) {
     throw new Error("Migration job not found");

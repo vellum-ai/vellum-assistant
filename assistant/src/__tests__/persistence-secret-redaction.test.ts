@@ -370,3 +370,81 @@ describe("persistence-layer secret redaction", () => {
     expect(textBlock?.text).toBe(text);
   });
 });
+
+describe("thinking timing persistence", () => {
+  let state: EventHandlerState;
+
+  beforeEach(() => {
+    addMessageCalls.length = 0;
+    state = createEventHandlerState();
+    state.turnStartedAt = 1_700_000_000_000;
+  });
+
+  afterEach(() => {
+    addMessageCalls.length = 0;
+  });
+
+  function makeThinkingCompleteEvent(): Extract<
+    AgentEvent,
+    { type: "message_complete" }
+  > {
+    return {
+      type: "message_complete",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "let me reason", signature: "sig" },
+          { type: "text", text: "the answer" },
+        ],
+      },
+    };
+  }
+
+  test("stamps per-block thinking timing onto the persisted thinking block", async () => {
+    // GIVEN a turn whose row was reserved at llm_call_started
+    await handleLlmCallStarted(state, makeDeps());
+
+    // AND streaming then captured timing for one thinking block (startedAt when
+    // it opened, completedAt at its last reasoning delta). The reserve resets
+    // the accumulator, so deltas — and thus the timing — land after it.
+    state.currentThinkingTimestamps = [{ startedAt: 1000, completedAt: 1750 }];
+
+    // WHEN the message completes and content is persisted
+    await handleMessageComplete(state, makeDeps(), makeThinkingCompleteEvent());
+
+    // THEN the persisted thinking block carries the internal `_`-prefixed
+    // timing so a history reload can surface the duration + "Started at" hover
+    const persisted = lastPersisted("assistant");
+    const blocks = JSON.parse(persisted.content) as Array<{
+      type: string;
+      _startedAt?: number;
+      _completedAt?: number;
+    }>;
+    const thinkingBlock = blocks.find((b) => b.type === "thinking");
+    expect(thinkingBlock?._startedAt).toBe(1000);
+    expect(thinkingBlock?._completedAt).toBe(1750);
+  });
+
+  test("persists no thinking timing when none was captured this turn", async () => {
+    // GIVEN a turn that produced a thinking block but captured no timing
+    // (thinking streaming disabled, so the timing list stays empty)
+    expect(state.currentThinkingTimestamps).toEqual([]);
+
+    // WHEN the message completes and content is persisted
+    await handleLlmCallStarted(state, makeDeps());
+    await handleMessageComplete(state, makeDeps(), makeThinkingCompleteEvent());
+
+    // THEN the thinking block is persisted without timing, so the client hides
+    // the duration exactly as a tool call with no timing
+    const persisted = lastPersisted("assistant");
+    const blocks = JSON.parse(persisted.content) as Array<{
+      type: string;
+      _startedAt?: number;
+      _completedAt?: number;
+    }>;
+    const thinkingBlock = blocks.find((b) => b.type === "thinking");
+    expect(thinkingBlock).toBeDefined();
+    expect(thinkingBlock?._startedAt).toBeUndefined();
+    expect(thinkingBlock?._completedAt).toBeUndefined();
+  });
+});

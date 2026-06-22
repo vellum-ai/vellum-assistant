@@ -29,7 +29,7 @@ describe("package independence", () => {
     "../types.ts",
     "../http-delivery.ts",
     "../ipc-client.ts",
-    "../trust-rules.ts",
+    "../gateway-ipc-contracts.ts",
   ];
 
   for (const file of sourceFiles) {

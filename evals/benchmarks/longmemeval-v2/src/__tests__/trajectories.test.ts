@@ -47,12 +47,11 @@ describe("materializeWorkspaceFiles", () => {
       states: [{ a: 3 }],
     });
 
-    // Manifest carries question + haystack order
+    // Manifest carries haystack order only; the question and its ability
+    // type are withheld so the ingest turn stays question-blind.
     const manifest = JSON.parse(writes[3]!.content);
     expect(manifest).toEqual({
       questionId: "q1",
-      ability: "static-state-recall",
-      question: "Q1?",
       trajectoryDir: WORKSPACE_TRAJECTORY_DIR,
       trajectoryIds: ["t3", "t1", "t2"],
       count: 3,

@@ -1,5 +1,5 @@
 import { Cron } from "croner";
-import { and, asc, desc, eq, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, lt, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db-connection.js";
@@ -26,13 +26,19 @@ function notifySchedulesChanged(): void {
     );
 }
 
-export type ScheduleMode = "notify" | "execute" | "script" | "wake";
+export type ScheduleMode =
+  | "notify"
+  | "execute"
+  | "script"
+  | "wake"
+  | "workflow";
 export type RoutingIntent = "single_channel" | "multi_channel" | "all_channels";
 export type ScheduleStatus = "active" | "firing" | "fired" | "cancelled";
 
 export interface ScheduleJob {
   id: string;
   name: string;
+  description: string;
   enabled: boolean;
   syntax: ScheduleSyntax;
   expression: string | null;
@@ -41,6 +47,12 @@ export interface ScheduleJob {
   message: string;
   script: string | null;
   wakeConversationId: string | null;
+  /** Saved workflow to trigger; only used when mode = 'workflow'. */
+  workflowName: string | null;
+  /** Args passed verbatim to the workflow run; only used when mode = 'workflow'. */
+  workflowArgs: unknown;
+  /** Capability manifest scoping the schedule's run; null = unconstrained. */
+  capabilities: unknown | null;
   nextRunAt: number;
   lastRunAt: number | null;
   lastStatus: string | null;
@@ -49,6 +61,12 @@ export interface ScheduleJob {
   retryBackoffMs: number;
   /** Script-mode execution timeout override (ms); null = use the default. */
   timeoutMs: number | null;
+  /**
+   * Inference profile (`llm.profiles` key) applied to the schedule's
+   * LLM-executed runs; null = default main-agent model selection.
+   */
+  inferenceProfile: string | null;
+  createdFromConversationId: string | null;
   createdBy: string;
   mode: ScheduleMode;
   routingIntent: RoutingIntent;
@@ -84,11 +102,15 @@ export function isValidCronExpression(expr: string): boolean {
 
 export function createSchedule(params: {
   name: string;
+  description?: string;
   cronExpression?: string | null;
   timezone?: string | null;
   message: string;
   script?: string | null;
   wakeConversationId?: string | null;
+  workflowName?: string | null;
+  workflowArgs?: unknown;
+  capabilities?: unknown;
   enabled?: boolean;
   createdBy?: string;
   syntax?: ScheduleSyntax;
@@ -102,6 +124,8 @@ export function createSchedule(params: {
   maxRetries?: number;
   retryBackoffMs?: number;
   timeoutMs?: number | null;
+  inferenceProfile?: string | null;
+  createdFromConversationId?: string | null;
 }): ScheduleJob {
   const expression = params.expression ?? params.cronExpression ?? null;
   const isOneShot = expression == null;
@@ -134,10 +158,16 @@ export function createSchedule(params: {
   const routingIntent = params.routingIntent ?? "all_channels";
   const routingHints = params.routingHints ?? {};
   const quiet = params.quiet ?? false;
-  const reuseConversation = params.reuseConversation ?? !isOneShot;
+  const reuseConversation = params.reuseConversation ?? false;
   const maxRetries = params.maxRetries ?? 3;
   const retryBackoffMs = params.retryBackoffMs ?? 60000;
   const timeoutMs = params.timeoutMs ?? null;
+  const inferenceProfile = params.inferenceProfile ?? null;
+  const createdFromConversationId = params.createdFromConversationId ?? null;
+  const description = normalizeDescription(
+    params.description,
+    params.createdBy === "defer" ? "" : params.name,
+  );
 
   let nextRunAt: number;
   if (isOneShot) {
@@ -151,6 +181,7 @@ export function createSchedule(params: {
   const row = {
     id,
     name: params.name,
+    description,
     enabled,
     cronExpression: expression,
     scheduleSyntax: syntax,
@@ -158,6 +189,13 @@ export function createSchedule(params: {
     message: params.message,
     script: params.script ?? null,
     wakeConversationId: params.wakeConversationId ?? null,
+    workflowName: params.workflowName ?? null,
+    workflowArgsJson:
+      params.workflowArgs === undefined
+        ? null
+        : JSON.stringify(params.workflowArgs),
+    capabilitiesJson:
+      params.capabilities != null ? JSON.stringify(params.capabilities) : null,
     nextRunAt,
     lastRunAt: null as number | null,
     lastStatus: null as string | null,
@@ -165,6 +203,8 @@ export function createSchedule(params: {
     maxRetries,
     retryBackoffMs,
     timeoutMs,
+    inferenceProfile,
+    createdFromConversationId,
     createdBy: params.createdBy ?? "agent",
     mode,
     routingIntent,
@@ -248,6 +288,7 @@ export function updateSchedule(
   id: string,
   updates: {
     name?: string;
+    description?: string;
     cronExpression?: string;
     timezone?: string | null;
     message?: string;
@@ -261,9 +302,14 @@ export function updateSchedule(
     quiet?: boolean;
     reuseConversation?: boolean;
     wakeConversationId?: string | null;
+    workflowName?: string | null;
+    workflowArgs?: unknown;
+    capabilities?: unknown;
     maxRetries?: number;
     retryBackoffMs?: number;
     timeoutMs?: number | null;
+    inferenceProfile?: string | null;
+    createdFromConversationId?: string | null;
   },
 ): ScheduleJob | null {
   const db = getDb();
@@ -308,6 +354,8 @@ export function updateSchedule(
   const set: Record<string, unknown> = { updatedAt: now };
 
   if (updates.name !== undefined) set.name = updates.name;
+  if (updates.description !== undefined)
+    set.description = normalizeDescription(updates.description);
   if (updates.cronExpression !== undefined || updates.expression !== undefined)
     set.cronExpression = newExpr;
   if (updates.syntax !== undefined) set.scheduleSyntax = newSyntax;
@@ -325,10 +373,30 @@ export function updateSchedule(
     set.reuseConversation = updates.reuseConversation;
   if (updates.wakeConversationId !== undefined)
     set.wakeConversationId = updates.wakeConversationId;
+  if (updates.workflowName !== undefined)
+    set.workflowName = updates.workflowName;
+  // `workflowArgs` may legitimately be any JSON value (including null), so
+  // detect presence by key rather than `!== undefined`.
+  if ("workflowArgs" in updates)
+    set.workflowArgsJson =
+      updates.workflowArgs === undefined
+        ? null
+        : JSON.stringify(updates.workflowArgs);
+  // `capabilities` may legitimately be any JSON value (including null), so
+  // detect presence by key rather than `!== undefined`.
+  if ("capabilities" in updates)
+    set.capabilitiesJson =
+      updates.capabilities == null
+        ? null
+        : JSON.stringify(updates.capabilities);
   if (updates.maxRetries !== undefined) set.maxRetries = updates.maxRetries;
   if (updates.retryBackoffMs !== undefined)
     set.retryBackoffMs = updates.retryBackoffMs;
   if (updates.timeoutMs !== undefined) set.timeoutMs = updates.timeoutMs;
+  if (updates.inferenceProfile !== undefined)
+    set.inferenceProfile = updates.inferenceProfile;
+  if (updates.createdFromConversationId !== undefined)
+    set.createdFromConversationId = updates.createdFromConversationId;
 
   // Recompute nextRunAt if schedule timing may have changed (only for recurring)
   if (
@@ -529,6 +597,41 @@ export function failOneShot(id: string): void {
 }
 
 /**
+ * Re-arm a just-claimed schedule so it is due again on the very next tick,
+ * WITHOUT counting as a run or bumping the retry count. Sets status back to
+ * 'active' and pulls `nextRunAt` back to now: `claimDueSchedules` advances
+ * `nextRunAt` for recurring jobs (and flips one-shots to 'firing'), so without
+ * resetting both the claimed occurrence would be dropped until the next cron
+ * time. Used when a tick claims a job it cannot yet process (e.g. a workflow
+ * schedule that fired before the tool registry finished initializing at boot);
+ * unlike a failure path it does not touch `retryCount`, since the deferral is
+ * not the schedule's fault. Keyed by id only (no status guard) because recurring
+ * claims leave the row 'active' while one-shot claims leave it 'firing', and it
+ * runs immediately after the claim within the same tick.
+ *
+ * Also restores `enabled: true`. `claimDueSchedules` disables a row whose
+ * claimed occurrence was its LAST (a one-shot, or the final fire of a finite
+ * RRULE), but the due-claim query requires `enabled = true` — so a deferred
+ * final occurrence would never be re-claimed and the run would be silently lost.
+ * The deferred occurrence has not actually run yet, so re-enabling is correct;
+ * when it later fires, the claim path re-applies the right `enabled` state.
+ */
+export function deferClaimedSchedule(id: string): void {
+  const db = getDb();
+  const now = Date.now();
+  db.update(scheduleJobs)
+    .set({
+      status: "active",
+      enabled: true,
+      nextRunAt: now,
+      updatedAt: now,
+    })
+    .where(eq(scheduleJobs.id, id))
+    .run();
+  if (rawChanges() > 0) notifySchedulesChanged();
+}
+
+/**
  * Revert a one-shot from 'firing' back to 'active' and increment its
  * retry count. Used when a wake times out waiting for an idle conversation
  * — the job should be retried on the next scheduler tick.
@@ -591,7 +694,7 @@ export function cancelSchedule(id: string): boolean {
 
 export function createScheduleRun(
   jobId: string,
-  conversationId: string,
+  conversationId: string | null,
 ): string {
   const db = getDb();
   const id = uuid();
@@ -611,6 +714,17 @@ export function createScheduleRun(
     })
     .run();
   return id;
+}
+
+export function setScheduleRunConversationId(
+  runId: string,
+  conversationId: string,
+): void {
+  const db = getDb();
+  db.update(scheduleRuns)
+    .set({ conversationId })
+    .where(eq(scheduleRuns.id, runId))
+    .run();
 }
 
 export function completeScheduleRun(
@@ -690,12 +804,26 @@ export function getLastScheduleConversationId(jobId: string): string | null {
   return row?.conversationId ?? null;
 }
 
-export function getScheduleRuns(jobId: string, limit?: number): ScheduleRun[] {
+/**
+ * List runs for a schedule, newest first. When `before` is set, only runs
+ * with `createdAt` strictly older than it are returned (cursor for
+ * paginating into history).
+ */
+export function getScheduleRuns(
+  jobId: string,
+  limit?: number,
+  before?: number,
+): ScheduleRun[] {
   const db = getDb();
   const rows = db
     .select()
     .from(scheduleRuns)
-    .where(eq(scheduleRuns.jobId, jobId))
+    .where(
+      and(
+        eq(scheduleRuns.jobId, jobId),
+        before != null ? lt(scheduleRuns.createdAt, before) : undefined,
+      ),
+    )
     .orderBy(desc(scheduleRuns.createdAt))
     .limit(limit ?? 10)
     .all();
@@ -858,6 +986,36 @@ export function describeCronExpression(expr: string | null): string {
       }
     }
 
+    // Stepped or fixed minutes constrained to a contiguous range of hours,
+    // every day/month (e.g. "*/30 7-23 * * *" → "Every 30 minutes, 7 AM–11 PM").
+    const hoursAreContiguousRange =
+      !allHours &&
+      activeHours.length > 1 &&
+      activeHours.every((h, i) => i === 0 || h === activeHours[i - 1] + 1);
+
+    if (hoursAreContiguousRange && anyDayAndMonth) {
+      const hourLabel = (h: number) => {
+        const period = h >= 12 ? "PM" : "AM";
+        return `${h % 12 || 12} ${period}`;
+      };
+      const rangeStr = `${hourLabel(activeHours[0])}–${hourLabel(
+        activeHours[activeHours.length - 1],
+      )}`;
+
+      if (steppedMinutes && activeMinutes[0] === 0) {
+        const step = activeMinutes[1] - activeMinutes[0];
+        const isRegularStep = activeMinutes.every((v, i) => v === i * step);
+        if (isRegularStep && 60 % step === 0) {
+          return `Every ${step} minutes, ${rangeStr}`;
+        }
+      }
+      if (fixedMinute) {
+        return activeMinutes[0] === 0
+          ? `Hourly, ${rangeStr}`
+          : `Hourly at minute ${activeMinutes[0]}, ${rangeStr}`;
+      }
+    }
+
     // Fallback: return the raw expression
     return expr;
   } catch {
@@ -962,6 +1120,7 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
   return {
     id: row.id,
     name: row.name,
+    description: row.description ?? "",
     enabled: row.enabled,
     syntax: row.scheduleSyntax as ScheduleSyntax,
     expression: row.cronExpression,
@@ -970,6 +1129,9 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     message: row.message,
     script: row.script ?? null,
     wakeConversationId: row.wakeConversationId ?? null,
+    workflowName: row.workflowName ?? null,
+    workflowArgs: parseOptionalJson(row.workflowArgsJson),
+    capabilities: parseOptionalJson(row.capabilitiesJson),
     nextRunAt: row.nextRunAt,
     lastRunAt: row.lastRunAt,
     lastStatus: row.lastStatus,
@@ -977,6 +1139,8 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     maxRetries: row.maxRetries ?? 3,
     retryBackoffMs: row.retryBackoffMs ?? 60000,
     timeoutMs: row.timeoutMs ?? null,
+    inferenceProfile: row.inferenceProfile ?? null,
+    createdFromConversationId: row.createdFromConversationId ?? null,
     createdBy: row.createdBy,
     mode: (row.mode ?? "execute") as ScheduleMode,
     routingIntent: (row.routingIntent ?? "all_channels") as RoutingIntent,
@@ -989,6 +1153,14 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
   };
 }
 
+function normalizeDescription(
+  value: string | undefined,
+  fallback = "",
+): string {
+  const normalized = value?.trim() ?? "";
+  return normalized || fallback;
+}
+
 function safeParseJson(
   json: string | null | undefined,
 ): Record<string, unknown> {
@@ -997,6 +1169,20 @@ function safeParseJson(
     return JSON.parse(json) as Record<string, unknown>;
   } catch {
     return {};
+  }
+}
+
+/**
+ * Parse a nullable JSON column into an arbitrary value. Unlike
+ * {@link safeParseJson}, the result is not coerced to an object — workflow
+ * args may be any JSON value — and an absent/unparseable column yields null.
+ */
+function parseOptionalJson(json: string | null | undefined): unknown {
+  if (json == null) return null;
+  try {
+    return JSON.parse(json);
+  } catch {
+    return null;
   }
 }
 

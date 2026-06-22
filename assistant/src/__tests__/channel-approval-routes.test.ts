@@ -16,7 +16,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 const _conversationMocks = new Map<string, unknown>();
-mock.module("../daemon/conversation-store.js", () => ({
+mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => _conversationMocks.get(id),
 }));
 
@@ -94,7 +94,7 @@ import { resetDbForTesting } from "./db-test-helpers.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
-initializeDb();
+await initializeDb();
 initAuthSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long"));
 
 afterAll(() => {
@@ -224,14 +224,12 @@ function ensureTestContact(): void {
       {
         type: "telegram",
         address: "telegram-user-default",
-        externalUserId: "telegram-user-default",
         status: "active",
         policy: "allow",
       },
       {
         type: "slack",
         address: "slack-user-default",
-        externalUserId: "slack-user-default",
         status: "active",
         policy: "allow",
       },
@@ -2054,7 +2052,6 @@ describe("requester cancel of guardian-gated pending request", () => {
         {
           type: "telegram",
           address: "requester-cancel-user",
-          externalUserId: "requester-cancel-user",
           status: "active",
           policy: "allow",
         },
@@ -2981,7 +2978,6 @@ describe("trusted-contact self-approval blocked before guardian approval row exi
         {
           type: "telegram",
           address: "tc-selfapproval-user",
-          externalUserId: "tc-selfapproval-user",
           status: "active",
           policy: "allow",
         },

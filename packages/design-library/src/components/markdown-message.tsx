@@ -163,11 +163,92 @@ export type MarkdownLinkComponent = (
   props: Pick<AnchorHTMLAttributes<HTMLAnchorElement>, "href" | "children">,
 ) => ReactNode;
 
+/**
+ * Browser-default `<em>` italic synthesizes an oblique skew on every glyph in
+ * the run — including color-emoji glyphs — so `*🥺*` renders a slanted emoji.
+ * We wrap emoji grapheme runs in a `font-style: normal` span so they render
+ * upright while the surrounding emphasized text stays italic.
+ *
+ * Emoji detection: U+FE0F (VS16) forces emoji presentation; U+FE0E (VS15)
+ * forces text presentation; otherwise the Unicode `Emoji_Presentation` property
+ * decides. This keeps digits / `#` / `*` (bare Emoji but text-presentation) and
+ * VS15 sequences italic.
+ */
+const EMOJI_PRESENTATION = /\p{Emoji_Presentation}/u;
+const PICTOGRAPHIC = /\p{Extended_Pictographic}/u; // fast-path gate only
+const VS16 = "️"; // variation selector forcing emoji presentation
+const VS15 = "︎"; // variation selector forcing text presentation
+
+function graphemeRendersAsEmoji(grapheme: string): boolean {
+  if (grapheme.includes(VS16)) return true;
+  if (grapheme.includes(VS15)) return false;
+  return EMOJI_PRESENTATION.test(grapheme);
+}
+
+// Module-level singleton. Grapheme segmentation keeps multi-scalar emoji intact
+// (ZWJ sequences, skin-tone modifiers, flags, keycaps). Guarded for any runtime
+// that lacks Intl.Segmenter — there we leave the text untouched.
+const graphemeSegmenter =
+  typeof Intl !== "undefined" && "Segmenter" in Intl
+    ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+    : null;
+
+/**
+ * Split `text` into runs, wrapping emoji runs in a `font-style: normal` span so
+ * they render upright inside an italic ancestor. Returns the bare string when
+ * there is nothing to un-italicize (the overwhelmingly common case).
+ */
+function splitEmojiRuns(text: string): ReactNode {
+  // Bail fast when there is no emoji-ish codepoint. The VS16 check catches
+  // sequences whose base char isn't Extended_Pictographic (e.g. keycaps `1️⃣`).
+  if (!PICTOGRAPHIC.test(text) && !text.includes(VS16)) return text;
+  if (!graphemeSegmenter) return text;
+
+  const runs: ReactNode[] = [];
+  let buffer = "";
+  let bufferIsEmoji = false;
+  let key = 0;
+  const flush = () => {
+    if (!buffer) return;
+    runs.push(
+      bufferIsEmoji ? (
+        <span key={key++} style={{ fontStyle: "normal" }}>
+          {buffer}
+        </span>
+      ) : (
+        buffer
+      ),
+    );
+    buffer = "";
+  };
+  for (const { segment } of graphemeSegmenter.segment(text)) {
+    const isEmoji = graphemeRendersAsEmoji(segment);
+    if (buffer && isEmoji !== bufferIsEmoji) flush();
+    bufferIsEmoji = isEmoji;
+    buffer += segment;
+  }
+  flush();
+  // A single text run means no emoji were found — return the plain string so the
+  // output is byte-identical to having no override.
+  return runs.length === 1 && typeof runs[0] === "string" ? runs[0] : runs;
+}
+
+/** Apply emoji-upright wrapping to `<em>` children (a string, or mixed array). */
+function renderUprightEmoji(children: ReactNode): ReactNode {
+  if (typeof children === "string") return splitEmojiRuns(children);
+  return Children.map(children, (child) =>
+    typeof child === "string" ? splitEmojiRuns(child) : child,
+  );
+}
+
 function buildMarkdownComponents(
   LinkComponent: MarkdownLinkComponent,
 ): Components {
   return {
-    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+    // mb-6 (24px) equals one --text-chat-line-height, so a `\n\n` paragraph
+    // break reads as a full blank line — distinct from the 24px hard break a
+    // single `\n` produces. Smaller margins make the two nearly identical.
+    p: ({ children }) => <p className="mb-6 last:mb-0">{children}</p>,
     // Markdown headings keep the canonical scale sizes but restore bold weight
     // via `!font-bold` (the scale variants bake font-weight:500 into the utility,
     // so a plain `font-bold` loses to the custom rule; `!important` wins).
@@ -189,8 +270,12 @@ function buildMarkdownComponents(
     ul: ({ children }) => (
       <ul className="mb-2 list-disc pl-5 last:mb-0">{children}</ul>
     ),
-    ol: ({ children }) => (
-      <ol className="mb-2 list-decimal pl-5 last:mb-0">{children}</ol>
+    // `start` must be forwarded: react-markdown emits `<ol start="N">` for a
+    // list that begins at a non-1 number (a bare "3." answer, or a list the
+    // model continues from a prior number). Dropping it silently renumbers
+    // every such list to 1 — e.g. "3." would render as "1.".
+    ol: ({ children, start }) => (
+      <ol start={start} className="mb-2 list-decimal pl-5 last:mb-0">{children}</ol>
     ),
     // h4-h6 are rare in assistant output but must not fall through to
     // unstyled browser defaults (a Tailwind reset strips their size/weight,
@@ -211,7 +296,10 @@ function buildMarkdownComponents(
 
       <h6 className="mb-1 mt-2 text-body-small-default !font-bold text-[var(--content-secondary)] first:mt-0">{children}</h6>
     ),
-    li: ({ children }) => <li className="mb-0.5">{children}</li>,
+    // `value` is forwarded so a list item whose source ordinal breaks the
+    // running sequence (set by remarkPreserveOrderedListNumbers) renders at its
+    // typed number via the HTML `<li value="N">` attribute.
+    li: ({ children, value }) => <li value={value} className="mb-0.5">{children}</li>,
     a: ({ href, children }) => <LinkComponent href={href}>{children}</LinkComponent>,
     code: ({ className, children, ...props }) => {
       const isBlock = className?.startsWith("language-");
@@ -232,6 +320,9 @@ function buildMarkdownComponents(
       );
     },
     pre: ({ children }) => <CodeBlockWrapper>{children}</CodeBlockWrapper>,
+    // No styling change vs. the browser default `<em>`, except emoji inside the
+    // emphasis render upright instead of skewed (see splitEmojiRuns).
+    em: ({ children }) => <em>{renderUprightEmoji(children)}</em>,
     blockquote: ({ children }) => (
       <blockquote className="mb-2 border-l-2 border-stone-300 pl-3 italic text-stone-600 last:mb-0 dark:border-stone-600 dark:text-stone-400">
         {children}
@@ -247,12 +338,12 @@ function buildMarkdownComponents(
     ),
     th: ({ children }) => (
        
-      <th className={"border border-stone-200 px-2 py-1 text-left font-semibold dark:border-moss-600" /* typography: off-scale — no canonical variant */}>
+      <th className={"border border-stone-200 px-2 py-1 text-left font-semibold [&_code]:whitespace-pre-wrap [&_code]:break-words [&_code]:box-decoration-clone [&_code]:leading-relaxed dark:border-moss-600" /* typography: off-scale — no canonical variant */}>
         {children}
       </th>
     ),
     td: ({ children }) => (
-      <td className="border border-stone-200 px-2 py-1 dark:border-moss-600">
+      <td className="border border-stone-200 px-2 py-1 [&_code]:whitespace-pre-wrap [&_code]:break-words [&_code]:box-decoration-clone [&_code]:leading-relaxed dark:border-moss-600">
         {children}
       </td>
     ),
@@ -406,6 +497,60 @@ function hardBreakNewlines(content: string): string {
   return rewriteTextSlices(content, ranges, (slice) => slice.replace(/\n/g, "  \n"));
 }
 
+/** Leading marker of an ordered-list item: up to 3 spaces, digits, then `.`/`)`. */
+const ORDERED_MARKER = /^\s{0,3}(\d{1,9})[.)]/;
+
+/**
+ * remark plugin: render an ordered list with the exact numbers the author typed.
+ *
+ * CommonMark keeps only an ordered list's *first* item number — emitted as the
+ * `<ol start>` — and discards every later marker, so a list written as
+ * `1. / 2. / 4. / 5.` silently renumbers to 1, 2, 3, 4. For each item we recover
+ * the literal ordinal from the source and, wherever it breaks the running
+ * sequence, pin it with `data.hProperties.value` — which react-markdown's
+ * mdast→hast step turns into an HTML `<li value="N">` that overrides the
+ * browser's auto-increment. Items that already match the running count emit no
+ * `value`, so contiguous lists render byte-identically to no plugin at all.
+ */
+function remarkPreserveOrderedListNumbers() {
+  return (tree: unknown, file: { toString(): string }) => {
+    const source = String(file);
+    const visit = (node: {
+      type: string;
+      ordered?: boolean;
+      start?: number | null;
+      position?: { start: { offset?: number } };
+      data?: { hProperties?: Record<string, unknown> };
+      children?: unknown[];
+    }) => {
+      if (node.type === "list" && node.ordered && Array.isArray(node.children)) {
+        let counter = node.start ?? 1;
+        for (const child of node.children) {
+          const item = child as Parameters<typeof visit>[0];
+          const offset = item.position?.start.offset;
+          let literal = counter;
+          if (typeof offset === "number") {
+            const marker = ORDERED_MARKER.exec(source.slice(offset, offset + 16));
+            if (marker) literal = Number(marker[1]);
+          }
+          if (literal !== counter) {
+            item.data ??= {};
+            item.data.hProperties ??= {};
+            item.data.hProperties.value = literal;
+          }
+          counter = literal + 1;
+        }
+      }
+      if (Array.isArray(node.children)) {
+        for (const child of node.children) {
+          visit(child as Parameters<typeof visit>[0]);
+        }
+      }
+    };
+    visit(tree as Parameters<typeof visit>[0]);
+  };
+}
+
 export interface MarkdownMessageProps {
   content: string;
   className?: string;
@@ -436,7 +581,7 @@ export function MarkdownMessage({
   const components = useMemo(() => buildMarkdownComponents(Link), [Link]);
   return (
     <div data-slot="markdown-message" className={cn("text-chat text-[var(--content-default)]", className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={components}>
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath, remarkPreserveOrderedListNumbers]} rehypePlugins={[rehypeKatex]} components={components}>
         {processed}
       </ReactMarkdown>
     </div>

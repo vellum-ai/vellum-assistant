@@ -93,6 +93,19 @@ import { backfillV3LeavesMigration } from "./092-backfill-v3-leaves.js";
 import { backfillLeafIdsMigration } from "./093-backfill-leaf-ids.js";
 import { seedAvatarManifestMigration } from "./094-seed-avatar-manifest.js";
 import { bumpHeartbeatInterval30mTo60mMigration } from "./095-bump-heartbeat-interval-30m-to-60m.js";
+import { reduceQualityProfileEffortMigration } from "./096-reduce-quality-profile-effort.js";
+import { enableAdaptiveThinkingManagedProfilesMigration } from "./097-enable-adaptive-thinking-managed-profiles.js";
+import { removeStaleUpdatesBulletinFileMigration } from "./098-remove-stale-updates-bulletin-file.js";
+import { disableCacheOneShotCallsitesMigration } from "./099-disable-cache-one-shot-callsites.js";
+import { upgradeQualityProfileToFable5Migration } from "./100-upgrade-quality-profile-to-fable-5.js";
+import { upgradeBalancedEconomyToMinimaxM3Migration } from "./101-upgrade-balanced-economy-to-minimax-m3.js";
+import { preserveHeartbeatEnabledForExistingWorkspacesMigration } from "./102-preserve-heartbeat-enabled-for-existing-workspaces.js";
+import { upgradeQualityProfileToOpus48Migration } from "./103-upgrade-quality-profile-to-opus-4-8.js";
+import { recheckAdaptiveThinkingModelImpliedAnthropicMigration } from "./104-recheck-adaptive-thinking-model-implied-anthropic.js";
+import { enableMemoryV3LiveForNewWorkspacesMigration } from "./105-enable-memory-v3-live-for-new-workspaces.js";
+import { dropCollectUsageDataMigration } from "./106-drop-collect-usage-data.js";
+import { dropSendDiagnosticsMigration } from "./107-drop-send-diagnostics.js";
+import { dropBalancedEconomyProfileMigration } from "./108-drop-balanced-economy-profile.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -197,4 +210,17 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   backfillLeafIdsMigration,
   seedAvatarManifestMigration,
   bumpHeartbeatInterval30mTo60mMigration,
+  reduceQualityProfileEffortMigration,
+  enableAdaptiveThinkingManagedProfilesMigration,
+  removeStaleUpdatesBulletinFileMigration,
+  disableCacheOneShotCallsitesMigration,
+  upgradeQualityProfileToFable5Migration,
+  upgradeBalancedEconomyToMinimaxM3Migration,
+  preserveHeartbeatEnabledForExistingWorkspacesMigration,
+  upgradeQualityProfileToOpus48Migration,
+  recheckAdaptiveThinkingModelImpliedAnthropicMigration,
+  enableMemoryV3LiveForNewWorkspacesMigration,
+  dropCollectUsageDataMigration,
+  dropSendDiagnosticsMigration,
+  dropBalancedEconomyProfileMigration,
 ];

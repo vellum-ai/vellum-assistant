@@ -7,8 +7,9 @@
  * `repairHistory` is the canonical repair pass, run per turn via the plugin's
  * `user-prompt-submit` hook (`./hooks/user-prompt-submit.ts`) and exported so
  * daemon call sites and tests can reach it directly. `deepRepairHistory` is an
- * aggressive one-shot fallback the orchestrator invokes only after a provider
- * ordering error.
+ * aggressive one-shot fallback applied after a provider ordering rejection, and
+ * `isRepairableOrderingError` recognizes the rejections it can recover — so
+ * detection and repair of ordering drift live together as one unit.
  */
 
 import type {
@@ -331,6 +332,42 @@ function formatWebSearchContent(content: unknown): string {
     if (entries.length > 0) return entries.join("\n");
   }
   return "results unavailable";
+}
+
+/**
+ * Provider rejection messages indicating a tool_use/tool_result pairing or
+ * message-ordering violation — the structural drift `deepRepairHistory`
+ * re-normalizes.
+ */
+export const ORDERING_ERROR_PATTERNS: readonly RegExp[] = [
+  /tool_result.*not immediately after.*tool_use/i,
+  /tool_use.*must have.*tool_result/i,
+  /tool_use_id.*without.*tool_result/i,
+  /tool_result.*tool_use_id.*not found/i,
+  /messages.*invalid.*order/i,
+];
+
+/**
+ * Provider rejection messages for the server-side web-search tool's own
+ * tool_use/result pairing violations, which `repairHistory` resolves by
+ * downgrading the orphaned block to text.
+ */
+export const WEB_SEARCH_ORDERING_PATTERNS: readonly RegExp[] = [
+  /web_search.*tool_use.*without/i,
+  /web_search.*tool_result/i,
+];
+
+/**
+ * Whether a provider error message denotes an ordering/pairing violation that
+ * `deepRepairHistory` can recover by re-normalizing the history. Detection and
+ * repair are co-located so callers recognize and fix ordering drift through a
+ * single source of truth.
+ */
+export function isRepairableOrderingError(message: string): boolean {
+  return (
+    ORDERING_ERROR_PATTERNS.some((pattern) => pattern.test(message)) ||
+    WEB_SEARCH_ORDERING_PATTERNS.some((pattern) => pattern.test(message))
+  );
 }
 
 /**

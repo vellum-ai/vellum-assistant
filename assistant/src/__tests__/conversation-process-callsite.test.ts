@@ -20,25 +20,16 @@ import type { Message, ProviderResponse } from "../providers/types.js";
 const captured: {
   callSite?: string;
   constructorMaxTokens?: unknown;
-  resolvedMaxTokens?: unknown;
-  resolvedHasMaxTokens?: boolean;
 } = {};
 
 function clearCaptured(): void {
   captured.callSite = undefined;
   captured.constructorMaxTokens = undefined;
-  captured.resolvedMaxTokens = undefined;
-  captured.resolvedHasMaxTokens = undefined;
 }
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
-mock.module("../memory/guardian-action-store.js", () => ({
-  getGuardianActionRequest: () => null,
-  resolveGuardianActionRequest: () => {},
 }));
 
 const mockProviderStub = { name: "mock-provider" };
@@ -208,20 +199,12 @@ mock.module("../memory/retriever.js", () => ({
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     compactionCircuit = new CompactionCircuit("test-conv");
-    constructor(
-      _provider: unknown,
-      _systemPrompt: string,
-      options?: {
-        config?: Record<string, unknown>;
-        resolveSystemPrompt?: (history: Message[]) => Record<string, unknown>;
-      },
-    ) {
+    constructor(options?: {
+      provider?: unknown;
+      systemPrompt?: string;
+      config?: Record<string, unknown>;
+    }) {
       captured.constructorMaxTokens = options?.config?.maxTokens;
-      const resolved = options?.resolveSystemPrompt?.([]);
-      captured.resolvedMaxTokens = resolved?.maxTokens;
-      captured.resolvedHasMaxTokens =
-        resolved !== undefined &&
-        Object.prototype.hasOwnProperty.call(resolved, "maxTokens");
     }
     getToolTokenBudget() {
       return 0;
@@ -229,12 +212,13 @@ mock.module("../agent/loop.js", () => ({
     getResolvedTools() {
       return [];
     }
-    async run(
-      messages: Message[],
-      onEvent: (event: Record<string, unknown>) => void,
-      options?: { callSite?: string },
-    ): Promise<Message[]> {
-      captured.callSite = options?.callSite;
+    async run(options: {
+      messages: Message[];
+      onEvent: (event: Record<string, unknown>) => void;
+      callSite?: string;
+    }): Promise<Message[]> {
+      const { messages, onEvent } = options;
+      captured.callSite = options.callSite;
       onEvent({
         type: "usage",
         inputTokens: 0,
@@ -250,15 +234,23 @@ mock.module("../agent/loop.js", () => ({
   },
 }));
 
-mock.module("../context/window-manager.js", () => ({
+mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
+    estimateInputTokens() {
+      return 0;
+    }
+    get tokenCountInputs() {
+      return { systemPrompt: "", tools: undefined };
+    }
     constructor() {}
+    updateConfig() {}
     shouldCompact() {
       return { needed: false, estimatedTokens: 0 };
     }
     async maybeCompact() {
       return { compacted: false };
     }
+    resetOverflowRecovery() {}
   },
   createContextSummaryMessage: () => ({
     role: "user",
@@ -379,8 +371,6 @@ describe("processMessage callSite threading", () => {
     await getOrCreateConversation("conv-store-default");
 
     expect(captured.constructorMaxTokens).toBeUndefined();
-    expect(captured.resolvedMaxTokens).toBeUndefined();
-    expect(captured.resolvedHasMaxTokens).toBe(false);
   });
 
   test("preserves explicit maxResponseTokens at conversation creation", async () => {
@@ -401,8 +391,6 @@ describe("processMessage callSite threading", () => {
     });
 
     expect(captured.constructorMaxTokens).toBe(1234);
-    expect(captured.resolvedMaxTokens).toBe(1234);
-    expect(captured.resolvedHasMaxTokens).toBe(true);
   });
 
   test("applies clientTimezone in the create and reuse transport metadata path", async () => {

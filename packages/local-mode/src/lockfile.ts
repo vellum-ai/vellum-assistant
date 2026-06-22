@@ -88,9 +88,25 @@ export function upsertLockfileAssistant(
   return { ok: true, lockfile: parseLockfile(stripped) };
 }
 
+export function isActiveAssistant(
+  lockfilePaths: string[],
+  assistantId: string,
+): boolean {
+  for (const candidate of lockfilePaths) {
+    try {
+      const data = JSON.parse(fs.readFileSync(candidate, "utf-8")) as Record<string, unknown>;
+      return data.activeAssistant === assistantId;
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
+
 export function replacePlatformAssistants(
   lockfilePaths: string[],
   platformAssistants: Array<Record<string, unknown>>,
+  organizationId?: string,
 ): WriteResult {
   let lockfile: Record<string, unknown> = { assistants: [], activeAssistant: null };
   for (const candidate of lockfilePaths) {
@@ -103,10 +119,14 @@ export function replacePlatformAssistants(
   }
 
   const existing = Array.isArray(lockfile.assistants) ? lockfile.assistants : [];
-  const local = existing.filter(
-    (a: Record<string, unknown>) => a?.cloud !== "vellum",
-  );
-  lockfile.assistants = [...local, ...platformAssistants];
+  const syncedIds = new Set(platformAssistants.map((a) => a.assistantId));
+  // Org-scoped sync preserves other orgs' platform entries; no org full-replaces.
+  const preserved = existing.filter((a: Record<string, unknown>) => {
+    if (a?.cloud !== "vellum") return true;
+    if (syncedIds.has(a.assistantId)) return false;
+    return organizationId != null && a.organizationId !== organizationId;
+  });
+  lockfile.assistants = [...preserved, ...platformAssistants];
 
   const active = lockfile.activeAssistant as string | null;
   if (active) {

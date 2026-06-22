@@ -89,6 +89,7 @@ function listAppsFiltered(apps?: AppDefinition[]): Array<{
   description?: string;
   icon?: string;
   createdAt: number;
+  updatedAt: number;
   version: string;
   contentId: string;
 }> {
@@ -101,6 +102,7 @@ function listAppsFiltered(apps?: AppDefinition[]): Array<{
       description: a.description,
       icon: a.icon,
       createdAt: a.createdAt,
+      updatedAt: a.updatedAt,
       version,
       contentId,
     };
@@ -751,6 +753,7 @@ export const ROUTES: RouteDefinition[] = [
           description: z.string().optional(),
           icon: z.string().optional(),
           createdAt: z.number(),
+          updatedAt: z.number(),
           version: z.string(),
           contentId: z.string(),
         }),

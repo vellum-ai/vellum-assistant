@@ -6,12 +6,14 @@ import type {
   ConversationMessageSurface,
   ConversationMessageToolCall,
 } from "../../api/responses/conversation-message.js";
+import { ConfirmationDecisionSchema } from "../../api/responses/conversation-message.js";
 import { getConfig } from "../../config/loader.js";
 import type { LLMCallSite, Speed } from "../../config/schemas/llm.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
 import { isPlaceholderSentinelText } from "../../providers/placeholder-sentinels.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../../runtime/auth/types.js";
+import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { unwrapExternalContentForDisplay } from "../../security/untrusted-content.js";
 import { getLogger } from "../../util/logger.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
@@ -26,15 +28,6 @@ export { log };
 export const CONFIG_RELOAD_DEBOUNCE_MS = 300;
 
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
-
-// Module-level map for non-conversation secret prompts (e.g. publish_page)
-const pendingStandaloneSecrets = new Map<
-  string,
-  {
-    resolve: (result: SecretPromptResult) => void;
-    timer: ReturnType<typeof setTimeout>;
-  }
->();
 
 /**
  * A single tool call rendered into a history row. Alias of the canonical
@@ -165,6 +158,13 @@ export interface ConversationCreateOptions {
    * `resolveCallSiteConfig` instead of the global default.
    */
   callSite?: LLMCallSite;
+  /**
+   * Optional ad-hoc inference-profile override (`llm.profiles` key) applied
+   * to every LLM call the turn issues. Background callers with a pinned
+   * profile (e.g. schedules) pass it here so the agent loop layers the
+   * profile via `SendMessageOptions.config.overrideProfile`.
+   */
+  overrideProfile?: string;
   /**
    * Slack inbound metadata captured at the channel ingress boundary. When
    * present (and the turn channel resolves to Slack), persistence writes a
@@ -427,7 +427,15 @@ export function renderHistoryContent(
       finalizeSegment();
       thinkingSegments.push(block.thinking);
       contentOrder.push(`thinking:${thinkingSegments.length - 1}`);
-      contentBlocks.push({ type: "thinking", thinking: block.thinking });
+      const thinkingBlock: Extract<
+        ConversationContentBlock,
+        { type: "thinking" }
+      > = { type: "thinking", thinking: block.thinking };
+      if (typeof block._startedAt === "number")
+        thinkingBlock.startedAt = block._startedAt;
+      if (typeof block._completedAt === "number")
+        thinkingBlock.completedAt = block._completedAt;
+      contentBlocks.push(thinkingBlock);
       continue;
     }
 
@@ -483,8 +491,12 @@ export function renderHistoryContent(
         entry.startedAt = block._startedAt;
       if (typeof block._completedAt === "number")
         entry.completedAt = block._completedAt;
-      if (typeof block._confirmationDecision === "string")
-        entry.confirmationDecision = block._confirmationDecision;
+      const confirmationDecision = ConfirmationDecisionSchema.safeParse(
+        block._confirmationDecision,
+      );
+      if (confirmationDecision.success) {
+        entry.confirmationDecision = confirmationDecision.data;
+      }
       if (typeof block._confirmationLabel === "string")
         entry.confirmationLabel = block._confirmationLabel;
       if (typeof block._riskLevel === "string")
@@ -513,6 +525,12 @@ export function renderHistoryContent(
       if (Array.isArray(block._riskDirectoryScopeOptions))
         entry.riskDirectoryScopeOptions =
           block._riskDirectoryScopeOptions as HistoryToolCall["riskDirectoryScopeOptions"];
+      // Read back tool activity (web_search / web_fetch) persisted by
+      // `annotatePersistedAssistantMessage` so the activity card survives a
+      // history reopen instead of degrading to the plain result text.
+      if (isRecord(block._activityMetadata))
+        entry.activityMetadata =
+          block._activityMetadata as HistoryToolCall["activityMetadata"];
       toolCalls.push(entry);
       if (id) pendingToolUses.set(id, entry);
       contentOrder.push(`tool:${toolCalls.length - 1}`);
@@ -534,6 +552,11 @@ export function renderHistoryContent(
       const id = typeof block.id === "string" ? block.id : "";
       const entry: HistoryToolCall = { name, input };
       if (id) entry.id = id;
+      // Native server tools (Anthropic web_search) persist their activity on
+      // the server_tool_use block, so read it back here too.
+      if (isRecord(block._activityMetadata))
+        entry.activityMetadata =
+          block._activityMetadata as HistoryToolCall["activityMetadata"];
       toolCalls.push(entry);
       if (id) pendingToolUses.set(id, entry);
       contentOrder.push(`tool:${toolCalls.length - 1}`);
@@ -673,9 +696,15 @@ export function renderHistoryContent(
 }
 
 /**
- * Send a `secret_request` to the client and wait for the response,
- * outside of a conversation context (e.g. from IPC routes like
- * credentials/prompt).
+ * Send a `secret_request` to the client and wait for the response, outside of a
+ * conversation context (e.g. from IPC routes like credentials/prompt).
+ *
+ * Lifecycle state (resolver, timer) is registered in pendingInteractions — the
+ * same tracker the in-conversation SecretPrompter uses — so `POST /v1/secret`
+ * resolves the prompt generically. When a `conversationId` is supplied (the CLI
+ * `credentials prompt` command forwards `__CONVERSATION_ID`), the broadcast is
+ * scoped to that conversation so clients deliver it; otherwise it is
+ * conversation-less.
  */
 export function requestSecretStandalone(params: {
   service: string;
@@ -686,15 +715,21 @@ export function requestSecretStandalone(params: {
   purpose?: string;
   allowedTools?: string[];
   allowedDomains?: string[];
+  conversationId?: string;
 }): Promise<SecretPromptResult> {
   const requestId = uuid();
   const config = getConfig();
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
-      pendingStandaloneSecrets.delete(requestId);
+      pendingInteractions.resolve(requestId, "cancelled");
       resolve({ value: null, delivery: "store" });
     }, config.timeouts.permissionTimeoutSec * 1000);
-    pendingStandaloneSecrets.set(requestId, { resolve, timer });
+    pendingInteractions.register(requestId, {
+      conversationId: params.conversationId,
+      kind: "secret",
+      rpcResolve: resolve as (value: unknown) => void,
+      timer,
+    });
     broadcastMessage({
       type: "secret_request",
       requestId,
@@ -703,6 +738,7 @@ export function requestSecretStandalone(params: {
       label: params.label,
       description: params.description,
       placeholder: params.placeholder,
+      conversationId: params.conversationId,
       purpose: params.purpose,
       allowedTools: params.allowedTools,
       allowedDomains: params.allowedDomains,

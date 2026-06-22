@@ -22,7 +22,11 @@ interface ScheduleRecord {
   retryCount: number;
   maxRetries: number;
   retryBackoffMs: number;
+  timeoutMs: number | null;
+  inferenceProfile: string | null;
+  createdFromConversationId: string | null;
   description: string | null;
+  cadenceDescription: string | null;
   mode: string;
   status: string;
   routingIntent: string;
@@ -33,6 +37,10 @@ interface ScheduleRecord {
 
 interface ListSchedulesResponse {
   schedules: ScheduleRecord[];
+}
+
+interface GetScheduleResponse {
+  schedule: ScheduleRecord;
 }
 
 interface ScheduleRunRecord {
@@ -63,19 +71,17 @@ export function registerSchedulesCommand(program: Command): void {
         `
 Schedules are recurring or one-shot jobs run by the assistant.
 
-This CLI namespace is intentionally landing incrementally. Today it supports
-listing schedules, viewing recent run history, enabling/disabling schedules,
-manually executing a schedule one time, and cancelling pending one-shot schedules;
-create, delete, and run inspection will follow as separate slices.
+This namespace exposes full CRUD against the assistant's schedule store:
+create, list, get, update, enable/disable, cancel, delete, plus run history
+and manual one-time execution. One documented exception: 'create' is limited
+to 'execute' mode — notify/script/wake schedules are created via the
+in-assistant schedule_create tool, but can be inspected and updated here.
 
 Examples:
   $ assistant schedules list
-  $ assistant schedules list --all
-  $ assistant schedules runs <schedule-id>
+  $ assistant schedules get <schedule-id>
+  $ assistant schedules update <schedule-id> --expression '0 9 * * *'
   $ assistant schedules runs <schedule-id> --limit 25 --json
-  $ assistant schedules disable <schedule-id>
-  $ assistant schedules enable <schedule-id>
-  $ assistant schedules cancel <schedule-id>
   $ assistant schedules execute <schedule-id>`,
       );
 
@@ -199,6 +205,94 @@ Examples:
         );
 
       schedules
+        .command("get <id>")
+        .alias("inspect")
+        .description("Show full details for a single schedule")
+        .option("--json", "Machine-readable compact JSON output")
+        .addHelpText(
+          "after",
+          `
+Options:
+  --json   Output the raw schedule object as compact JSON.
+
+Arguments:
+  <id>   Schedule ID (UUID) — run 'assistant schedules list --all' to find it.
+
+Behavior:
+  Prints every stored field of the schedule: name, description, mode,
+  expression/syntax, timezone, enabled state, status, next/last run times,
+  message or script body, inference profile (shown as 'default (mainAgent)'
+  when none is pinned), routing intent, and retry policy. Works for
+  deferred schedules that 'assistant schedules list' hides by default.
+  Aliased as 'inspect'.
+
+Examples:
+  $ assistant schedules get 9f2c4f3a-3f1a-41e4-88e7-abc123
+  $ assistant schedules inspect 9f2c4f3a-3f1a-41e4-88e7-abc123
+  $ assistant schedules get 9f2c4f3a-3f1a-41e4-88e7-abc123 --json`,
+        )
+        .action(async (id: string, opts: { json?: boolean }, cmd: Command) => {
+          const scheduleId = id.trim();
+          const result = await cliIpcCall<GetScheduleResponse>("getSchedule", {
+            pathParams: { id: scheduleId },
+          });
+
+          if (!result.ok) return exitFromIpcResult(result, cmd);
+
+          const schedule = result.result?.schedule;
+          if (!schedule) {
+            const error = `Schedule "${scheduleId}" not found. Run 'assistant schedules list --all' to see available schedules.`;
+            if (opts.json) {
+              writeOutput(cmd, { ok: false, error });
+            } else {
+              log.error(error);
+            }
+            process.exitCode = 1;
+            return;
+          }
+
+          if (opts.json) {
+            writeOutput(cmd, { schedule });
+            return;
+          }
+
+          const fields: Array<[string, string]> = [
+            ["ID", schedule.id],
+            ["Name", schedule.name],
+            ["Description", schedule.description ?? "—"],
+            ["Enabled", schedule.enabled ? "enabled" : "disabled"],
+            ["Status", schedule.status],
+            ["Mode", schedule.mode],
+            ["Syntax", schedule.syntax],
+            ["Expression", schedule.expression ?? "—"],
+            ["Cadence", describeSchedule(schedule)],
+            ["Timezone", schedule.timezone ?? "—"],
+            ["Next run", formatTimestamp(schedule.nextRunAt)],
+            ["Last run", formatNullableTimestamp(schedule.lastRunAt)],
+            ["Last status", schedule.lastStatus ?? "—"],
+            ["One-shot", schedule.isOneShot ? "yes" : "no"],
+            ["Message", schedule.message || "—"],
+            ["Script", schedule.script ?? "—"],
+            [
+              "Inference profile",
+              schedule.inferenceProfile ?? "default (mainAgent)",
+            ],
+            ["Routing intent", schedule.routingIntent],
+            ["Reuse conversation", schedule.reuseConversation ? "yes" : "no"],
+            ["Wake conversation", schedule.wakeConversationId ?? "—"],
+            ["Retry count", String(schedule.retryCount)],
+            ["Max retries", String(schedule.maxRetries)],
+            ["Retry backoff", formatDuration(schedule.retryBackoffMs)],
+            ["Timeout", formatDuration(schedule.timeoutMs)],
+            ["Source conversation", schedule.createdFromConversationId ?? "—"],
+          ];
+          const labelWidth = Math.max(...fields.map(([label]) => label.length));
+          for (const [label, value] of fields) {
+            log.info(`${`${label}:`.padEnd(labelWidth + 2)}${value}`);
+          }
+        });
+
+      schedules
         .command("runs <id>")
         .description("List recent runs for a schedule")
         .option("--limit <count>", "Max runs to return (default 10, max 100)")
@@ -319,12 +413,20 @@ Examples:
           "Cron or RRULE expression that schedules the fire times",
         )
         .requiredOption(
+          "-d, --description <text>",
+          "Authored description explaining what the schedule is for",
+        )
+        .requiredOption(
           "-m, --message <text>",
           "Message body sent to the assistant on each fire",
         )
         .option(
           "-t, --timezone <tz>",
           "IANA timezone for the expression (e.g. America/New_York)",
+        )
+        .option(
+          "--profile <name>",
+          "Inference profile (llm.profiles key) the schedule's runs use; defaults to the mainAgent model selection when omitted",
         )
         .option("--no-enabled", "Create the schedule in a disabled state")
         .option("--json", "Machine-readable compact JSON output")
@@ -333,8 +435,12 @@ Examples:
           `
 Options:
   -e, --expression <expr>   Cron (e.g. '*/30 * * * *') or RRULE expression.
+  -d, --description <text>  Authored description explaining what the schedule is for.
   -m, --message <text>      Message body sent on each fire.
   -t, --timezone <tz>       IANA timezone applied to the expression.
+  --profile <name>          Inference profile (llm.profiles key) the schedule's
+                            runs use. When omitted, runs use the default —
+                            the mainAgent call site's model selection.
   --no-enabled              Create the schedule disabled. Defaults to enabled.
   --json                    Output the updated schedule list as compact JSON.
 
@@ -349,13 +455,16 @@ Behavior:
 Examples:
   $ assistant schedules create "Heartbeat" \\
       --expression '*/30 * * * *' \\
+      --description 'Checks service heartbeat every 30 minutes' \\
       --message 'run heartbeat'
   $ assistant schedules create "Morning summary" \\
       --expression '0 9 * * MON-FRI' \\
+      --description 'Summarizes weekday activity' \\
       --timezone America/New_York \\
       --message 'write the morning summary'
   $ assistant schedules create "Drafted" \\
       --expression '0 0 * * *' \\
+      --description 'Placeholder daily schedule' \\
       --message 'placeholder' \\
       --no-enabled --json`,
         )
@@ -364,8 +473,10 @@ Examples:
             name: string,
             opts: {
               expression: string;
+              description: string;
               message: string;
               timezone?: string;
+              profile?: string;
               enabled: boolean;
               json?: boolean;
             },
@@ -383,13 +494,27 @@ Examples:
               return;
             }
 
+            const description = opts.description.trim();
+            if (!description) {
+              const error = "description is required";
+              if (opts.json) {
+                writeOutput(cmd, { ok: false, error });
+              } else {
+                log.error(error);
+              }
+              process.exitCode = 1;
+              return;
+            }
+
             const body: Record<string, unknown> = {
               name: scheduleName,
               expression: opts.expression,
+              description,
               message: opts.message,
               enabled: opts.enabled,
             };
             if (opts.timezone != null) body.timezone = opts.timezone;
+            if (opts.profile != null) body.inferenceProfile = opts.profile;
 
             const result = await cliIpcCall<ListSchedulesResponse>(
               "createSchedule",
@@ -405,6 +530,251 @@ Examples:
             }
 
             log.info(`Created schedule: ${scheduleName}`);
+          },
+        );
+
+      schedules
+        .command("update <id>")
+        .description("Update fields on an existing schedule")
+        .option("--name <text>", "New display name")
+        .option(
+          "-d, --description <text>",
+          "New authored description explaining what the schedule is for",
+        )
+        .option(
+          "-e, --expression <expr>",
+          "New cron or RRULE expression for the fire times",
+        )
+        .option(
+          "-t, --timezone <tz>",
+          "IANA timezone for the expression (e.g. America/New_York)",
+        )
+        .option(
+          "-m, --message <text>",
+          "New message body sent to the assistant on each fire",
+        )
+        .option("--script <command>", "Shell command for script-mode schedules")
+        .option(
+          "--mode <mode>",
+          "One of: notify, execute, script, wake (wake only when the schedule already has a wake conversation target)",
+        )
+        .option(
+          "--routing-intent <intent>",
+          "One of: single_channel, multi_channel, all_channels",
+        )
+        .option("--quiet", "Suppress notifications for this schedule")
+        .option("--no-quiet", "Re-enable notifications for this schedule")
+        .option(
+          "--reuse-conversation",
+          "Reuse one conversation across recurring fires",
+        )
+        .option(
+          "--no-reuse-conversation",
+          "Start a fresh conversation on each fire",
+        )
+        .option("--max-retries <count>", "Maximum retry attempts (integer)")
+        .option(
+          "--retry-backoff-ms <ms>",
+          "Retry backoff in milliseconds (integer)",
+        )
+        .option(
+          "--timeout-ms <ms>",
+          "Script-mode execution timeout in milliseconds (integer)",
+        )
+        .option(
+          "--clear-timeout",
+          "Clear the script timeout override and use the assistant default",
+        )
+        .option(
+          "--profile <name>",
+          "Inference profile (llm.profiles key) the schedule's runs use; the default when unset is the mainAgent model selection",
+        )
+        .option(
+          "--clear-profile",
+          "Clear the inference profile and revert to the default mainAgent model selection",
+        )
+        .option("--json", "Machine-readable compact JSON output")
+        .addHelpText(
+          "after",
+          `
+Options:
+  --name <text>             New display name.
+  -d, --description <text>  New authored description (must be non-empty).
+  -e, --expression <expr>   Cron (e.g. '*/30 * * * *') or RRULE expression.
+  -t, --timezone <tz>       IANA timezone applied to the expression.
+  -m, --message <text>      New message body sent on each fire.
+  --script <command>        Shell command for script-mode schedules.
+  --mode <mode>             notify, execute, script, or wake.
+  --routing-intent <intent> single_channel, multi_channel, or all_channels.
+  --quiet / --no-quiet      Toggle notification suppression.
+  --reuse-conversation / --no-reuse-conversation
+                            Toggle conversation reuse across recurring fires.
+  --max-retries <count>     Maximum retry attempts.
+  --retry-backoff-ms <ms>   Retry backoff in milliseconds.
+  --timeout-ms <ms>         Script-mode execution timeout in milliseconds.
+  --clear-timeout           Remove the timeout override (mutually exclusive
+                            with --timeout-ms).
+  --profile <name>          Inference profile (llm.profiles key) the schedule's
+                            runs use. When no profile is set, runs use the
+                            default — the mainAgent call site's model selection.
+  --clear-profile           Remove the inference profile and revert to the
+                            default mainAgent model selection (mutually
+                            exclusive with --profile).
+  --json                    Output the updated schedule list as compact JSON.
+
+Arguments:
+  <id>   Schedule ID (UUID) — run 'assistant schedules list --all' to find it.
+
+Behavior:
+  Partially updates the schedule: only fields for flags you pass are changed,
+  everything else is preserved. At least one update flag is required. To
+  enable or disable a schedule, use 'assistant schedules enable <id>' or
+  'assistant schedules disable <id>' instead.
+
+Examples:
+  $ assistant schedules update 9f2c4f3a-3f1a-41e4-88e7-abc123 \\
+      --expression '0 9 * * MON-FRI' --timezone America/New_York
+  $ assistant schedules update 9f2c4f3a-3f1a-41e4-88e7-abc123 \\
+      --name "Morning summary" --message 'write the morning summary'
+  $ assistant schedules update 9f2c4f3a-3f1a-41e4-88e7-abc123 \\
+      --max-retries 5 --retry-backoff-ms 30000 --json`,
+        )
+        .action(
+          async (
+            id: string,
+            opts: {
+              name?: string;
+              description?: string;
+              expression?: string;
+              timezone?: string;
+              message?: string;
+              script?: string;
+              mode?: string;
+              routingIntent?: string;
+              quiet?: boolean;
+              reuseConversation?: boolean;
+              maxRetries?: string;
+              retryBackoffMs?: string;
+              timeoutMs?: string;
+              clearTimeout?: boolean;
+              profile?: string;
+              clearProfile?: boolean;
+              json?: boolean;
+            },
+            cmd: Command,
+          ) => {
+            const scheduleId = id.trim();
+            const fail = (error: string) => {
+              if (opts.json) {
+                writeOutput(cmd, { ok: false, error });
+              } else {
+                log.error(error);
+              }
+              process.exitCode = 1;
+            };
+
+            const parseInteger = (
+              flag: string,
+              value: string,
+            ): number | null => {
+              const parsed = Number(value);
+              if (!Number.isInteger(parsed)) {
+                fail(`${flag} must be an integer, got "${value}"`);
+                return null;
+              }
+              return parsed;
+            };
+
+            if (opts.clearTimeout && opts.timeoutMs != null) {
+              fail(
+                "--timeout-ms and --clear-timeout are mutually exclusive; pass --timeout-ms to set a timeout or --clear-timeout to remove it",
+              );
+              return;
+            }
+
+            if (opts.clearProfile && opts.profile != null) {
+              fail(
+                "--profile and --clear-profile are mutually exclusive; pass --profile to set a profile or --clear-profile to revert to the default mainAgent model selection",
+              );
+              return;
+            }
+
+            // Wake mode requires a wake conversation target, which this CLI
+            // cannot set. Allow `--mode wake` only when the schedule already
+            // has one — otherwise the scheduler would skip every fire as a
+            // no-op.
+            if (opts.mode === "wake") {
+              const existing = await cliIpcCall<GetScheduleResponse>(
+                "getSchedule",
+                { pathParams: { id: scheduleId } },
+              );
+              if (!existing.ok) return exitFromIpcResult(existing, cmd);
+              if (!existing.result?.schedule.wakeConversationId) {
+                fail(
+                  "--mode wake requires the schedule to already have a wake conversation target; this CLI cannot set one. Create wake schedules with the schedule tool instead.",
+                );
+                return;
+              }
+            }
+
+            const body: Record<string, unknown> = {};
+            if (opts.name != null) body.name = opts.name;
+            if (opts.description != null) body.description = opts.description;
+            if (opts.expression != null) body.expression = opts.expression;
+            if (opts.timezone != null) body.timezone = opts.timezone;
+            if (opts.message != null) body.message = opts.message;
+            if (opts.script != null) body.script = opts.script;
+            if (opts.mode != null) body.mode = opts.mode;
+            if (opts.routingIntent != null) {
+              body.routingIntent = opts.routingIntent;
+            }
+            if (opts.quiet != null) body.quiet = opts.quiet;
+            if (opts.reuseConversation != null) {
+              body.reuseConversation = opts.reuseConversation;
+            }
+            if (opts.maxRetries != null) {
+              const parsed = parseInteger("--max-retries", opts.maxRetries);
+              if (parsed == null) return;
+              body.maxRetries = parsed;
+            }
+            if (opts.retryBackoffMs != null) {
+              const parsed = parseInteger(
+                "--retry-backoff-ms",
+                opts.retryBackoffMs,
+              );
+              if (parsed == null) return;
+              body.retryBackoffMs = parsed;
+            }
+            if (opts.timeoutMs != null) {
+              const parsed = parseInteger("--timeout-ms", opts.timeoutMs);
+              if (parsed == null) return;
+              body.timeoutMs = parsed;
+            }
+            if (opts.clearTimeout) body.timeoutMs = null;
+            if (opts.profile != null) body.inferenceProfile = opts.profile;
+            if (opts.clearProfile) body.inferenceProfile = null;
+
+            if (Object.keys(body).length === 0) {
+              fail(
+                "At least one update flag is required. Run 'assistant schedules update --help' for the available flags.",
+              );
+              return;
+            }
+
+            const result = await cliIpcCall<ListSchedulesResponse>(
+              "updateSchedule",
+              { pathParams: { id: scheduleId }, body },
+            );
+
+            if (!result.ok) return exitFromIpcResult(result, cmd);
+
+            const response = result.result ?? { schedules: [] };
+            if (opts.json) {
+              writeOutput(cmd, response);
+              return;
+            }
+
+            log.info(`Updated schedule: ${scheduleId}`);
           },
         );
 
@@ -662,7 +1032,7 @@ async function toggleScheduleEnabled(
 
 function describeSchedule(schedule: ScheduleRecord): string {
   if (schedule.isOneShot) return "one-shot";
-  const expression = schedule.description ?? schedule.expression ?? "—";
+  const expression = schedule.cadenceDescription ?? schedule.expression ?? "—";
   return schedule.timezone
     ? `${expression} (${schedule.timezone})`
     : expression;
@@ -678,6 +1048,32 @@ function formatNullableTimestamp(value: number | null): string {
 }
 
 function formatDuration(value: number | null): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  return `${value}ms`;
+  if (value == null || !Number.isFinite(value) || value < 0) return "—";
+  if (value < 1000) return `${Math.round(value)}ms`;
+
+  // Keep one decimal of precision only in the sub-minute range, where it's
+  // meaningful; coarser units round to whole seconds. Working in tenths of a
+  // second lets the tier boundary (e.g. 59.97s) round up cleanly to "1m".
+  const tenths = Math.round(value / 100);
+  if (tenths < 600) {
+    const seconds = tenths / 10;
+    return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)}s`;
+  }
+
+  const totalSeconds = Math.round(value / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) {
+    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remMinutes = minutes % 60;
+  if (hours < 24) {
+    return remMinutes > 0 ? `${hours}h ${remMinutes}m` : `${hours}h`;
+  }
+
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return remHours > 0 ? `${days}d ${remHours}h` : `${days}d`;
 }

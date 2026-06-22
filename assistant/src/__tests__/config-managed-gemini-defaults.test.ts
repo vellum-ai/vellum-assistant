@@ -57,17 +57,8 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
 }));
 
-// ---------------------------------------------------------------------------
-// Feature flag mock — controls whether managed-gemini-embeddings-enabled is on
-// ---------------------------------------------------------------------------
-
-let featureFlagEnabled = false;
-
 mock.module("../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: (key: string) => {
-    if (key === "managed-gemini-embeddings-enabled") return featureFlagEnabled;
-    return true;
-  },
+  isAssistantFeatureFlagEnabled: () => true,
   clearFeatureFlagOverridesCache: () => {},
   initFeatureFlagOverrides: async () => {},
   getAssistantFeatureFlagDefaults: () => ({}),
@@ -119,8 +110,6 @@ describe("managed Gemini embedding defaults (via loadConfig)", () => {
     setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
     invalidateConfigCache();
 
-    // Reset mock state
-    featureFlagEnabled = false;
     originalIsPlatform = process.env.IS_PLATFORM;
     delete process.env.IS_PLATFORM;
   });
@@ -137,10 +126,9 @@ describe("managed Gemini embedding defaults (via loadConfig)", () => {
     }
   });
 
-  test("applies managed Gemini defaults when FF on + IS_PLATFORM + provider auto", () => {
+  test("applies managed Gemini defaults when IS_PLATFORM + provider auto", () => {
     writeConfig({});
 
-    featureFlagEnabled = true;
     process.env.IS_PLATFORM = "true";
 
     const config = loadConfig();
@@ -162,22 +150,9 @@ describe("managed Gemini embedding defaults (via loadConfig)", () => {
     expect(qdrantRaw.vectorSize).toBe(3072);
   });
 
-  test("does NOT apply when feature flag is OFF", () => {
-    writeConfig({});
-
-    featureFlagEnabled = false;
-    process.env.IS_PLATFORM = "true";
-
-    const config = loadConfig();
-
-    expect(config.memory.embeddings.provider).toBe("auto");
-    expect(config.memory.qdrant.vectorSize).toBe(384);
-  });
-
   test("does NOT apply when IS_PLATFORM is not set", () => {
     writeConfig({});
 
-    featureFlagEnabled = true;
     delete process.env.IS_PLATFORM;
 
     const config = loadConfig();
@@ -191,7 +166,6 @@ describe("managed Gemini embedding defaults (via loadConfig)", () => {
       memory: { embeddings: { provider: "local" } },
     });
 
-    featureFlagEnabled = true;
     process.env.IS_PLATFORM = "true";
 
     const config = loadConfig();
@@ -204,7 +178,6 @@ describe("managed Gemini embedding defaults (via loadConfig)", () => {
       memory: { embeddings: { provider: "openai" } },
     });
 
-    featureFlagEnabled = true;
     process.env.IS_PLATFORM = "true";
 
     const config = loadConfig();
@@ -219,7 +192,6 @@ describe("managed Gemini embedding defaults (via loadConfig)", () => {
       },
     });
 
-    featureFlagEnabled = true;
     process.env.IS_PLATFORM = "true";
 
     const config = loadConfig();
@@ -235,7 +207,6 @@ describe("managed Gemini embedding defaults (via loadConfig)", () => {
       memory: { embeddings: { provider: "ollama" } },
     });
 
-    featureFlagEnabled = true;
     process.env.IS_PLATFORM = "true";
 
     const config = loadConfig();
@@ -245,7 +216,6 @@ describe("managed Gemini embedding defaults (via loadConfig)", () => {
   test("is idempotent — second loadConfig is a no-op after migration", () => {
     writeConfig({});
 
-    featureFlagEnabled = true;
     process.env.IS_PLATFORM = "true";
 
     const config = loadConfig();
@@ -274,7 +244,6 @@ describe("managed Gemini embedding defaults (via loadConfig)", () => {
       },
     });
 
-    featureFlagEnabled = true;
     process.env.IS_PLATFORM = "true";
 
     const config = loadConfig();
@@ -295,22 +264,9 @@ describe("managed Gemini embedding defaults (via loadConfig)", () => {
     expect(qdrantRaw.onDisk).toBe(false);
   });
 
-  test("does NOT apply when both FF off and IS_PLATFORM not set", () => {
-    writeConfig({});
-
-    featureFlagEnabled = false;
-    delete process.env.IS_PLATFORM;
-
-    const config = loadConfig();
-
-    expect(config.memory.embeddings.provider).toBe("auto");
-    expect(config.memory.qdrant.vectorSize).toBe(384);
-  });
-
   test("applies when IS_PLATFORM is '1'", () => {
     writeConfig({});
 
-    featureFlagEnabled = true;
     process.env.IS_PLATFORM = "1";
 
     const config = loadConfig();

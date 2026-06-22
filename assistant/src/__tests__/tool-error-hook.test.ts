@@ -18,10 +18,10 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { HOOKS } from "../plugin-api/constants.js";
 import type { PluginLogger, PostToolUseContext } from "../plugin-api/types.js";
+import { defaultToolErrorPlugin } from "../plugins/defaults/index.js";
 import postToolUse, {
   TOOL_ERROR_NUDGE_TEXT,
 } from "../plugins/defaults/tool-error/hooks/post-tool-use.js";
-import { defaultToolErrorPlugin } from "../plugins/defaults/tool-error/register.js";
 import { runHook } from "../plugins/pipeline.js";
 import {
   registerPlugin,
@@ -78,6 +78,8 @@ function makeCtx(
     conversationId: "conv-tool-error-test",
     toolResponse,
     messages,
+    additionalContext: null,
+    model: "claude-test-model",
     maxInputTokens: 10_000,
     logger: noopLogger,
   };
@@ -139,7 +141,7 @@ describe("tool-error post-tool-use hook — direct", () => {
     await postToolUse(ctx);
 
     // THEN no coaching is surfaced and the content is left untouched.
-    expect(ctx.additionalContext).toBeUndefined();
+    expect(ctx.additionalContext).toBeNull();
     expect(ctx.toolResponse.content).toBe(BASE_CONTENT);
   });
 
@@ -175,7 +177,7 @@ describe("tool-error post-tool-use hook — direct", () => {
 
     // THEN no coaching is surfaced (the error is likely unrecoverable) and the
     // result is left untouched.
-    expect(ctx.additionalContext).toBeUndefined();
+    expect(ctx.additionalContext).toBeNull();
     expect(ctx.toolResponse.content).toBe(BASE_CONTENT);
   });
 
@@ -251,7 +253,7 @@ describe("tool-error post-tool-use hook — via runHook", () => {
   test("default hook runs before a later-registered user hook", async () => {
     // GIVEN the default plugin is registered first, then a user plugin whose
     // hook records the additionalContext it observes.
-    let observed: string | undefined;
+    let observed: string | null | undefined;
     registerPlugin(defaultToolErrorPlugin);
     registerPlugin({
       manifest: { name: "observer-plugin", version: "0.0.1" },

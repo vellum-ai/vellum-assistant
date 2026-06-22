@@ -146,6 +146,59 @@ describe("skills list", () => {
     ).toEqual({});
   });
 
+  test("--json derives source from owner for plugin-resident skills", async () => {
+    /**
+     * Plugin-resident skills are mapped to kind:bundled/origin:vellum, so
+     * their attribution lives on `owner`. The CLI must surface that as
+     * `plugin:<id>` instead of collapsing to "bundled".
+     */
+
+    // GIVEN a plugin-resident skill (owner set) and a plain bundled skill
+    mockIpcResults = [
+      {
+        ok: true,
+        result: {
+          skills: [
+            {
+              id: "caveman",
+              name: "Caveman",
+              description: "Ultra-compressed communication mode",
+              origin: "vellum",
+              kind: "bundled",
+              status: "enabled",
+              owner: { kind: "plugin", id: "caveman" },
+            },
+            {
+              id: "weather",
+              name: "Weather",
+              description: "Get weather",
+              origin: "vellum",
+              kind: "bundled",
+              status: "enabled",
+            },
+          ],
+        },
+      },
+    ];
+
+    // WHEN listing skills as JSON
+    const { stdout } = await runCommand(["skills", "list", "--json"]);
+
+    // THEN the plugin skill's source is `plugin:<id>` and owner is preserved
+    const parsed = JSON.parse(stdout) as {
+      ok: boolean;
+      skills: Array<{ id: string; source: string; owner?: unknown }>;
+    };
+    const caveman = parsed.skills.find((s) => s.id === "caveman");
+    const weather = parsed.skills.find((s) => s.id === "weather");
+    expect(caveman?.source).toBe("plugin:caveman");
+    expect(caveman?.owner).toEqual({ kind: "plugin", id: "caveman" });
+
+    // AND a bundled skill with no owner keeps the "bundled" source label
+    expect(weather?.source).toBe("bundled");
+    expect(weather?.owner).toBeUndefined();
+  });
+
   test("IPC failure sets exitCode 1", async () => {
     mockIpcResults = [{ ok: false, error: "Connection refused" }];
 

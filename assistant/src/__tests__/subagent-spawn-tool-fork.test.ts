@@ -32,7 +32,7 @@ mock.module("../memory/conversation-crud.js", () => ({
 import {
   clearConversations,
   setConversation,
-} from "../daemon/conversation-store.js";
+} from "../daemon/conversation-registry.js";
 import type { Message } from "../providers/types.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { executeSubagentSpawn } from "../tools/subagent/spawn.js";

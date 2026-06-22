@@ -34,22 +34,19 @@ describe("buildShimSource", () => {
   test("emits a globalThis trampoline + one binding per export", () => {
     const source = buildShimSource(
       ["foo", "bar"],
-      Symbol.for("vellum.plugin-api.v1"),
+      Symbol.for("vellum.plugin-api"),
     );
     expect(source).toBe(
-      `const api = globalThis[Symbol.for("vellum.plugin-api.v1")];\n` +
+      `const api = globalThis[Symbol.for("vellum.plugin-api")];\n` +
         `export const foo = api.foo;\n` +
         `export const bar = api.bar;\n`,
     );
   });
 
   test("handles an empty export list (today's types-only surface)", () => {
-    const source = buildShimSource(
-      [],
-      Symbol.for("vellum.plugin-api.v1"),
-    );
+    const source = buildShimSource([], Symbol.for("vellum.plugin-api"));
     expect(source).toBe(
-      `const api = globalThis[Symbol.for("vellum.plugin-api.v1")];\n`,
+      `const api = globalThis[Symbol.for("vellum.plugin-api")];\n`,
     );
   });
 });
@@ -109,7 +106,7 @@ describe("ensurePluginApiShim", () => {
     const pluginDir = join(workspaceDir, "plugins", "fake-plugin");
     await mkdir(pluginDir, { recursive: true });
     await writeFile(
-      join(pluginDir, "register.js"),
+      join(pluginDir, "probe.js"),
       `import * as api from "@vellumai/plugin-api";\nexport { api };\n`,
     );
 
@@ -118,7 +115,7 @@ describe("ensurePluginApiShim", () => {
     // → plugin-api namespace. If any link in that chain is broken, this
     // import throws.
     const mod: { api: Record<string, unknown> } = await import(
-      join(pluginDir, "register.js")
+      join(pluginDir, "probe.js")
     );
     expect(mod.api).toBeDefined();
   });

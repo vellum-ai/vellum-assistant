@@ -6,6 +6,8 @@
  * and no session.processing mutation.
  */
 
+import { rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
@@ -20,7 +22,11 @@ mock.module("../util/logger.js", () => ({
 }));
 
 const mockGetConversationByKey = mock(
-  (_key: string): { conversationId: string } | null => ({
+  (
+    _key: string,
+  ): {
+    conversationId: string;
+  } | null => ({
     conversationId: "conv-test-123",
   }),
 );
@@ -72,11 +78,8 @@ mock.module("../prompts/persona-resolver.js", () => ({
   resolveUserSlug: () => null,
 }));
 
-mock.module("../runtime/routes/identity-intro-cache.js", () => ({
-  getCachedIntro: () => null,
-  readWorkspaceIdentityIntro: () => null,
-  setCachedIntro: () => {},
-  computeIdentityContentHash: () => "test-hash",
+mock.module("../runtime/routes/workspace-greetings.js", () => ({
+  readWorkspaceGreetings: () => null,
 }));
 
 // Mock getOrCreateConversation from conversation-store so the handler
@@ -106,7 +109,6 @@ mock.module("../daemon/conversation-store.js", () => ({
   mergeConversationOptions: () => {},
   deleteConversationOptions: () => {},
   clearConversationOptions: () => {},
-  setCesClientPromise: () => {},
 }));
 
 // ---------------------------------------------------------------------------
@@ -123,6 +125,7 @@ import {
   ServiceUnavailableError,
 } from "../runtime/routes/errors.js";
 import type { RouteHandlerArgs } from "../runtime/routes/types.js";
+import { getWorkspaceDir } from "../util/platform.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -340,13 +343,13 @@ describe("POST /v1/btw", () => {
     expect(options!.config!.callSite).toBe("emptyStateGreeting");
   });
 
-  test("identity intro requests pass callSite: 'identityIntro'", async () => {
+  test("generic requests pass the default callSite", async () => {
     const provider = makeMockProvider();
     const session = makeMockSession(provider);
     mockGetOrCreateConversation.mockImplementationOnce(async () => session);
 
     const { result } = await callHandler({
-      conversationKey: "identity-intro",
+      conversationKey: "profile-intro",
       content: "Generate an intro",
     });
     await readStream(result as ReadableStream<Uint8Array>);
@@ -354,6 +357,32 @@ describe("POST /v1/btw", () => {
     expect(provider.sendMessage).toHaveBeenCalledTimes(1);
     const [, options] = provider.sendMessage.mock.calls[0];
     expect(options!.config!.callSite).toBe("identityIntro");
+  });
+
+  test("generic requests do not synthesize a static name greeting", async () => {
+    const identityPath = join(getWorkspaceDir(), "IDENTITY.md");
+    writeFileSync(
+      identityPath,
+      "# Identity\n\n- **Name:** Example Assistant\n",
+      "utf-8",
+    );
+
+    try {
+      const provider = makeMockProvider();
+      const session = makeMockSession(provider);
+      mockGetOrCreateConversation.mockImplementationOnce(async () => session);
+
+      const { result } = await callHandler({
+        conversationKey: "profile-intro",
+        content: "Generate an intro",
+      });
+      const text = await readStream(result as ReadableStream<Uint8Array>);
+
+      expect(provider.sendMessage).toHaveBeenCalledTimes(1);
+      expect(text).not.toContain("Hi, I'm Example Assistant!");
+    } finally {
+      rmSync(identityPath, { force: true });
+    }
   });
 
   // -- No persistence --

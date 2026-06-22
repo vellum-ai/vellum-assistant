@@ -71,7 +71,7 @@ import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers

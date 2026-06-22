@@ -1872,6 +1872,76 @@ describe("injectMemoryV2Block", () => {
       expect(aliceRow!.ownActivation).toBe(0);
     });
 
+    test("flag-on: saturated index (every page already injected) skips the router LLM call", async () => {
+      // Turn 1 — normal router path injects alice.
+      routerState.nextResult = {
+        selectedSlugs: ["alice-vscode"],
+        failureReason: null,
+      };
+      await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-router-saturated",
+        currentTurn: 1,
+        recentTurnPairs: [
+          { assistantMessage: "", userMessage: "Tell me about Alice" },
+        ],
+        nowText: "Now",
+        messageId: "msg-1",
+        config: makeConfig({ router: { enabled: true } }),
+      });
+
+      // Mark every page in the index as already injected — the state a
+      // small workspace reaches a few turns into any conversation.
+      const { getPageIndex } = await import("../page-index.js");
+      const index = await getPageIndex(tmpWorkspace);
+      const seeded = await hydrate(db, "conv-router-saturated");
+      await save(db, "conv-router-saturated", {
+        ...seeded!,
+        everInjected: index.entries.map((e) => ({ slug: e.slug, turn: 1 })),
+      });
+
+      // Turn 2 — the router must not be called: any selection would dedupe
+      // against everInjected and render nothing.
+      const callsBefore = routerState.callCount;
+      routerState.nextResult = {
+        selectedSlugs: ["bob-coffee"],
+        failureReason: null,
+      };
+      const result = await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-router-saturated",
+        currentTurn: 2,
+        recentTurnPairs: [{ assistantMessage: "ok", userMessage: "and Bob?" }],
+        nowText: "Now",
+        messageId: "msg-2",
+        config: makeConfig({ router: { enabled: true } }),
+      });
+
+      expect(routerState.callCount).toBe(callsBefore);
+      expect(result.block).toBeNull();
+      expect(result.toInject).toEqual([]);
+
+      // State still advanced; everInjected preserved for future dedupe.
+      const persisted = await hydrate(db, "conv-router-saturated");
+      expect(persisted!.currentTurn).toBe(2);
+      expect(persisted!.messageId).toBe("msg-2");
+      expect(persisted!.everInjected.length).toBe(index.entries.length);
+
+      // Telemetry row stays in router mode with every slug carried over.
+      const row = telemetryState.recordCalls.at(-1) as {
+        mode: string;
+        concepts: Array<{ source: string; status: string }>;
+      };
+      expect(row.mode).toBe("router");
+      expect(row.concepts.length).toBe(index.entries.length);
+      for (const concept of row.concepts) {
+        expect(concept.source).toBe("carry_over");
+        // `finalizeInjection` rewrites the placeholder status: slugs already
+        // in everInjected are reported as in_context.
+        expect(concept.status).toBe("in_context");
+      }
+    });
+
     test("flag-on: router failure logs warn, writes mode:`errored` telemetry, returns null block", async () => {
       routerState.nextResult = {
         selectedSlugs: [],

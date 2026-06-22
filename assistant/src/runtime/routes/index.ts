@@ -90,6 +90,7 @@ import { ROUTES as INTERNAL_TWILIO_ROUTES } from "./internal-twilio-routes.js";
 import { ROUTES as LLM_CALL_SITES_ROUTES } from "./llm-call-sites-routes.js";
 import { ROUTES as LOG_EXPORT_ROUTES } from "./log-export-routes.js";
 import { ROUTES as MCP_AUTH_ROUTES } from "./mcp-auth-routes.js";
+import { ROUTES as MEMORY_EVAL_ROUTES } from "./memory-eval-routes.js";
 import { ROUTES as MEMORY_ITEM_ROUTES } from "./memory-item-routes.js";
 import { ROUTES as MEMORY_V2_ROUTES } from "./memory-v2-routes.js";
 import { ROUTES as MEMORY_V3_ROUTES } from "./memory-v3-routes.js";
@@ -110,6 +111,7 @@ import { ROUTES as PUBLISH_ROUTES } from "./publish-routes.js";
 import { ROUTES as QUESTION_ROUTES } from "./question-routes.js";
 import { ROUTES as RECORDING_ROUTES } from "./recording-routes.js";
 import { ROUTES as RENAME_CONVERSATION_ROUTES } from "./rename-conversation-routes.js";
+import { ROUTES as RETROSPECTIVE_ROUTES } from "./retrospective-routes.js";
 import { ROUTES as SANITY_ROUTES } from "./sanity-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "./schedule-routes.js";
 import { ROUTES as SECRET_ROUTES } from "./secret-routes.js";
@@ -117,6 +119,7 @@ import { ROUTES as SEQUENCE_ROUTES } from "./sequence-routes.js";
 import { ROUTES as SETTINGS_ROUTES } from "./settings-routes.js";
 import { ROUTES as SKILL_ROUTES } from "./skills-routes.js";
 import { ROUTES as SLACK_CHANNEL_RESOLVE_ROUTES } from "./slack-channel-routes.js";
+import { ROUTES as SOUNDS_CONFIG_ROUTES } from "./sounds-config-routes.js";
 import { ROUTES as STT_ROUTES } from "./stt-routes.js";
 import { ROUTES as SUBAGENT_ROUTES } from "./subagents-routes.js";
 import { ROUTES as SUGGEST_TRUST_RULE_ROUTES } from "./suggest-trust-rule-routes.js";
@@ -138,6 +141,7 @@ import { ROUTES as WATCHER_ROUTES } from "./watcher-routes.js";
 import { ROUTES as WEBHOOK_ROUTES } from "./webhook-routes.js";
 import { ROUTES as WIPE_CONVERSATION_ROUTES } from "./wipe-conversation-routes.js";
 import { ROUTES as WORK_ITEM_ROUTES } from "./work-items-routes.js";
+import { ROUTES as WORKFLOW_ROUTES } from "./workflow-routes.js";
 import { ROUTES as WORKSPACE_COMMIT_ROUTES } from "./workspace-commit-routes.js";
 import { ROUTES as WORKSPACE_ROUTES } from "./workspace-routes.js";
 
@@ -219,6 +223,7 @@ export const ROUTES: RouteDefinition[] = [
   ...INTERNAL_TWILIO_ROUTES,
   ...LOG_EXPORT_ROUTES,
   ...LLM_CALL_SITES_ROUTES,
+  ...MEMORY_EVAL_ROUTES,
   ...MEMORY_ITEM_ROUTES,
   ...MEMORY_V2_ROUTES,
   ...MEMORY_V3_ROUTES,
@@ -238,10 +243,12 @@ export const ROUTES: RouteDefinition[] = [
   ...QUESTION_ROUTES,
   ...RECORDING_ROUTES,
   ...RENAME_CONVERSATION_ROUTES,
+  ...RETROSPECTIVE_ROUTES,
   ...SCHEDULE_ROUTES,
   ...SANITY_ROUTES,
   ...SECRET_ROUTES,
   ...SETTINGS_ROUTES,
+  ...SOUNDS_CONFIG_ROUTES,
   ...SKILL_ROUTES,
   ...A2A_ROUTES,
   ...SLACK_CHANNEL_CONFIG_ROUTES,
@@ -264,6 +271,7 @@ export const ROUTES: RouteDefinition[] = [
   ...USAGE_ROUTES,
   ...VERCEL_ROUTES,
   ...WORK_ITEM_ROUTES,
+  ...WORKFLOW_ROUTES,
   ...WATCHER_ROUTES,
   ...WEBHOOK_ROUTES,
   ...WIPE_CONVERSATION_ROUTES,

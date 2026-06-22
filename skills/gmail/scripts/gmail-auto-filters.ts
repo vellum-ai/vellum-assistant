@@ -267,14 +267,6 @@ function deriveFilterCandidates(
         matchCount: newsletterSenders.get(sender) ?? 0,
       });
     }
-  } else if (newsletterCount > 0 && newsletterSenders.size === 0) {
-    // No per-sender data available — use a header-based heuristic
-    candidates.push({
-      category: "newsletter (header-based)",
-      labelName: "auto/newsletter",
-      criteria: { query: "list:* OR unsubscribe" },
-      matchCount: newsletterCount,
-    });
   }
 
   return candidates;

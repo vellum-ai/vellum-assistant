@@ -22,7 +22,6 @@ import type { AssistantEventHub } from "./assistant-event-hub.js";
 export type {
   ApprovalCopyGenerator,
   ComposeApprovalMessageGenerativeOptions,
-  GuardianActionCopyGenerator,
 } from "./message-composer-types.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 

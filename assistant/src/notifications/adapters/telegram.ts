@@ -2,17 +2,15 @@
  * Telegram channel adapter — delivers notifications to Telegram chats
  * by calling the Telegram Bot API directly.
  *
- * For access request notifications, inline keyboard buttons ("Approve once",
- * "Reject") are attached so the guardian can act without typing a command.
- * If the rich delivery fails, the adapter falls back to plain text with
- * typed-command instructions.
+ * When the delivery payload carries an `approvalContext` (built centrally
+ * by the broadcaster), inline keyboard buttons ("Approve once", "Reject")
+ * are attached. If the rich delivery fails, the adapter falls back to
+ * plain text with typed-command instructions.
  */
 
 import { sendTelegramReply } from "../../messaging/providers/telegram-bot/send.js";
-import type { ApprovalUIMetadata } from "../../runtime/channel-approval-types.js";
+import { ConfigError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
-import { isConversationSeedSane } from "../conversation-seed-composer.js";
-import { buildAccessRequestContractText, nonEmpty } from "../copy-composer.js";
 import type {
   ChannelAdapter,
   ChannelDeliveryPayload,
@@ -20,53 +18,9 @@ import type {
   DeliveryResult,
   NotificationChannel,
 } from "../types.js";
+import { resolveMessageText } from "./shared.js";
 
 const log = getLogger("notif-adapter-telegram");
-
-function resolveTelegramMessageText(payload: ChannelDeliveryPayload): string {
-  const deliveryText = nonEmpty(payload.copy.deliveryText);
-  if (deliveryText) return deliveryText;
-
-  if (isConversationSeedSane(payload.copy.conversationSeedMessage)) {
-    return payload.copy.conversationSeedMessage.trim();
-  }
-
-  const body = nonEmpty(payload.copy.body);
-  if (body) return body;
-
-  const title = nonEmpty(payload.copy.title);
-  if (title) return title;
-
-  return payload.sourceEventName.replace(/[._]/g, " ");
-}
-
-/**
- * Build an {@link ApprovalUIMetadata} for an access request so the delivery
- * renders inline keyboard buttons in the Telegram message.
- *
- * Returns `undefined` when the context payload is missing the required
- * `requestId`, in which case the caller should fall back to plain text.
- */
-function buildAccessRequestApproval(
-  contextPayload: Record<string, unknown>,
-): ApprovalUIMetadata | undefined {
-  const requestId =
-    typeof contextPayload.requestId === "string"
-      ? contextPayload.requestId
-      : undefined;
-  if (!requestId) return undefined;
-
-  const plainTextFallback = buildAccessRequestContractText(contextPayload);
-
-  return {
-    requestId,
-    actions: [
-      { id: "approve_once", label: "Approve once" },
-      { id: "reject", label: "Reject" },
-    ],
-    plainTextFallback,
-  };
-}
 
 export class TelegramAdapter implements ChannelAdapter {
   readonly channel: NotificationChannel = "telegram";
@@ -87,15 +41,8 @@ export class TelegramAdapter implements ChannelAdapter {
       };
     }
 
-    const messageText = resolveTelegramMessageText(payload);
-
-    const isAccessRequest =
-      payload.sourceEventName === "ingress.access_request" &&
-      payload.contextPayload != null;
-
-    const approval = isAccessRequest
-      ? buildAccessRequestApproval(payload.contextPayload!)
-      : undefined;
+    const messageText = resolveMessageText(payload);
+    const approval = payload.approvalContext;
 
     try {
       if (approval) {
@@ -106,7 +53,7 @@ export class TelegramAdapter implements ChannelAdapter {
 
           log.info(
             { sourceEventName: payload.sourceEventName, chatId },
-            "Telegram access request notification delivered with inline buttons",
+            "Telegram approval notification delivered with inline buttons",
           );
 
           return { success: true };
@@ -136,7 +83,12 @@ export class TelegramAdapter implements ChannelAdapter {
       return { success: true };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      log.error(
+      // A missing bot token means the operator simply hasn't configured
+      // Telegram; it is not a code fault, so log it at warn to keep it out
+      // of Sentry. Genuine and transient failures (e.g. an unreachable
+      // credential store) stay at error so they remain visible.
+      const logFn = err instanceof ConfigError ? log.warn : log.error;
+      logFn(
         { err, sourceEventName: payload.sourceEventName, chatId },
         "Failed to deliver Telegram notification",
       );

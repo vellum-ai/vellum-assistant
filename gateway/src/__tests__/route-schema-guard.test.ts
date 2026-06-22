@@ -171,6 +171,15 @@ const EXCLUDED_FROM_SCHEMA = new Set([
   "catch-all",
   // Loopback-only pairing endpoint — not part of the public gateway API
   "/v1/pair",
+  // Loopback-only remote web pairing challenge — not part of the public gateway API
+  "/v1/remote-web/pairing-challenge",
+  // Remote web pairing verification bootstrap — not part of the public gateway API
+  "/v1/remote-web/pairing-verification",
+  // Remote web pairing token bootstrap — not part of the public gateway API
+  "/v1/remote-web/pairing-token",
+  // Loopback-only device management — not part of the public gateway API
+  "/v1/devices",
+  "/v1/devices/revoke",
   // A2A agent card discovery — read-only, unauthenticated per spec
   "/.well-known/agent-card.json",
   // Internal-only: reachable only via vembda's trusted gateway-query proxy

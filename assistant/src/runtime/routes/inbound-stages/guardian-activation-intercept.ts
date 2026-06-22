@@ -11,7 +11,6 @@
 import type { ChannelId } from "../../../channels/types.js";
 import { findGuardianForChannel } from "../../../contacts/contact-store.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
-import type { NotificationSourceChannel } from "../../../notifications/signal.js";
 import { getLogger } from "../../../util/logger.js";
 import {
   createOutboundSession,
@@ -32,7 +31,7 @@ export interface GuardianActivationInterceptParams {
   canonicalSenderId: string | null;
   actorDisplayName: string | undefined;
   actorUsername: string | undefined;
-  sourceMetadata: Record<string, unknown> | undefined;
+  sourceMetadata: import("@vellumai/gateway-client").SourceMetadata | undefined;
   replyCallbackUrl: string | undefined;
   assistantId: string;
   externalMessageId: string;
@@ -75,23 +74,14 @@ export async function handleGuardianActivationIntercept(
   } = params;
 
   // ── Extract commandIntent ──
-  const rawCommandIntent = sourceMetadata?.commandIntent;
-  const commandIntent =
-    rawCommandIntent &&
-    typeof rawCommandIntent === "object" &&
-    !Array.isArray(rawCommandIntent)
-      ? (rawCommandIntent as Record<string, unknown>)
-      : undefined;
+  const commandIntent = sourceMetadata?.commandIntent;
 
   // Only proceed for /start commands
   if (!commandIntent || commandIntent.type !== "start") return null;
 
   // If /start has a payload (e.g. gv_token, iv_token), let the existing
   // bootstrap/invite handlers deal with it.
-  if (
-    typeof commandIntent.payload === "string" &&
-    commandIntent.payload.length > 0
-  ) {
+  if (commandIntent.payload && commandIntent.payload.length > 0) {
     return null;
   }
 
@@ -110,7 +100,7 @@ export async function handleGuardianActivationIntercept(
   // Only checked here; marked as processed after successful session creation
   // so transient failures remain retryable.
   if (isAlreadyProcessed(externalMessageId)) {
-    return ({ accepted: true, guardianActivation: true });
+    return { accepted: true, guardianActivation: true };
   }
 
   // ── Idempotency: check for an existing active session from this sender ──
@@ -138,7 +128,7 @@ export async function handleGuardianActivationIntercept(
         });
       }
       markProcessed(externalMessageId);
-      return ({ accepted: true, guardianActivationPending: true });
+      return { accepted: true, guardianActivationPending: true };
     }
   }
 
@@ -173,7 +163,7 @@ export async function handleGuardianActivationIntercept(
   // ── Emit notification signal to deliver code to macOS app ──
   void emitNotificationSignal({
     sourceEventName: "guardian.channel_activation",
-    sourceChannel: sourceChannel as NotificationSourceChannel,
+    sourceChannel,
     sourceContextId: `guardian-activation-${sourceChannel}-${rawSenderId}`,
     attentionHints: {
       requiresAction: true,
@@ -193,5 +183,5 @@ export async function handleGuardianActivationIntercept(
     dedupeKey: `guardian-activation:${sessionResult.sessionId}`,
   });
 
-  return ({ accepted: true, guardianActivation: true });
+  return { accepted: true, guardianActivation: true };
 }

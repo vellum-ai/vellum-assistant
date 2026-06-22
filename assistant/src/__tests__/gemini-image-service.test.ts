@@ -287,6 +287,19 @@ describe("mapGeminiError", () => {
     expect(msg).toContain("Rate limit");
   });
 
+  test("maps 402 status to a non-retryable out-of-credits message", () => {
+    const msg = mapGeminiError(new FakeApiError(402, "payment required"));
+    expect(msg).toContain("out of credits");
+    expect(msg).not.toContain("Please try again");
+  });
+
+  test("maps a managed-proxy 402 failure (plain Error) to out-of-credits message", () => {
+    const msg = mapGeminiError(
+      new Error("Managed proxy request failed (402): insufficient credits"),
+    );
+    expect(msg).toContain("out of credits");
+  });
+
   test("maps 500 status to server error message", () => {
     const msg = mapGeminiError(new FakeApiError(500, "internal"));
     expect(msg).toContain("temporarily unavailable");

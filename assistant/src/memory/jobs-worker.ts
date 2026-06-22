@@ -2,12 +2,14 @@ import { join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../config/types.js";
 import {
   checkDiskPressureBackgroundGate,
   diskPressureBackgroundSkipLogFields,
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
+import { maintainJob as memoryV3MaintainJob } from "../plugins/defaults/memory-v3-shadow/maintain-job.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
@@ -17,6 +19,11 @@ import {
 } from "./cleanup-schedule-state.js";
 import { conversationAnalyzeJob } from "./conversation-analyze-job.js";
 import { maybeRunDbMaintenance } from "./db-maintenance.js";
+import {
+  EmbeddingBillingBlockError,
+  extractHttpStatus,
+  recordBillingBlock,
+} from "./embedding-billing-breaker.js";
 import { bootstrapFromHistory } from "./graph/bootstrap.js";
 import { runConsolidation } from "./graph/consolidation.js";
 import { runDecayTick } from "./graph/decay.js";
@@ -67,6 +74,7 @@ import {
   failMemoryJob,
   failStalledJobs,
   hasActiveJobOfType,
+  MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS,
   type MemoryJob,
   type MemoryJobType,
   resetRunningJobsToPending,
@@ -85,9 +93,22 @@ import {
   memoryV2ConsolidateJob,
 } from "./v2/consolidation-job.js";
 import { memoryV2SweepJob } from "./v2/sweep-job.js";
-import { maintainJob as memoryV3MaintainJob } from "./v3/maintain-job.js";
 
 const log = getLogger("memory-jobs-worker");
+
+const AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD = {
+  trigger: MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS.automatic,
+} as const;
+
+/**
+ * Minimum buffer entries required for a scheduled consolidation run. The
+ * time-based schedule noops when `memory/buffer.md` has fewer non-empty lines
+ * than this threshold — the LLM cost of a full consolidation pass outweighs
+ * the benefit when the buffer is nearly empty. Mirrors the heartbeat
+ * max-consecutive-runs skip pattern. Manual "Run now" and the size-based
+ * trigger are not affected.
+ */
+export const MIN_BUFFER_LINES_FOR_CONSOLIDATION = 10;
 
 /**
  * V1 job types that read or write the v1 Qdrant collection via
@@ -226,7 +247,7 @@ export async function runMemoryJobsOnce(
   options: { enableScheduledCleanup?: boolean } = {},
 ): Promise<number> {
   const config = getConfig();
-  if (!config.memory.enabled) return 0;
+  if (config.memory.enabled === false) return 0;
   const enableScheduledCleanup = options.enableScheduledCleanup === true;
 
   const diskPressureGate = checkDiskPressureBackgroundGate("background-work");
@@ -301,6 +322,18 @@ export async function runMemoryJobsOnce(
             { err: handlerErr, jobId: job.id, type: job.type },
             "handleJobError itself threw, job left in running status",
           );
+        }
+        // A billing block (402) is deterministic — every subsequent embed
+        // call will fail identically. Defer the remaining embed jobs in
+        // this batch instead of burning a network round-trip on each one.
+        if (
+          err instanceof EmbeddingBillingBlockError ||
+          (embedSet.has(job.type) && extractHttpStatus(err) === 402)
+        ) {
+          for (const remaining of group.slice(group.indexOf(job) + 1)) {
+            deferMemoryJob(remaining.id);
+          }
+          break;
         }
       }
     }
@@ -463,6 +496,41 @@ async function graphNarrativeRefineJob(
 // ── Job error handling ─────────────────────────────────────────────
 
 function handleJobError(job: MemoryJob, err: unknown): void {
+  if (err instanceof EmbeddingBillingBlockError) {
+    const result = deferMemoryJob(job.id);
+    if (result === "failed") {
+      log.error(
+        { jobId: job.id, type: job.type },
+        "Billing breaker open, job exceeded max deferrals",
+      );
+    } else {
+      log.debug(
+        { jobId: job.id, type: job.type },
+        "Billing breaker open, deferring job",
+      );
+    }
+    return;
+  }
+
+  // Detect 402 billing exhaustion from any embedding backend and trip the
+  // billing breaker so subsequent embed jobs short-circuit at claim time.
+  if (EMBED_JOB_TYPES.includes(job.type) && extractHttpStatus(err) === 402) {
+    recordBillingBlock();
+    const result = deferMemoryJob(job.id);
+    if (result === "failed") {
+      log.error(
+        { jobId: job.id, type: job.type },
+        "Embedding billing block (402), job exceeded max deferrals",
+      );
+    } else {
+      log.warn(
+        { jobId: job.id, type: job.type },
+        "Embedding billing block (402), deferring job",
+      );
+    }
+    return;
+  }
+
   if (err instanceof BackendUnavailableError) {
     const result = deferMemoryJob(job.id);
     if (result === "failed") {
@@ -687,8 +755,8 @@ const GRAPH_PATTERN_SCAN_INTERVAL_MS = 24 * 60 * 60 * 1000; // 1 day
 const GRAPH_NARRATIVE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // 1 week
 // Backstop cadence for v3 self-maintenance. The primary trigger is the
 // post-consolidation follow-up (see `consolidation-job.ts`); this interval only
-// covers the case where that follow-up is missed (enqueue failure, or a v3-on
-// install with v2 consolidation disabled). A conservative cadence is fine since
+// covers the case where that follow-up is missed (enqueue failure). A
+// conservative cadence is fine since
 // the maintenance pass is idempotent and cheap when there's nothing to do.
 const GRAPH_V3_MAINTAIN_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
@@ -733,6 +801,9 @@ export function maybeEnqueueGraphMaintenanceJobs(
   config: AssistantConfig,
   nowMs = Date.now(),
 ): void {
+  const memoryEnabled = config.memory.enabled !== false;
+  if (!memoryEnabled) return;
+
   const v2Active = config.memory.v2.enabled;
 
   // The single buffer-drainer entry for the v2-active branch. Referenced again
@@ -777,12 +848,12 @@ export function maybeEnqueueGraphMaintenanceJobs(
   // runs under either branch. Gated on the same flags that gate the v3 plugin
   // so it stays inert when v3 is off. The post-consolidation follow-up in
   // `consolidation-job.ts` remains the primary trigger; this interval only
-  // self-heals when that follow-up is missed (failed enqueue, or v3-on with v2
-  // consolidation disabled). The job handler itself no-ops when v3 is off, so
+  // self-heals when that follow-up is missed (failed enqueue). The job handler
+  // itself no-ops when v3 is off, so
   // this guard is belt-and-suspenders that also avoids a wasted enqueue.
   if (
     isAssistantFeatureFlagEnabled("memory-v3-shadow", config) ||
-    isAssistantFeatureFlagEnabled("memory-v3-live", config)
+    isMemoryV3Live(config)
   ) {
     schedule.push({
       key: GRAPH_MAINTENANCE_CHECKPOINTS.memoryV3Maintain,
@@ -795,7 +866,25 @@ export function maybeEnqueueGraphMaintenanceJobs(
   for (const { key, intervalMs, jobType } of schedule) {
     const lastRun = parseInt(getMemoryCheckpoint(key) ?? "0", 10);
     if (nowMs - lastRun >= intervalMs) {
-      enqueueMemoryJob(jobType, {});
+      // Noop scheduled consolidation when the buffer has too few entries to
+      // justify an LLM run — mirrors the heartbeat max-consecutive-runs skip.
+      // The checkpoint advances so the next check fires after the regular
+      // interval. Manual "Run now" is unaffected (routes layer, not schedule).
+      if (jobType === consolidateEntry.jobType) {
+        const bufferPath = join(getWorkspaceDir(), "memory", "buffer.md");
+        if (countBufferLines(bufferPath) < MIN_BUFFER_LINES_FOR_CONSOLIDATION) {
+          log.debug(
+            "Scheduled consolidation skipped: buffer under minimum line threshold",
+          );
+          setMemoryCheckpoint(key, String(nowMs));
+          continue;
+        }
+      }
+      const payload =
+        jobType === consolidateEntry.jobType
+          ? AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD
+          : {};
+      enqueueMemoryJob(jobType, payload);
       setMemoryCheckpoint(key, String(nowMs));
       if (jobType === consolidateEntry.jobType) enqueuedConsolidate = true;
     }
@@ -818,7 +907,10 @@ export function maybeEnqueueGraphMaintenanceJobs(
   ) {
     const bufferPath = join(getWorkspaceDir(), "memory", "buffer.md");
     if (countBufferLines(bufferPath) >= maxLines) {
-      enqueueMemoryJob(consolidateEntry.jobType, {});
+      enqueueMemoryJob(
+        consolidateEntry.jobType,
+        AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD,
+      );
       setMemoryCheckpoint(consolidateEntry.key, String(nowMs));
     }
   }

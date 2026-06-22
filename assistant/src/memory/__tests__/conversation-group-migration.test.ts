@@ -10,7 +10,7 @@ mock.module("../../util/logger.js", () => ({
 import { ensureGroupMigration } from "../conversation-group-migration.js";
 import { initializeDb } from "../db-init.js";
 import { rawAll, rawExec, rawGet, rawRun } from "../raw-query.js";
-initializeDb();
+await initializeDb();
 
 // Simulate a legacy install that has the `system:reflections` system group
 // plus a conversation pointing at it. The migration must:

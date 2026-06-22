@@ -207,6 +207,175 @@ describe("replacePlatformAssistants", () => {
     expect(ids).toEqual(["asst_local", "asst_new_platform"]);
   });
 
+  test("a sync scoped to one org preserves another org's platform entries", () => {
+    writeOnDisk({
+      activeAssistant: null,
+      assistants: [
+        {
+          assistantId: "asst_org_a",
+          cloud: "vellum",
+          organizationId: "org_a",
+          runtimeUrl: "http://a",
+        },
+        {
+          assistantId: "asst_org_b_old",
+          cloud: "vellum",
+          organizationId: "org_b",
+          runtimeUrl: "http://bo",
+        },
+      ],
+    });
+
+    replacePlatformAssistants(
+      [lockfilePath],
+      [
+        {
+          assistantId: "asst_org_b_new",
+          cloud: "vellum",
+          organizationId: "org_b",
+          runtimeUrl: "http://bn",
+        },
+      ],
+      "org_b",
+    );
+
+    const ids = (readOnDisk().assistants as Array<Record<string, unknown>>).map(
+      (a) => a.assistantId,
+    );
+    // Org A survives; Org B's stale entry is replaced by the new one.
+    expect(ids).toEqual(["asst_org_a", "asst_org_b_new"]);
+  });
+
+  test("de-duplicates a legacy no-org entry that shares an id with the new list", () => {
+    writeOnDisk({
+      activeAssistant: null,
+      assistants: [
+        // Legacy platform entry with no organizationId, same id as the sync.
+        { assistantId: "asst_dup", cloud: "vellum", runtimeUrl: "http://old" },
+      ],
+    });
+
+    replacePlatformAssistants(
+      [lockfilePath],
+      [
+        {
+          assistantId: "asst_dup",
+          cloud: "vellum",
+          organizationId: "org_a",
+          runtimeUrl: "http://new",
+        },
+      ],
+      "org_a",
+    );
+
+    const assistants = readOnDisk().assistants as Array<Record<string, unknown>>;
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]).toMatchObject({
+      assistantId: "asst_dup",
+      organizationId: "org_a",
+      runtimeUrl: "http://new",
+    });
+  });
+
+  test("full-replaces all platform entries when no org is given (legacy)", () => {
+    writeOnDisk({
+      activeAssistant: null,
+      assistants: [
+        {
+          assistantId: "asst_org_a",
+          cloud: "vellum",
+          organizationId: "org_a",
+          runtimeUrl: "http://a",
+        },
+        {
+          assistantId: "asst_org_b",
+          cloud: "vellum",
+          organizationId: "org_b",
+          runtimeUrl: "http://b",
+        },
+      ],
+    });
+
+    replacePlatformAssistants(
+      [lockfilePath],
+      [
+        {
+          assistantId: "asst_new",
+          cloud: "vellum",
+          runtimeUrl: "http://np",
+        },
+      ],
+    );
+
+    const ids = (readOnDisk().assistants as Array<Record<string, unknown>>).map(
+      (a) => a.assistantId,
+    );
+    expect(ids).toEqual(["asst_new"]);
+  });
+
+  test("local entries always survive an org-scoped sync", () => {
+    writeOnDisk({
+      activeAssistant: null,
+      assistants: [
+        { assistantId: "asst_local", cloud: "local", runtimeUrl: "http://l" },
+        {
+          assistantId: "asst_org_a",
+          cloud: "vellum",
+          organizationId: "org_a",
+          runtimeUrl: "http://a",
+        },
+      ],
+    });
+
+    replacePlatformAssistants(
+      [lockfilePath],
+      [
+        {
+          assistantId: "asst_org_a_new",
+          cloud: "vellum",
+          organizationId: "org_a",
+          runtimeUrl: "http://an",
+        },
+      ],
+      "org_a",
+    );
+
+    const ids = (readOnDisk().assistants as Array<Record<string, unknown>>).map(
+      (a) => a.assistantId,
+    );
+    expect(ids).toEqual(["asst_local", "asst_org_a_new"]);
+  });
+
+  test("keeps activeAssistant when it still resolves after an org-scoped sync", () => {
+    writeOnDisk({
+      activeAssistant: "asst_org_b_old",
+      assistants: [
+        {
+          assistantId: "asst_org_b_old",
+          cloud: "vellum",
+          organizationId: "org_b",
+          runtimeUrl: "http://bo",
+        },
+      ],
+    });
+
+    replacePlatformAssistants(
+      [lockfilePath],
+      [
+        {
+          assistantId: "asst_org_a",
+          cloud: "vellum",
+          organizationId: "org_a",
+          runtimeUrl: "http://a",
+        },
+      ],
+      "org_a",
+    );
+
+    // Org B's entry (and the active id pointing at it) survives the org-A sync.
+    expect(readOnDisk().activeAssistant).toBe("asst_org_b_old");
+  });
+
   test("clears activeAssistant when the active id no longer exists", () => {
     writeOnDisk({
       activeAssistant: "asst_old_platform",

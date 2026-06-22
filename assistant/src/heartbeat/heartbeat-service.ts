@@ -25,6 +25,7 @@ import { stripCommentLines } from "../util/strip-comment-lines.js";
 import {
   completeHeartbeatRun,
   countCompletedHeartbeatRuns,
+  countCompletedRunsToday,
   countRecentConsecutiveRuns,
   insertPendingHeartbeatRun,
   markStaleRunningAsError,
@@ -45,7 +46,6 @@ const DEFAULT_CHECKLIST = `- Check in with yourself. Read NOW.md. Is it still ac
 
 const EARLY_HEARTBEAT_THRESHOLD = 3;
 const REENGAGEMENT_COOLDOWN_MS = 18 * 60 * 60 * 1000; // 18 hours
-const HEARTBEAT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 // Stripped-comment form of the guardian persona scaffold. Computed
 // once at module load because stripping comment lines is deterministic
@@ -185,6 +185,13 @@ export class HeartbeatService {
       countRecentConsecutiveRuns(config.maxConsecutiveRuns) >=
       config.maxConsecutiveRuns
     );
+  }
+
+  /** Whether the daily run cap has been reached. */
+  get isDailyCapReached(): boolean {
+    const config = getConfig().heartbeat;
+    if (config.maxDailyRuns == null) return false;
+    return countCompletedRunsToday() >= config.maxDailyRuns;
   }
 
   async runManagedWakeIfDue(
@@ -551,6 +558,24 @@ export class HeartbeatService {
       return false;
     }
 
+    // Daily run cap — stop burning tokens when the daily budget is exhausted.
+    // Force runs bypass the cap.
+    if (
+      !force &&
+      config.maxDailyRuns != null &&
+      countCompletedRunsToday() >= config.maxDailyRuns
+    ) {
+      log.debug(
+        { maxDailyRuns: config.maxDailyRuns },
+        "Daily run cap reached, skipping",
+      );
+      if (runId) skipHeartbeatRun(runId, "max_daily_runs");
+      if (!this.cronMode) {
+        this.scheduleNextRun(config.intervalMs);
+      }
+      return false;
+    }
+
     // Overlap prevention
     if (this.activeRun) {
       log.debug("Previous heartbeat run still active, skipping");
@@ -748,8 +773,8 @@ export class HeartbeatService {
     //
     // The runner fires `onConversationCreated` synchronously after
     // bootstrap so the macOS sidebar gets the new conversation
-    // immediately rather than waiting up to HEARTBEAT_TIMEOUT_MS for
-    // the LLM turn to finish. If the model judges the run worth
+    // immediately rather than waiting up to the full background-turn timeout
+    // for the LLM turn to finish. If the model judges the run worth
     // surfacing to the guardian, it calls the `notifications` skill
     // directly — no in-band marker.
     let conversationId: string | undefined;
@@ -763,7 +788,7 @@ export class HeartbeatService {
         trustClass: "guardian",
       },
       callSite: "heartbeatAgent",
-      timeoutMs: HEARTBEAT_TIMEOUT_MS,
+      timeoutMs: getConfig().timeouts.backgroundTurnTimeoutSec * 1000,
       origin: "heartbeat",
       deferNotifications: true,
       onConversationCreated: (newConversationId) => {

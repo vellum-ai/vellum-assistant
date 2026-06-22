@@ -62,7 +62,9 @@ export function parseCallbackData(
       ? ("whatsapp_button" as const)
       : sourceChannel === "slack"
         ? ("slack_button" as const)
-        : ("telegram_button" as const);
+        : sourceChannel === "vellum"
+          ? ("vellum_surface" as const)
+          : ("telegram_button" as const);
   return { action: action as ApprovalAction, source, requestId };
 }
 

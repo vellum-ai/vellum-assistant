@@ -8,6 +8,8 @@ import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { eq } from "drizzle-orm";
+
 import { initSigningKey, mintToken } from "../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 import type { TokenClaims } from "../auth/types.js";
@@ -18,7 +20,7 @@ const { initGatewayDb, resetGatewayDb, getGatewayDb } =
   await import("../db/connection.js");
 const { actorTokenRecords } = await import("../db/schema.js");
 const { hashToken } = await import("../auth/guardian-bootstrap.js");
-const { isActorTokenRevoked } =
+const { isActorTokenRevoked, actorTokenRecordHash } =
   await import("../auth/actor-token-revocation.js");
 const { createRuntimeProxyHandler } =
   await import("../http/routes/runtime-proxy.js");
@@ -99,6 +101,46 @@ describe("isActorTokenRevoked", () => {
     insertTokenRecord("token-revoked", "revoked");
     expect(isActorTokenRevoked("token-revoked ", actorClaims)).toBe(true);
     expect(isActorTokenRevoked(" token-revoked\n", actorClaims)).toBe(true);
+  });
+});
+
+describe("signature-encoding canonicalization (revocation bypass)", () => {
+  function mintActorJwt(): string {
+    return mintToken({
+      aud: "vellum-gateway",
+      sub: ACTOR_SUB,
+      scope_profile: "actor_client_v1",
+      policy_epoch: CURRENT_POLICY_EPOCH,
+      ttlSeconds: 3600,
+    });
+  }
+
+  // Append base64 padding to the signature segment. Buffer.from(.., "base64url")
+  // decodes it to the SAME bytes, so the JWT still verifies — but the raw string
+  // differs, which (pre-fix) made the revocation hash miss the stored record.
+  function padSignature(jwt: string): string {
+    const [h, p, sig] = jwt.split(".");
+    return `${h}.${p}.${sig}=`;
+  }
+
+  test("detects a revoked token whose signature segment is re-encoded with padding", () => {
+    const jwt = mintActorJwt();
+    insertTokenRecord(jwt, "revoked"); // stored under the canonical token hash
+
+    // Baseline: the canonical token is detected as revoked.
+    expect(isActorTokenRevoked(jwt, actorClaims)).toBe(true);
+
+    // Bypass attempt: same token, signature re-encoded (different string, same
+    // bytes). Must still resolve to the revoked record.
+    const padded = padSignature(jwt);
+    expect(padded).not.toBe(jwt);
+    expect(isActorTokenRevoked(padded, actorClaims)).toBe(true);
+  });
+
+  test("does not falsely revoke an active token re-encoded with padding", () => {
+    const jwt = mintActorJwt();
+    insertTokenRecord(jwt, "active");
+    expect(isActorTokenRevoked(padSignature(jwt), actorClaims)).toBe(false);
   });
 });
 
@@ -190,6 +232,47 @@ describe("/auth/token revocation", () => {
     );
 
     expect(res.status).toBe(401);
+  });
+
+  test("records a derived token so device revocation invalidates it", async () => {
+    const { handleCreateToken } = await import("../http/routes/auth-token.js");
+    const { revokeActorTokensByDevice } =
+      await import("../auth/guardian-bootstrap.js");
+    const sourceJwt = mintToken({
+      aud: "vellum-gateway",
+      sub: ACTOR_SUB,
+      scope_profile: "actor_client_v1",
+      policy_epoch: CURRENT_POLICY_EPOCH,
+      ttlSeconds: 3600,
+    });
+    insertTokenRecord(sourceJwt, "active");
+
+    const res = await handleCreateToken(
+      new Request("http://127.0.0.1:7830/auth/token", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${sourceJwt}`,
+          origin: "http://localhost:3000",
+        },
+      }),
+      makeLoopbackServer(),
+    );
+
+    expect(res.status).toBe(200);
+    const { token: derivedJwt } = (await res.json()) as { token: string };
+    const derivedRecord = getGatewayDb()
+      .select({ status: actorTokenRecords.status })
+      .from(actorTokenRecords)
+      .where(eq(actorTokenRecords.tokenHash, actorTokenRecordHash(derivedJwt)))
+      .get();
+
+    expect(derivedRecord?.status).toBe("derived");
+    expect(isActorTokenRevoked(derivedJwt, actorClaims)).toBe(false);
+
+    revokeActorTokensByDevice("guardian-001", hashToken("device-A"));
+
+    expect(isActorTokenRevoked(sourceJwt, actorClaims)).toBe(true);
+    expect(isActorTokenRevoked(derivedJwt, actorClaims)).toBe(true);
   });
 });
 

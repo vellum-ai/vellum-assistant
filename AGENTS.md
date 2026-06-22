@@ -4,10 +4,10 @@
 
 Bun + TypeScript monorepo with multiple packages:
 
-- `apps/` — End-user app surfaces. Currently hosts `apps/web/` (Vite + React Router v7 SPA, mid-migration from `vellum-assistant-platform/web/`), `apps/ios/` (Capacitor iOS shell that loads the web app in a WKWebView), and `apps/macos/` (Electron desktop shell that wraps `apps/web/`; daemon/gateway lifecycle is owned by the `vellum` CLI, which the app invokes as a subprocess; distribution and auto-update wiring still to come — note the CI workflow filenames are still `pr-electron.yaml` / `ci-main-electron.yaml` until the legacy Swift app's `ci-main-macos.yaml` retires). The Chrome extension at `clients/chrome-extension/` will also move here (as `apps/chrome-extension/`) in a follow-up PR; see [`apps/README.md`](apps/README.md) and [`apps/AGENTS.md`](apps/AGENTS.md).
+- `clients/` — End-user app surfaces: `clients/web/` (Vite + React Router v7 SPA), `clients/ios/` (Capacitor iOS shell that loads the web app in a WKWebView), and `clients/macos/` (Electron desktop shell that wraps `clients/web/`; daemon/gateway lifecycle is owned by the `vellum` CLI, which the app invokes as a subprocess; auto-update via `electron-updater`; CI workflows are `pr-macos.yaml` / `ci-main-macos.yaml`). See [`clients/README.md`](clients/README.md) and [`clients/AGENTS.md`](clients/AGENTS.md).
 - `assistant/` — Main backend service (Bun + TypeScript)
 - `cli/` — Multi-assistant management CLI (Bun + TypeScript). See `cli/AGENTS.md`.
-- `clients/` — Client apps (macOS, browser extension, etc). See `clients/AGENTS.md` and platform docs like `clients/macos/AGENTS.md`.
+- `clients/` — Chrome extension client. See `clients/chrome-extension/README.md`.
 - `gateway/` — Channel ingress gateway (Bun + TypeScript)
 - `packages/` — Shared internal packages (e.g. `service-contracts` for CES wire-protocol schemas)
 - `scripts/` — Utility scripts
@@ -23,7 +23,7 @@ Defend technical positions with evidence. Don't flip-flop to placate the user �
 ## Development
 
 - **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
-- **Imports**: Packages that compile to JS (`assistant/`, `gateway/`, `cli/`) use NodeNext module resolution with `.js` extensions on all imports. Bundler-only packages (`apps/web/`, `packages/design-library/`) use `moduleResolution: "Bundler"` and omit `.js` extensions.
+- **Imports**: Packages that compile to JS (`assistant/`, `gateway/`, `cli/`) use NodeNext module resolution with `.js` extensions on all imports. Bundler-only packages (`clients/web/`, `packages/design-library/`) use `moduleResolution: "Bundler"` and omit `.js` extensions.
 - **Package manager**: Use `bun install` for dependencies (each package has its own `bun.lock`).
 
 ```bash
@@ -61,9 +61,13 @@ We do **not** pin: `apt-get` packages (Debian rotates), `brew install` formulae 
 
 `dev-release.yaml` and `release.yml` share inline logic (e.g. "Compute migration ceilings"). When changing logic that lives in both, update both in the same PR.
 
+### Docker build cache
+
+Docker `cache-to: type=gha` must set `ignore-error=true`. The GHA cache is a build-speed optimization, not part of the artifact, so a cache-export failure (e.g. `error writing layer blob: not_found` from an evicted scope) must never fail the build-push step or gate a release. See [Docker cache backends](https://docs.docker.com/build/cache/backends/).
+
 ### iOS release
 
-The Capacitor iOS source-of-truth lives in [`apps/ios/`](./apps/ios/) and is built locally from `apps/web/` via `bun run ios:open`. See [`apps/ios/README.md`](./apps/ios/README.md) for the local build flow and full release pipeline mapping.
+The Capacitor iOS source-of-truth lives in [`clients/ios/`](./clients/ios/) and is built locally from `clients/web/` via `bun run ios:open`. See [`clients/ios/README.md`](./clients/ios/README.md) for the local build flow and full release pipeline mapping.
 
 TestFlight builds are produced by the `release-ios.yaml` reusable workflow in this repo. Both `dev-release.yaml` and `release.yml` call it as a same-repo `uses:` job with `{ environment, version }` inputs. The workflow runs on `macos-15`, installs web dependencies, runs `cap sync ios`, generates the Xcode project via XcodeGen, archives, signs, and uploads to TestFlight.
 
@@ -106,6 +110,17 @@ Proactively remove unused code during every change. Remove code your change make
 
 **Exception — migrations**: Database and data migration files must never be deleted, even when the tables or logic they create have moved elsewhere. Migrations run sequentially on existing installs and skipping an entry breaks the chain. When a migration's responsibility has moved (e.g. a table migrated to another database), keep the file in place and add a comment documenting where the logic now lives.
 
+## Code Comments
+
+**Comments describe the present; PRs describe the history.** Code comments should describe what the code *is* and *does* right now — never how it got there, what it replaced, or what changed in a PR. History and reasoning belong in PR descriptions and commit messages, which are the permanent record of *how we got here*.
+
+- Do NOT use temporal language: "now uses", "no longer", "was previously", "instead of the old approach", "after the refactor".
+- Do NOT describe the diff: "externalUserId is not consulted", "moved from X to Y", "fix for when Z happens".
+- DO describe the code in present tense: "identity is enforced via the (type, address) unique constraint".
+- If a comment only makes sense to someone reading the diff, move it to the PR description.
+
+Default to no comment — bias aggressively toward terseness and rely on good naming. Follow the commenting density of the surrounding code.
+
 ## Generic Examples
 
 Never include personal user data — real names, emails, phone numbers, account IDs, or other identifying details of specific people — anywhere in the codebase. This covers code, tests, fixtures, documentation, comments, commit messages, and AGENTS.md files. Always use generic placeholders:
@@ -127,10 +142,12 @@ We have real users — maintain backwards compatibility for all interfaces, pers
 
 | What changed | Migration type | Location |
 |---|---|---|
-| Workspace files (renames, moves, format changes under `~/.vellum/workspace/`) | Workspace migration | `assistant/src/workspace/migrations/` — append to `WORKSPACE_MIGRATIONS` in `registry.ts` |
+| Workspace files (renames, moves, format changes under `$VELLUM_WORKSPACE_DIR/`) | Workspace migration | `assistant/src/workspace/migrations/` — append to `WORKSPACE_MIGRATIONS` in `registry.ts` |
 | Database schema or data (columns, indexes, backfills) | DB migration | `assistant/src/memory/migrations/` — add function and register in `db-init.ts` |
 
 Migrations must be **idempotent** (safe to re-run if interrupted) and **append-only** (never reorder or remove existing entries). Test migrations — see `assistant/src/__tests__/workspace-migration-*.test.ts` and `assistant/src/__tests__/db-*.test.ts` for patterns. Flag breaking changes in PR descriptions. If a migration is infeasible, call it out explicitly for human review.
+
+DB migration steps registered in `db-init.ts` are checkpointed by function name in the shared `memory_checkpoints` ledger (under the `step:` namespace) and run at most once per database, so each step needs a stable, non-empty name. Add a new migration as its own entry in the list — every step is imported directly and listed individually so it is checkpointed on its own. Never hide a growing set of migrations behind a single stably-named wrapper function (or spread a shared array of them into the list under one import): once that name is checkpointed the whole group is skipped, so anything added to it later never runs. Crash recovery runs unconditionally inside `runMigrationSteps` before the step loop. Rolling a migration back (`rollbackMemoryMigration`) discards all `step:` checkpoints, so a later upgrade re-runs every step and restores any schema a `down()` reversed.
 
 ## Multi-Client Assistant State Sync
 
@@ -172,7 +189,7 @@ See `meta/feature-flags/AGENTS.md` for naming, registry, resolver, and the requi
 
 ## LLM Provider Abstraction
 
-All LLM calls must go through `getConfiguredProvider(callSite)` from `providers/provider-send-message.ts`. The `callSite: LLMCallSite` arg is required so the resolver picks the right per-call-site config. Shipped defaults live in `assistant/src/config/call-site-defaults.ts`. Merge precedence is documented at the `resolveCallSiteConfig` docstring in `assistant/src/config/llm-resolver.ts`; shorthand (low → high) is default → active profile → override profile → site profile → call-site override for non-main-agent call sites, and default → site profile → call-site override → active profile → override profile for `mainAgent` (active and override profiles float above the call-site override since they reflect the user's chat-model selection).
+All LLM calls must go through `getConfiguredProvider(callSite)` from `providers/provider-send-message.ts`. The `callSite: LLMCallSite` arg is required so the resolver picks the right per-call-site config. Shipped defaults live in `assistant/src/config/call-site-defaults.ts`. Merge precedence is documented at the `resolveCallSiteConfig` docstring in `assistant/src/config/llm-resolver.ts`; shorthand (low → high) is default → active profile → override profile → site profile → call-site override for non-main-agent call sites, and default → site profile → call-site override → active profile → override profile for `mainAgent` (active and override profiles float above the call-site override since they reflect the user's chat-model selection). Passing `forceOverrideProfile: true` to the resolver floats the override profile above the site profile and call-site override for non-main-agent call sites too — an explicit escape hatch for callers that must run a background call site under a specific conversation's inference profile (e.g. fork-based memory retrospectives matching the source conversation for prompt-cache reuse).
 
 Each LLM call site has a stable identifier (`LLMCallSite` from `assistant/src/config/schemas/llm.ts`). Pick the appropriate call-site ID for the request — the provider layer resolves provider/model/maxTokens/effort/thinking/contextWindow/etc. via `resolveCallSiteConfig` (in `assistant/src/config/llm-resolver.ts`). Non-main-agent call sites deep-merge five layers from highest to lowest precedence: (1) `llm.callSites.<id>` (call-site override), (2) `llm.profiles.<site.profile>` (the call-site's named profile, if any), (3) `llm.profiles.<overrideProfile>` (per-call ad-hoc override passed to the resolver), (4) `llm.profiles.<activeProfile>` (workspace-wide active profile), (5) `llm.default` (required base). `mainAgent` is the exception: the active profile and per-conversation override profile are the user's chat-model selection and therefore override static `llm.callSites.mainAgent` defaults. When `llm.callSites.<id>` is absent, the resolver falls back to shipped defaults from `assistant/src/config/call-site-defaults.ts`, which assign each call site to a profile (`balanced` or `cost-optimized`) with optional per-site tuning overrides. The shipped default's `profile` reference is silently stripped when the target profile isn't defined in `llm.profiles` (backward compat for BYOK setups), when the target profile has `status: "disabled"` (BYOK installs where managed profiles are disabled), or when `overrideProfile` is provided (per-call overrides must win). A missing `site.profile` reference in user config throws because it is statically referenced and validated by schema; missing `overrideProfile`/`activeProfile` references silently fall through because `overrideProfile` is a runtime parameter that cannot be schema-validated and `activeProfile` must degrade gracefully if pointed at a deleted profile mid-edit. Use provider-agnostic language in comments and logs ('LLM' not 'Haiku'/'Sonnet'). Route text generation through the daemon process — direct provider calls discard user context and preferences.
 
@@ -225,15 +242,15 @@ Docker instances use six per-service volumes enforcing least-privilege at the co
 - **Local mode**: Use the credential store (`assistant credentials`) or `GATEWAY_SECURITY_DIR` (resolved by `getGatewaySecurityDir()` in `gateway/src/paths.ts`) for sensitive data. Do **not** create new secrets in the daemon's `protected/` directory — that directory is being phased out; all new security-sensitive files belong in the gateway security dir or CES.
 - **Docker mode**: Sensitive files are isolated on dedicated security volumes that only the owning service can access. Trust rules (`trust.json`, `actor-token-signing-key`), capability-token secrets, and other gateway-owned security material live on the gateway security volume (`/gateway-security`). Credential keys (`keys.enc`, `store.key`) live on the CES security volume (`/ces-security`). The assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`), and the assistant accesses trust rules via the gateway's trust HTTP API. Neither the assistant nor the gateway has direct filesystem access to the other service's security volume.
 - **The daemon must never read from `GATEWAY_SECURITY_DIR`** or any gateway-owned directory. Any data the daemon needs from the gateway (e.g. capability token verification, feature flags, trust rules) must flow through IPC or HTTP APIs.
-- **Do not access the user's `~/.vellum` directory from client packages** (`clients/chrome-extension/`, `clients/macos/`). Clients should read configuration from their own package directory or from `GATEWAY_SECURITY_DIR`. Existing `~/.vellum` references in client code are legacy and should be removed.
+- **Do not access the user's `~/.vellum` directory from client packages** (`clients/chrome-extension/`). Clients should read configuration from their own package directory or from `GATEWAY_SECURITY_DIR`. Existing `~/.vellum` references in client code are legacy and should be removed.
 
-## Release Update Hygiene
+## Release Notes
 
-Release notes ship via an append-only workspace migration that writes to `<workspace>/UPDATES.md`. See `assistant/src/workspace/migrations/AGENTS.md` for the idempotency contract (in-file marker required — runner alone doesn't close mid-migration crash windows).
+There is currently **no release-note surfacing mechanism**. The update-bulletin feature (workspace migrations appending to `<workspace>/UPDATES.md`, processed by a background conversation at daemon startup) was removed — it ran an LLM conversation on container start before the user did anything. Do not add new `0XX-release-notes-*` workspace migrations; the guard test `workspace-release-notes-feature-flag-guard.test.ts` freezes the historical set. If a release needs user-facing notes, design an explicit surfacing mechanism first (and make it on-demand, not boot-triggered).
 
-- **Skip flag-gated features.** `UPDATES.md` is processed without checking the underlying flag, so notes for disabled features leak into user prompts. Guard test `workspace-release-notes-feature-flag-guard.test.ts` blocks new migrations that mention flag/rollout launch language or default-disabled flag keys.
-- **To ship**: add `assistant/src/workspace/migrations/0XX-release-notes-<slug>.ts`, append the export to `WORKSPACE_MIGRATIONS` in `registry.ts`, and embed an HTML marker (`<!-- release-note-id:<id> -->`) in the appended block; short-circuit the append if the marker is already present. Skip the migration entirely for no-op releases.
-- **Processing**: `runUpdateBulletinJobIfNeeded()` wakes a background conversation to process `UPDATES.md` and delete it. Hash-keyed short-circuit on `updates:last_processed_hash` makes startup runs safe.
+## No LLM Work at Daemon Startup
+
+The daemon must not invoke LLM providers at startup or on unconditional timers — boot-time generation costs the user money before they have asked for anything. Generated content that clients display (home greeting, suggested prompts, conversation starters, identity intro) is produced on demand: GET handlers serve cached content and trigger a bounded, single-flight, TTL-gated background refresh only when a client actually fetches (see the GET-idempotency exceptions in `assistant/src/runtime/AGENTS.md`). User-facing scheduled work (heartbeat, user-created schedules) is exempt — it is explicit, user-visible, and user-disableable.
 
 ## Companion Repos
 
@@ -247,7 +264,7 @@ When making changes that could affect the cloud platform, review the sibling `..
 
 ## Build Environment (`VELLUM_ENVIRONMENT`)
 
-`VELLUM_ENVIRONMENT` identifies the runtime environment for all clients (macOS, CLI, Chrome extension). It's embedded into the app bundle at build time by each platform's `build.sh`, or injected via `--define` for the Chrome-ext bundler. CI/devs can override by exporting it before invoking `build.sh`; per-client default-resolution logic lives in each client's `build.sh`.
+`VELLUM_ENVIRONMENT` identifies the runtime environment for all clients (Electron macOS app, CLI, Chrome extension). It's embedded at build time by each platform's build tooling, or injected via `--define` for the Chrome-ext bundler. CI/devs can override by exporting it before building; per-client default-resolution logic lives in each client's build script.
 
 | Value | Use cases |
 |---|---|
@@ -264,7 +281,25 @@ When making changes that could affect the cloud platform, review the sibling `..
 
 ## Sentry & Linear Integration
 
-Error reporting uses Sentry. Two projects exist: one for the daemon/runtime (Node) and one for the macOS app (Swift). DSNs are configured via environment variables (`SENTRY_DSN_ASSISTANT`, `SENTRY_DSN_MACOS`) — see `.env.example`.
+Error reporting uses Sentry. The daemon/runtime (Node) project's DSN is configured via the `SENTRY_DSN_ASSISTANT` environment variable — see `.env.example`.
+
+### Sentry projects & DSNs
+
+Surfaces map onto Sentry projects as below. The Electron renderer reports to the macOS project, sharing the `SENTRY_DSN_MACOS` secret with the main process. Per-host flavor + DSN selection in the shared clients/web bundle is live: `flavor.ts` `selectSentryFlavor()` picks the capacitor flavor on native iOS and the react flavor everywhere else (web + Electron renderer); `sentry-init.ts` `resolveDsn()` picks `VITE_SENTRY_DSN_MACOS` (Electron) / `VITE_SENTRY_DSN_IOS` (iOS) / `VITE_SENTRY_DSN` (web). All flavors share one `options` object (ignoreErrors, denyUrls, beforeBreadcrumb URL sanitize, enhanceFetchErrorMessages, attachStacktrace) so PII/noise filtering is uniform. An empty DSN no-ops.
+
+| Surface | Project | DSN source | Delivered via |
+| --- | --- | --- | --- |
+| Web SPA | `vellum-assistant-web` | `VITE_SENTRY_DSN` (vars) | web build |
+| Electron main | `vellum-assistant-macos` | `SENTRY_DSN_MACOS` (secret) → `__SENTRY_DSN_MACOS__` | macOS build define |
+| Electron renderer | `vellum-assistant-macos` | `SENTRY_DSN_MACOS` (secret) → `VITE_SENTRY_DSN_MACOS` | macOS build |
+| iOS webview + native | `vellum-assistant-ios` | `SENTRY_DSN_IOS` (secret) → `VITE_SENTRY_DSN_IOS` | web-SPA build (loaded at runtime on iOS) |
+| Assistant daemon | (unchanged) | `SENTRY_DSN_ASSISTANT` | runtime env |
+
+The iOS DSN is baked into the deployed web SPA bundle rather than the iOS build, because the iOS app runs the deployed SPA via `server.url` (see `clients/web/capacitor.config.ts`) and bundles no web assets at `cap sync`.
+
+The Electron renderer uses `@sentry/react` (not `@sentry/electron/renderer`): `@sentry/electron` pins `@sentry/core` 10.50 while `@sentry/capacitor` pins `@sentry/react`/`@sentry/browser` 10.52, and Sentry's current-client carrier is version-specific, so an `@sentry/electron/renderer` client couldn't see `@sentry/react` captures. Renderer native crashes still reach `vellum-assistant-macos` via `@sentry/electron/main` (separate process).
+
+**Version pins**: `@sentry/react`/`@sentry/browser` are pinned to 10.52.0 to satisfy `@sentry/capacitor`'s exact peer; `@sentry/electron` (Electron main process only) is on its own 10.50 line. Bumping any one requires checking the others.
 
 **Sentry CLI**: Use the newer `sentry` CLI (not the legacy `sentry-cli`). Install from `https://cli.sentry.dev/install`. Authenticate with `sentry auth login`.
 

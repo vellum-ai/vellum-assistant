@@ -38,7 +38,7 @@ runs:
 
         # Normalize the input into a deduped list of repo-root-relative dirs,
         # validating each exists and is a package.
-        declare -A listed=()
+        _listed=""
         normalized=()
         for raw in ${PACKAGES_INPUT}; do
           [ -n "${raw}" ] || continue
@@ -51,8 +51,8 @@ runs:
             echo "::error::install-shared-packages: no package.json in '${rel}'"
             exit 1
           fi
-          if [ -z "${listed[${rel}]:-}" ]; then
-            listed[${rel}]=1
+          if ! echo "${_listed}" | grep -qxF "${rel}"; then
+            _listed="${_listed}${rel}"$'\n'
             normalized+=("${rel}")
           fi
         done
@@ -74,25 +74,24 @@ runs:
         for rel in "${normalized[@]}"; do
           case "${rel}" in packages/*) ;; *) continue ;; esac
           queue=("${rel}")
-          declare -A walked=()
+          _walked=""
           while [ "${#queue[@]}" -gt 0 ]; do
             cur="${queue[0]}"
             queue=("${queue[@]:1}")
-            [ -z "${walked[${cur}]:-}" ] || continue
-            walked[${cur}]=1
+            echo "${_walked}" | grep -qxF "${cur}" && continue
+            _walked="${_walked}${cur}"$'\n'
             while IFS= read -r dep; do
               [ -n "${dep}" ] || continue
               depabs="$(cd "${ws}/${cur}/${dep}" 2>/dev/null && pwd)" || continue
               deprel="${depabs#"${ws}/"}"
               case "${deprel}" in packages/*) ;; *) continue ;; esac
-              if [ -z "${listed[${deprel}]:-}" ]; then
+              if ! echo "${_listed}" | grep -qxF "${deprel}"; then
                 echo "::error::install-shared-packages: '${cur}' depends on '${deprel}' via a file: dependency, but it is not in the packages list. Add it so its dependencies resolve in CI."
                 missing=1
               fi
               queue+=("${deprel}")
             done < <(file_deps "${cur}")
           done
-          unset walked
         done
         [ "${missing}" -eq 0 ] || exit 1
 

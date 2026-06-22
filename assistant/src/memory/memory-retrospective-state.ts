@@ -10,6 +10,13 @@
 //     per-conversation cooldown gate in the trigger-check helper so failing
 //     jobs can't loop in tight retries across trigger types.
 //
+// A third column rides along with the success-path pointer write:
+//   - `rememberedLog` (JSON array of strings) — the cumulative `remember`
+//     contents saved across retrospective passes. The job's
+//     `<already_remembered>` dedup block reads from this log so dedup context
+//     survives GC of superseded retrospective conversations and spans more
+//     than the last pass. Capped — see `appendToRememberedLog`.
+//
 // The schema enforces the foreign key with ON DELETE CASCADE, so deleting a
 // conversation collects its state row automatically.
 
@@ -22,6 +29,59 @@ export interface MemoryRetrospectiveState {
   conversationId: string;
   lastProcessedMessageId: string;
   lastRunAt: number;
+  /**
+   * Cumulative `remember` contents from prior retrospective passes, oldest
+   * first. Empty for rows that predate the `remembered_log` column or have
+   * no saves yet — callers fall back to scanning the prior retrospective
+   * conversation in that case.
+   */
+  rememberedLog: string[];
+}
+
+/**
+ * Cap for the persisted remembered log: keep the most recent entries up to
+ * 100 entries or 8 KB serialized, whichever binds first. The log is injected
+ * verbatim into every retrospective prompt, so the byte cap bounds prompt
+ * growth; the entry cap bounds list length for pathological tiny entries.
+ */
+export const REMEMBERED_LOG_MAX_ENTRIES = 100;
+export const REMEMBERED_LOG_MAX_BYTES = 8 * 1024;
+
+/**
+ * Append new entries to the remembered log and apply the cap, dropping the
+ * OLDEST entries first. A single entry larger than the byte cap is dropped
+ * entirely rather than truncated mid-string.
+ */
+export function appendToRememberedLog(
+  existing: string[],
+  newEntries: string[],
+): string[] {
+  const combined = [...existing, ...newEntries];
+  let result = combined.slice(
+    Math.max(0, combined.length - REMEMBERED_LOG_MAX_ENTRIES),
+  );
+  while (
+    result.length > 0 &&
+    Buffer.byteLength(JSON.stringify(result), "utf8") > REMEMBERED_LOG_MAX_BYTES
+  ) {
+    result = result.slice(1);
+  }
+  return result;
+}
+
+function parseRememberedLog(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry): entry is string => typeof entry === "string");
+  } catch {
+    return [];
+  }
+}
+
+function serializeRememberedLog(log: string[]): string | null {
+  return log.length === 0 ? null : JSON.stringify(log);
 }
 
 /**
@@ -40,25 +100,43 @@ export function getRetrospectiveState(
     conversationId: row.conversationId,
     lastProcessedMessageId: row.lastProcessedMessageId,
     lastRunAt: row.lastRunAt,
+    rememberedLog: parseRememberedLog(row.rememberedLog),
   };
 }
 
 /**
  * Upsert both pointers atomically. Used on successful retrospective runs.
+ *
+ * `rememberedLog`, when provided, is written in the same statement so the
+ * cumulative dedup log can never drift from the pointer it was computed
+ * against. When omitted, the stored log is left untouched (and seeded NULL on
+ * first insert).
  */
-export function upsertRetrospectiveState(args: MemoryRetrospectiveState): void {
+export function upsertRetrospectiveState(
+  args: Omit<MemoryRetrospectiveState, "rememberedLog"> & {
+    rememberedLog?: string[];
+  },
+): void {
   const db = getDb();
+  const serializedLog =
+    args.rememberedLog === undefined
+      ? undefined
+      : serializeRememberedLog(args.rememberedLog);
   db.insert(memoryRetrospectiveState)
     .values({
       conversationId: args.conversationId,
       lastProcessedMessageId: args.lastProcessedMessageId,
       lastRunAt: args.lastRunAt,
+      rememberedLog: serializedLog ?? null,
     })
     .onConflictDoUpdate({
       target: memoryRetrospectiveState.conversationId,
       set: {
         lastProcessedMessageId: args.lastProcessedMessageId,
         lastRunAt: args.lastRunAt,
+        ...(serializedLog !== undefined
+          ? { rememberedLog: serializedLog }
+          : {}),
       },
     })
     .run();
@@ -83,6 +161,8 @@ export function upsertRetrospectiveState(args: MemoryRetrospectiveState): void {
  *     wait for new post-fork messages before its first retro fires.
  *
  * `lastRunAt` is copied verbatim — the cooldown gate inherits from source.
+ * `rememberedLog` is copied verbatim — the parent's saves remain the child's
+ * dedup baseline.
  */
 export function forkRetrospectiveState(args: {
   database: DrizzleDb;
@@ -125,12 +205,14 @@ export function forkRetrospectiveState(args: {
       conversationId: forkedConversationId,
       lastProcessedMessageId: forkedPointer,
       lastRunAt: sourceRow.lastRunAt,
+      rememberedLog: sourceRow.rememberedLog,
     })
     .onConflictDoUpdate({
       target: memoryRetrospectiveState.conversationId,
       set: {
         lastProcessedMessageId: forkedPointer,
         lastRunAt: sourceRow.lastRunAt,
+        rememberedLog: sourceRow.rememberedLog,
       },
     })
     .run();
@@ -141,7 +223,8 @@ export function forkRetrospectiveState(args: {
  * applies to subsequent trigger-driven enqueues. If no row exists yet (first
  * attempt failed), seed `lastProcessedMessageId` to the empty string — a
  * sentinel meaning "nothing successfully processed yet" that subsequent
- * `getMessagesSince(...)` queries treat the same as a missing row.
+ * `getMessagesSince(...)` queries treat the same as a missing row. An
+ * existing row's `rememberedLog` is left untouched.
  */
 export function bumpRetrospectiveLastRunAt(
   conversationId: string,

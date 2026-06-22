@@ -142,10 +142,9 @@ afterAll(() => {
 // Imports are deferred to after the env var is set so any internal use of
 // `getWorkspaceDir()` resolves to the tmpdir.
 const { DEFAULT_CONFIG } = await import("../../../config/defaults.js");
-const { getDb } = await import("../../db-connection.js");
-const { resetDbForTesting } = await import(
-  "../../../__tests__/db-test-helpers.js"
-);
+const { getDb, getMemoryDb } = await import("../../db-connection.js");
+const { resetDbForTesting } =
+  await import("../../../__tests__/db-test-helpers.js");
 const { initializeDb } = await import("../../db-init.js");
 const { memoryEmbeddings, memoryJobs } = await import("../../schema.js");
 const { claimMemoryJobs } = await import("../../jobs-store.js");
@@ -185,14 +184,16 @@ function makeJob(payload: Record<string, unknown>): MemoryJob {
   };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   resetDbForTesting();
-  initializeDb();
+  // The first run pays the full cold-start migration chain; bump the hook
+  // timeout above bun's 5s default so the leading test doesn't flake in CI.
+  await initializeDb();
   embedWithBackendCalls.length = 0;
   upsertCalls.length = 0;
   deleteCalls.length = 0;
   _resetQdrantBreaker();
-});
+}, 30_000);
 
 afterEach(() => {
   // Clean up any pages written between tests so each scenario starts fresh.
@@ -546,7 +547,7 @@ describe("enqueueEmbedConceptPageJob", () => {
   test("inserted job row carries the right type and slug payload", () => {
     const id = enqueueEmbedConceptPageJob({ slug: "row-check" });
 
-    const row = getDb()
+    const row = getMemoryDb()!
       .select()
       .from(memoryJobs)
       .all()

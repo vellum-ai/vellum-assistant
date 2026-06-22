@@ -79,7 +79,7 @@ export function registerChannelVerificationSessionsCommand(
         "after",
         `
 Verification sessions are used to verify guardian bindings and trusted
-contacts across channels (telegram, phone, slack). Three flows exist:
+contacts across channels (telegram, phone, slack, email). Three flows exist:
 
   1. Inbound challenge — the assistant generates a secret code and waits
      for the guardian to send it back on the channel. Used when the
@@ -107,10 +107,10 @@ Examples:
       cvs
         .command("create")
         .description("Create a new verification session")
-        .option("--channel <channel>", "Channel type (telegram, phone, slack)")
+        .option("--channel <channel>", "Channel type (telegram, phone, slack, email)")
         .option(
           "--destination <destination>",
-          "Destination address for outbound verification (handle, phone number, or user ID)",
+          "Destination address for outbound verification (handle, phone number, user ID, or email address)",
         )
         .option("--rebind", "Replace existing guardian binding")
         .option(
@@ -140,7 +140,7 @@ Routes between three creation modes based on the provided options:
 
   2. Outbound: --channel <ch> --destination <dest>
      Sends a verification code to the given destination. Supports telegram
-     (handle or chat ID), phone (E.164 number), and slack (user ID).
+     (handle or chat ID), phone (E.164 number), slack (user ID), and email.
      Use --rebind to replace an existing guardian binding.
 
   3. Inbound: --channel <ch> (no --destination)
@@ -240,7 +240,7 @@ Examples:
         )
         .requiredOption(
           "--channel <channel>",
-          "Channel type (telegram, phone, slack)",
+          "Channel type (telegram, phone, slack, email)",
         )
         .option(
           "--origin-conversation-id <id>",
@@ -290,7 +290,7 @@ Examples:
         .description("Cancel all active verification sessions for a channel")
         .requiredOption(
           "--channel <channel>",
-          "Channel type (telegram, phone, slack)",
+          "Channel type (telegram, phone, slack, email)",
         )
         .addHelpText(
           "after",

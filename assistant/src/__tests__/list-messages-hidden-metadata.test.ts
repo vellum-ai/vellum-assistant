@@ -33,10 +33,14 @@ import {
 } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import {
+  MEMORY_RETROSPECTIVE_FORK_SOURCE,
+  MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
+} from "../memory/memory-retrospective-constants.js";
 import { messages } from "../memory/schema.js";
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables() {
   const db = getDb();
@@ -94,6 +98,44 @@ describe("handleListMessages metadata.hidden filtering", () => {
     const llmRows = getMessages(conv.id);
     expect(llmRows).toHaveLength(3);
     expect(llmRows[1].metadata).toContain('"hidden":true');
+  });
+
+  test("UI serializer omits system rows but LLM-side getMessages includes them", async () => {
+    // GIVEN a conversation with a system row sandwiched between two
+    // renderable turns (e.g. a skill-authored context message)
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([{ type: "text", text: "first visible" }]),
+    );
+    await addMessage(
+      conv.id,
+      "system",
+      JSON.stringify([{ type: "text", text: "system scaffolding" }]),
+    );
+    await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "second visible" }]),
+    );
+
+    // WHEN the UI history list is serialized
+    const response = handleListMessages({
+      queryParams: { conversationId: conv.id },
+    });
+    const body = response as { messages: MessagePayload[] };
+
+    // THEN only the user/assistant turns are returned, never the system row
+    expect(body.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(
+      body.messages.some((m) => plainText(m).includes("system scaffolding")),
+    ).toBe(false);
+
+    // AND the LLM-side loader still includes the system row for agent context
+    const llmRows = getMessages(conv.id);
+    expect(llmRows).toHaveLength(3);
+    expect(llmRows[1].role).toBe("system");
   });
 
   test("messages without metadata or with hidden=false are returned", async () => {
@@ -295,5 +337,100 @@ describe("handleListMessages metadata.hidden filtering", () => {
     ]);
     expect(latest.hasMore).toBe(false);
     expect(latest.oldestTimestamp).not.toBeNull();
+  });
+
+  test("fork retrospective conversations expose the hidden instruction and keep the review as its own turn", async () => {
+    const conv = createConversation({
+      source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    });
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([{ type: "text", text: "source question" }]),
+    );
+    await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "source answer" }]),
+    );
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([
+        { type: "text", text: "background memory pass instruction" },
+      ]),
+      {
+        metadata: { kind: MEMORY_RETROSPECTIVE_INSTRUCTION_KIND, hidden: true },
+      },
+    );
+    await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "retrospective review" }]),
+    );
+
+    const response = handleListMessages({
+      queryParams: { conversationId: conv.id },
+    });
+    const body = response as { messages: MessagePayload[] };
+
+    // The hidden instruction is shown, and because it sits between the two
+    // assistant rows they do NOT merge — the review stands as its own turn.
+    expect(body.messages.map((m) => m.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
+    expect(plainText(body.messages[1])).toBe("source answer");
+    expect(plainText(body.messages[2])).toContain(
+      "background memory pass instruction",
+    );
+    expect(plainText(body.messages[3])).toBe("retrospective review");
+  });
+
+  test("non-fork conversations still hide the retrospective instruction (relaxation is fork-scoped)", async () => {
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([{ type: "text", text: "source question" }]),
+    );
+    await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "source answer" }]),
+    );
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([
+        { type: "text", text: "background memory pass instruction" },
+      ]),
+      {
+        metadata: { kind: MEMORY_RETROSPECTIVE_INSTRUCTION_KIND, hidden: true },
+      },
+    );
+    await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "retrospective review" }]),
+    );
+
+    const response = handleListMessages({
+      queryParams: { conversationId: conv.id },
+    });
+    const body = response as { messages: MessagePayload[] };
+
+    // Instruction stays hidden for non-retrospective conversations; the review
+    // (a normal assistant message) is still returned.
+    expect(
+      body.messages.some((m) =>
+        plainText(m).includes("background memory pass instruction"),
+      ),
+    ).toBe(false);
+    expect(
+      body.messages.some((m) => plainText(m).includes("retrospective review")),
+    ).toBe(true);
   });
 });

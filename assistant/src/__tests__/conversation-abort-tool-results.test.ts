@@ -13,11 +13,6 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
-mock.module("../memory/guardian-action-store.js", () => ({
-  getGuardianActionRequest: () => null,
-  resolveGuardianActionRequest: () => {},
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},
@@ -108,8 +103,13 @@ mock.module("../workspace/git-service.js", () => ({
   }),
 }));
 
-// Track all messages persisted to DB
+// Track all messages persisted to DB via addMessage (single-shot writes).
 let persistedMessages: Array<{ role: string; content: string }> = [];
+// Track the latest content written into each reserved row (reserve + update
+// pattern). Tool results persist on arrival and finalize at the loop boundary
+// through this path, so the final value per row id is what lands in the DB.
+let reservedRowContent: Map<string, string> = new Map();
+let reserveCounter = 0;
 
 mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
@@ -139,8 +139,10 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateConversationTitle: () => {},
   getMessageById: () => null,
   getLastUserTimestampBefore: () => 0,
-  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
-  updateMessageContent: mock(() => {}),
+  reserveMessage: mock(async () => ({ id: `msg-reserve-${++reserveCounter}` })),
+  updateMessageContent: mock((id: string, content: string) => {
+    reservedRowContent.set(id, content);
+  }),
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
@@ -160,15 +162,23 @@ mock.module("../memory/retriever.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
-mock.module("../context/window-manager.js", () => ({
+mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
+    estimateInputTokens() {
+      return 0;
+    }
+    get tokenCountInputs() {
+      return { systemPrompt: "", tools: undefined };
+    }
     constructor() {}
+    updateConfig() {}
     shouldCompact() {
       return { needed: false, estimatedTokens: 0 };
     }
     async maybeCompact() {
       return { compacted: false };
     }
+    resetOverflowRecovery() {}
   },
   createContextSummaryMessage: () => ({
     role: "user",
@@ -191,10 +201,11 @@ mock.module("../agent/loop.js", () => ({
     getActiveModel() {
       return undefined;
     }
-    async run(
-      messages: Message[],
-      onEvent: (event: AgentEvent) => void,
-    ): Promise<AgentLoopRunResult> {
+    async run(options: {
+      messages: Message[];
+      onEvent: (event: AgentEvent) => void;
+    }): Promise<AgentLoopRunResult> {
+      const { messages, onEvent } = options;
       // Prime the assistant row anchor — production code emits this from
       // `AgentLoop.run` just before `provider.sendMessage`.
       await onEvent({ type: "llm_call_started" });
@@ -264,7 +275,6 @@ mock.module("../agent/loop.js", () => ({
       return {
         history,
         exitReason: null,
-        appendedNewMessages: true,
         newMessages: history.slice(messages.length),
       };
     }
@@ -317,6 +327,8 @@ function makeConversation(): Conversation {
 describe("abort tool result persistence", () => {
   test("abort after first of multiple tool calls still persists all required tool_result blocks", async () => {
     persistedMessages = [];
+    reservedRowContent = new Map();
+    reserveCounter = 0;
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
@@ -325,19 +337,26 @@ describe("abort tool result persistence", () => {
       attachments: [],
     });
 
-    // Find user messages in persisted data that contain tool_result
-    const toolResultUserMessages = persistedMessages.filter((m) => {
-      if (m.role !== "user") return false;
-      try {
-        const content = JSON.parse(m.content);
-        return (
-          Array.isArray(content) &&
-          content.some((b: Record<string, unknown>) => b.type === "tool_result")
-        );
-      } catch {
-        return false;
-      }
-    });
+    // Find persisted rows whose final content contains tool_result blocks.
+    // Tool results persist on arrival into one grouped row and finalize at the
+    // abort/loop boundary; the latest content per reserved row id is what lands
+    // in the DB, so one entry per row models the persisted state (a second
+    // entry would mean the batch was wrongly split across rows).
+    const toolResultUserMessages = Array.from(reservedRowContent.values())
+      .map((content) => ({ content }))
+      .filter((m) => {
+        try {
+          const content = JSON.parse(m.content);
+          return (
+            Array.isArray(content) &&
+            content.some(
+              (b: Record<string, unknown>) => b.type === "tool_result",
+            )
+          );
+        } catch {
+          return false;
+        }
+      });
 
     // There should be at least one persisted user message with tool_results
     expect(toolResultUserMessages.length).toBeGreaterThanOrEqual(1);

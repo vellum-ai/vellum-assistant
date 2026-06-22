@@ -4,7 +4,7 @@ import {
   clearConversations,
   findConversation,
   setConversation,
-} from "../daemon/conversation-store.js";
+} from "../daemon/conversation-registry.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Message } from "../providers/types.js";
 import { SubagentManager } from "../subagent/manager.js";

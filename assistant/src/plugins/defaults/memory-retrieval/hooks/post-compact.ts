@@ -2,68 +2,115 @@
  * Default `memoryRetrieval` post-compaction hook.
  *
  * After the agent loop compacts a conversation mid-turn it must re-apply the
- * runtime injections compaction stripped — the NOW.md scratchpad, PKB context,
- * memory-v2 static block, workspace top-level context, and Slack chronological
- * snapshot — onto the compacted history before the turn continues. This hook
- * is the memory system's home for that transform: it receives the message
- * history plus the resolved runtime-injection options and returns the edited
- * history (and the blocks it captured), with no dependency on the agent loop's
- * closure state.
+ * runtime injections — the NOW.md scratchpad, PKB context, memory-v2 static
+ * block, workspace top-level context, Slack chronological snapshot, and the
+ * per-turn context blocks — onto the continuation history before the turn
+ * continues. This hook is the memory system's home for that transform: it
+ * clears any per-turn injection blocks the base already carries on its tail
+ * ({@link stripTailInjectionsForReinjection}) so re-injection is idempotent,
+ * re-applies the injections via {@link applyRuntimeInjections}, writes the
+ * edited history back onto the context, and re-tracks the memory graph's cached
+ * nodes against the re-injected history. The injection blocks the transform
+ * captures are not needed by the re-injection caller, so only the messages
+ * propagate.
  *
- * It re-applies the runtime injections via {@link applyRuntimeInjections},
- * re-tracks the memory graph's cached nodes against the re-injected history,
- * and converts now-historical `web_search_tool_result` blocks to text so their
- * expired `encrypted_content` tokens are not replayed. The remaining
- * orchestrator-side step (the post-injection bookkeeping the loop records) is
- * expected to migrate here as the hook subsumes the loop's re-injection
- * ceremony.
+ * The base the loop hands in is the full injected history (the loop does not
+ * pre-strip it), so the tail strip is what keeps injection idempotency a
+ * property of the injection machinery rather than of the agent loop.
+ *
+ * Every per-turn input the live conversation can supply is self-resolved from
+ * it (looked up by id) rather than threaded in by the loop:
+ * - The trust snapshot comes from the conversation's turn-start trust snapshot
+ *   ({@link Conversation.currentTurnTrustContext}), and the inbound actor
+ *   context from the turn-start actor snapshot
+ *   ({@link Conversation.currentTurnInboundActorContext}) — both frozen at turn
+ *   start, not read live. Post-compaction runs mid-turn in a later tool
+ *   iteration, where the live trust can be overwritten by a concurrent
+ *   request's actor and the contact/member registry the actor context derives
+ *   from can be mutated by contact tools; reading the frozen snapshots re-emits
+ *   the values the turn's initial assembly resolved.
+ * - The memory graph handle comes from the plugin's own conversation-keyed
+ *   registry ({@link getLiveGraphMemory}).
+ * - The call site and transcript inputs self-resolve inside
+ *   {@link applyRuntimeInjections}.
+ *
+ * The loop supplies only the irreducible turn-identity fields on the public
+ * {@link PostCompactContext}.
  */
 
+import type { PluginHookFn, PostCompactContext } from "@vellumai/plugin-api";
+
+import { getConfig } from "../../../../config/loader.js";
+import { findConversationOrSubagent } from "../../../../daemon/conversation-registry.js";
 import {
   applyRuntimeInjections,
-  type RuntimeInjectionOptions,
-  type RuntimeInjectionResult,
+  resolveTurnModelProfileLabel,
 } from "../../../../daemon/conversation-runtime-assembly.js";
-import { stripHistoricalWebSearchResults } from "../../../../daemon/web-search-history.js";
-import type { ConversationGraphMemory } from "../../../../memory/graph/conversation-graph-memory.js";
-import type { PluginLogger } from "../../../../plugin-api/types.js";
-import type { Message } from "../../../../providers/types.js";
+import {
+  FALLBACK_TURN_TRUST,
+  resolveTrustClass,
+} from "../../../../daemon/trust-context.js";
+import { getLiveGraphMemory } from "../../../../memory/graph/conversation-graph-memory.js";
+import { stripTailInjectionsForReinjection } from "../tail-reinjection-strip.js";
 
-/**
- * Everything the hook needs in a single context: the resolved
- * {@link RuntimeInjectionOptions} (spread top-level so each field stays
- * individually addressable), the history to re-inject onto, and the
- * conversation-scoped state the options bag cannot carry (graph handle,
- * actor trust, and a turn-scoped logger).
- */
-export interface PostCompactContext extends RuntimeInjectionOptions {
-  /** Compacted message history to re-inject onto. */
-  history: Message[];
-  /** Per-conversation memory graph handle. */
-  graphMemory: ConversationGraphMemory;
-  /** True when the actor for this turn is trusted (guardian-class). */
-  isTrustedActor: boolean;
-  /** Turn-scoped logger for diagnostics emitted while re-injecting. */
-  logger: PluginLogger;
-}
-
-export default async function postCompactReinject(
-  ctx: PostCompactContext,
-): Promise<RuntimeInjectionResult> {
-  const { history, graphMemory, isTrustedActor, logger, ...options } = ctx;
-  const result = await applyRuntimeInjections(history, options);
+const postCompact: PluginHookFn<PostCompactContext> = async (ctx) => {
+  const {
+    history,
+    requestId,
+    conversationId,
+    isNonInteractive,
+    modelProfileKey,
+    injectionMode,
+  } = ctx;
+  const mode = injectionMode ?? "full";
+  const config = getConfig();
+  const conversation = findConversationOrSubagent(conversationId);
+  // Trust and the inbound actor context are read from the conversation's
+  // turn-start snapshots rather than live state: post-compaction runs mid-turn
+  // in a later tool iteration, where the live trust can be overwritten by a
+  // concurrent request's actor and the contact/member registry the actor
+  // context derives from can be mutated by contact tools. The snapshots are the
+  // values the turn's initial assembly resolved.
+  const trust =
+    conversation?.currentTurnTrustContext ??
+    conversation?.trustContext ??
+    FALLBACK_TURN_TRUST;
+  const actorContext = conversation?.currentTurnInboundActorContext ?? null;
+  // Render the `model_profile:` label from the turn's resolved profile key,
+  // using the call site self-resolved from the live conversation — the same
+  // derivation the first-call user-prompt-submit assembly uses.
+  const modelProfile = resolveTurnModelProfileLabel(
+    modelProfileKey,
+    conversation?.currentCallSite ?? "mainAgent",
+    config.llm,
+    conversationId,
+  );
+  // Clear any per-turn injection blocks the base already carries on its tail
+  // before re-injecting, so the continuation history holds a single copy of
+  // each block rather than double-stacking on the injected base the loop hands
+  // in.
+  const strippedHistory = stripTailInjectionsForReinjection(history);
+  const result = await applyRuntimeInjections(strippedHistory, {
+    isNonInteractive,
+    modelProfile,
+    actorContext,
+    mode,
+    requestId,
+    conversationId,
+    trust,
+  });
+  // Write the re-injected history back onto the threaded context; the loop
+  // reads it from there once the hook settles.
+  ctx.history = result.messages;
   // Re-track the nodes the memory graph last injected so they survive against
-  // the re-injected history. Untrusted actors and minimal-mode turns never
-  // received a memory-graph injection, so there is nothing to re-track.
-  if (isTrustedActor && options.mode !== "minimal") {
-    graphMemory.retrackCachedNodes();
+  // the re-injected history. Untrusted actors never received a memory-graph
+  // injection, so there is nothing to re-track. The live graph handle is looked
+  // up from the plugin's own registry by the turn's conversation id — the same
+  // instance the turn's retrieval mutated.
+  const isTrustedActor = resolveTrustClass(trust) === "guardian";
+  if (isTrustedActor) {
+    getLiveGraphMemory(conversationId)?.retrackCachedNodes();
   }
-  const strip = stripHistoricalWebSearchResults(result.messages);
-  if (strip.stats.blocksStripped > 0) {
-    logger.info(
-      { phase: "mid-loop-compact", ...strip.stats },
-      "Converted historical web_search_tool_result blocks to text summaries",
-    );
-  }
-  return { ...result, messages: strip.messages };
-}
+};
+
+export default postCompact;

@@ -6,6 +6,7 @@ metadata:
   emoji: "📨"
   vellum:
     display-name: "Followups"
+    category: "messaging"
 ---
 
 Track messages sent on external channels (email, Slack, WhatsApp, etc.) that are awaiting a response.

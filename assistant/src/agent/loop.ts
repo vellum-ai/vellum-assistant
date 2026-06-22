@@ -1,27 +1,34 @@
 import * as Sentry from "@sentry/node";
 
+import { getConfig } from "../config/loader.js";
+import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { stripInjectionsForCompaction } from "../context/strip-injections.js";
+import { recordEstimate } from "../context/estimator-calibration.js";
 import {
   estimatePromptTokensRaw,
   estimatePromptTokensWithTools,
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
-import type { ContextWindowResult } from "../context/window-manager.js";
+import { spoolAndStubOversizedToolResults } from "../context/tool-result-spool.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
+import { parseActualTokensFromError } from "../daemon/parse-actual-tokens-from-error.js";
+import type { TrustContext } from "../daemon/trust-context.js";
+import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
 import { HOOKS } from "../plugin-api/constants.js";
-import type { PostToolUseContext, StopContext } from "../plugin-api/types.js";
-import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
-import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
-import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
-  CompactionArgs,
-  CompactionCircuitEvent,
-  CompactionResult,
-  TurnContext,
-} from "../plugins/types.js";
-import { PluginTimeoutError } from "../plugins/types.js";
+  AgentLoopExitReason,
+  PostCompactContext,
+  PostModelCallContext,
+  PostModelCallDecision,
+  PostToolUseContext,
+  PreModelCallContext,
+  StopContext,
+} from "../plugin-api/types.js";
+import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
+import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
+import { runHook } from "../plugins/pipeline.js";
+import type { CompactionCircuitEvent } from "../plugins/types.js";
 import { normalizeThinkingConfigForWire } from "../providers/thinking-config.js";
 import type {
   ContentBlock,
@@ -32,6 +39,7 @@ import type {
   ToolDefinition,
   ToolResultContent,
 } from "../providers/types.js";
+import { isContextOverflowError } from "../providers/types.js";
 import type { SensitiveOutputBinding } from "../tools/sensitive-output-placeholders.js";
 import {
   applyStreamingSubstitution,
@@ -50,6 +58,28 @@ const MID_LOOP_YIELD_THRESHOLD_RATIO = 0.85;
 /** In-context message count above which the budget gate raises the safety-margin floor. */
 const LONG_HISTORY_MESSAGE_THRESHOLD = 50;
 const LONG_HISTORY_SAFETY_MARGIN_FLOOR = 0.15;
+
+/**
+ * Minimum token regrowth, measured from the post-compaction watermark, before
+ * the budget gate will compact again. A compaction pass that just ran already
+ * proved how far the history can shrink; if the estimate has not climbed at
+ * least this far past that watermark, another pass cannot free more than it
+ * already did and would only thrash (the production failure mode: each pass
+ * lands a hair under the trigger, one tick pushes it back over, repeat).
+ *
+ * Sized as `max(2048, 2% of maxInputTokens)` so it scales with the window but
+ * never collapses to a trivial value on small budgets. Overflow-driven
+ * compaction bypasses this guard entirely — a provider-confirmed overflow must
+ * always be allowed to compact.
+ */
+const MIN_REGROWTH_FLOOR_TOKENS = 2048;
+const MIN_REGROWTH_WINDOW_RATIO = 0.02;
+function minRegrowthTokens(maxInputTokens: number): number {
+  return Math.max(
+    MIN_REGROWTH_FLOOR_TOKENS,
+    Math.floor(maxInputTokens * MIN_REGROWTH_WINDOW_RATIO),
+  );
+}
 
 export interface AgentLoopConfig {
   maxTokens: number;
@@ -76,92 +106,54 @@ export interface CheckpointInfo {
 
 /**
  * Why a checkpoint paused the loop. Surfaced back to the caller via
- * {@link AgentLoopRunResult.exitReason} so the orchestrator reacts to
- * the loop's own signal (hand off to a queued message vs. compact and
- * re-enter) instead of the checkpoint callback mutating orchestrator state.
+ * {@link AgentLoopRunResult.exitReason} so the wrapper reacts to the loop's
+ * own signal (hand off to a queued message) instead of the checkpoint callback
+ * mutating wrapper state.
  */
-export type ExitReason = "handoff" | "budget";
+export type ExitReason = "handoff";
 
 export type CheckpointDecision = "continue" | ExitReason;
 
-/**
- * Result of {@link AgentLoop.run}.
- *
- * `exitReason` carries the reason the loop paused at a checkpoint so the
- * orchestrator reads the loop's own signal instead of inferring it from
- * callback side-effects. It is `null` whenever the loop reached a terminal
- * stop (completion, error, abort, or a tool-requested yield-to-user).
- *
- * `appendedNewMessages` reports whether the loop produced at least one new
- * assistant message this run. The orchestrator uses it to decide whether the
- * turn made forward progress (the ordering-error retry gate and the overflow
- * convergence fold) instead of diffing the returned history length against a
- * pre-run index, which in-loop compaction can shrink below the start length —
- * masking real progress.
- *
- * `newMessages` is the slice of `history` the loop appended this run, measured
- * from its input (or from the compacted base when the loop compacted in
- * place). The orchestrator persists these directly instead of slicing the
- * returned history at a pre-run index it reconstructs across compaction
- * boundaries — the loop owns its own history mutations, so this slice cannot
- * desync the way an externally-held index can.
- */
+/** Result of {@link AgentLoop.run}. */
 export interface AgentLoopRunResult {
+  /** Full conversation history after the run, including everything appended this run. */
   history: Message[];
+  /**
+   * Reason the loop paused at a checkpoint, or `null` on a terminal stop
+   * (completion, error, abort, or a tool-requested yield-to-user).
+   */
   exitReason: ExitReason | null;
-  appendedNewMessages: boolean;
+  /**
+   * Slice of `history` appended this run, measured from the loop's input or
+   * from the compacted base when it compacts in place. The loop owns this
+   * boundary, so it cannot desync the way an externally-held index can.
+   */
   newMessages: Message[];
 }
 
 /**
- * Why an agent turn reached a terminal state.
- *
- * Emitted as part of an {@link AgentEvent} of type `agent_loop_exit`, then
- * persisted onto the **final** `llm_request_logs` row of the turn. Rows from
- * intermediate turns keep a NULL `agent_loop_exit_reason`, which is how
- * downstream tooling (and the LLM Context Inspector) distinguishes "loop kept
- * going" from "loop is done".
- *
- * Values are stable wire/DB strings — they are written to SQLite and
- * surfaced over the inspector wire format, so renaming any of them is a
- * breaking change.
- *
- * Keep in sync with `emitExit` call sites in {@link AgentLoop.run} and the
- * outer conversation orchestrator paths that terminate after a checkpoint
- * yield. A checkpoint yield used for budget compaction is intentionally not
- * a terminal reason — it is a control transfer before re-entering the loop.
+ * Outcome of an in-loop {@link AgentLoop.compact} call.
  */
-export type AgentLoopExitReason =
-  /** `if (signal?.aborted) break;` at the top of the loop. */
-  | "aborted_pre_call"
-  /** Assistant message has no tool-use blocks (or no tool executor). */
-  | "no_tool_calls"
-  /** Signal aborted while building the user-side tool-results message. */
-  | "aborted_post_response"
-  /** Signal aborted mid-tool-execution; completed results were pushed. */
-  | "aborted_during_tools"
-  /** A tool result requested handing back to the user. */
-  | "yield_to_user"
-  /** The orchestrator yielded at checkpoint to process a queued message. */
-  | "checkpoint_handoff"
-  /** Context-window recovery exhausted and the turn ended with an error. */
-  | "context_too_large"
+interface CompactionAttempt {
   /**
-   * Auto-compress rerun (post-emergency-compaction, post-tier reducer)
-   * still yielded at the mid-loop budget checkpoint — the turn silently
-   * terminated with no further recovery layer to re-enter. Pure
-   * observability signal so the silent stall is attributable instead of
-   * leaving `agent_loop_exit_reason` NULL.
+   * Re-injected history to continue from, or `null` when an ordinary forced
+   * compaction exhausted with nothing reduced worth continuing from. The
+   * overflow-recovery path always returns the reduction rung's history.
    */
-  | "budget_yield_unrecovered"
-  /** Provider stopped because the configured output-token limit was reached. */
-  | "max_tokens_reached"
-  /** User cancellation landed after a non-terminal checkpoint yield. */
-  | "aborted_after_checkpoint"
-  /** Signal aborted while the catch handler was synthesizing an error turn. */
-  | "aborted_via_error"
-  /** Catch-block fallback: an unhandled error broke the loop. */
-  | "error";
+  history: Message[] | null;
+  /** Whether the overflow reduction ladder reported it is spent. */
+  exhausted: boolean;
+  /** Whether the ladder applied its terminal auto-compress-latest-turn rung. */
+  autoCompressApplied: boolean;
+}
+
+export type { AgentLoopExitReason };
+
+/**
+ * Why a mid-loop compaction ran: `"budget"` for the proactive estimate gate,
+ * `"overflow"` for recovery from a provider context-overflow rejection.
+ */
+export type CompactionTrigger = "budget" | "overflow";
 
 export type AgentEvent =
   /**
@@ -303,42 +295,78 @@ export type AgentEvent =
        * the mid-loop budget gate tripped. The daemon's event dispatcher
        * translates it into a "compacting context" activity state so clients
        * surface that the turn paused to summarize context.
+       *
+       * Carries the start-side half of the compaction record: everything the
+       * loop knows before handing the history to the compaction pipeline.
+       * The pipeline between this event and `compaction_completed` is
+       * plugin-owned, so consumers must treat the start/end pair (correlated
+       * by `compactionId`) as the complete picture of an attempt. A start
+       * event with no matching end means the pipeline threw or the turn
+       * aborted mid-compaction.
        */
       type: "context_compacting";
+      /** Correlates this start event with its `compaction_completed` pair. */
+      compactionId: string;
+      /** The turn's request id, linking the attempt to the triggering turn. */
+      requestId: string;
+      /**
+       * Why the loop compacted: `"budget"` when the proactive mid-loop
+       * estimate gate tripped, `"overflow"` when recovering from a provider
+       * context-overflow rejection via the reduction ladder.
+       */
+      trigger: CompactionTrigger;
+      /** Epoch ms when the loop began the compaction ceremony. */
+      startedAt: number;
+      /** The running history before injection stripping and compaction. */
+      messages: Message[];
     }
-  | {
+  | ({
       /**
        * Emitted after the loop's inline mid-loop compaction pipeline runs,
        * immediately before re-injection — whether or not the pipeline actually
-       * compacted. The daemon's event dispatcher always commits `basis` (the
-       * stripped pre-compaction history) as the conversation's durable message
-       * state, so re-injection ({@link MidLoopCompaction.reinject}) re-applies
-       * injections onto the stripped base rather than stacking on top of the
-       * still-injected messages. When `result.compacted` is set it
-       * additionally commits the durable compaction result (DB-record fields,
-       * graph-memory side effects, SSE) and flips the per-turn re-injection
-       * guards on the handler state.
+       * compacted. Carries the pipeline's `ContextWindowResult` unnested into
+       * the event, so `messages` here is the pipeline's output history. The
+       * pre-compaction history lives on the paired `context_compacting` start
+       * event (correlated by `compactionId`); consumers that need the
+       * stripped pre-compaction base re-derive it from the start event via
+       * `stripInjectionsForCompaction`.
+       *
+       * The daemon's event dispatcher commits the stripped pre-compaction
+       * base as the conversation's durable message state. Re-injection (the
+       * post-compaction hook) strips runtime injections before re-applying
+       * them, so it is idempotent whether the loop continues from the
+       * stripped compaction result or from the unchanged injected history.
+       * When `compacted` is set the dispatcher additionally commits the
+       * durable compaction result (DB-record fields, graph-memory side
+       * effects, SSE) and projects Slack provenance from the pre-compaction
+       * base.
        *
        * Treated as a critical event: a failed durable commit re-throws so the
        * turn aborts rather than re-injecting against half-applied state.
-       *
-       * `basis` is the stripped pre-compaction history the summary was built
-       * from; the dispatcher uses it to project Slack provenance onto the
-       * compacted result.
        */
       type: "compaction_completed";
-      result: ContextWindowResult;
-      basis: Message[];
-    }
+      /** Correlates this end event with its `context_compacting` pair. */
+      compactionId: string;
+      /** The turn's request id, linking the attempt to the triggering turn. */
+      requestId: string;
+      /** Same trigger as the paired start event, duplicated so the end
+       * event is self-sufficient for consumers that only buffer ends. */
+      trigger: CompactionTrigger;
+      /** Epoch ms when the loop began the compaction ceremony. */
+      startedAt: number;
+      /** Epoch ms when the compaction pipeline returned. */
+      finishedAt: number;
+    } & ContextWindowResult)
   | {
       /**
-       * Emitted right after the loop strips runtime injections from the
-       * running history, before the compaction pipeline runs. The daemon's
-       * event dispatcher records the history-stripped marker — a Conversation
-       * DB-record field read back at load time to strip embedded injection
-       * prefixes from pre-strip messages. Best-effort: a transient marker
-       * write must not abort the turn, so unlike `compaction_completed` this
-       * event is not treated as critical.
+       * Emitted during the loop's compaction ceremony, before the pipeline
+       * runs. The daemon's event dispatcher commits the stripped
+       * pre-compaction base as the durable history and records the
+       * history-stripped marker — a Conversation DB-record field read back at
+       * load time to strip embedded injection prefixes from pre-strip
+       * messages. Best-effort: a transient marker write must not abort the
+       * turn, so unlike `compaction_completed` this event is not treated as
+       * critical.
        */
       type: "history_stripped";
     }
@@ -363,6 +391,17 @@ export type AgentEvent =
        */
       type: "agent_loop_exit";
       reason: AgentLoopExitReason;
+    }
+  | {
+      /**
+       * Emitted when the `pre-model-call` hook chain mutates the system
+       * prompt for the current call — i.e. `finalPreModelCtx.systemPrompt`
+       * differs from the value the loop handed the hook. Carries the
+       * post-hook string so consumers can observe exactly what the provider
+       * received.
+       */
+      type: "system_prompt_changed";
+      systemPrompt: string;
     };
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
@@ -371,7 +410,19 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
   minTurnIntervalMs: 150,
 };
 
-const MAX_STOP_CONTINUE_RETRIES = 1;
+/**
+ * Per-run backstop on `post-model-call`-driven retries. A recovery hook that
+ * sets `decision: "continue"` re-issues the provider call; this bounds the
+ * total such re-issues across a run so a misbehaving hook can't spin forever.
+ *
+ * It is a backstop, not the primary guard: each recovery class owns a
+ * one-shot per-conversation bound that stops it repeating within a turn, so
+ * the legitimate ceiling is one continue per class (empty-response nudge,
+ * ordering repair, image downscale). This sits above that sum to leave
+ * headroom while still catching pathological alternation between classes.
+ */
+const MAX_POST_MODEL_CALL_CONTINUES = 5;
+
 const MAX_TOKENS_STOP_REASONS = new Set([
   "length",
   "max_output_tokens",
@@ -386,58 +437,24 @@ export function isMaxTokensStopReason(
 }
 
 /**
- * Build a minimal {@link TurnContext} for pipeline invocations inside the
- * agent loop. Real production call sites thread a full `TurnContext` into
- * `AgentLoop.run()` (see the `turnContext` parameter on
- * {@link AgentLoop.run}); this helper is the fallback used only by unit
- * tests that construct `AgentLoop` directly without an orchestrator.
- *
- * When the orchestrator-supplied context is present, {@link resolveLoopTurnContext}
- * is used instead of this helper so the pipeline sees the real
- * `conversationId`, trust, and `contextWindowManager`. In the fallback path
- * the returned context is still useful for pipeline logging: `requestId`
- * surfaces in every structured record, and `turnIndex` reflects the
- * current tool-use iteration.
+ * Concatenate the text of an assistant message's `text` blocks (ignoring
+ * `tool_use`, `thinking`, and other non-text blocks). Used to re-emit the
+ * finalized text as a single `text_delta` when a turn's live output was
+ * deferred by a `pre-model-call` hook.
  */
-function buildLoopTurnContext(
-  requestId: string | undefined,
-  turnIndex: number,
-): TurnContext {
-  return {
-    requestId: requestId ?? "agent-loop",
-    // Loop-scoped pipelines do not currently carry a conversation ID; the
-    // outer orchestrator owns that dimension. Use a fixed sentinel so log
-    // consumers can filter loop-origin records out of conversation queries.
-    conversationId: "agent-loop",
-    turnIndex,
-    trust: {
-      sourceChannel: "vellum",
-      trustClass: "unknown",
-    },
-  };
+function assistantTextOf(content: ReadonlyArray<ContentBlock>): string {
+  let text = "";
+  for (const block of content) {
+    if (block.type === "text") text += block.text;
+  }
+  return text;
 }
 
-/**
- * Produce a `TurnContext` for a pipeline call inside {@link AgentLoop.run}.
- *
- * When the orchestrator supplied a `turnContext`, clone it and overwrite
- * `requestId` + `turnIndex` with the loop-scoped values so plugin log
- * records correctly attribute the call to the current tool-use iteration
- * while preserving the real `conversationId`, trust context, and
- * `contextWindowManager` the orchestrator assembled for the turn. Without
- * an orchestrator context (unit tests that instantiate `AgentLoop` with no
- * `turnContext`), fall back to {@link buildLoopTurnContext}'s synthesized
- * placeholder.
- */
-function resolveLoopTurnContext(
-  base: TurnContext | undefined,
-  requestId: string | undefined,
-  turnIndex: number,
-): TurnContext {
-  if (base) {
-    return { ...base, requestId: requestId ?? base.requestId, turnIndex };
-  }
-  return buildLoopTurnContext(requestId, turnIndex);
+/** Whether `content` carries at least one non-empty `text` block. */
+function hasVisibleText(content: ReadonlyArray<ContentBlock>): boolean {
+  return content.some(
+    (block) => block.type === "text" && block.text.trim().length > 0,
+  );
 }
 
 /**
@@ -476,44 +493,33 @@ export function shouldCaptureAgentLoopError(err: Error): boolean {
   return true;
 }
 
-export interface ResolvedSystemPrompt {
-  systemPrompt: string;
-  maxTokens?: number;
-  model?: string;
-}
-
-/**
- * Orchestrator-supplied hook the loop invokes when the mid-loop budget gate
- * trips and inline compaction runs. The loop owns the trigger, the
- * `compaction` pipeline call, the result interpretation (circuit-breaker
- * bookkeeping + the exhaustion decision), and the inline continue; this hook
- * bridges the injection state the loop is intentionally blind to. Durable
- * persistence is signalled out-of-band via the `history_stripped` (marker)
- * and `compaction_completed` (basis commit + successful summary) {@link
- * AgentEvent}s; re-injection ({@link reinject}) remains orchestrator-supplied
- * for now and is expected to move into the loop in a future change.
- */
-export interface MidLoopCompaction {
-  /** Re-apply runtime injections and return the history to continue from. */
-  reinject: () => Promise<Message[]>;
-}
-
 export interface AgentLoopRunOptions {
+  /** Input history the run starts from; the loop appends its output onto a copy. */
+  messages: Message[];
+  /** Sink the loop streams its {@link AgentEvent}s through as the turn runs. */
+  onEvent: (event: AgentEvent) => void | Promise<void>;
   signal?: AbortSignal;
-  requestId?: string;
+  requestId: string;
+  /**
+   * Explicit model override (provider/model string) for every LLM call in
+   * this run. When omitted, the model is resolved through the normal
+   * call-site / profile resolution path.
+   */
+  model?: string;
   onCheckpoint?: (
     checkpoint: CheckpointInfo,
   ) => CheckpointDecision | Promise<CheckpointDecision>;
   callSite?: LLMCallSite;
   /**
-   * Per-turn context supplied by the orchestrator. Every pipeline
-   * invocation inside the loop clones from this value (overwriting only
-   * `turnIndex`/`requestId`) so middleware sees the real conversation
-   * identity, trust class, and `contextWindowManager` rather than the
-   * `"agent-loop"` sentinel used when the loop is instantiated standalone
-   * in unit tests.
+   * Trust classification and channel identity for the turn's inbound actor,
+   * supplied by the caller as the turn-start snapshot. Read only on the
+   * mid-loop in-place compaction path — to scope the compactor's image
+   * manifest (guardian-only attachments are excluded for untrusted actors).
+   * Callers without a meaningful actor (agent
+   * wakes, standalone unit tests) pass an `unknown`-class snapshot so the
+   * compactor fail-closes to excluding guardian-only attachments.
    */
-  turnContext?: TurnContext;
+  trust: TrustContext;
   /**
    * Ad-hoc inference-profile override applied to every LLM call the loop
    * issues. When set, each `SendMessageOptions.config` carries
@@ -522,6 +528,16 @@ export interface AgentLoopRunOptions {
    * call-site named profile. Missing profile names silently fall through.
    */
   overrideProfile?: string;
+  /**
+   * Float the override profile above the call-site layers (named site
+   * profile + call-site override) for non-main-agent call sites — the
+   * resolver's `forceOverrideProfile` escape hatch. Threaded onto each
+   * send's `SendMessageOptions.config` alongside `overrideProfile`. Used by
+   * wakes that must run a background call site under a specific
+   * conversation's inference profile (e.g. fork-based memory
+   * retrospectives).
+   */
+  forceOverrideProfile?: boolean;
   resolveOverrideProfile?: () => string | undefined;
   /**
    * Resolves the orchestrator's effective context window for this turn: the
@@ -536,21 +552,39 @@ export interface AgentLoopRunOptions {
     overflowRecovery: { enabled: boolean; safetyMarginRatio: number };
   };
   /**
-   * Hooks for inline mid-loop compaction. When supplied and the budget gate
-   * trips, the loop compacts in place and continues instead of yielding
-   * `exitReason = "budget"`. Callers without a compaction path (agent wakes,
-   * convergence/auto-compress reruns) omit this and keep yielding for budget.
+   * When `true`, the loop owns turn-start and mid-loop compaction. The pre-call
+   * budget gate runs before the very first provider call — subsuming the
+   * proactive turn-start compaction the wrapper would otherwise perform inline
+   * before `run()` — as well as before each tool-use re-entry. When the gate
+   * trips it compacts the running history in place, re-applying runtime
+   * injections via the default post-compaction hook ({@link HOOKS.POST_COMPACT}),
+   * and continues with the call.
+   *
+   * The first-call pass honors the compaction circuit breaker and proceeds with
+   * the call whether or not it compacted, so it never yields on the first call;
+   * a provider context-too-large rejection then drives the reactive recovery
+   * ladder from the catch. Reruns that carry no inline compaction path (the
+   * deep-repair and image-recovery retries) leave it `false` and skip the
+   * first-call gate. Defaults to `false` when omitted.
    */
-  compaction?: MidLoopCompaction;
+  compactInPlace?: boolean;
   /**
-   * When true, the latest user message carries a volatile per-turn block
-   * (e.g. a memory-v3 `<memory>` injection) that varies across otherwise
-   * identical turns. Forwarded to each `SendMessageOptions.config` so the
-   * provider anchors its long-TTL cache breakpoint on the most recent STABLE
-   * user message instead of the volatile latest one, keeping the cached
-   * prefix reusable. Default unset → existing behavior.
+   * Whether the in-flight turn has no human present to answer clarification
+   * questions. Resolved once by the orchestrator at turn start and forwarded to
+   * the post-compaction hook so post-compaction
+   * re-injection uses the turn-start snapshot rather than re-reading mutable
+   * client/headless state mid-turn. Defaults to `false` when omitted.
    */
-  mutableLatestUserMessage?: boolean;
+  isNonInteractive?: boolean;
+  /**
+   * The turn's resolved inference-profile key, or `null` when the active
+   * profile is unchanged since the last notified one. Forwarded to
+   * the post-compaction hook, which renders the `model_profile:` label from it so
+   * post-compaction re-injection re-emits the turn-start profile rather than
+   * re-deriving the change-detected value (which flips once the notification is
+   * persisted mid-turn). Defaults to `null` when omitted.
+   */
+  modelProfileKey?: string | null;
 }
 
 /**
@@ -592,17 +626,30 @@ export type LoopToolExecutor = (
 }>;
 
 export interface AgentLoopConstructorOptions {
+  /** LLM provider the loop issues every call through. */
+  provider: Provider;
+  /** Base system prompt, before any per-turn dynamic resolution. */
+  systemPrompt: string;
   config?: Partial<AgentLoopConfig>;
   tools?: ToolDefinition[];
   toolExecutor?: LoopToolExecutor;
   resolveTools?: (history: Message[]) => ToolDefinition[];
-  resolveSystemPrompt?: (history: Message[]) => ResolvedSystemPrompt;
   /**
-   * Conversation this loop drives. Used to scope the loop-held compaction
-   * circuit breaker; defaults to an empty key for test loops that never
-   * exercise compaction.
+   * Conversation this loop drives. Scopes the loop-held compaction circuit
+   * breaker and is the source of truth the loop's pipeline contexts and
+   * post-compaction re-injection resolve the live conversation through.
    */
-  conversationId?: string;
+  conversationId: string;
+  /**
+   * Resolve the conversation's on-disk directory, used to spool oversized
+   * tool results to `.tool-results/` and swap the inline copy for the
+   * post-turn pass's stub at result time — before the result joins history,
+   * so the provider-bound prefix stays append-only for prompt caching.
+   * Returns `null` while the directory cannot be resolved (e.g. the
+   * conversation row is not yet persisted); the loop then skips the
+   * result-time pass and the post-turn truncation covers the turn instead.
+   */
+  resolveConversationDir?: () => string | null;
 }
 
 export class AgentLoop {
@@ -611,10 +658,18 @@ export class AgentLoop {
   private config: AgentLoopConfig;
   private tools: ToolDefinition[];
   private resolveTools: ((history: Message[]) => ToolDefinition[]) | null;
-  private resolveSystemPrompt:
-    | ((history: Message[]) => ResolvedSystemPrompt)
-    | null;
   private toolExecutor: LoopToolExecutor | null;
+
+  /**
+   * Conversation this loop drives. Source of truth for the `conversationId`
+   * the loop's pipeline contexts and post-compaction re-injection resolve the
+   * live conversation through, so the loop knows its own identity without a
+   * threaded-in turn context.
+   */
+  private readonly conversationId: string;
+
+  /** See {@link AgentLoopConstructorOptions.resolveConversationDir}. */
+  private readonly resolveConversationDir: (() => string | null) | null;
 
   /**
    * Loop-held compaction circuit breaker. The loop has a 1:1 lifetime with its
@@ -625,27 +680,26 @@ export class AgentLoop {
    */
   readonly compactionCircuit: CompactionCircuit;
 
-  constructor(
-    provider: Provider,
-    systemPrompt: string,
-    options?: AgentLoopConstructorOptions,
-  ) {
+  constructor(options: AgentLoopConstructorOptions) {
     const {
+      provider,
+      systemPrompt,
       config,
       tools,
       toolExecutor,
       resolveTools,
-      resolveSystemPrompt,
       conversationId,
-    } = options ?? {};
+      resolveConversationDir,
+    } = options;
     this.provider = provider;
     this.systemPrompt = systemPrompt;
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.tools = tools ?? [];
     this.resolveTools = resolveTools ?? null;
-    this.resolveSystemPrompt = resolveSystemPrompt ?? null;
     this.toolExecutor = toolExecutor ?? null;
-    this.compactionCircuit = new CompactionCircuit(conversationId ?? "");
+    this.conversationId = conversationId;
+    this.resolveConversationDir = resolveConversationDir ?? null;
+    this.compactionCircuit = new CompactionCircuit(this.conversationId);
   }
 
   /**
@@ -697,144 +751,240 @@ export class AgentLoop {
    * compaction outcome into a user-visible turn failure.
    */
   private async recordCompactionOutcome(
-    turnContext: TurnContext,
+    requestId: string,
     summaryFailed: boolean,
     onEvent: (event: AgentEvent) => void | Promise<void>,
   ): Promise<void> {
     try {
-      await this.compactionCircuit.recordOutcome(
-        {
-          currentRequestId: turnContext.requestId,
-          currentTurnTrustContext: turnContext.trust,
-          turnCount: turnContext.turnIndex,
-        },
-        summaryFailed,
-        onEvent,
-      );
+      await this.compactionCircuit.recordOutcome(summaryFailed, onEvent);
     } catch (recordError) {
       log.error(
-        { err: recordError, requestId: turnContext.requestId },
+        { err: recordError, requestId },
         "Recording a compaction outcome against the circuit breaker failed; suppressing to keep the agent loop alive",
       );
     }
   }
 
   /**
-   * Compact the running history in place when the mid-loop budget gate trips.
+   * Compact the running history in place when the budget gate trips.
    *
-   * Runs the `compaction` pipeline natively (like {@link estimateTokens}) on
-   * the stripped history, then re-applies injections via the supplied hooks.
-   * Returns the history to continue from, or `null` when the compactor timed
-   * out or exhausted its retry budget so the caller yields
-   * `exitReason = "budget"` and the orchestrator escalates.
+   * Calls the default compaction plugin, then re-applies injections via the
+   * supplied hooks. Both the budget and overflow paths hand the full injected
+   * `history` to the plugin (so the summary call reuses the agent's warm prefix
+   * cache); the POST_COMPACT hook owns re-injection idempotency so continuing
+   * from injected history does not double-stack blocks. When `overflowSignal`
+   * is supplied the plugin routes through the manager's reduction ladder (which
+   * advances one rung per call and reports `exhausted` / `autoCompressApplied`
+   * / `injectionMode`); otherwise it runs ordinary forced compaction. Returns
+   * the re-injected history to continue from alongside the ladder's terminal
+   * state. On the ordinary path an exhausted compactor yields a `null` history
+   * (nothing reduced worth continuing from, so the caller proceeds with the
+   * call); the overflow path always returns the rung's reduced history so the
+   * call is retried once at maximum reduction before the turn ends.
    */
   private async compact(
     history: Message[],
-    turnContext: TurnContext,
-    compaction: MidLoopCompaction,
+    requestId: string,
+    trust: TrustContext,
     signal: AbortSignal | undefined,
     onEvent: (event: AgentEvent) => void | Promise<void>,
     overrideProfile: string | null,
-  ): Promise<Message[] | null> {
-    await onEvent({ type: "context_compacting" });
-    // Strip runtime injections so the compactor summarizes the raw persistent
-    // messages.
-    const rawHistory = stripInjectionsForCompaction(history);
-    // Record the history-stripped marker right after stripping, before the
-    // pipeline runs.
+    isNonInteractive: boolean,
+    modelProfileKey: string | null,
+    overflowSignal?: { actualTokens: number | null; isInteractive: boolean },
+  ): Promise<CompactionAttempt> {
+    const compactionId = crypto.randomUUID();
+    const startedAt = Date.now();
+    const trigger: CompactionTrigger =
+      overflowSignal != null ? "overflow" : "budget";
+    await onEvent({
+      type: "context_compacting",
+      compactionId,
+      requestId,
+      trigger,
+      startedAt,
+      messages: history,
+    });
+    // The durable pre-compaction base is stripped by the event dispatcher
+    // (re-derived from the start event), so record the history-stripped
+    // marker for this compaction before the pipeline runs.
     await onEvent({ type: "history_stripped" });
-    let result: CompactionResult;
-    try {
-      result = await runPipeline<CompactionArgs, CompactionResult>(
-        "compaction",
-        getMiddlewaresFor("compaction"),
-        (args) => defaultCompactionTerminal(args, turnContext),
-        // The mid-loop budget gate is reached only when this turn decides to
-        // compact in place, so `force` the pipeline past its auto-threshold
-        // check. `actorTrustClass` comes from the turn context (the actor whose
-        // turn triggered compaction) so the compactor's image manifest excludes
-        // guardian-only attachments for untrusted actors. `overrideProfile` is
-        // the turn's resolved inference-profile override for the summary call.
-        {
-          messages: rawHistory,
-          signal,
-          options: {
-            force: true,
-            actorTrustClass: turnContext.trust.trustClass,
-            overrideProfile,
-          },
-        },
-        turnContext,
-        DEFAULT_TIMEOUTS.compaction,
-      );
-    } catch (error) {
-      if (error instanceof PluginTimeoutError) {
-        // A timeout counts as a compaction failure against the circuit breaker.
-        await this.recordCompactionOutcome(turnContext, true, onEvent);
-        return null;
-      }
-      throw error;
-    }
-    // `CompactionResult` is intentionally `unknown` at the plugin boundary so
-    // plugin consumers don't import the window manager; the loop ran the
-    // pipeline, so it interprets the concrete result here.
-    const compactResult = result as ContextWindowResult;
+    // The compaction module owns the per-conversation manager; pass the
+    // conversation id and let `defaultCompact` resolve it from the store.
+    // The budget gate is reached only when this turn decides to compact in
+    // place, so `force` past the auto-threshold check. `actorTrustClass` comes
+    // from the turn's trust snapshot (the actor whose turn triggered
+    // compaction) so the compactor's image manifest excludes guardian-only
+    // attachments for untrusted actors. `overrideProfile` is the turn's
+    // resolved inference-profile override for the summary call. `overflowSignal`
+    // routes the request through the reduction ladder when present.
+    const compactResult = await defaultCompact({
+      conversationId: this.conversationId,
+      messages: history,
+      signal,
+      force: true,
+      actorTrustClass: trust.trustClass,
+      overrideProfile,
+      overflowSignal,
+    });
     // `force: true` bypasses the auto-threshold gate, but early returns
     // for "no eligible messages" / "insufficient messages" still leave
     // `summaryFailed` undefined. Only record an outcome when the summary LLM
     // actually ran.
     if (compactResult.summaryFailed !== undefined) {
       await this.recordCompactionOutcome(
-        turnContext,
+        requestId,
         compactResult.summaryFailed,
         onEvent,
       );
     }
-    // Emit unconditionally: the dispatcher commits the stripped `basis` as the
-    // durable message base whether or not the pipeline compacted (re-injection
-    // reads it), and runs the durable compaction commit only when
-    // `result.compacted`.
+    // Emit unconditionally: the dispatcher commits the stripped pre-compaction
+    // base (re-derived from the start event) as the durable message base
+    // whether or not the pipeline compacted (re-injection reads it), and runs
+    // the durable compaction commit only when `compacted`.
     await onEvent({
       type: "compaction_completed",
-      result: compactResult,
-      basis: rawHistory,
+      compactionId,
+      requestId,
+      trigger,
+      startedAt,
+      finishedAt: Date.now(),
+      ...compactResult,
     });
-    if (compactResult.exhausted ?? false) {
-      return null;
+    const exhausted = compactResult.exhausted ?? false;
+    const autoCompressApplied = compactResult.autoCompressApplied ?? false;
+    if (overflowSignal == null && exhausted) {
+      return { history: null, exhausted, autoCompressApplied };
     }
-    return compaction.reinject();
+    // The POST_COMPACT hook strips runtime injections from this base and
+    // re-applies them, so continuing from injected history is safe. The
+    // overflow ladder transforms the history on every rung (truncation /
+    // media stubbing / injection downgrade) regardless of whether the summary
+    // ran, so continue from its reduced messages; the ordinary path continues
+    // from the compacted messages when the pipeline compacted, otherwise from
+    // the unchanged injected history.
+    const base =
+      overflowSignal != null || compactResult.compacted
+        ? compactResult.messages
+        : history;
+    const postCompactCtx: PostCompactContext = {
+      history: base,
+      requestId,
+      conversationId: this.conversationId,
+      isNonInteractive,
+      modelProfileKey,
+      injectionMode: compactResult.injectionMode,
+    };
+    // The hook chain writes the re-injected history back onto the context;
+    // read it from there once the chain settles.
+    const finalPostCompactCtx = await runHook(
+      HOOKS.POST_COMPACT,
+      postCompactCtx,
+    );
+    return {
+      history: finalPostCompactCtx.history,
+      exhausted,
+      autoCompressApplied,
+    };
   }
 
-  async run(
-    messages: Message[],
-    onEvent: (event: AgentEvent) => void | Promise<void>,
-    options?: AgentLoopRunOptions,
-  ): Promise<AgentLoopRunResult> {
+  async run(options: AgentLoopRunOptions): Promise<AgentLoopRunResult> {
     const {
+      messages,
+      onEvent,
       signal,
       requestId,
       onCheckpoint,
       callSite,
-      turnContext,
+      trust,
       overrideProfile,
+      forceOverrideProfile = false,
       resolveOverrideProfile,
       resolveContextWindow,
-      compaction,
-      mutableLatestUserMessage,
-    } = options ?? {};
+      compactInPlace = false,
+      isNonInteractive = false,
+      modelProfileKey = null,
+      model: runModel,
+    } = options;
+    // Snapshot the system prompt once per run. The instance field is mutable
+    // (the conversation may update it between turns), but a single run must
+    // use one consistent prompt — an aborted run left detached after the
+    // watchdog rejects must not pick up a later turn's prompt on its next
+    // provider call.
+    const runSystemPrompt = this.systemPrompt;
     let history = [...messages];
     // Index into `history` where this run's appended output begins. It starts
-    // after the input and resets to the compacted base whenever the loop
-    // compacts in place, so `history.slice(newMessagesStart)` is always exactly
-    // what the loop produced since the last (re-injected) base.
+    // after the input and resets to the new base whenever the loop rewrites the
+    // history in place (compaction re-injection, ordering deep-repair), so
+    // `history.slice(newMessagesStart)` is always exactly what the loop produced
+    // since the last base.
     let newMessagesStart = history.length;
-    let producedVisibleTextThisRun = false;
     let toolUseTurns = 0;
-    let stopContinueRetries = 0;
+    let postModelCallContinues = 0;
     let lastLlmCallTime = 0;
     let exitReason: ExitReason | null = null;
-    let appendedNewMessages = false;
-    const rlog = requestId ? log.child({ requestId }) : log;
+    // Armed at the end of a tool-use iteration so the budget gate runs at the
+    // top of the NEXT iteration — before that iteration's provider call —
+    // instead of after the current one. Stop-hook re-query continues re-enter
+    // without arming, so the gate fires on exactly the same occasions as the
+    // prior post-call placement, plus the first call when
+    // `compactInPlace` is set (the primary run's turn-start compaction).
+    let budgetGateArmed = compactInPlace;
+    // Raw pre-send estimate for the most recent provider call, captured so the
+    // overflow catch can calibrate the estimator against the provider's actual
+    // token count. Reset to the success path's value on every call.
+    let lastPreSendEstimatedTokens = 0;
+    // Overflow signal stashed by the reactive catch when the provider rejects a
+    // call as context-too-large. The next budget gate forwards it into
+    // `compact()`, which routes through the manager's reduction ladder, then
+    // clears it (one rung consumed per recovery pass).
+    let pendingOverflowSignal: {
+      actualTokens: number | null;
+      isInteractive: boolean;
+    } | null = null;
+    // Mirror of the reduction ladder's terminal state from the most recent
+    // overflow-recovery compaction. When the ladder is spent and the provider
+    // still rejects, the catch ends the turn with the reason the final rung
+    // implies (auto-compress applied → `budget_yield_unrecovered`, otherwise
+    // `context_too_large`) instead of looping.
+    let overflowLadderExhausted = false;
+    let overflowAutoCompressApplied = false;
+    // Per-turn suppression for floor-dominated proactive-compaction thrash.
+    // Set when a proactive (non-overflow) pass completes WITHOUT clearing the
+    // mid-loop gate (the manager returned `exhausted` — it could not get below
+    // its success threshold). During a tool-heavy turn each tool round grows the
+    // PROTECTED in-flight region past the regrowth guard's re-arm delta, but
+    // that region is exactly what compaction cannot touch, so every subsequent
+    // gate check would fire another futile full-context pass. Once set, the
+    // budget gate skips proactive compaction for the rest of THIS turn; it
+    // clears when a later proactive pass succeeds (non-exhausted). Overflow-
+    // driven compaction always bypasses it — a provider-confirmed overflow must
+    // always compact.
+    //
+    // Lifetime is exactly one turn: this is a `run()`-local (like
+    // `budgetGateArmed` / `pendingOverflowSignal` / `overflowLadderExhausted`),
+    // not an instance field. The AgentLoop instance is constructed once per
+    // Conversation and `run()` is invoked once per turn (a checkpoint handoff
+    // breaks out of the loop and the queued message resumes in a fresh `run()`),
+    // so a `run()`-local resets implicitly at every turn start — no manual reset
+    // point is needed, and suppression can never leak across turns the way an
+    // instance field would. (The regrowth watermark, by contrast, lives on the
+    // cross-turn `compactionCircuit` precisely because it must persist.)
+    let proactiveCompactionFutileThisTurn = false;
+    const rlog = log.child({ requestId });
+
+    // Conversation directory for the result-time tool-result spool/stub pass.
+    // Resolved once per run; `null` disables the pass for this run and the
+    // post-turn truncation covers the turn instead.
+    let conversationDir: string | null = null;
+    try {
+      conversationDir = this.resolveConversationDir?.() ?? null;
+    } catch (err) {
+      rlog.warn(
+        { err },
+        "Resolving conversation dir for tool-result spooling failed (non-fatal)",
+      );
+    }
 
     // Resolve the inference-profile override that applies right now. The
     // optional resolver lets a turn observe a confirmed mid-turn profile switch
@@ -848,21 +998,61 @@ export class AgentLoop {
     const substitutionMap = new Map<string, string>();
     let streamingPending = "";
 
-    // Idempotency guard for `emitExit`: the first reason stamped wins. A break
-    // site that stamps a specific reason before unwinding into the catch
-    // handler keeps that reason instead of the generic "error", and the guard
-    // also defends against accidental double-emits if a new break site is
-    // added without checking this.
-    let exitReasonEmitted = false;
-    const emitExit = async (reason: AgentLoopExitReason): Promise<void> => {
-      if (exitReasonEmitted) return;
-      exitReasonEmitted = true;
-      await onEvent({ type: "agent_loop_exit", reason });
+    // Single chokepoint for ending the turn. Runs the definitive terminal
+    // `stop` hook chain exactly once — by the time it fires the loop has
+    // committed to ending, so teardown hooks can clear per-turn state with the
+    // guarantee that nothing will re-enter the loop this turn. The first reason
+    // stamped wins: a break site that stamps a specific reason before unwinding
+    // into the catch handler keeps that reason instead of the generic "error",
+    // and the guard also defends against accidental double-invocation if a new
+    // terminal break site is added.
+    //
+    // `emitExit` controls whether the matching `agent_loop_exit` observability
+    // event fires. Real terminal exits emit it; a `checkpoint_handoff` runs the
+    // teardown chain (so per-turn state like recovery bounds is cleared before
+    // the queued message drains) but does not emit, because the orchestrator
+    // owns the handoff signal and the conversation resumes in a fresh run.
+    //
+    // A throwing `stop` hook must not suppress the terminal exit: the chain is
+    // isolated so a failing teardown hook (e.g. a third-party plugin) is logged
+    // but `agent_loop_exit` still fires with the real exit reason. Otherwise the
+    // throw would unwind into the outer catch, which re-enters here as a no-op
+    // (the guard is already set) and the turn's terminal observability event
+    // would be dropped.
+    let turnStopped = false;
+    const runTerminalStop = async (
+      reason: AgentLoopExitReason,
+      { emitExit, error }: { emitExit: boolean; error?: Error },
+    ): Promise<void> => {
+      if (turnStopped) return;
+      turnStopped = true;
+      const stopCtx: StopContext = {
+        conversationId: this.conversationId,
+        messages: [...history],
+        error,
+        exitReason: reason,
+        logger: rlog,
+      };
+      try {
+        await runHook(HOOKS.STOP, stopCtx);
+      } catch (stopHookError) {
+        rlog.error(
+          { err: stopHookError, exitReason: reason },
+          "stop hook threw during terminal teardown; continuing",
+        );
+      }
+      if (emitExit) {
+        await onEvent({ type: "agent_loop_exit", reason });
+      }
     };
+    const stopTurn = (
+      reason: AgentLoopExitReason,
+      error?: Error,
+    ): Promise<void> => runTerminalStop(reason, { emitExit: true, error });
 
     while (true) {
       if (signal?.aborted) {
-        await emitExit("aborted_pre_call");
+        await stopTurn("aborted_pre_call");
         break;
       }
 
@@ -872,23 +1062,165 @@ export class AgentLoop {
       );
 
       let toolUseBlocks: Extract<ContentBlock, { type: "tool_use" }>[] = [];
+      // The provider rejection thrown by this iteration's call, if any. Set in
+      // the inner provider catch and read by the outer catch to confine
+      // error-stop recovery to genuine provider rejections — a throw from
+      // elsewhere in the turn body (tool execution, the success-path stop
+      // chain, post-model-call hooks) must not re-enter the stop chain.
+      let providerCallError: unknown;
 
       try {
+        // ── Pre-call budget gate ─────────────────────────────────────
+        // Compact the running history before issuing the provider call when
+        // either the running estimate approaches the preflight budget
+        // (proactive) or a prior call was rejected as context-too-large
+        // (reactive, signalled via `pendingOverflowSignal`). The reactive case
+        // forwards the overflow signal into `compact()`, which routes through
+        // the manager's reduction ladder; the proactive case runs ordinary
+        // forced compaction. Either way the loop proceeds with the call —
+        // recovery is driven by compaction, never by yielding out of the loop.
+        //
+        // Keyed off the loop's own `history.length` (the messages actually in
+        // context this turn, including tool iterations) rather than the durable
+        // conversation count. Armed after each tool-use iteration and by the
+        // reactive catch; stop-hook re-query continues skip it. The first call
+        // runs it only when `compactInPlace` is set (standing in for turn-start
+        // compaction) or when recovering an overflow.
+        if (budgetGateArmed) {
+          budgetGateArmed = false;
+          const overflowSignal = pendingOverflowSignal;
+          pendingOverflowSignal = null;
+          // The gate only re-arms after a completed tool-use iteration
+          // (`toolUseTurns` is incremented first), so reaching it with
+          // `toolUseTurns === 0` and no overflow signal uniquely identifies the
+          // first-call turn-start pass, which honors the compaction circuit
+          // breaker. Overflow recovery ignores the breaker — the provider has
+          // already rejected the call, so it must reduce regardless.
+          const isFirstCallGate = toolUseTurns === 0;
+          const contextWindow = resolveContextWindow?.();
+          if (contextWindow?.overflowRecovery.enabled) {
+            const { maxInputTokens, overflowRecovery } = contextWindow;
+            const safetyMargin =
+              history.length > LONG_HISTORY_MESSAGE_THRESHOLD
+                ? Math.max(
+                    overflowRecovery.safetyMarginRatio,
+                    LONG_HISTORY_SAFETY_MARGIN_FLOOR,
+                  )
+                : overflowRecovery.safetyMarginRatio;
+            const preflightBudget = Math.floor(
+              maxInputTokens * (1 - safetyMargin),
+            );
+            const midLoopThreshold =
+              preflightBudget * MID_LOOP_YIELD_THRESHOLD_RATIO;
+            const estimated = this.estimateTokens(history);
+            const overflowDriven = overflowSignal !== null;
+            // Proactive compaction fires when the primary run's turn-start
+            // signal (`compactInPlace`) crosses the estimate threshold;
+            // overflow recovery always compacts.
+            const shouldCompact =
+              overflowDriven ||
+              (compactInPlace && estimated > midLoopThreshold);
+            const compactionAllowed =
+              overflowDriven ||
+              !isFirstCallGate ||
+              !(await this.compactionCircuit.isOpen());
+            // Regrowth hysteresis: a proactive pass that just ran proved how
+            // far this history can shrink. If the estimate has not climbed at
+            // least `minRegrowth` past that watermark, another pass cannot free
+            // more and would only thrash — skip it and let the provider call
+            // proceed (overflow recovery remains the safety net). Overflow-
+            // driven compaction always bypasses the guard.
+            const watermark = this.compactionCircuit.lastPostCompactionEstimate;
+            const minRegrowth = minRegrowthTokens(maxInputTokens);
+            const regrowthGuardSkip =
+              !overflowDriven &&
+              watermark !== null &&
+              estimated - watermark < minRegrowth;
+            // Floor-dominated thrash guard: a proactive pass earlier this turn
+            // already exhausted the compactor (couldn't clear the gate because
+            // the over-budget region is the protected in-flight turn). The
+            // regrowth guard cannot catch this — each tool round's growth lands
+            // in that protected region and re-arms the regrowth delta — so this
+            // per-turn latch is what stops the repeated futile passes. Overflow-
+            // driven compaction bypasses it.
+            const proactiveFutileSkip =
+              !overflowDriven && proactiveCompactionFutileThisTurn;
+            if (
+              shouldCompact &&
+              compactionAllowed &&
+              (regrowthGuardSkip || proactiveFutileSkip)
+            ) {
+              rlog.info(
+                {
+                  turn: toolUseTurns,
+                  estimated,
+                  postCompactionWatermark: watermark,
+                  minRegrowth,
+                  reason: proactiveFutileSkip
+                    ? "proactive_compaction_exhausted_this_turn"
+                    : "history_not_regrown",
+                },
+                proactiveFutileSkip
+                  ? "Skipping compaction: a proactive pass already exhausted the compactor this turn — the over-budget region is the protected in-flight turn, so re-compacting would free nothing"
+                  : "Skipping compaction: history has not regrown past the post-compaction watermark — re-compacting would not free more",
+              );
+            } else if (shouldCompact && compactionAllowed) {
+              rlog.info(
+                {
+                  turn: toolUseTurns,
+                  estimated,
+                  threshold: midLoopThreshold,
+                  overflowDriven,
+                },
+                "Compacting in place before provider call",
+              );
+              const attempt = await this.compact(
+                history,
+                requestId,
+                trust,
+                signal,
+                onEvent,
+                resolveEffectiveOverrideProfile() ?? null,
+                isNonInteractive,
+                modelProfileKey,
+                overflowSignal ?? undefined,
+              );
+              if (attempt.history) {
+                history = attempt.history;
+                // The compacted, re-injected array is the new base; output
+                // produced after this point is what the wrapper persists.
+                newMessagesStart = history.length;
+                // Record the post-compaction estimate so the regrowth guard can
+                // tell, on a later gate crossing, whether the history has grown
+                // enough to be worth compacting again.
+                this.compactionCircuit.lastPostCompactionEstimate =
+                  this.estimateTokens(history);
+              }
+              if (overflowDriven) {
+                // Carry the ladder's terminal state to the catch: if the
+                // provider rejects again after the ladder is spent, the turn
+                // ends instead of looping.
+                overflowLadderExhausted = attempt.exhausted;
+                overflowAutoCompressApplied = attempt.autoCompressApplied;
+              } else {
+                // Proactive (non-overflow) pass. If it exhausted the compactor
+                // without clearing the gate, latch suppression so later gate
+                // checks this turn skip the futile re-pass; a pass that DID
+                // clear the gate (non-exhausted) releases the latch.
+                proactiveCompactionFutileThisTurn = attempt.exhausted;
+              }
+            }
+          }
+        }
+
         // Resolve tools for this turn: use the dynamic resolver if provided,
         // otherwise fall back to the static tool list.
         const currentTools = this.resolveTools
           ? this.resolveTools(history)
           : this.tools;
 
-        // Resolve system prompt, per-turn maxTokens, and model
-        const resolved = this.resolveSystemPrompt
-          ? this.resolveSystemPrompt(history)
-          : null;
-        const turnSystemPrompt = resolved?.systemPrompt ?? this.systemPrompt;
-        const turnModel = resolved?.model;
-
         // Field precedence (highest wins):
-        //   1. Per-turn explicit (`resolved.maxTokens` / `resolved.model`)
+        //   1. Per-run explicit (`runModel`)
         //   2. Call-site resolved values (filled by
         //      `RetryProvider.normalizeSendMessageOptions` from
         //      `resolveCallSiteConfig(callSite, llm)`)
@@ -906,14 +1238,12 @@ export class AgentLoop {
         // they always come from `this.config` regardless of `callSite`.
         const providerConfig: Record<string, unknown> = {};
 
-        if (resolved?.maxTokens !== undefined) {
-          providerConfig.max_tokens = resolved.maxTokens;
-        } else if (!callSite) {
+        if (!callSite) {
           providerConfig.max_tokens = this.config.maxTokens;
         }
 
-        if (turnModel) {
-          providerConfig.model = turnModel;
+        if (runModel) {
+          providerConfig.model = runModel;
         }
 
         if (!callSite) {
@@ -937,12 +1267,14 @@ export class AgentLoop {
           providerConfig.cacheTtl = this.config.cacheTtl;
         }
 
-        // Cache-anchor signal for volatile latest-user-message turns (e.g.
-        // memory-v3 injects its `<memory>` block into the latest user
-        // message). Not part of the call-site schema, so it is always sourced
-        // from the per-run option regardless of `callSite`. Only set when true
-        // so the wire/config stays byte-identical when off.
-        if (mutableLatestUserMessage) {
+        // Cache-anchor signal for volatile latest-user-message turns: when
+        // memory-v3 is live it injects a per-turn `<memory>` block into the
+        // latest user message, so the provider must anchor its long-TTL cache
+        // breakpoint on the most recent STABLE user message instead of the
+        // volatile latest one. Read here alongside the rest of the provider
+        // config; only set when true so the wire/config stays byte-identical
+        // when off.
+        if (isMemoryV3Live(getConfig())) {
           providerConfig.mutableLatestUserMessage = true;
         }
 
@@ -957,14 +1289,14 @@ export class AgentLoop {
           providerConfig.callSite = callSite;
           providerConfig.usageTracking = "manual";
           // Per-conversation seed for deterministic `mix`-profile expansion.
-          // Sourced from the orchestrator-supplied turn context's
-          // conversationId so every LLM call in a conversation resolves the
-          // same mix arm (stable across turns and retries, and across daemon
-          // restarts since the seed is the durable conversation id). Absent
-          // for standalone `AgentLoop` instances (unit tests / no turnContext)
-          // — those fall back to per-call random mix selection.
-          if (turnContext?.conversationId) {
-            providerConfig.selectionSeed = turnContext.conversationId;
+          // Sourced from the loop's own conversation id so every LLM call in a
+          // conversation resolves the same mix arm (stable across turns and
+          // retries, and across daemon restarts since the seed is the durable
+          // conversation id). Absent for standalone `AgentLoop` instances
+          // (unit tests constructed without a conversation id) — those fall
+          // back to per-call random mix selection.
+          if (this.conversationId) {
+            providerConfig.selectionSeed = this.conversationId;
           }
         }
 
@@ -977,6 +1309,9 @@ export class AgentLoop {
         const effectiveOverrideProfile = resolveEffectiveOverrideProfile();
         if (effectiveOverrideProfile) {
           providerConfig.overrideProfile = effectiveOverrideProfile;
+          if (forceOverrideProfile) {
+            providerConfig.forceOverrideProfile = true;
+          }
         }
 
         // Rate-limit consecutive LLM calls to prevent spin when tools return instantly
@@ -1002,33 +1337,45 @@ export class AgentLoop {
           currentTools.length > 0 ? estimateToolsTokens(currentTools) : 0;
         const preSendEstimatedTokens = estimatePromptTokensRaw(
           history,
-          turnSystemPrompt,
+          runSystemPrompt,
           {
             providerName: getCalibrationProviderKey(this.provider),
             toolTokenBudget,
           },
         );
+        lastPreSendEstimatedTokens = preSendEstimatedTokens;
         rlog.info({ turn: toolUseTurns }, "LLM call start");
 
-        // Strip image contentBlocks from older tool results to prevent
-        // screenshots from accumulating in the context window. The LLM
-        // already saw each image on the turn it was captured; keeping
-        // base64 blobs in history rapidly exhausts the context budget.
-        // Also strip old AX tree snapshots to keep TTFT from growing
-        // linearly with step count in computer-use sessions.
-        const providerHistory = compactAxTreeHistory(
-          stripOldMediaBlocks(history),
-        );
+        // Sanitize the outbound history right before sending: drop accumulated
+        // media, collapse old AX-tree snapshots, and convert historical
+        // web-search results to text. See {@link preModelCallSanitize}.
+        const providerHistory = preModelCallSanitize(history);
+
+        // A `pre-model-call` hook (below) can defer this turn's assistant
+        // output; when set, the live text stream is held so an
+        // `post-model-call` hook can emit the finalized (transformed) text
+        // instead. Reset per model call.
+        let deferAssistantOutput = false;
+
+        // Set once any visible assistant text reaches the client live this
+        // model call. A deferred turn holds the live stream and a turn the
+        // model leaves visibly empty streams nothing, so this stays false for
+        // both — letting the loop surface the finalized text exactly once when
+        // the client would otherwise see nothing.
+        let streamedVisibleText = false;
 
         // The `onEvent` wrapping below applies sensitive-output placeholder
         // substitution to streamed text while forwarding every other event
         // type through unchanged.
         const providerOptions: SendMessageOptions = {
           tools: currentTools.length > 0 ? currentTools : undefined,
-          systemPrompt: turnSystemPrompt,
+          systemPrompt: runSystemPrompt,
           config: providerConfig,
           onEvent: (event) => {
             if (event.type === "text_delta") {
+              // Held when the turn's output is deferred — the final text is
+              // emitted once, after the `post-model-call` hook runs.
+              if (deferAssistantOutput) return;
               // Apply sensitive-output placeholder substitution (chunk-safe)
               if (substitutionMap.size > 0) {
                 const combined = streamingPending + event.text;
@@ -1038,9 +1385,11 @@ export class AgentLoop {
                 );
                 streamingPending = pending;
                 if (emit.length > 0) {
+                  streamedVisibleText = true;
                   onEvent({ type: "text_delta", text: emit });
                 }
               } else {
+                if (event.text.length > 0) streamedVisibleText = true;
                 onEvent({ type: "text_delta", text: event.text });
               }
             } else if (event.type === "thinking_delta") {
@@ -1084,17 +1433,63 @@ export class AgentLoop {
           signal,
         };
 
-        // Per-turn pipeline context. When the orchestrator threaded a full
-        // `turnContext` into `run()`, use it (overwriting `turnIndex` with
-        // the loop-scoped tool-use iteration) so middleware sees the real
-        // conversation identity, trust, and `contextWindowManager`. The
-        // synthesized fallback is only reached by standalone unit-test
-        // instantiations that never plumb a context through.
-        const turnCtx = resolveLoopTurnContext(
-          turnContext,
-          requestId,
-          toolUseTurns,
-        );
+        // Let plugins edit the outbound request and opt this call into deferred
+        // output streaming. Runs for every provider call; hooks self-gate on
+        // call site / conversation. Fail-open: a throwing hook leaves the
+        // request unchanged and streaming live.
+        try {
+          const preModelCtx: PreModelCallContext = {
+            conversationId: this.conversationId,
+            callSite: callSite ?? null,
+            systemPrompt: providerOptions.systemPrompt ?? null,
+            modelProfile: effectiveOverrideProfile ?? null,
+            deferAssistantOutput: false,
+            logger: rlog,
+          };
+          const finalPreModelCtx = await runHook(
+            HOOKS.PRE_MODEL_CALL,
+            preModelCtx,
+          );
+          // Emit a changed event when the hook mutated the prompt. Compare
+          // against the pre-hook value from providerOptions, not
+          // preModelCtx — the hook may mutate the context object in place,
+          // which would make preModelCtx.systemPrompt already reflect the
+          // change and hide the diff.
+          const preHookSystemPrompt = providerOptions.systemPrompt ?? null;
+          if (
+            typeof finalPreModelCtx.systemPrompt === "string" &&
+            finalPreModelCtx.systemPrompt !== preHookSystemPrompt
+          ) {
+            await onEvent({
+              type: "system_prompt_changed",
+              systemPrompt: finalPreModelCtx.systemPrompt,
+            });
+          }
+          providerOptions.systemPrompt =
+            finalPreModelCtx.systemPrompt ?? undefined;
+          // Route this call to the hook's chosen inference profile. The
+          // resolver layers `llm.profiles[overrideProfile]` at the top of
+          // precedence for the user-facing call, so a model router can pick
+          // the profile per message; clearing it drops any seeded override.
+          const hookModelProfile = finalPreModelCtx.modelProfile?.trim();
+          if (hookModelProfile) {
+            providerConfig.overrideProfile = hookModelProfile;
+            if (forceOverrideProfile) {
+              providerConfig.forceOverrideProfile = true;
+            }
+          } else {
+            delete providerConfig.overrideProfile;
+            delete providerConfig.forceOverrideProfile;
+          }
+          // The hook owns the policy (it sees `callSite`/conversation and
+          // self-gates); the loop honors whatever it decides.
+          deferAssistantOutput = finalPreModelCtx.deferAssistantOutput;
+        } catch (preModelCallError) {
+          rlog.error(
+            { err: preModelCallError },
+            "pre-model-call hook failed — proceeding with the original request",
+          );
+        }
 
         // Announce the LLM-call boundary so downstream handlers (the
         // daemon's persistence pipeline) can reserve an empty assistant row
@@ -1154,6 +1549,7 @@ export class AgentLoop {
                   : this.provider.name,
             });
           }
+          providerCallError = llmCallError;
           throw llmCallError;
         }
 
@@ -1177,23 +1573,88 @@ export class AgentLoop {
         if (streamingPending.length > 0) {
           const flushed = applySubstitutions(streamingPending, substitutionMap);
           if (flushed.length > 0) {
+            streamedVisibleText = true;
             onEvent({ type: "text_delta", text: flushed });
           }
           streamingPending = "";
         }
+
+        // Run the `post-model-call` hook on a finalized message. Fail-open: the
+        // hook receives a clone, so a throw — even mid in-place mutation —
+        // leaves the original message intact and the outcome resolves to
+        // `"stop"`.
+        //
+        // Returns the finalized message alongside the chain's retry `decision`
+        // and resulting `messages`. The caller honors `decision` only at an
+        // actionable outcome (a no-tool stop boundary); other call sites take
+        // the finalized message and ignore the decision. Final output is not
+        // emitted here — the caller emits it via `emitFinalAssistantText`
+        // once it has decided to keep the turn, so a re-queried reply isn't
+        // streamed-then-discarded.
+        const finalizeAssistantMessage = async (
+          message: Message,
+        ): Promise<{
+          finalized: Message;
+          decision: PostModelCallDecision;
+          messages: Message[];
+        }> => {
+          try {
+            const ctx: PostModelCallContext = {
+              conversationId: this.conversationId,
+              callSite: callSite ?? null,
+              content: structuredClone(message.content),
+              messages: [...history],
+              stopReason: response.stopReason,
+              decision: "stop",
+              logger: rlog,
+            };
+            const result = await runHook(HOOKS.POST_MODEL_CALL, ctx);
+            return {
+              finalized: { role: "assistant", content: result.content },
+              decision: result.decision,
+              messages: result.messages,
+            };
+          } catch (assistantMessageError) {
+            rlog.error(
+              { err: assistantMessageError },
+              "post-model-call hook failed — keeping the original content",
+            );
+            return { finalized: message, decision: "stop", messages: history };
+          }
+        };
+
+        // Surface the finalized assistant text when the client saw nothing live
+        // this turn: a deferred turn held its live stream, and a turn the model
+        // left visibly empty that a `post-model-call` hook rewrote into visible
+        // text (e.g. a refusal turned into an apology) streamed nothing either.
+        // Sensitive-output substitution is applied to match what the live stream
+        // would have shown. A no-op when text already streamed live — that
+        // stream stands. Call only for a turn being kept.
+        const emitFinalAssistantText = (content: ContentBlock[]): void => {
+          if (streamedVisibleText) return;
+          const finalText = applySubstitutions(
+            assistantTextOf(content),
+            substitutionMap,
+          );
+          if (finalText.length > 0) {
+            onEvent({ type: "text_delta", text: finalText });
+          }
+        };
 
         // Build the assistant message with placeholder-only text.
         // Both provider history and persisted conversation store must retain
         // placeholders so the model never sees real sensitive values — neither
         // on subsequent loop turns nor on session reload from the database.
         // Substitution to real values happens only in streamed text_delta events.
-        const assistantMessage: Message = {
+        let assistantMessage: Message = {
           role: "assistant",
           content: response.content,
         };
 
-        // Check for tool use
-        toolUseBlocks = response.content.filter(
+        // The model's own tool calls. The executable set is finalized after
+        // the `post-model-call` hook below, which may add or drop tool calls;
+        // this raw set drives only the completion log and the max-tokens branch.
+        const modelToolUseBlocks = response.content.filter(
           (block): block is Extract<ContentBlock, { type: "tool_use" }> =>
             block.type === "tool_use",
         );
@@ -1203,7 +1664,7 @@ export class AgentLoop {
             turn: toolUseTurns,
             stopReason: response.stopReason,
             contentBlocks: response.content.length,
-            toolUseCount: toolUseBlocks.length,
+            toolUseCount: modelToolUseBlocks.length,
             durationMs: providerDurationMs,
           },
           "LLM call complete",
@@ -1216,22 +1677,66 @@ export class AgentLoop {
               block.type !== "server_tool_use" &&
               block.type !== "web_search_tool_result",
           );
-          const safeAssistantMessage: Message = {
-            role: "assistant",
-            content: safeContent,
-          };
           rlog.warn(
             {
               turn: toolUseTurns,
               stopReason: response.stopReason,
               contentBlocks: response.content.length,
               safeContentBlocks: safeContent.length,
-              toolUseCount: toolUseBlocks.length,
+              toolUseCount: modelToolUseBlocks.length,
             },
             "LLM response reached output token limit",
           );
+          // Run the hook on the truncated reply so output-filter plugins still
+          // see it, and so a turn that streamed nothing live gets its final
+          // emit (without this the client would see nothing). A recovery hook
+          // (max-tokens-continue) may set `decision: "continue"` to resume the
+          // truncated turn: it leaves `messages` as the next history (the
+          // truncated turn followed by a continuation nudge), so unlike the
+          // no-tool retry below the partial output is kept, not discarded.
+          // Otherwise the stop is terminal and the continuation card surfaces.
+          const {
+            finalized: rawSafeAssistantMessage,
+            decision: maxTokensDecision,
+            messages: maxTokensMessages,
+          } = await finalizeAssistantMessage({
+            role: "assistant",
+            content: safeContent,
+          });
+          // A truncated turn never executes tools — the model's own tool calls
+          // were stripped into `safeContent` above. The hook can still append a
+          // `tool_use` block while transforming the reply, but this branch
+          // short-circuits without an executor pass, so honoring it would
+          // persist a tool call with no matching `tool_result`. Drop hook-added
+          // tool calls here too: tool injection is supported only on the
+          // non-truncated path below, which runs the executor.
+          const safeAssistantMessage: Message = {
+            ...rawSafeAssistantMessage,
+            content: rawSafeAssistantMessage.content.filter(
+              (block) =>
+                block.type !== "tool_use" &&
+                block.type !== "server_tool_use" &&
+                block.type !== "web_search_tool_result",
+            ),
+          };
+          emitFinalAssistantText(safeAssistantMessage.content);
+          if (
+            maxTokensDecision === "continue" &&
+            postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES
+          ) {
+            postModelCallContinues++;
+            rlog.warn(
+              { turn: toolUseTurns, retry: postModelCallContinues },
+              "max-tokens stop — auto-continuing the truncated turn",
+            );
+            await onEvent({
+              type: "message_complete",
+              message: safeAssistantMessage,
+            });
+            history = maxTokensMessages;
+            continue;
+          }
           history.push(safeAssistantMessage);
-          appendedNewMessages = true;
           await onEvent({
             type: "max_tokens_reached",
             stopReason: response.stopReason,
@@ -1240,74 +1745,95 @@ export class AgentLoop {
             type: "message_complete",
             message: safeAssistantMessage,
           });
-          await emitExit("max_tokens_reached");
+          await stopTurn("max_tokens_reached");
           break;
         }
 
-        // The model's "stop" moment: a response with no tool calls is about to
-        // yield to the user. The `stop` hook (below) decides whether to accept
-        // the turn or re-query with a follow-up; `priorAssistantHadVisibleText`
-        // gates the ops log for the post-tool empty case.
-        const hasVisibleText = response.content.some(
-          (block) => block.type === "text" && block.text.trim().length > 0,
+        // A response with no tool calls is the run's stop boundary. The
+        // `post-model-call` hook (below) sees the finalized reply and decides
+        // whether to accept the turn or re-query with a follow-up.
+        const responseHasVisibleText = hasVisibleText(response.content);
+
+        // Run the `post-model-call` hook: transform the finalized reply and
+        // surface its retry decision.
+        const {
+          finalized: finalizedAssistantMessage,
+          decision: postModelCallDecision,
+          messages: postModelCallMessages,
+        } = await finalizeAssistantMessage(assistantMessage);
+        assistantMessage = finalizedAssistantMessage;
+
+        // Execution follows the FINALIZED content, not the raw reply. A
+        // `post-model-call` hook may append a `tool_use` block to run a tool as
+        // if the model had called it (the supported way for a plugin to surface
+        // a card or take a follow-up action), or drop one the model emitted, so
+        // the loop runs whatever the assistant message ends up carrying.
+        // Normalize ids so the executor and tool_result correlation stay 1:1 —
+        // a hook-added block may carry an empty or duplicate id.
+        toolUseBlocks = assistantMessage.content.filter(
+          (block): block is Extract<ContentBlock, { type: "tool_use" }> =>
+            block.type === "tool_use",
         );
-        const priorAssistantHadVisibleText = producedVisibleTextThisRun;
-        if (hasVisibleText) {
-          producedVisibleTextThisRun = true;
+        const seenToolUseIds = new Set<string>();
+        for (const block of toolUseBlocks) {
+          if (block.id.length === 0 || seenToolUseIds.has(block.id)) {
+            block.id = crypto.randomUUID();
+          }
+          seenToolUseIds.add(block.id);
         }
 
-        if (toolUseBlocks.length === 0) {
-          // The model stopped requesting tools — the run's stop boundary. The
-          // `stop` hook decides whether to let the turn end or re-query with a
-          // follow-up turn. It receives the full history and, when it asks to
-          // continue, appends the follow-up turn itself.
-          const stopCtx: StopContext = {
-            conversationId: turnCtx.conversationId,
-            messages: [...history],
-            responseContent: response.content,
-            stopReason: response.stopReason,
-            decision: "stop",
-            logger: rlog,
-          };
-          const finalStopCtx = await runHook(HOOKS.STOP, stopCtx);
-
-          if (finalStopCtx.decision === "continue") {
-            // The loop owns the retry budget: a hook always asks to continue
-            // when a nudge is warranted, and the loop stops anyway once the
-            // budget is spent. This bounds the hook-driven re-query loop.
-            if (stopContinueRetries < MAX_STOP_CONTINUE_RETRIES) {
-              stopContinueRetries++;
-              rlog.warn(
-                { turn: toolUseTurns, retry: stopContinueRetries },
-                "Model returned empty response after tool results — retrying",
-              );
-              history = finalStopCtx.messages;
-              continue;
-            }
-
-            // Budget spent — accept the empty turn. Emit a dedicated log line
-            // for the post-tool empty case so ops dashboards that grep on it
-            // keep working.
-            if (
-              !hasVisibleText &&
-              toolUseTurns > 0 &&
-              !priorAssistantHadVisibleText
-            ) {
-              rlog.error(
-                { turn: toolUseTurns, retries: stopContinueRetries },
-                "Model returned empty response after tool results — retries exhausted",
-              );
-            }
+        // At the no-tool stop boundary the retry decision is actionable: a
+        // recovery hook may repair history and ask to re-query (a tool-bearing
+        // turn already continues, so its decision is ignored). A re-query
+        // adopts the hook's `messages` and discards this turn rather than
+        // persisting it; the per-run backstop keeps a misbehaving hook from
+        // spinning forever.
+        if (
+          toolUseBlocks.length === 0 &&
+          postModelCallDecision === "continue"
+        ) {
+          // A retry discards this reply and re-queries. That is only safe when
+          // the reply was not already streamed to the client live: a deferred
+          // turn suppressed its live stream, and a reply with no visible text
+          // streamed nothing. Honoring a retry on an already-streamed visible
+          // reply would leave the user looking at an answer the transcript
+          // then silently replaces, with no retraction — so accept the turn
+          // instead of discarding visible output.
+          const replyWasStreamedLive =
+            responseHasVisibleText && !deferAssistantOutput;
+          if (replyWasStreamedLive) {
+            rlog.warn(
+              { turn: toolUseTurns },
+              "post-model-call requested a retry on an already-streamed reply — keeping the turn to avoid discarding visible output",
+            );
+          } else if (postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES) {
+            postModelCallContinues++;
+            rlog.warn(
+              { turn: toolUseTurns, retry: postModelCallContinues },
+              "post-model-call requested a retry — re-querying the model",
+            );
+            history = postModelCallMessages;
+            continue;
+          } else {
+            rlog.warn(
+              { turn: toolUseTurns, retries: postModelCallContinues },
+              "post-model-call retry backstop reached — accepting the turn",
+            );
           }
         }
 
+        // The turn is being kept: surface the finalized text if the client saw
+        // nothing live (a deferred stream, or a hook-rewritten empty turn).
+        emitFinalAssistantText(assistantMessage.content);
+
         history.push(assistantMessage);
-        appendedNewMessages = true;
 
         await onEvent({ type: "message_complete", message: assistantMessage });
 
         if (toolUseBlocks.length === 0 || !this.toolExecutor) {
-          await emitExit("no_tool_calls");
+          // The model stopped requesting tools and `post-model-call` settled on
+          // ending the turn: the terminal `stop` chain fires via `stopTurn`.
+          await stopTurn("no_tool_calls");
           break;
         }
 
@@ -1341,7 +1867,7 @@ export class AgentLoop {
               cancelled: true,
             });
           }
-          await emitExit("aborted_post_response");
+          await stopTurn("aborted_post_response");
           break;
         }
 
@@ -1433,11 +1959,39 @@ export class AgentLoop {
           }),
         );
 
+        // Spool oversized results to `.tool-results/` and swap the inline
+        // copy for the post-turn pass's stub now — on the raw blocks, before
+        // the post-tool-use hooks, event emission, and history append. Running
+        // ahead of the hooks means the spooled file holds the tool's full
+        // output rather than the truncate plugin's tail-dropped copy, and the
+        // hooks then see the stub. Stubbing before the first send keeps the
+        // provider-bound history strictly append-only (rewriting an earlier
+        // message between calls would invalidate the prompt-cache prefix on
+        // every iteration).
+        if (conversationDir) {
+          const toolNameByUseId = new Map(
+            toolUseBlocks.map((tu) => [tu.id, tu.name]),
+          );
+          try {
+            spoolAndStubOversizedToolResults(rawResultBlocks, {
+              conversationDir,
+              toolNameById: (id) => toolNameByUseId.get(id),
+            });
+          } catch (err) {
+            rlog.warn(
+              { err, turn: toolUseTurns },
+              "Spooling oversized tool results to disk failed (non-fatal)",
+            );
+          }
+        }
+
         // Run the `post-tool-use` hook once per tool result, after the tool
         // returns and before the result joins the provider-bound history.
         // The default tool-result-truncate plugin tail-drops oversized output
-        // to fit the context window; user hooks can swap in a smarter strategy
-        // (e.g. a summariser) or observe results for side effects.
+        // to fit the context window (spool-stubbed results are already tiny;
+        // spool-exempt ones still rely on it); user hooks can swap in a
+        // smarter strategy (e.g. a summariser) or observe results for side
+        // effects.
         const contextWindowTokens =
           resolveContextWindow?.().maxInputTokens ??
           this.config.maxInputTokens ??
@@ -1451,15 +2005,17 @@ export class AgentLoop {
             continue;
           }
           const postToolUseCtx: PostToolUseContext = {
-            conversationId: turnCtx.conversationId,
+            conversationId: this.conversationId,
             toolResponse: block as ToolResultContent,
             messages: history,
+            additionalContext: null,
+            model: response.model,
             maxInputTokens: contextWindowTokens,
             logger: rlog,
           };
           const finalCtx = await runHook(HOOKS.POST_TOOL_USE, postToolUseCtx);
           resultBlocks.push(finalCtx.toolResponse);
-          if (finalCtx.additionalContext !== undefined) {
+          if (finalCtx.additionalContext !== null) {
             additionalContextBlocks.push({
               type: "text",
               text: finalCtx.additionalContext,
@@ -1503,7 +2059,7 @@ export class AgentLoop {
         // If cancelled during execution, push completed results and stop
         if (signal?.aborted) {
           history.push({ role: "user", content: resultBlocks });
-          await emitExit("aborted_during_tools");
+          await stopTurn("aborted_during_tools");
           break;
         }
 
@@ -1511,7 +2067,7 @@ export class AgentLoop {
         // surface awaiting a button click), push results and stop the loop.
         if (toolResults.some(({ result }) => result.yieldToUser)) {
           history.push({ role: "user", content: resultBlocks });
-          await emitExit("yield_to_user");
+          await stopTurn("yield_to_user");
           break;
         }
 
@@ -1529,8 +2085,9 @@ export class AgentLoop {
         history.push({ role: "user", content: resultBlocks });
 
         // Invoke checkpoint callback after tool results are in history.
-        // Handoff is offered first so a queued message takes precedence over
-        // the mid-loop budget yield below.
+        // Handoff takes precedence over the budget gate: a handoff decision
+        // breaks here and leaves `budgetGateArmed` false, so a queued message
+        // is processed before the next iteration's pre-call budget gate.
         if (onCheckpoint) {
           const decision = await onCheckpoint({
             turnIndex: toolUseTurns - 1, // 0-based (toolUseTurns was already incremented)
@@ -1539,66 +2096,23 @@ export class AgentLoop {
             history,
           });
           if (decision !== "continue") {
+            // A handoff pauses this run so the orchestrator can drain a queued
+            // message, then re-enters with a fresh run. It still ends *this*
+            // turn, so fire the terminal `stop` chain to run teardown (clearing
+            // per-turn state such as recovery bounds before the queued message
+            // is processed) — but without emitting `agent_loop_exit`, since the
+            // orchestrator owns the handoff signal and the conversation resumes.
+            await runTerminalStop("checkpoint_handoff", { emitExit: false });
             exitReason = decision;
             break;
           }
         }
 
-        // Mid-loop budget gate: when overflow recovery is enabled, estimate
-        // the running context size as it approaches the preflight budget.
-        // With a `compaction` hook the loop compacts in place and continues;
-        // without one it yields (`exitReason = "budget"`) so the orchestrator
-        // can recover before the next provider call risks a hard
-        // context-too-large rejection. Keyed off the loop's own
-        // `history.length` (the messages actually in context this turn,
-        // including tool iterations) rather than the durable conversation
-        // count.
-        const contextWindow = resolveContextWindow?.();
-        if (contextWindow?.overflowRecovery.enabled) {
-          const { maxInputTokens, overflowRecovery } = contextWindow;
-          const safetyMargin =
-            history.length > LONG_HISTORY_MESSAGE_THRESHOLD
-              ? Math.max(
-                  overflowRecovery.safetyMarginRatio,
-                  LONG_HISTORY_SAFETY_MARGIN_FLOOR,
-                )
-              : overflowRecovery.safetyMarginRatio;
-          const preflightBudget = Math.floor(
-            maxInputTokens * (1 - safetyMargin),
-          );
-          const midLoopThreshold =
-            preflightBudget * MID_LOOP_YIELD_THRESHOLD_RATIO;
-          const estimated = this.estimateTokens(history);
-          if (estimated > midLoopThreshold) {
-            if (compaction) {
-              rlog.info(
-                { phase: "mid-loop", estimated, threshold: midLoopThreshold },
-                "Token estimate approaching budget — compacting in place",
-              );
-              const compacted = await this.compact(
-                history,
-                turnCtx,
-                compaction,
-                signal,
-                onEvent,
-                resolveEffectiveOverrideProfile() ?? null,
-              );
-              if (compacted) {
-                history = compacted;
-                // The compacted, re-injected array is the new base; output
-                // produced after this point is what the orchestrator persists.
-                newMessagesStart = history.length;
-                continue;
-              }
-            }
-            rlog.warn(
-              { phase: "mid-loop", estimated, threshold: midLoopThreshold },
-              "Token estimate approaching budget — yielding for compaction",
-            );
-            exitReason = "budget";
-            break;
-          }
-        }
+        // Arm the pre-call budget gate for the next iteration. Placed after
+        // the checkpoint so a handoff yield (which breaks above) leaves it
+        // disarmed; the gate then runs at the top of the next iteration,
+        // before that iteration's provider call.
+        budgetGateArmed = true;
       } catch (error) {
         // Abort errors are expected when user cancels — synthesize
         // cancellation tool_results so the history stays valid for the
@@ -1624,10 +2138,113 @@ export class AgentLoop {
               });
             }
           }
-          await emitExit("aborted_via_error");
+          await stopTurn("aborted_via_error");
           break;
         }
+
         const err = error instanceof Error ? error : new Error(String(error));
+
+        // Reactive context-overflow recovery. The provider rejected the call
+        // because the prompt exceeded its window. Fold the provider's actual
+        // token count into the per-provider calibration (ground truth the
+        // estimator under-counted) and stash the overflow signal so the next
+        // iteration's budget gate forwards it into the compaction plugin's
+        // reduction ladder, which advances one rung before re-issuing the call.
+        // When the ladder is already spent and the provider still rejects, end
+        // the turn with the terminal reason the final rung implies instead of
+        // looping forever. Recovery requires the budget gate to be active; when
+        // it is disabled (e.g. agent wakes) there is no ladder to drive, so the
+        // overflow falls through to the generic error path below.
+        if (
+          isContextOverflowError(error) &&
+          (resolveContextWindow?.().overflowRecovery.enabled ?? false)
+        ) {
+          if (overflowLadderExhausted) {
+            await stopTurn(
+              overflowAutoCompressApplied
+                ? "budget_yield_unrecovered"
+                : "context_too_large",
+              err,
+            );
+            break;
+          }
+          const actualTokens = parseActualTokensFromError(error);
+          if (actualTokens !== null) {
+            recordEstimate(
+              getCalibrationProviderKey(this.provider),
+              "",
+              lastPreSendEstimatedTokens,
+              actualTokens,
+            );
+          }
+          pendingOverflowSignal = {
+            actualTokens,
+            isInteractive: !isNonInteractive,
+          };
+          budgetGateArmed = true;
+          rlog.warn(
+            {
+              turn: toolUseTurns,
+              estimated: lastPreSendEstimatedTokens,
+              actualTokens,
+            },
+            "Context too large — recovering via the compaction reduction ladder",
+          );
+          continue;
+        }
+
+        // A provider rejection is a model-call outcome: the loop has nothing
+        // more to produce this turn unless a recovery hook repairs the history
+        // and asks to retry. Run the `post-model-call` hook with the rejection
+        // attached — a recovery hook (e.g. history-repair on an ordering
+        // violation) can re-normalize the history and set `decision` to
+        // `"continue"` to re-issue the call; hooks that only act on a real
+        // reply ignore the rejection. The same per-run backstop bounds these
+        // error-driven retries as the success-path ones. The chain is run
+        // fail-open: a hook throw surfaces the original rejection.
+        //
+        // Confined to genuine provider rejections: a throw from elsewhere in
+        // the turn body (tool execution, the success-path stop/post-model-call
+        // hooks) is not a provider stop, so it falls straight through to the
+        // error path below.
+        if (error === providerCallError) {
+          const errorOutcomeCtx: PostModelCallContext = {
+            conversationId: this.conversationId,
+            callSite: callSite ?? null,
+            content: [],
+            messages: [...history],
+            stopReason: null,
+            error: err,
+            decision: "stop",
+            logger: rlog,
+          };
+          let errorOutcome: PostModelCallContext = errorOutcomeCtx;
+          try {
+            errorOutcome = await runHook(
+              HOOKS.POST_MODEL_CALL,
+              errorOutcomeCtx,
+            );
+          } catch (postModelCallError) {
+            rlog.error(
+              { err: postModelCallError },
+              "post-model-call hook failed on a provider rejection — surfacing the original error",
+            );
+          }
+          if (
+            errorOutcome.decision === "continue" &&
+            postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES
+          ) {
+            postModelCallContinues++;
+            history = errorOutcome.messages;
+            // A recovery hook rewrites the history anywhere (deep repair merges
+            // and drops messages), so the prior input boundary no longer maps
+            // onto the new array; the repaired history is the base the retry's
+            // output appends after.
+            newMessagesStart = history.length;
+            continue;
+          }
+        }
+
         rlog.error(
           { err, turn: toolUseTurns, messageCount: history.length },
           "Agent loop error during turn processing",
@@ -1639,7 +2256,7 @@ export class AgentLoop {
         // Catch-block fallback. A break site that stamped a more specific
         // reason before unwinding here keeps it; the guard makes this a no-op.
         // Otherwise this is the genuine unhandled-error exit.
-        await emitExit("error");
+        await stopTurn("error", err);
         break;
       }
     }
@@ -1656,7 +2273,6 @@ export class AgentLoop {
     return {
       history,
       exitReason,
-      appendedNewMessages,
       newMessages: history.slice(newMessagesStart),
     };
   }
@@ -1806,4 +2422,33 @@ function stripOldMediaBlocks(history: Message[]): Message[] {
       }),
     };
   });
+}
+
+/**
+ * Sanitize the outbound history immediately before a provider call, bundling
+ * the pre-send transforms the loop applies to every request:
+ * - {@link stripOldMediaBlocks} drops accumulated screenshot/audio bytes from
+ *   older tool results — the model saw the media on the turn it was captured.
+ * - {@link compactAxTreeHistory} collapses all but the most recent few
+ *   `<ax-tree>` snapshots so TTFT does not grow linearly with step count.
+ * - {@link stripHistoricalWebSearchResults} converts historical
+ *   `web_search_tool_result` blocks to text summaries; Anthropic's opaque
+ *   `encrypted_content` tokens expire / are route-scoped, and replaying a stale
+ *   one is rejected with `Invalid encrypted_content in search_result block`.
+ *
+ * Transforms the outbound copy only — the durable history keeps the rich
+ * originals and each send re-derives the sanitized projection (every transform
+ * is idempotent). Because it runs unconditionally before every provider call,
+ * it is the single place where oversized media and expired web-search tokens
+ * are guaranteed to be removed from a request.
+ *
+ * This is outbound-request preparation and should eventually move to a default
+ * `pre-model-call` plugin hook ({@link HOOKS.PRE_MODEL_CALL}) once that hook's
+ * context carries the outbound message list; for now it lives inline next to
+ * the provider call it guards.
+ */
+export function preModelCallSanitize(history: Message[]): Message[] {
+  const mediaStripped = stripOldMediaBlocks(history);
+  const axCompacted = compactAxTreeHistory(mediaStripped);
+  return stripHistoricalWebSearchResults(axCompacted).messages;
 }

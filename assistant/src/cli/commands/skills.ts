@@ -97,6 +97,7 @@ Examples:
               origin: string;
               kind: string;
               status: string;
+              owner?: { kind: string; id: string };
             }>;
           }>("listSkills", { queryParams: {} });
           if (!r.ok)
@@ -104,16 +105,27 @@ Examples:
               { ok: false, error: r.error, statusCode: r.statusCode },
               opts.json ?? false,
             );
+          // Source labels the extension a skill ships from. Plugin-resident
+          // skills are intentionally mapped to kind:bundled/origin:vellum for
+          // older clients, so their real attribution lives on `owner` —
+          // surface it as `plugin:<id>` instead of collapsing to "bundled".
+          const sourceLabel = (s: {
+            origin: string;
+            kind: string;
+            owner?: { kind: string; id: string };
+          }): string => {
+            if (s.owner) return `${s.owner.kind}:${s.owner.id}`;
+            if (s.origin === "vellum" && s.kind === "bundled") return "bundled";
+            return s.origin;
+          };
           const allSkills = r
             .result!.skills.map((s) => ({
               id: s.id,
               name: s.name,
               description: s.description,
               emoji: s.emoji,
-              source:
-                s.origin === "vellum" && s.kind === "bundled"
-                  ? "bundled"
-                  : s.origin,
+              source: sourceLabel(s),
+              owner: s.owner,
               state: s.status,
             }))
             .sort((a, b) => a.id.localeCompare(b.id));
@@ -125,12 +137,22 @@ Examples:
             log.info("No skills available.");
             return;
           }
+          // Align ID / SOURCE / STATE into columns so source is scannable.
+          const idWidth = Math.max(2, ...allSkills.map((s) => s.id.length));
+          const srcWidth = Math.max(
+            6,
+            ...allSkills.map((s) => s.source.length),
+          );
           log.info(`Skills (${allSkills.length}):\n`);
+          log.info(
+            `  ${"ID".padEnd(idWidth)}  ${"SOURCE".padEnd(srcWidth)}  STATE`,
+          );
           for (const s of allSkills) {
             const emoji = s.emoji ? `${s.emoji} ` : "";
-            const tags = [s.source, ...(s.state === "disabled" ? ["disabled"] : [])];
-            log.info(`  ${emoji}${s.id} [${tags.join(", ")}]`);
-            log.info(`    ${s.name} — ${s.description}`);
+            log.info(
+              `  ${s.id.padEnd(idWidth)}  ${s.source.padEnd(srcWidth)}  ${s.state}`,
+            );
+            log.info(`    ${emoji}${s.name} — ${s.description}`);
           }
         });
 
@@ -193,7 +215,8 @@ Examples:
           log.info(`  Source:    ${detail.source}`);
           log.info(`  State:     ${detail.state}`);
           log.info(`  Path:      ${detail.directoryPath}`);
-          if (detail.featureFlag) log.info(`  Flag:      ${detail.featureFlag}`);
+          if (detail.featureFlag)
+            log.info(`  Flag:      ${detail.featureFlag}`);
           if (detail.includes?.length)
             log.info(`  Includes:  ${detail.includes.join(", ")}`);
           if (detail.activationHints?.length)
@@ -228,7 +251,9 @@ Examples:
           }
           if (detail.config) {
             log.info(`\n  Config:`);
-            log.info(`    Enabled:     ${detail.config.enabled ? "yes" : "no"}`);
+            log.info(
+              `    Enabled:     ${detail.config.enabled ? "yes" : "no"}`,
+            );
             if (detail.config.envKeys.length)
               log.info(`    Env vars:    ${detail.config.envKeys.join(", ")}`);
             if (detail.config.configKeys.length)
@@ -262,147 +287,157 @@ Examples:
   $ assistant skills search "file management" --limit 3
   $ assistant skills search deploy --json`,
         )
-        .action(async (query: string, opts: { limit: string; json?: boolean }) => {
-          const json = opts.json ?? false;
-          const limit = parseInt(opts.limit, 10) || 10;
+        .action(
+          async (query: string, opts: { limit: string; json?: boolean }) => {
+            const json = opts.json ?? false;
+            const limit = parseInt(opts.limit, 10) || 10;
 
-          // Step 1: Vellum catalog (installed + remote available)
-          const catalogR = await cliIpcCall<{
-            skills: Array<{
-              id: string;
-              name: string;
-              description: string;
-              emoji?: string;
-              origin: string;
-              kind: string;
-              status: string;
-              updatedAt?: string;
-            }>;
-          }>("listSkills", { queryParams: { include: "catalog", q: query } });
-          const vellumSkills = catalogR.ok
-            ? catalogR.result!.skills.filter((s) => s.origin === "vellum")
-            : [];
+            // Step 1: Vellum catalog (installed + remote available)
+            const catalogR = await cliIpcCall<{
+              skills: Array<{
+                id: string;
+                name: string;
+                description: string;
+                emoji?: string;
+                origin: string;
+                kind: string;
+                status: string;
+                updatedAt?: string;
+              }>;
+            }>("listSkills", { queryParams: { include: "catalog", q: query } });
+            const vellumSkills = catalogR.ok
+              ? catalogR.result!.skills.filter((s) => s.origin === "vellum")
+              : [];
 
-          // Step 2: community (skills.sh with audits + clawhub) + local bundled/installed
-          const communityR = await cliIpcCall<{
-            skills: Array<{
-              id: string;
-              name: string;
-              description: string;
-              emoji?: string;
-              origin: string;
-              kind: string;
-              status: string;
-              slug?: string;
-              author?: string;
-              stars?: number;
-              installs?: number;
-              publishedAt?: string;
-              version?: string;
-              sourceRepo?: string;
-            }>;
-          }>("searchSkills", { queryParams: { q: query, limit: String(limit) } });
-          const communitySkills = communityR.ok
-            ? communityR.result!.skills.filter((s) => s.origin !== "vellum")
-            : [];
+            // Step 2: community (skills.sh with audits + clawhub) + local bundled/installed
+            const communityR = await cliIpcCall<{
+              skills: Array<{
+                id: string;
+                name: string;
+                description: string;
+                emoji?: string;
+                origin: string;
+                kind: string;
+                status: string;
+                slug?: string;
+                author?: string;
+                stars?: number;
+                installs?: number;
+                publishedAt?: string;
+                version?: string;
+                sourceRepo?: string;
+              }>;
+            }>("searchSkills", {
+              queryParams: { q: query, limit: String(limit) },
+            });
+            const communitySkills = communityR.ok
+              ? communityR.result!.skills.filter((s) => s.origin !== "vellum")
+              : [];
 
-          // Deduplicate by id — vellum wins
-          const seen = new Set(vellumSkills.map((s) => s.id));
-          const dedupedCommunity = communitySkills.filter((s) => {
-            if (seen.has(s.id)) return false;
-            seen.add(s.id);
-            return true;
-          });
-          const clawhubResults = dedupedCommunity
-            .filter((s) => s.origin === "clawhub")
-            .slice(0, limit);
-          const skillsshResults = dedupedCommunity
-            .filter((s) => s.origin === "skillssh")
-            .slice(0, limit);
+            // Deduplicate by id — vellum wins
+            const seen = new Set(vellumSkills.map((s) => s.id));
+            const dedupedCommunity = communitySkills.filter((s) => {
+              if (seen.has(s.id)) return false;
+              seen.add(s.id);
+              return true;
+            });
+            const clawhubResults = dedupedCommunity
+              .filter((s) => s.origin === "clawhub")
+              .slice(0, limit);
+            const skillsshResults = dedupedCommunity
+              .filter((s) => s.origin === "skillssh")
+              .slice(0, limit);
 
-          const hasResults =
-            vellumSkills.length > 0 ||
-            clawhubResults.length > 0 ||
-            skillsshResults.length > 0;
+            const hasResults =
+              vellumSkills.length > 0 ||
+              clawhubResults.length > 0 ||
+              skillsshResults.length > 0;
 
-          if (json) {
-            console.log(
-              JSON.stringify({
-                ok: true,
-                catalog: vellumSkills,
-                community: skillsshResults,
-                clawhub: clawhubResults,
-                ...(catalogR.ok ? {} : { catalogError: catalogR.error }),
-                ...(communityR.ok ? {} : { communityError: communityR.error }),
-              }),
-            );
-            return;
-          }
-
-          if (!hasResults) {
-            log.info(`No skills found for "${query}".`);
-            if (!catalogR.ok)
-              log.warn(`(Vellum catalog unavailable: ${catalogR.error})`);
-            if (!communityR.ok)
-              log.warn(`(Community registry unavailable: ${communityR.error})`);
-            return;
-          }
-
-          if (vellumSkills.length > 0) {
-            log.info(`Vellum catalog (${vellumSkills.length}):\n`);
-            for (const s of vellumSkills) {
-              const emoji = s.emoji ? `${s.emoji} ` : "";
-              const badge = s.kind === "installed" ? " [installed]" : "";
-              log.info(`  ${emoji}${s.name}${badge}`);
-              if (s.name !== s.id) log.info(`    ID: ${s.id}`);
-              log.info(`    ${s.description}`);
-              if (s.updatedAt) log.info(`    Updated: ${s.updatedAt}`);
-              if (s.kind !== "installed")
-                log.info(`    Install: assistant skills install ${s.id}`);
-              log.info("");
+            if (json) {
+              console.log(
+                JSON.stringify({
+                  ok: true,
+                  catalog: vellumSkills,
+                  community: skillsshResults,
+                  clawhub: clawhubResults,
+                  ...(catalogR.ok ? {} : { catalogError: catalogR.error }),
+                  ...(communityR.ok
+                    ? {}
+                    : { communityError: communityR.error }),
+                }),
+              );
+              return;
             }
-          }
 
-          if (skillsshResults.length > 0) {
-            log.info(`Community — skills.sh (${skillsshResults.length}):\n`);
-            for (const r of skillsshResults) {
-              const badge = r.kind === "installed" ? " [installed]" : "";
-              log.info(`  ${r.name}${badge}`);
-              if (r.name !== r.id) log.info(`    ID: ${r.id}`);
-              if (r.sourceRepo) log.info(`    Source: ${r.sourceRepo}`);
-              if (r.installs !== undefined)
-                log.info(`    Installs: ${r.installs}`);
-              if (r.kind !== "installed")
-                // Use the fully-qualified 3-segment id (owner/repo/skill) — this
-                // matches the `owner/repo/skill-name` form accepted by
-                // `resolveSkillSource()`. Building `sourceRepo@slug` fails for
-                // skills.sh because the registry returns `slug` as the full id,
-                // producing `owner/repo@owner/repo/skill` which the parser rejects.
-                log.info(`    Install: assistant skills add ${r.id}`);
-              log.info("");
+            if (!hasResults) {
+              log.info(`No skills found for "${query}".`);
+              if (!catalogR.ok)
+                log.warn(`(Vellum catalog unavailable: ${catalogR.error})`);
+              if (!communityR.ok)
+                log.warn(
+                  `(Community registry unavailable: ${communityR.error})`,
+                );
+              return;
             }
-          } else if (!communityR.ok) {
-            log.warn(
-              `\n(skills.sh registry unavailable: ${communityR.error})`,
-            );
-          }
 
-          if (clawhubResults.length > 0) {
-            log.info(`Community — Clawhub (${clawhubResults.length}):\n`);
-            for (const r of clawhubResults) {
-              const badge = r.kind === "installed" ? " [installed]" : "";
-              log.info(`  ${r.name}${badge}`);
-              if (r.name !== r.id) log.info(`    ID: ${r.id}`);
-              if (r.author) log.info(`    Author: ${r.author}`);
-              if (r.description) log.info(`    ${r.description}`);
-              if (r.stars) log.info(`    Stars: ${r.stars}`);
-              if (r.installs) log.info(`    Installs: ${r.installs}`);
-              if (r.kind !== "installed")
-                log.info(`    Install: npx clawhub install ${r.slug ?? r.id}`);
-              log.info("");
+            if (vellumSkills.length > 0) {
+              log.info(`Vellum catalog (${vellumSkills.length}):\n`);
+              for (const s of vellumSkills) {
+                const emoji = s.emoji ? `${s.emoji} ` : "";
+                const badge = s.kind === "installed" ? " [installed]" : "";
+                log.info(`  ${emoji}${s.name}${badge}`);
+                if (s.name !== s.id) log.info(`    ID: ${s.id}`);
+                log.info(`    ${s.description}`);
+                if (s.updatedAt) log.info(`    Updated: ${s.updatedAt}`);
+                if (s.kind !== "installed")
+                  log.info(`    Install: assistant skills install ${s.id}`);
+                log.info("");
+              }
             }
-          }
-        });
+
+            if (skillsshResults.length > 0) {
+              log.info(`Community — skills.sh (${skillsshResults.length}):\n`);
+              for (const r of skillsshResults) {
+                const badge = r.kind === "installed" ? " [installed]" : "";
+                log.info(`  ${r.name}${badge}`);
+                if (r.name !== r.id) log.info(`    ID: ${r.id}`);
+                if (r.sourceRepo) log.info(`    Source: ${r.sourceRepo}`);
+                if (r.installs !== undefined)
+                  log.info(`    Installs: ${r.installs}`);
+                if (r.kind !== "installed")
+                  // Use the fully-qualified 3-segment id (owner/repo/skill) — this
+                  // matches the `owner/repo/skill-name` form accepted by
+                  // `resolveSkillSource()`. Building `sourceRepo@slug` fails for
+                  // skills.sh because the registry returns `slug` as the full id,
+                  // producing `owner/repo@owner/repo/skill` which the parser rejects.
+                  log.info(`    Install: assistant skills add ${r.id}`);
+                log.info("");
+              }
+            } else if (!communityR.ok) {
+              log.warn(
+                `\n(skills.sh registry unavailable: ${communityR.error})`,
+              );
+            }
+
+            if (clawhubResults.length > 0) {
+              log.info(`Community — Clawhub (${clawhubResults.length}):\n`);
+              for (const r of clawhubResults) {
+                const badge = r.kind === "installed" ? " [installed]" : "";
+                log.info(`  ${r.name}${badge}`);
+                if (r.name !== r.id) log.info(`    ID: ${r.id}`);
+                if (r.author) log.info(`    Author: ${r.author}`);
+                if (r.description) log.info(`    ${r.description}`);
+                if (r.stars) log.info(`    Stars: ${r.stars}`);
+                if (r.installs) log.info(`    Installs: ${r.installs}`);
+                if (r.kind !== "installed")
+                  log.info(
+                    `    Install: npx clawhub install ${r.slug ?? r.id}`,
+                  );
+                log.info("");
+              }
+            }
+          },
+        );
 
       skills
         .command("install <skill-id>")
@@ -433,10 +468,16 @@ Examples:
             const json = opts.json ?? false;
 
             // Restrict to catalog-only; community installs use `skills add`.
-            const installR = await cliIpcCall<{ ok: boolean; skillId?: string }>(
-              "installSkill",
-              { body: { slug: skillId, overwrite: opts.overwrite ?? false, catalogOnly: true } },
-            );
+            const installR = await cliIpcCall<{
+              ok: boolean;
+              skillId?: string;
+            }>("installSkill", {
+              body: {
+                slug: skillId,
+                overwrite: opts.overwrite ?? false,
+                catalogOnly: true,
+              },
+            });
             if (!installR.ok) {
               if (json) {
                 console.log(

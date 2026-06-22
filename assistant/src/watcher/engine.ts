@@ -13,6 +13,10 @@ import { getLogger } from "../util/logger.js";
 import { MAX_CONSECUTIVE_ERRORS, WATCHER_JOB_TIMEOUT_MS } from "./constants.js";
 import { getWatcherProvider } from "./provider-registry.js";
 import {
+  recordWatcherInventoryIfDue,
+  recordWatcherLlmProcessed,
+} from "./telemetry.js";
+import {
   claimDueWatchers,
   completeWatcherPoll,
   disableWatcher,
@@ -68,6 +72,8 @@ export async function runWatchersOnce(
 ): Promise<number> {
   const now = Date.now();
   let processed = 0;
+
+  recordWatcherInventoryIfDue(now);
 
   // ── Phase 1: Poll providers for new events ──────────────────────
   const claimed = claimDueWatchers(now);
@@ -251,6 +257,7 @@ export async function runWatchersOnce(
       // The seed lives in the sandwich messages; processMessage runs
       // with an empty prompt so we don't double-inject the action prompt.
       prompt: "",
+      systemHint: `Watcher: ${watcher.name}`,
       trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
       callSite: "mainAgent",
       timeoutMs: WATCHER_JOB_TIMEOUT_MS,
@@ -268,6 +275,7 @@ export async function runWatchersOnce(
     // is empty) — otherwise we'd overwrite a valid prior id with "".
     if (result.conversationId !== "") {
       setWatcherConversationId(watcher.id, result.conversationId);
+      recordWatcherLlmProcessed(watcher.providerId, result.conversationId);
     }
 
     if (result.ok) {

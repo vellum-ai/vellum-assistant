@@ -45,6 +45,36 @@ describe("buildSkillContent", () => {
     const out = buildSkillContent(input);
     expect(out.length).toBeLessThanOrEqual(500);
   });
+
+  test("respects a larger maxChars budget", async () => {
+    const { buildSkillContent } = await import("../skill-content.js");
+    const input: SkillCapabilityInput = {
+      id: "example-skill",
+      displayName: "Example Skill",
+      description: "x".repeat(1000),
+    };
+    const out = buildSkillContent(input, 900);
+    expect(out.length).toBeLessThanOrEqual(900);
+    expect(out.length).toBeGreaterThan(500);
+  });
+
+  test("renders hints as a bulleted list when the budget is enlarged", async () => {
+    const { buildSkillContent } = await import("../skill-content.js");
+    const input: SkillCapabilityInput = {
+      id: "wf",
+      displayName: "Workflows",
+      description: "Delegate a big job",
+      activationHints: ["Batch many items", "Exhaustive sweep"],
+      avoidWhen: ["A single lookup"],
+    };
+    const rich = buildSkillContent(input, 900);
+    expect(rich).toContain("Use when:\n- Batch many items\n- Exhaustive sweep");
+    expect(rich).toContain("Avoid when:\n- A single lookup");
+    // The default (500) budget keeps the compact inline form.
+    expect(buildSkillContent(input)).toContain(
+      "Use when: Batch many items; Exhaustive sweep.",
+    );
+  });
 });
 
 describe("augmentMcpSetupDescription", () => {

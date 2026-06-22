@@ -155,6 +155,21 @@ registerHook("app_refresh", (_name, input, _result, { ctx }) => {
   notifyAppChanged(ctx, appId, { fileChange: true });
 });
 
+// app_update compiles internally (like app_refresh) but emits no events of its
+// own, so without this hook an updated app leaves open surfaces rendering the
+// stale dist and never re-deploys or invalidates the Library. The executor owns
+// the compile; notifyAppChanged only refreshes surfaces and broadcasts.
+registerHook("app_update", (_name, input, _result, { ctx }) => {
+  const appId = input.app_id as string | undefined;
+  if (!appId) return;
+  try {
+    addAppConversationId(appId, ctx.conversationId);
+  } catch (err) {
+    log.warn({ err, appId }, "Failed to track conversation ID on app_update");
+  }
+  notifyAppChanged(ctx, appId, { fileChange: true });
+});
+
 registerHook("voice_config_update", (_name, input) => {
   const setting = input.setting as string | undefined;
   if (!setting) return;

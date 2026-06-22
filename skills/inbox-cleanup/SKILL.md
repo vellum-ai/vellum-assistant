@@ -8,6 +8,7 @@ metadata:
   vellum:
     category: "email"
     display-name: "Inbox Cleanup"
+    includes: ["gmail"]
     activation-hints:
       - "When the user asks to clean up, organize, or triage their email inbox"
       - "When the user wants to archive old or unwanted emails in bulk"
@@ -23,6 +24,8 @@ A playbook for large-scale email inbox cleanup. The core insight: sender-based s
 
 Works with any connected email provider. Adapt query syntax to whatever the provider supports — the strategy (what to search for, how to decide what to archive) is universal.
 
+> **Gmail is a required integration.** It's declared via `includes: ["gmail"]` in the frontmatter so it loads synchronously on activation, not lazily after the preferences form. Load/confirm the Gmail integration the moment this skill activates — before Phase 1 — so a missing or unauthorized connection surfaces up front rather than mid-cleanup.
+
 ---
 
 ## Phase 1: Preference Capture
@@ -37,6 +40,8 @@ Do this before touching anything. Ask the user:
 
 **2. Age threshold**
 Archive everything older than X days? Common choices: 30 / 60 / 90 days. Or no age filter.
+
+> **First-run scope:** On first invocation, scope to last 30 days or top 3 noise patterns, whichever surfaces faster. Show result, offer to expand. Prove the approach on a fast, visible slice before draining the whole backlog.
 
 **3. VIP senders to protect**
 Ask: "Are there any senders that might look like cold outreach but you actually care about? Think: specific individuals at investors, advisors, your lawyer, accountant, recruiters you're actively working with."
@@ -150,15 +155,24 @@ For emails not caught by pattern queries, use LLM-based classification in Standa
 
 ## Dry-Run Defaults
 
-When the user's inbox management trust stage is 0 (flag-only), or when a batch exceeds 1,000 operations at stage 1, default to `--dry-run` mode:
+**Every bulk archive previews before it executes — regardless of batch size or trust stage.** Run the pipeline with `--dry-run` on all archive calls, then render a `ui_show` table preview the user commits or refines from. Never archive in bulk straight from a query.
 
-1. Run the pipeline with `--dry-run` on all archive calls
-2. At the end, show a summary: counts by phase with example subjects
-3. Ask the user to confirm before committing: "This would archive X,XXX emails across Y passes. Commit?"
-4. If confirmed, commit via `bun run scripts/gmail-commit.ts commit --run-id "<run-id>"`
-5. If rejected, cancel via `bun run scripts/gmail-commit.ts cancel --run-id "<run-id>"`
+The preview table must show:
 
-At stage 2 or for small batches at stage 1, archive directly (but still log for audit/reversal).
+1. **Total emails matching** — the full count this bulk archive would touch
+2. **Top-10 sender breakdown** — senders by volume, so the user spots anything they care about
+3. **10–20 sample subjects** — a representative spread, not just the first few
+4. **Categories flagged for confirm-before-archive** — the Phase 1 categories (financial/billing, legal/contracts, account suspension, government/regulatory) that matched, called out for explicit approval
+
+**Surface "things worth flagging before you confirm" inside the preview, not after.** If the dry-run catches claim documents, failed-payment notices, or any urgency-triage signal (Phase 2), call them out in the preview so the user sees them while deciding — never let a flag-worthy item get archived first and surfaced afterward.
+
+After rendering the preview:
+
+1. Ask the user to confirm or refine: "This would archive X,XXX emails across Y passes. Commit, or refine the scope?"
+2. If confirmed, commit via `bun run scripts/gmail-commit.ts commit --run-id "<run-id>"`
+3. If rejected, cancel via `bun run scripts/gmail-commit.ts cancel --run-id "<run-id>"`
+
+Larger batches (e.g. >1,000 operations) and lower trust stages (stage 0 flag-only) warrant extra scrutiny in the preview, but the preview itself is always required before any bulk archive — including small batches and high trust stages. Direct archives are still logged for audit/reversal.
 
 ---
 

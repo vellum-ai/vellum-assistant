@@ -26,9 +26,7 @@
  * macOS dev, or if an init such as tini is ever placed above the daemon),
  * orphans reparent to that init and are reaped there, so there is nothing for
  * this to do. Because the daemon is PID 1, orphans already reparent to it and
- * `PR_SET_CHILD_SUBREAPER` is unnecessary. It is additionally gated behind the
- * `daemon.reapOrphanedSubprocesses` config flag (default off) so the behavior
- * can be enabled per workspace for validation before becoming the default.
+ * `PR_SET_CHILD_SUBREAPER` is unnecessary.
  *
  * References:
  * - libuv reaps its own children by pid on SIGCHLD (`uv__wait_children`):
@@ -42,7 +40,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dlopen, FFIType, ptr } from "bun:ffi";
 
-import { getConfigReadOnly } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("orphan-reaper");
@@ -193,21 +190,8 @@ function reapScan(): void {
 }
 
 /**
- * Read the opt-in gate from workspace config (`daemon.reapOrphanedSubprocesses`),
- * tolerating a missing or malformed config so startup never fails on it.
- */
-function isReaperEnabled(): boolean {
-  try {
-    return getConfigReadOnly().daemon.reapOrphanedSubprocesses;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Start the periodic orphan reaper. No-op unless the daemon is PID 1 on Linux
- * (otherwise reparented orphans are reaped by the real init) and the
- * `daemon.reapOrphanedSubprocesses` config gate is enabled.
+ * (otherwise reparented orphans are reaped by the real init).
  */
 export function startOrphanReaper(): void {
   if (scanTimer) return;
@@ -215,12 +199,6 @@ export function startOrphanReaper(): void {
     log.info(
       { platform: process.platform, pid: process.pid },
       "Orphan reaper not started: daemon is not PID 1 on Linux",
-    );
-    return;
-  }
-  if (!isReaperEnabled()) {
-    log.info(
-      "Orphan reaper not started: daemon.reapOrphanedSubprocesses is disabled",
     );
     return;
   }

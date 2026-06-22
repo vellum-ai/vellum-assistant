@@ -2,9 +2,9 @@
  * Regression tests for app surface refresh and eventing side effects in
  * createToolExecutor (conversation-tool-setup.ts).
  *
- * Tests verify that app_refresh, app_create, and app_delete hooks fire
- * correctly, and that removed hooks (app_update, app_file_edit,
- * app_file_write) no longer trigger side effects.
+ * Tests verify that app_refresh, app_update, app_create, and app_delete hooks
+ * fire correctly, and that non-hooked tools (app_file_edit, app_file_write) do
+ * not trigger side effects.
  *
  * File-change detection for file_write/file_edit is handled by
  * AppSourceWatcher (see app-source-watcher.test.ts).
@@ -242,6 +242,76 @@ describe("session-tool-setup app refresh side effects", () => {
       );
 
       await toolFn("app_refresh", {});
+
+      expect(refreshSpy).not.toHaveBeenCalled();
+      expect(broadcastSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── app_update ──────────────────────────────────────────────────────
+
+  describe("app_update", () => {
+    test("triggers refreshSurfacesForApp and broadcast on success", async () => {
+      const ctx = makeCtx();
+      const executor = makeFakeExecutor({
+        content: '{"updated":true,"appId":"app-7"}',
+        isError: false,
+      });
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor,
+        noopPrompter,
+        noopSecretPrompter,
+        ctx,
+        noopLifecycleHandler,
+      );
+
+      await toolFn("app_update", { app_id: "app-7" });
+
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+      expect((refreshSpy.mock.calls as unknown[][])[0][1]).toBe("app-7");
+      expectAppChangeBroadcast("app-7");
+      expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
+      expect((updatePublishedSpy.mock.calls as unknown[][])[0][0]).toBe(
+        "app-7",
+      );
+    });
+
+    test("skips side effects when result is an error", async () => {
+      const ctx = makeCtx();
+      const executor = makeFakeExecutor({
+        content: "Error: not found",
+        isError: true,
+      });
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor,
+        noopPrompter,
+        noopSecretPrompter,
+        ctx,
+        noopLifecycleHandler,
+      );
+
+      await toolFn("app_update", { app_id: "app-err" });
+
+      expect(refreshSpy).not.toHaveBeenCalled();
+      expect(broadcastSpy).not.toHaveBeenCalled();
+      expect(updatePublishedSpy).not.toHaveBeenCalled();
+    });
+
+    test("skips side effects when app_id is missing", async () => {
+      const ctx = makeCtx();
+      const executor = makeFakeExecutor({ content: "{}", isError: false });
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor,
+        noopPrompter,
+        noopSecretPrompter,
+        ctx,
+        noopLifecycleHandler,
+      );
+
+      await toolFn("app_update", {});
 
       expect(refreshSpy).not.toHaveBeenCalled();
       expect(broadcastSpy).not.toHaveBeenCalled();
@@ -518,7 +588,6 @@ describe("session-tool-setup app refresh side effects", () => {
         "write_file",
         "shell",
         "app_list",
-        "app_update",
         "app_file_edit",
         "app_file_write",
       ]) {

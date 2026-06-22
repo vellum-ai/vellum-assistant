@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   watch as fsWatch,
 } from "fs";
 import { arch, platform } from "os";
@@ -21,6 +22,7 @@ import type { AssistantEntry } from "./assistant-config";
 import { buildHatchConfigValues, writeInitialConfig } from "./config-utils";
 import { buildServiceRunArgs } from "./statefulset.js";
 import type { Species } from "./constants";
+import { getOrCreateHostDeviceId } from "./device-id.js";
 import { getDefaultPorts } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
 import { leaseGuardianToken } from "./guardian-token";
@@ -65,6 +67,7 @@ export {
   ASSISTANT_INTERNAL_PORT,
   GATEWAY_INTERNAL_PORT,
 } from "./environments/paths.js";
+import { loopbackSafeFetch } from "./loopback-fetch.js";
 
 /** Max time to wait for the assistant container to emit the readiness sentinel. */
 export const DOCKER_READY_TIMEOUT_MS = 5 * 60 * 1000;
@@ -271,8 +274,53 @@ function ensureLocalBinOnPath(): void {
   }
 }
 
-export interface HatchDockerOptions {
+export interface HatchDockerParams {
+  /** Assistant species to hatch (e.g. `"vellum"`). */
+  species: Species;
+  /** Run detached without attaching to logs or interactive setup. */
+  detached?: boolean;
+  /** Instance display name. Defaults to an auto-generated name. */
+  name?: string | null;
+  /** Build from a local source tree and hot-reload on change. */
+  watch?: boolean;
+  /** Hatch-time config values (key → value). */
+  configValues?: Record<string, string>;
+  /** Extra env vars forwarded into the assistant container. */
+  flagEnvVars?: Record<string, string>;
   setupProviderCredentials?: boolean;
+  /**
+   * Path to a local source tree to build images from before hatching. When
+   * provided, this path is used directly as the repo root and no file
+   * watcher is started — useful for callers (e.g. evals) that want each
+   * run to pick up local CLI changes without keeping a long-lived watcher
+   * process around. `--watch` independently auto-detects the repo root and
+   * also enables hot-reload.
+   */
+  sourcePath?: string | null;
+  analyze?: boolean;
+  /**
+   * Name of an existing container whose network namespace the assistant,
+   * gateway, and credential-executor join (`--network=container:<name>`),
+   * instead of the assistant owning a freshly-created per-instance network.
+   * When set, hatch creates no Docker network and publishes no host ports —
+   * the namespace owner is responsible for publishing the gateway port — so
+   * `gatewayPort` must also be supplied (the owner had to publish it before
+   * hatch ran).
+   */
+  netnsContainer?: string;
+  /**
+   * Explicit host port to record as the gateway's `runtimeUrl` instead of
+   * auto-allocating a free port. Required alongside `netnsContainer`, where
+   * the namespace owner — not hatch — owns port allocation and publishing.
+   */
+  gatewayPort?: number;
+  /**
+   * Host path to a PEM CA bundle bind-mounted into the assistant container
+   * and trusted at process start via `NODE_EXTRA_CA_CERTS`. Lets the daemon
+   * trust a TLS-terminating egress proxy from its very first outbound
+   * connection.
+   */
+  assistantCaCertPath?: string;
 }
 
 export type DockerProviderCredentialSetupAction =
@@ -661,10 +709,13 @@ export async function startContainers(
     bootstrapSecret?: string;
     cesServiceToken?: string;
     extraAssistantEnv?: Record<string, string>;
+    extraGatewayEnv?: Record<string, string>;
     gatewayPort: number;
     imageTags: Record<ServiceName, string>;
     instanceName: string;
     res: ReturnType<typeof dockerResourceNames>;
+    netnsContainer?: string;
+    assistantCaCertPath?: string;
   },
   log: (msg: string) => void,
 ): Promise<void> {
@@ -789,6 +840,56 @@ export async function captureImageRefs(
 }
 
 /**
+ * Build the set of paths the hot-reload watcher should observe, scoped to
+ * each service's `src/` tree, `package.json` manifest, and `Dockerfile`.
+ *
+ * We deliberately avoid recursively watching whole service directories.
+ * Those contain `.claude/` command symlinks — which dangle in a fresh
+ * checkout because they point at the separately-cloned `claude-skills`
+ * repo — as well as `node_modules`. `fs.watch(dir, { recursive: true })`
+ * traverses those entries and emits an unhandled `error` event on a broken
+ * symlink, which crashes the CLI process. Source code only ever lives under
+ * `src/`, so watching that tree plus the two manifests that drive the image
+ * build (`package.json` and `Dockerfile`) preserves hot-reload without
+ * walking into symlinked or generated trees. The `Dockerfile` is watched as
+ * an individual file for the same reason — editing build steps should
+ * trigger a rebuild, but the file sits next to the symlinked trees we avoid.
+ *
+ * Returning a plain record keeps this trivially unit-testable — see
+ * `__tests__/docker.test.ts`.
+ */
+export function collectWatchTargets(repoRoot: string): {
+  dirs: string[];
+  files: string[];
+} {
+  const packagesDir = join(repoRoot, "packages");
+  const packageRoots = existsSync(packagesDir)
+    ? readdirSync(packagesDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => join(packagesDir, entry.name))
+    : [];
+
+  const serviceRoots = [
+    join(repoRoot, "assistant"),
+    join(repoRoot, "credential-executor"),
+    join(repoRoot, "gateway"),
+    ...packageRoots,
+  ];
+
+  const dirs: string[] = [];
+  const files: string[] = [];
+  for (const root of serviceRoots) {
+    const srcDir = join(root, "src");
+    if (existsSync(srcDir)) dirs.push(srcDir);
+    for (const name of ["package.json", "Dockerfile"]) {
+      const file = join(root, name);
+      if (existsSync(file)) files.push(file);
+    }
+  }
+  return { dirs, files };
+}
+
+/**
  * Determine which services are affected by a changed file path relative
  * to the repository root.
  */
@@ -821,28 +922,28 @@ function affectedServices(
 }
 
 /**
- * Watch for file changes in the assistant, gateway, credential-executor,
- * and packages directories. When changes are detected, rebuild the affected
- * images and restart their containers.
+ * Watch for source changes across the assistant, gateway, credential-executor,
+ * and packages services — scoped to each service's `src/` tree, `package.json`,
+ * and `Dockerfile` (see `collectWatchTargets`). When changes are detected,
+ * rebuild the affected images and restart their containers.
  */
 function startFileWatcher(opts: {
   signingKey?: string;
   bootstrapSecret?: string;
   cesServiceToken?: string;
+  extraAssistantEnv?: Record<string, string>;
+  extraGatewayEnv?: Record<string, string>;
   gatewayPort: number;
   imageTags: Record<ServiceName, string>;
   instanceName: string;
   repoRoot: string;
   res: ReturnType<typeof dockerResourceNames>;
+  netnsContainer?: string;
+  assistantCaCertPath?: string;
 }): () => void {
   const { gatewayPort, imageTags, instanceName, repoRoot, res } = opts;
 
-  const watchDirs = [
-    join(repoRoot, "assistant"),
-    join(repoRoot, "credential-executor"),
-    join(repoRoot, "gateway"),
-    join(repoRoot, "packages"),
-  ];
+  const { dirs: watchDirs, files: watchFiles } = collectWatchTargets(repoRoot);
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingServices = new Set<ServiceName>();
@@ -853,11 +954,15 @@ function startFileWatcher(opts: {
     signingKey: opts.signingKey,
     bootstrapSecret: opts.bootstrapSecret,
     cesServiceToken: opts.cesServiceToken,
+    extraAssistantEnv: opts.extraAssistantEnv,
+    extraGatewayEnv: opts.extraGatewayEnv,
     gatewayPort,
     imageTags,
     instanceName,
     res,
     avatarDevicePath: resolveAvatarDevicePath(),
+    netnsContainer: opts.netnsContainer,
+    assistantCaCertPath: opts.assistantCaCertPath,
   });
   const containerForService: Record<ServiceName, string> = {
     assistant: res.assistantContainer,
@@ -919,37 +1024,53 @@ function startFileWatcher(opts: {
 
   const watchers: ReturnType<typeof fsWatch>[] = [];
 
+  function onChange(fullPath: string): void {
+    const services = affectedServices(fullPath, repoRoot);
+    if (services.size === 0) return;
+
+    for (const s of services) {
+      pendingServices.add(s);
+    }
+
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      rebuildAndRestart();
+    }, 500);
+  }
+
   for (const dir of watchDirs) {
-    if (!existsSync(dir)) continue;
     const watcher = fsWatch(dir, { recursive: true }, (_event, filename) => {
       if (!filename) return;
-      if (
-        filename.includes("node_modules") ||
-        filename.includes(".env") ||
-        filename.startsWith(".")
-      ) {
+      if (filename.includes("node_modules") || filename.includes(".env")) {
         return;
       }
+      onChange(join(dir, filename));
+    });
+    // fs.watch surfaces transient errors (e.g. an unreadable entry) as an
+    // `error` event, which would otherwise crash the process. Log and keep
+    // the remaining watchers running.
+    watcher.on("error", (err) => {
+      console.error(
+        `⚠️  File watcher error for ${dir}: ${err instanceof Error ? err.message : err}`,
+      );
+    });
+    watchers.push(watcher);
+  }
 
-      const fullPath = join(dir, filename);
-      const services = affectedServices(fullPath, repoRoot);
-      if (services.size === 0) return;
-
-      for (const s of services) {
-        pendingServices.add(s);
-      }
-
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        debounceTimer = null;
-        rebuildAndRestart();
-      }, 500);
+  for (const file of watchFiles) {
+    const watcher = fsWatch(file, () => onChange(file));
+    watcher.on("error", (err) => {
+      console.error(
+        `⚠️  File watcher error for ${file}: ${err instanceof Error ? err.message : err}`,
+      );
     });
     watchers.push(watcher);
   }
 
   console.log("👀 Watching for file changes in:");
-  console.log("   assistant/, gateway/, credential-executor/, packages/");
+  console.log("   <service>/src, <service>/package.json, <service>/Dockerfile");
+  console.log("   for assistant/, gateway/, credential-executor/, packages/*");
   console.log("");
 
   return () => {
@@ -960,30 +1081,19 @@ function startFileWatcher(opts: {
   };
 }
 
-export interface HatchDockerOptions {
-  /**
-   * Path to a local source tree to build images from before hatching. When
-   * provided, this path is used directly as the repo root and no file
-   * watcher is started — useful for callers (e.g. evals) that want each
-   * run to pick up local CLI changes without keeping a long-lived watcher
-   * process around. `--watch` independently auto-detects the repo root and
-   * also enables hot-reload.
-   */
-  sourcePath?: string | null;
-  analyze?: boolean;
-}
+export async function hatchDocker(params: HatchDockerParams): Promise<void> {
+  const {
+    species,
+    detached = false,
+    name = null,
+    configValues = {},
+    flagEnvVars = {},
+  } = params;
+  let watch = params.watch ?? false;
 
-export async function hatchDocker(
-  species: Species,
-  detached: boolean,
-  name: string | null,
-  watch: boolean = false,
-  configValues: Record<string, string> = {},
-  options: HatchDockerOptions = {},
-): Promise<void> {
   resetLogFile("hatch.log");
   const provider =
-    options.setupProviderCredentials === false
+    params.setupProviderCredentials === false
       ? undefined
       : resolveHatchProvider(configValues);
 
@@ -998,21 +1108,32 @@ export async function hatchDocker(
     await ensureDockerInstalled();
 
     const instanceName = generateInstanceName(species, name);
-    // Resolve the gateway's host port dynamically. The env-default
+    // Resolve the gateway's host port. When joining an externally-owned
+    // network namespace, the owner has already published the gateway port,
+    // so the caller — not hatch — owns port allocation; use the supplied
+    // port verbatim. Otherwise resolve it dynamically: the env-default
     // (production 7830 / non-prod overrides) is just the *preferred*
-    // starting point — if it's taken by another local assistant, eval
-    // run, or unrelated process, we walk upward until we find a free
-    // port. This replaces the previous "first one in wins, everyone
-    // else gets a docker bind error" behavior and removes the need for
-    // an orphan-cleanup pre-flight in the evals harness.
-    const preferredGatewayPort = getDefaultPorts(
-      getCurrentEnvironment(),
-    ).gateway;
-    const gatewayPort = await findOpenPort(preferredGatewayPort);
-    if (gatewayPort !== preferredGatewayPort) {
-      log(
-        `Preferred gateway port ${preferredGatewayPort} is in use; allocated ${gatewayPort} for this instance.`,
-      );
+    // starting point — if it's taken by another local assistant, eval run,
+    // or unrelated process, we walk upward until we find a free port, so
+    // concurrent instances don't collide on a docker bind error.
+    let gatewayPort: number;
+    if (params.netnsContainer) {
+      if (params.gatewayPort === undefined) {
+        throw new Error(
+          "hatchDocker: gatewayPort is required when netnsContainer is set (the namespace owner publishes the port before hatch runs)",
+        );
+      }
+      gatewayPort = params.gatewayPort;
+    } else {
+      const preferredGatewayPort = getDefaultPorts(
+        getCurrentEnvironment(),
+      ).gateway;
+      gatewayPort = await findOpenPort(preferredGatewayPort);
+      if (gatewayPort !== preferredGatewayPort) {
+        log(
+          `Preferred gateway port ${preferredGatewayPort} is in use; allocated ${gatewayPort} for this instance.`,
+        );
+      }
     }
 
     const imageTags: Record<ServiceName, string> = {
@@ -1022,8 +1143,8 @@ export async function hatchDocker(
     };
 
     const sourcePath =
-      typeof options.sourcePath === "string" && options.sourcePath.length > 0
-        ? options.sourcePath
+      typeof params.sourcePath === "string" && params.sourcePath.length > 0
+        ? params.sourcePath
         : null;
     const buildFromSource = sourcePath !== null;
     let repoRoot: string | undefined;
@@ -1170,8 +1291,15 @@ export async function hatchDocker(
     const res = dockerResourceNames(instanceName);
 
     emitProgress(3, 6, "Creating volumes...");
-    log("📁 Creating network and volumes...");
-    await exec("docker", ["network", "create", res.network]);
+    // When joining an externally-owned network namespace, the owner already
+    // provides the network stack — creating a per-instance network here would
+    // be unused and leak on teardown.
+    if (params.netnsContainer) {
+      log("📁 Joining existing network namespace; creating volumes...");
+    } else {
+      log("📁 Creating network and volumes...");
+      await exec("docker", ["network", "create", res.network]);
+    }
     await exec("docker", ["volume", "create", res.socketVolume]);
     await exec("docker", ["volume", "create", res.assistantIpcVolume]);
     await exec("docker", ["volume", "create", res.gatewayIpcVolume]);
@@ -1258,16 +1386,29 @@ export async function hatchDocker(
       : ownSecret;
 
     emitProgress(4, 6, "Starting containers...");
+    if (flagEnvVars.VELLUM_DISABLE_PLATFORM) {
+      extraAssistantEnv.VELLUM_DISABLE_PLATFORM =
+        flagEnvVars.VELLUM_DISABLE_PLATFORM;
+    }
+    const hostDeviceId = getOrCreateHostDeviceId();
+    extraAssistantEnv.VELLUM_DEVICE_ID = hostDeviceId;
+    const extraGatewayEnv = {
+      ...flagEnvVars,
+      VELLUM_DEVICE_ID: hostDeviceId,
+    };
     await startContainers(
       {
         signingKey,
         bootstrapSecret,
         cesServiceToken,
         extraAssistantEnv,
+        extraGatewayEnv,
         gatewayPort,
         imageTags,
         instanceName,
         res,
+        netnsContainer: params.netnsContainer,
+        assistantCaCertPath: params.assistantCaCertPath,
       },
       log,
     );
@@ -1307,7 +1448,7 @@ export async function hatchDocker(
       logFd,
       runtimeUrl,
       containersUpAt,
-      analyze: options.analyze ?? false,
+      analyze: params.analyze ?? false,
     });
 
     if (!ready && !(watch && repoRoot)) {
@@ -1358,11 +1499,15 @@ export async function hatchDocker(
         signingKey,
         bootstrapSecret,
         cesServiceToken,
+        extraAssistantEnv,
+        extraGatewayEnv,
         gatewayPort,
         imageTags,
         instanceName,
         repoRoot,
         res,
+        netnsContainer: params.netnsContainer,
+        assistantCaCertPath: params.assistantCaCertPath,
       });
 
       await new Promise<void>((resolve) => {
@@ -1447,7 +1592,7 @@ async function waitForGatewayAndLease(opts: {
 
   while (Date.now() - start < DOCKER_READY_TIMEOUT_MS) {
     try {
-      const resp = await fetch(readyUrl, {
+      const resp = await loopbackSafeFetch(readyUrl, {
         signal: AbortSignal.timeout(5000),
       });
       if (resp.ok) {

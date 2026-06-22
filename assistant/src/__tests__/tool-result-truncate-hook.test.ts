@@ -16,8 +16,8 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { HOOKS } from "../plugin-api/constants.js";
 import type { PluginLogger, PostToolUseContext } from "../plugin-api/types.js";
+import { defaultToolResultTruncatePlugin } from "../plugins/defaults/index.js";
 import postToolUse from "../plugins/defaults/tool-result-truncate/hooks/post-tool-use.js";
-import { defaultToolResultTruncatePlugin } from "../plugins/defaults/tool-result-truncate/register.js";
 import {
   truncateToolResult,
   TRUNCATION_SUFFIX,
@@ -47,6 +47,8 @@ function makeCtx(content: string): PostToolUseContext {
     conversationId: "conv-test",
     toolResponse: makeToolResponse(content),
     messages: [],
+    additionalContext: null,
+    model: "claude-test-model",
     maxInputTokens: MAX_INPUT_TOKENS,
     logger: noopLogger,
   };

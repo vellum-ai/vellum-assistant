@@ -1,7 +1,7 @@
-import * as realChildProcess from "node:child_process";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { installAcpConfigStub } from "../../acp/__tests__/helpers/acp-config-stub.js";
+import { installExecFileStub } from "../../acp/__tests__/helpers/exec-file-stub.js";
 import { installWhichStub } from "../../acp/__tests__/helpers/which-stub.js";
 import type { ToolContext } from "../types.js";
 
@@ -9,58 +9,18 @@ import type { ToolContext } from "../types.js";
 // Mock infrastructure
 // ---------------------------------------------------------------------------
 
-type ExecCallback = (
-  err: Error | null,
-  stdout: string | Buffer,
-  stderr: string | Buffer,
-) => void;
+const {
+  execScripts,
+  execFileMock,
+  reset: resetExecFileStub,
+} = installExecFileStub();
 
-interface ExecScript {
-  /** When set, the call rejects with this error. */
-  error?: Error;
-  /** When set, the call resolves with this stdout. */
-  stdout?: string;
-}
-
-/**
- * Per-call scripted responses for `execFile`. Keyed by `${command} ${args[0]}`
- * so tests can target `npm ls` and `npm view` independently.
- */
-const execScripts: Map<string, ExecScript> = new Map();
-
-const execFileMock = mock(
-  (
-    command: string,
-    args: string[],
-    _options: unknown,
-    callback?: ExecCallback,
-  ) => {
-    const key = `${command} ${args[0]}`;
-    const script = execScripts.get(key);
-    queueMicrotask(() => {
-      if (!callback) return;
-      if (!script) {
-        callback(new Error(`No script for ${key}`), "", "");
-        return;
-      }
-      if (script.error) {
-        callback(script.error, "", "");
-        return;
-      }
-      callback(null, script.stdout ?? "", "");
-    });
-    // Return value is not used by execFileWithTimeout.
-    return {} as ReturnType<typeof realChildProcess.execFile>;
-  },
-);
-
-mock.module("node:child_process", () => ({
-  ...realChildProcess,
-  execFile: execFileMock,
-}));
+/** Fixed resolved `bun` path so install script keys are predictable. */
+const BUN_BIN = "/usr/local/bin/bun";
+const BUN_ADD_KEY = `${BUN_BIN} add`;
 
 // Default ACP config used by these tests: the `unknown-agent` entry is here
-// to give the "no version check" test a configured agent whose binary isn't
+// to give the "unmapped binary" tests a configured agent whose command isn't
 // in DEFAULT_AGENT_NPM_PACKAGES.
 const DEFAULT_TEST_AGENTS = {
   claude: { command: "claude-agent-acp", args: [] },
@@ -187,8 +147,10 @@ mock.module("../../acp/index.js", () => ({
   getAcpSessionManager: () => ({ spawn: spawnMock }),
 }));
 
-const { executeAcpSpawn, _resetAdapterVersionCacheForTests } =
-  await import("./spawn.js");
+const { executeAcpSpawn } = await import("./spawn.js");
+const { _resetAdapterInstallCacheForTests } = await import(
+  "../../acp/auto-install.js"
+);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -204,11 +166,12 @@ function makeContext(): ToolContext {
 }
 
 beforeEach(() => {
-  execScripts.clear();
-  execFileMock.mockClear();
+  resetExecFileStub();
   spawnMock.mockClear();
-  _resetAdapterVersionCacheForTests();
+  _resetAdapterInstallCacheForTests();
   config.setConfig({ agents: DEFAULT_TEST_AGENTS });
+  // Default: every command (including bun and the adapters) on PATH, so
+  // spawns resolve directly with no install.
   which.setWhich((cmd) => `/usr/local/bin/${cmd}`);
   // Default: vault has a claude token so the preflight in `prepareAgentEnv`
   // succeeds for tests that don't care about env injection. Env-injection
@@ -222,135 +185,41 @@ beforeEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("executeAcpSpawn — version check", () => {
-  test("execFile failure: spawn proceeds without warning", async () => {
-    execScripts.set("npm ls", { error: new Error("npm not installed") });
-    execScripts.set("npm view", { error: new Error("npm not installed") });
-
+describe("executeAcpSpawn - happy path", () => {
+  test("binary on PATH: spawns directly with no install and no npm probe", async () => {
     const result = await executeAcpSpawn(
       { agent: "claude", task: "do something" },
       makeContext(),
     );
 
     expect(result.isError).toBe(false);
+    // No package manager is ever invoked when the binary is already present.
+    expect(execFileMock).not.toHaveBeenCalled();
     expect(result.content).not.toContain("outdated");
-    expect(result.content).not.toContain("Note:");
-    // Spawn was actually invoked.
     expect(spawnMock).toHaveBeenCalledTimes(1);
-    // Sanity: payload shape preserved.
-    const lines = result.content.split("\n\n");
-    const payload = JSON.parse(lines[0]);
+    const payload = JSON.parse(result.content);
     expect(payload.acpSessionId).toBe("acp-session-test");
     expect(payload.status).toBe("running");
+    // The real adapter binary is spawned (no `bun x` wrapper).
+    const agentConfigArg = spawnMock.mock.calls[0][1] as { command: string };
+    expect(agentConfigArg.command).toBe("claude-agent-acp");
   });
 
-  test("outdated version: spawn proceeds AND warning appears in content", async () => {
-    execScripts.set("npm ls", {
-      stdout: JSON.stringify({
-        dependencies: {
-          "@agentclientprotocol/claude-agent-acp": { version: "0.1.0" },
-        },
-      }),
-    });
-    execScripts.set("npm view", { stdout: "0.2.0\n" });
+  test("default-profile fallback when user config is empty", async () => {
+    // No user `agents.codex` entry, but `agent: "codex"` works via the bundled
+    // default profile (command: "codex-acp"). The resolver merges defaults
+    // automatically.
+    config.setConfig({ agents: {} });
 
     const result = await executeAcpSpawn(
-      { agent: "claude", task: "do something" },
+      { agent: "codex", task: "do something" },
       makeContext(),
     );
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("outdated");
-    expect(result.content).toContain("@agentclientprotocol/claude-agent-acp");
-    expect(result.content).toContain("0.1.0");
-    expect(result.content).toContain("0.2.0");
-    expect(result.content).toContain(
-      "npm install -g @agentclientprotocol/claude-agent-acp@0.2.0",
-    );
     expect(spawnMock).toHaveBeenCalledTimes(1);
-    // Payload still parses as JSON before the warning suffix.
-    const [payloadJson] = result.content.split("\n\n");
-    const payload = JSON.parse(payloadJson);
-    expect(payload.acpSessionId).toBe("acp-session-test");
-  });
-
-  test("up-to-date version: spawn proceeds, no warning", async () => {
-    execScripts.set("npm ls", {
-      stdout: JSON.stringify({
-        dependencies: {
-          "@agentclientprotocol/claude-agent-acp": { version: "0.2.0" },
-        },
-      }),
-    });
-    execScripts.set("npm view", { stdout: "0.2.0\n" });
-
-    const result = await executeAcpSpawn(
-      { agent: "claude", task: "do something" },
-      makeContext(),
-    );
-
-    expect(result.isError).toBe(false);
-    expect(result.content).not.toContain("outdated");
-    expect(spawnMock).toHaveBeenCalledTimes(1);
-  });
-
-  test("unknown command: no version check is performed", async () => {
-    // No execScripts set — if the implementation tried to run npm, the
-    // mock would callback with "No script for ..." and we could detect
-    // the failure. But since the registry doesn't include this command,
-    // the implementation should skip the check entirely without calling
-    // execFile.
-    execFileMock.mockClear();
-
-    const result = await executeAcpSpawn(
-      { agent: "unknown-agent", task: "do something" },
-      makeContext(),
-    );
-
-    expect(result.isError).toBe(false);
-    expect(execFileMock).not.toHaveBeenCalled();
-    expect(spawnMock).toHaveBeenCalledTimes(1);
-    // No outdated note suffix.
-    expect(result.content).not.toContain("outdated");
-  });
-
-  test("cached null result: second call does not reprobe", async () => {
-    execScripts.set("npm ls", { error: new Error("npm not installed") });
-    execScripts.set("npm view", { error: new Error("npm not installed") });
-
-    await executeAcpSpawn({ agent: "claude", task: "task 1" }, makeContext());
-    const firstCallCount = execFileMock.mock.calls.length;
-    expect(firstCallCount).toBeGreaterThan(0);
-
-    await executeAcpSpawn({ agent: "claude", task: "task 2" }, makeContext());
-    // No additional execFile calls — result was cached.
-    expect(execFileMock.mock.calls.length).toBe(firstCallCount);
-  });
-
-  test("cached outdated result: second call does not reprobe but still warns", async () => {
-    execScripts.set("npm ls", {
-      stdout: JSON.stringify({
-        dependencies: {
-          "@agentclientprotocol/claude-agent-acp": { version: "0.1.0" },
-        },
-      }),
-    });
-    execScripts.set("npm view", { stdout: "0.2.0\n" });
-
-    const first = await executeAcpSpawn(
-      { agent: "claude", task: "task 1" },
-      makeContext(),
-    );
-    expect(first.content).toContain("outdated");
-    const firstCallCount = execFileMock.mock.calls.length;
-
-    const second = await executeAcpSpawn(
-      { agent: "claude", task: "task 2" },
-      makeContext(),
-    );
-    expect(second.content).toContain("outdated");
-    // No additional execFile calls — outdated info was cached.
-    expect(execFileMock.mock.calls.length).toBe(firstCallCount);
+    const agentConfigArg = spawnMock.mock.calls[0][1] as { command: string };
+    expect(agentConfigArg.command).toBe("codex-acp");
   });
 });
 
@@ -381,18 +250,8 @@ describe("executeAcpSpawn — input validation", () => {
     expect(result.content).toContain("Available:");
   });
 
-  test("acp disabled returns error with config hint", async () => {
-    config.setConfig({ enabled: false, agents: DEFAULT_TEST_AGENTS });
-    const result = await executeAcpSpawn(
-      { agent: "claude", task: "do something" },
-      makeContext(),
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("acp.enabled");
-  });
-
-  test("missing binary returns install hint", async () => {
-    which.setWhich({});
+  test("missing binary + bun absent returns install hint, no install attempted", async () => {
+    which.setWhich({}); // neither bun nor the adapter on PATH
     const result = await executeAcpSpawn(
       { agent: "claude", task: "do something" },
       makeContext(),
@@ -400,36 +259,29 @@ describe("executeAcpSpawn — input validation", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("claude-agent-acp is not on PATH");
     expect(result.content).toContain(
-      "npm i -g @agentclientprotocol/claude-agent-acp",
+      "bun add -g @agentclientprotocol/claude-agent-acp",
     );
+    expect(execFileMock).not.toHaveBeenCalled();
     expect(spawnMock).not.toHaveBeenCalled();
-  });
-
-  test("default-profile fallback when user config is empty", async () => {
-    // No user `agents.codex` entry, but `agent: "codex"` works via the bundled
-    // default profile (command: "codex-acp"). The resolver merges defaults
-    // automatically.
-    config.setConfig({ agents: {} });
-    execScripts.set("npm ls", { error: new Error("npm not installed") });
-    execScripts.set("npm view", { error: new Error("npm not installed") });
-
-    const result = await executeAcpSpawn(
-      { agent: "codex", task: "do something" },
-      makeContext(),
-    );
-
-    expect(result.isError).toBe(false);
-    expect(spawnMock).toHaveBeenCalledTimes(1);
-    // The agentConfig handed to spawn() should be the bundled default.
-    const agentConfigArg = spawnMock.mock.calls[0][1] as { command: string };
-    expect(agentConfigArg.command).toBe("codex-acp");
   });
 });
 
-describe("executeAcpSpawn — per-agent resume hint", () => {
-  test("claude payload includes the `claude --resume` hint", async () => {
-    execScripts.set("npm ls", { error: new Error("npm not installed") });
-    execScripts.set("npm view", { error: new Error("npm not installed") });
+describe("executeAcpSpawn: sandboxed bun auto-install on missing binary", () => {
+  test("known command + bun present: installs via bun and spawn proceeds with a note", async () => {
+    // Only bun is on PATH until `bun add --global` runs, simulating a
+    // successful global install that links the adapter bin onto PATH.
+    let binaryOnPath = false;
+    which.setWhich((cmd) => {
+      if (cmd === "bun") return BUN_BIN;
+      if (binaryOnPath) return `/usr/local/bin/${cmd}`;
+      return null;
+    });
+    execScripts.set(BUN_ADD_KEY, {
+      stdout: "",
+      onCall: () => {
+        binaryOnPath = true;
+      },
+    });
 
     const result = await executeAcpSpawn(
       { agent: "claude", task: "do something" },
@@ -437,28 +289,151 @@ describe("executeAcpSpawn — per-agent resume hint", () => {
     );
 
     expect(result.isError).toBe(false);
-    const [payloadJson] = result.content.split("\n\n");
-    const payload = JSON.parse(payloadJson);
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse(result.content);
+    expect(payload.message).toContain(
+      "Installed @agentclientprotocol/claude-agent-acp automatically.",
+    );
+    // The real binary was spawned with cwd = the project dir and token
+    // injected (trusted-binary config, no resolution at spawn).
+    const agentConfigArg = spawnMock.mock.calls[0][1] as {
+      command: string;
+      env?: Record<string, string>;
+    };
+    expect(agentConfigArg.command).toBe("claude-agent-acp");
+    expect(agentConfigArg.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(
+      "default-test-token",
+    );
+    expect(spawnMock.mock.calls[0][3]).toBe("/tmp");
+
+    // Exactly one install, and it was `bun add --global` (never npm).
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    const [command, args] = execFileMock.mock.calls[0];
+    expect(command).toBe(BUN_BIN);
+    expect(args).toEqual([
+      "add",
+      "--global",
+      "@agentclientprotocol/claude-agent-acp",
+    ]);
+  });
+
+  test("the installer cwd is a temp dir (not the project cwd) with secrets stripped", async () => {
+    let binaryOnPath = false;
+    which.setWhich((cmd) => {
+      if (cmd === "bun") return BUN_BIN;
+      if (binaryOnPath) return `/usr/local/bin/${cmd}`;
+      return null;
+    });
+    execScripts.set(BUN_ADD_KEY, {
+      stdout: "",
+      onCall: () => {
+        binaryOnPath = true;
+      },
+    });
+
+    await executeAcpSpawn(
+      { agent: "claude", task: "do something", cwd: "/untrusted/project" },
+      makeContext(),
+    );
+
+    const options = execFileMock.mock.calls[0][2] as {
+      cwd?: string;
+      env?: NodeJS.ProcessEnv;
+    };
+    expect(options.cwd).toBeDefined();
+    expect(options.cwd).not.toBe("/untrusted/project");
+    expect(options.cwd).toContain("vellum-acp-install-");
+    expect(options.env?.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(options.env?.GEMINI_API_KEY).toBeUndefined();
+    expect(options.env?.BUN_CONFIG_REGISTRY).toBe(
+      "https://registry.npmjs.org/",
+    );
+  });
+
+  test("unmapped command: no install attempted, plain hint returned", async () => {
+    which.setWhich({});
+
+    const result = await executeAcpSpawn(
+      { agent: "unknown-agent", task: "do something" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("some-other-binary is not on PATH");
+    expect(result.content).toContain("Install 'some-other-binary'");
+    expect(result.content).not.toContain("auto-install failed");
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  test("no client connected: no install attempted even when the binary is missing", async () => {
+    // The no-client guard is a pure precondition and must run BEFORE the
+    // auto-install side effect: without a client the spawn fails anyway, so
+    // the host must not be mutated by a global install (which can also block
+    // for up to the install timeout).
+    which.setWhich({ bun: BUN_BIN });
+
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      { ...makeContext(), sendToClient: undefined },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("No client connected");
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  test("install failure: hint and install failure both surface, never npm", async () => {
+    which.setWhich({ bun: BUN_BIN }); // bun present, adapter never appears
+    execScripts.set(BUN_ADD_KEY, {
+      error: new Error("EACCES: permission denied"),
+    });
+
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("claude-agent-acp is not on PATH");
+    expect(result.content).toContain(
+      "bun add -g @agentclientprotocol/claude-agent-acp",
+    );
+    expect(result.content).toContain("auto-install failed");
+    expect(result.content).toContain("EACCES");
+    for (const call of execFileMock.mock.calls) {
+      expect(call[0]).not.toBe("npm");
+    }
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("executeAcpSpawn — per-agent resume hint", () => {
+  test("claude payload includes the `claude --resume` hint", async () => {
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const payload = JSON.parse(result.content);
     expect(payload.message).toContain("claude --resume");
-    expect(payload.message).toContain("To resume this session later");
+    expect(payload.message).toContain("To resume:");
   });
 
   test("non-claude payload omits the `claude --resume` hint", async () => {
     // `claude --resume <id>` is Claude Code-specific. Codex (and any other
     // adapter) should not have that command suggested back to the user.
-    execScripts.set("npm ls", { error: new Error("npm not installed") });
-    execScripts.set("npm view", { error: new Error("npm not installed") });
-
     const result = await executeAcpSpawn(
       { agent: "codex", task: "do something" },
       makeContext(),
     );
 
     expect(result.isError).toBe(false);
-    const [payloadJson] = result.content.split("\n\n");
-    const payload = JSON.parse(payloadJson);
+    const payload = JSON.parse(result.content);
     expect(payload.message).not.toContain("claude --resume");
-    expect(payload.message).not.toContain("To resume this session later");
+    expect(payload.message).not.toContain("To resume:");
   });
 });
 
@@ -482,8 +457,6 @@ describe("executeAcpSpawn — CLAUDE_CODE_OAUTH_TOKEN injection", () => {
     vaultStore.clear();
     metadataStore.clear();
     vaultStore.set("acp/claude_oauth_token", "tool-vault-token-abc");
-    execScripts.set("npm ls", { error: new Error("npm not installed") });
-    execScripts.set("npm view", { error: new Error("npm not installed") });
 
     const result = await executeAcpSpawn(
       { agent: "claude", task: "do something" },
@@ -514,8 +487,6 @@ describe("executeAcpSpawn — CLAUDE_CODE_OAUTH_TOKEN injection", () => {
         "unknown-agent": { command: "some-other-binary", args: [] },
       },
     });
-    execScripts.set("npm ls", { error: new Error("npm not installed") });
-    execScripts.set("npm view", { error: new Error("npm not installed") });
 
     const result = await executeAcpSpawn(
       { agent: "claude", task: "do something" },

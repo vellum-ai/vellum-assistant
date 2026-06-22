@@ -11,22 +11,27 @@ import {
   type InterfaceId,
   supportsHostProxy,
 } from "../channels/types.js";
-import { isHttpAuthDisabled } from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
+import { advisorEnabledForProfile } from "../plugins/defaults/advisor/advisor-gate.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
-import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
-import { getMcpToolDefinitions } from "../tools/registry.js";
+import { getMcpToolDefinitions, getTool } from "../tools/registry.js";
 import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
 } from "../tools/schema-transforms.js";
+import {
+  augmentSkillExecuteError,
+  recoverSkillExecuteEnvelope,
+  resolveSkillExecuteInput,
+} from "../tools/skills/execute.js";
 import { resolveToolInvocationAlias } from "../tools/tool-name-aliases.js";
 import {
   isDiskPressureCleanupToolName,
@@ -36,6 +41,10 @@ import {
   type ToolExecutionResult,
   type ToolLifecycleEventHandler,
 } from "../tools/types.js";
+import {
+  resolveUsageAttribution,
+  type UsageAttributionSnapshot,
+} from "../usage/attribution.js";
 import { getLogger } from "../util/logger.js";
 import {
   projectSkillTools,
@@ -48,26 +57,9 @@ import {
 } from "./doordash-steps.js";
 import type { ServerMessage, UiSurfaceShow } from "./message-protocol.js";
 import { runPostExecutionSideEffects } from "./tool-side-effects.js";
-import type { TrustContext } from "./trust-context.js";
+import { FALLBACK_TURN_TRUST, resolveTrustClass } from "./trust-context.js";
 
 const log = getLogger("conversation-tool-setup");
-
-/**
- * Resolve the effective trust class for tool execution.
- *
- * When HTTP auth is disabled (dev bypass), always returns `'guardian'`
- * so that control-plane gates don't block local development.
- *
- * When no trust context is available (e.g. desktop-only conversations that
- * don't go through channel trust resolution), defaults to `'unknown'`
- * to fail-closed.
- */
-export function resolveTrustClass(
-  trustContext: TrustContext | undefined,
-): TrustClass {
-  if (isHttpAuthDisabled()) return "guardian";
-  return trustContext?.trustClass ?? "unknown";
-}
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { AUTO_PROFILE_KEY } from "../config/seed-inference-profiles.js";
@@ -75,8 +67,57 @@ import {
   buildSwitchInferenceProfileToolDef,
   SWITCH_INFERENCE_PROFILE_TOOL_NAME,
 } from "./switch-inference-profile-tool.js";
-import type { ToolSetupContext } from "./tool-setup-types.js";
-export type { ToolSetupContext } from "./tool-setup-types.js";
+import type {
+  SubagentToolGateMode,
+  ToolSetupContext,
+  WakeToolContextPin,
+} from "./tool-setup-types.js";
+export type {
+  SubagentToolGateMode,
+  ToolSetupContext,
+  WakeToolContextPin,
+} from "./tool-setup-types.js";
+
+// ── resolveConversationAttribution ───────────────────────────────────
+
+/**
+ * Resolve the model attribution snapshot for the conversation at invocation
+ * time (provider/model/profile that issued the current turn). Mirrors how
+ * the agent-loop usage path builds its `UsageAttributionInput` — the
+ * current turn's call site (`runAgentLoopImpl` sets `ctx.currentCallSite`
+ * from `options.callSite`, defaulting to `mainAgent`) plus the
+ * conversation's per-turn override profile — so `profileSource` resolves
+ * to `call_site`/`conversation`/`active`/`default` exactly as `llm_usage`
+ * records do for the same turn (non-main turns like voice `callAgent` or
+ * `filingAgent` attribute their own call-site config, not the main
+ * agent's). The conversation id is threaded as the mix selection seed so
+ * mix-profile arms match what the dispatch path actually ran.
+ *
+ * Returns `null` on any failure: attribution must never break tool execution
+ * (or skill loads, which reuse this helper). Consumers read it best-effort —
+ * usage telemetry, and `subagent_spawn`, which inherits the resolved
+ * `appliedProfile` so a child defaults to the invoking turn's profile.
+ */
+export function resolveConversationAttribution(
+  ctx: Pick<
+    ToolSetupContext,
+    "conversationId" | "currentCallSite" | "currentTurnOverrideProfile"
+  >,
+): UsageAttributionSnapshot | null {
+  try {
+    return resolveUsageAttribution({
+      callSite: ctx.currentCallSite ?? "mainAgent",
+      overrideProfile: ctx.currentTurnOverrideProfile ?? null,
+      selectionSeed: ctx.conversationId,
+    });
+  } catch (err) {
+    log.debug(
+      { err, conversationId: ctx.conversationId },
+      "Failed to resolve conversation attribution for telemetry (non-fatal)",
+    );
+    return null;
+  }
+}
 
 // ── createToolExecutor ───────────────────────────────────────────────
 
@@ -103,6 +144,23 @@ export function createToolExecutor(
     ctx.sendToClient(msg),
   );
 
+  // Execution-layer allowlist gate (`subagentToolGateMode === "execution"`,
+  // see {@link SubagentToolGateMode}): rejects non-allowlisted calls BEFORE
+  // any executor dispatch, so a non-allowlisted tool's executor never runs.
+  // The error tool_result lets the model continue or finish.
+  const rejectNonAllowlistedTool = (
+    toolName: string,
+  ): ToolExecutionResult | null => {
+    if (ctx.subagentToolGateMode !== "execution") return null;
+    const allowlist = ctx.subagentAllowedTools;
+    if (!allowlist || allowlist.has(toolName)) return null;
+    const allowed = [...allowlist].sort().join(", ");
+    return {
+      content: `This background pass may only use: ${allowed}.`,
+      isError: true,
+    };
+  };
+
   return async (
     name: string,
     input: Record<string, unknown>,
@@ -112,32 +170,47 @@ export function createToolExecutor(
     const { name: executionName, input: executionInput } =
       resolveToolInvocationAlias(name, input, ctx.allowedToolNames);
 
+    // The execution-layer gate must run FIRST — before any interception or
+    // pre-execution side effect (switch_inference_profile profile switching,
+    // DoorDash step marking) — so a non-allowlisted tool can neither run nor
+    // mutate conversation state. `skill_execute` is dispatch indirection: it
+    // is gated on its resolved inner tool name inside the interception below,
+    // mirroring how wire mode gates the underlying tool, not the wrapper.
+    if (executionName !== "skill_execute") {
+      const rejection = rejectNonAllowlistedTool(executionName);
+      if (rejection) return rejection;
+    }
+
     if (isDoordashCommand(executionName, executionInput)) {
       markDoordashStepInProgress(ctx, executionInput);
     }
 
-    // Build the context object shared by both the skill_execute interception
-    // path and the regular executor path.
+    // Per-turn trust snapshot: prefer the snapshot captured at turn start so
+    // a concurrent owner meta command (/status, /clean) that mutates the live
+    // trustContext cannot elevate the in-flight turn to guardian.
+    const turnTrust =
+      ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
+
     const toolContext: ToolContext = {
       workingDir: ctx.workingDir,
       conversationId: ctx.conversationId,
       assistantId: ctx.assistantId,
       requestId: ctx.currentRequestId,
       taskRunId: ctx.taskRunId,
-      trustClass: resolveTrustClass(ctx.trustContext),
-      executionChannel: ctx.trustContext?.sourceChannel,
-      sourceActorPrincipalId: ctx.trustContext?.guardianPrincipalId,
+      trustClass: resolveTrustClass(turnTrust),
+      executionChannel: turnTrust.sourceChannel,
+      sourceActorPrincipalId: turnTrust.guardianPrincipalId,
       callSessionId: ctx.callSessionId,
       triggeredBySurfaceAction:
         ctx.surfaceActionRequestIds?.has(ctx.currentRequestId ?? "") ?? false,
       approvedViaPrompt: ctx.approvedViaPromptThisTurn || undefined,
       batchAuthorizedByTask: false,
-      requesterExternalUserId: ctx.trustContext?.requesterExternalUserId,
-      requesterChatId: ctx.trustContext?.requesterChatId,
-      requesterIdentifier: ctx.trustContext?.requesterIdentifier,
-      requesterDisplayName: ctx.trustContext?.requesterDisplayName,
+      requesterExternalUserId: turnTrust.requesterExternalUserId,
+      requesterChatId: turnTrust.requesterChatId,
+      requesterIdentifier: turnTrust.requesterIdentifier,
+      requesterDisplayName: turnTrust.requesterDisplayName,
       channelPermissionChannelId:
-        ctx.trustContext?.sourceChannel === "slack"
+        turnTrust.sourceChannel === "slack"
           ? getBindingByConversation(ctx.conversationId)?.externalChatId
           : undefined,
       onOutput,
@@ -147,9 +220,10 @@ export function createToolExecutor(
       diskPressureCleanupModeActive: ctx.diskPressureCleanupModeActive,
       toolUseId,
       isPlatformHosted: getIsPlatform(),
-      cesClient: ctx.cesClient,
       transportInterface: ctx.transportInterface,
       overrideProfile: ctx.currentTurnOverrideProfile,
+      invokingCallSite: ctx.currentCallSite ?? "mainAgent",
+      attribution: resolveConversationAttribution(ctx),
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {
         // Tool context's sendToClient uses a loose { type: string; [key: string]: unknown }
@@ -233,12 +307,16 @@ export function createToolExecutor(
     // risk level, permission checks, hooks, and lifecycle events all fire
     // with the real tool name.
     if (executionName === "skill_execute") {
+      // Recover an envelope the provider wrapped as unparseable when MiniMax's
+      // coercion failed to JSON-decode a bare-string `input` (see
+      // recoverSkillExecuteEnvelope), then resolve the inner tool + params.
+      const envelope = recoverSkillExecuteEnvelope(executionInput);
       const rawToolName =
-        typeof executionInput.tool === "string" ? executionInput.tool : "";
-      const rawToolInput =
-        executionInput.input != null && typeof executionInput.input === "object"
-          ? (executionInput.input as Record<string, unknown>)
-          : {};
+        typeof envelope.tool === "string" ? envelope.tool : "";
+      const innerSchema = rawToolName
+        ? getTool(rawToolName)?.input_schema
+        : undefined;
+      const rawToolInput = resolveSkillExecuteInput(envelope, innerSchema);
 
       // Clone to avoid mutating shared input objects
       const { name: toolName, input: toolInput } = resolveToolInvocationAlias(
@@ -255,7 +333,18 @@ export function createToolExecutor(
         };
       }
 
-      const result = await executor.execute(toolName, toolInput, toolContext);
+      // Gate the resolved inner tool, not the skill_execute wrapper — the
+      // wrapper is dispatch indirection, mirroring how wire mode gates the
+      // underlying tool via the executor's allowedToolNames check.
+      const innerRejection = rejectNonAllowlistedTool(toolName);
+      if (innerRejection) return innerRejection;
+
+      const rawResult = await executor.execute(
+        toolName,
+        toolInput,
+        toolContext,
+      );
+      const result = augmentSkillExecuteError(toolName, toolInput, rawResult);
       if (toolContext.approvedViaPrompt) {
         ctx.approvedViaPromptThisTurn = true;
       }
@@ -306,7 +395,7 @@ export function createProxyApprovalCallback(
  * history or explicit preactivation. Without this, their tools are
  * unavailable in fresh conversations until `skill_load` is called.
  */
-const DEFAULT_PREACTIVATED_SKILL_IDS = ["tasks", "notifications", "subagent"];
+const DEFAULT_PREACTIVATED_SKILL_IDS = ["notifications", "subagent"];
 
 /**
  * Subset of Conversation state that the resolveTools callback reads at each
@@ -318,6 +407,12 @@ export interface SkillProjectionContext {
   readonly skillProjectionCache: SkillProjectionCache;
   readonly coreToolNames: Set<string>;
   allowedToolNames?: Set<string>;
+  /**
+   * Durable copy of the full tool set resolved on the most recent turn, used
+   * by read-only inventory queries. Set alongside {@link allowedToolNames}
+   * but, unlike that per-turn execution gate, never cleared at turn teardown.
+   */
+  lastResolvedToolNames?: Set<string>;
   /** When > 0, the resolveTools callback returns no tools at all. */
   toolsDisabledDepth: number;
   /** Channel capabilities — read lazily per turn for conditional tool filtering. */
@@ -330,6 +425,18 @@ export interface SkillProjectionContext {
   readonly hasNoClient?: boolean;
   /** When set, only tools in this set are included in the resolved tool list (subagent delegation). */
   subagentAllowedTools?: Set<string>;
+  /**
+   * How {@link subagentAllowedTools} is enforced — see
+   * {@link SubagentToolGateMode}. Absent means `"wire"`.
+   */
+  subagentToolGateMode?: SubagentToolGateMode;
+  /**
+   * When set (execution-gate-mode wakes), tool-definition resolution reads
+   * `hasNoClient` / `transportInterface` / `channelCapabilities` exclusively
+   * from this pin instead of the live conversation — see
+   * {@link WakeToolContextPin}.
+   */
+  readonly toolContextPin?: WakeToolContextPin;
   /** True when the current turn is restricted to disk-pressure cleanup-safe tools. */
   diskPressureCleanupModeActive?: boolean;
   /** True when this conversation belongs to a subagent spawned by SubagentManager. */
@@ -345,6 +452,17 @@ export interface SkillProjectionContext {
   readonly transportInterface?: InterfaceId;
   /** Per-turn override profile, read by the switch_inference_profile tool injection. */
   currentTurnOverrideProfile?: string;
+  /**
+   * Conversation id for `skill_loaded` telemetry. Absent (e.g. minimal test
+   * contexts) disables telemetry recording in the skill projection.
+   */
+  readonly conversationId?: string;
+  /**
+   * The LLM call site driving the current turn (see
+   * {@link ToolSetupContext.currentCallSite}) — read per turn so skill_loaded
+   * telemetry attributes the provider/model/profile the turn actually ran on.
+   */
+  currentCallSite?: LLMCallSite;
 }
 
 // ── Conditional tool sets ────────────────────────────────────────────
@@ -437,10 +555,29 @@ export function isToolActiveForContext(
   name: string,
   ctx: SkillProjectionContext,
 ): boolean {
+  // Execution-gate-mode wakes pin the client-context inputs so the wire tool
+  // surface matches the SOURCE conversation's live turns rather than the
+  // fork's clientless hydration (see {@link WakeToolContextPin}). When the
+  // pin is present it replaces all three values — channel capabilities pin
+  // to `undefined` (see the pin's doc for why unset IS parity), never
+  // falling through to live state.
+  const pin = ctx.toolContextPin;
+  const hasNoClient = pin ? pin.hasNoClient : ctx.hasNoClient;
+  const channelCapabilities = pin ? undefined : ctx.channelCapabilities;
+  const transportInterface = pin
+    ? pin.transportInterface
+    : ctx.transportInterface;
+
   // When the conversation is acting as a subagent, the parent orchestrator
   // restricts the tool list. A tool that isn't on the allowlist is not
   // available for this turn, so short-circuit before any capability checks.
-  if (ctx.subagentAllowedTools && !ctx.subagentAllowedTools.has(name)) {
+  // In execution gate mode the allowlist is enforced at execution time
+  // instead — the full tool surface stays visible on the wire.
+  if (
+    ctx.subagentAllowedTools &&
+    ctx.subagentToolGateMode !== "execution" &&
+    !ctx.subagentAllowedTools.has(name)
+  ) {
     return false;
   }
   // `createResolveToolsCallback` returns an empty tool list when tools are
@@ -456,18 +593,35 @@ export function isToolActiveForContext(
   ) {
     return false;
   }
+  if (name === "remember") {
+    try {
+      return getConfig().memory?.enabled !== false;
+    } catch {
+      return true;
+    }
+  }
+  if (name === "advisor") {
+    // Gated per chat-profile (`ProfileEntry.advisorEnabled`): when the resolved
+    // profile disables the advisor, omit the tool from the wire list so the
+    // model never sees a tool it can only no-op on. Resolves the profile the
+    // same way the advisor's execution-time guard does (the per-turn override,
+    // else the active profile). The wire list is fixed before PRE_MODEL_CALL
+    // hooks run, so a hook that re-routes the profile mid-turn (the model-router
+    // lever on `PreModelCallContext.modelProfile`) is not reflected here.
+    return advisorEnabledForProfile(ctx.currentTurnOverrideProfile ?? null);
+  }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
     if (
-      ctx.channelCapabilities?.channel === "slack" &&
+      channelCapabilities?.channel === "slack" &&
       SLACK_TASK_PROGRESS_UI_TOOL_NAMES.has(name)
     ) {
-      return !ctx.hasNoClient;
+      return !hasNoClient;
     }
-    return ctx.channelCapabilities?.supportsDynamicUi ?? !ctx.hasNoClient;
+    return channelCapabilities?.supportsDynamicUi ?? !hasNoClient;
   }
   if (HOST_TOOL_NAMES.has(name)) {
     const capability = HOST_TOOL_TO_CAPABILITY.get(name);
-    const transport = ctx.transportInterface;
+    const transport = transportInterface;
 
     // Per-capability check is authoritative for structural support: if the
     // transport cannot service this capability, the tool is filtered out.
@@ -486,7 +640,7 @@ export function isToolActiveForContext(
         capability &&
         CROSS_CLIENT_EXPOSED_CAPABILITIES.has(capability) &&
         transport !== "chrome-extension" &&
-        !ctx.hasNoClient &&
+        !hasNoClient &&
         assistantEventHub.listClientsByCapability(capability).length > 0
       ) {
         return true;
@@ -506,23 +660,20 @@ export function isToolActiveForContext(
     // For transports that surface approvals over SSE (macos, backwards-compat
     // fallback), deny when no client is present so the guardian auto-approve
     // path cannot execute host commands unattended.
-    return !ctx.hasNoClient;
+    return !hasNoClient;
   }
   if (CLIENT_CAPABILITY_TOOL_NAMES.has(name)) {
-    if (
-      name === "ask_question" &&
-      ctx.channelCapabilities?.clientOS === "macos"
-    ) {
+    if (name === "ask_question" && channelCapabilities?.clientOS === "macos") {
       // macOS has no UI handler for question_request yet; hiding the tool
       // avoids a 5-minute prompter timeout when the LLM would otherwise call it.
       return false;
     }
-    return !ctx.hasNoClient;
+    return !hasNoClient;
   }
   if (PLATFORM_TOOL_NAMES.has(name)) {
     // Check the *client's* platform, not the daemon's process.platform.
     // In Docker the daemon runs on Linux but the connected client may be macOS.
-    return ctx.channelCapabilities?.clientOS === "macos" && !ctx.hasNoClient;
+    return channelCapabilities?.clientOS === "macos" && !hasNoClient;
   }
   if (SUBAGENT_ONLY_TOOL_NAMES.has(name)) {
     return ctx.isSubagent === true;
@@ -579,9 +730,16 @@ export function createResolveToolsCallback(
     );
 
     // When the conversation is acting as a subagent, restrict core tools to
-    // only those explicitly allowed by the parent orchestrator.
-    const scopedCoreDefs = ctx.subagentAllowedTools
-      ? filteredCoreDefs.filter((d) => ctx.subagentAllowedTools!.has(d.name))
+    // only those explicitly allowed by the parent orchestrator. In
+    // `"execution"` gate mode the allowlist is NOT applied to the wire
+    // definitions (see {@link SubagentToolGateMode}) — the executor callback
+    // rejects non-allowlisted calls at execution time instead.
+    const wireAllowlist =
+      ctx.subagentToolGateMode === "execution"
+        ? undefined
+        : ctx.subagentAllowedTools;
+    const scopedCoreDefs = wireAllowlist
+      ? filteredCoreDefs.filter((d) => wireAllowlist.has(d.name))
       : filteredCoreDefs;
 
     // Re-read MCP tool definitions from the registry each turn so conversations
@@ -595,8 +753,8 @@ export function createResolveToolsCallback(
       },
       "MCP tools resolved for turn",
     );
-    const scopedMcpDefs = ctx.subagentAllowedTools
-      ? currentMcpDefs.filter((d) => ctx.subagentAllowedTools!.has(d.name))
+    const scopedMcpDefs = wireAllowlist
+      ? currentMcpDefs.filter((d) => wireAllowlist.has(d.name))
       : currentMcpDefs;
     const excluded = new Set(getConfig().tools.exclude);
     const allBaseDefs = [...scopedCoreDefs, ...scopedMcpDefs].filter(
@@ -611,16 +769,36 @@ export function createResolveToolsCallback(
       preactivatedSkillIds: effectivePreactivated,
       previouslyActiveSkillIds: ctx.skillProjectionState,
       cache: ctx.skillProjectionCache,
+      // skill_loaded telemetry context — resolved per turn so attribution
+      // reflects the call site/profile the current turn actually runs on.
+      telemetry:
+        ctx.conversationId !== undefined
+          ? {
+              conversationId: ctx.conversationId,
+              attribution: resolveConversationAttribution({
+                conversationId: ctx.conversationId,
+                currentCallSite: ctx.currentCallSite,
+                currentTurnOverrideProfile: ctx.currentTurnOverrideProfile,
+              }),
+            }
+          : undefined,
     });
     const turnAllowed = new Set(allBaseDefs.map((d) => d.name));
     for (const name of projection.allowedToolNames) {
-      // When a subagent allowlist is active, exclude skill tools not on it.
-      if (ctx.subagentAllowedTools && !ctx.subagentAllowedTools.has(name)) {
+      // When a wire-gated subagent allowlist is active, exclude skill tools
+      // not on it. (Execution gate mode keeps them available here and
+      // rejects non-allowlisted calls in the executor callback instead.)
+      if (wireAllowlist && !wireAllowlist.has(name)) {
         continue;
       }
       if (excluded.has(name)) continue;
       turnAllowed.add(name);
     }
+    // Record the full resolved inventory durably for read-only queries before
+    // any degraded-mode narrowing below — `allowedToolNames` is the per-turn
+    // execution gate (cleared at teardown and restricted under disk pressure),
+    // whereas this snapshot answers "what tools does this conversation have".
+    ctx.lastResolvedToolNames = turnAllowed;
     if (ctx.diskPressureCleanupModeActive === true) {
       const cleanupDefs = allBaseDefs.filter((d) =>
         isDiskPressureCleanupToolName(d.name),

@@ -16,6 +16,12 @@ export interface UsageAttributionInput {
   callSite: LLMCallSite | null;
   overrideProfile?: string | null;
   /**
+   * Mirrors `ResolveCallSiteOpts.forceOverrideProfile`: the override profile
+   * was floated above the call-site layers for this request, so attribution
+   * must credit it ahead of the call-site profile too.
+   */
+  forceOverrideProfile?: boolean;
+  /**
    * Per-conversation seed for `mix`-profile expansion (the conversation id).
    * When the applied profile is a mix, threading the same seed the dispatch
    * path uses ensures `resolvedModel`/`resolvedMixArm` reflect the arm the
@@ -40,6 +46,34 @@ export interface UsageAttributionSnapshot {
    * specific arm (mix name lives in `appliedProfile`).
    */
   resolvedMixArm: string | null;
+}
+
+/**
+ * The four nullable attribution columns shared by telemetry event rows
+ * (`tool_invocations`, `skill_loaded_events`).
+ */
+export interface UsageAttributionColumns {
+  provider: string | null;
+  model: string | null;
+  inferenceProfile: string | null;
+  inferenceProfileSource: string | null;
+}
+
+/**
+ * Maps an attribution snapshot to the shared telemetry columns — the same
+ * mapping `llm_usage` reporting uses (`appliedProfile` → inference_profile,
+ * `profileSource` → inference_profile_source). Accepts a missing snapshot so
+ * producers that resolve attribution best-effort can pass it through as-is.
+ */
+export function toAttributionColumns(
+  snapshot: UsageAttributionSnapshot | null | undefined,
+): UsageAttributionColumns {
+  return {
+    provider: snapshot?.resolvedProvider ?? null,
+    model: snapshot?.resolvedModel ?? null,
+    inferenceProfile: snapshot?.appliedProfile ?? null,
+    inferenceProfileSource: snapshot?.profileSource ?? null,
+  };
 }
 
 /**
@@ -88,6 +122,9 @@ export function resolveUsageAttribution(
   const mixSelections = new Map<string, string>();
   const resolved = resolveCallSiteConfig(callSite, llm, {
     ...(overrideProfile != null ? { overrideProfile } : {}),
+    ...(input.forceOverrideProfile === true
+      ? { forceOverrideProfile: true }
+      : {}),
     ...(input.selectionSeed != null
       ? { selectionSeed: input.selectionSeed }
       : {}),
@@ -103,6 +140,7 @@ export function resolveUsageAttribution(
     profiles: llm.profiles ?? {},
     activeProfile,
     overrideProfile,
+    forceOverrideProfile: input.forceOverrideProfile === true,
     callSiteProfile,
   });
 
@@ -127,6 +165,7 @@ function resolveAppliedProfile(input: {
   profiles: Record<string, unknown>;
   activeProfile: string | null;
   overrideProfile: string | null;
+  forceOverrideProfile: boolean;
   callSiteProfile: string | null;
 }): Pick<UsageAttributionSnapshot, "appliedProfile" | "profileSource"> {
   if (input.callSite === "mainAgent") {
@@ -163,6 +202,19 @@ function resolveAppliedProfile(input: {
     return {
       appliedProfile: null,
       profileSource: "default",
+    };
+  }
+
+  // Forced override floats above the call-site profile (the resolver's
+  // `forceOverrideProfile` escape hatch), so it wins attribution too.
+  if (
+    input.forceOverrideProfile &&
+    input.overrideProfile != null &&
+    input.profiles[input.overrideProfile] != null
+  ) {
+    return {
+      appliedProfile: input.overrideProfile,
+      profileSource: "conversation",
     };
   }
 

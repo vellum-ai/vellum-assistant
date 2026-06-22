@@ -322,7 +322,13 @@ describe("image-studio skill script wrapper", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Mock Gemini error: API failure");
     expect(result.content).toContain(
-      "Do not change service configuration (mode, provider, or model) to try to fix it",
+      "Failed model: gemini-3.1-flash-image-preview",
+    );
+    expect(result.content).toContain(
+      "Do not change service configuration (managed/your-own mode or default provider/model settings)",
+    );
+    expect(result.content).toContain(
+      "Retrying this call once with a different model parameter is allowed",
     );
   });
 
@@ -335,7 +341,10 @@ describe("image-studio skill script wrapper", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Mock OpenAI error: openai failure");
     expect(result.content).toContain(
-      "Do not change service configuration (mode, provider, or model) to try to fix it",
+      "Do not change service configuration (managed/your-own mode or default provider/model settings)",
+    );
+    expect(result.content).toContain(
+      "Retrying this call once with a different model parameter is allowed",
     );
   });
 
@@ -346,8 +355,9 @@ describe("image-studio skill script wrapper", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("No Gemini API key");
+    expect(result.content).toContain("Report this error to the user as-is");
     expect(result.content).toContain(
-      "Do not change service configuration (mode, provider, or model) to try to fix it",
+      "Do not change service configuration (managed/your-own mode or default provider/model settings)",
     );
   });
 
@@ -359,8 +369,9 @@ describe("image-studio skill script wrapper", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Managed proxy is not available");
+    expect(result.content).toContain("Report this error to the user as-is");
     expect(result.content).toContain(
-      "Do not change service configuration (mode, provider, or model) to try to fix it",
+      "Do not change service configuration (managed/your-own mode or default provider/model settings)",
     );
   });
 
@@ -463,11 +474,11 @@ describe("image-studio TOOLS.json manifest", () => {
     expect(props.mode.enum).toEqual(["generate", "edit"]);
     expect(props.source_paths.type).toBe("array");
     expect(props.attachment_ids).toBeUndefined();
-    expect(props.model.enum).toEqual([
-      "gemini-3.1-flash-image-preview",
-      "gemini-3-pro-image-preview",
-      "gpt-image-2",
-    ]);
+    // No enum by design: model accepts tier aliases or concrete IDs, and is
+    // validated at runtime against the registry so the schema never goes
+    // stale when models change.
+    expect(props.model.type).toBe("string");
+    expect(props.model.enum).toBeUndefined();
     expect(props.variants.type).toBe("number");
   });
 });

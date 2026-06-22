@@ -32,6 +32,7 @@ import type { AppStore } from "../tools/apps/executors.js";
 import {
   executeAppCreate,
   executeAppRefresh,
+  executeAppUpdate,
 } from "../tools/apps/executors.js";
 
 // ---------------------------------------------------------------------------
@@ -89,6 +90,46 @@ function mockStore(
 // ---------------------------------------------------------------------------
 
 describe("executeAppCreate", () => {
+  test("falls back to the preview title when the name is omitted or blank", async () => {
+    let createdParams: Record<string, unknown> | undefined;
+    const app = makeMultifileApp({ name: "Coffee Tracker" });
+    const store: AppStore = {
+      ...mockStore(app, {}),
+      createApp: (params) => {
+        createdParams = params as unknown as Record<string, unknown>;
+        return app;
+      },
+    };
+
+    const result = await executeAppCreate(
+      { name: "   ", preview: { title: "Coffee Tracker" } },
+      store,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(createdParams?.name).toBe("Coffee Tracker");
+  });
+
+  test("defaults the name to 'New App' when neither name nor preview title is given", async () => {
+    let createdParams: Record<string, unknown> | undefined;
+    const app = makeMultifileApp({ name: "New App" });
+    const store: AppStore = {
+      ...mockStore(app, {}),
+      createApp: (params) => {
+        createdParams = params as unknown as Record<string, unknown>;
+        return app;
+      },
+    };
+
+    const result = await executeAppCreate(
+      {} as unknown as Parameters<typeof executeAppCreate>[0],
+      store,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(createdParams?.name).toBe("New App");
+  });
+
   test("creates multifile app with src/ scaffold", async () => {
     const files: Record<string, string> = {};
     let createdParams: Record<string, unknown> | undefined;
@@ -125,6 +166,49 @@ describe("executeAppCreate", () => {
     const parsed = JSON.parse(result.content);
     expect(parsed.next_steps).toContain("placeholder src/main.tsx");
     expect(parsed.next_steps).toContain("app_refresh");
+  });
+
+  test("associates the new app with its conversation when a conversationId is given", async () => {
+    const app = makeMultifileApp({ id: "app-xyz", name: "Assoc App" });
+    const associated: Array<{ appId: string; conversationId: string }> = [];
+    const store: AppStore = {
+      ...mockStore(app, {}),
+      addAppConversationId: (appId, conversationId) => {
+        associated.push({ appId, conversationId });
+        return true;
+      },
+    };
+
+    const result = await executeAppCreate(
+      { name: "Assoc App" },
+      store,
+      undefined,
+      "conv-assoc-1",
+    );
+
+    expect(result.isError).toBe(false);
+    expect(associated).toEqual([
+      { appId: "app-xyz", conversationId: "conv-assoc-1" },
+    ]);
+  });
+
+  test("a failed conversation association does not fail the create", async () => {
+    const app = makeMultifileApp({ id: "app-throw", name: "Throw App" });
+    const store: AppStore = {
+      ...mockStore(app, {}),
+      addAppConversationId: () => {
+        throw new Error("disk gone");
+      },
+    };
+
+    const result = await executeAppCreate(
+      { name: "Throw App" },
+      store,
+      undefined,
+      "conv-assoc-2",
+    );
+
+    expect(result.isError).toBe(false);
   });
 
   test("skips auto_open on scaffold even when proxy resolver is available", async () => {
@@ -406,5 +490,96 @@ describe("executeAppRefresh", () => {
     expect(result.isError).toBe(true);
     const parsed = JSON.parse(result.content);
     expect(parsed.error).toContain("not found");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// executeAppUpdate
+// ---------------------------------------------------------------------------
+
+describe("executeAppUpdate", () => {
+  test("updates metadata and recompiles a multifile app", async () => {
+    const app = makeMultifileApp({ name: "Old", description: "old desc" });
+    let updateArgs: unknown;
+    const store: AppStore = {
+      ...mockStore(app),
+      updateApp: (_id, updates) => {
+        updateArgs = updates;
+        return { ...app, ...updates };
+      },
+    };
+
+    const result = await executeAppUpdate(
+      { app_id: app.id, name: "New Name", description: "new desc" },
+      store,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(updateArgs).toEqual({ name: "New Name", description: "new desc" });
+    const parsed = JSON.parse(result.content);
+    expect(parsed.updated).toBe(true);
+    expect(parsed.name).toBe("New Name");
+    expect(parsed.description).toBe("new desc");
+    expect(parsed.compiled).toBe(true);
+  });
+
+  test("writes source_files before recompiling", async () => {
+    const files: Record<string, string> = {};
+    const app = makeMultifileApp();
+    const store: AppStore = {
+      ...mockStore(app, files),
+      updateApp: (_id, updates) => ({ ...app, ...updates }),
+    };
+
+    const result = await executeAppUpdate(
+      { app_id: app.id, source_files: { "src/App.tsx": "// new code" } },
+      store,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(files["src/App.tsx"]).toBe("// new code");
+    expect(JSON.parse(result.content).compiled).toBe(true);
+  });
+
+  test("legacy app: updates without compiling", async () => {
+    const app = makeLegacyApp({ name: "Legacy" });
+    const store: AppStore = {
+      ...mockStore(app),
+      updateApp: (_id, updates) => ({ ...app, ...updates }),
+    };
+
+    const result = await executeAppUpdate(
+      { app_id: app.id, name: "Renamed" },
+      store,
+    );
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.updated).toBe(true);
+    expect(parsed.name).toBe("Renamed");
+    expect(parsed.compiled).toBeUndefined();
+  });
+
+  test("returns error for unknown app", async () => {
+    const store = mockStore(makeMultifileApp());
+    const result = await executeAppUpdate({ app_id: "nope" }, store);
+
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content).error).toContain("not found");
+  });
+
+  test("rejects invalid source_files", async () => {
+    const app = makeMultifileApp();
+    const store = mockStore(app);
+    const result = await executeAppUpdate(
+      {
+        app_id: app.id,
+        source_files: { "src/App.tsx": 123 as unknown as string },
+      },
+      store,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content).error).toContain("must be a string");
   });
 });

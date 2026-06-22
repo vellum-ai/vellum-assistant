@@ -1,0 +1,32 @@
+{
+  "src/domains/chat/active-chat-view.tsx": [
+    "onboarding"
+  ],
+  "src/domains/chat/api/messages.ts": [
+    "onboarding"
+  ],
+  "src/domains/chat/hooks/use-onboarding-orchestrator.ts": [
+    "onboarding"
+  ],
+  "src/domains/chat/hooks/use-send-message.ts": [
+    "onboarding"
+  ],
+  "src/domains/home/components/home-schedule-row.tsx": [
+    "settings"
+  ],
+  "src/domains/home/components/home-schedules-panel.tsx": [
+    "settings"
+  ],
+  "src/domains/home/components/schedule-detail-panel.tsx": [
+    "settings"
+  ],
+  "src/domains/home/components/system-task-detail-panel.tsx": [
+    "settings"
+  ],
+  "src/domains/home/home-page.tsx": [
+    "settings"
+  ],
+  "src/domains/home/hooks/use-home-schedules-data.ts": [
+    "settings"
+  ]
+}

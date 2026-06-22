@@ -69,6 +69,7 @@ type SurfaceConversationContext =
 function buildMockContext(
   hostCuProxy?: InstanceType<typeof HostCuProxy>,
   trustGuardianPrincipalId: string | null = DEFAULT_PRINCIPAL,
+  actorPrincipalId: string | null = trustGuardianPrincipalId,
 ): SurfaceConversationContext {
   return {
     conversationId: "test-session",
@@ -79,6 +80,16 @@ function buildMockContext(
             trustClass: "guardian",
             guardianPrincipalId: trustGuardianPrincipalId,
           }
+        : undefined,
+    authContext:
+      actorPrincipalId != null
+        ? ({ actorPrincipalId } as SurfaceConversationContext["authContext"])
+        : undefined,
+    currentTurnAuthContext:
+      actorPrincipalId != null
+        ? ({
+            actorPrincipalId,
+          } as SurfaceConversationContext["currentTurnAuthContext"])
         : undefined,
     traceEmitter: { emit: () => {} },
     sendToClient: () => {},
@@ -662,6 +673,31 @@ describe("surfaceProxyResolver — CU tool routing", () => {
       expect(result.content).toContain(
         "Submitting actor does not match the target client's actor",
       );
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("rejects untargeted CU dispatch to owner client when current requester is a trusted contact", async () => {
+      sentMessages.length = 0;
+      mockHasClient = true;
+      mockCuClients = [
+        {
+          clientId: "owner-cu-client",
+          capabilities: ["host_cu"],
+          actorPrincipalId: "owner-user",
+        },
+      ];
+      proxy = new HostCuProxy();
+      const ctx = buildMockContext(proxy, "owner-user", "trusted-contact-user");
+
+      const result = await surfaceProxyResolver(ctx, "computer_use_click", {
+        element_id: 1,
+        reasoning: "click",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("current actor");
+      expect(proxy.stepCount).toBe(0);
+      expect(proxy.actionHistory).toHaveLength(0);
       expect(sentMessages).toHaveLength(0);
     });
 

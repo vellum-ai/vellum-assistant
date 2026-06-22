@@ -25,6 +25,22 @@ const TEST_REGISTRY = {
       description: "A2A channel integration",
       defaultEnabled: false,
     },
+    {
+      id: "default-model",
+      scope: "assistant",
+      key: "default-model",
+      label: "Default Model",
+      description: "Default LLM model identifier",
+      defaultEnabled: "claude-sonnet-4-6",
+    },
+    {
+      id: "empty-string-flag",
+      scope: "assistant",
+      key: "empty-string-flag",
+      label: "Empty String Flag",
+      description: "A string flag with empty default",
+      defaultEnabled: "",
+    },
   ],
 };
 
@@ -48,15 +64,21 @@ afterEach(() => {
   resetFeatureFlagDefaultsCache();
   clearFeatureFlagStoreCache();
   clearRemoteFeatureFlagStoreCache();
+  resetEnvOverridesCache();
+  delete process.env.VELLUM_FLAG_BROWSER;
+  delete process.env.VELLUM_FLAG_A2A_CHANNEL;
+  delete process.env.VELLUM_FLAG_DEFAULT_MODEL;
 });
 
-const { isFeatureFlagEnabled } = await import("../feature-flag-resolver.js");
+const { isFeatureFlagEnabled, getFeatureFlagValue } = await import("../feature-flag-resolver.js");
 const { resetFeatureFlagDefaultsCache, _setRegistryCandidateOverrides } =
   await import("../feature-flag-defaults.js");
 const { clearFeatureFlagStoreCache, writeFeatureFlag } =
   await import("../feature-flag-store.js");
 const { clearRemoteFeatureFlagStoreCache, writeRemoteFeatureFlags } =
   await import("../feature-flag-remote-store.js");
+const { resetEnvOverridesCache } =
+  await import("../feature-flag-env-overrides.js");
 
 describe("isFeatureFlagEnabled", () => {
   test("uses registry defaults when no override exists", () => {
@@ -87,5 +109,70 @@ describe("isFeatureFlagEnabled", () => {
     writeRemoteFeatureFlags({ unknown: true });
 
     expect(isFeatureFlagEnabled("unknown")).toBe(false);
+  });
+
+  test("coerces non-empty string to true", () => {
+    expect(isFeatureFlagEnabled("default-model")).toBe(true);
+  });
+
+  test("coerces empty string to false", () => {
+    expect(isFeatureFlagEnabled("empty-string-flag")).toBe(false);
+  });
+
+  test("coerces persisted string override to true", () => {
+    writeFeatureFlag("empty-string-flag", "overridden");
+    expect(isFeatureFlagEnabled("empty-string-flag")).toBe(true);
+  });
+});
+
+describe("getFeatureFlagValue", () => {
+  test("returns string default for string flags", () => {
+    expect(getFeatureFlagValue("default-model")).toBe("claude-sonnet-4-6");
+    expect(getFeatureFlagValue("empty-string-flag")).toBe("");
+  });
+
+  test("returns boolean default for boolean flags", () => {
+    expect(getFeatureFlagValue("browser")).toBe(true);
+    expect(getFeatureFlagValue("a2a-channel")).toBe(false);
+  });
+
+  test("returns false for undeclared flags", () => {
+    expect(getFeatureFlagValue("nonexistent")).toBe(false);
+  });
+
+  test("persisted string value overrides default", () => {
+    writeFeatureFlag("default-model", "gpt-4");
+    expect(getFeatureFlagValue("default-model")).toBe("gpt-4");
+  });
+
+  test("remote string value overrides default when no persisted value", () => {
+    writeRemoteFeatureFlags({ "default-model": "gpt-4" });
+    expect(getFeatureFlagValue("default-model")).toBe("gpt-4");
+  });
+
+  test("persisted takes precedence over remote for string flags", () => {
+    writeRemoteFeatureFlags({ "default-model": "remote-model" });
+    writeFeatureFlag("default-model", "persisted-model");
+    expect(getFeatureFlagValue("default-model")).toBe("persisted-model");
+  });
+
+  test("env override wins over persisted, remote, and default values", () => {
+    writeRemoteFeatureFlags({ browser: false });
+    writeFeatureFlag("browser", false);
+
+    process.env.VELLUM_FLAG_BROWSER = "true";
+    resetEnvOverridesCache();
+
+    expect(getFeatureFlagValue("browser")).toBe(true);
+  });
+
+  test("env override wins for string flags", () => {
+    writeRemoteFeatureFlags({ "default-model": "remote-model" });
+    writeFeatureFlag("default-model", "persisted-model");
+
+    process.env.VELLUM_FLAG_DEFAULT_MODEL = "env-model";
+    resetEnvOverridesCache();
+
+    expect(getFeatureFlagValue("default-model")).toBe("env-model");
   });
 });

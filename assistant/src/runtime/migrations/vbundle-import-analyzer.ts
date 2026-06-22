@@ -19,6 +19,7 @@ import { join, resolve } from "node:path";
 
 import { resolveGuardianPersonaPath } from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
+import { isRetiredArchivePath } from "./vbundle-import-policy.js";
 import type { ManifestType } from "./vbundle-validator.js";
 
 const log = getLogger("vbundle-import-analyzer");
@@ -30,12 +31,7 @@ const log = getLogger("vbundle-import-analyzer");
  * on import, its content is translated to `users/<slug>.md` at the
  * current guardian's location (see `DefaultPathResolver.resolve`).
  */
-const ALLOWED_PROMPT_FILENAMES = new Set([
-  "IDENTITY.md",
-  "SOUL.md",
-  "USER.md",
-  "UPDATES.md",
-]);
+const ALLOWED_PROMPT_FILENAMES = new Set(["IDENTITY.md", "SOUL.md", "USER.md"]);
 
 /** Archive path for the legacy guardian user persona file. */
 const LEGACY_USER_MD_ARCHIVE_PATH = "prompts/USER.md";
@@ -120,6 +116,14 @@ export class DefaultPathResolver implements PathResolver {
   resolve(archivePath: string): string | null {
     // Skip credential entries — handled separately by the credential import step
     if (archivePath.startsWith("credentials/")) {
+      return null;
+    }
+
+    // Retired-feature files (both legacy and workspace-format spellings)
+    // must never resolve to a disk target — resolving would write them
+    // back into the workspace on import. The analyzer and both importers
+    // turn the resulting null into a silent non-blocking skip.
+    if (isRetiredArchivePath(archivePath)) {
       return null;
     }
 
@@ -276,6 +280,25 @@ export function analyzeImport(
         log.warn(
           { path: fileEntry.path },
           "Legacy prompts/USER.md has no guardian target — will be skipped on import",
+        );
+        files.push({
+          path: fileEntry.path,
+          action: "skip",
+          bundle_size: fileEntry.size_bytes,
+          bundle_sha256: fileEntry.sha256,
+          current_size: null,
+          current_sha256: null,
+        });
+        continue;
+      }
+
+      // Retired-feature file from a legacy bundle: nothing consumes it
+      // anymore, so drop it silently instead of blocking the restore with
+      // an UNKNOWN_ARCHIVE_PATH conflict.
+      if (isRetiredArchivePath(fileEntry.path)) {
+        log.info(
+          { path: fileEntry.path },
+          "Retired archive path in legacy bundle — will be skipped on import",
         );
         files.push({
           path: fileEntry.path,

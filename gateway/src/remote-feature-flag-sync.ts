@@ -1,8 +1,10 @@
 import type { CredentialCache } from "./credential-cache.js";
 import { credentialKey } from "./credential-key.js";
+import { getDeviceId } from "./device-id.js";
 import { fetchImpl } from "./fetch.js";
 import { loadFeatureFlagDefaults } from "./feature-flag-defaults.js";
 import { writeRemoteFeatureFlags } from "./feature-flag-remote-store.js";
+import { arePlatformFeaturesEnabled } from "./feature-flag-resolver.js";
 import { getLogger } from "./logger.js";
 
 const log = getLogger("remote-feature-flag-sync");
@@ -33,7 +35,7 @@ function getMaxPollIntervalMs(): number {
 
 /** Discriminated result from a remote feature flag fetch attempt. */
 type RemoteFetchResult =
-  | { status: "success"; values: Record<string, boolean> }
+  | { status: "success"; values: Record<string, boolean | string> }
   | { status: "missing_credentials" }
   | { status: "error" };
 
@@ -69,6 +71,7 @@ export class RemoteFeatureFlagSync {
    * change that lands mid-fetch is never dropped (see `syncNow`).
    */
   private pendingResync = false;
+  private hasAuthedSuccessfully = false;
   private waitingForCredentials = false;
   private unsubscribeCredentials: (() => void) | null = null;
   private currentIntervalMs: number;
@@ -325,6 +328,11 @@ export class RemoteFeatureFlagSync {
   }
 
   private async fetchRemoteFeatureFlags(): Promise<RemoteFetchResult> {
+    if (!arePlatformFeaturesEnabled()) {
+      log.debug("Remote feature flag sync skipped: platform features disabled");
+      return { status: "missing_credentials" };
+    }
+
     // Wrap credential reads so transient failures (CES unreachable, keychain
     // errors) are treated as retriable errors with backoff, not as "missing
     // credentials" which would pause polling indefinitely.
@@ -347,33 +355,44 @@ export class RemoteFeatureFlagSync {
       ""
     ).replace(/\/+$/, "");
 
-    // Feature flag sync hits the public platform API and requires assistant
-    // API key auth.
     const assistantCredential =
       assistantApiKeyRaw?.trim() ||
       process.env.ASSISTANT_API_KEY?.trim() ||
       undefined;
 
-    if (!platformUrl || !assistantCredential) {
-      log.debug(
-        {
-          hasPlatformUrl: !!platformUrl,
-          hasApiKey: !!assistantCredential,
-        },
-        "Remote feature flag sync skipped: missing credentials",
-      );
+    if (!platformUrl) {
+      log.debug("Remote feature flag sync skipped: no platform URL configured");
       return { status: "missing_credentials" };
     }
 
+    // If we previously fetched with auth and the API key is now missing,
+    // treat it as a transient error (backoff + retry) rather than
+    // downgrading to an anonymous fetch that would overwrite per-assistant
+    // flag values with anonymous defaults.
+    if (!assistantCredential && this.hasAuthedSuccessfully) {
+      log.warn(
+        "API key previously available but now missing — treating as transient error",
+      );
+      return { status: "error" };
+    }
+
     const url = `${platformUrl}/v1/feature-flags/assistant-flag-values/`;
-    log.debug({ url }, "Fetching remote feature flags from platform");
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (assistantCredential) {
+      headers["Authorization"] = `Api-Key ${assistantCredential}`;
+    }
+    const deviceId = getDeviceId();
+    if (deviceId) {
+      headers["Vellum-Device-Id"] = deviceId;
+    }
+    log.debug(
+      { url, authenticated: !!assistantCredential },
+      "Fetching remote feature flags from platform",
+    );
 
     const response = await fetchImpl(url, {
       method: "GET",
-      headers: {
-        Authorization: `Api-Key ${assistantCredential}`,
-        Accept: "application/json",
-      },
+      headers,
       signal: AbortSignal.timeout(10_000),
     });
 
@@ -386,24 +405,24 @@ export class RemoteFeatureFlagSync {
     }
 
     const body = (await response.json()) as {
-      flags?: Record<string, boolean>;
+      flags?: Record<string, boolean | string>;
     };
     if (!body.flags || typeof body.flags !== "object") {
       log.warn("Platform feature flags response missing 'flags' field");
       return { status: "error" };
     }
 
-    // Filter to boolean values only (defensive), and prevent the platform
-    // from disabling flags that are already GA (defaultEnabled: true in the
-    // registry). The platform uses a blanket-deny posture, sending false for
-    // every flag it knows about. Store GA false values as true rather than
-    // omitting them so the persisted snapshot cannot be interpreted as an
-    // explicit disable by any consumer.
+    // Accept boolean and string values from the platform. Prevent the
+    // platform from disabling boolean flags that are already GA
+    // (defaultEnabled: true in the registry). The platform uses a
+    // blanket-deny posture, sending false for every flag it knows about.
+    // GA normalization only applies to boolean false values; string flag
+    // values pass through unchanged.
     const registry = loadFeatureFlagDefaults();
-    const values: Record<string, boolean> = {};
+    const values: Record<string, boolean | string> = {};
     for (const [key, value] of Object.entries(body.flags)) {
-      if (typeof value !== "boolean") continue;
-      if (!value && registry[key]?.defaultEnabled) {
+      if (typeof value !== "boolean" && typeof value !== "string") continue;
+      if (value === false && registry[key]?.defaultEnabled === true) {
         log.debug(
           { key },
           "Normalizing remote false for GA flag to true (defaultEnabled: true)",
@@ -412,6 +431,10 @@ export class RemoteFeatureFlagSync {
         continue;
       }
       values[key] = value;
+    }
+
+    if (assistantCredential) {
+      this.hasAuthedSuccessfully = true;
     }
 
     return { status: "success", values };

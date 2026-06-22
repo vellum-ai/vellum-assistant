@@ -1,4 +1,4 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { desc, eq, lt, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db-connection.js";
@@ -24,7 +24,8 @@ export type HeartbeatSkipReason =
   | "outside_active_hours"
   | "overlap"
   | "pre_first_user_message"
-  | "max_consecutive_runs";
+  | "max_consecutive_runs"
+  | "max_daily_runs";
 
 export interface HeartbeatRunRecord {
   id: string;
@@ -218,6 +219,27 @@ export function countCompletedHeartbeatRuns(): number {
 }
 
 /**
+ * Count heartbeat runs that completed with status `ok` today (local midnight).
+ */
+export function countCompletedRunsToday(): number {
+  const db = getDb();
+  const now = new Date();
+  const startOfDay = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  ).getTime();
+  const row = db
+    .select({ count: sql<number>`count(*)` })
+    .from(heartbeatRuns)
+    .where(
+      sql`${heartbeatRuns.status} = 'ok' AND ${heartbeatRuns.scheduledFor} >= ${startOfDay}`,
+    )
+    .get();
+  return row?.count ?? 0;
+}
+
+/**
  * Count the most recent consecutive heartbeat runs with status `ok`,
  * walking backwards from newest. Stops at the first non-`ok` status
  * (skipped, superseded, missed, error, timeout), which acts as a
@@ -250,12 +272,18 @@ export function countRecentConsecutiveRuns(maxToCheck: number): number {
 
 /**
  * List heartbeat runs ordered by `scheduledFor` descending.
+ * When `before` is set, only runs with `scheduledFor` strictly older than it
+ * are returned (cursor for paginating into history).
  */
-export function listHeartbeatRuns(limit = 20): HeartbeatRunRecord[] {
+export function listHeartbeatRuns(
+  limit = 20,
+  before?: number,
+): HeartbeatRunRecord[] {
   const db = getDb();
   const rows = db
     .select()
     .from(heartbeatRuns)
+    .where(before != null ? lt(heartbeatRuns.scheduledFor, before) : undefined)
     .orderBy(desc(heartbeatRuns.scheduledFor))
     .limit(limit)
     .all();

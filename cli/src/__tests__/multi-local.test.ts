@@ -10,16 +10,7 @@ process.env.VELLUM_LOCKFILE_DIR = testDir;
 
 // Mock homedir() to return testDir — this isolates allocateLocalResources()
 // which uses homedir() directly for instance directory creation.
-const realOs = await import("node:os");
-mock.module("node:os", () => ({
-  ...realOs,
-  homedir: () => testDir,
-}));
-// Also mock the bare "os" specifier since assistant-config.ts uses `from "os"`
-mock.module("os", () => ({
-  ...realOs,
-  homedir: () => testDir,
-}));
+await mockOsHomedir(() => () => testDir);
 
 // Mock probePort so we control which ports appear in-use without touching the network
 const probePortMock = mock<(port: number, host?: string) => Promise<boolean>>(
@@ -43,6 +34,7 @@ import {
   DEFAULT_GATEWAY_PORT,
   DEFAULT_QDRANT_PORT,
 } from "../lib/constants.js";
+import { mockOsHomedir } from "./helpers/os-mock.js";
 
 afterAll(() => {
   rmSync(testDir, { recursive: true, force: true });

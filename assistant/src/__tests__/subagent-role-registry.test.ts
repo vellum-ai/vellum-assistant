@@ -7,7 +7,13 @@ import {
 } from "../subagent/index.js";
 
 /** All roles defined in the SubagentRole union. */
-const ALL_ROLES: SubagentRole[] = ["general", "researcher", "coder", "planner"];
+const ALL_ROLES: SubagentRole[] = [
+  "general",
+  "researcher",
+  "coder",
+  "planner",
+  "investigator",
+];
 
 describe("SUBAGENT_ROLE_REGISTRY", () => {
   test("covers all values in the SubagentRole union", () => {
@@ -62,6 +68,23 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
 
   test('planner includes "recall" for local information access', () => {
     expect(SUBAGENT_ROLE_REGISTRY.planner.allowedTools!).toContain("recall");
+  });
+
+  test('investigator includes "bash" for grep/find-based code and log investigation', () => {
+    expect(SUBAGENT_ROLE_REGISTRY.investigator.allowedTools!).toContain("bash");
+  });
+
+  test("investigator excludes file write tools (read-only investigation)", () => {
+    const tools = SUBAGENT_ROLE_REGISTRY.investigator.allowedTools!;
+    expect(tools).not.toContain("file_write");
+    expect(tools).not.toContain("file_edit");
+  });
+
+  test("investigator preamble defines the root-cause report contract", () => {
+    const preamble = SUBAGENT_ROLE_REGISTRY.investigator.systemPromptPreamble;
+    expect(preamble).toContain("Root cause");
+    expect(preamble).toContain("Evidence");
+    expect(preamble).toContain("notify_parent");
   });
 
   test("no role references the old memory_recall tool name", () => {

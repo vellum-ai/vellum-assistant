@@ -87,8 +87,8 @@ describe("conversation inference profile migration", () => {
     resetMigrationTestDb();
   });
 
-  test("fresh DB initialization includes nullable inference_profile column", () => {
-    initializeDb();
+  test("fresh DB initialization includes nullable inference_profile column", async () => {
+    await initializeDb();
 
     const raw = new Database(getDbPath());
     const columns = getColumnNames(raw);

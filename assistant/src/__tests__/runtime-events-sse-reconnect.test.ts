@@ -39,7 +39,7 @@ import {
   stampAndBuffer,
 } from "../runtime/assistant-stream-state.js";
 
-initializeDb();
+await initializeDb();
 
 const decoder = new TextDecoder();
 

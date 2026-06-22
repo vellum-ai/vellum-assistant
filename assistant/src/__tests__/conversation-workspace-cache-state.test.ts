@@ -137,15 +137,23 @@ mock.module("../memory/retrieval-budget.js", () => ({
   computeRecallBudget: () => 0,
 }));
 
-mock.module("../context/window-manager.js", () => ({
+mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
+    estimateInputTokens() {
+      return 0;
+    }
+    get tokenCountInputs() {
+      return { systemPrompt: "", tools: undefined };
+    }
     constructor() {}
+    updateConfig() {}
     shouldCompact() {
       return { needed: false, estimatedTokens: 0 };
     }
     async maybeCompact() {
       return { compacted: false };
     }
+    resetOverflowRecovery() {}
   },
   createContextSummaryMessage: () => ({
     role: "user",
@@ -176,10 +184,11 @@ mock.module("../agent/loop.js", () => ({
     getActiveModel() {
       return undefined;
     }
-    async run(
-      messages: Message[],
-      onEvent: (event: AgentEvent) => void,
-    ): Promise<Message[]> {
+    async run(options: {
+      messages: Message[];
+      onEvent: (event: AgentEvent) => void;
+    }): Promise<Message[]> {
+      const { messages, onEvent } = options;
       const assistantMessage: Message = {
         role: "assistant",
         content: [{ type: "text", text: "ok" }],
@@ -198,6 +207,7 @@ mock.module("../agent/loop.js", () => ({
 }));
 
 import { Conversation } from "../daemon/conversation.js";
+import { refreshWorkspaceTopLevelContextIfNeeded } from "../daemon/conversation-workspace.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -249,7 +259,7 @@ describe("Conversation workspace cache state", () => {
   });
 
   test("refreshWorkspaceTopLevelContextIfNeeded populates context and clears dirty", () => {
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
 
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
     expect(conversation.getWorkspaceTopLevelContext()).not.toBeNull();
@@ -265,10 +275,10 @@ describe("Conversation workspace cache state", () => {
   });
 
   test("refreshWorkspaceTopLevelContextIfNeeded no-ops when not dirty and cache exists", () => {
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
     const first = conversation.getWorkspaceTopLevelContext();
 
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
     const second = conversation.getWorkspaceTopLevelContext();
 
     // Same reference — no recomputation
@@ -276,7 +286,7 @@ describe("Conversation workspace cache state", () => {
   });
 
   test("markWorkspaceTopLevelDirty sets dirty flag", () => {
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
 
     conversation.markWorkspaceTopLevelDirty();
@@ -284,10 +294,10 @@ describe("Conversation workspace cache state", () => {
   });
 
   test("refresh after marking dirty produces fresh context", () => {
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
 
     conversation.markWorkspaceTopLevelDirty();
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
 
     expect(conversation.getWorkspaceTopLevelContext()).not.toBeNull();
     expect(conversation.getWorkspaceTopLevelContext()!).toContain(
@@ -299,7 +309,7 @@ describe("Conversation workspace cache state", () => {
   test("renders client-reported host env when set on the conversation", () => {
     conversation.hostHomeDir = "/Users/alice";
     conversation.hostUsername = "alice";
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
 
     const block = conversation.getWorkspaceTopLevelContext();
     expect(block).not.toBeNull();
@@ -309,7 +319,7 @@ describe("Conversation workspace cache state", () => {
 
   test("falls back to daemon os info when client host env is absent", async () => {
     const { homedir, userInfo } = await import("node:os");
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
 
     const block = conversation.getWorkspaceTopLevelContext();
     expect(block).not.toBeNull();
@@ -320,7 +330,7 @@ describe("Conversation workspace cache state", () => {
   test("re-renders with updated host env after marking dirty", () => {
     conversation.hostHomeDir = "/Users/alice";
     conversation.hostUsername = "alice";
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
     expect(conversation.getWorkspaceTopLevelContext()!).toContain(
       "Host home directory: /Users/alice",
     );
@@ -328,7 +338,7 @@ describe("Conversation workspace cache state", () => {
     conversation.hostHomeDir = "/Users/bob";
     conversation.hostUsername = "bob";
     conversation.markWorkspaceTopLevelDirty();
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
 
     const block = conversation.getWorkspaceTopLevelContext();
     expect(block).not.toBeNull();
@@ -344,7 +354,7 @@ describe("Conversation workspace cache state", () => {
     // Simulate a macOS turn populating host env.
     conversation.hostHomeDir = "/Users/alice";
     conversation.hostUsername = "alice";
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
     expect(conversation.getWorkspaceTopLevelContext()!).toContain(
       "Host home directory: /Users/alice",
     );
@@ -355,7 +365,7 @@ describe("Conversation workspace cache state", () => {
     conversation.hostHomeDir = undefined;
     conversation.hostUsername = undefined;
     conversation.markWorkspaceTopLevelDirty();
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
 
     const block = conversation.getWorkspaceTopLevelContext();
     expect(block).not.toBeNull();
@@ -381,7 +391,7 @@ describe("Conversation workspace cache state", () => {
     expect(conversation.hostUsername).toBe("alice");
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
 
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
     const block = conversation.getWorkspaceTopLevelContext();
     expect(block!).toContain("Host home directory: /Users/alice");
     expect(block!).toContain("Host username: alice");
@@ -455,7 +465,7 @@ describe("Conversation workspace cache state", () => {
       hostUsername: "alice",
     });
     // Render once so the dirty flag clears.
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
 
     // Re-apply the same values — dirty flag should remain false so we don't
@@ -476,7 +486,7 @@ describe("Conversation workspace cache state", () => {
       hostHomeDir: "/Users/alice",
       hostUsername: "alice",
     });
-    conversation.refreshWorkspaceTopLevelContextIfNeeded();
+    refreshWorkspaceTopLevelContextIfNeeded(conversation);
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
 
     // New values — should mark dirty so the next render picks them up.
@@ -500,7 +510,7 @@ describe("Conversation workspace cache state", () => {
 
     try {
       const tempConversation = makeConversation(workspaceRoot);
-      tempConversation.refreshWorkspaceTopLevelContextIfNeeded();
+      refreshWorkspaceTopLevelContextIfNeeded(tempConversation);
 
       expect(tempConversation.getWorkspaceTopLevelContext()!).toContain(
         `Current conversation attachments: conversations/${legacyDirName}/attachments/`,

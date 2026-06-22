@@ -82,7 +82,7 @@ bun run src/index.ts assistant start
 
 ### Sandbox and Host Access Model
 
-- Default tool workspace: `~/.vellum/workspace` (persistent global sandbox filesystem).
+- Default tool workspace: `$VELLUM_WORKSPACE_DIR` (persistent global sandbox filesystem).
 - Sandbox-scoped tools: `file_read`, `file_write`, `file_edit`, and `bash`.
 - Explicit host tools: `host_file_read`, `host_file_write`, `host_file_edit`, and `host_bash` (absolute host paths only for host file tools).
 - Host/computer-use prompts: `host_*` and `computer_use_*` tools default to `ask` unless allowlisted/denylisted in trust rules.
@@ -107,14 +107,14 @@ Host tools (`host_bash`, `host_file_read`, `host_file_write`, `host_file_edit`) 
 | `Docker CLI is not installed or not in PATH` | Docker is not installed | Install Docker: https://docs.docker.com/get-docker/ |
 | `Docker daemon is not running` | Docker Desktop is not started or systemd service is stopped | Start Docker Desktop, or run `sudo systemctl start docker` on Linux |
 | `Docker image "..." is not available locally` | The configured image has not been pulled | Run `docker pull <image>` with the full image reference including the sha256 digest |
-| `Cannot bind-mount the sandbox root into a Docker container` | Docker Desktop file sharing does not include the sandbox data directory | Open Docker Desktop > Settings > Resources > File Sharing and add the `~/.vellum/workspace` path (or your custom `dataDir` path) |
+| `Cannot bind-mount the sandbox root into a Docker container` | Docker Desktop file sharing does not include the sandbox data directory | Open Docker Desktop > Settings > Resources > File Sharing and add the `$VELLUM_WORKSPACE_DIR` path (or your custom `dataDir` path) |
 | `bwrap is not available or cannot create namespaces` (native backend, Linux) | bubblewrap is not installed or user namespaces are disabled | Install bubblewrap: `apt install bubblewrap` (Debian/Ubuntu) or `dnf install bubblewrap` (Fedora) |
 
 ### Credential Storage and Secret Security
 
 The assistant can store and use credentials (API keys, tokens, passwords) without exposing secret values to the LLM or logs.
 
-- **Storage**: Secret values are stored via the Credential Execution Service (CES) or the encrypted file store (`~/.vellum/protected/keys.enc`). The daemon resolves credential storage via CES RPC (primary), CES HTTP (containerized/Docker), or encrypted file store (fallback). Metadata (service, field, label, usage policy) is stored in a JSON file at `~/.vellum/workspace/data/credentials/metadata.json`.
+- **Storage**: Secret values are stored via the Credential Execution Service (CES) or the encrypted file store (`~/.vellum/protected/keys.enc`). The daemon resolves credential storage via CES RPC (primary), CES HTTP (containerized/Docker), or encrypted file store (fallback). Metadata (service, field, label, usage policy) is stored in a JSON file at `$VELLUM_WORKSPACE_DIR/data/credentials/metadata.json`.
 - **Secret prompt**: When a credential is needed, a floating `SecretPromptView` panel appears. The user enters the value in a `SecureField` — the LLM never sees it.
 - **Usage policy**: Each credential can specify `allowedTools` and `allowedDomains`. The `CredentialBroker` enforces these policies at use time.
 - **One-time send**: When `secretDetection.allowOneTimeSend` is enabled (default: `false`), a "Send Once" button lets users provide a value for immediate use without persisting it.
@@ -125,7 +125,7 @@ See [`assistant/docs/architecture/security.md`](../assistant/docs/architecture/s
 #### Credential References
 
 When using `credential_ids` in proxied shell commands, you can use either format:
-- **UUID**: The canonical credential ID (shown in `credential_store list` output and `store`/`prompt` success messages)
+- **UUID**: The canonical credential ID (shown in `assistant credentials list` output and `set`/`prompt` success messages)
 - **service/field**: A human-readable reference like `fal/api_key`
 
 Unknown references fail immediately with a clear error before the command executes.
@@ -154,9 +154,9 @@ Requests that match zero session credentials are handled in two ways: if the tar
 
 If a proxied command receives a 401 or 403 despite having the correct credential stored:
 
-1. **Check the credential reference**: Run `credential_store list` and verify the credential ID or `service/field` matches what you're passing to `credential_ids`.
+1. **Check the credential reference**: Run `assistant credentials list` and verify the credential ID or `service/field` matches what you're passing to `credential_ids`.
 2. **Check host pattern matching**: The credential's `hostPattern` must match the target host. A wildcard pattern `*.example.com` matches `api.example.com` and the bare domain `example.com`. An exact pattern `api.example.com` only matches that specific host.
-3. **Check for ambiguity**: If two credentials match the same host with equal specificity, injection is blocked. Use `credential_store list` to check for overlapping patterns.
+3. **Check for ambiguity**: If two credentials match the same host with equal specificity, injection is blocked. Use `assistant credentials list` to check for overlapping patterns.
 4. **Check the header template**: Ensure the credential has an `injectionTemplate` with `injectionType: "header"` and the correct `headerName` (e.g., `Authorization`) and `valuePrefix` (e.g., `Bearer `).
 5. **Enable debug logging**: Set `LOG_LEVEL=debug` to see decision traces from the policy engine and rewrite callback, including which patterns matched and which credential was selected.
 
@@ -232,18 +232,18 @@ The assistant can create, test, and persist new skills at runtime. This is usefu
 #### Workflow
 
 1. **Evaluate**: The assistant drafts a TypeScript snippet and tests it in a sandbox via `evaluate_typescript_code`. Iterates until it passes.
-2. **Persist**: After successful evaluation and explicit user consent, the assistant calls `scaffold_managed_skill` to write the skill to `~/.vellum/workspace/skills/<id>/SKILL.md`.
+2. **Persist**: After successful evaluation and explicit user consent, the assistant calls `scaffold_managed_skill` to write the skill to `$VELLUM_WORKSPACE_DIR/skills/<id>/SKILL.md`.
 3. **Load**: The assistant calls `skill_load` with the new skill ID to load its instructions.
 4. **Delete**: To remove a managed skill, use `delete_managed_skill`.
 
-Installed managed skills are discovered from valid directories under `~/.vellum/workspace/skills/<id>/` that contain a top-level `SKILL.md` with standardized frontmatter. On startup and skill directory changes, the assistant parses that frontmatter and seeds Memory V2 entries under `skills/<id>`; those memory entries represent available skills to the assistant. The legacy `SKILLS.md` index is removed by workspace migration and is no longer created by current install or scaffold paths.
+Installed managed skills are discovered from valid directories under `$VELLUM_WORKSPACE_DIR/skills/<id>/` that contain a top-level `SKILL.md` with standardized frontmatter. On startup and skill directory changes, the assistant parses that frontmatter and seeds Memory V2 entries under `skills/<id>`; those memory entries represent available skills to the assistant. The legacy `SKILLS.md` index is removed by workspace migration and is no longer created by current install or scaffold paths.
 
 #### Tools
 
 | Tool | Risk Level | Description |
 |------|-----------|-------------|
 | `evaluate_typescript_code` | High | Run a TypeScript snippet in a sandbox. Returns structured JSON with `ok`, `exitCode`, `result`, `stdout`, `stderr`. |
-| `scaffold_managed_skill` | High | Write a managed skill to `~/.vellum/workspace/skills/<id>/`. Creates `SKILL.md` with frontmatter, including optional `includes` for child skills. |
+| `scaffold_managed_skill` | High | Write a managed skill to `$VELLUM_WORKSPACE_DIR/skills/<id>/`. Creates `SKILL.md` with frontmatter, including optional `includes` for child skills. |
 | `delete_managed_skill` | High | Remove a managed skill directory. |
 
 All three tools require explicit user approval before execution (Risk Level = High).
@@ -373,7 +373,7 @@ URLs inside code blocks and code spans are never converted to embeds.
 
 #### Settings
 
-Media embeds are controlled by settings under `ui.mediaEmbeds` in `~/.vellum/workspace/config.json`. These settings are also accessible from the standalone Settings window and the main-window settings panel.
+Media embeds are controlled by settings under `ui.mediaEmbeds` in `$VELLUM_WORKSPACE_DIR/config.json`. These settings are also accessible from the standalone Settings window and the main-window settings panel.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -585,7 +585,7 @@ Multiple plans can run in parallel — just specify the plan name to disambiguat
 |---------|---------|
 | `/plan-html <topic\|plan-name>` | Create or refresh a rollout plan in `.private/plans/` with both markdown and a polished, review-friendly HTML view (including per-PR file lists). |
 | `/release [version]` | Cut a release: pull main, determine/create version tag, generate release notes, publish GitHub Release, and verify CI trigger. |
-| `/triage [user\|assistant\|device]` | Search Sentry for recent errors and log reports by user, assistant, or device across both `vellum-assistant-brain` and `vellum-assistant-macos` projects, then cross-reference with Linear issues to produce a triage summary. |
+| `/triage [user\|assistant\|device]` | Search Sentry for recent errors and log reports by user, assistant, or device in the `vellum-assistant-brain` project, then cross-reference with Linear issues to produce a triage summary. |
 | `/update` | Pull latest from `main`, kill stale processes, rebuild and launch the macOS app. The app manages its own assistant and gateway lifecycle (hatching on first launch). Prints a startup summary. |
 
 #### Review
@@ -626,17 +626,17 @@ Run `/release [version]` in Claude Code. If no version is provided, the patch ve
 
 Creating the GitHub Release triggers three workflows in parallel:
 
-- **Build and Release macOS App** (`build-and-release-macos.yml`): Builds the macOS `.app` from source, compiles the Bun assistant binary, code-signs it with a Developer ID certificate, notarizes it with Apple, creates a DMG installer, and publishes both the DMG and a Sparkle-compatible ZIP + `appcast.xml` to the releases on [vellum-ai/vellum-assistant](https://github.com/vellum-ai/vellum-assistant). This takes ~15-20 minutes.
+- **Build Electron macOS App** (`build-electron` job in `release.yml`): Builds the Electron `.app` for each architecture, code-signs it with a Developer ID certificate, notarizes it with Apple, creates a DMG installer, and publishes the per-arch update artifacts to the Google Cloud Storage generic feed at `mac-electron/{channel}/{arch}/`. The arm64 DMG is also attached to the GitHub Release as `vellum-assistant.dmg`.
 - **Publish velly to npm** (`publish-velly.yml`): Publishes the `velly` CLI package to npm with provenance.
 - **Slack Release Notification** (`slack-release-notification.yml`): Posts a summary message to the releases Slack channel with a threaded changelog.
 
 #### Auto-updates for macOS clients
 
-The macOS app uses [Sparkle](https://sparkle-project.org/) for automatic updates. When a new release is published to the public updates repo, existing client installations detect the update via the `appcast.xml` feed, download the new version, and install it automatically — no manual action required from users. The update check happens periodically in the background while the app is running.
+The macOS app updates via [`electron-updater`](https://www.electron.build/auto-update), which polls the GCS generic feed at `mac-electron/{arch}/`. Existing installations detect a newer version, download it in the background, and install it on the next launch. The feed is independent of GitHub Release assets.
 
 #### First-time installation
 
-New users download the latest DMG from the [releases page](https://github.com/vellum-ai/vellum-assistant/releases/latest), open it, and drag the app to their Applications folder. All subsequent updates are handled automatically by Sparkle.
+New users download `vellum-assistant.dmg` from the [releases page](https://github.com/vellum-ai/vellum-assistant/releases/latest), open it, and drag the app to their Applications folder. All subsequent updates are handled automatically by `electron-updater`.
 
 ---
 
@@ -733,10 +733,10 @@ For full architectural details, see the "Conversation streaming boundary" sectio
 ### Architecture Summary
 
 ```
-macOS/iOS Client                     Gateway                              Daemon (Runtime)
+Web/Electron Client                  Gateway                              Daemon (Runtime)
 ─────────────────                    ───────                              ────────────────
-STTStreamingClient  ──WSS──>  stt-stream-websocket.ts  ──WS──>  http-server.ts /v1/stt/stream
-  (URLSessionWebSocketTask)    (edge JWT auth → service token)     (SttStreamSession)
+dictation-stream.ts ──WSS──>  stt-stream-websocket.ts  ──WS──>  http-server.ts /v1/stt/stream
+  (WebSocket)                  (edge JWT auth → service token)     (SttStreamSession)
                                                                         │
                                                             resolveStreamingTranscriber()
                                                                         │
@@ -764,7 +764,7 @@ STTStreamingClient  ──WSS──>  stt-stream-websocket.ts  ──WS──>  
 
 #### 1. Verify provider supports streaming
 
-Check the configured STT provider in the assistant's config (`services.stt.provider`). All four providers (`deepgram`, `google-gemini`, `openai-whisper`, and `xai`) support conversation streaming. The client checks `STTProviderRegistry.isStreamingAvailable` before opening a WebSocket — if the provider's `conversationStreamingMode` is `"none"`, streaming sessions are not attempted.
+Check the configured STT provider in the assistant's config (`services.stt.provider`). All four providers (`deepgram`, `google-gemini`, `openai-whisper`, and `xai`) support conversation streaming. The client checks streaming availability before opening a WebSocket — if the provider's `conversationStreamingMode` is `"none"`, streaming sessions are not attempted.
 
 #### 2. Verify credentials are configured
 
@@ -879,14 +879,14 @@ Daemon: WS close 1000
 Client -> Gateway: WSS upgrade with invalid/expired edge JWT
 Gateway: "STT stream WS: authentication failed"
 Gateway -> Client: HTTP 401 Unauthorized (no WebSocket upgrade)
-Client: STTStreamFailure.rejected(statusCode: 401)
+Client: stream failure reported (statusCode 401)
 Client: Falls back to batch STT path
 ```
 
 **Unsupported provider (hypothetical provider with `conversationStreamingMode: "none"`):**
 
 ```
-Client: STTProviderRegistry.isStreamingAvailable -> false (provider has conversationStreamingMode "none")
+Client: streaming availability -> false (provider has conversationStreamingMode "none")
 Client: Does not open WebSocket; uses batch STT path directly
 ```
 
@@ -898,7 +898,7 @@ Deepgram -> Daemon: WS close 1008 (auth error)
 Daemon: "Deepgram realtime session closed unexpectedly" code=1008
 Daemon -> Client: {"type":"error","category":"auth","message":"Deepgram WebSocket closed (code=1008, ...)","seq":N}
 Daemon -> Client: {"type":"closed","seq":N+1}
-Client: streamingFailed = true / isStreamingActive = false
+Client: marks stream failed / inactive
 Client: Falls back to batch STT on recording stop
 ```
 
@@ -906,7 +906,7 @@ Client: Falls back to batch STT on recording stop
 
 | Symptom | Likely cause | Diagnosis |
 | --- | --- | --- |
-| No streaming session opened | Provider has `conversationStreamingMode: "none"` or STT not configured | Check `services.stt.provider` config; check `STTProviderRegistry.isStreamingAvailable` |
+| No streaming session opened | Provider has `conversationStreamingMode: "none"` or STT not configured | Check `services.stt.provider` config; check client streaming availability |
 | `ready` event never received | Gateway cannot reach daemon, or daemon failed to start transcriber | Check gateway logs for upstream connection errors; check daemon logs for `"Failed to start STT stream session"` |
 | Auth failure (HTTP 401 before upgrade) | Expired or invalid edge JWT; no `Authorization` header or `token` query param | Check gateway `stt-stream-ws` logs for `"authentication failed"` with reason |
 | Partials but no final (Deepgram) | Deepgram session closed before client sent `stop` | Check for `"Deepgram realtime session closed unexpectedly"` or `"inactivity timeout"` |

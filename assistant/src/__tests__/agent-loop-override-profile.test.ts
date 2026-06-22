@@ -110,13 +110,20 @@ describe("AgentLoop.run — overrideProfile plumbing", () => {
       _input: Record<string, unknown>,
     ) => ({ content: "ok", isError: false });
 
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
       config: { maxTokens: 1024 },
       tools: dummyTools,
       toolExecutor: toolExecutor,
     });
 
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
       callSite: "mainAgent",
       overrideProfile: "fast",
     });
@@ -130,11 +137,19 @@ describe("AgentLoop.run — overrideProfile plumbing", () => {
 
   test("omits overrideProfile from providerConfig when unset (default behavior unchanged)", async () => {
     const { provider, configs } = makeRecordingProvider([textResponse("hi")]);
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
       config: { maxTokens: 1024 },
     });
 
-    await loop.run([userMessage], () => {});
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // Single send, no overrideProfile field at all.
     expect(configs()).toHaveLength(1);
@@ -148,11 +163,18 @@ describe("AgentLoop.run — overrideProfile plumbing", () => {
     // receives so a non-existent profile silently falls back at the
     // provider layer (covered by provider-send-message-override-profile.test.ts).
     const { provider, configs } = makeRecordingProvider([textResponse("hi")]);
-    const loop = new AgentLoop(provider, "system", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
       config: { maxTokens: 1024 },
     });
 
-    await loop.run([userMessage], () => {}, {
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
       callSite: "mainAgent",
       overrideProfile: "does-not-exist",
     });
@@ -173,6 +195,7 @@ interface CapturedRunAgentLoopOptions {
   titleText?: string;
   callSite?: string;
   overrideProfile?: string;
+  forceOverrideProfile?: boolean;
 }
 
 const capturedRunAgentLoopOptions: CapturedRunAgentLoopOptions[] = [];
@@ -301,6 +324,29 @@ describe("SubagentManager.spawn — overrideProfile inheritance", () => {
     const captured = capturedRunAgentLoopOptions[0];
     expect(captured.callSite).toBe("subagentSpawn");
     expect(captured.overrideProfile).toBe("fast");
+    expect("forceOverrideProfile" in captured).toBe(false);
+  });
+
+  test("forwards forced overrideProfile from SubagentConfig into runAgentLoop", async () => {
+    capturedRunAgentLoopOptions.length = 0;
+
+    const manager = new SubagentManager();
+    await manager.spawn(
+      {
+        parentConversationId: "parent-forced",
+        label: "child",
+        objective: "do the thing",
+        overrideProfile: "fast",
+        forceOverrideProfile: true,
+      },
+      () => {},
+    );
+
+    expect(capturedRunAgentLoopOptions).toHaveLength(1);
+    const captured = capturedRunAgentLoopOptions[0];
+    expect(captured.callSite).toBe("subagentSpawn");
+    expect(captured.overrideProfile).toBe("fast");
+    expect(captured.forceOverrideProfile).toBe(true);
   });
 
   test("omits overrideProfile when SubagentConfig does not set it", async () => {
@@ -322,6 +368,7 @@ describe("SubagentManager.spawn — overrideProfile inheritance", () => {
     // Field must be absent rather than carrying `undefined`, mirroring the
     // agent loop's "field omitted when unset" contract.
     expect("overrideProfile" in captured).toBe(false);
+    expect("forceOverrideProfile" in captured).toBe(false);
   });
 });
 

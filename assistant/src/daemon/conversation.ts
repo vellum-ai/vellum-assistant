@@ -15,14 +15,16 @@
  * - conversation-usage.ts        — recordUsage
  */
 
-import type { AgentLoopConfig, ResolvedSystemPrompt } from "../agent/loop.js";
+import type { AgentLoopConfig } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
 import type {
+  ChannelId,
   InterfaceId,
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   contextWindowConfigFromEffective,
@@ -31,13 +33,6 @@ import {
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
-import type { ContextWindowConfig } from "../config/types.js";
-import {
-  ContextWindowManager,
-  type ContextWindowResult,
-  getSummaryFromContextMessage,
-} from "../context/window-manager.js";
-import type { CesClient } from "../credential-execution/client.js";
 import { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
 import { createToolAuditListener } from "../events/tool-audit-listener.js";
@@ -52,28 +47,57 @@ import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import {
   getConversation,
-  getConversationOverrideProfileFromRow,
+  getMessages,
+  resolveOverrideProfile,
   setConversationHistoryStrippedAt,
 } from "../memory/conversation-crud.js";
+import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
+import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory/memory-marker.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
-import { buildSystemPrompt } from "../prompts/system-prompt.js";
-import type { Message } from "../providers/types.js";
+import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
+import {
+  createContextWindowManager,
+  getContextWindowManager,
+} from "../plugins/defaults/compaction/manager-store.js";
+import {
+  type ContextWindowManager,
+  type ContextWindowResult,
+  createContextSummaryMessage,
+} from "../plugins/defaults/compaction/window-manager.js";
+import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
+import {
+  getPrunedSlugs,
+  MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
+} from "../plugins/defaults/memory-v3-shadow/ever-injected-store.js";
+import { filterPrunedCardSections } from "../plugins/defaults/memory-v3-shadow/prune.js";
+import {
+  applyBootstrapTemplate,
+  buildSystemPrompt,
+  type SystemPromptPersonaOverride,
+} from "../prompts/system-prompt.js";
+import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
-import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+import { type TrustClass } from "../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../runtime/auth/types.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
 import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
+import {
+  type ActivationMomentParam,
+  isActivationMomentParam,
+} from "../telemetry/activation-funnel.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { getAllToolDefinitions } from "../tools/registry.js";
 import type { ToolLifecycleEvent } from "../tools/types.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import type { AbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
+import type { WorkspaceGitService } from "../workspace/git-service.js";
+import type { commitTurnChanges } from "../workspace/turn-commit.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
@@ -81,11 +105,11 @@ import {
   runAgentLoopImpl,
 } from "./conversation-agent-loop.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
-import { undo as undoImpl } from "./conversation-history.js";
+import { isToolResultBlock, undo as undoImpl } from "./conversation-history.js";
 import {
   abortConversation,
   disposeConversation,
-  loadFromDb as loadFromDbImpl,
+  reinjectImageSourcePaths,
 } from "./conversation-lifecycle.js";
 import type {
   EnqueueMessageOptions,
@@ -99,10 +123,7 @@ import {
 } from "./conversation-messaging.js";
 // Extracted modules
 import { registerConversationNotifiers } from "./conversation-notifiers.js";
-import type {
-  ProcessConversationContext,
-  ProcessMessageOptions,
-} from "./conversation-process.js";
+import type { ProcessMessageOptions } from "./conversation-process.js";
 import {
   drainQueue as drainQueueImpl,
   processMessage as processMessageImpl,
@@ -112,6 +133,7 @@ import { MessageQueue } from "./conversation-queue-manager.js";
 import {
   type ChannelCapabilities,
   getSlackCompactionWatermarkForPrefix,
+  type InboundActorContext,
   loadSlackChronologicalContext,
   stripInjectionsForCompaction,
 } from "./conversation-runtime-assembly.js";
@@ -123,13 +145,15 @@ import {
   handleSurfaceUndo as handleSurfaceUndoImpl,
   type SurfaceActionResult,
 } from "./conversation-surfaces.js";
-import type { ToolSetupContext } from "./conversation-tool-setup.js";
+import type {
+  SubagentToolGateMode,
+  ToolSetupContext,
+  WakeToolContextPin,
+} from "./conversation-tool-setup.js";
 import {
   createResolveToolsCallback,
   createToolExecutor,
-  resolveTrustClass,
 } from "./conversation-tool-setup.js";
-import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
 import { canonicalizeTimeZone } from "./date-context.js";
 import { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
@@ -140,6 +164,7 @@ import type {
   SurfaceType,
   UsageStats,
 } from "./message-protocol.js";
+import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import { isHostProxyTransport } from "./message-types/conversations.js";
 import type { ConfirmationStateChanged } from "./message-types/messages.js";
@@ -148,6 +173,36 @@ import { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("conversation");
 
+/**
+ * Whether a persisted message starts a new conversation turn. A turn is
+ * delimited by a "real" user message; a user message whose content is entirely
+ * tool_result blocks is a continuation within the current turn, and assistant
+ * messages never start one. Mirrors the turn-boundary definition used by
+ * `getAssistantMessageIdsInTurn`/`getTurnTimeBounds` and the agent loop's
+ * per-turn `turnCount++`, so counting these reconstructs `turnCount` on load.
+ */
+function startsNewTurn(role: string, content: string): boolean {
+  if (role !== "user") return false;
+  try {
+    const parsed = JSON.parse(content);
+    if (
+      Array.isArray(parsed) &&
+      parsed.length > 0 &&
+      parsed.every(
+        (block: unknown) =>
+          block != null &&
+          typeof block === "object" &&
+          isToolResultBlock(block as Record<string, unknown>),
+      )
+    ) {
+      return false;
+    }
+  } catch {
+    // Non-JSON content is a plain user message — a turn boundary.
+  }
+  return true;
+}
+
 export interface CleanResult {
   previousEstimatedInputTokens: number;
   estimatedInputTokens: number;
@@ -155,16 +210,35 @@ export interface CleanResult {
   preservedMessages: number;
 }
 
+/**
+ * Optional context-window sizing inputs for {@link Conversation.maybeCompact}.
+ *
+ * The auto-threshold gate sizes its window against `mainAgent` by default,
+ * but an agent wake can run under a different call site (and a forced
+ * override profile) that resolves a SMALLER effective window — sized against
+ * `mainAgent`, such a wake passes the gate un-compacted and then overflows at
+ * the provider. Wakes thread their already-resolved inputs here so the gate's
+ * threshold matches the window the wake's calls actually get. Sizing only:
+ * the compaction execution (summary call profile) is unchanged.
+ */
+export interface CompactionSizing {
+  /** Call site the upcoming run resolves its context window against. */
+  callSite: LLMCallSite;
+  /** Inference profile the run resolves under, if any. */
+  overrideProfile?: string;
+  /** Float `overrideProfile` above the call-site layers (resolver escape hatch). */
+  forceOverrideProfile?: boolean;
+}
+
 export { findLastUndoableUserMessageIndex } from "./conversation-history.js";
 export type {
   QueueDrainReason,
   QueuePolicy,
 } from "./conversation-queue-manager.js";
-import type { TrustContext } from "./trust-context.js";
+import { isPersonalMemoryAllowed, type TrustContext } from "./trust-context.js";
 
 export interface ConversationConstructorOptions {
   maxTokens?: number;
-  sharedCesClient?: CesClient;
   speedOverride?: Speed;
   cacheTtl?: "5m" | "1h";
   modelOverride?: string;
@@ -186,10 +260,34 @@ export class Conversation {
   /** @internal */ eventBus = new EventBus<AssistantDomainEvents>();
   /** @internal */ workingDir: string;
   /** @internal */ allowedToolNames?: Set<string>;
+  /**
+   * Durable copy of the full tool set resolved on the most recent turn,
+   * kept for read-only inventory queries. Unlike {@link allowedToolNames}
+   * — the per-turn execution gate the agent loop clears at turn teardown —
+   * this survives between turns so a query against an idle conversation
+   * still reports the skill/MCP tools it gained over its lifecycle.
+   * @internal
+   */
+  lastResolvedToolNames?: Set<string>;
   /** @internal */ diskPressureCleanupModeActive?: boolean;
   /** @internal */ toolsDisabledDepth = 0;
   /** @internal */ preactivatedSkillIds?: string[];
   /** @internal */ subagentAllowedTools?: Set<string>;
+  /**
+   * How {@link subagentAllowedTools} is enforced — see
+   * {@link SubagentToolGateMode}. Set and restored alongside the allowlist
+   * by `scopeWakeAllowedTools`.
+   * @internal
+   */
+  subagentToolGateMode?: SubagentToolGateMode;
+  /**
+   * Client-context pin for execution-gate-mode wakes — see
+   * {@link WakeToolContextPin}. Set and restored alongside the allowlist by
+   * `scopeWakeAllowedTools`; read only by tool-DEFINITION resolution
+   * (`isToolActiveForContext`), never by executor or host-proxy paths.
+   * @internal
+   */
+  toolContextPin?: WakeToolContextPin;
   /** @internal */ coreToolNames: Set<string>;
   /** @internal */ readonly skillProjectionState = new Map<string, string>();
   /** @internal */ readonly skillProjectionCache: SkillProjectionCache = {};
@@ -198,22 +296,34 @@ export class Conversation {
     outputTokens: 0,
     estimatedCost: 0,
   };
-  /** @internal */ readonly systemPrompt: string;
-  /** @internal */ contextWindowManager: ContextWindowManager;
+  /** @internal */ systemPrompt: string;
   /** @internal */ contextCompactedMessageCount = 0;
   /** @internal */ contextCompactedAt: number | null = null;
+  /** @internal */ contextSummary: string | null = null;
+  /** @internal */ slackContextCompactionWatermarkTs: string | null = null;
+  /** @internal */ lastNotifiedInferenceProfile: string | null = null;
   /**
-   * Set true by `applyCompactionResult` when compaction strips runtime
-   * injections from the tail. The next agent loop turn reads this flag at
-   * entry, treats it as a `compactedThisTurn` trigger (re-injecting NOW.md,
-   * PKB, and the v2 essentials/threads/recent/buffer block), and clears it.
-   *
-   * Required because `/compact` runs outside the agent loop — without this
-   * signal, the next turn cannot tell that the static blocks were just
-   * stripped and never re-emits them.
+   * Per-conversation inference-profile override mirrored from the DB row.
+   * `inferenceProfileSessionId`/`inferenceProfileExpiresAt` are set when the
+   * override is session-backed (expiring); both are null for a sticky
+   * override or when no override is active. Hydrated on load and kept in sync
+   * by the HTTP setters and the background expiry reaper so the live instance
+   * is the single source of truth for the per-turn override derivation.
+   * @internal
    */
-  /** @internal */ pendingPostCompactReinject = false;
+  inferenceProfile: string | null = null;
+  /** @internal */ inferenceProfileSessionId: string | null = null;
+  /** @internal */ inferenceProfileExpiresAt: number | null = null;
   /** @internal */ currentRequestId?: string;
+  /**
+   * The {@link LLMCallSite} of the in-flight turn, set at turn start from
+   * `options?.callSite ?? "mainAgent"`. Lets the per-turn plugin context tell
+   * the main reply apart from background agent-loop work (compaction,
+   * subagents, …) on this same conversation. Per-turn mutable, mirroring
+   * {@link currentRequestId}.
+   * @internal
+   */
+  currentCallSite?: LLMCallSite;
   /** @internal */ hasNoClient = false;
   /** @internal */ isSubagent = false;
   /** @internal */ headlessLock = false;
@@ -228,7 +338,6 @@ export class Conversation {
    * @internal
    */
   hostAppControlProxy?: HostAppControlProxy;
-  /** @internal */ cesClient?: CesClient;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
   /** @internal */ currentPage?: string;
@@ -241,13 +350,72 @@ export class Conversation {
    * another actor's persona mid-turn.
    */
   /** @internal */ currentTurnTrustContext?: TrustContext;
+  /**
+   * The model-facing inbound actor context resolved once at turn start from
+   * {@link currentTurnTrustContext}. Frozen here because resolving it reads the
+   * live contact/member registry (member status/policy, contact notes,
+   * interaction count), which a contact tool or the guardian can mutate
+   * mid-turn; post-compaction re-injection reads this snapshot so it re-emits
+   * the actor context the turn's initial assembly saw rather than re-resolving
+   * against drifted registry state. `null` on guardian turns and when there is
+   * no trust context (the actor section is suppressed).
+   * @internal
+   */
+  currentTurnInboundActorContext?: InboundActorContext | null;
   /** @internal */ currentTurnChannelCapabilities?: ChannelCapabilities;
+  /**
+   * Explicit persona/channel slugs for the system-prompt build, set (and
+   * cleared) by `wakeAgentForOpportunity` around a wake's agent-loop run.
+   * Wakes bypass the orchestrator's turn-start snapshots above, so without
+   * this their prompt is built from whatever snapshot the conversation
+   * already holds (for a freshly hydrated conversation: the no-trust-context
+   * persona derivation) regardless of which actor/channel the conversation
+   * belongs to. Takes precedence over the trust-context derivation when set.
+   * Persona selection only — never read for trust/approval decisions.
+   * @internal
+   */
+  wakePersonaOverride?: SystemPromptPersonaOverride;
   /** @internal */ currentTurnOverrideProfile?: string;
+  /** @internal */ toolRoutedProfile?: string;
   /** @internal */ authContext?: AuthContext;
+  /** @internal */ currentTurnAuthContext?: AuthContext;
+  /** @internal */ currentTurnSourceActorPrincipalId?: string;
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ loadedHistoryPersonalMemoryAllowed?: boolean;
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ transportHints?: string[];
+  /**
+   * Optional workspace-git seams, overridable in tests to stub the git
+   * initializer and turn-commit behavior. Default to the real
+   * implementations in the agent loop when unset.
+   * @internal
+   */
+  getWorkspaceGitService?: (
+    workspaceDir: string,
+  ) => Pick<WorkspaceGitService, "ensureInitialized">;
+  /** @internal */ commitTurnChanges?: typeof commitTurnChanges;
+  /**
+   * Abort-watchdog timeout (ms) for the agent loop's bounded-unwind backstop.
+   * Overridable in tests to fire the watchdog quickly; defaults to the
+   * production constant in the agent loop when unset.
+   * @internal
+   */
+  abortWatchdogMs?: number;
+  /**
+   * The conversation's immutable creation type (`interactive`, `background`,
+   * `scheduled`, …) as stored on the DB row. Cached on load (and set directly
+   * for subagent conversations) so the runtime-assembly path can derive the
+   * background-turn flag from live state without a per-injection DB read.
+   * @internal
+   */
+  conversationType?: string;
+  /**
+   * The conversation's creation source (`user`, …) as stored on the DB row,
+   * cached on load so the runtime-assembly and disk-pressure paths can read it
+   * from live state without a per-turn DB row read.
+   * @internal
+   */
+  source?: string;
   /** @internal */ assistantId?: string;
   /** @internal */ commandIntent?: {
     type: string;
@@ -291,6 +459,12 @@ export class Conversation {
         style?: string;
         data?: Record<string, unknown>;
       }>;
+      /**
+       * Commit-timing activation-rail tag (daemon-only). Rehydrated by
+       * `restoreSurfaceStateFromHistory` so a post-reload commit still records
+       * its funnel milestone. Never sent to the client.
+       */
+      activationMoment?: ActivationMomentParam;
     }
   >();
   /** @internal */ surfaceUndoStacks = new Map<string, string[]>();
@@ -341,8 +515,29 @@ export class Conversation {
    */
   hostUsername?: string;
   /** @internal */ clientTimezone?: string;
+  /**
+   * Per-turn temporal snapshot frozen by the agent loop and read by
+   * `applyRuntimeInjections` to build the `<turn_context>` timezone-mismatch
+   * affordance and `time_since_last_message` line. Holds the client-reported
+   * timezone captured at turn start and the human-readable gap since the
+   * previous user message (null unless it exceeds the long-absence threshold).
+   *
+   * Frozen here rather than read live in assembly so the client timezone is not
+   * clobbered when a newer message for the same conversation overwrites the
+   * live {@link clientTimezone} mid-turn (every inbound message re-applies
+   * transport metadata before it is enqueued). Its presence also gates the
+   * `<turn_context>` block: assembly emits the block only for turns the loop has
+   * frozen a snapshot for. The `current_time` value is computed fresh at each
+   * injection so post-compaction re-injections reflect the current wall clock.
+   * @internal
+   */
+  currentTurnTemporalSnapshot?: {
+    clientTimezone: string | null;
+    timeSinceLastMessage: string | null;
+  };
   public readonly traceEmitter: TraceEmitter;
   /** @internal */ hasSystemPromptOverride: boolean;
+  /** @internal */ modelOverride: string | undefined;
   /** @internal */ readonly graphMemory: ConversationGraphMemory;
   /** @internal */ activeContextNodeIds?: string[];
   /** @internal */ streamThinking: boolean;
@@ -360,6 +555,22 @@ export class Conversation {
   /** @internal */ currentTurnChannelContext: TurnChannelContext | null = null;
   /** @internal */ currentTurnInterfaceContext: TurnInterfaceContext | null =
     null;
+  /**
+   * The conversation's recorded origin interface, cached from the DB row at
+   * load time. It is immutable once recorded, so it backs the `<turn_context>`
+   * interface fallback for turns that don't set a per-turn interface context
+   * (regenerate, wake, subagent) without a per-injection DB lookup.
+   * @internal
+   */
+  originInterface: InterfaceId | undefined = undefined;
+  /**
+   * The conversation's recorded origin channel, cached from the DB row at load
+   * time. It is immutable once recorded, so it backs the `<turn_context>`
+   * channel fallback for turns that don't set a per-turn channel context
+   * (regenerate, wake, subagent) without a per-injection DB lookup.
+   * @internal
+   */
+  originChannel: ChannelId | undefined = undefined;
   /** @internal */ activityVersion = 0;
   /** Last emitted activity state message, retained for replay on SSE reconnection. */
   /** @internal */ lastActivityStateMsg: ServerMessage | null = null;
@@ -379,13 +590,7 @@ export class Conversation {
     workingDir: string,
     options?: ConversationConstructorOptions,
   ) {
-    const {
-      maxTokens,
-      sharedCesClient,
-      speedOverride,
-      cacheTtl,
-      modelOverride,
-    } = options ?? {};
+    const { maxTokens, speedOverride, cacheTtl, modelOverride } = options ?? {};
     this.conversationId = conversationId;
     this.systemPrompt = systemPrompt;
     this.provider = provider;
@@ -454,13 +659,6 @@ export class Conversation {
     const resolvedMainAgent = resolveCallSiteConfig("mainAgent", config.llm);
     this.streamThinking = resolvedMainAgent.thinking.streamThinking ?? false;
 
-    // CES (Credential Execution Service) — use the shared server-level client.
-    // The CES sidecar accepts exactly one bootstrap connection, so the
-    // client is owned by DaemonServer and passed in here.
-    if (sharedCesClient) {
-      this.cesClient = sharedCesClient;
-    }
-
     const resolveTools = createResolveToolsCallback(toolDefs, this);
 
     const configuredMaxTokens = maxTokens;
@@ -469,32 +667,9 @@ export class Conversation {
     const hasSystemPromptOverride = systemPrompt !== buildSystemPrompt();
     this.hasSystemPromptOverride = hasSystemPromptOverride;
 
-    // If an explicit modelOverride is supplied, use it verbatim. Otherwise
-    // leave the model unset and let `RetryProvider`'s call-site resolver pick
-    // it up from `llm.default` / `llm.callSites.<id>` on every turn.
-    const resolvedModel: string | undefined = modelOverride;
-
-    const resolveSystemPromptCallback = (
-      _history: Message[],
-    ): ResolvedSystemPrompt => {
-      const resolved: ResolvedSystemPrompt = {
-        systemPrompt: this.hasSystemPromptOverride
-          ? systemPrompt
-          : buildSystemPrompt({
-              hasNoClient: this.hasNoClient,
-              trustContext: this.currentTurnTrustContext,
-              channelCapabilities: this.currentTurnChannelCapabilities,
-              onboardingContext: this.getOnboardingContext(),
-            }),
-      };
-      if (configuredMaxTokens !== undefined) {
-        resolved.maxTokens = configuredMaxTokens;
-      }
-      if (resolvedModel !== undefined) {
-        resolved.model = resolvedModel;
-      }
-      return resolved;
-    };
+    // Store the model override for per-run resolution. The loop receives it
+    // as a top-level `model` param on `run()`.
+    this.modelOverride = modelOverride;
 
     const fastModeEnabled = isAssistantFeatureFlagEnabled("fast-mode", config);
     const resolvedSpeed = speedOverride ?? resolvedMainAgent.speed;
@@ -519,17 +694,25 @@ export class Conversation {
       agentLoopConfig.maxTokens = configuredMaxTokens;
     }
 
-    this.agentLoop = new AgentLoop(provider, systemPrompt, {
+    this.agentLoop = new AgentLoop({
+      provider,
+      systemPrompt,
       conversationId: this.conversationId,
       config: agentLoopConfig,
       tools: toolDefs.length > 0 ? toolDefs : undefined,
       toolExecutor: toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
-      resolveSystemPrompt: resolveSystemPromptCallback,
+      resolveConversationDir: () => {
+        const conv = getConversation(this.conversationId);
+        if (!conv) return null;
+        return getResolvedConversationDirPath(
+          this.conversationId,
+          conv.createdAt,
+        );
+      },
     });
-    this.contextWindowManager = new ContextWindowManager({
+    createContextWindowManager({
       provider,
-      systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
       config: initialContextWindowConfig,
       toolTokenBudget: this.agentLoop.getToolTokenBudget(),
       conversationId: this.conversationId,
@@ -539,14 +722,78 @@ export class Conversation {
     });
   }
 
+  /**
+   * The conversation's {@link ContextWindowManager}, owned by the compaction
+   * module's per-conversation store. The constructor builds and registers it
+   * there; this accessor resolves it on demand so the conversation holds no
+   * separate handle. Present for the conversation's whole in-memory lifetime
+   * (registered at construction, released on teardown), so a live conversation
+   * always resolves an instance.
+   */
+  /** @internal */ get contextWindowManager(): ContextWindowManager {
+    const manager = getContextWindowManager(this.conversationId);
+    if (manager == null) {
+      throw new Error(
+        `ContextWindowManager missing for conversation ${this.conversationId} — the compaction store entry was released while the conversation is still live`,
+      );
+    }
+    return manager;
+  }
+
   // ── Onboarding context ───────────────────────────────────────────
 
   setOnboardingContext(ctx: OnboardingContext): void {
     this.onboardingContext = ctx;
+    // Reseed BOOTSTRAP.md and mark the activation session at the earliest point
+    // the conversation knows its bootstrap selection — before the first turn's
+    // tool resolution, which `buildSystemPrompt` is too late for. See
+    // `applyBootstrapTemplate`.
+    if (ctx.bootstrapTemplate) {
+      applyBootstrapTemplate(ctx.bootstrapTemplate, this.conversationId);
+    }
   }
 
   getOnboardingContext(): OnboardingContext | undefined {
     return this.onboardingContext;
+  }
+
+  /**
+   * Mirror an inference-profile override write onto the live instance so the
+   * per-turn override derivation reads current state without re-fetching the
+   * DB row. Called alongside the corresponding DB write by the HTTP setters
+   * and the background expiry reaper.
+   */
+  applyInferenceProfileState(state: {
+    profile: string | null;
+    sessionId: string | null;
+    expiresAt: number | null;
+  }): void {
+    this.inferenceProfile = state.profile;
+    this.inferenceProfileSessionId = state.sessionId;
+    this.inferenceProfileExpiresAt = state.expiresAt;
+  }
+
+  /**
+   * Build the system prompt for the current conversation state. When a
+   * system-prompt override was supplied at construction, use it as-is;
+   * otherwise rebuild the full prompt (picks up workspace file changes,
+   * live trust/channel context, persona overrides, onboarding context).
+   *
+   * Called by the caller before invoking `agentLoop.run()` — the loop
+   * itself never re-resolves the prompt mid-loop (re-resolving would bust
+   * the provider's prefix cache).
+   */
+  buildCurrentSystemPrompt(): string {
+    return this.hasSystemPromptOverride
+      ? this.systemPrompt
+      : buildSystemPrompt({
+          hasNoClient: this.hasNoClient,
+          trustContext: this.currentTurnTrustContext,
+          channelCapabilities: this.currentTurnChannelCapabilities,
+          personaOverride: this.wakePersonaOverride,
+          onboardingContext: this.getOnboardingContext(),
+          conversationId: this.conversationId,
+        });
   }
 
   // ── Prompt Cache Warming ─────────────────────────────────────────
@@ -561,14 +808,7 @@ export class Conversation {
     const abort = new AbortController();
     this.cacheWarmAbort = abort;
 
-    const systemPrompt = this.hasSystemPromptOverride
-      ? this.systemPrompt
-      : buildSystemPrompt({
-          hasNoClient: this.hasNoClient,
-          trustContext: this.currentTurnTrustContext,
-          channelCapabilities: this.currentTurnChannelCapabilities,
-          onboardingContext: this.getOnboardingContext(),
-        });
+    const systemPrompt = this.buildCurrentSystemPrompt();
     const tools = getAllToolDefinitions();
     const provider = this.provider;
 
@@ -606,7 +846,344 @@ export class Conversation {
   // ── Lifecycle ────────────────────────────────────────────────────
 
   async loadFromDb(): Promise<void> {
-    await loadFromDbImpl(this);
+    const trustClass = this.trustContext?.trustClass;
+    const canAccessMemory = resolveCapabilities(trustClass).canAccessMemory;
+    const allDbMessages = getMessages(this.conversationId);
+    const dbMessages = canAccessMemory
+      ? allDbMessages
+      : filterMessagesForUntrustedActor(allDbMessages);
+
+    // Rehydrate the in-memory turn counter from persisted history. `turnCount`
+    // is otherwise a fresh-zero field, so a reloaded conversation (eviction,
+    // restart, fork) would restart its turn numbering at 0 and the next turn
+    // would reuse `turnIndex` 0 — colliding with the conversation's first turn.
+    // The memory-v3 selector memoizes per (conversationId, turnIndex) for the
+    // life of the daemon process, so a collided turnIndex serves a stale
+    // selection and skips retrieval. One turn per real (turn-starting) user
+    // message, matching the agent loop's per-turn `turnCount++`. Counted from
+    // the full unsliced history so it survives compaction and is independent of
+    // the viewer's trust class.
+    this.turnCount = allDbMessages.filter((m) =>
+      startsNewTurn(m.role, m.content),
+    ).length;
+
+    const conv = getConversation(this.conversationId);
+    this.conversationType = conv?.conversationType ?? undefined;
+    this.originInterface = parseInterfaceId(conv?.originInterface) ?? undefined;
+    this.originChannel = parseChannelId(conv?.originChannel) ?? undefined;
+    this.source = conv?.source ?? undefined;
+    this.contextSummary = conv?.contextSummary ?? null;
+    this.slackContextCompactionWatermarkTs =
+      conv?.slackContextCompactionWatermarkTs ?? null;
+    this.lastNotifiedInferenceProfile =
+      conv?.lastNotifiedInferenceProfile ?? null;
+    this.inferenceProfile = conv?.inferenceProfile ?? null;
+    this.inferenceProfileSessionId = conv?.inferenceProfileSessionId ?? null;
+    this.inferenceProfileExpiresAt = conv?.inferenceProfileExpiresAt ?? null;
+    this.contextCompactedMessageCount = Math.max(
+      0,
+      conv?.contextCompactedMessageCount ?? 0,
+    );
+    this.contextCompactedAt = conv?.contextCompactedAt ?? null;
+
+    // Untrusted actor views never receive summary-based compaction: a
+    // compacted summary can embed trusted/guardian-only detail, so the
+    // summary message is suppressed and the persisted history is rendered
+    // unsliced. The slice boundary is clamped so it can never drop more rows
+    // than exist. Slack chronological context is a separate consumer that
+    // applies its own trust filtering downstream, so it reads the raw
+    // mirrored count rather than this in-context boundary.
+    const inContextCompactedCount = canAccessMemory
+      ? Math.min(this.contextCompactedMessageCount, dbMessages.length)
+      : 0;
+    const contextSummaryForHistory = canAccessMemory
+      ? this.contextSummary?.trim() || null
+      : null;
+
+    // Every injection-strip event (`/clean` or compaction) updates
+    // `historyStrippedAt`. Messages older than this should skip metadata
+    // rehydration and have any injection prefixes still embedded in their
+    // content stripped, so the post-strip view survives reload and forks.
+    const historyStrippedAt = conv?.historyStrippedAt ?? null;
+    const slicedDbMessages = dbMessages.slice(inContextCompactedCount);
+    let preStrippedCount = 0;
+    if (historyStrippedAt != null) {
+      const boundary = slicedDbMessages.findIndex(
+        (m) => m.createdAt >= historyStrippedAt,
+      );
+      preStrippedCount = boundary === -1 ? slicedDbMessages.length : boundary;
+    }
+
+    // The injection-time personal-memory gate, so background/local
+    // conversations (sourceChannel `undefined` or `"vellum"`) can rehydrate
+    // the persisted v2 static memory block. The shared helper folds in the
+    // HTTP-auth-disabled dev bypass so rehydration and injection agree on the
+    // effective trust class.
+    const personalMemoryAllowed = isPersonalMemoryAllowed(this.trustContext);
+    // Pruned v3 card slugs, read lazily on the first row that carries a v3
+    // block (most conversations carry none, so most loads never query). The
+    // prune valve marks cards pruned in the everInjected store instead of
+    // rewriting the persisted metadata, so the v3 rehydration splice below
+    // re-applies the filter on every load — that is what makes a prune
+    // survive daemon restarts. Defensive catch: a store failure degrades to
+    // an unfiltered (pre-prune) rehydration rather than a failed load.
+    let v3PrunedSlugsMemo: Set<string> | null = null;
+    const v3PrunedSlugs = (): Set<string> => {
+      if (v3PrunedSlugsMemo === null) {
+        try {
+          v3PrunedSlugsMemo = getPrunedSlugs(this.conversationId);
+        } catch {
+          v3PrunedSlugsMemo = new Set();
+        }
+      }
+      return v3PrunedSlugsMemo;
+    };
+    const parsedMessages: Message[] = slicedDbMessages.map((m, index, arr) => {
+      const isPreStripped = index < preStrippedCount;
+      const role = m.role as "user" | "assistant";
+      let content: ContentBlock[];
+      try {
+        const parsed = JSON.parse(m.content);
+        content = Array.isArray(parsed)
+          ? parsed
+          : [{ type: "text", text: m.content }];
+      } catch {
+        log.warn(
+          { conversationId: this.conversationId, messageId: m.id },
+          "Invalid JSON in persisted message content, replacing with safe text block",
+        );
+        content = [{ type: "text", text: m.content }];
+      }
+
+      content = reinjectImageSourcePaths(content, role, m.metadata);
+
+      // Re-inject persisted injection blocks from metadata so it survives
+      // conversation reloads (eviction, restart, fork).
+      if (role === "user" && m.metadata && !isPreStripped) {
+        try {
+          const meta = JSON.parse(m.metadata);
+          const isTail = index === arr.length - 1;
+
+          // `<non_interactive_context>` is the only rehydrated block that
+          // APPENDS to the tail (live injection appends it in Step 3), so it
+          // must land after the original content. Apply it first — before the
+          // prepends below — so the prepends stack in front of it and it stays
+          // last, matching the live layout.
+          if (!isTail && typeof meta.nonInteractiveContextBlock === "string") {
+            content = [
+              ...content,
+              { type: "text" as const, text: meta.nonInteractiveContextBlock },
+            ];
+          }
+
+          // Rehydrate in reverse injection order (innermost block first)
+          // so the resulting layout matches `applyRuntimeInjections`'s
+          // after-memory-prefix splices in ascending injector order
+          // (pkb-context 30, pkb-reminder 35, memory-v2-static 38,
+          // now-md 40, memory-v3-shadow 1000 — the v2 static block lands
+          // inside the memory prefix, so now-md splices *after* it; the
+          // v3 card block is `<memory>`-wrapped and splices LAST, landing
+          // at the memory boundary after the `<info>` block but before
+          // now-md's earlier splice):
+          //   [<workspace>, <turn_context>, <memory>dynamic</memory>,
+          //    <info>v2static</info>, <memory>v3cards</memory>, <NOW.md>,
+          //    <system_reminder>, <knowledge_base>, ...original]
+          // The v2 static block is replayed verbatim from stored metadata,
+          // so rows may carry either `<info>…</info>` or `<memory>…</memory>`
+          // depending on when they were persisted.
+          // Required so Anthropic's prefix cache keeps matching msg[0]
+          // across daemon restart and conversation eviction. The tail
+          // row only rehydrates `memoryInjectedBlock` and the v3 card
+          // block — the next turn re-injects the rest fresh.
+          if (!isTail && typeof meta.pkbContextBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.pkbContextBlock },
+              ...content,
+            ];
+          }
+
+          if (!isTail && typeof meta.pkbSystemReminderBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.pkbSystemReminderBlock },
+              ...content,
+            ];
+          }
+
+          if (!isTail && typeof meta.nowScratchpadBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.nowScratchpadBlock },
+              ...content,
+            ];
+          }
+
+          // The memory-v3 frozen card block (net-new compact cards) persists
+          // under its own key, stored UNWRAPPED like v2's dynamic block below.
+          // Rehydrated on ALL rows (tail included): the next turn injects only
+          // net-new cards — deduped via the v3 everInjected store — so this
+          // row's block must be back in history byte-identical for the dedup
+          // (and the provider prefix cache) to hold. A row carries at most one
+          // of the v3 and v2-dynamic keys (the user-prompt-submit hook
+          // persists them mutually exclusively). Spliced here — before the v2
+          // static and dynamic blocks — because prepends invert: executing
+          // first leaves it BELOW both in the final content, matching the
+          // live after-memory-prefix splice (order 1000 lands at the memory
+          // boundary, after `<info>` / `<memory>` prefix blocks).
+          // Pruned slugs' card sections are filtered out here (the metadata
+          // itself is never rewritten — auditable and reversible); an
+          // all-pruned block is skipped entirely, matching the live strip in
+          // `memory-v3-shadow/prune.ts`.
+          if (typeof meta[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] === "string") {
+            const v3Block = meta[
+              MEMORY_V3_INJECTED_BLOCK_METADATA_KEY
+            ] as string;
+            const v3Resident = filterPrunedCardSections(
+              unwrapMemoryBlock(v3Block),
+              v3PrunedSlugs(),
+            );
+            if (v3Resident.length > 0) {
+              content = [
+                { type: "text" as const, text: wrapMemoryBlock(v3Resident) },
+                ...content,
+              ];
+            }
+          }
+
+          // The v2 static memory block (essentials/threads/recent/buffer
+          // wrapped in either `<info>…</info>` or `<memory>…</memory>`)
+          // carries personal user memory. Trust-gated to mirror
+          // `isPersonalMemoryAllowed` at injection time — untrusted-actor
+          // views must not read persisted personal memory back through
+          // metadata. Skipped on the tail row because the next turn
+          // re-injects fresh content on full-mode turns.
+          if (
+            !isTail &&
+            personalMemoryAllowed &&
+            typeof meta.memoryV2StaticBlock === "string"
+          ) {
+            content = [
+              { type: "text" as const, text: meta.memoryV2StaticBlock },
+              ...content,
+            ];
+          }
+
+          // Memory remains rehydrated on all rows (existing behavior).
+          // Strip any pre-existing wrapper before re-wrapping so historical
+          // rows persisted with the wrapper (v2 path before the
+          // injectedBlockText contract was unified with v1's unwrapped form)
+          // don't render double-wrapped after rehydrate. Only unwrap when
+          // the full <memory>...</memory> pair is present so we don't mutate
+          // legitimate unwrapped payloads that happen to start with
+          // "<memory>\n" or end with "\n</memory>".
+          if (typeof meta.memoryInjectedBlock === "string") {
+            content = [
+              {
+                type: "text" as const,
+                text: wrapMemoryBlock(
+                  unwrapMemoryBlock(meta.memoryInjectedBlock),
+                ),
+              },
+              ...content,
+            ];
+          }
+
+          // `<channel_capabilities>` lands just below `<turn_context>`: live
+          // injection prepends it (Step 3) before the prepend-user-tail chain
+          // blocks (Step 4), so it must be prepended BEFORE turnContextBlock
+          // here to land one slot deeper than `<turn_context>`.
+          if (!isTail && typeof meta.channelCapabilitiesBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.channelCapabilitiesBlock },
+              ...content,
+            ];
+          }
+
+          if (!isTail && typeof meta.turnContextBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.turnContextBlock },
+              ...content,
+            ];
+          }
+
+          // `<background_turn>` lands between `<workspace>` and `<turn_context>`
+          // (injector order 15, between workspace 10 and unified-turn-context
+          // 20), so prepend it AFTER turnContextBlock and BEFORE workspaceBlock.
+          if (!isTail && typeof meta.backgroundTurnBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.backgroundTurnBlock },
+              ...content,
+            ];
+          }
+
+          if (!isTail && typeof meta.workspaceBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.workspaceBlock },
+              ...content,
+            ];
+          }
+        } catch {
+          /* ignore parse errors — metadata may be malformed */
+        }
+      }
+
+      return { role, content };
+    });
+
+    // Strip pre-clean messages only; post-clean messages keep the fresh
+    // injections they were generated with.
+    const messagesBeforeRepair =
+      preStrippedCount === 0
+        ? parsedMessages
+        : [
+            ...stripInjectionsForCompaction(
+              parsedMessages.slice(0, preStrippedCount),
+            ),
+            ...parsedMessages.slice(preStrippedCount),
+          ];
+
+    // Normalize the canonical persisted history once at load. Every consumer
+    // of `this.messages` outside the agent loop (history edit/undo, PKB context
+    // tracking, surfaces) reads this list directly, so it must satisfy the
+    // provider pairing/alternation rules before any of them run. The agent
+    // loop's pre-run repair only repairs the transient per-turn message list it
+    // sends to the provider and never writes back here, so this pass is not
+    // redundant with it.
+    const { messages: repairedMessages, stats } =
+      repairHistory(messagesBeforeRepair);
+    if (
+      stats.assistantToolResultsMigrated > 0 ||
+      stats.missingToolResultsInserted > 0 ||
+      stats.orphanToolResultsDowngraded > 0 ||
+      stats.consecutiveSameRoleMerged > 0
+    ) {
+      log.warn(
+        { conversationId: this.conversationId, phase: "load", ...stats },
+        "Repaired persisted history",
+      );
+    }
+    this.messages = repairedMessages;
+
+    if (contextSummaryForHistory) {
+      this.messages.unshift(
+        createContextSummaryMessage(contextSummaryForHistory),
+      );
+    }
+
+    if (conv) {
+      this.usageStats = {
+        inputTokens: conv.totalInputTokens,
+        outputTokens: conv.totalOutputTokens,
+        estimatedCost: conv.totalEstimatedCost,
+      };
+    }
+
+    this.loadedHistoryTrustClass = trustClass;
+    this.loadedHistoryPersonalMemoryAllowed = personalMemoryAllowed;
+
+    log.info(
+      { conversationId: this.conversationId, count: this.messages.length },
+      "Loaded messages from DB",
+    );
+
     this.restoreSurfaceStateFromHistory();
     this.graphMemory.restoreState();
   }
@@ -628,6 +1205,14 @@ export class Conversation {
       for (const block of msg.content) {
         const b = block as unknown as Record<string, unknown>;
         if (b.type === "ui_surface" && typeof b.surfaceId === "string") {
+          // Rehydrate the daemon-only commit-timing activation tag so a commit
+          // after reload still records its funnel milestone. Validated and
+          // dropped if malformed; this field never reaches the client.
+          const activationMoment =
+            typeof b.activationMoment === "string" &&
+            isActivationMomentParam(b.activationMoment)
+              ? b.activationMoment
+              : undefined;
           this.surfaceState.set(b.surfaceId, {
             surfaceType: (b.surfaceType ?? "dynamic_page") as SurfaceType,
             data: (b.data ?? {}) as SurfaceData,
@@ -640,6 +1225,7 @@ export class Conversation {
                   data?: Record<string, unknown>;
                 }>)
               : undefined,
+            ...(activationMoment ? { activationMoment } : {}),
           });
         }
       }
@@ -649,14 +1235,13 @@ export class Conversation {
   async ensureActorScopedHistory(): Promise<void> {
     const currentTrustClass = this.trustContext?.trustClass;
     // `loadFromDb` gates personal-memory rehydration on `sourceChannel` too
-    // (via `shouldExposePersonalMemory`), so a same-trust-class reuse from a
+    // (via `isPersonalMemoryAllowed`), so a same-trust-class reuse from a
     // different channel (e.g. internal `vellum` → remote channel) must also
     // trigger a reload. Otherwise stale personal-memory blocks can leak to
     // an untrusted remote turn, or be hidden when they should be present.
-    const currentPersonalMemoryAllowed = shouldExposePersonalMemory({
-      sourceChannel: this.trustContext?.sourceChannel,
-      isTrustedActor: resolveTrustClass(this.trustContext) === "guardian",
-    });
+    const currentPersonalMemoryAllowed = isPersonalMemoryAllowed(
+      this.trustContext,
+    );
     if (
       this.loadedHistoryTrustClass === currentTrustClass &&
       this.loadedHistoryPersonalMemoryAllowed === currentPersonalMemoryAllowed
@@ -720,9 +1305,7 @@ export class Conversation {
       );
     }
     this.messages = [...messages];
-    this.contextWindowManager.nonPersistedPrefixCount = messages.length;
-    this.contextWindowManager.summaryIsInjected =
-      getSummaryFromContextMessage(messages[0]) != null;
+    this.contextWindowManager.seedNonPersistedPrefix(messages.length);
   }
 
   /**
@@ -814,11 +1397,9 @@ export class Conversation {
     this.hostCuProxy?.dispose();
     this.hostAppControlProxy?.dispose();
     this.hostAppControlProxy = undefined;
-    // CES client is owned by DaemonServer — just drop the reference.
-    // Do NOT close it here; the server manages the CES lifecycle.
-    this.cesClient = undefined;
     this.activeContextNodeIds = this.graphMemory.tracker.getActiveNodeIds();
     this.graphMemory.persistState();
+    this.graphMemory.dispose();
     disposeConversation(this);
   }
 
@@ -969,7 +1550,9 @@ export class Conversation {
 
   ensureHostProxiesForTurn(
     sourceInterface: import("../channels/types.js").InterfaceId | undefined,
-    sourceActorPrincipalId = this.trustContext?.guardianPrincipalId,
+    sourceActorPrincipalId = this.currentTurnSourceActorPrincipalId ??
+      this.currentTurnAuthContext?.actorPrincipalId ??
+      this.authContext?.actorPrincipalId,
   ): void {
     if (
       shouldAttachHostProxyForCapability(
@@ -1044,24 +1627,123 @@ export class Conversation {
     }
   }
 
+  /**
+   * Token count for `messages` used to render the user-facing `/compact` and
+   * `/clean` figures. Prefers the provider's real `count_tokens` tokenizer (so
+   * the numbers match the context-window indicator's provider-reported usage)
+   * and falls back to the context-window manager's local estimate when the
+   * provider has no count endpoint or the count call fails — both measure the
+   * same system-prompt + tools composition the manager sizes against.
+   *
+   * The count is a network round-trip with its own rate limit, so this is for
+   * user-initiated actions only, never the per-turn auto-compaction gate.
+   */
+  private async calculateTokens(messages: Message[]): Promise<number> {
+    const countInputTokens = this.provider.countInputTokens;
+    if (!countInputTokens) {
+      return this.contextWindowManager.estimateInputTokens(messages);
+    }
+    try {
+      const { systemPrompt, tools } =
+        this.contextWindowManager.tokenCountInputs;
+      return await countInputTokens.call(
+        this.provider,
+        messages,
+        systemPrompt,
+        tools,
+      );
+    } catch (err) {
+      log.warn(
+        { err, conversationId: this.conversationId },
+        "Provider token count failed — falling back to local estimate",
+      );
+      return this.contextWindowManager.estimateInputTokens(messages);
+    }
+  }
+
   async forceCompact(): Promise<ContextWindowResult> {
-    const conversationRow = getConversation(this.conversationId);
-    const overrideProfile =
-      getConversationOverrideProfileFromRow(conversationRow) ?? null;
+    // Report the user-facing before/after using the provider's real tokenizer
+    // (count_tokens) so the `/compact` line matches the context-window
+    // indicator, which reflects the provider's actual reported usage — rather
+    // than the local chars/4 estimate the compaction pipeline runs internally
+    // (it under-counts by ~25% on typical histories). `calculateTokens`
+    // falls back to that estimate when the provider has no count endpoint or
+    // the count call fails, so behavior degrades gracefully.
+    //
+    // Only the *displayed* numbers are overridden — the compaction log and
+    // circuit-breaker accounting inside `runCompaction` keep the estimate-based
+    // figures, leaving calibration and historical logs untouched.
+    const before = await this.calculateTokens(this.messages);
+    const result = await this.runCompaction(true);
+    // `runCompaction` applies the compacted history to `this.messages` in
+    // place, so after a successful compaction this re-counts the new history;
+    // a no-op leaves the context unchanged, so before === after.
+    const after = result.compacted
+      ? await this.calculateTokens(this.messages)
+      : before;
+    return {
+      ...result,
+      previousEstimatedInputTokens: before,
+      estimatedInputTokens: after,
+    };
+  }
+
+  /**
+   * Auto-threshold compaction gate. Runs the same durable compaction
+   * pipeline as {@link forceCompact} (summary call, circuit-breaker
+   * accounting, Slack provenance, in-memory + DB commit) but honors the
+   * `compaction.autoThreshold` check — an under-threshold history is a
+   * cheap no-op — and the compaction circuit breaker, returning `null`
+   * without estimating anything while the breaker is open. Used by the
+   * agent-wake path (`runtime/agent-wake.ts`), which bypasses the daemon
+   * orchestrator's in-loop budget gate and needs an equivalent turn-start
+   * compaction before snapshotting its run input.
+   *
+   * `sizing` lets a wake thread its own call-site/profile resolution into
+   * the gate's context-window sizing — see {@link CompactionSizing}. Absent,
+   * the gate sizes against `mainAgent` (the live-turn behavior).
+   */
+  async maybeCompact(
+    sizing?: CompactionSizing,
+  ): Promise<ContextWindowResult | null> {
+    if (await this.agentLoop.compactionCircuit.isOpen()) {
+      return null;
+    }
+    return this.runCompaction(false, sizing);
+  }
+
+  /**
+   * Shared compaction pipeline behind {@link forceCompact} and
+   * {@link maybeCompact}. `force` skips the auto-threshold check inside the
+   * context-window manager (user-initiated `/compact`); without it the
+   * manager no-ops below the threshold.
+   */
+  private async runCompaction(
+    force: boolean,
+    sizing?: CompactionSizing,
+  ): Promise<ContextWindowResult> {
+    const overrideProfile = resolveOverrideProfile(this) ?? null;
     const config = getConfig();
+    // Threshold/window sizing. The default (`mainAgent` + the conversation's
+    // own pinned profile) matches live turns; caller-supplied `sizing` makes
+    // the gate's threshold reflect the window the caller's run will actually
+    // resolve. Sizing only — the summary call below still runs under the
+    // conversation's own profile.
+    const sizingCallSite = sizing?.callSite ?? "mainAgent";
+    const sizingOverrideProfile = sizing
+      ? sizing.overrideProfile
+      : (overrideProfile ?? undefined);
     const effectiveContextWindow = resolveEffectiveContextWindow({
       llm: config.llm,
-      callSite: "mainAgent",
-      overrideProfile: overrideProfile ?? undefined,
+      callSite: sizingCallSite,
+      overrideProfile: sizingOverrideProfile,
+      forceOverrideProfile: sizing?.forceOverrideProfile,
     });
-    (
-      this.contextWindowManager as ContextWindowManager & {
-        updateConfig?: (config: ContextWindowConfig) => void;
-      }
-    ).updateConfig?.(
+    this.contextWindowManager.updateConfig(
       contextWindowConfigFromEffective(
-        resolveCallSiteConfig("mainAgent", config.llm, {
-          overrideProfile: overrideProfile ?? undefined,
+        resolveCallSiteConfig(sizingCallSite, config.llm, {
+          overrideProfile: sizingOverrideProfile,
+          forceOverrideProfile: sizing?.forceOverrideProfile,
         }).contextWindow,
         effectiveContextWindow,
       ),
@@ -1073,33 +1755,32 @@ export class Conversation {
             this.channelCapabilities,
             {
               trustClass: this.trustContext?.trustClass,
-              contextSummary: conversationRow?.contextSummary,
-              contextCompactedMessageCount:
-                conversationRow?.contextCompactedMessageCount,
+              contextSummary: this.contextSummary,
+              contextCompactedMessageCount: this.contextCompactedMessageCount,
               slackContextCompactionWatermarkTs:
-                conversationRow?.slackContextCompactionWatermarkTs,
+                this.slackContextCompactionWatermarkTs,
             },
           )
         : null;
     const messagesToCompact =
       slackChronologicalContext?.messages ?? this.messages;
-    const result = await this.contextWindowManager.maybeCompact(
-      messagesToCompact,
-      this.abortController?.signal ?? undefined,
-      {
-        force: true,
-        overrideProfile,
-        actorTrustClass: this.trustContext?.trustClass,
-      },
-    );
-    // Track circuit-breaker state for user-initiated `/compact` and other
-    // forced paths so a successful forced compaction clears a stuck counter
-    // and a run of forced failures still trips the breaker. `summaryFailed`
-    // is `undefined` on early-return paths (no eligible messages, disabled,
-    // etc.) — skip those so they don't silently reset the counter.
+    const result = await defaultCompact({
+      conversationId: this.conversationId,
+      messages: messagesToCompact,
+      signal: this.abortController?.signal ?? undefined,
+      force,
+      overrideProfile,
+      actorTrustClass: this.trustContext?.trustClass,
+    });
+    // Track circuit-breaker state for every compaction that ran a summary
+    // call — user-initiated `/compact`, other forced paths, and the wake's
+    // auto gate — so a success clears a stuck counter and a run of failures
+    // still trips the breaker. `summaryFailed` is `undefined` on
+    // early-return paths (no eligible messages, disabled, below the auto
+    // threshold, etc.) — skip those so they don't silently reset the
+    // counter.
     if (result.summaryFailed !== undefined) {
       await this.agentLoop.compactionCircuit.recordOutcome(
-        this,
         result.summaryFailed,
         this.sendToClient,
       );
@@ -1123,16 +1804,17 @@ export class Conversation {
    * activations are no longer deduped against the prior session.
    */
   async forceClean(): Promise<CleanResult> {
-    const previousEstimatedInputTokens =
-      this.contextWindowManager.estimateInputTokens(this.messages);
+    // Use the provider's real tokenizer for the displayed before/after (see
+    // `forceCompact` for why); falls back to the local estimate when count
+    // isn't available.
+    const previousEstimatedInputTokens = await this.calculateTokens(
+      this.messages,
+    );
     const stripped = stripInjectionsForCompaction(this.messages);
     this.messages = stripped;
     await this.graphMemory.onCompacted(0);
-    this.pendingPostCompactReinject = true;
     setConversationHistoryStrippedAt(this.conversationId, Date.now());
-    const estimatedInputTokens = this.contextWindowManager.estimateInputTokens(
-      this.messages,
-    );
+    const estimatedInputTokens = await this.calculateTokens(this.messages);
     return {
       previousEstimatedInputTokens,
       estimatedInputTokens,
@@ -1295,6 +1977,8 @@ export class Conversation {
        * this value via {@link SubagentManager.spawn}.
        */
       overrideProfile?: string;
+      /** Float `overrideProfile` above call-site layers for this run. */
+      forceOverrideProfile?: boolean;
     },
   ): Promise<void> {
     const { onEvent, ...rest } = options ?? {};
@@ -1308,16 +1992,32 @@ export class Conversation {
   }
 
   drainQueue(reason: QueueDrainReason = "loop_complete"): Promise<void> {
-    return drainQueueImpl(this as ProcessConversationContext, reason);
+    return drainQueueImpl(this, reason);
   }
 
   async processMessage(options: ProcessMessageOptions): Promise<string> {
     this.cacheWarmAbort?.abort();
     this.cacheWarmAbort = undefined;
-    return processMessageImpl(this as ProcessConversationContext, {
+    return processMessageImpl(this, {
       ...options,
       onEvent: options.onEvent ?? this.sendToClient,
     });
+  }
+
+  // ── Tools ────────────────────────────────────────────────────────
+
+  /**
+   * The set of tool names available to this conversation as of its most
+   * recent turn — including skill/MCP tools registered over the
+   * conversation's lifecycle. Reads the durable {@link lastResolvedToolNames}
+   * snapshot the `resolveTools` callback records each turn (which, unlike the
+   * per-turn `allowedToolNames` gate, is not cleared at turn teardown); before
+   * the first turn it falls back to the core tool set. This is a pure read: it
+   * does not re-run `resolveTools`, which has registry/projection side effects
+   * that must not fire outside a turn.
+   */
+  getRegisteredToolNames(): Set<string> {
+    return new Set(this.lastResolvedToolNames ?? this.coreToolNames);
   }
 
   // ── History ──────────────────────────────────────────────────────
@@ -1345,10 +2045,6 @@ export class Conversation {
   }
 
   // ── Workspace ────────────────────────────────────────────────────
-
-  refreshWorkspaceTopLevelContextIfNeeded(): void {
-    refreshWorkspaceImpl(this);
-  }
 
   markWorkspaceTopLevelDirty(): void {
     this.workspaceTopLevelDirty = true;

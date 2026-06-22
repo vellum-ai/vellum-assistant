@@ -13,6 +13,7 @@ import {
   loadGuardianToken,
   refreshGuardianToken,
 } from "./guardian-token.js";
+import { loopbackSafeFetch } from "./loopback-fetch.js";
 
 /** Default backup directory following XDG convention */
 export function getBackupsDir(): string {
@@ -66,7 +67,7 @@ export async function createBackup(
       return null;
     }
 
-    let response = await fetch(`${runtimeUrl}/v1/migrations/export`, {
+    let response = await loopbackSafeFetch(`${runtimeUrl}/v1/migrations/export`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -87,7 +88,7 @@ export async function createBackup(
         return null;
       }
       accessToken = refreshed.accessToken;
-      response = await fetch(`${runtimeUrl}/v1/migrations/export`, {
+      response = await loopbackSafeFetch(`${runtimeUrl}/v1/migrations/export`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -152,7 +153,7 @@ export async function restoreBackup(
       return false;
     }
 
-    let response = await fetch(`${runtimeUrl}/v1/migrations/import`, {
+    let response = await loopbackSafeFetch(`${runtimeUrl}/v1/migrations/import`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -171,7 +172,7 @@ export async function restoreBackup(
         return false;
       }
       accessToken = refreshed.accessToken;
-      response = await fetch(`${runtimeUrl}/v1/migrations/import`, {
+      response = await loopbackSafeFetch(`${runtimeUrl}/v1/migrations/import`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,

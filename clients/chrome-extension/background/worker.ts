@@ -45,6 +45,7 @@ import { appendEvent, clearEventLog, getEventLog, getOperations, getOperationByI
 import { getClientId } from "./client-identity.js";
 import {
   startCloudLogin,
+  CloudLoginCancelledError,
   getStoredSession,
   clearSession,
   getSelectedAssistant,
@@ -929,7 +930,16 @@ async function doConnect(_options: ConnectOptions): Promise<void> {
         console.warn("[vellum] pair failed:", pairResp.status);
       }
     } catch (err) {
+      // A thrown fetch (not a non-ok status) means the gateway is
+      // unreachable — surface a terminal error instead of looping
+      // silently in "reconnecting". The keepalive alarm keeps retrying.
       console.warn("[vellum] pair request error:", err);
+      if (shouldConnect) {
+        setConnectionHealth("error", {
+          lastErrorMessage: `Couldn't reach the gateway at ${gatewayUrl}. Check the gateway URL and make sure your assistant is running.`,
+        });
+      }
+      return;
     }
 
     if (!shouldConnect) return;
@@ -1365,12 +1375,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
         assistants,
         assistantsError,
       });
-    })().catch((err) =>
+    })().catch((err) => {
+      // User dismissed the auth window — not an error, just a no-op.
+      if (err instanceof CloudLoginCancelledError) {
+        sendResponseFn({ ok: false, cancelled: true });
+        return;
+      }
       sendResponseFn({
         ok: false,
         error: err instanceof Error ? err.message : String(err),
-      }),
-    );
+      });
+    });
     return true; // async
   }
 

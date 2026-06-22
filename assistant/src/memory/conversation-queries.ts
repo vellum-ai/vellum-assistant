@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 
 import {
   parseExternalContentEnvelope,
@@ -74,6 +74,52 @@ function archiveStatusClause(status: ArchiveStatusFilter) {
 }
 
 /**
+ * Raw SQL predicate for "visible in the standard (Recents) listing".
+ *
+ * Shared by the `"standard"` bucket of {@link conversationTypeClause} (list +
+ * count) and by every match path in {@link searchConversations} (FTS content,
+ * LIKE content fallback, and title LIKE) so the listing and search can never
+ * drift: anything the sidebar shows in Recents is also findable by search,
+ * and vice versa.
+ *
+ * Two arms:
+ * - Foreground rows: not background/scheduled/private by type, and not routed
+ *   to the `system:background` / `system:scheduled` groups.
+ * - Surfaced rows (`surfaced_at IS NOT NULL`): background/scheduled rows
+ *   explicitly promoted via the surface API. Private rows stay excluded
+ *   unconditionally, and subagent runs are excluded from the surfaced arm so
+ *   they can never reach the sidebar.
+ *
+ * @param alias Table name or alias qualifying the column references
+ *              (e.g. `"c"` in the search joins).
+ */
+function standardListingVisibilitySql(alias = "conversations"): string {
+  return (
+    `((${alias}.conversation_type NOT IN ('background', 'scheduled', 'private')` +
+    ` AND COALESCE(${alias}.group_id, 'system:all') NOT IN ('system:background', 'system:scheduled'))` +
+    ` OR ${surfacedVisibilitySql(alias)})`
+  );
+}
+
+/**
+ * Raw SQL predicate for the surfaced arm of standard-listing visibility:
+ * background/scheduled rows explicitly promoted via the surface API
+ * (`surfaced_at IS NOT NULL`), with private rows excluded unconditionally and
+ * subagent runs excluded so they can never reach the sidebar.
+ *
+ * Shared by {@link standardListingVisibilitySql} and
+ * {@link listPinnedConversations} so pinned surfaced rows stay visible
+ * everywhere the standard listing would show them.
+ */
+function surfacedVisibilitySql(alias = "conversations"): string {
+  return (
+    `(${alias}.surfaced_at IS NOT NULL` +
+    ` AND ${alias}.conversation_type != 'private'` +
+    ` AND (${alias}.source IS NULL OR ${alias}.source != 'subagent'))`
+  );
+}
+
+/**
  * SQL predicate selecting which bucket {@link listConversations} and
  * {@link countConversations} return, keyed by the canonical
  * {@link ConversationType}:
@@ -82,7 +128,10 @@ function archiveStatusClause(status: ArchiveStatusFilter) {
  *   excluding background, scheduled, and private rows. `"private"` is excluded
  *   defensively because in-place snapshot restore swaps the SQLite file without
  *   running migrations in-process, so legacy private rows can briefly exist
- *   before migration cleanup deletes them.
+ *   before migration cleanup deletes them. Background/scheduled rows with a
+ *   non-null `surfaced_at` (explicitly promoted via the surface API) are
+ *   included so clients can render them in the Recents grouping without a
+ *   separate fetch.
  * - `"background"` — the background **umbrella**: background *and* scheduled
  *   rows together. The back-compat bucket for the single
  *   `conversationType=background` fetch that older clients (e.g. the macOS app,
@@ -101,7 +150,10 @@ function conversationTypeClause(type: ConversationType) {
   const notSubagent = sql`(${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`;
   switch (type) {
     case "standard":
-      return sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private') AND COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')`;
+      // Surfaced rows (`surfaced_at IS NOT NULL`) are promoted into the
+      // standard listing even when they're background/scheduled — see
+      // standardListingVisibilitySql for the full predicate semantics.
+      return sql.raw(standardListingVisibilitySql());
     case "background":
       return sql`(${conversations.conversationType} IN ('background', 'scheduled') OR group_id IN ('system:background', 'system:scheduled')) AND ${notSubagent}`;
     case "scheduled":
@@ -114,13 +166,17 @@ export function listConversations(
   conversationType: ConversationType = "standard",
   offset = 0,
   archiveStatus: ArchiveStatusFilter = "active",
+  originChannel?: string,
 ): ConversationRow[] {
   ensureDisplayOrderMigration();
   ensureGroupMigration();
   const db = getDb();
   const typeCond = conversationTypeClause(conversationType);
   const archiveCond = archiveStatusClause(archiveStatus);
-  const where = archiveCond ? sql`${typeCond} AND ${archiveCond}` : typeCond;
+  const channelCond = originChannel
+    ? eq(conversations.originChannel, originChannel)
+    : undefined;
+  const where = and(typeCond, archiveCond ?? undefined, channelCond);
   const query = db
     .select()
     .from(conversations)
@@ -156,17 +212,24 @@ export function listConversations(
  *                              Defaults to `true` so callers that want a full
  *                              run history get one; pass `false` for views
  *                              that hide archived rows.
+ * @param opts.beforeCreatedAt  Only return rows with `createdAt` strictly
+ *                              older than this epoch-millis cursor (for
+ *                              paginating into history).
  */
 export function listConversationsBySource(
   source: string,
   limit = 20,
-  opts?: { includeArchived?: boolean },
+  opts?: { includeArchived?: boolean; beforeCreatedAt?: number },
 ): ConversationRow[] {
   const db = getDb();
   const includeArchived = opts?.includeArchived ?? true;
-  const where = includeArchived
-    ? eq(conversations.source, source)
-    : and(eq(conversations.source, source), isNull(conversations.archivedAt));
+  const where = and(
+    eq(conversations.source, source),
+    includeArchived ? undefined : isNull(conversations.archivedAt),
+    opts?.beforeCreatedAt != null
+      ? lt(conversations.createdAt, opts.beforeCreatedAt)
+      : undefined,
+  );
   const rows = db
     .select()
     .from(conversations)
@@ -233,7 +296,13 @@ export function listPinnedConversations(
     .from(conversations)
     .where(
       and(
-        sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private')`,
+        // Mirror the standard listing: plain foreground rows by type, plus
+        // surfaced background/scheduled rows — a pinned surfaced conversation
+        // must stay injectable into page 1 (see surfacedVisibilitySql).
+        sql.raw(
+          `(conversations.conversation_type NOT IN ('background', 'scheduled', 'private')` +
+            ` OR ${surfacedVisibilitySql()})`,
+        ),
         sql`is_pinned = 1`,
         ...(archiveCond ? [archiveCond] : []),
       ),
@@ -303,12 +372,16 @@ export function listConversationsByTitlePrefix(
 export function countConversations(
   conversationType: ConversationType = "standard",
   archiveStatus: ArchiveStatusFilter = "active",
+  originChannel?: string,
 ): number {
   ensureGroupMigration();
   const db = getDb();
   const typeCond = conversationTypeClause(conversationType);
   const archiveCond = archiveStatusClause(archiveStatus);
-  const where = archiveCond ? sql`${typeCond} AND ${archiveCond}` : typeCond;
+  const channelCond = originChannel
+    ? eq(conversations.originChannel, originChannel)
+    : undefined;
+  const where = and(typeCond, archiveCond ?? undefined, channelCond);
   const [{ total }] = db
     .select({ total: count() })
     .from(conversations)
@@ -417,7 +490,7 @@ export function searchConversations(
         FROM messages_fts f
         JOIN messages m ON m.id = f.message_id
         JOIN conversations c ON c.id = m.conversation_id
-        WHERE messages_fts MATCH ? AND c.conversation_type NOT IN ('background', 'scheduled', 'private') AND COALESCE(c.group_id, 'system:all') NOT IN ('system:background', 'system:scheduled') AND c.archived_at IS NULL
+        WHERE messages_fts MATCH ? AND ${standardListingVisibilitySql("c")} AND c.archived_at IS NULL
         LIMIT 1000
       `,
         ftsMatch,
@@ -442,7 +515,7 @@ export function searchConversations(
       SELECT DISTINCT m.conversation_id
       FROM messages m
       JOIN conversations c ON c.id = m.conversation_id
-      WHERE m.content LIKE ? ESCAPE '\\' AND c.conversation_type NOT IN ('background', 'scheduled', 'private') AND COALESCE(c.group_id, 'system:all') NOT IN ('system:background', 'system:scheduled') AND c.archived_at IS NULL
+      WHERE m.content LIKE ? ESCAPE '\\' AND ${standardListingVisibilitySql("c")} AND c.archived_at IS NULL
       LIMIT 1000
     `,
       likePattern,
@@ -456,8 +529,7 @@ export function searchConversations(
     .from(conversations)
     .where(
       and(
-        sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private')`,
-        sql`COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')`,
+        sql.raw(standardListingVisibilitySql()),
         sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
         sql`${conversations.archivedAt} IS NULL`,
       ),

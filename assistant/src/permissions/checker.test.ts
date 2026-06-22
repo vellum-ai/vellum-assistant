@@ -76,8 +76,13 @@ mock.module("../util/platform.js", () => ({
 }));
 
 // Mock gateway threshold reader — return "low" by default (conversation context default).
+// `mockRefreshedThreshold` simulates the cache-bypassing refresh performed
+// before a prompt is surfaced; `null` means "refresh failed, keep decision".
+let mockCachedThreshold = "low";
+let mockRefreshedThreshold: string | null = null;
 mock.module("./gateway-threshold-reader.js", () => ({
-  getAutoApproveThreshold: async () => "low",
+  getAutoApproveThreshold: async () => mockCachedThreshold,
+  refreshAutoApproveThreshold: async () => mockRefreshedThreshold,
   _clearGlobalCacheForTesting: () => {},
 }));
 
@@ -121,6 +126,16 @@ mock.module("../ipc/gateway-client.js", () => ({
 // ── Import the module under test AFTER mocks are set up ──────────────────────
 
 import {
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import {
   check,
   classifyRisk,
   generateAllowlistOptions,
@@ -136,6 +151,8 @@ describe("Permission Checker (gateway IPC)", () => {
     testConfig.skills = { load: { extraDirs: [] } };
     mockIsContainerized = false;
     mockIpcClassifyRiskResult = undefined;
+    mockCachedThreshold = "low";
+    mockRefreshedThreshold = null;
   });
 
   // ── classifyRisk ──────────────────────────────────────────────────────────
@@ -222,6 +239,47 @@ describe("Permission Checker (gateway IPC)", () => {
       const result2 = await classifyRisk("file_read", { path: "/tmp/a.txt" });
       expect(result2.level).toBe(RiskLevel.Low);
       expect(result2.reason).toBe("Cached test");
+    });
+
+    test("file-tool cache misses when a symlink target is retargeted", async () => {
+      // File risk depends on filesystem state: the cache key folds in the
+      // symlink-resolved target, so the same raw input must NOT return a stale
+      // cached result after the symlink is pointed somewhere new.
+      const dir = mkdtempSync(join(tmpdir(), "risk-cache-symlink-"));
+      try {
+        const benign = join(dir, "benign.txt");
+        const other = join(dir, "other.txt");
+        writeFileSync(benign, "ok");
+        writeFileSync(other, "ok");
+        const link = join(dir, "link.txt");
+        symlinkSync(benign, link);
+
+        mockIpcClassifyRiskResult = {
+          risk: "low",
+          reason: "benign",
+          matchType: "registry",
+          scopeOptions: [],
+        };
+        const first = await classifyRisk("file_read", { path: link });
+        expect(first.level).toBe(RiskLevel.Low);
+
+        // Retarget the symlink to a different real file; raw input unchanged.
+        unlinkSync(link);
+        symlinkSync(other, link);
+
+        mockIpcClassifyRiskResult = {
+          risk: "high",
+          reason: "now sensitive",
+          matchType: "registry",
+          scopeOptions: [],
+        };
+        const second = await classifyRisk("file_read", { path: link });
+        // Cache must have missed and re-classified against the new target.
+        expect(second.level).toBe(RiskLevel.High);
+        expect(second.reason).toBe("now sensitive");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
 
     test("preserves commandCandidates from gateway response", async () => {
@@ -472,6 +530,81 @@ describe("Permission Checker (gateway IPC)", () => {
           "/home/user/project",
         ),
       ).rejects.toThrow(/Gateway IPC classify_risk failed/);
+    });
+
+    // ── Stale-threshold refresh before prompting ────────────────────────────
+    // The threshold reader caches values (5s conversation / 30s global TTL)
+    // and no write path invalidates them, so a user who just switched to
+    // Full access could still be prompted from the stale snapshot. check()
+    // must re-read the threshold fresh before surfacing a prompt.
+
+    test("re-evaluates with refreshed threshold instead of prompting (stale cache after Full access)", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Recursive force delete",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      mockCachedThreshold = "low"; // stale cached value
+      mockRefreshedThreshold = "high"; // user just selected Full access
+      const result = await check(
+        "bash",
+        { command: "rm -rf /tmp/stale-cache-test" },
+        "/home/user/project",
+      );
+      expect(result.decision).toBe("allow");
+      expect(result.reason).toContain("within auto-approve threshold");
+    });
+
+    test("keeps the prompt when the threshold refresh fails", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Recursive force delete",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      mockCachedThreshold = "low";
+      mockRefreshedThreshold = null; // gateway unreachable during refresh
+      const result = await check(
+        "bash",
+        { command: "rm -rf /tmp/refresh-failed-test" },
+        "/home/user/project",
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("keeps the prompt when the refreshed threshold matches the cached one", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Recursive force delete",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      mockCachedThreshold = "low";
+      mockRefreshedThreshold = "low"; // no change — still below the risk
+      const result = await check(
+        "bash",
+        { command: "rm -rf /tmp/refresh-unchanged-test" },
+        "/home/user/project",
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("keeps the prompt when the refreshed threshold is stricter", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "medium",
+        reason: "Network request (default)",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      mockCachedThreshold = "low";
+      mockRefreshedThreshold = "none"; // user tightened to Strict mid-flight
+      const result = await check(
+        "network_request",
+        { url: "https://api.example.com/refresh-stricter-test" },
+        "/home/user/project",
+      );
+      expect(result.decision).toBe("prompt");
     });
   });
 

@@ -35,6 +35,53 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("text-body-medium-default");
   });
 
+  test("ordered list beginning at a non-1 number preserves its start", () => {
+    // A terse "3." answer is parsed as a one-item ordered list starting at 3.
+    // Without forwarding `start`, the <ol> defaults to 1 and renders "1.".
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, { content: "3." }),
+    );
+
+    expect(html).toContain('<ol start="3"');
+  });
+
+  test("ordered list starting at 1 omits a redundant start attribute", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, { content: "1. first\n2. second" }),
+    );
+
+    expect(html).toContain("<ol");
+    expect(html).not.toContain("start=");
+    // A contiguous list matches the auto-increment, so no item is pinned.
+    expect(html).not.toContain("value=");
+  });
+
+  test("ordered list with a skipped number renders the typed ordinals", () => {
+    // Replying to points 1, 2, 4, 5 (deliberately skipping 3) must not silently
+    // renumber to 1, 2, 3, 4. CommonMark drops the markers, so item 4 is pinned
+    // with <li value="4">; item 5 then follows naturally and needs no pin.
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "1. a\n2. b\n4. c\n5. d",
+      }),
+    );
+
+    expect(html).toContain('<li value="4"');
+    expect(html).not.toContain('value="3"');
+  });
+
+  test("ordered list that restarts mid-stream pins the lower number", () => {
+    // 1, 2, then a fresh 1 — the restart drops below the running count, so the
+    // third item is pinned back to <li value="1">.
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "1. a\n2. b\n1. c",
+      }),
+    );
+
+    expect(html).toContain('<li value="1"');
+  });
+
   test("tables render with the body-small typography token", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {
@@ -43,6 +90,27 @@ describe("MarkdownMessage", () => {
     );
 
     expect(html).toContain("text-body-small-default");
+  });
+
+  test("inline code in table cells wraps with preserved spacing and breathing room", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "| Function | Usage |\n| --- | --- |\n| `useState` | `const [s, setS] = useState(v)` |",
+      }),
+    );
+
+    // Both <td> and <th> let inline code wrap while preserving its spacing.
+    // leading-relaxed is load-bearing: the body-small token sets line-height:1,
+    // which clips the padded inline-code background once it wraps onto a second
+    // line.
+    const tdMatches = html.match(/<td\b[^>]*class="([^"]*)"/g) ?? [];
+    const thMatches = html.match(/<th\b[^>]*class="([^"]*)"/g) ?? [];
+    for (const match of [...tdMatches, ...thMatches]) {
+      expect(match).toContain("whitespace-pre-wrap");
+      expect(match).toContain("leading-relaxed");
+    }
+    // Code elements inside cells are still inline code (not block).
+    expect(html).toContain("<code");
   });
 
   test("forwards a supplied className onto the wrapper", () => {
@@ -280,5 +348,49 @@ describe("MarkdownMessage", () => {
 
     expect(html).toContain('data-custom="true"');
     expect(html).not.toContain('rel="noopener noreferrer"');
+  });
+
+  test("emoji inside markdown italic renders upright, not skewed", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, { content: "*🥺*" }),
+    );
+
+    // The emoji is wrapped in a font-style:normal span inside the <em>, so the
+    // browser's synthetic italic skew never reaches the emoji glyph.
+    const em = html.match(/<em>[\s\S]*?<\/em>/)?.[0] ?? "";
+    expect(em).toContain("🥺");
+    expect(em).toContain("font-style:normal");
+  });
+
+  test("plain text emphasis is left byte-identical (no upright span)", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, { content: "*please*" }),
+    );
+
+    expect(html).toContain("<em>please</em>");
+    expect(html).not.toContain("font-style:normal");
+  });
+
+  test("mixed emphasis keeps words italic and only the emoji upright", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, { content: "*so cute 🥺 really*" }),
+    );
+
+    const em = html.match(/<em>[\s\S]*?<\/em>/)?.[0] ?? "";
+    // Words stay as plain italic text; only the emoji grapheme gets wrapped.
+    expect(em).toContain("so cute ");
+    expect(em).toContain(" really");
+    expect(em).toContain('<span style="font-style:normal">🥺</span>');
+  });
+
+  test("VS15 text-presentation sequence stays italic", () => {
+    // U+231A WATCH + U+FE0E (VS15) explicitly requests text presentation, so it
+    // must keep italic obliqueness — mirrors the macOS rendersAsEmoji rule.
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, { content: "*⌚︎*" }),
+    );
+
+    expect(html).toContain("<em>");
+    expect(html).not.toContain("font-style:normal");
   });
 });

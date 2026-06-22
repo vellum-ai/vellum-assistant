@@ -85,7 +85,11 @@ const stubConfig: {
     activeHoursStart: number | null;
     activeHoursEnd: number | null;
     maxConsecutiveRuns: number | null;
+    maxDailyRuns: number | null;
     disposition: string;
+  };
+  timeouts: {
+    backgroundTurnTimeoutSec: number;
   };
 } = {
   heartbeat: {
@@ -94,7 +98,11 @@ const stubConfig: {
     activeHoursStart: null,
     activeHoursEnd: null,
     maxConsecutiveRuns: null,
+    maxDailyRuns: null,
     disposition: "Default disposition text.",
+  },
+  timeouts: {
+    backgroundTurnTimeoutSec: 1800,
   },
 };
 mock.module("../../config/loader.js", () => ({
@@ -112,7 +120,7 @@ mock.module("../../config/loader.js", () => ({
   getNestedValue: () => undefined,
   setNestedValue: () => {},
   API_KEY_PROVIDERS: [],
-  _appendQuarantineBulletin: () => {},
+  _writeQuarantineNotice: () => {},
 }));
 
 // Stub prompt helpers.
@@ -195,6 +203,7 @@ mock.module("../heartbeat-run-store.js", () => ({
   markStaleRunsAsMissed: () => 0,
   markStaleRunningAsError: () => 0,
   countCompletedHeartbeatRuns: () => 10,
+  countCompletedRunsToday: () => 0,
   countRecentConsecutiveRuns: () => 0,
 }));
 

@@ -1,3 +1,4 @@
+import { isArchiveBySenderAuthorized } from "../../../../runtime/effective-capabilities.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -8,14 +9,14 @@ export async function run(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const userApproved =
-    input.user_approved === true && context.trustClass === "guardian";
-  if (
-    !context.triggeredBySurfaceAction &&
-    !context.batchAuthorizedByTask &&
-    !context.approvedViaPrompt &&
-    !userApproved
-  ) {
+  const authorized = isArchiveBySenderAuthorized({
+    trustClass: context.trustClass,
+    triggeredBySurfaceAction: context.triggeredBySurfaceAction,
+    batchAuthorizedByTask: context.batchAuthorizedByTask,
+    approvedViaPrompt: context.approvedViaPrompt,
+    userApproved: input.user_approved === true,
+  });
+  if (!authorized) {
     return err(
       "This tool requires either a surface action or a scheduled task run with this tool in required_tools. Present results in a selection table with action buttons and wait for the user to click before proceeding.",
     );

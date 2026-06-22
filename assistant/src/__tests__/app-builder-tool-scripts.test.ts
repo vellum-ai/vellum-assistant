@@ -81,6 +81,7 @@ mock.module("../bundler/app-compiler.js", () => ({
 import * as appCreateScript from "../config/bundled-skills/app-builder/tools/app-create.js";
 import * as appDeleteScript from "../config/bundled-skills/app-builder/tools/app-delete.js";
 import * as appRefreshScript from "../config/bundled-skills/app-builder/tools/app-refresh.js";
+import * as appUpdateScript from "../config/bundled-skills/app-builder/tools/app-update.js";
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -169,6 +170,26 @@ describe("app-builder skill tool scripts", () => {
       const parsed = JSON.parse(result.content);
       expect(parsed.refreshed).toBe(true);
       expect(parsed.appId).toBe("app-1");
+    });
+  });
+
+  // ---- app-update --------------------------------------------------------
+
+  describe("app-update", () => {
+    test("exports a run function", () => {
+      expect(typeof appUpdateScript.run).toBe("function");
+    });
+
+    test("delegates to executeAppUpdate and returns result", async () => {
+      const result = await appUpdateScript.run(
+        { app_id: "app-1", name: "Renamed" },
+        makeContext(),
+      );
+      expect(result.isError).toBe(false);
+      const parsed = JSON.parse(result.content);
+      expect(parsed.updated).toBe(true);
+      expect(parsed.appId).toBe("app-1");
+      expect(parsed.name).toBe("Renamed");
     });
   });
 });

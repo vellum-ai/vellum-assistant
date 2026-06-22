@@ -16,11 +16,14 @@ import type {
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
+import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
-import type { ContextWindowResult } from "../context/window-manager.js";
+import {
+  recordCompactionEndBestEffort,
+  recordCompactionStartBestEffort,
+} from "../memory/compaction-log-store-clickhouse.js";
 import { projectAssistantMessage } from "../memory/conversation-attention-store.js";
 import {
-  addMessage,
   deleteMessageById,
   getConversation,
   getMessageById,
@@ -28,6 +31,7 @@ import {
   provenanceFromTrustContext,
   reserveMessage,
   setConversationHistoryStrippedAt,
+  setLastNotifiedInferenceProfile,
   updateMessageContent,
 } from "../memory/conversation-crud.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
@@ -46,12 +50,13 @@ import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
+import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
+import { backfillMemoryV3SelectionMessageId } from "../plugins/defaults/memory-v3-shadow/shadow-plugin.js";
 import type {
   ContentBlock,
   ImageContent,
   Message,
 } from "../providers/types.js";
-import { isContextOverflowError } from "../providers/types.js";
 import {
   getCurrentSeq,
   recordPersistedSeq,
@@ -76,17 +81,13 @@ import {
   cleanAssistantContent,
   drainDirectiveDisplayBuffer,
 } from "./assistant-attachments.js";
-import type {
-  AgentLoopConversationContext,
-  AssistantSurface,
-} from "./conversation-agent-loop.js";
+import type { Conversation } from "./conversation.js";
+import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
   buildConversationErrorMessage,
   classifyConversationError,
-  isContextTooLarge,
   maxTokensReachedClassification,
 } from "./conversation-error.js";
-import { isProviderOrderingError } from "./conversation-slash.js";
 import { resolveTurnTimezoneContext } from "./date-context.js";
 import type {
   CardSurfaceData,
@@ -96,6 +97,7 @@ import type {
 } from "./message-protocol.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
 import type {
+  ToolActivityMetadata,
   WebSearchMetadata,
   WebSearchResultItem,
 } from "./message-types/web-activity.js";
@@ -136,6 +138,16 @@ export interface PendingToolResult {
 /** Mutable state shared across event handlers within a single agent loop run. */
 export interface EventHandlerState {
   llmCallStartedEmitted: boolean;
+  /**
+   * Profile key whose `model_profile` notice has been assembled into the turn
+   * context but not yet marked notified. Set when the turn injects the notice,
+   * and consumed the first time the model actually receives that context — i.e.
+   * on the first `message_complete`. Persisting on delivery (rather than inline
+   * before the provider call) means a cancelled or failed turn re-sends the
+   * notice next turn instead of silently marking the profile notified without
+   * the model ever having seen it.
+   */
+  pendingNotifiedInferenceProfile: string | null;
   pendingDirectiveDisplayBuffer: string;
   firstAssistantText: string;
   /** Most recent resolved provider for the current exchange's usage accounting. */
@@ -150,23 +162,6 @@ export interface EventHandlerState {
   exchangeLlmCallCount: number;
   readonly exchangeRawResponses: unknown[];
   model: string;
-  orderingErrorDetected: boolean;
-  deferredOrderingError: string | null;
-  contextTooLargeDetected: boolean;
-  /**
-   * Set when the provider rejects with an image-dimension error. The agent
-   * loop strips or downscales oversized image blocks from ctx.messages and
-   * retries once before surfacing an error to the user.
-   */
-  imageTooLargeDetected: boolean;
-  /**
-   * The provider error object when context_too_large is detected, preserved
-   * so `parseActualTokensFromError` can prefer the typed
-   * `ContextOverflowError` fields over the string-regex fallback. The
-   * message is always reachable via `.message` on this object — no separate
-   * field is needed.
-   */
-  contextTooLargeError: unknown;
   providerErrorUserMessage: string | null;
   lastAssistantMessageId: string | undefined;
   /**
@@ -185,6 +180,15 @@ export interface EventHandlerState {
    */
   assistantRowAwaitingFinalization: boolean;
   readonly pendingToolResults: Map<string, PendingToolResult>;
+  /**
+   * Reservation of the grouped `user` tool-result row for the current batch,
+   * resolving to the row id. Shared across the concurrent `handleToolResult`
+   * calls of one parallel-tool batch so they reserve exactly one row and write
+   * into it as sibling results land. `undefined` until the first result of a
+   * batch triggers a reservation (reset on a failed reservation so the next
+   * arrival can retry) and again after the batch is finalized.
+   */
+  pendingToolResultRowReservation: Promise<string> | undefined;
   readonly persistedToolUseIds: Set<string>;
   readonly accumulatedDirectives: DirectiveRequest[];
   readonly accumulatedToolContentBlocks: ContentBlock[];
@@ -237,6 +241,13 @@ export interface EventHandlerState {
       riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
     }
   >;
+  /**
+   * Structured tool activity (web_search / web_fetch) keyed by tool_use_id,
+   * captured when a result lands so it can be persisted on the tool's content
+   * block and survive a history reopen. Populated for both external provider
+   * tools (in handleToolResult) and native server tools (server_tool_complete).
+   */
+  readonly toolActivityMetadata: Map<string, ToolActivityMetadata>;
   /** tool_use_ids emitted in the current turn (populated in handleToolUse, cleared after annotation). */
   currentTurnToolUseIds: string[];
   /** Wall-clock time (ms since epoch) when the agent loop turn started, used as the display timestamp for assistant messages. */
@@ -251,39 +262,45 @@ export interface EventHandlerState {
   pendingPartialFlushTimer: ReturnType<typeof setTimeout> | undefined;
   /** In-flight partial flush write awaited at finalize to avoid overwrite races. */
   pendingPartialFlushPromise: Promise<void> | undefined;
-  /** Running mirror of the in-flight assistant message's content. */
+  /**
+   * Running mirror of the in-flight assistant message's streamed content
+   * (text and thinking), flushed to the assistant row on the partial-persist
+   * debounce so a mid-turn snapshot reflects what the user is watching live.
+   */
   currentMessageContent: ContentBlock[];
   /**
-   * `seq` of the most recent conversation-scoped event whose content has
-   * been mirrored into `currentMessageContent`. Snapshotted at each
-   * persistence flush so the daemon can record how far the durable rows
-   * reflect the live stream (see `recordPersistedSeq`). `undefined` until
-   * the first content delta of the in-flight message.
+   * Per-thinking-block timing for the in-flight LLM call, in stream order:
+   * entry `i` is the `i`-th thinking block mirrored into `currentMessageContent`.
+   * `startedAt` is stamped when a thinking block opens; `completedAt` is the
+   * last reasoning delta fused into it. Used to stamp `_startedAt`/`_completedAt`
+   * onto the authoritative thinking blocks at `message_complete`, mirroring how
+   * tool calls persist timing. Reset alongside `currentMessageContent`.
    */
-  lastStreamedContentSeq: number | undefined;
+  currentThinkingTimestamps: { startedAt: number; completedAt: number }[];
   /**
-   * Whether the workspace top-level block should be (re)injected on this
-   * turn. Compaction's prepare phase strips the workspace / NOW.md / PKB
-   * blocks off the tail, so it is set after any successful compaction to
-   * force the workspace overview back in. On an ordinary turn the block is
-   * already present in history, so it defaults `false` to avoid burning
-   * tokens re-injecting it redundantly.
+   * `seq` of the most recent streamed content delta mirrored into
+   * `currentMessageContent`. Recorded as the conversation's persisted `seq`
+   * after each flush commits (the debounced partial flushes and the
+   * `message_complete` finalize), so the snapshot's advertised `seq` tracks
+   * exactly the streamed content the durable row holds. `undefined` until the
+   * first content delta of the in-flight message. Because every streamed
+   * content type rides the same mirror-and-flush path, this single field
+   * never claims content a flush has not yet written.
    */
-  shouldInjectWorkspace: boolean;
+  lastPersistedContentSeq: number | undefined;
   /**
-   * Whether the reducer has compacted `ctx.messages`, gating the Slack
-   * chronological-transcript override on re-injection. The captured
-   * transcript is the full persisted history; blindly replaying it after
-   * compaction would overwrite the reduced messages and undo compaction, so
-   * once this is `true` the override falls back to the reduced
-   * `ctx.messages`.
+   * Pre-compaction history buffered from `context_compacting` start events,
+   * keyed by `compactionId`. The paired `compaction_completed` event no
+   * longer carries the pre-compaction history, so the dispatcher re-derives
+   * the stripped durable base from the buffered start messages. Entries are
+   * consumed (deleted) when the end event dispatches.
    */
-  reducerCompacted: boolean;
+  readonly compactionStartMessages: Map<string, Message[]>;
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
 export interface EventHandlerDeps {
-  readonly ctx: AgentLoopConversationContext;
+  readonly ctx: Conversation;
   readonly onEvent: (msg: ServerMessage) => void;
   readonly reqId: string;
   readonly isFirstMessage: boolean;
@@ -294,15 +311,15 @@ export interface EventHandlerDeps {
   readonly turnInterfaceContext: TurnInterfaceContext;
   /**
    * Commit a successful inline compaction to durable state. Invoked from the
-   * `compaction_completed` dispatch case (when `result.compacted`) with the
-   * loop's compaction result and the stripped pre-compaction `basis`. Supplied
+   * `compaction_completed` dispatch case (when `compacted`) with the
+   * loop's compaction result and the stripped pre-compaction history. Supplied
    * by the orchestrator because the body writes Conversation DB-record fields,
    * projects Slack provenance, and emits transport the loop is intentionally
    * blind to.
    */
   readonly applyCompaction: (
     result: ContextWindowResult,
-    basis: Message[],
+    messages: Message[],
   ) => Promise<void>;
 }
 
@@ -311,6 +328,7 @@ export interface EventHandlerDeps {
 export function createEventHandlerState(): EventHandlerState {
   return {
     llmCallStartedEmitted: false,
+    pendingNotifiedInferenceProfile: null,
     pendingDirectiveDisplayBuffer: "",
     firstAssistantText: "",
     exchangeProviderName: undefined,
@@ -322,15 +340,11 @@ export function createEventHandlerState(): EventHandlerState {
     exchangeLlmCallCount: 0,
     exchangeRawResponses: [],
     model: "",
-    orderingErrorDetected: false,
-    deferredOrderingError: null,
-    contextTooLargeDetected: false,
-    imageTooLargeDetected: false,
-    contextTooLargeError: null,
     providerErrorUserMessage: null,
     lastAssistantMessageId: undefined,
     assistantRowAwaitingFinalization: false,
     pendingToolResults: new Map(),
+    pendingToolResultRowReservation: undefined,
     persistedToolUseIds: new Set(),
     accumulatedDirectives: [],
     accumulatedToolContentBlocks: [],
@@ -346,6 +360,7 @@ export function createEventHandlerState(): EventHandlerState {
     requestIdToToolUseId: new Map(),
     toolConfirmationOutcomes: new Map(),
     toolRiskOutcomes: new Map(),
+    toolActivityMetadata: new Map(),
     currentTurnToolUseIds: [],
     turnStartedAt: Date.now(),
     serverToolStartedAt: new Map(),
@@ -354,18 +369,19 @@ export function createEventHandlerState(): EventHandlerState {
     pendingPartialFlushTimer: undefined,
     pendingPartialFlushPromise: undefined,
     currentMessageContent: [],
-    lastStreamedContentSeq: undefined,
-    shouldInjectWorkspace: false,
-    reducerCompacted: false,
+    currentThinkingTimestamps: [],
+    lastPersistedContentSeq: undefined,
+    compactionStartMessages: new Map(),
   };
 }
 
 // ── Partial-persistence helpers ──────────────────────────────────────
 
 /** Canonical persisted-content build: clean → append surfaces → redact. */
-function buildPersistedAssistantContent(
+export function buildPersistedAssistantContent(
   rawBlocks: readonly ContentBlock[],
   surfaces: readonly AssistantSurface[],
+  activityByToolUseId?: ReadonlyMap<string, ToolActivityMetadata>,
 ): ContentBlock[] {
   const { cleanedContent } = cleanAssistantContent(rawBlocks);
   const cleaned = cleanedContent as ContentBlock[];
@@ -388,7 +404,50 @@ function buildPersistedAssistantContent(
       const tb = block as Extract<ContentBlock, { type: "text" }>;
       return { ...tb, text: redactSecrets(tb.text) };
     }
+    // Native server tools (Anthropic web_search) resolve mid-stream — their
+    // `server_tool_complete` fires before `message_complete` — so the captured
+    // activity is available at persist time. Stamp it on the server_tool_use
+    // block here so the web-search card survives a history reopen. External
+    // tool_use activity arrives only with the later tool_result, so it is
+    // stamped in `annotatePersistedAssistantMessage` instead.
+    if (block.type === "server_tool_use" && activityByToolUseId) {
+      const activity = activityByToolUseId.get(block.id);
+      if (activity) {
+        return { ...block, _activityMetadata: activity } as ContentBlock;
+      }
+    }
     return block;
+  });
+}
+
+/**
+ * Stamp `_startedAt`/`_completedAt` onto the content's thinking blocks from the
+ * per-block timing captured while streaming, matched by position: the `i`-th
+ * thinking block in `content` takes `timings[i]`. The `_`-prefixed fields are
+ * vellum-internal metadata (never sent to providers), mirroring how tool calls
+ * persist timing; `renderHistoryContent` reads them back onto the wire schema's
+ * `startedAt`/`completedAt`.
+ *
+ * Timing is only captured when reasoning is streamed (`streamThinking`), so a
+ * turn with thinking disabled — or any block without a matching entry — is left
+ * unstamped and the UI hides its duration, exactly as a tool call with no
+ * timing does.
+ */
+export function stampThinkingTiming(
+  content: ContentBlock[],
+  timings: ReadonlyArray<{ startedAt: number; completedAt: number }>,
+): ContentBlock[] {
+  if (timings.length === 0) return content;
+  let thinkingIdx = 0;
+  return content.map((block) => {
+    if (block.type !== "thinking") return block;
+    const timing = timings[thinkingIdx++];
+    if (!timing) return block;
+    return {
+      ...block,
+      _startedAt: timing.startedAt,
+      _completedAt: timing.completedAt,
+    } as ContentBlock;
   });
 }
 
@@ -406,6 +465,34 @@ function appendTextToCurrentMessage(
   }
 }
 
+/**
+ * Append a streamed thinking chunk to `state.currentMessageContent`, fusing
+ * into the tail thinking block. The streamed delta carries no provider
+ * `signature` (that arrives only when the block closes), so the mirrored block
+ * holds an empty one; `message_complete` overwrites the row with the
+ * authoritative signed content before it is ever sent back to a provider.
+ */
+function appendThinkingToCurrentMessage(
+  state: EventHandlerState,
+  thinking: string,
+): void {
+  if (thinking.length === 0) return;
+  const now = Date.now();
+  const tail = state.currentMessageContent.at(-1);
+  if (tail && tail.type === "thinking") {
+    tail.thinking = tail.thinking + thinking;
+    const timing = state.currentThinkingTimestamps.at(-1);
+    if (timing) timing.completedAt = now;
+  } else {
+    state.currentMessageContent.push({
+      type: "thinking",
+      thinking,
+      signature: "",
+    });
+    state.currentThinkingTimestamps.push({ startedAt: now, completedAt: now });
+  }
+}
+
 /** Reset partial-persist accumulator and any pending flush state. Idempotent. */
 function resetPartialPersistAccumulator(state: EventHandlerState): void {
   if (state.pendingPartialFlushTimer !== undefined) {
@@ -413,7 +500,8 @@ function resetPartialPersistAccumulator(state: EventHandlerState): void {
     state.pendingPartialFlushTimer = undefined;
   }
   state.currentMessageContent = [];
-  state.lastStreamedContentSeq = undefined;
+  state.currentThinkingTimestamps = [];
+  state.lastPersistedContentSeq = undefined;
   state.pendingPartialFlushPromise = undefined;
 }
 
@@ -426,12 +514,16 @@ async function flushAccumulatedContent(
   if (messageId === undefined) return;
   if (state.currentMessageContent.length === 0) return;
 
-  const built = buildPersistedAssistantContent(state.currentMessageContent, []);
+  const built = buildPersistedAssistantContent(
+    state.currentMessageContent,
+    [],
+    state.toolActivityMetadata,
+  );
   const contentJson = JSON.stringify(built);
   // Pair the seq with the exact content snapshot taken above: deltas that
-  // arrive while the write is in flight bump `lastStreamedContentSeq`
+  // arrive while the write is in flight bump `lastPersistedContentSeq`
   // again, but they are not part of this write.
-  const flushedSeq = state.lastStreamedContentSeq;
+  const flushedSeq = state.lastPersistedContentSeq;
 
   try {
     updateMessageContent(messageId, contentJson);
@@ -577,9 +669,7 @@ function computeToolUseStatusText(
   return `Running ${friendlyToolName(name)}`;
 }
 
-function resolveAssistantReplyTimestampTimezone(
-  ctx: AgentLoopConversationContext,
-): string {
+function resolveAssistantReplyTimestampTimezone(ctx: Conversation): string {
   const config = getConfig();
   return resolveTurnTimezoneContext({
     configuredUserTimeZone: config.ui?.userTimezone ?? null,
@@ -743,7 +833,7 @@ function handleTextDelta(
     // `getCurrentSeq()` here is that delta's seq -- the position the
     // mirrored content now reflects. A partial flush snapshots this to
     // record how far the durable rows track the live stream.
-    state.lastStreamedContentSeq = getCurrentSeq();
+    state.lastPersistedContentSeq = getCurrentSeq();
     schedulePartialFlush(state, deps);
   }
 }
@@ -778,7 +868,16 @@ function handleThinkingDelta(
     thinking: event.thinking,
     conversationId: deps.ctx.conversationId,
     messageId: state.lastAssistantMessageId,
+    timestampMs: Date.now(),
   });
+  // Mirror thinking into the same running view as text so the debounced
+  // partial flush persists it mid-turn -- long reasoning streams survive a
+  // refresh that outlives the SSE replay window, exactly as long answers do.
+  appendThinkingToCurrentMessage(state, event.thinking);
+  // The hub stamps `seq` synchronously on the delta emitted above, so
+  // `getCurrentSeq()` is that delta's position in the mirrored content.
+  state.lastPersistedContentSeq = getCurrentSeq();
+  schedulePartialFlush(state, deps);
 }
 
 export function handleToolUse(
@@ -790,9 +889,14 @@ export function handleToolUse(
   if (event.name === "app_create" || event.name === "app_refresh") {
     state.appBuildToolUsedThisRun = true;
   }
-  state.toolCallTimestamps.set(event.id, { startedAt: Date.now() });
+  const startedAt = Date.now();
+  state.toolCallTimestamps.set(event.id, { startedAt });
   state.currentToolUseId = event.id;
   state.currentTurnToolUseIds.push(event.id);
+  // Stamp the start time onto the already-durable tool_use block so a snapshot
+  // fetched mid-tool (refresh / reconnect) carries it and clients can render a
+  // running timer without having seen the live `tool_use_start` event.
+  recordToolStartOnPersistedMessage(state, event.id, startedAt);
   const statusText = computeToolUseStatusText(event.name, event.input);
   deps.ctx.emitActivityState("tool_running", "tool_use_start", {
     requestId: deps.reqId,
@@ -805,6 +909,7 @@ export function handleToolUse(
     conversationId: deps.ctx.conversationId,
     toolUseId: event.id,
     messageId: state.lastAssistantMessageId,
+    startedAt,
   });
   // `message_complete` always precedes tool events (see handleMessageComplete),
   // so this tool_use block is already durable in the assistant row. The
@@ -931,11 +1036,204 @@ export function handleInputJsonDelta(
   });
 }
 
-export function handleToolResult(
+/**
+ * Build the persisted `tool_result` content blocks for the buffered results,
+ * redacting secrets from both the flat content and any structured blocks. All
+ * results of one assistant turn share a single `user` row (the shape providers
+ * expect for tool_result-in-user-turn).
+ */
+function buildToolResultBlocks(
+  pending: ReadonlyMap<string, PendingToolResult>,
+) {
+  return Array.from(pending.entries()).map(([toolUseId, result]) => ({
+    type: "tool_result",
+    tool_use_id: toolUseId,
+    content: redactSecrets(result.content),
+    is_error: result.isError,
+    ...(result.contentBlocks
+      ? {
+          contentBlocks: result.contentBlocks.map((block) =>
+            block.type === "text"
+              ? { ...block, text: redactSecrets(block.text) }
+              : block,
+          ),
+        }
+      : {}),
+  }));
+}
+
+/**
+ * Channel/interface provenance metadata for the grouped tool-result row,
+ * stamped from the turn context so the row carries the same provenance the
+ * snapshot reflects from the moment it lands in SQLite.
+ */
+function buildToolResultMetadata(
+  deps: EventHandlerDeps,
+): Record<string, unknown> {
+  return {
+    ...provenanceFromTrustContext(deps.ctx.trustContext),
+    userMessageChannel: deps.turnChannelContext.userMessageChannel,
+    assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
+    userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
+    assistantMessageInterface:
+      deps.turnInterfaceContext.assistantMessageInterface,
+  };
+}
+
+/**
+ * Reserve the grouped `user` tool-result row for the current batch exactly
+ * once. Parallel tool results are dispatched without awaiting (`agent/loop.ts`
+ * emits each `tool_result` synchronously), so concurrent `handleToolResult`
+ * calls can reach this before the first reservation resolves; sharing one
+ * in-flight reservation promise keeps the whole batch in a single row. A
+ * failed reservation resets the promise so the next caller can retry rather
+ * than inheriting a settled rejection.
+ */
+function ensureToolResultRowReserved(
+  state: EventHandlerState,
+  conversationId: string,
+  metadata: Record<string, unknown>,
+): Promise<string> {
+  if (state.pendingToolResultRowReservation === undefined) {
+    state.pendingToolResultRowReservation = reserveMessage(
+      conversationId,
+      "user",
+      metadata,
+    )
+      .then((reserved) => reserved.id)
+      .catch((err) => {
+        state.pendingToolResultRowReservation = undefined;
+        throw err;
+      });
+  }
+  return state.pendingToolResultRowReservation;
+}
+
+/**
+ * Persist the buffered tool results into their grouped `user` row as each
+ * result arrives, so a long-running tool's output survives a refresh that
+ * outlives the SSE replay window. The row is reserved once per batch and
+ * rewritten in place as sibling parallel results land, keeping all
+ * `tool_result` blocks of one turn in a single message. `seq` is the position
+ * stamped on the triggering `tool_result` event, captured by the caller before
+ * any await so it reflects exactly the content now durable in the row.
+ * Indexing and the buffer drain are deferred to `finalizePendingToolResultRow`.
+ */
+async function persistPendingToolResultRow(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+  seq: number,
+): Promise<void> {
+  if (state.pendingToolResults.size === 0) return;
+  const rowId = await ensureToolResultRowReserved(
+    state,
+    deps.ctx.conversationId,
+    buildToolResultMetadata(deps),
+  );
+  // Serialize the content after the reservation resolves so the last of the
+  // concurrent writers reflects the fullest batch.
+  updateMessageContent(
+    rowId,
+    JSON.stringify(buildToolResultBlocks(state.pendingToolResults)),
+  );
+  recordPersistedSeq(deps.ctx.conversationId, seq);
+  const conv = getConversation(deps.ctx.conversationId);
+  if (conv != null) {
+    syncMessageToDisk(deps.ctx.conversationId, rowId, conv.createdAt);
+  }
+}
+
+/**
+ * Finalize the grouped tool-result row at a turn/loop boundary: ensure the row
+ * is reserved (a fallback for the case where every on-arrival write failed),
+ * rewrite it to the full batch, sync it to disk, index it for memory recall,
+ * and clear the batch state. Shared by `message_complete` and the orchestrator
+ * loop-exit flush so an aborted or yielded turn finalizes the same reserved row
+ * instead of writing a duplicate.
+ */
+export async function finalizePendingToolResultRow(
+  state: EventHandlerState,
+  conversationId: string,
+  metadata: Record<string, unknown>,
+  rlog: pino.Logger,
+): Promise<void> {
+  if (state.pendingToolResults.size === 0) return;
+  const rowId = await ensureToolResultRowReserved(
+    state,
+    conversationId,
+    metadata,
+  );
+  const contentJson = JSON.stringify(
+    buildToolResultBlocks(state.pendingToolResults),
+  );
+  updateMessageContent(rowId, contentJson);
+  // Sync the row to the JSONL disk view so it stays in lockstep with the DB.
+  // `getConversation` returns `ConversationRow | null`, so `!= null` gates on a
+  // real row (skipping the sync when the conversation was not found rather than
+  // asking the disk-view to resolve a missing id).
+  const conv = getConversation(conversationId);
+  if (conv != null) {
+    syncMessageToDisk(conversationId, rowId, conv.createdAt);
+  }
+  // `reserveMessage` + `updateMessageContent` are CRUD-only, so index the
+  // finalized tool-result content explicitly here (mirroring the assistant-row
+  // finalize) once it is durable. Non-fatal: a memory hiccup must not escalate
+  // a successful turn into a throw.
+  const row = getMessageById(rowId, conversationId);
+  if (row) {
+    let provenanceTrustClass:
+      | "guardian"
+      | "trusted_contact"
+      | "unverified_contact"
+      | "unknown"
+      | undefined;
+    let automated: boolean | undefined;
+    if (row.metadata) {
+      try {
+        const parsedMeta = messageMetadataSchema.safeParse(
+          JSON.parse(row.metadata),
+        );
+        if (parsedMeta.success) {
+          provenanceTrustClass = parsedMeta.data.provenanceTrustClass;
+          automated = parsedMeta.data.automated;
+        }
+      } catch {
+        // Malformed metadata JSON — index with undefined provenance fields.
+      }
+    }
+    try {
+      await indexMessageNow(
+        {
+          messageId: rowId,
+          conversationId,
+          role: "user",
+          content: contentJson,
+          createdAt: row.createdAt,
+          scopeId: "default",
+          provenanceTrustClass,
+          automated,
+        },
+        getConfig().memory,
+      );
+    } catch (err) {
+      rlog.warn(
+        { err, conversationId, messageId: rowId },
+        "Failed to index tool-result message for memory (non-fatal)",
+      );
+    }
+  }
+  for (const id of state.pendingToolResults.keys()) {
+    state.persistedToolUseIds.add(id);
+  }
+  state.pendingToolResults.clear();
+  state.pendingToolResultRowReservation = undefined;
+}
+
+export async function handleToolResult(
   state: EventHandlerState,
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "tool_result" }>,
-): void {
+): Promise<void> {
   // A synthesized cancellation (the tool never executed) is captured for
   // persistence and forwarded to the client like any result, but skips every
   // side effect that assumes the tool ran. A real result already captured or
@@ -961,6 +1259,19 @@ export function handleToolResult(
       messageId: state.lastAssistantMessageId,
       toolUseId: event.toolUseId,
     });
+    // Capture the seq synchronously (before the persist await) so it reflects
+    // the just-stamped tool_result event, then persist on arrival. A failure
+    // here is non-fatal: the buffered result is still drained at
+    // `message_complete`.
+    const cancelledSeq = getCurrentSeq();
+    try {
+      await persistPendingToolResultRow(state, deps, cancelledSeq);
+    } catch (err) {
+      log.warn(
+        { err, conversationId: deps.ctx.conversationId },
+        "Failed to persist cancelled tool result on arrival (non-fatal; retried at message_complete)",
+      );
+    }
     return;
   }
 
@@ -981,8 +1292,9 @@ export function handleToolResult(
   });
 
   // Record tool completion timestamp
+  const completedAt = Date.now();
   const ts = state.toolCallTimestamps.get(event.toolUseId);
-  if (ts) ts.completedAt = Date.now();
+  if (ts) ts.completedAt = completedAt;
   state.currentToolUseId = undefined;
 
   // Capture risk metadata when present. autoApproved is true when the tool
@@ -1012,6 +1324,13 @@ export function handleToolResult(
       riskAllowlistOptions: event.riskAllowlistOptions,
       riskDirectoryScopeOptions: event.riskDirectoryScopeOptions,
     });
+  }
+
+  // Capture tool activity (web_search / web_fetch) so it can be persisted on
+  // the tool_use block and the activity card survives a history reopen,
+  // matching the live tool_result event's activityMetadata.
+  if (event.activityMetadata) {
+    state.toolActivityMetadata.set(event.toolUseId, event.activityMetadata);
   }
 
   const toolName = state.toolUseIdToName.get(event.toolUseId);
@@ -1094,7 +1413,60 @@ export function handleToolResult(
     approvalReason: event.approvalReason,
     riskThreshold: event.riskThreshold,
     activityMetadata: event.activityMetadata,
+    completedAt,
   });
+
+  // Capture the seq synchronously (before the persist await) so it reflects the
+  // just-stamped tool_result event, then persist the grouped row on arrival. A
+  // failure here is non-fatal: the buffered result is still drained at
+  // `message_complete`.
+  const resultSeq = getCurrentSeq();
+  try {
+    await persistPendingToolResultRow(state, deps, resultSeq);
+  } catch (err) {
+    log.warn(
+      { err, conversationId: deps.ctx.conversationId },
+      "Failed to persist tool result on arrival (non-fatal; retried at message_complete)",
+    );
+  }
+}
+
+/**
+ * Stamp `_startedAt` onto the in-flight tool_use block in the persisted
+ * assistant message the moment the tool begins. The block is already durable
+ * (message_complete precedes tool events), so without this a `/messages`
+ * snapshot fetched mid-tool would carry no start time and clients could not
+ * render a running elapsed-time counter until the whole turn finished. The
+ * full timing + risk annotation still happens in
+ * `annotatePersistedAssistantMessage` once every tool in the turn completes.
+ */
+function recordToolStartOnPersistedMessage(
+  state: EventHandlerState,
+  toolUseId: string,
+  startedAt: number,
+): void {
+  const messageId = state.lastAssistantMessageId;
+  if (!messageId) return;
+
+  const row = getMessageById(messageId);
+  if (!row) return;
+
+  let content: ContentBlock[];
+  try {
+    content = JSON.parse(row.content) as ContentBlock[];
+  } catch {
+    return;
+  }
+
+  for (const block of content) {
+    if (block.type !== "tool_use") continue;
+    const rec = block as unknown as Record<string, unknown>;
+    if (rec.id !== toolUseId) continue;
+    if (rec._startedAt === startedAt) return;
+    rec._startedAt = startedAt;
+    updateMessageContent(messageId, JSON.stringify(content));
+    return;
+  }
 }
 
 /**
@@ -1166,6 +1538,16 @@ function annotatePersistedAssistantMessage(
           rec._riskDirectoryScopeOptions = risk.riskDirectoryScopeOptions;
         modified = true;
       }
+      // External provider tools (brave/perplexity/tavily) + web_fetch produce
+      // their activity only when the tool_result lands, after message_complete
+      // has already persisted this block — so it is stamped here. Native
+      // server_tool_use activity is stamped earlier, at persist time, in
+      // `buildPersistedAssistantContent`.
+      const activity = state.toolActivityMetadata.get(id);
+      if (activity) {
+        rec._activityMetadata = activity;
+        modified = true;
+      }
     }
   }
 
@@ -1184,6 +1566,13 @@ function annotatePersistedAssistantMessage(
         display: surface.display,
         ...(surface.persistent ? { persistent: true } : {}),
         ...(surface.toolCallId ? { toolCallId: surface.toolCallId } : {}),
+        // Daemon-only commit-timing activation tag, persisted so
+        // restoreSurfaceStateFromHistory can rehydrate it after a reload. This
+        // block lives only in server-side conversation history, never in the
+        // client `ui_surface_show` message.
+        ...(surface.activationMoment
+          ? { activationMoment: surface.activationMoment }
+          : {}),
       } as unknown as ContentBlock);
     }
     modified = true;
@@ -1203,61 +1592,32 @@ function handleError(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "error" }>,
 ): void {
-  if (isProviderOrderingError(event.error.message)) {
-    state.orderingErrorDetected = true;
-    state.deferredOrderingError = event.error.message;
-  } else if (isContextOverflowError(event.error)) {
-    // Typed path — the provider client already classified this as overflow.
-    state.contextTooLargeDetected = true;
-    state.contextTooLargeError = event.error;
-  } else if (isContextTooLarge(event.error.message)) {
-    state.contextTooLargeDetected = true;
-    state.contextTooLargeError = event.error;
-  } else {
-    const classified = classifyConversationError(event.error, {
-      phase: "agent_loop",
-    });
-    if (classified.code === "CONTEXT_TOO_LARGE") {
-      state.contextTooLargeDetected = true;
-      state.contextTooLargeError = event.error;
-    } else if (classified.code === "IMAGE_TOO_LARGE") {
-      // Trigger silent recovery: the agent loop will strip/downscale images
-      // in ctx.messages and retry once before surfacing an error.
-      state.imageTooLargeDetected = true;
-    } else if (
-      classified.code === "PROVIDER_ORDERING" ||
-      classified.code === "PROVIDER_WEB_SEARCH"
-    ) {
-      // Ordering errors detected via classifyConversationError (e.g. from ProviderError
-      // with statusCode 400 and ordering message) — trigger the retry path.
-      state.orderingErrorDetected = true;
-      state.deferredOrderingError = event.error.message;
-    } else {
-      if (classified.errorCategory === "provider_api_error") {
-        log.error(
-          {
-            conversationId: deps.ctx.conversationId,
-            errorCode: classified.code,
-            errorCategory: classified.errorCategory,
-            statusCode:
-              event.error instanceof ProviderError
-                ? event.error.statusCode
-                : undefined,
-            provider:
-              event.error instanceof ProviderError
-                ? event.error.provider
-                : undefined,
-            errorMessage: event.error.message,
-          },
-          "Provider rejected request with unclassified 4xx error",
-        );
-      }
-      deps.onEvent(
-        buildConversationErrorMessage(deps.ctx.conversationId, classified),
-      );
-      state.providerErrorUserMessage = classified.userMessage;
-    }
+  const classified = classifyConversationError(event.error, {
+    phase: "agent_loop",
+  });
+  if (classified.errorCategory === "provider_api_error") {
+    log.error(
+      {
+        conversationId: deps.ctx.conversationId,
+        errorCode: classified.code,
+        errorCategory: classified.errorCategory,
+        statusCode:
+          event.error instanceof ProviderError
+            ? event.error.statusCode
+            : undefined,
+        provider:
+          event.error instanceof ProviderError
+            ? event.error.provider
+            : undefined,
+        errorMessage: event.error.message,
+      },
+      "Provider rejected request with unclassified 4xx error",
+    );
   }
+  deps.onEvent(
+    buildConversationErrorMessage(deps.ctx.conversationId, classified),
+  );
+  state.providerErrorUserMessage = classified.userMessage;
 }
 
 export function handleMaxTokensReached(
@@ -1328,6 +1688,20 @@ export async function handleMessageComplete(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "message_complete" }>,
 ): Promise<void> {
+  // The model has now received the turn context, so persist any pending
+  // inference-profile-change notification. Guarded by the pending slot so it
+  // fires once per turn; a turn that fails before reaching delivery leaves the
+  // slot unconsumed and re-sends the notice next turn.
+  if (state.pendingNotifiedInferenceProfile != null) {
+    setLastNotifiedInferenceProfile(
+      deps.ctx.conversationId,
+      state.pendingNotifiedInferenceProfile,
+    );
+    deps.ctx.lastNotifiedInferenceProfile =
+      state.pendingNotifiedInferenceProfile;
+    state.pendingNotifiedInferenceProfile = null;
+  }
+
   // Reset per-turn tool tracking for the new turn.
   state.currentTurnToolUseIds = [];
 
@@ -1367,57 +1741,16 @@ export async function handleMessageComplete(
     state.pendingDirectiveDisplayBuffer = "";
   }
 
-  // Persist pending tool results
-  if (state.pendingToolResults.size > 0) {
-    const toolResultBlocks = Array.from(state.pendingToolResults.entries()).map(
-      ([toolUseId, result]) => ({
-        type: "tool_result",
-        tool_use_id: toolUseId,
-        content: redactSecrets(result.content),
-        is_error: result.isError,
-        ...(result.contentBlocks
-          ? {
-              contentBlocks: result.contentBlocks.map((block) =>
-                block.type === "text"
-                  ? { ...block, text: redactSecrets(block.text) }
-                  : block,
-              ),
-            }
-          : {}),
-      }),
-    );
-    const toolResultMetadata = {
-      ...provenanceFromTrustContext(deps.ctx.trustContext),
-      userMessageChannel: deps.turnChannelContext.userMessageChannel,
-      assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
-      userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
-      assistantMessageInterface:
-        deps.turnInterfaceContext.assistantMessageInterface,
-    };
-    // Persist the tool-result row, then sync it to the JSONL disk view so
-    // the disk view stays in lockstep with the DB. `getConversation`
-    // returns `ConversationRow | null`, so `!= null` gates on a real row
-    // (skipping the sync when the conversation was not found rather than
-    // asking the disk-view to resolve a missing id).
-    const convForToolResult = getConversation(deps.ctx.conversationId);
-    const toolResultRow = await addMessage(
-      deps.ctx.conversationId,
-      "user",
-      JSON.stringify(toolResultBlocks),
-      { metadata: toolResultMetadata },
-    );
-    if (convForToolResult != null) {
-      syncMessageToDisk(
-        deps.ctx.conversationId,
-        toolResultRow.id,
-        convForToolResult.createdAt,
-      );
-    }
-    for (const id of state.pendingToolResults.keys()) {
-      state.persistedToolUseIds.add(id);
-    }
-    state.pendingToolResults.clear();
-  }
+  // Finalize the grouped tool-result row. Each result was persisted into this
+  // row as it arrived (`persistPendingToolResultRow`); this rewrites it to the
+  // full batch (covering the case where a mid-arrival write failed), indexes it
+  // for memory recall, and clears the batch state.
+  await finalizePendingToolResultRow(
+    state,
+    deps.ctx.conversationId,
+    buildToolResultMetadata(deps),
+    deps.rlog,
+  );
 
   // Accumulate directives + warnings from the assistant content for
   // downstream attachment processing. `cleanAssistantContent` is also
@@ -1452,9 +1785,13 @@ export async function handleMessageComplete(
   // redacted) via the shared helper. The partial-persist flush uses
   // the same helper with `surfaces=[]` so a mid-turn snapshot lands in
   // the same shape as the finalize.
-  const contentForPersistence = buildPersistedAssistantContent(
-    event.message.content as ContentBlock[],
-    deps.ctx.currentTurnSurfaces,
+  const contentForPersistence = stampThinkingTiming(
+    buildPersistedAssistantContent(
+      event.message.content as ContentBlock[],
+      deps.ctx.currentTurnSurfaces,
+      state.toolActivityMetadata,
+    ),
+    state.currentThinkingTimestamps,
   );
 
   // The row was reserved at `llm_call_started` (with channel metadata
@@ -1473,16 +1810,22 @@ export async function handleMessageComplete(
   const contentJson = JSON.stringify(contentForPersistence);
   updateMessageContent(assistantMessageId, contentJson);
   state.assistantRowAwaitingFinalization = false;
-  // The full message row (text + tool_use blocks from `event.message`) is
-  // now durable. `tool_use_start` SSE events fire after `message_complete`,
-  // so the last stamped event at this point is the final text delta;
-  // recording its seq is honest and never over-claims unpersisted state.
-  if (state.lastStreamedContentSeq != null) {
-    recordPersistedSeq(deps.ctx.conversationId, state.lastStreamedContentSeq);
+  // The assistant row now holds the authoritative content (text + thinking +
+  // tool_use blocks from `event.message`), and any drained tool-result rows
+  // are durable. `lastPersistedContentSeq` is the last streamed text/thinking
+  // delta's seq -- the highest stamped content event this row reflects -- so
+  // recording it is honest. A drained tool result was stamped earlier in the
+  // turn, so this seq already covers it; a call that streams no content (a
+  // pure tool call) advances instead via `tool_use_start`. `recordPersistedSeq`
+  // clamps monotonically, so a lower value here never regresses the seq.
+  if (state.lastPersistedContentSeq != null) {
+    recordPersistedSeq(deps.ctx.conversationId, state.lastPersistedContentSeq);
   }
   // Reset the partial-persist mirror so subsequent calls in this turn
   // start with an empty running view.
   state.currentMessageContent = [];
+  state.currentThinkingTimestamps = [];
+  state.lastPersistedContentSeq = undefined;
 
   // ── Indexing + attention projection ──
   // `reserveMessage` + `updateMessageContent` are CRUD-only: they don't run
@@ -1503,6 +1846,7 @@ export async function handleMessageComplete(
     let provenanceTrustClass:
       | "guardian"
       | "trusted_contact"
+      | "unverified_contact"
       | "unknown"
       | undefined;
     let automated: boolean | undefined;
@@ -1602,6 +1946,18 @@ export async function handleMessageComplete(
     deps.rlog.warn(
       { err },
       "Failed to backfill memory v2 activation log messageId (non-fatal)",
+    );
+  }
+
+  try {
+    backfillMemoryV3SelectionMessageId(
+      deps.ctx.conversationId,
+      assistantMessageId,
+    );
+  } catch (err) {
+    deps.rlog.warn(
+      { err },
+      "Failed to backfill memory v3 selection messageId (non-fatal)",
     );
   }
 
@@ -1820,7 +2176,7 @@ export async function dispatchAgentEvent(
         handleInputJsonDelta(state, deps, event);
         break;
       case "tool_result":
-        handleToolResult(state, deps, event);
+        await handleToolResult(state, deps, event);
         break;
       case "server_tool_start": {
         const query =
@@ -1964,6 +2320,14 @@ export async function dispatchAgentEvent(
           .map((r) => `${r.title}\n${r.url}`)
           .join("\n\n");
 
+        // Capture activity so it persists on the server_tool_use block and the
+        // web-search card survives a history reopen, matching the live event.
+        if (metadata) {
+          state.toolActivityMetadata.set(event.toolUseId, {
+            webSearch: metadata,
+          });
+        }
+
         deps.onEvent({
           type: "tool_result",
           toolName: "web_search",
@@ -1977,6 +2341,10 @@ export async function dispatchAgentEvent(
         break;
       }
       case "context_compacting":
+        recordCompactionStartBestEffort(deps.ctx.conversationId, event);
+        // Buffer the pre-compaction history so the paired end event can
+        // re-derive the stripped durable base.
+        state.compactionStartMessages.set(event.compactionId, event.messages);
         deps.ctx.emitActivityState("thinking", "context_compacting", {
           requestId: deps.reqId,
           statusText: "Compacting context",
@@ -1990,24 +2358,34 @@ export async function dispatchAgentEvent(
         // banner.
         deps.onEvent(event);
         break;
-      case "compaction_completed":
-        // Always commit the loop-stripped `basis` as the durable message base
-        // so re-injection re-applies onto the stripped history even when the
-        // pipeline ran but did not compact. When it did compact, commit the
-        // durable result (DB-record fields, Slack provenance, SSE) — which
-        // overwrites `ctx.messages` with the compacted history — and flip the
-        // per-turn re-injection guards the orchestrator reads. This runs
-        // before the loop's `reinject` hook (the loop awaits this dispatch),
-        // so the guards are set in time. A failed durable commit re-throws
-        // below to abort the turn rather than re-injecting against
-        // half-applied state.
-        deps.ctx.messages = event.basis;
-        if (event.result.compacted) {
-          await deps.applyCompaction(event.result, event.basis);
-          state.reducerCompacted = true;
-          state.shouldInjectWorkspace = true;
+      case "compaction_completed": {
+        // Always commit the stripped pre-compaction history as the durable
+        // message base so re-injection re-applies onto the stripped history
+        // even when the pipeline ran but did not compact. The base is
+        // re-derived from the buffered start event's messages (the end event
+        // carries only the pipeline's output). When the pipeline did compact,
+        // commit the durable result (DB-record fields, Slack provenance,
+        // SSE) — which overwrites `ctx.messages` with the compacted history.
+        // This runs before the loop's `reinject` hook (the loop awaits this
+        // dispatch), so the committed history is in place in time. A failed
+        // durable commit re-throws below to abort the turn rather than
+        // re-injecting against half-applied state.
+        recordCompactionEndBestEffort(deps.ctx.conversationId, event);
+        const startMessages = state.compactionStartMessages.get(
+          event.compactionId,
+        );
+        state.compactionStartMessages.delete(event.compactionId);
+        // Fall back to the pipeline's output when the start event was never
+        // buffered — on the no-compaction path it is the stripped input.
+        const strippedBase = startMessages
+          ? stripInjectionsForCompaction(startMessages)
+          : event.messages;
+        deps.ctx.messages = strippedBase;
+        if (event.compacted) {
+          await deps.applyCompaction(event, strippedBase);
         }
         break;
+      }
       case "history_stripped":
         // Record the history-stripped DB marker right after the loop strips
         // injections (before the pipeline). Best-effort: a transient marker
@@ -2057,6 +2435,9 @@ export async function dispatchAgentEvent(
           );
         }
         break;
+      case "system_prompt_changed":
+        deps.ctx.systemPrompt = event.systemPrompt;
+        break;
     }
   } catch (err) {
     log.error(
@@ -2065,7 +2446,8 @@ export async function dispatchAgentEvent(
     );
     // Re-throw errors from critical handlers that must not be silently swallowed:
     // - message_complete: persists assistant message to DB, sets state flags
-    // - error: sets recovery flags (contextTooLargeDetected, orderingErrorDetected)
+    // - error: triggers image recovery or surfaces the user-facing error
+    //   message
     // - usage: records token accounting
     // - compaction_completed: durable compaction commit; aborting the turn is
     //   safer than re-injecting against a half-applied compaction

@@ -19,10 +19,16 @@
 import { readFileSync } from "node:fs";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { Readable } from "node:stream";
 
 import { stringify } from "yaml";
 import { z } from "zod";
+import type {
+  oas31,
+  ZodOpenApiOperationObject,
+  ZodOpenApiPathsObject,
+  ZodOpenApiResponseObject,
+} from "zod-openapi";
+import { createDocument } from "zod-openapi";
 
 const ROOT = resolve(import.meta.dir, "..");
 const ROUTES_DIR = join(ROOT, "src/runtime/routes");
@@ -46,13 +52,13 @@ const RouteQueryParamSchema = z.object({
  * JSON-Schema-style object for backward compatibility with inline routes.
  */
 const RouteBodySchemaSchema = z.any().refine(
-  (v) =>
+  (v): v is z.ZodType | oas31.SchemaObject =>
     v != null &&
     typeof v === "object" &&
     // Zod schema instance (Zod 4 uses _zod branded property)
     ("_zod" in v ||
       // Plain JSON Schema fallback
-      typeof (v as Record<string, unknown>).type === "string"),
+      "type" in v),
   { message: "Expected a Zod schema or a plain JSON Schema object" },
 );
 
@@ -111,67 +117,29 @@ const RouteEntrySchema = z.object({
 
 type RouteEntry = z.infer<typeof RouteEntrySchema>;
 
-/** JSON Schema representation of a body (for the OpenAPI spec output). */
-interface JSONSchemaObject {
-  type?: string;
-  properties?: Record<string, unknown>;
-  required?: string[];
-  description?: string;
-  additionalProperties?: boolean;
-  [key: string]: unknown;
+type ContentSchema = z.ZodType | oas31.SchemaObject;
+
+type HttpStatusCode = `${1 | 2 | 3 | 4 | 5}${string}`;
+
+function toHttpStatus(status: string): HttpStatusCode {
+  if (!/^[1-5]\d{2}$/.test(status)) {
+    throw new Error(`Invalid HTTP status code: ${status}`);
+  }
+  return status as HttpStatusCode;
 }
 
 /**
- * Recursively strip fields with a `default` from `required[]` on every
- * object schema in the tree. Zod 4's `toJSONSchema` (output mode) marks
- * defaulted fields as required because the output always carries them,
- * but for request bodies the server fills the default when the client
- * omits the field — generated clients should not be forced to send it.
+ * Resolve a schema source to a value suitable for zod-openapi's
+ * `schema` field. If it's a Zod schema, pass it through directly (so
+ * createDocument can extract components and produce $ref pointers).
+ * For plain JSON Schema objects (backward compat), pass as-is —
+ * createDocument accepts SchemaObject too.
  */
-function dropDefaultedFromRequired(node: unknown): void {
-  if (node == null || typeof node !== "object") return;
-  if (Array.isArray(node)) {
-    for (const item of node) dropDefaultedFromRequired(item);
-    return;
+function resolveSchemaForDocument(schemaSource: unknown): ContentSchema {
+  if (schemaSource == null || typeof schemaSource !== "object") {
+    return { type: "object" } satisfies oas31.SchemaObject;
   }
-  const obj = node as Record<string, unknown>;
-  const props = obj.properties;
-  const required = obj.required;
-  if (Array.isArray(required) && props != null && typeof props === "object") {
-    const propsRecord = props as Record<string, unknown>;
-    const filtered = required.filter((name) => {
-      if (typeof name !== "string") return true;
-      const prop = propsRecord[name];
-      return !(
-        prop != null &&
-        typeof prop === "object" &&
-        "default" in (prop as Record<string, unknown>)
-      );
-    });
-    if (filtered.length > 0) obj.required = filtered;
-    else delete obj.required;
-  }
-  for (const value of Object.values(obj)) dropDefaultedFromRequired(value);
-}
-
-/** Convert a Zod schema or plain JSON Schema object to a JSON Schema object. */
-function toJSONSchemaObject(
-  schema: unknown,
-  options: { stripRequiredDefaults?: boolean } = {},
-): JSONSchemaObject {
-  if (schema == null || typeof schema !== "object") return {};
-  // Zod schema: has _zod branded property
-  if ("_zod" in (schema as Record<string, unknown>)) {
-    const converted = z.toJSONSchema(schema as z.ZodType, {
-      unrepresentable: "any",
-    });
-    // z.toJSONSchema may add $schema — strip it for inline embedding
-    const { $schema: _, ...rest } = converted as Record<string, unknown>;
-    if (options.stripRequiredDefaults) dropDefaultedFromRequired(rest);
-    return rest as JSONSchemaObject;
-  }
-  // Plain JSON Schema object (backward compat for inline/pre-auth routes)
-  return schema as JSONSchemaObject;
+  return schemaSource as ContentSchema;
 }
 
 // ---------------------------------------------------------------------------
@@ -302,46 +270,26 @@ interface OpenApiParameter {
   description?: string;
 }
 
-interface OpenApiResponse {
-  description: string;
-  content?: Record<string, { schema: JSONSchemaObject }>;
-}
-
-interface OpenApiOperation {
-  operationId: string;
-  summary?: string;
-  description?: string;
-  tags?: string[];
-  parameters?: OpenApiParameter[];
-  requestBody?: {
-    required: boolean;
-    content: Record<string, { schema: JSONSchemaObject }>;
-  };
-  responses: Record<string, OpenApiResponse>;
-}
-
 /**
  * Resolve a body declaration (request or success response) into its media type
  * and the schema source to convert. A bare Zod/JSON schema is advertised as
  * `application/json`; the explicit `{ contentType, schema }` form carries its
  * own media type (e.g. `application/octet-stream` for binary bodies).
  */
+function hasContentType(
+  body: unknown,
+): body is { contentType: string; schema: unknown } {
+  return typeof body === "object" && body !== null && "contentType" in body;
+}
+
 function resolveBodyContent(body: unknown): {
   contentType: string;
   schemaSource: unknown;
 } {
-  const hasContentType =
-    typeof body === "object" && body !== null && "contentType" in body;
-  return {
-    contentType: hasContentType
-      ? (body as { contentType: string }).contentType
-      : "application/json",
-    schemaSource: hasContentType ? (body as { schema: unknown }).schema : body,
-  };
-}
-
-interface OpenApiPathItem {
-  [method: string]: OpenApiOperation;
+  if (hasContentType(body)) {
+    return { contentType: body.contentType, schemaSource: body.schema };
+  }
+  return { contentType: "application/json", schemaSource: body };
 }
 
 /** Derive a tag name from a route module filename (e.g. "secret-routes.ts" → "secrets"). */
@@ -401,14 +349,22 @@ function buildSpec(
     return a.method.localeCompare(b.method);
   });
 
-  // Build paths object
-  const paths: Record<string, OpenApiPathItem> = {};
+  // Build paths object for zod-openapi's createDocument
+  const paths: ZodOpenApiPathsObject = {};
   for (const route of uniqueRoutes) {
     if (!paths[route.path]) {
       paths[route.path] = {};
     }
 
-    const methodLower = route.method.toLowerCase();
+    const methodLower = route.method.toLowerCase() as
+      | "get"
+      | "post"
+      | "put"
+      | "patch"
+      | "delete"
+      | "options"
+      | "head"
+      | "trace";
     const operationId = route.path.startsWith("/v1/")
       ? toOperationId(route.endpoint, route.method)
       : route.path.replace(/^\//, "").replace(/[/{}\-]/g, "_") +
@@ -448,8 +404,8 @@ function buildSpec(
     // Build the operation. Default success status is 200; async endpoints
     // that enqueue a job and return immediately set responseStatus: "202"
     // so the generated spec matches the handler's actual response code.
-    const successStatus = entry.responseStatus ?? "200";
-    let successResponse: OpenApiResponse = {
+    const successStatus = toHttpStatus(entry.responseStatus ?? "200");
+    let successResponse: ZodOpenApiResponseObject = {
       description: "Successful response",
     };
     if (entry.responseBody) {
@@ -459,11 +415,13 @@ function buildSpec(
       successResponse = {
         description: "Successful response",
         content: {
-          [contentType]: { schema: toJSONSchemaObject(schemaSource) },
+          [contentType]: {
+            schema: resolveSchemaForDocument(schemaSource),
+          },
         },
       };
     }
-    const operation: OpenApiOperation = {
+    const operation: ZodOpenApiOperationObject = {
       operationId,
       ...(entry.summary ? { summary: entry.summary } : {}),
       ...(entry.description ? { description: entry.description } : {}),
@@ -477,10 +435,6 @@ function buildSpec(
       operation.parameters = parameters;
     }
 
-    // A bare Zod/JSON schema is advertised as `application/json`; the
-    // explicit `{ contentType, schema }` form lets a route declare a non-JSON
-    // body (e.g. a raw `application/octet-stream` upload) so the generated SDK
-    // describes a real body type instead of `never`.
     if (entry.requestBody) {
       const { contentType, schemaSource } = resolveBodyContent(
         entry.requestBody,
@@ -489,9 +443,7 @@ function buildSpec(
         required: true,
         content: {
           [contentType]: {
-            schema: toJSONSchemaObject(schemaSource, {
-              stripRequiredDefaults: true,
-            }),
+            schema: resolveSchemaForDocument(schemaSource),
           },
         },
       };
@@ -500,13 +452,13 @@ function buildSpec(
     // Extra documented response variants (e.g. 502 fetch_failed).
     if (entry.additionalResponses) {
       for (const [status, resp] of Object.entries(entry.additionalResponses)) {
-        operation.responses[status] = {
+        operation.responses[toHttpStatus(status)] = {
           description: resp.description,
           ...(resp.schema
             ? {
                 content: {
                   "application/json": {
-                    schema: toJSONSchemaObject(resp.schema),
+                    schema: resolveSchemaForDocument(resp.schema),
                   },
                 },
               }
@@ -518,7 +470,7 @@ function buildSpec(
     paths[route.path][methodLower] = operation;
   }
 
-  return {
+  return createDocument({
     openapi: "3.1.0",
     info: {
       title: "Vellum Assistant API",
@@ -533,7 +485,7 @@ function buildSpec(
       },
     ],
     paths,
-  };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -563,10 +515,8 @@ async function main() {
     stringify(spec, { lineWidth: 120 });
 
   // Format with prettier so the output matches what the pre-commit hook produces.
-  // Use a Node.js Readable stream for stdin — Bun.spawn with Blob stdin produces
-  // empty output on some platforms (Bun 1.3.x Linux sandbox).
   const prettierProc = Bun.spawn(["bunx", "prettier", "--parser", "yaml"], {
-    stdin: Readable.from([rawYaml]) as unknown as Blob,
+    stdin: new Blob([rawYaml]),
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -661,10 +611,12 @@ async function main() {
   await writeFile(OUTPUT_PATH, yamlOutput);
 
   // Count stats
-  const pathCount = Object.keys(spec.paths as Record<string, unknown>).length;
-  const operationCount = Object.values(
-    spec.paths as Record<string, Record<string, unknown>>,
-  ).reduce((n, methods) => n + Object.keys(methods).length, 0);
+  const paths = spec.paths ?? {};
+  const pathCount = Object.keys(paths).length;
+  const operationCount = Object.values(paths).reduce(
+    (n, methods) => n + Object.keys(methods ?? {}).length,
+    0,
+  );
 
   console.log(`Generated ${OUTPUT_PATH}`);
   console.log(`  ${pathCount} paths, ${operationCount} operations`);

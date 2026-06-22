@@ -82,6 +82,13 @@ const CATALOG_RECORD: CatalogRecord = {
     description: "Handles voice call conversations.",
     domain: "agentLoop",
   },
+  workflowLeaf: {
+    id: "workflowLeaf",
+    displayName: "Workflow Leaf",
+    description:
+      "Runs an ephemeral leaf agent fanned out by the workflow orchestration engine.",
+    domain: "agentLoop",
+  },
 
   // memory
   memoryExtraction: {
@@ -119,13 +126,6 @@ const CATALOG_RECORD: CatalogRecord = {
     displayName: "Memory Router",
     description:
       "Selects which concept pages to inject for the next agent turn by routing over a cached page index.",
-    domain: "memory",
-  },
-  memoryV3RouteL1: {
-    id: "memoryV3RouteL1",
-    displayName: "Memory V3 L1 Router",
-    description:
-      "Picks which leaves of the topic tree to open for the next agent turn by routing over a cache-warm static leaf block.",
     domain: "memory",
   },
   memoryV3SelectL2: {
@@ -300,19 +300,19 @@ const CATALOG_RECORD: CatalogRecord = {
     description: "General-purpose LLM inference call site for skill use.",
     domain: "skills",
   },
-  proactiveArtifactDecision: {
-    id: "proactiveArtifactDecision",
-    displayName: "Proactive Artifact Decision",
+  advisor: {
+    id: "advisor",
+    displayName: "Advisor",
     description:
-      "Decides what personalized artifact to build for new users based on conversation context.",
-    domain: "agentLoop",
+      "Stronger reviewer model consulted mid-task to shape or pressure-test the plan.",
+    domain: "skills",
   },
-  proactiveArtifactBuild: {
-    id: "proactiveArtifactBuild",
-    displayName: "Proactive Artifact Build",
+  vision: {
+    id: "vision",
+    displayName: "Vision",
     description:
-      "Builds the personalized artifact in a background conversation with tool access.",
-    domain: "agentLoop",
+      "Captions images via a vision-capable profile for text-only model fallback.",
+    domain: "skills",
   },
   homeGreeting: {
     id: "homeGreeting",

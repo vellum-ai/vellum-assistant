@@ -33,7 +33,7 @@ mock.module("../../config/loader.js", () => ({
 
 import { DEFAULT_CONFIG } from "../../config/defaults.js";
 import type { AssistantConfig } from "../../config/types.js";
-import { getDb } from "../db-connection.js";
+import { getMemoryDb } from "../db-connection.js";
 import { initializeDb } from "../db-init.js";
 import {
   claimMemoryJobs,
@@ -62,13 +62,13 @@ function makeJob(payload: Record<string, unknown>): MemoryJob {
 }
 
 describe("embedPkbFileJob", () => {
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   beforeEach(() => {
     indexPkbFileCalls.length = 0;
-    const db = getDb();
+    const db = getMemoryDb()!;
     db.delete(memoryJobs).run();
   });
 
@@ -116,13 +116,13 @@ describe("embedPkbFileJob", () => {
 });
 
 describe("enqueuePkbIndexJob", () => {
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   beforeEach(() => {
     indexPkbFileCalls.length = 0;
-    const db = getDb();
+    const db = getMemoryDb()!;
     db.delete(memoryJobs).run();
   });
 

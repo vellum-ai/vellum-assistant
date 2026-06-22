@@ -16,6 +16,7 @@ const fullDefault = {
   speed: "standard" as const,
   verbosity: "medium" as const,
   temperature: null,
+  topP: null,
   thinking: { enabled: true, streamThinking: true },
   contextWindow: {
     enabled: true,
@@ -203,6 +204,26 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.effort).toBe("max");
   });
 
+  test("topP defaults to null when no profile or override sets it", () => {
+    const llm = LLMSchema.parse({ default: fullDefault });
+    const resolved = resolveCallSiteConfig("mainAgent", llm);
+    expect(resolved.topP).toBeNull();
+  });
+
+  test("profile-level topP resolves onto the merged config", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        nucleus: { topP: 0.9 },
+      },
+      callSites: {
+        memoryExtraction: { profile: "nucleus" },
+      },
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+    expect(resolved.topP).toBe(0.9);
+  });
+
   test("returns isolated nested objects (not aliased to llm.default)", () => {
     // Resolve a call site that has no override touching `thinking` or
     // `contextWindow` — the bug being guarded against would have those
@@ -339,6 +360,97 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.speed).toBe("fast");
     // Active profile wins where neither override nor callsite touches.
     expect(resolved.verbosity).toBe("low");
+  });
+
+  test("forceOverrideProfile floats the override profile above site profile and callsite fields for non-main call sites", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        active: { verbosity: "low" },
+        sitep: { effort: "none", speed: "fast" },
+        forced: {
+          model: "claude-haiku-4-5",
+          effort: "high",
+          thinking: { enabled: false },
+        },
+      },
+      callSites: {
+        memoryExtraction: { profile: "sitep", maxTokens: 1000 },
+      },
+      activeProfile: "active",
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm, {
+      overrideProfile: "forced",
+      forceOverrideProfile: true,
+    });
+    // Forced override wins over both the site profile and the call-site
+    // override fields it touches.
+    expect(resolved.model).toBe("claude-haiku-4-5");
+    expect(resolved.effort).toBe("high");
+    expect(resolved.thinking.enabled).toBe(false);
+    // Call-site layers still win where the forced profile is silent.
+    expect(resolved.maxTokens).toBe(1000);
+    expect(resolved.speed).toBe("fast");
+    // Active profile still applies under everything.
+    expect(resolved.verbosity).toBe("low");
+  });
+
+  test("forceOverrideProfile absent leaves the override below callsite fields (unchanged precedence)", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        forced: { effort: "high" },
+      },
+      callSites: {
+        memoryExtraction: { effort: "none" },
+      },
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm, {
+      overrideProfile: "forced",
+    });
+    expect(resolved.effort).toBe("none");
+  });
+
+  test("forceOverrideProfile with a missing profile reference falls through to unchanged precedence", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        sitep: { effort: "low", model: "claude-haiku-4-5" },
+      },
+      callSites: {
+        memoryExtraction: { profile: "sitep" },
+      },
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm, {
+      overrideProfile: "nonexistent",
+      forceOverrideProfile: true,
+    });
+    // The missing reference is inert: site profile still wins.
+    expect(resolved.effort).toBe("low");
+    expect(resolved.model).toBe("claude-haiku-4-5");
+  });
+
+  test("forceOverrideProfile is a no-op for mainAgent (override already resolves on top)", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        active: { effort: "low" },
+        override: { effort: "high" },
+      },
+      callSites: {
+        mainAgent: { effort: "none" },
+      },
+      activeProfile: "active",
+    });
+    const withForce = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "override",
+      forceOverrideProfile: true,
+    });
+    const withoutForce = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "override",
+    });
+    expect(withForce).toEqual(withoutForce);
+    expect(withForce.effort).toBe("high");
   });
 
   test("overrideProfile absent leaves prior behavior intact", () => {
@@ -1247,5 +1359,127 @@ describe("resolveDefaultProfileKey", () => {
       activeProfile: "ab",
     });
     expect(resolveDefaultProfileKey("mainAgent", llm)).toBe("balanced");
+  });
+});
+
+describe("resolveCallSiteConfig logitBias provenance", () => {
+  const kimi = "accounts/fireworks/models/kimi-k2p6";
+
+  test("forwards logitBias from the active profile that opted in", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        "balanced-economy": {
+          provider: "fireworks",
+          model: kimi,
+          logitBias: "suppress-cjk",
+        },
+      },
+      activeProfile: "balanced-economy",
+    });
+    expect(resolveCallSiteConfig("mainAgent", llm).logitBias).toBe(
+      "suppress-cjk",
+    );
+  });
+
+  test("a higher-precedence override profile that omits logitBias clears it", () => {
+    // Active profile opts in, but a pinned (override) Kimi profile did not —
+    // the override must not inherit suppress-cjk just because it resolves to
+    // Fireworks.
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        "balanced-economy": {
+          provider: "fireworks",
+          model: kimi,
+          logitBias: "suppress-cjk",
+        },
+        "my-kimi": { provider: "fireworks", model: kimi },
+      },
+      activeProfile: "balanced-economy",
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "my-kimi",
+    });
+    expect(resolved.logitBias).toBeUndefined();
+  });
+
+  test("does not leak the active profile's logitBias into a call site's own profile", () => {
+    // For non-main call sites the call-site profile wins; since it didn't opt
+    // in, the active profile's preset must not bleed through.
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        "balanced-economy": {
+          provider: "fireworks",
+          model: kimi,
+          logitBias: "suppress-cjk",
+        },
+        plain: { provider: "anthropic", model: "claude-opus-4-7" },
+      },
+      activeProfile: "balanced-economy",
+      callSites: { memoryExtraction: { profile: "plain" } },
+    });
+    expect(
+      resolveCallSiteConfig("memoryExtraction", llm).logitBias,
+    ).toBeUndefined();
+  });
+
+  test("a logitBias on a non-profile layer (llm.default) does not apply when the winning profile omits it", () => {
+    const llm = LLMSchema.parse({
+      default: { ...fullDefault, logitBias: "suppress-cjk" },
+      profiles: { plain: { provider: "anthropic", model: "claude-opus-4-7" } },
+      activeProfile: "plain",
+    });
+    expect(resolveCallSiteConfig("mainAgent", llm).logitBias).toBeUndefined();
+  });
+});
+
+describe("resolveCallSiteConfig — workflowLeaf default", () => {
+  test("inherits the workspace default config rather than pinning cost-optimized", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        "cost-optimized": {
+          provider: "anthropic",
+          model: "claude-haiku-4-5-20251001",
+        },
+      },
+    });
+    const resolved = resolveCallSiteConfig("workflowLeaf", llm);
+    // No pinned profile → the model comes from llm.default, NOT the
+    // `cost-optimized` profile (which is uncredentialed on a BYOK install).
+    expect(resolved.model).toBe("claude-opus-4-7");
+    // Call-site tuning still applies.
+    expect(resolved.effort).toBe("low");
+    expect(resolved.thinking?.enabled).toBe(false);
+    // The call site has no implicit default profile key.
+    expect(resolveDefaultProfileKey("workflowLeaf", llm)).toBeUndefined();
+  });
+
+  test("honors an explicit workflowLeaf call-site override", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        cheap: { provider: "anthropic", model: "claude-haiku-4-5-20251001" },
+      },
+      callSites: { workflowLeaf: { profile: "cheap" } },
+    });
+    expect(resolveCallSiteConfig("workflowLeaf", llm).model).toBe(
+      "claude-haiku-4-5-20251001",
+    );
+  });
+
+  test("honors a per-call override profile (an explicit per-leaf profile)", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        fancy: { provider: "anthropic", model: "claude-sonnet-4-7" },
+      },
+    });
+    expect(
+      resolveCallSiteConfig("workflowLeaf", llm, { overrideProfile: "fancy" })
+        .model,
+    ).toBe("claude-sonnet-4-7");
   });
 });

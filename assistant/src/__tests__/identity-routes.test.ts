@@ -27,9 +27,7 @@ import {
   handleReadyz,
   ROUTES,
 } from "../runtime/routes/identity-routes.js";
-import {
-  setCesClient,
-} from "../security/secure-keys.js";
+import { setCesClient } from "../security/secure-keys.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import {
   getHatchedSidecarPath,
@@ -133,6 +131,7 @@ beforeEach(() => {
 
   rmSync(getHatchedSidecarPath(), { force: true });
   rmSync(join(getWorkspaceDir(), "IDENTITY.md"), { force: true });
+  rmSync(join(getWorkspaceDir(), "SOUL.md"), { force: true });
 });
 
 afterEach(() => {
@@ -161,6 +160,7 @@ describe("identity routes — health endpoint", () => {
       expect(body.memory).toBeDefined();
       expect(body.cpu).toBeDefined();
       expect(body.migrations).toBeDefined();
+      expect(body.capabilities).toEqual({ memoryOptOut: true });
 
       // Profiler should either be absent or show enabled: false
       if ("profiler" in body) {
@@ -202,21 +202,30 @@ describe("identity routes — health endpoint", () => {
     });
 
     test("readyz returns 200 when CES is connected and ready", () => {
-      const mockClient = { isReady: () => true, close: () => {} } as unknown as import("../credential-execution/client.js").CesClient;
+      const mockClient = {
+        isReady: () => true,
+        close: () => {},
+      } as unknown as import("../credential-execution/client.js").CesClient;
       setCesClient(mockClient);
       const res = handleReadyz();
       expect(res.status).toBe(200);
     });
 
     test("readyz returns 200 when CES client exists but is not ready", () => {
-      const mockClient = { isReady: () => false, close: () => {} } as unknown as import("../credential-execution/client.js").CesClient;
+      const mockClient = {
+        isReady: () => false,
+        close: () => {},
+      } as unknown as import("../credential-execution/client.js").CesClient;
       setCesClient(mockClient);
       const res = handleReadyz();
       expect(res.status).toBe(200);
     });
 
     test("/v1/health reports ces.connected=true when CES is ready", async () => {
-      const mockClient = { isReady: () => true, close: () => {} } as unknown as import("../credential-execution/client.js").CesClient;
+      const mockClient = {
+        isReady: () => true,
+        close: () => {},
+      } as unknown as import("../credential-execution/client.js").CesClient;
       setCesClient(mockClient);
       const res = handleDetailedHealth();
       const body = (await res.json()) as Record<string, unknown>;
@@ -226,7 +235,10 @@ describe("identity routes — health endpoint", () => {
     });
 
     test("/v1/health reports ces.connected=false when CES is not ready", async () => {
-      const mockClient = { isReady: () => false, close: () => {} } as unknown as import("../credential-execution/client.js").CesClient;
+      const mockClient = {
+        isReady: () => false,
+        close: () => {},
+      } as unknown as import("../credential-execution/client.js").CesClient;
       setCesClient(mockClient);
       const res = handleDetailedHealth();
       const body = (await res.json()) as Record<string, unknown>;

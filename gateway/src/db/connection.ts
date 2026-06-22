@@ -5,6 +5,8 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { getGatewaySecurityDir, getLegacyRootDir } from "../paths.js";
 import * as schema from "./schema.js";
+import { AdmissionPolicyStore } from "./admission-policy-store.js";
+import { seedAdmissionPolicyDefaults } from "./seed-admission-policy.js";
 import { seedTrustRulesFromRegistry } from "./seed-trust-rules.js";
 import { TrustRuleStore } from "./trust-rule-store.js";
 
@@ -193,6 +195,36 @@ export async function initGatewayDb(): Promise<void> {
   raw.exec("PRAGMA busy_timeout=5000");
   raw.exec("PRAGMA foreign_keys=ON");
 
+  // Deduplicate and normalize contact_channels before schema push — the
+  // UNIQUE(type, address) index will fail to create if duplicates exist,
+  // and address must reflect original platform casing for exact lookups.
+  try {
+    raw.exec(/*sql*/ `
+      DELETE FROM contact_channels
+      WHERE id NOT IN (
+        SELECT id FROM (
+          SELECT id,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY type, address COLLATE NOCASE
+                   ORDER BY
+                     CASE status
+                       WHEN 'blocked' THEN 0
+                       WHEN 'revoked' THEN 1
+                       WHEN 'active' THEN 2
+                       WHEN 'unverified' THEN 3
+                       ELSE 4
+                     END,
+                     updated_at DESC
+                 ) AS rn
+          FROM contact_channels
+        )
+        WHERE rn = 1
+      )
+    `);
+  } catch {
+    // Table doesn't exist yet on fresh installs — schema push will create it.
+  }
+
   db = drizzle(raw, { schema });
 
   const { statementsToExecute, apply } = await pushSchemaNoPrompt(schema, db);
@@ -202,6 +234,8 @@ export async function initGatewayDb(): Promise<void> {
 
   const trustRuleStore = new TrustRuleStore(db);
   seedTrustRulesFromRegistry(trustRuleStore);
+
+  seedAdmissionPolicyDefaults(new AdmissionPolicyStore(db));
 }
 
 /**

@@ -126,6 +126,18 @@ describe("readMemoryV2StaticContent", () => {
     expect(text.indexOf("## Recent")).toBeLessThan(text.indexOf("## Buffer"));
   });
 
+  test("excludeBuffer drops the Buffer section but keeps the other three", () => {
+    for (const file of MEMORY_FILES) writeMemoryFile(file, `Content ${file}`);
+
+    const result = readMemoryV2StaticContent({ excludeBuffer: true });
+    expect(result).not.toBeNull();
+    expect(result!).toContain("## Essentials");
+    expect(result!).toContain("## Threads");
+    expect(result!).toContain("## Recent");
+    expect(result!).not.toContain("## Buffer");
+    expect(result!).not.toContain("Content buffer.md");
+  });
+
   test("omits empty files but keeps populated ones", () => {
     writeMemoryFile("essentials.md", "Alice prefers VS Code.");
     writeMemoryFile("threads.md", "");

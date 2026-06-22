@@ -1,80 +1,30 @@
 /**
- * Gateway log tail route — gateway HTTP proxy.
+ * Gateway log tail route — gateway IPC proxy.
  *
- * The handler makes a single HTTP call to the gateway's log-tail API
- * and surfaces the body's `.error` message on non-OK responses.
+ * The handler calls the gateway over the local IPC socket so the assistant
+ * does not need gateway signing material.
  */
-import { z } from "zod";
+import {
+  type GatewayLogsTailIpcResponse,
+  GatewayLogsTailIpcResponseSchema,
+  GatewayLogsTailRouteParamsSchema,
+} from "@vellumai/gateway-client/gateway-ipc-contracts";
 
-import { getGatewayInternalBaseUrl } from "../../config/env.js";
+import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
-
-// ── Shared helper ───────────────────────────────────────────────────────
-
-async function gatewayFetch(
-  path: string,
-  init?: RequestInit,
-): Promise<unknown> {
-  const base = getGatewayInternalBaseUrl();
-  const res = await fetch(`${base}${path}`, init);
-  if (!res.ok) {
-    let message = `Gateway request failed (${res.status})`;
-    try {
-      const body = (await res.json()) as { error?: unknown };
-      if (typeof body.error === "string") {
-        message = body.error;
-      }
-    } catch {
-      // ignore JSON parse failures
-    }
-    throw new Error(message);
-  }
-  return res.json();
-}
-
-// ── Schemas ─────────────────────────────────────────────────────────────
-
-const LEVEL_NAMES = [
-  "trace",
-  "debug",
-  "info",
-  "warn",
-  "error",
-  "fatal",
-] as const;
-
-const GatewayLogsTailParams = z
-  .object({
-    n: z.coerce.number().int().min(1).max(1000).optional(),
-    level: z.enum(LEVEL_NAMES).optional(),
-    module: z.string().optional(),
-  })
-  .strict();
-
-const GatewayLogsTailResponseSchema = z.object({
-  lines: z.array(z.record(z.string(), z.unknown())),
-  truncated: z.boolean(),
-});
-type GatewayLogsTailResponse = z.infer<typeof GatewayLogsTailResponseSchema>;
 
 // ── Handlers ────────────────────────────────────────────────────────────
 
 async function handleGatewayLogsTail({
   queryParams = {},
   body = {},
-}: RouteHandlerArgs): Promise<GatewayLogsTailResponse> {
+}: RouteHandlerArgs): Promise<GatewayLogsTailIpcResponse> {
   // HTTP GET delivers filters via queryParams; CLI IPC puts them in body.
   const source = Object.keys(queryParams).length > 0 ? queryParams : body;
-  const p = GatewayLogsTailParams.parse(source);
-  const qs = new URLSearchParams();
-  if (p.n !== undefined) qs.set("n", String(p.n));
-  if (p.level !== undefined) qs.set("level", p.level);
-  if (p.module !== undefined) qs.set("module", p.module);
-  const query = qs.toString();
-  return gatewayFetch(
-    `/v1/logs/tail${query ? `?${query}` : ""}`,
-  ) as Promise<GatewayLogsTailResponse>;
+  const p = GatewayLogsTailRouteParamsSchema.parse(source);
+  const result = await ipcCallPersistent("gateway_logs_tail", p);
+  return GatewayLogsTailIpcResponseSchema.parse(result);
 }
 
 // ── Route definitions ───────────────────────────────────────────────────
@@ -93,7 +43,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Return the last N structured log entries from the gateway log files.",
     tags: ["gateway-logs"],
-    responseBody: GatewayLogsTailResponseSchema,
+    responseBody: GatewayLogsTailIpcResponseSchema,
     queryParams: [
       {
         name: "n",

@@ -22,6 +22,7 @@ import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import type { CompactionConfig } from "../config/schemas/compaction.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { filterMessagesForUntrustedActor } from "../daemon/message-provenance.js";
+import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
 import {
   getAttachmentContent,
   getAttachmentMetadataForMessage,
@@ -36,13 +37,14 @@ import type {
   ProviderResponse,
   ToolDefinition,
 } from "../providers/types.js";
-import {
-  isUntrustedTrustClass,
-  type TrustClass,
-} from "../runtime/actor-trust-resolver.js";
+import { type TrustClass } from "../runtime/actor-trust-resolver.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
 import { getLogger } from "../util/logger.js";
 import { stripInjectionsForCompaction } from "./strip-injections.js";
-import { estimatePromptTokens } from "./token-estimator.js";
+import {
+  estimatePromptTokens,
+  estimateToolsTokens,
+} from "./token-estimator.js";
 
 const log = getLogger("compactor");
 
@@ -133,7 +135,8 @@ Compress aggressively:
 For picking where to cut between summary and preserved tail:
 - Find the last major topic shift or energy change
 - Keep the active thread of conversation fully intact
-- When in doubt, preserve more rather than less
+- Keep the verbatim tail within roughly {tail_budget} tokens so the
+  compacted conversation has room to breathe before the next pass
 - Never cut in the middle of an ongoing discussion
 
 IMAGE MANIFEST (images in this conversation):
@@ -180,6 +183,14 @@ export interface CompactionRunArgs {
   compaction: CompactionConfig;
   /** Effective context window for the conversation (in tokens). */
   maxInputTokens: number;
+  /**
+   * Low-watermark token budget the rebuilt history (summary + verbatim tail)
+   * should land at or below after a successful pass. Drives the deterministic
+   * forward-cut that advances the model's tail choice until the estimate fits,
+   * so one pass buys a long quiet period instead of landing a hair under the
+   * trigger. When omitted the forward-cut is skipped (legacy/emergency paths).
+   */
+  targetTokens?: number;
   /** Pre-computed estimated input tokens for the live history. */
   previousEstimatedInputTokens: number;
   /** Skip the autoThreshold check — fire compaction unconditionally. */
@@ -231,6 +242,19 @@ export interface CompactionRunResult {
   reason?: string;
   /** True when the provider call threw and no compaction was applied. */
   summaryFailed?: boolean;
+  /**
+   * Set on a successful pass when the deterministic forward-cut advanced to the
+   * tail floor (the start of the most recent complete exchange) but the rebuilt
+   * history still exceeds `targetTokens`. The verbatim tail alone — the
+   * in-flight turn during a tool-heavy round — is over budget, and no boundary
+   * the cut can reach fits it. The window-manager's retry loop reads this to
+   * stop retrying immediately: a second full-context pass would land on the same
+   * floor and free nothing, just paying another full cache write. Omitted (and
+   * treated as `false`) on no-op / skipped / legacy (`targetTokens` absent)
+   * results. Internal-result-only — not persisted or emitted on any external
+   * wire payload.
+   */
+  tailFloorReached?: boolean;
 }
 
 export interface ParsedCompactionResult {
@@ -361,7 +385,7 @@ export function collectImageManifest(
   actorTrustClass?: TrustClass,
 ): ManifestEntry[] {
   const allRows = getMessages(conversationId);
-  const rows = isUntrustedTrustClass(actorTrustClass)
+  const rows = !resolveCapabilities(actorTrustClass).canAccessMemory
     ? filterMessagesForUntrustedActor(allRows)
     : allRows;
   const entries: ManifestEntry[] = [];
@@ -550,6 +574,113 @@ export function adjustTailIndexForToolPairing(
   return 0;
 }
 
+/**
+ * Whether keeping `messages[index..]` as the verbatim tail lands on a clean
+ * boundary: the tail must open on a user turn that does not lead with a
+ * client-side `tool_result` (which would orphan its matching `tool_use` in the
+ * summarized prefix). This is the forward-walk dual of
+ * {@link adjustTailIndexForToolPairing}'s backward walk — the deterministic
+ * budget enforcement only advances the cut to indices that satisfy it.
+ */
+function isForwardCutBoundary(messages: Message[], index: number): boolean {
+  const m = messages[index];
+  if (m == null || m.role !== "user") return false;
+  // guard:allow-tool-result-only — server-side web_search_tool_result is
+  // self-paired inside its assistant message and never spans user turns.
+  return !m.content.some((block) => block.type === "tool_result");
+}
+
+/** Outcome of the deterministic forward-cut budget enforcement. */
+interface ForwardCutOutcome {
+  /** The chosen tail index (≥ `startIndex`, ≤ `floorIndex`). */
+  index: number;
+  /**
+   * True when the cut ran out of forward boundaries — it advanced to (or could
+   * not advance past) the tail floor — yet the rebuilt-history estimate still
+   * exceeds `targetTokens`. Signals to the retry loop that a second pass cannot
+   * do better: the floor is the same and another full-context LLM pass would
+   * land on the same over-budget tail. See {@link CompactionRunResult.tailFloorReached}.
+   */
+  tailFloorReached: boolean;
+}
+
+/**
+ * Deterministic low-watermark enforcement. Given the model's tail choice
+ * (already resolved + back-walked for tool pairing), advance the cut FORWARD —
+ * dropping more leading messages into the summarized region, keeping a smaller
+ * verbatim tail — until the rebuilt-history estimate fits `targetTokens` or a
+ * minimum-tail floor is hit.
+ *
+ * The floor preserves conversational integrity: it never advances past
+ * `floorIndex`, which the caller anchors to the start of the most recent
+ * complete user→assistant exchange so the current in-flight turn is never cut.
+ * Every candidate cut must pass {@link isForwardCutBoundary} so tool pairs are
+ * never orphaned. Returns the original `startIndex` unchanged when the model's
+ * own tail already fits the budget (the cut is enforcement, not optimization)
+ * or when no forward boundary improves on it.
+ *
+ * Reports `tailFloorReached` when the cut exhausts its forward boundaries (the
+ * loop never broke early on a fit) while the best tail it found is still over
+ * `targetTokens` — the floor-dominated case where the verbatim tail (the
+ * in-flight turn during a tool-heavy round) alone exceeds the budget. The
+ * window-manager reads this to skip a futile second pass.
+ */
+function advanceTailForBudget(args: {
+  messages: Message[];
+  startIndex: number;
+  floorIndex: number;
+  targetTokens: number;
+  estimateTail: (tail: Message[]) => number;
+}): ForwardCutOutcome {
+  const { messages, startIndex, floorIndex, targetTokens, estimateTail } = args;
+  // The model's own tail choice already fits — keep it untouched. Without this
+  // early return the loop below would advance to the first forward boundary
+  // regardless (smaller tails also fit), needlessly dropping verbatim messages
+  // the budget never required us to drop.
+  if (estimateTail(messages.slice(startIndex)) <= targetTokens) {
+    return { index: startIndex, tailFloorReached: false };
+  }
+  let chosen = startIndex;
+  let fits = false;
+  for (let i = startIndex + 1; i <= floorIndex; i++) {
+    if (!isForwardCutBoundary(messages, i)) continue;
+    chosen = i;
+    const estimate = estimateTail(messages.slice(i));
+    if (estimate <= targetTokens) {
+      fits = true;
+      break;
+    }
+  }
+  return { index: chosen, tailFloorReached: !fits };
+}
+
+/**
+ * Anchor index for the forward-cut floor: the start of the most recent
+ * complete user→assistant exchange. The deterministic budget enforcement never
+ * advances the cut past this point, so a single pass always preserves at least
+ * the latest finished exchange and never bites into the current in-flight turn.
+ *
+ * Walks back from the end to the last assistant message, then back to the user
+ * message that opens its exchange (the nearest preceding clean user boundary).
+ * Falls back to the model's chosen `tailIndex` when no such exchange exists
+ * (e.g. the tail is a single in-flight turn), which makes the enforcement a
+ * no-op rather than cutting too aggressively.
+ */
+function resolveTailFloorIndex(messages: Message[], tailIndex: number): number {
+  let lastAssistant = -1;
+  for (let i = messages.length - 1; i > tailIndex; i--) {
+    if (messages[i].role === "assistant") {
+      lastAssistant = i;
+      break;
+    }
+  }
+  if (lastAssistant < 0) return tailIndex;
+  for (let i = lastAssistant - 1; i > tailIndex; i--) {
+    if (isForwardCutBoundary(messages, i)) return i;
+  }
+  return tailIndex;
+}
+
 // ---------------------------------------------------------------------------
 // Retained-image hydration
 // ---------------------------------------------------------------------------
@@ -617,12 +748,22 @@ function guessMimeFromFilename(filename: string): string {
 export function buildInstructionMessage(
   customPrompt: string | null | undefined,
   imageManifest: string,
+  tailBudgetTokens?: number,
 ): Message {
   const template =
     customPrompt && customPrompt.trim().length > 0
       ? customPrompt
       : DEFAULT_COMPACTION_PROMPT;
-  const text = template.replace("{image_manifest}", imageManifest);
+  // `{tail_budget}` is a soft nudge — the deterministic forward-cut downstream
+  // is what actually enforces the budget. Custom prompts without the
+  // placeholder render unchanged; the default prompt always carries it.
+  const tailBudgetText =
+    tailBudgetTokens != null && tailBudgetTokens > 0
+      ? String(tailBudgetTokens)
+      : "as few as needed";
+  const text = template
+    .replace("{image_manifest}", imageManifest)
+    .replace("{tail_budget}", tailBudgetText);
   return {
     role: "user",
     content: [{ type: "text", text }],
@@ -685,6 +826,88 @@ function extractTextFromResponse(content: ContentBlock[]): string {
     .join("\n");
 }
 
+// Build the outbound message list for a compaction provider call: convert
+// historical web_search_tool_result blocks to text, then append the
+// summarization instruction at the tail.
+//
+// Anthropic's opaque `encrypted_content` tokens are route-scoped and expire, so
+// replaying a stale one is rejected with `Invalid encrypted_content in
+// search_result block`. Sanitizing here — the single seam every compaction
+// provider call funnels through — keeps that error away from both the
+// assistant-driven and emergency summarization calls. Only this outbound copy
+// is sanitized; tail resolution and the persisted compaction result read the
+// caller's original messages, so durable history keeps the rich blocks. The
+// instruction stays at the tail so the prefix cache stays warm.
+function buildCompactionRequest(
+  history: Message[],
+  instruction: Message,
+): Message[] {
+  return [...stripHistoricalWebSearchResults(history).messages, instruction];
+}
+
+// Token headroom a compaction summary call reserves on top of its history: room
+// for the instruction message and the summary the model emits, so a request
+// front-truncated to `compactionPrefixBudget` still fits the context window.
+const COMPACTION_INSTRUCTION_TOKEN_RESERVE = 800;
+const COMPACTION_OUTPUT_BUDGET_RATIO = 0.15;
+
+// Largest history (in estimated tokens) a compaction summary call may carry
+// while leaving room for the instruction and the emitted summary within
+// `maxInputTokens`.
+function compactionPrefixBudget(maxInputTokens: number): number {
+  return (
+    maxInputTokens -
+    COMPACTION_INSTRUCTION_TOKEN_RESERVE -
+    Math.floor(maxInputTokens * COMPACTION_OUTPUT_BUDGET_RATIO)
+  );
+}
+
+// Front-truncate the history handed to a compaction summary call so the call
+// itself fits the context window. Drops messages from the front until the
+// estimated prompt fits `budgetTokens`, then prepends a marker noting how many
+// were dropped so the model knows the summary covers only the visible portion.
+// Returns the input untouched when it already fits or holds a single message —
+// so a below-budget call keeps its prefix byte-aligned with the agent's warm
+// cache and pays no extra cache write.
+function truncateHistoryToBudget(args: {
+  messages: Message[];
+  systemPrompt: string;
+  budgetTokens: number;
+  providerName: string;
+}): Message[] {
+  const { messages, systemPrompt, budgetTokens, providerName } = args;
+  let estimate = estimatePromptTokens(messages, systemPrompt, { providerName });
+  if (estimate <= budgetTokens || messages.length <= 1) {
+    return messages;
+  }
+  let dropCount = 0;
+  while (estimate > budgetTokens && dropCount < messages.length - 1) {
+    dropCount++;
+    estimate = estimatePromptTokens(messages.slice(dropCount), systemPrompt, {
+      providerName,
+    });
+  }
+  if (dropCount === 0) {
+    return messages;
+  }
+  log.info(
+    { dropCount, budgetTokens, totalMessages: messages.length },
+    "Compaction summary input exceeds context window — truncating from front",
+  );
+  return [
+    {
+      role: "user" as const,
+      content: [
+        {
+          type: "text" as const,
+          text: `[${dropCount} earlier messages truncated — summary covers only the visible portion]`,
+        },
+      ],
+    },
+    ...messages.slice(dropCount),
+  ];
+}
+
 export async function runAssistantDrivenCompaction(
   args: CompactionRunArgs,
 ): Promise<CompactionRunResult> {
@@ -716,21 +939,39 @@ export async function runAssistantDrivenCompaction(
   const instruction = buildInstructionMessage(
     args.compaction.prompt ?? null,
     manifestText,
+    args.targetTokens,
   );
 
-  // Append instruction at the tail — prefix unchanged, so prefix cache
-  // stays warm.
-  const requestMessages = [...args.messages, instruction];
+  // Bound the summary call's own input to the context window. With no tool
+  // pair to anchor an emergency split, an overflow recovery routes the full
+  // history straight here, so the summary call must front-truncate itself or
+  // it overflows in turn. `args.messages` stays intact for tail resolution
+  // below — only the outbound request is truncated. A below-budget history is
+  // returned untouched, keeping the prefix aligned with the agent's warm cache.
+  const summaryHistory = truncateHistoryToBudget({
+    messages: args.messages,
+    systemPrompt: args.systemPrompt,
+    budgetTokens: compactionPrefixBudget(args.maxInputTokens),
+    providerName: args.provider.tokenEstimationProvider ?? args.provider.name,
+  });
+  const requestMessages = buildCompactionRequest(summaryHistory, instruction);
 
   let response: ProviderResponse;
   try {
     response = await args.provider.sendMessage(requestMessages, {
+      // Tools are passed so the cached prefix (system prompt + tools +
+      // history) matches the agent's main-turn cache key. Force
+      // `tool_choice: "none"` so the model can only answer with the
+      // `<compaction_result>` text and never burns the turn on a tool call
+      // it cannot complete — an empty text response yields no parseable
+      // summary, stalls compaction, and exhausts the agent loop budget.
       tools: args.tools,
       systemPrompt: args.systemPrompt,
       signal: args.signal,
       config: {
         callSite: COMPACTION_CALL_SITE,
         usageTracking: "manual",
+        tool_choice: { type: "none" },
         ...(args.overrideProfile
           ? { overrideProfile: args.overrideProfile }
           : {}),
@@ -801,20 +1042,139 @@ export async function runAssistantDrivenCompaction(
     };
   }
 
-  const tailIndex = adjustTailIndexForToolPairing(
+  const pairedTailIndex = adjustTailIndexForToolPairing(
     args.messages,
     resolvedTailIndex,
   );
-  if (tailIndex !== resolvedTailIndex) {
+  if (pairedTailIndex !== resolvedTailIndex) {
     log.info(
       {
         conversationId: args.conversationId,
         originalTailIndex: resolvedTailIndex,
-        tailIndex,
-        walkedBy: resolvedTailIndex - tailIndex,
+        tailIndex: pairedTailIndex,
+        walkedBy: resolvedTailIndex - pairedTailIndex,
       },
       "Adjusted compaction tail backward to preserve tool_use/tool_result pairing",
     );
+  }
+
+  const summaryText = buildSummaryMemoryText(parsed.summary, parsed.keyState);
+  // The durable summary. When the forward-cut below advances the tail, a
+  // truncation notice is appended HERE — not just on the in-memory message —
+  // because `applyCompactionResult` persists and rehydrates the summary from
+  // the result's `summaryText`: a notice only on the message would vanish on
+  // reload/fork, silently hiding that the dropped span was never summarized.
+  let finalSummaryText = summaryText;
+  let summaryMessage: Message = {
+    role: "assistant",
+    content: [{ type: "text", text: finalSummaryText }],
+  };
+
+  const {
+    blocks: retainedImageBlocks,
+    resolved,
+    missing,
+  } = buildRetainedImageBlocks(parsed.retainedImageFilenames, manifest);
+  if (missing.length > 0) {
+    log.warn(
+      { missing },
+      "Compaction referenced images that could not be resolved against attachments — dropping",
+    );
+  }
+
+  const retainedImageMessage: Message | null =
+    retainedImageBlocks.length > 0
+      ? {
+          role: "user",
+          content: [
+            {
+              type: "text" as const,
+              text: "Images retained from the compacted portion of the conversation:",
+            },
+            ...retainedImageBlocks,
+          ],
+        }
+      : null;
+
+  // Deterministic low-watermark enforcement. The model was asked to keep the
+  // tail within the budget, but it routinely keeps a fat tail in repetitive
+  // conversations, so each pass would otherwise free almost nothing and the
+  // history bounces back over the trigger within a tick or two. When the
+  // rebuilt history (summary + retained images + verbatim tail) still exceeds
+  // `targetTokens`, advance the cut forward — onto clean user-turn boundaries
+  // only — until it fits or the most-recent-complete-exchange floor is hit.
+  // No second LLM call: the summary stays as written, and the span dropped
+  // between the model's cut and the enforced cut is acknowledged with an
+  // explicit truncation notice appended to the summary message (see below),
+  // so the loss is visible in-context rather than silent.
+  let tailIndex = pairedTailIndex;
+  // Whether the deterministic forward-cut hit the tail floor while still over
+  // `targetTokens` — propagated onto the success result so the window-manager's
+  // retry loop can skip a futile second full-context pass (the floor is the same
+  // next time, so it cannot do better). Only meaningful when a `targetTokens`
+  // budget drove the forward-cut.
+  let tailFloorReached = false;
+  if (args.targetTokens != null && pairedTailIndex > 0) {
+    const providerName =
+      args.provider.tokenEstimationProvider ?? args.provider.name;
+    // Mirror the window-manager's post-compaction estimate (system prompt +
+    // tools + messages) so the forward-cut targets the same number the manager
+    // recomputes on return — otherwise the cut would under-count by the tool
+    // budget and land short of the real low-watermark.
+    const toolTokenBudget = args.tools ? estimateToolsTokens(args.tools) : 0;
+    const fixedPrefix: Message[] = [summaryMessage];
+    if (retainedImageMessage) fixedPrefix.push(retainedImageMessage);
+    const estimateRebuilt = (tail: Message[]): number =>
+      estimatePromptTokens(
+        [...fixedPrefix, ...stripInjectionsForCompaction(tail)],
+        args.systemPrompt,
+        { providerName, toolTokenBudget },
+      );
+    const floorIndex = resolveTailFloorIndex(args.messages, pairedTailIndex);
+    const advanced = advanceTailForBudget({
+      messages: args.messages,
+      startIndex: pairedTailIndex,
+      floorIndex,
+      targetTokens: args.targetTokens,
+      estimateTail: estimateRebuilt,
+    });
+    tailFloorReached = advanced.tailFloorReached;
+    if (advanced.index !== pairedTailIndex) {
+      tailIndex = advanced.index;
+      // The LLM wrote its summary believing the verbatim tail would start at
+      // `pairedTailIndex`, so the messages in [pairedTailIndex, tailIndex) are
+      // covered by neither the summary's detail nor the retained tail. Append
+      // a deterministic truncation notice so the loss is visible in-context
+      // instead of silent — the conversation can recompute or recall what it
+      // needs rather than acting on a gap it doesn't know exists. The notice
+      // is a few dozen tokens against a multi-thousand-token target, so the
+      // budget estimate above remains effectively accurate.
+      const dropped = args.messages.slice(pairedTailIndex, tailIndex);
+      const droppedUser = dropped.filter((m) => m.role === "user").length;
+      const droppedAssistant = dropped.length - droppedUser;
+      const truncationNote =
+        `\n\n[Context budget enforcement: ${dropped.length} message(s) ` +
+        `(${droppedUser} user, ${droppedAssistant} assistant) between this ` +
+        `summary and the retained tail were truncated to fit the context ` +
+        `budget and are not covered in detail above.]`;
+      finalSummaryText = summaryText + truncationNote;
+      summaryMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: finalSummaryText }],
+      };
+      log.info(
+        {
+          conversationId: args.conversationId,
+          modelTailIndex: pairedTailIndex,
+          tailIndex,
+          floorIndex,
+          droppedFromTail: dropped.length,
+          targetTokens: args.targetTokens,
+          tailFloorReached,
+        },
+        "Advanced compaction tail forward to meet low-watermark token budget",
+      );
+    }
   }
 
   if (tailIndex === 0) {
@@ -845,43 +1205,14 @@ export async function runAssistantDrivenCompaction(
   // from the moment of capture — keeping them would (a) waste tokens on
   // outdated content, (b) duplicate against the freshly re-injected blocks
   // the next turn produces, and (c) leak `<system_reminder>` text the model
-  // is not supposed to see in history. `<turn_context>` and `<workspace>`
-  // are intentionally preserved by `RUNTIME_INJECTION_PREFIXES`.
+  // is not supposed to see in history. `<turn_context>` is intentionally
+  // preserved by `RUNTIME_INJECTION_PREFIXES`.
   const tailMessages = stripInjectionsForCompaction(
     args.messages.slice(tailIndex),
   );
 
-  const summaryText = buildSummaryMemoryText(parsed.summary, parsed.keyState);
-  const summaryMessage: Message = {
-    role: "assistant",
-    content: [{ type: "text", text: summaryText }],
-  };
-
-  const {
-    blocks: retainedImageBlocks,
-    resolved,
-    missing,
-  } = buildRetainedImageBlocks(parsed.retainedImageFilenames, manifest);
-  if (missing.length > 0) {
-    log.warn(
-      { missing },
-      "Compaction referenced images that could not be resolved against attachments — dropping",
-    );
-  }
-
   const compactedMessages: Message[] = [summaryMessage];
-  if (retainedImageBlocks.length > 0) {
-    compactedMessages.push({
-      role: "user",
-      content: [
-        {
-          type: "text" as const,
-          text: "Images retained from the compacted portion of the conversation:",
-        },
-        ...retainedImageBlocks,
-      ],
-    });
-  }
+  if (retainedImageMessage) compactedMessages.push(retainedImageMessage);
   compactedMessages.push(...tailMessages);
 
   const nonPersistedCompactedAway = Math.min(
@@ -903,7 +1234,7 @@ export async function runAssistantDrivenCompaction(
         ? { originalTailIndex: resolvedTailIndex }
         : {}),
       retainedImages: resolved.length,
-      summaryChars: summaryText.length,
+      summaryChars: finalSummaryText.length,
     },
     "Applied assistant-driven compaction",
   );
@@ -931,9 +1262,10 @@ export async function runAssistantDrivenCompaction(
       response.usage.cacheCreationInputTokens ?? 0,
     summaryCacheReadInputTokens: response.usage.cacheReadInputTokens ?? 0,
     summaryRawResponses: response.rawResponse ? [response.rawResponse] : [],
-    summaryText,
+    summaryText: finalSummaryText,
     keyState: parsed.keyState,
     summaryFailed: false,
+    tailFloorReached,
   };
 }
 
@@ -1037,70 +1369,35 @@ export async function runEmergencyCompaction(
   const keptTail = stripInjectionsForCompaction(
     args.messages.slice(splitIndex),
   );
-  let prefix = args.messages.slice(0, splitIndex);
-
-  // If the prefix itself exceeds the context window, truncate messages
-  // from the front so the model can at least see the recent portion.
-  // Reserve budget for the instruction message + output.
-  const instructionBudget = 800; // ~tokens for the emergency prompt
-  const outputBudget = Math.floor(args.maxInputTokens * 0.15);
-  const prefixBudget = args.maxInputTokens - instructionBudget - outputBudget;
-
-  let prefixEstimate = estimatePromptTokens(prefix, args.systemPrompt, {
+  // Bound the prefix to the context window so the summary call fits, reserving
+  // budget for the instruction message and the emitted summary. Truncates from
+  // the front, keeping the recent portion the summary most needs.
+  const prefix = truncateHistoryToBudget({
+    messages: args.messages.slice(0, splitIndex),
+    systemPrompt: args.systemPrompt,
+    budgetTokens: compactionPrefixBudget(args.maxInputTokens),
     providerName: args.provider.tokenEstimationProvider ?? args.provider.name,
   });
-
-  if (prefixEstimate > prefixBudget && prefix.length > 1) {
-    log.info(
-      {
-        prefixEstimate,
-        prefixBudget,
-        prefixMessages: prefix.length,
-      },
-      "Emergency compaction: prefix exceeds context window — truncating from front",
-    );
-    // Drop messages from the front until we fit. Keep at least the first
-    // message (may be an existing summary) and try to preserve recent context.
-    let dropCount = 0;
-    while (prefixEstimate > prefixBudget && dropCount < prefix.length - 1) {
-      dropCount++;
-      const truncated = prefix.slice(dropCount);
-      prefixEstimate = estimatePromptTokens(truncated, args.systemPrompt, {
-        providerName:
-          args.provider.tokenEstimationProvider ?? args.provider.name,
-      });
-    }
-    if (dropCount > 0) {
-      prefix = [
-        {
-          role: "user" as const,
-          content: [
-            {
-              type: "text" as const,
-              text: `[${dropCount} earlier messages truncated — summary covers only the visible portion]`,
-            },
-          ],
-        },
-        ...prefix.slice(dropCount),
-      ];
-    }
-  }
 
   const instruction: Message = {
     role: "user",
     content: [{ type: "text", text: EMERGENCY_COMPACTION_PROMPT }],
   };
-  const requestMessages = [...prefix, instruction];
+  const requestMessages = buildCompactionRequest(prefix, instruction);
 
   let response: ProviderResponse;
   try {
     response = await args.provider.sendMessage(requestMessages, {
+      // See the assistant-driven path: tools keep the prefix cache warm, but
+      // `tool_choice: "none"` forces a text-only `<compaction_result>` so the
+      // model can't stall compaction by emitting an uncompletable tool call.
       tools: args.tools,
       systemPrompt: args.systemPrompt,
       signal: args.signal,
       config: {
         callSite: COMPACTION_CALL_SITE,
         usageTracking: "manual",
+        tool_choice: { type: "none" },
         ...(args.overrideProfile
           ? { overrideProfile: args.overrideProfile }
           : {}),

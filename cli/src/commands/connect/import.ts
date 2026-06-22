@@ -46,6 +46,14 @@ interface PairBundle {
   token: string;
   assistantId?: string;
   deviceId?: string;
+  // Optional refresh credential. Present when the host's gateway issued a
+  // device-bound token pair; absent for older access-only bundles (which remain
+  // importable, just without auto-renewal). `refreshTokenExpiresAt` mirrors
+  // GuardianTokenData (ISO string OR epoch-ms number) so a numeric expiry isn't
+  // silently dropped on import.
+  refreshToken?: string;
+  refreshTokenExpiresAt?: string | number;
+  refreshAfter?: string;
 }
 
 /** Decode the base64 bundle, returning null if malformed or missing fields. */
@@ -77,6 +85,15 @@ function decodeBundle(blob: string): PairBundle | null {
     token: b.token,
     assistantId: typeof b.assistantId === "string" ? b.assistantId : undefined,
     deviceId: typeof b.deviceId === "string" ? b.deviceId : undefined,
+    refreshToken:
+      typeof b.refreshToken === "string" ? b.refreshToken : undefined,
+    refreshTokenExpiresAt:
+      typeof b.refreshTokenExpiresAt === "string" ||
+      typeof b.refreshTokenExpiresAt === "number"
+        ? b.refreshTokenExpiresAt
+        : undefined,
+    refreshAfter:
+      typeof b.refreshAfter === "string" ? b.refreshAfter : undefined,
   };
 }
 
@@ -160,14 +177,11 @@ export async function connectImport(): Promise<void> {
     assistantId: localId,
     name: nameFlag ?? `paired (${new URL(bundle.gatewayUrl).host})`,
     runtimeUrl: bundle.gatewayUrl,
-    // Tagged "local" for now because that selects the bearer-token auth path
-    // in client.ts (vs the platform X-Session-Token path), which is what a
-    // paired token needs. Caveat: lifecycle/status commands (`vellum ps`,
-    // `vellum wake`) then treat the entry as an on-machine process.
-    // TODO: introduce a distinct `cloud: "paired"` topology + lifecycle guards
-    // so ps/wake don't try to manage a remote pairing as a local instance,
-    // while keeping bearer auth. Tracked with the devices/unpair work.
-    cloud: "local",
+    // Paired entries are reached by bearer token at the remote runtimeUrl
+    // (a non-"vellum" cloud selects the bearer-token auth path in client.ts).
+    // The "paired" topology lets lifecycle/status commands (ps/wake/sleep)
+    // recognize this as a remote pairing rather than an on-machine process.
+    cloud: "paired",
     // Marks this entry as a connect-import so re-imports update in place while
     // imports never silently overwrite a non-paired assistant (see guard above).
     paired: true,
@@ -175,14 +189,15 @@ export async function connectImport(): Promise<void> {
   });
 
   const now = Date.now();
+  const hasRefresh = Boolean(bundle.refreshToken);
   saveGuardianToken(localId, {
     guardianPrincipalId: "imported",
     accessToken: bundle.token,
     accessTokenExpiresAt:
       jwtExpiryMs(bundle.token) ?? now + 24 * 60 * 60 * 1000,
-    refreshToken: "",
-    refreshTokenExpiresAt: 0,
-    refreshAfter: "",
+    refreshToken: bundle.refreshToken ?? "",
+    refreshTokenExpiresAt: bundle.refreshTokenExpiresAt ?? 0,
+    refreshAfter: bundle.refreshAfter ?? "",
     isNew: false,
     deviceId: bundle.deviceId ?? "",
     leasedAt: new Date(now).toISOString(),
@@ -195,6 +210,8 @@ export async function connectImport(): Promise<void> {
   console.log(`  Connect with:  vellum client ${localId}`);
   console.log("");
   console.log(
-    "Note: the token is access-only and will expire — re-run `vellum pair` and import again when it does.",
+    hasRefresh
+      ? "Note: this connection includes a refresh credential, so it can renew itself — re-pair only if it's revoked or the refresh credential expires."
+      : "Note: the token is access-only and will expire — re-run `vellum pair` and import again when it does.",
   );
 }

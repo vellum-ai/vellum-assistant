@@ -215,9 +215,9 @@ function seedMessages(
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   resetDbForTesting();
-  initializeDb();
+  await initializeDb();
   // Fresh memory dir per test — keeps assertions on file contents independent.
   rmSync(join(tmpWorkspace, "memory"), { recursive: true, force: true });
   mkdirSync(join(tmpWorkspace, "memory"), { recursive: true });

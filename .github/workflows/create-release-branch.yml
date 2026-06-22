@@ -1,6 +1,14 @@
 name: Create Release Branch
 
 on:
+  schedule:
+    # ~9am ET every Tuesday and Friday — two entries cover EDT (UTC-4) and EST
+    # (UTC-5); the schedule-guard job drops whichever entry isn't actually 9am ET.
+    # Scheduled a few minutes before the hour because GitHub delays cron jobs
+    # queued at the top of the hour (often by 30-60+ minutes); an off-peak
+    # minute keeps the actual start close to 9am ET.
+    - cron: "52 12 * * 2,5"
+    - cron: "52 13 * * 2,5"
   workflow_dispatch:
     inputs:
       bump:
@@ -17,8 +25,39 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  schedule-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      should-run: ${{ steps.check.outputs.should-run }}
+    steps:
+      - name: Only proceed at 9am ET
+        id: check
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "should-run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Two cron entries fire (12:52 and 13:52 UTC) to cover EDT/EST. Run
+          # only the entry matching today's Eastern offset so the release fires
+          # once at 9am ET. Keying off the triggering cron (not the wall-clock
+          # hour at job start) keeps this correct even when GitHub delays the
+          # scheduled run past the top of the hour.
+          OFFSET=$(TZ=America/New_York date +%z)
+          if [ "$OFFSET" = "-0400" ]; then
+            EXPECTED="52 12 * * 2,5"  # EDT: ~9am ET = 12:52 UTC
+          else
+            EXPECTED="52 13 * * 2,5"  # EST: ~9am ET = 13:52 UTC
+          fi
+          if [ "${{ github.event.schedule }}" = "$EXPECTED" ]; then
+            echo "should-run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should-run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   compute-version:
-    if: github.ref == 'refs/heads/main'
+    needs: schedule-guard
+    if: needs.schedule-guard.outputs.should-run == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -38,7 +77,7 @@ jobs:
           LATEST_VERSION=${LATEST_TAG#v}
           IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
 
-          case "${{ inputs.bump }}" in
+          case "${{ inputs.bump || 'patch' }}" in
             major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
             minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
             patch) PATCH=$((PATCH + 1)) ;;
@@ -71,7 +110,7 @@ jobs:
               - type: section
                 text:
                   type: mrkdwn
-                  text: "*Workflow:* Create Release Branch\n*Version:* `${{ needs.compute-version.outputs.version }}`\n*Bump:* `${{ inputs.bump }}`\n*Triggered by:* ${{ github.actor }}"
+                  text: "*Workflow:* Create Release Branch\n*Version:* `${{ needs.compute-version.outputs.version }}`\n*Bump:* `${{ inputs.bump || 'patch' }}`\n*Triggered by:* ${{ github.event_name == 'schedule' && 'Scheduled' || github.actor }}"
               - type: actions
                 elements:
                   - type: button
@@ -149,7 +188,7 @@ jobs:
               - type: section
                 text:
                   type: mrkdwn
-                  text: "*Workflow:* Create Release Branch\n*Version:* `${{ needs.compute-version.outputs.version }}`\n*Bump:* `${{ inputs.bump }}`\n*Triggered by:* ${{ github.actor }}"
+                  text: "*Workflow:* Create Release Branch\n*Version:* `${{ needs.compute-version.outputs.version }}`\n*Bump:* `${{ inputs.bump || 'patch' }}`\n*Triggered by:* ${{ github.event_name == 'schedule' && 'Scheduled' || github.actor }}"
               - type: actions
                 elements:
                   - type: button
@@ -181,6 +220,7 @@ jobs:
       - name: Install package dependencies
         run: |
           for pkg in packages/*/; do
+            [ -f "$pkg/package.json" ] || continue
             (cd "$pkg" && bun install --frozen-lockfile)
           done
 
@@ -217,14 +257,13 @@ jobs:
           git checkout -b "$BRANCH"
 
           # Bump all package.json files
-          # NOTE: All service + client versions must stay in sync — Apple Containers
-          # assumes the assistant runtime, gateway, and credential executor versions
-          # match the macOS app version.
-          # If we relax this assumption, adjust the container image logic accordingly.
+          # NOTE: Service + client versions stay in sync. The Electron macOS app
+          # stamps this same version into clients/macos/package.json at build time
+          # (see the build-electron job in release.yml).
           for pkg in assistant cli credential-executor gateway meta; do
             jq --arg v "$VERSION" '.version = $v' $pkg/package.json > tmp && mv tmp $pkg/package.json
           done
-          jq --arg v "$VERSION" '.version = $v' apps/web/package.json > tmp && mv tmp apps/web/package.json
+          jq --arg v "$VERSION" '.version = $v' clients/web/package.json > tmp && mv tmp clients/web/package.json
 
           # Bump meta-package dependency versions
           jq --arg v "$VERSION" '
@@ -235,15 +274,9 @@ jobs:
             .dependencies["@vellumai/web"] = $v
           ' meta/package.json > tmp && mv tmp meta/package.json
 
-          # Bump macOS app version
-          sed -i "s/^let appVersion = .*/let appVersion = \"$VERSION\"/" clients/Package.swift
-
           # Bump Chrome extension version (manifest.json + package.json)
           jq --arg v "$VERSION" '.version = $v' clients/chrome-extension/manifest.json > tmp && mv tmp clients/chrome-extension/manifest.json
           jq --arg v "$VERSION" '.version = $v' clients/chrome-extension/package.json > tmp && mv tmp clients/chrome-extension/package.json
-
-          # Stamp pinned CLI version in macOS app
-          sed -i "s/export const PINNED_CLI_VERSION = \".*\"/export const PINNED_CLI_VERSION = \"$VERSION\"/" apps/macos/src/main/cli-installer.ts
 
           # Regenerate OpenAPI spec with the new version
           cd assistant && bun run generate:openapi && cd ..

@@ -10,6 +10,7 @@ import {
 export const cronJobs = sqliteTable("cron_jobs", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  description: text("description").notNull().default(""),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   cronExpression: text("cron_expression"), // nullable for one-shot schedules; e.g. '0 9 * * 1-5'
   scheduleSyntax: text("schedule_syntax").notNull().default("cron"), // 'cron' | 'rrule'
@@ -22,6 +23,8 @@ export const cronJobs = sqliteTable("cron_jobs", {
   maxRetries: integer("max_retries").notNull().default(3),
   retryBackoffMs: integer("retry_backoff_ms").notNull().default(60000),
   timeoutMs: integer("timeout_ms"), // script-mode execution timeout override (ms); null = use default
+  inferenceProfile: text("inference_profile"), // llm.profiles key for LLM-executed runs; null = default main-agent selection
+  createdFromConversationId: text("created_from_conversation_id"),
   createdBy: text("created_by").notNull(), // 'agent' | 'user'
   mode: text("mode").notNull().default("execute"), // 'notify' | 'execute'
   routingIntent: text("routing_intent").notNull().default("all_channels"), // 'single_channel' | 'multi_channel' | 'all_channels'
@@ -33,6 +36,9 @@ export const cronJobs = sqliteTable("cron_jobs", {
     .default(false), // reuse the same conversation across runs
   script: text("script"), // shell command for script mode (nullable, only used when mode = 'script')
   wakeConversationId: text("wake_conversation_id"), // target conversation for wake mode (nullable)
+  workflowName: text("workflow_name"), // saved workflow to trigger (nullable, only used when mode = 'workflow')
+  workflowArgsJson: text("workflow_args_json"), // JSON-encoded args passed to the workflow run (nullable)
+  capabilitiesJson: text("capabilities_json"), // JSON-encoded capability manifest for the run (nullable; null = hardcoded read-only manifest)
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
@@ -276,6 +282,11 @@ export const onboardingEvents = sqliteTable("onboarding_events", {
   googleScopesJson: text("google_scopes_json"),
   priorAssistantsJson: text("prior_assistants_json"),
   abVariant: text("ab_variant"),
+  sessionId: text("session_id"),
+  stepName: text("step_name"),
+  stepIndex: integer("step_index"),
+  completedAt: text("completed_at"),
+  funnelVersion: text("funnel_version"),
 });
 
 // Aggregated legacy-loopback auth-fallback counts forwarded by the gateway.
@@ -292,6 +303,39 @@ export const authFallbackEvents = sqliteTable("auth_fallback_events", {
   windowStart: integer("window_start").notNull(),
   windowEnd: integer("window_end").notNull(),
 });
+
+// One row per conversation started on the activation-rail bootstrap template.
+// Lets the activation funnel telemetry scope its events to activation
+// conversations without inspecting the bootstrap template at emit time.
+export const activationSessions = sqliteTable("activation_sessions", {
+  conversationId: text("conversation_id").primaryKey(),
+  createdAt: integer("created_at").notNull(),
+});
+
+// One row per `skill_loaded` telemetry event, emitted when a Vellum-produced
+// skill is activated in a conversation — see skill-loaded-events-store.ts for
+// the data contract. Flushed by the usage telemetry reporter.
+export const skillLoadedEvents = sqliteTable(
+  "skill_loaded_events",
+  {
+    id: text("id").primaryKey(),
+    createdAt: integer("created_at").notNull(),
+    conversationId: text("conversation_id"),
+    skillName: text("skill_name").notNull(),
+    // ISO 8601 timestamp from the merged skill catalog, when known.
+    skillUpdatedAt: text("skill_updated_at"),
+    provider: text("provider"),
+    model: text("model"),
+    inferenceProfile: text("inference_profile"),
+    inferenceProfileSource: text("inference_profile_source"),
+  },
+  (table) => [
+    index("idx_skill_loaded_events_created_at_id").on(
+      table.createdAt,
+      table.id,
+    ),
+  ],
+);
 
 export const traceEvents = sqliteTable(
   "trace_events",

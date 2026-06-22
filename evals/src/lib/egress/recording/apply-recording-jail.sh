@@ -71,9 +71,47 @@ IFS="$OLD_IFS"
 # the REDIRECT so packets that are MITM-originated don't loop. The
 # exemption is matched by the mitmproxy process UID inside this
 # container's user namespace.
+#
+# Docker installs its embedded-DNS interception as a jump out of the nat
+# OUTPUT chain — `-d 127.0.0.11/32 -j DOCKER_OUTPUT` — that DNATs
+# 127.0.0.11:53 to the resolver's real high port. `-F OUTPUT` would wipe
+# that jump along with anything else, leaving the DOCKER_OUTPUT chain
+# intact but unreachable, so every in-netns lookup against 127.0.0.11
+# times out (getaddrinfo → EAI_AGAIN). The allowlist's own `getent` above
+# runs before the flush and still resolves, which masks the breakage until
+# a tenant tries to resolve at request time. Capture the jump and re-add
+# it after the flush so DNS keeps working. DNS is port 53 and untouched by
+# the :443 REDIRECT, so restoring the jump is orthogonal to interception.
+dns_jump=$(iptables -t nat -S OUTPUT | grep -- '-d 127.0.0.11/32 -j DOCKER_OUTPUT' || true)
 iptables -t nat -F OUTPUT
+if [ -n "$dns_jump" ]; then
+  iptables -t nat -A OUTPUT -d 127.0.0.11/32 -j DOCKER_OUTPUT
+fi
 iptables -t nat -A OUTPUT -p tcp --dport 443 -m owner --uid-owner "$MITM_UID" -j RETURN
 iptables -t nat -A OUTPUT -p tcp --dport 443 -j REDIRECT --to-port "$MITM_PORT"
+
+# ---- re-evaluate any pre-existing flows against the new NAT policy.
+#
+# Defensive backstop. NAT OUTPUT REDIRECT only rewrites the first packet
+# of a NEW conntrack flow, and the filter chain accepts already-open flows
+# via the ESTABLISHED,RELATED rule above — so any TCP connection that
+# predates these rules would egress straight to the provider, never
+# traversing mitmproxy, and its tokens/cost would go unrecorded. When the
+# jail owns the network namespace and tenants are born into it, no such
+# flow can exist; this flush guarantees correctness even if a tenant
+# somehow opens a connection before the rules are fully in place.
+#
+# Flushing conntrack forces every existing flow to be re-evaluated: the
+# next packet on a reused connection is treated as NEW, hits the REDIRECT,
+# and the client transparently reconnects through mitmproxy. conntrack is
+# network-namespace scoped, so this only affects this namespace's own
+# flows, and it runs before `mitmdump` is exec'd so the proxy has no
+# upstream connections to disturb. Best-effort: a flush failure must not
+# take down the jail (recording degrades to the pre-existing behaviour
+# rather than breaking egress entirely).
+conntrack -F >/dev/null 2>&1 \
+  && echo "recording-jail: flushed pre-jail conntrack flows" >&2 \
+  || echo "recording-jail: conntrack flush unavailable (pre-jail flows may bypass)" >&2
 
 # Sanity: confirm a working rule listing went out so a misconfig is
 # easy to spot in the sidecar logs.

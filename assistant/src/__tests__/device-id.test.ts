@@ -1,4 +1,12 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -16,11 +24,13 @@ import { getDeviceId, resetDeviceIdCache } from "../util/device-id.js";
 const originalVellumEnvironment = process.env.VELLUM_ENVIRONMENT;
 const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
 const originalIsContainerized = process.env.IS_CONTAINERIZED;
+const originalVellumDeviceId = process.env.VELLUM_DEVICE_ID;
 
 let tempDir: string;
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), "vellum-device-id-test-"));
+  delete process.env.VELLUM_DEVICE_ID;
   resetDeviceIdCache();
 });
 
@@ -41,6 +51,11 @@ afterEach(() => {
     delete process.env.IS_CONTAINERIZED;
   } else {
     process.env.IS_CONTAINERIZED = originalIsContainerized;
+  }
+  if (originalVellumDeviceId == null) {
+    delete process.env.VELLUM_DEVICE_ID;
+  } else {
+    process.env.VELLUM_DEVICE_ID = originalVellumDeviceId;
   }
 
   try {
@@ -108,5 +123,59 @@ describe("getDeviceId env-awareness", () => {
 
     const xdgPath = join(tempDir, "vellum", "device.json");
     expect(existsSync(xdgPath)).toBe(false);
+  });
+});
+
+describe("getDeviceId VELLUM_DEVICE_ID precedence", () => {
+  beforeEach(() => {
+    delete process.env.IS_CONTAINERIZED;
+    process.env.VELLUM_ENVIRONMENT = "dev";
+    process.env.XDG_CONFIG_HOME = tempDir;
+  });
+
+  test("env var set returns that value without writing device.json", () => {
+    process.env.VELLUM_DEVICE_ID = "abc-123";
+
+    expect(getDeviceId()).toBe("abc-123");
+    // Nothing written anywhere under the XDG tempdir.
+    expect(readdirSync(tempDir)).toEqual([]);
+  });
+
+  test("env var with surrounding whitespace returns the trimmed value", () => {
+    process.env.VELLUM_DEVICE_ID = "  abc-123  ";
+
+    expect(getDeviceId()).toBe("abc-123");
+  });
+
+  test("empty/whitespace-only env var falls through to file resolution", () => {
+    process.env.VELLUM_DEVICE_ID = "   ";
+
+    const id = getDeviceId();
+    expect(id.length).toBeGreaterThan(0);
+    expect(existsSync(join(tempDir, "vellum-dev", "device.json"))).toBe(true);
+  });
+
+  test("env var wins over an existing device.json without overwriting it", () => {
+    const dir = join(tempDir, "vellum-dev");
+    mkdirSync(dir, { recursive: true });
+    const filePath = join(dir, "device.json");
+    writeFileSync(filePath, JSON.stringify({ deviceId: "file-id" }));
+    process.env.VELLUM_DEVICE_ID = "env-id";
+
+    expect(getDeviceId()).toBe("env-id");
+    expect(JSON.parse(readFileSync(filePath, "utf-8")).deviceId).toBe(
+      "file-id",
+    );
+  });
+
+  test("env-resolved value stays cached until resetDeviceIdCache", () => {
+    process.env.VELLUM_DEVICE_ID = "env-id";
+    expect(getDeviceId()).toBe("env-id");
+
+    delete process.env.VELLUM_DEVICE_ID;
+    expect(getDeviceId()).toBe("env-id");
+
+    resetDeviceIdCache();
+    expect(getDeviceId()).not.toBe("env-id");
   });
 });

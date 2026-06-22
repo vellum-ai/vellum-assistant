@@ -6,6 +6,7 @@ metadata:
   emoji: "📞"
   vellum:
     display-name: "Phone Calls"
+    category: "voice"
     includes:
       - "twilio-setup"
       - "public-ingress"

@@ -1,8 +1,10 @@
+import { getConfig } from "../config/loader.js";
 import {
   checkDiskPressureBackgroundGate,
   diskPressureBackgroundSkipLogFields,
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
+import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getConversation } from "../memory/conversation-crud.js";
 import { invalidateAssistantInferredItemsForConversation } from "../memory/task-memory-cleanup.js";
@@ -10,8 +12,11 @@ import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { runSequencesOnce } from "../sequence/engine.js";
+import { areCoreToolsInitialized } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import { runWatchersOnce, type WatcherNotifier } from "../watcher/engine.js";
+import { normalizeCapabilityManifest } from "../workflows/capabilities.js";
+import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { hasSetConstructs } from "./recurrence-engine.js";
 import { applyRetryDecision, decideRetry } from "./retry-policy.js";
 import { runScript, type ScriptResult } from "./run-script.js";
@@ -20,6 +25,7 @@ import {
   completeOneShot,
   completeScheduleRun,
   createScheduleRun,
+  deferClaimedSchedule,
   failOneShotPermanently,
   getLastScheduleConversationId,
   listSchedules,
@@ -28,6 +34,7 @@ import {
   type RoutingIntent,
   type ScheduleJob,
   scheduleRetry,
+  setScheduleRunConversationId,
 } from "./schedule-store.js";
 
 const log = getLogger("scheduler");
@@ -78,14 +85,6 @@ const TICK_INTERVAL_MS = 15_000;
  * ≈ 5 minutes of total retry window.
  */
 const WAKE_MAX_RETRIES = 20;
-
-/**
- * Hard timeout for `talk`-mode scheduled jobs. Schedules can do
- * non-trivial work (research, summarize the day, etc.), so the cap is
- * generous; it exists primarily so a wedged turn cannot block the next
- * scheduler tick indefinitely. Mirrors the heartbeat/filing budgets.
- */
-const SCHEDULE_TALK_TIMEOUT_MS = 30 * 60 * 1000;
 
 /**
  * Apply retry policy on schedule-execution failure. Retries are scheduled by
@@ -356,6 +355,10 @@ export async function runScheduleDueWorkOnce(
           conversationId: wakeConversationId,
           hint: job.message,
           source: "defer",
+          persistTriggerAsEvent: true,
+          ...(job.inferenceProfile
+            ? { forceOverrideProfile: job.inferenceProfile }
+            : {}),
         });
 
         if (result.reason === "timeout" && isOneShot) {
@@ -432,6 +435,85 @@ export async function runScheduleDueWorkOnce(
       continue;
     }
 
+    // ── Workflow mode (trigger a saved workflow by name) ────────────
+    if (job.mode === "workflow") {
+      if (!job.workflowName) {
+        log.warn(
+          { jobId: job.id, name: job.name },
+          "Workflow schedule has no workflowName — skipping",
+        );
+        mark("skipped");
+        continue;
+      }
+      // Boot race: the scheduler starts before initializeProvidersAndTools()
+      // registers the read-only baseline (file_read/web_fetch/etc.) that
+      // resolveCapabilities grants to every workflow run. Launching now would
+      // give the run an EMPTY baseline and degrade/fail it. Defer the claimed
+      // job back to due so it fires on a later tick once tools are registered
+      // (the window is just the few seconds of daemon boot). Non-workflow modes
+      // don't depend on the baseline, so only this branch gates.
+      if (!areCoreToolsInitialized()) {
+        log.info(
+          { jobId: job.id, name: job.name, workflowName: job.workflowName },
+          "Deferring workflow schedule until tools are registered",
+        );
+        deferClaimedSchedule(job.id);
+        mark("skipped");
+        continue;
+      }
+      const runId = createScheduleRun(job.id, `workflow:${job.id}`);
+      let failed = false;
+      try {
+        log.info(
+          {
+            jobId: job.id,
+            name: job.name,
+            workflowName: job.workflowName,
+            isOneShot,
+          },
+          "Triggering workflow schedule",
+        );
+        const { runId: workflowRunId } = getWorkflowRunManager().start({
+          name: job.workflowName,
+          args: job.workflowArgs ?? {},
+          // Where the completion summary is delivered (an agent wake). Prefer an
+          // explicit wake target, then fall back to the conversation that
+          // created the schedule — workflow schedules made via `schedule_create`
+          // store that as `createdFromConversationId` and leave
+          // `wakeConversationId` unset, so without this fallback their result
+          // would surface only to live SSE listeners / the DB, never delivered.
+          conversationId:
+            job.wakeConversationId ??
+            job.createdFromConversationId ??
+            undefined,
+          // The schedule's persisted capability manifest scopes the run; a
+          // legacy schedule with null `capabilities` normalizes to the read-only
+          // baseline.
+          manifest: normalizeCapabilityManifest(job.capabilities),
+          trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
+        });
+        // `start` launches the run fire-and-forget and returns synchronously;
+        // a successful trigger is recorded as ok. Workflow completion/failure
+        // is surfaced out-of-band via workflow events and the completion wake.
+        completeScheduleRun(runId, {
+          status: "ok",
+          output: `workflow run ${workflowRunId} started`,
+        });
+        if (isOneShot) completeOneShot(job.id);
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        log.warn(
+          { err, jobId: job.id, name: job.name, isOneShot },
+          "Workflow schedule trigger failed",
+        );
+        completeScheduleRun(runId, { status: "error", error: errorMsg });
+        handleExecutionFailure({ job, errorMsg, isOneShot });
+        failed = true;
+      }
+      mark(failed ? "failed" : "completed");
+      continue;
+    }
+
     // ── Execute mode ────────────────────────────────────────────────
 
     // Check if message is a task invocation (run_task:<task_id>)
@@ -442,6 +524,7 @@ export async function runScheduleDueWorkOnce(
         job.syntax === "rrule" &&
         job.expression != null &&
         hasSetConstructs(job.expression);
+      const runId = createScheduleRun(job.id, null);
       let failed = false;
       try {
         log.info(
@@ -468,18 +551,20 @@ export async function runScheduleDueWorkOnce(
             await processMessage(conversationId, message, {
               trustClass: "guardian",
               taskRunId,
+              ...(job.inferenceProfile
+                ? { overrideProfile: job.inferenceProfile }
+                : {}),
             });
           },
         );
 
+        setScheduleRunConversationId(runId, result.conversationId);
         onScheduleConversationCreated?.({
           conversationId: result.conversationId,
           scheduleJobId: job.id,
           title: result.status === "failed" ? `${job.name}: Error` : job.name,
         });
 
-        // Track the schedule run using the task's conversation
-        const runId = createScheduleRun(job.id, result.conversationId);
         if (result.status === "failed") {
           const errorMessage = result.error ?? "Task run failed";
           completeScheduleRun(runId, {
@@ -530,7 +615,7 @@ export async function runScheduleDueWorkOnce(
           scheduleJobId: job.id,
           title: `${job.name}: Error`,
         });
-        const runId = createScheduleRun(job.id, fallbackConversation.id);
+        setScheduleRunConversationId(runId, fallbackConversation.id);
         completeScheduleRun(runId, { status: "error", error: message });
         emitTaskActivityFailed({
           taskId,
@@ -584,6 +669,8 @@ export async function runScheduleDueWorkOnce(
     let ok: boolean;
     let errorMsg: string | undefined;
     const conversationReused = reusedConversationId != null;
+    let runConversationId = reusedConversationId;
+    const runId = createScheduleRun(job.id, reusedConversationId);
 
     if (reusedConversationId) {
       // Reuse path: keep using the injected `processMessage` callback so the
@@ -599,6 +686,9 @@ export async function runScheduleDueWorkOnce(
       try {
         await processMessage(conversationId, job.message, {
           trustClass: "guardian",
+          ...(job.inferenceProfile
+            ? { overrideProfile: job.inferenceProfile }
+            : {}),
         });
         ok = true;
       } catch (err) {
@@ -616,15 +706,24 @@ export async function runScheduleDueWorkOnce(
         jobName: `schedule:${job.id}`,
         source: "schedule",
         prompt: job.message,
+        systemHint: `Schedule: ${job.name}`,
         trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
         callSite: "mainAgent",
-        timeoutMs: SCHEDULE_TALK_TIMEOUT_MS,
+        ...(job.inferenceProfile
+          ? { overrideProfile: job.inferenceProfile }
+          : {}),
+        // Hard timeout for talk-mode scheduled turns: bounds a wedged turn so
+        // it cannot block the next scheduler tick. Configurable via
+        // timeouts.scheduleTurnTimeoutSec (default 1800s).
+        timeoutMs: getConfig().timeouts.scheduleTurnTimeoutSec * 1000,
         origin: "schedule",
         groupId: "system:scheduled",
         conversationType: "scheduled",
         scheduleJobId: job.id,
         suppressFailureNotifications: job.quiet === true,
         onConversationCreated: (newConversationId) => {
+          runConversationId = newConversationId;
+          setScheduleRunConversationId(runId, newConversationId);
           onScheduleConversationCreated?.({
             conversationId: newConversationId,
             scheduleJobId: job.id,
@@ -641,11 +740,13 @@ export async function runScheduleDueWorkOnce(
         !result.ok && result.conversationId === ""
           ? `bootstrap-error:${job.id}`
           : result.conversationId;
+      if (runConversationId !== conversationId) {
+        runConversationId = conversationId;
+        setScheduleRunConversationId(runId, conversationId);
+      }
       ok = result.ok;
       errorMsg = result.error?.message;
     }
-
-    const runId = createScheduleRun(job.id, conversationId);
 
     if (ok) {
       completeScheduleRun(runId, { status: "ok" });

@@ -177,9 +177,13 @@ describe("assistant db status — happy path", () => {
     const { stdout } = await runStatus(["status"]);
 
     // The 'started' row is more recent but value != '1', so the
-    // completed row before it wins.
+    // completed row before it wins for "Schema (last)".
     expect(stdout).toContain("newest_v1");
-    expect(stdout).not.toContain("running_v1");
+    // The crashed migration appears in the Crashed line, not in Schema (last).
+    const schemaLine = stdout.match(/Schema \(last\)\s+(.*)/)?.[1] ?? "";
+    expect(schemaLine).not.toContain("running_v1");
+    expect(stdout).toContain("Crashed");
+    expect(stdout).toContain("running_v1");
   });
 
   test("reports WAL journal mode after seeding with WAL", async () => {
@@ -203,7 +207,7 @@ describe("assistant db status — happy path", () => {
     expect(parsed.file.path).toBe(dbPath);
     expect(parsed.db.journalMode).toBe("wal");
     expect(parsed.db.tableCount).toBe(3);
-    expect(parsed.db.latestMigration.key).toBe("migration_newest_v1");
+    expect(parsed.migration.latestKey).toBe("newest_v1");
     expect(Array.isArray(parsed.db.largest)).toBe(true);
     expect(parsed.db.largest.length).toBeGreaterThan(0);
     // Either 'bytes' (if dbstat is available) or 'rows' fallback.

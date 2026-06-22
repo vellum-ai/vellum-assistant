@@ -37,7 +37,7 @@ Save the **Client ID** and **Client Secret**.
 
 ### 2. Run the OAuth Flow
 
-Store the client secret securely using `credential_store`, then write and run the OAuth helper script on the user's machine:
+Store the client secret securely using `assistant credentials prompt`, then write and run the OAuth helper script on the user's machine:
 
 ```python
 #!/usr/bin/env python3

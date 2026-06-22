@@ -1,0 +1,8 @@
+{
+  "name": "caveman",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "postinstall": "bun ./postinstall.ts"
+  }
+}

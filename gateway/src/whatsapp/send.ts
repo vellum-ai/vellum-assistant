@@ -1,16 +1,6 @@
+import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
 import type { GatewayConfig } from "../config.js";
 import { getLogger } from "../logger.js";
-
-export type ApprovalAction = {
-  id: string;
-  label: string;
-};
-
-export type ApprovalPayload = {
-  requestId: string;
-  actions: ApprovalAction[];
-  plainTextFallback: string;
-};
 import {
   downloadAttachment,
   type RuntimeAttachmentMeta,
@@ -75,7 +65,7 @@ export async function sendWhatsAppReply(
   config: GatewayConfig,
   to: string,
   text: string,
-  approval?: ApprovalPayload,
+  approval?: ApprovalUIMetadata,
   caches?: WhatsAppApiCaches,
 ): Promise<void> {
   if (approval) {

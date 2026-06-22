@@ -31,7 +31,7 @@ import {
   linkLiveVoiceUserUtteranceAudioToMessage,
 } from "../live-voice-archive.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables() {
   const db = getDb();

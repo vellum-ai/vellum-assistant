@@ -44,6 +44,7 @@ import {
 } from "./provider-secrets.js";
 import { logHatchNextSteps } from "./hatch-next-steps.js";
 import { checkProviderApiKey } from "./api-key-check.js";
+import { loopbackSafeFetch } from "./loopback-fetch.js";
 
 /**
  * Attempts to place a symlink at the given path pointing to cliBinary.
@@ -164,6 +165,7 @@ export async function hatchLocal(
   watch: boolean = false,
   keepAlive: boolean = false,
   configValues: Record<string, string> = {},
+  flagEnvVars: Record<string, string> = {},
   options: HatchLocalOptions = {},
 ): Promise<HatchLocalResult> {
   const reporter = options.reporter ?? consoleLifecycleReporter;
@@ -234,6 +236,7 @@ export async function hatchLocal(
     runtimeUrl = await startGateway(watch, resources, {
       signingKey,
       bootstrapSecret,
+      envOverrides: flagEnvVars,
     });
   } catch (error) {
     // Gateway failed — stop the daemon we just started so we don't leave
@@ -356,7 +359,7 @@ export async function hatchLocal(
     while (true) {
       await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
       try {
-        const res = await fetch(healthUrl, {
+        const res = await loopbackSafeFetch(healthUrl, {
           signal: AbortSignal.timeout(3000),
         });
         if (res.ok) {

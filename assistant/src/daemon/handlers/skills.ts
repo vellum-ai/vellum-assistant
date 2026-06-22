@@ -31,7 +31,10 @@ import {
   isTextMimeType as isTextMime,
   MAX_INLINE_TEXT_SIZE,
 } from "../../runtime/routes/workspace-utils.js";
-import { getCachedCatalogSync, getCatalog } from "../../skills/catalog-cache.js";
+import {
+  getCachedCatalogSync,
+  getCatalog,
+} from "../../skills/catalog-cache.js";
 import type { SkillFileEntry } from "../../skills/catalog-files.js";
 import {
   catalogSkillToSlim,
@@ -311,9 +314,10 @@ function deriveKind(
 ): SlimSkillResponse["kind"] {
   if (source === "bundled") return "bundled";
   if (source === "catalog") return "catalog";
-  // Plugin-contributed skills are framework-provided like bundled skills —
+  // Plugin-resident skills are framework-provided like bundled skills —
   // expose them under the same "bundled" kind so the UI doesn't invent a
-  // new category that existing clients don't know how to render.
+  // new category that existing clients don't know how to render. Attribution
+  // to the owning plugin rides on the separate `owner` descriptor.
   if (source === "plugin") return "bundled";
   return "installed"; // managed, workspace, extra
 }
@@ -346,7 +350,8 @@ function toSlimSkillResponse(
   const origin = deriveOrigin(kind, summary.directoryPath, installMeta);
   const status: SlimSkillResponse["status"] = state;
 
-  const category = getCatalogCategoryMap().get(summary.id) ?? "system";
+  const category =
+    getCatalogCategoryMap().get(summary.id) ?? summary.category ?? "system";
   const base = {
     id: summary.id,
     name: summary.displayName,
@@ -356,6 +361,7 @@ function toSlimSkillResponse(
     kind,
     status,
     category,
+    owner: summary.owner,
   } as const;
 
   switch (origin) {
@@ -698,7 +704,9 @@ export async function getSkill(
     return { skill: detail };
   }
 
-  // vellum or custom origin — base fields only
+  // vellum or custom origin — base fields plus owner attribution. Plugin-
+  // resident skills are mapped to the vellum origin, so `owner` is how their
+  // `{ kind: "plugin", id }` provenance is surfaced on the detail response.
   const detail: SkillDetailResponse = {
     id: slim.id,
     name: slim.name,
@@ -709,6 +717,7 @@ export async function getSkill(
     origin: slim.origin,
     status: slim.status,
     category: slim.category,
+    owner: slim.owner,
   };
   return { skill: detail };
 }

@@ -42,6 +42,30 @@ export const TimeoutConfigSchema = z
       .describe(
         "Timeout for waiting on the LLM provider's streaming response (seconds)",
       ),
+    backgroundTurnTimeoutSec: z
+      .number({ error: "timeouts.backgroundTurnTimeoutSec must be a number" })
+      .int("timeouts.backgroundTurnTimeoutSec must be an integer")
+      .positive("timeouts.backgroundTurnTimeoutSec must be a positive integer")
+      .max(
+        2147483,
+        "timeouts.backgroundTurnTimeoutSec must be at most 2147483 (setTimeout-safe limit)",
+      )
+      .default(1800)
+      .describe(
+        "Hard timeout for heartbeat and generic background agent turns (seconds)",
+      ),
+    scheduleTurnTimeoutSec: z
+      .number({ error: "timeouts.scheduleTurnTimeoutSec must be a number" })
+      .int("timeouts.scheduleTurnTimeoutSec must be an integer")
+      .positive("timeouts.scheduleTurnTimeoutSec must be a positive integer")
+      .max(
+        2147483,
+        "timeouts.scheduleTurnTimeoutSec must be at most 2147483 (setTimeout-safe limit)",
+      )
+      .default(1800)
+      .describe(
+        "Hard timeout for deliberately-launched scheduled (talk-mode) agent turns (seconds)",
+      ),
   })
   .describe("Timeout configuration for various operations");
 

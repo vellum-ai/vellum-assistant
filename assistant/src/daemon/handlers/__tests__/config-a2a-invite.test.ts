@@ -26,7 +26,7 @@ import { initializeDb } from "../../../memory/db-init.js";
 import { findById } from "../../../memory/invite-store.js";
 import { createA2AInvite, getA2AConfig } from "../config-a2a.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const sqlite = getSqlite();

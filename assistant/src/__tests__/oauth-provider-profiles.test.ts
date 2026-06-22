@@ -17,7 +17,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { getProvider } from "../oauth/oauth-store.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 
-initializeDb();
+await initializeDb();
 seedOAuthProviders();
 
 describe("oauth provider profiles (DB-seeded)", () => {

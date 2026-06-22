@@ -21,7 +21,7 @@ import {
   updateState,
 } from "../task-store.js";
 
-initializeDb();
+await initializeDb();
 
 function makeRequestMessage(overrides?: Partial<A2AMessage>): A2AMessage {
   return {

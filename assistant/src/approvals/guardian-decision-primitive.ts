@@ -48,6 +48,7 @@ import type { ApplyGuardianDecisionResult } from "../runtime/guardian-decision-t
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { getLogger } from "../util/logger.js";
 import { mintGrantFromDecision } from "./approval-primitive.js";
+import { withdrawGuardianRequestCards } from "./guardian-card-withdrawal.js";
 import {
   type ActorContext,
   type ChannelDeliveryContext,
@@ -354,6 +355,7 @@ export type CanonicalDecisionResult =
         | "not_found"
         | "already_resolved"
         | "identity_mismatch"
+        | "request_misconfigured"
         | "invalid_action"
         | "expired";
       detail?: string;
@@ -426,18 +428,22 @@ export async function applyCanonicalGuardianDecision(
   // authorization gate — principal identity must always match.
 
   if (!request.guardianPrincipalId) {
-    log.warn(
+    // A decisionable request with no bound principal can never be authorized
+    // by anyone — it is stuck. This is a data-integrity fault (creation guards
+    // against it for decisionable kinds), not an authorization denial, so it
+    // must NOT be reported to the actor as "you don't have permission".
+    log.error(
       {
         event: "canonical_decision_missing_request_principal",
         requestId,
         kind: request.kind,
         sourceType: request.sourceType,
       },
-      "Canonical request missing guardianPrincipalId; rejecting decision",
+      "Canonical request missing guardianPrincipalId; request is undecidable",
     );
     return {
       applied: false,
-      reason: "identity_mismatch",
+      reason: "request_misconfigured",
       detail: "request missing guardianPrincipalId",
     };
   }
@@ -570,6 +576,23 @@ export async function applyCanonicalGuardianDecision(
     });
     grantMinted = grantResult.minted;
   }
+
+  // 6. Project the terminal status onto the request's approval cards on every
+  // surface it was delivered to (in-app, Slack, ...). Fire-and-forget: the
+  // decision is already committed via CAS and withdrawal is a best-effort
+  // cosmetic projection, so awaiting its Slack round-trips would only add
+  // latency to the decision response that interactive callers wait on. The
+  // projector never throws; the `.catch` is a defensive backstop.
+  void withdrawGuardianRequestCards({
+    request: resolved,
+    status: targetStatus,
+    originChannel: actorContext.channel,
+  }).catch((err) => {
+    log.warn(
+      { err, requestId },
+      "Cross-surface card withdrawal failed (non-fatal)",
+    );
+  });
 
   log.info(
     {

@@ -34,6 +34,7 @@ import {
   getMessages,
 } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
+import { isMemoryRetrospectiveSource } from "../../memory/memory-retrospective-constants.js";
 import { getLogger } from "../../util/logger.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import {
@@ -118,19 +119,31 @@ export async function analyzeConversation(
 
   // e. Defense-in-depth recursion guard for auto mode: refuse to
   // auto-analyze a conversation that is itself an auto-analysis
-  // conversation. Prevents job-handler bugs from triggering runaway
-  // self-analysis loops.
-  if (
-    opts.trigger === "auto" &&
-    getConversationSource(resolvedId) === AUTO_ANALYSIS_SOURCE
-  ) {
-    return {
-      error: {
-        kind: "BAD_REQUEST",
-        status: 400,
-        message: "Cannot auto-analyze an auto-analysis conversation",
-      },
-    };
+  // conversation (prevents job-handler bugs from triggering runaway
+  // self-analysis loops) or a memory-retrospective conversation
+  // (fork-kind retrospectives carry a full copy of the source history,
+  // so auto-analyzing one would re-process the entire source
+  // conversation and double-write memory).
+  if (opts.trigger === "auto") {
+    const source = getConversationSource(resolvedId);
+    if (source === AUTO_ANALYSIS_SOURCE) {
+      return {
+        error: {
+          kind: "BAD_REQUEST",
+          status: 400,
+          message: "Cannot auto-analyze an auto-analysis conversation",
+        },
+      };
+    }
+    if (source !== null && isMemoryRetrospectiveSource(source)) {
+      return {
+        error: {
+          kind: "BAD_REQUEST",
+          status: 400,
+          message: "Cannot auto-analyze a memory-retrospective conversation",
+        },
+      };
+    }
   }
 
   // f. Build the analysis transcript

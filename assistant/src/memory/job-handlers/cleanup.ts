@@ -1,9 +1,10 @@
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
+import { getLogsDbPath } from "../../util/logs-db-path.js";
 import { runAsyncSqlite } from "../db-async-query.js";
 import { getDb } from "../db-connection.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
-import { rawAll, rawRun } from "../raw-query.js";
+import { rawAll, rawLogsRun, rawRun } from "../raw-query.js";
 
 const log = getLogger("memory-jobs-worker");
 
@@ -49,9 +50,14 @@ export async function pruneOldLlmRequestLogsJob(
   // fallback backend in `db-async-query.ts` synthesizes the same shape
   // by capturing `changes()` atomically after `exec()`. Both backends
   // end up on the parser path below.
+  // llm_request_logs lives in the dedicated logs database. Point the prune at
+  // that file directly via `dbPath` — both backends open it as their own
+  // database (the subprocess directly, the in-process fallback via a transient
+  // connection), so the DELETE hits the right file.
   const result = await runAsyncSqlite(
     `DELETE FROM llm_request_logs WHERE rowid IN (SELECT rowid FROM llm_request_logs WHERE created_at < ${cutoffMs} LIMIT ${PRUNE_LOG_BATCH_LIMIT});
 SELECT changes();`,
+    { dbPath: getLogsDbPath() },
   );
   if (!result.ok) {
     log.warn(
@@ -164,7 +170,8 @@ function parseDeletedCount(stdout: string | undefined): number {
  * conversation_keys, channel_inbound_events, message_runs, call_sessions,
  * external_conversation_bindings, assistant_inbox_conversation_state) are handled
  * automatically. Tables without cascade (messages, tool_invocations,
- * llm_request_logs) are deleted explicitly before removing the conversation row.
+ * llm_request_logs, skill_loaded_events) are deleted explicitly before
+ * removing the conversation row.
  */
 export function pruneOldConversationsJob(
   job: MemoryJob,
@@ -202,10 +209,12 @@ export function pruneOldConversationsJob(
       );
       if (still.length === 0) return;
 
-      // Non-cascading tables
-      rawRun(`DELETE FROM llm_request_logs WHERE conversation_id = ?`, id);
+      // Non-cascading tables. llm_request_logs lives in the dedicated logs
+      // connection, so it is deleted there (outside this main-DB transaction).
+      rawLogsRun(`DELETE FROM llm_request_logs WHERE conversation_id = ?`, id);
       rawRun(`DELETE FROM tool_invocations WHERE conversation_id = ?`, id);
       rawRun(`DELETE FROM messages WHERE conversation_id = ?`, id);
+      rawRun(`DELETE FROM skill_loaded_events WHERE conversation_id = ?`, id);
       // Conversation row deletion cascades to remaining dependent tables
       rawRun(`DELETE FROM conversations WHERE id = ?`, id);
       pruned++;

@@ -10,10 +10,11 @@ describe("parseLockfile", () => {
         {
           assistantId: "asst_1",
           name: "Alice",
-          cloud: "local",
+          cloud: "vellum",
           runtimeUrl: "http://127.0.0.1:7777",
           species: "vellum",
           hatchedAt: "2026-01-01T00:00:00.000Z",
+          organizationId: "org_1",
           resources: { gatewayPort: 7777, daemonPort: 7778 },
         },
       ],
@@ -148,6 +149,24 @@ describe("parseLockfile", () => {
       activeAssistant: null,
     };
     expect(parseLockfile(raw).assistants).toEqual([]);
+  });
+
+  test("keeps organizationId on platform entries and drops it when mistyped", () => {
+    // Platform assistants carry their owning org so the host proxy can scope
+    // requests without guessing; local entries simply omit it.
+    const raw = {
+      assistants: [
+        { assistantId: "asst_1", cloud: "vellum", organizationId: "org_1" },
+        { assistantId: "asst_2", cloud: "vellum", organizationId: 7 }, // mistyped
+        { assistantId: "asst_3", cloud: "local" }, // local, no org
+      ],
+      activeAssistant: null,
+    };
+    expect(parseLockfile(raw).assistants).toEqual([
+      { assistantId: "asst_1", cloud: "vellum", organizationId: "org_1" },
+      { assistantId: "asst_2", cloud: "vellum" },
+      { assistantId: "asst_3", cloud: "local" },
+    ]);
   });
 
   test("drops a resources object missing its numeric ports", () => {

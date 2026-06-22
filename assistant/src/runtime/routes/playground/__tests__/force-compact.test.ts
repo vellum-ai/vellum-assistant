@@ -18,8 +18,8 @@ mock.module("../helpers.js", () => ({
   addPlaygroundMessage: async () => ({ id: "msg-test" }),
 }));
 
-import type { ContextWindowResult } from "../../../../context/window-manager.js";
 import type { Conversation } from "../../../../daemon/conversation.js";
+import type { ContextWindowResult } from "../../../../plugins/defaults/compaction/window-manager.js";
 import type { Message } from "../../../../providers/types.js";
 import { RouteError } from "../../errors.js";
 import { ROUTES } from "../index.js";

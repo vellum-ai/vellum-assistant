@@ -82,7 +82,7 @@ function startScheduler(
   return startSchedulerReal(processMessage, notifyScheduleOneShot, options);
 }
 
-initializeDb();
+await initializeDb();
 
 /** Access the underlying bun:sqlite Database for raw parameterized queries. */
 function getRawDb(): import("bun:sqlite").Database {

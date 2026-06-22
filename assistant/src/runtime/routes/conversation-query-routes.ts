@@ -14,6 +14,7 @@
  * GET    /v1/messages/:id/content       — full message content
  * GET    /v1/messages/:id/llm-context   — LLM request logs for a message
  * GET    /v1/llm-request-logs/:id/payload — raw payload for a single log
+ * GET    /v1/llm-request-logs/:id/context — normalized context for a single log
  * DELETE /v1/messages/queued/:id        — delete queued message
  * POST   /v1/messages/queued/:id/steer — steer to a queued message
  */
@@ -21,6 +22,7 @@
 import { z } from "zod";
 
 import { LlmContextResponseSchema } from "../../api/responses/llm-context-response.js";
+import { LLMRequestLogEntrySchema } from "../../api/responses/llm-request-log-entry.js";
 import {
   deepMergeOverwrite,
   fillContextDefaultsForMissingKeys,
@@ -35,8 +37,9 @@ import {
 } from "../../config/loader.js";
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
-import { ProfileEntry } from "../../config/schemas/llm.js";
+import { LLMConfigFragment, ProfileEntry } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
+import { ServiceModeSchema } from "../../config/schemas/services.js";
 import { getConfigWatcher } from "../../daemon/config-watcher.js";
 import {
   getEmbeddingConfigInfo,
@@ -72,7 +75,7 @@ import { type LogRow } from "../../memory/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
-import { getMemoryV3SelectionForInspector } from "../../memory/v3/selection-log-store.js";
+import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory-v3-shadow/selection-log-store.js";
 import {
   createConnection,
   listConnections,
@@ -82,7 +85,10 @@ import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { validateAllowlistFile } from "../../security/secret-allowlist.js";
-import { resolvePricingForUsage } from "../../util/pricing.js";
+import {
+  resolvePricingForUsage,
+  usesAnthropicPricingRules,
+} from "../../util/pricing.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import {
   type LlmContextSummary,
@@ -126,8 +132,15 @@ const INFERENCE_PROFILE_UI_KEYS = new Set([
   "speed",
   "verbosity",
   "temperature",
+  "topP",
   "thinking",
 ]);
+
+// Fields a MANAGED profile may edit. Beyond `label` (display name) and
+// `status` (enabled/disabled), users can tune `topP` — the seed contract
+// owns provider/model/connection, but top_p is a per-profile sampling knob
+// the UI exposes on the managed Balanced profile.
+const MANAGED_PROFILE_EDITABLE_KEYS = new Set(["label", "status", "topP"]);
 
 function asMutablePlainObject(value: unknown): Record<string, unknown> | null {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
@@ -202,10 +215,17 @@ function attachEstimatedCost(summary: LlmContextSummary): LlmContextSummary {
 
   const cacheCreation = summary.cacheCreationInputTokens ?? 0;
   const cacheRead = summary.cacheReadInputTokens ?? 0;
-  const directInputTokens = Math.max(
-    inputTokens - cacheCreation - cacheRead,
-    0,
-  );
+  // `inputTokens` carries provider-shape-dependent cache accounting. Anthropic
+  // Messages responses (native and OpenRouter `anthropic/*`) report `input_tokens`
+  // already net of cache — cache-creation/read are separate, additive buckets —
+  // so the full-rate portion IS `inputTokens`. OpenAI/Gemini report a total
+  // prompt-token count with cached tokens as a subset, so the full-rate portion
+  // is the total minus cache. `usesAnthropicPricingRules` selects the same
+  // response shapes the pricing layer treats as Anthropic (keyed on the stored
+  // transport provider + model), so it also distinguishes the cache accounting.
+  const directInputTokens = usesAnthropicPricingRules(provider, model)
+    ? Math.max(inputTokens, 0)
+    : Math.max(inputTokens - cacheCreation - cacheRead, 0);
 
   const result = resolvePricingForUsage(provider, model, {
     directInputTokens,
@@ -236,7 +256,26 @@ function applyStoredProviderToLlmContextResult(
   return { ...normalized, summary };
 }
 
-function normalizeLlmContextLog(log: LogRow): LlmContextRouteResult & {
+/**
+ * `full` returns the complete normalized entry including request/response
+ * sections; `summary` omits the sections so list responses stay small —
+ * sections for a single call are fetched lazily through
+ * `/v1/llm-request-logs/{logId}/context`.
+ */
+type LlmContextView = "full" | "summary";
+
+function resolveLlmContextView(view: string | undefined): LlmContextView {
+  if (view === undefined || view === "full") return "full";
+  if (view === "summary") return "summary";
+  throw new BadRequestError(
+    `Invalid view parameter: ${view}. Expected "full" or "summary".`,
+  );
+}
+
+function normalizeLlmContextLog(
+  log: LogRow,
+  view: LlmContextView = "full",
+): LlmContextRouteResult & {
   id: string;
   requestPayload: null;
   responsePayload: null;
@@ -283,6 +322,9 @@ function normalizeLlmContextLog(log: LogRow): LlmContextRouteResult & {
     // existing `agent_loop_exit_reason` column tells it WHICH error fired.
     callSite: log.callSite ?? null,
     ...result,
+    ...(view === "summary"
+      ? { requestSections: undefined, responseSections: undefined }
+      : {}),
   };
 }
 
@@ -444,6 +486,205 @@ function readPlainObject(value: unknown): Record<string, unknown> | undefined {
   return value as Record<string, unknown>;
 }
 
+const WireProfileEntry = ProfileEntry.extend({
+  supportsVision: z.boolean().optional(),
+})
+  .passthrough()
+  .meta({ id: "ProfileEntry" });
+
+/**
+ * Wire shape of the `memory` section in config responses. Passthrough
+ * preserves fields beyond `enabled` and `v2` so the client doesn't strip
+ * unrecognised memory config that newer daemons may add.
+ */
+const MemoryWireConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    v2: z.object({ enabled: z.boolean().optional() }).passthrough().optional(),
+  })
+  .passthrough()
+  .meta({ id: "MemoryConfig" });
+
+/**
+ * Response schema for `GET /v1/config`.
+ *
+ * Describes the wire shape of the raw `settings.json` response after
+ * context-default filling and vision-flag enrichment. All top-level fields
+ * are optional because the on-disk config may be sparse. Additional
+ * top-level config sections beyond what's typed here are preserved via
+ * passthrough — this schema types the fields that web/macOS clients consume
+ * without restricting the full config surface.
+ */
+const ConfigGetResponseSchema = z
+  .object({
+    llm: z
+      .object({
+        default: LLMConfigFragment.extend({
+          provider_connection: z.string().optional(),
+        }).optional(),
+        profiles: z.record(z.string(), WireProfileEntry).optional(),
+        profileOrder: z.array(z.string()).optional(),
+        activeProfile: z.string().optional(),
+        // The profile the advisor consults; excluded from chat-profile pickers.
+        advisorProfile: z.string().optional(),
+        callSites: z
+          .record(
+            z.string(),
+            LLMConfigFragment.extend({
+              profile: z.string().optional(),
+            }).nullable(),
+          )
+          .optional(),
+        profileSession: z
+          .object({
+            defaultTtlSeconds: z.number().optional(),
+            maxTtlSeconds: z.number().optional(),
+          })
+          .optional(),
+        pricingOverrides: z.array(z.unknown()).optional(),
+      })
+      .passthrough()
+      .optional(),
+    memory: MemoryWireConfigSchema.optional(),
+    services: z
+      .object({
+        "web-search": z
+          .object({
+            mode: ServiceModeSchema.optional(),
+            provider: z.string().optional(),
+          })
+          .passthrough()
+          .optional(),
+        "web-fetch": z
+          .object({
+            mode: ServiceModeSchema.optional(),
+            provider: z.string().optional(),
+          })
+          .passthrough()
+          .optional(),
+        "image-generation": z
+          .object({ mode: ServiceModeSchema.optional() })
+          .passthrough()
+          .optional(),
+        inference: z
+          .object({ mode: ServiceModeSchema.optional() })
+          .passthrough()
+          .optional(),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough()
+  .meta({ id: "ConfigGetResponse" });
+
+/**
+ * Given a `z.object(...)` schema, returns a new schema where every property
+ * is `.nullable().optional()`. Used to express PATCH body semantics where any
+ * field can be `null` (meaning "delete via deep-merge") or omitted (unchanged).
+ */
+function nullablePartial(schema: z.ZodObject<z.ZodRawShape>) {
+  const shape: Record<string, z.ZodType> = {};
+  for (const [key, value] of Object.entries(schema.shape)) {
+    shape[key] = (value as z.ZodType).nullable().optional();
+  }
+  return z.object(shape);
+}
+
+/**
+ * A single profile entry within a PATCH body. All fields are
+ * `.nullable().optional()`: `null` = delete via deep-merge, omitted =
+ * unchanged. Named so HeyAPI generates `ProfilePatchEntry` as a top-level
+ * export in the SDK.
+ */
+const ProfilePatchEntrySchema = nullablePartial(ProfileEntry)
+  .passthrough()
+  .meta({ id: "ProfilePatchEntry" });
+
+/**
+ * A single call-site override within a PATCH body.
+ */
+const CallSiteOverrideDraftSchema = nullablePartial(
+  LLMConfigFragment.extend({ profile: z.string().optional() }),
+)
+  .passthrough()
+  .meta({ id: "CallSiteOverrideDraft" });
+
+/**
+ * Request body schema for `PATCH /v1/config`.
+ *
+ * Mirrors the response shape but every field is `.nullable().optional()`:
+ * omitted keys are left unchanged by the daemon's deep-merge, `null` values
+ * delete the key. Uses the same Zod enums as `ConfigGetResponseSchema` so
+ * the generated SDK produces literal-union types — no hand-written patch
+ * types needed downstream.
+ */
+const ConfigPatchRequestSchema = z
+  .object({
+    llm: z
+      .object({
+        default: nullablePartial(
+          LLMConfigFragment.extend({
+            provider_connection: z.string().optional(),
+          }),
+        )
+          .passthrough()
+          .nullable()
+          .optional(),
+        profiles: z
+          .record(z.string(), ProfilePatchEntrySchema.nullable())
+          .optional(),
+        profileOrder: z.array(z.string()).optional(),
+        activeProfile: z.string().nullable().optional(),
+        advisorProfile: z.string().nullable().optional(),
+        callSites: z
+          .record(z.string(), CallSiteOverrideDraftSchema.nullable())
+          .optional(),
+        profileSession: z
+          .object({
+            defaultTtlSeconds: z.number().optional(),
+            maxTtlSeconds: z.number().optional(),
+          })
+          .nullable()
+          .optional(),
+      })
+      .passthrough()
+      .optional(),
+    memory: MemoryWireConfigSchema.nullable().optional(),
+    services: z
+      .object({
+        "web-search": z
+          .object({
+            mode: ServiceModeSchema.optional(),
+            provider: z.string().optional(),
+          })
+          .passthrough()
+          .nullable()
+          .optional(),
+        "web-fetch": z
+          .object({
+            mode: ServiceModeSchema.optional(),
+            provider: z.string().optional(),
+          })
+          .passthrough()
+          .nullable()
+          .optional(),
+        "image-generation": z
+          .object({ mode: ServiceModeSchema.optional() })
+          .passthrough()
+          .nullable()
+          .optional(),
+        inference: z
+          .object({ mode: ServiceModeSchema.optional() })
+          .passthrough()
+          .nullable()
+          .optional(),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough()
+  .meta({ id: "ConfigPatchRequest" });
+
 function handleGetConfig() {
   try {
     const config = applyContextDefaultsToRawConfig(loadRawConfig());
@@ -524,8 +765,14 @@ function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
   }
   const profiles = asMutablePlainObject(llm.profiles);
   if (!profiles) return;
+  const existingProfiles = asMutablePlainObject(getConfig().llm.profiles) ?? {};
   for (const name of Object.keys(profiles)) {
-    if (profiles[name] === null && MANAGED_PROFILE_NAMES.has(name)) {
+    if (profiles[name] !== null || !MANAGED_PROFILE_NAMES.has(name)) continue;
+    // Only block deletion when the on-disk entry is Vellum-managed. A
+    // user-owned profile sharing a managed name carries a non-managed `source`
+    // and is freely deletable.
+    const existing = asMutablePlainObject(existingProfiles[name]);
+    if (existing?.source === "managed") {
       throw new BadRequestError(`Cannot delete managed profile "${name}".`);
     }
   }
@@ -599,7 +846,10 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   deepMergeOverwrite(raw, patch);
 
   await commitConfigWrite(raw, "patch");
-  return { ok: true };
+
+  const merged = applyContextDefaultsToRawConfig(loadRawConfig());
+  enrichProfilesWithVisionFlag(merged);
+  return merged;
 }
 
 /**
@@ -695,21 +945,39 @@ async function handleReplaceInferenceProfile({
     const detail = parsed.error.issues.map((issue) => issue.message).join("; ");
     throw new BadRequestError(`Invalid profile fragment: ${detail}`);
   }
-  const isManaged = MANAGED_PROFILE_NAMES.has(name);
+  // A managed name with no existing entry stays protected so users can't
+  // shadow a seeded managed profile. An existing entry carrying a non-managed
+  // `source` is user-owned and remains fully editable.
+  const existingProfile = asMutablePlainObject(
+    getConfig().llm.profiles?.[name],
+  );
+  const isManaged =
+    MANAGED_PROFILE_NAMES.has(name) &&
+    (existingProfile == null || existingProfile.source === "managed");
+  // A managed profile name with no materialized entry (e.g. a flag-gated profile
+  // whose flag is off) cannot be patched: writing label/status here would persist
+  // a source-less stub that later blocks the real managed profile from being
+  // seeded. Reject rather than create a placeholder.
+  if (MANAGED_PROFILE_NAMES.has(name) && existingProfile == null) {
+    throw new BadRequestError(
+      `Profile "${name}" is not currently available and cannot be edited.`,
+    );
+  }
   if (isManaged) {
-    // Managed profiles are daemon-seeded — provider, model, advanced params,
-    // and the connection binding all belong to the seed contract and can't
-    // be reshaped by the user. The two fields that ARE user policy (display
-    // label and enabled status) are allowed through so users can rename a
-    // managed profile or temporarily disable it without duplicating it.
+    // Managed profiles are daemon-seeded — provider, model, and the
+    // connection binding all belong to the seed contract and can't be
+    // reshaped by the user. The fields that ARE user policy (display label,
+    // enabled status, and the topP sampling knob) are allowed through so
+    // users can rename a managed profile, temporarily disable it, or tune
+    // top_p without duplicating it.
     const requestedKeys = Object.keys(parsed.data);
     const disallowed = requestedKeys.filter(
-      (k) => k !== "label" && k !== "status",
+      (k) => !MANAGED_PROFILE_EDITABLE_KEYS.has(k),
     );
     if (disallowed.length > 0) {
       throw new BadRequestError(
         `Cannot edit managed profile "${name}" fields [${disallowed.join(", ")}]. ` +
-          `Only label and status may be edited; duplicate to a custom profile to change other fields.`,
+          `Only label, status, and topP may be edited; duplicate to a custom profile to change other fields.`,
       );
     }
   }
@@ -810,7 +1078,7 @@ async function handleReplaceInferenceProfile({
 }
 
 /**
- * Apply a `{label?, status?}` patch to a managed profile entry, preserving
+ * Apply a `{label?, status?, topP?}` patch to a managed profile entry, preserving
  * every other field already on disk (provider, model, advanced params, etc).
  * Caller is responsible for having already restricted the fragment to the
  * managed-allowed keys.
@@ -830,19 +1098,16 @@ function patchManagedProfileFields(
 
   const existingProfile = asMutablePlainObject(profiles[name]) ?? {};
   const nextProfile: Record<string, unknown> = { ...existingProfile };
-  // Send `null` to clear; omit to leave untouched.
-  if ("label" in fragment) {
-    if (fragment.label === null) {
-      delete nextProfile.label;
+  // For each managed-editable key: send `null` to clear, a value to set,
+  // omit to leave untouched. Iterating the allowlist keeps persistence in
+  // lock-step with the guard above — a key can't slip through the gate
+  // without also being written.
+  for (const key of MANAGED_PROFILE_EDITABLE_KEYS) {
+    if (!(key in fragment)) continue;
+    if (fragment[key] === null) {
+      delete nextProfile[key];
     } else {
-      nextProfile.label = fragment.label;
-    }
-  }
-  if ("status" in fragment) {
-    if (fragment.status === null) {
-      delete nextProfile.status;
-    } else {
-      nextProfile.status = fragment.status;
+      nextProfile[key] = fragment[key];
     }
   }
   profiles[name] = nextProfile;
@@ -898,11 +1163,15 @@ function resolveConversationKind(
   return "user";
 }
 
-async function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
+async function handleGetLlmContext({
+  pathParams = {},
+  queryParams = {},
+}: RouteHandlerArgs) {
   const messageId = pathParams.id;
   if (!messageId) {
     throw new BadRequestError("message id is required");
   }
+  const view = resolveLlmContextView(queryParams.view);
   const source = await getLlmRequestLogSource();
   const logs = await source.getRequestLogsByMessageId(messageId);
   const turnMessageIds = getAssistantMessageIdsInTurn(messageId);
@@ -922,17 +1191,16 @@ async function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
   // turn finishes — see `assistant/src/memory/conversation-crud.ts`.
   const conversationTotalEstimatedCostUsd =
     conversation?.totalEstimatedCost ?? null;
-  const memoryV3Selection = message
-    ? await getMemoryV3SelectionForInspector(
-        message.conversationId,
-        memoryV2Activation?.turn ?? null,
-      )
-    : null;
+  // v3 selections are keyed to the turn's message ids (stamped by the turn-end
+  // backfill), independent of v2's tracker turn — so the panel shows whenever
+  // the turn has v3 data, regardless of v2/v3 turn-counter drift.
+  const memoryV3Selection =
+    await getMemoryV3SelectionForInspectorByMessageIds(turnMessageIds);
   return {
     messageId,
     conversationKind,
     conversationTotalEstimatedCostUsd,
-    logs: logs.map(normalizeLlmContextLog),
+    logs: logs.map((log) => normalizeLlmContextLog(log, view)),
     memoryRecall: memoryRecallLog ?? null,
     memoryV2Activation: memoryV2Activation ?? null,
     memoryV3Selection,
@@ -944,6 +1212,7 @@ async function handleGetConversationLlmContext({
 }: RouteHandlerArgs) {
   const conversationKey = queryParams.conversationKey;
   const requestedConversationId = queryParams.conversationId;
+  const view = resolveLlmContextView(queryParams.view);
 
   let conversationId: string | undefined = requestedConversationId;
   if (!conversationId && conversationKey) {
@@ -1000,7 +1269,7 @@ async function handleGetConversationLlmContext({
     conversationId: conversation.id,
     conversationKind,
     conversationTotalEstimatedCostUsd,
-    logs: logs.map(normalizeLlmContextLog),
+    logs: logs.map((log) => normalizeLlmContextLog(log, view)),
     memoryRecall: null,
     memoryV2Activation: null,
     memoryV3Selection: null,
@@ -1032,6 +1301,21 @@ async function handleGetLlmRequestLogPayload({
     responsePayload = log.responsePayload;
   }
   return { id: log.id, requestPayload, responsePayload };
+}
+
+async function handleGetLlmRequestLogContext({
+  pathParams = {},
+}: RouteHandlerArgs) {
+  const logId = pathParams.id;
+  if (!logId) {
+    throw new BadRequestError("log id is required");
+  }
+  const source = await getLlmRequestLogSource();
+  const log = await source.getRequestLogById(logId);
+  if (!log) {
+    throw new NotFoundError("log not found");
+  }
+  return normalizeLlmContextLog(log);
 }
 
 function handleDeleteQueuedMessage({
@@ -1157,6 +1441,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Get full config",
     description: "Return the raw settings.json configuration object.",
     tags: ["config"],
+    responseBody: ConfigGetResponseSchema,
     handler: handleGetConfig,
   },
   {
@@ -1171,8 +1456,8 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Deep-merge a partial JSON object into the settings.json configuration.",
     tags: ["config"],
-    requestBody: z.record(z.string(), z.unknown()),
-    responseBody: z.object({ ok: z.boolean() }),
+    requestBody: ConfigPatchRequestSchema,
+    responseBody: ConfigGetResponseSchema,
     handler: handlePatchConfig,
   },
   {
@@ -1322,6 +1607,13 @@ export const ROUTES: RouteDefinition[] = [
         schema: { type: "string" },
         description: "Internal conversation identifier.",
       },
+      {
+        name: "view",
+        required: false,
+        schema: { type: "string", enum: ["full", "summary"] },
+        description:
+          "Response shape. 'summary' omits per-log request/response sections; defaults to 'full'.",
+      },
     ],
     responseBody: LlmContextResponseSchema,
     handler: handleGetConversationLlmContext,
@@ -1338,6 +1630,15 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Return request/response logs and memory recall data for a specific message.",
     tags: ["messages"],
+    queryParams: [
+      {
+        name: "view",
+        required: false,
+        schema: { type: "string", enum: ["full", "summary"] },
+        description:
+          "Response shape. 'summary' omits per-log request/response sections; defaults to 'full'.",
+      },
+    ],
     responseBody: LlmContextResponseSchema,
     handler: handleGetLlmContext,
   },
@@ -1359,6 +1660,21 @@ export const ROUTES: RouteDefinition[] = [
       responsePayload: z.unknown(),
     }),
     handler: handleGetLlmRequestLogPayload,
+  },
+  {
+    operationId: "llm_request_logs_context_get",
+    endpoint: "llm-request-logs/:id/context",
+    method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Get normalized context for a single LLM request log",
+    description:
+      "Return the normalized summary and request/response sections for a specific log entry.",
+    tags: ["messages"],
+    responseBody: LLMRequestLogEntrySchema,
+    handler: handleGetLlmRequestLogContext,
   },
   {
     operationId: "messages_queued_delete",

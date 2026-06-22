@@ -19,7 +19,6 @@ import {
   publishAvatarChanged,
   publishConfigChanged,
   publishIdentityChanged,
-  publishIdentityIntroChanged,
   publishSoundsConfigUpdated,
 } from "../runtime/sync/resource-sync-events.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
@@ -39,16 +38,17 @@ import {
   conversationEntries,
   deleteConversation,
   getConversationMap,
+} from "./conversation-registry.js";
+import {
   getOrCreateConversation as getOrCreateActiveConversation,
   initConversationLifecycle,
-  setCesClientPromise,
 } from "./conversation-store.js";
 import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
 import { setGlobalSkillIpcSender } from "./meet-host-supervisor.js";
-import { PluginSourceWatcher } from "./plugin-source-watcher.js";
 import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
+import { WorkspaceToolsWatcher } from "./workspace-tools-watcher.js";
 
 const log = getLogger("server");
 
@@ -83,7 +83,6 @@ export class DaemonServer {
   // Composed subsystems
   private configWatcher = getConfigWatcher();
   private appSourceWatcher = new AppSourceWatcher();
-  private pluginSourceWatcher = PluginSourceWatcher.getInstance();
   private cliIpc = new AssistantIpcServer();
   private skillIpc = new SkillIpcServer();
 
@@ -124,7 +123,6 @@ export class DaemonServer {
         }
         return client;
       });
-      setCesClientPromise(this.cesClientPromise);
     }
   }
 
@@ -189,14 +187,6 @@ export class DaemonServer {
       }
     } catch (err) {
       log.error({ err }, "Failed to broadcast identity change");
-    }
-  }
-
-  private broadcastIdentityIntroChanged(): void {
-    try {
-      publishIdentityIntroChanged();
-    } catch (err) {
-      log.error({ err }, "Failed to broadcast identity intro change");
     }
   }
 
@@ -312,14 +302,13 @@ export class DaemonServer {
       () => this.broadcastAvatarUpdated(),
       () => this.broadcastConfigChanged(),
       () => refreshSkillCapabilityMemories(getConfig()),
-      () => this.broadcastIdentityIntroChanged(),
     );
 
     this.syncIdentityToPlatform();
 
     this.appSourceWatcher.start((appId) => this.handleAppSourceChange(appId));
 
-    this.pluginSourceWatcher.start();
+    WorkspaceToolsWatcher.getInstance().start();
 
     // Broadcast contacts_changed to all clients when any contact mutation occurs.
     this.unsubscribeContactChange = onContactChange(() => {
@@ -335,7 +324,7 @@ export class DaemonServer {
     this.evictor.stop();
     this.configWatcher.stop();
     this.appSourceWatcher.stop();
-    this.pluginSourceWatcher.stop();
+    WorkspaceToolsWatcher.getInstance().stop();
     this.cliIpc.stop();
     this.skillIpc.stop();
     if (this.unsubscribeContactChange) {
@@ -371,7 +360,6 @@ export class DaemonServer {
     if (this.cesClientPromise) {
       await this.cesClientPromise.catch(() => undefined);
       this.cesClientPromise = undefined;
-      setCesClientPromise(undefined);
     }
     if (this.cesProcessManager) {
       this.cesProcessManager = undefined;

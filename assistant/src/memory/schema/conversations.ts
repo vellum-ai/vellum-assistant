@@ -41,6 +41,13 @@ export const conversations = sqliteTable(
     scheduleJobId: text("schedule_job_id"),
     lastMessageAt: integer("last_message_at"),
     archivedAt: integer("archived_at"),
+    /**
+     * Epoch-ms timestamp set when a background/scheduled conversation is
+     * explicitly promoted into the sidebar's Recents grouping. NULL (the
+     * default) means not surfaced. Set/cleared only via the surface API —
+     * never automatically.
+     */
+    surfacedAt: integer("surfaced_at"),
     inferenceProfile: text("inference_profile"),
     inferenceProfileSessionId: text("inference_profile_session_id"),
     inferenceProfileExpiresAt: integer("inference_profile_expires_at"),
@@ -51,6 +58,7 @@ export const conversations = sqliteTable(
     index("idx_conversations_last_message_at").on(table.lastMessageAt),
     index("idx_conversations_conversation_type").on(table.conversationType),
     index("idx_conversations_archived_at").on(table.archivedAt),
+    index("idx_conversations_surfaced_at").on(table.surfacedAt),
     index("idx_conversations_fork_parent_conversation_id").on(
       table.forkParentConversationId,
     ),
@@ -93,6 +101,14 @@ export const toolInvocations = sqliteTable(
     matchedTrustRuleId: text("matched_trust_rule_id"),
     durationMs: integer("duration_ms").notNull(),
     createdAt: integer("created_at").notNull(),
+    /** Serialized input size in bytes, computed before any redaction. Null pre-migration-278. */
+    argBytes: integer("arg_bytes"),
+    /** Full serialized result size in bytes, computed before truncation/redaction. Null pre-migration-278 and for denied rows. */
+    resultBytes: integer("result_bytes"),
+    provider: text("provider"),
+    model: text("model"),
+    inferenceProfile: text("inference_profile"),
+    inferenceProfileSource: text("inference_profile_source"),
   },
   (table) => [
     index("idx_tool_invocations_conversation_id").on(table.conversationId),

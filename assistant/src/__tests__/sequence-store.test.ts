@@ -29,7 +29,7 @@ import {
 } from "../sequence/store.js";
 import type { SequenceStep } from "../sequence/types.js";
 
-initializeDb();
+await initializeDb();
 
 function clearTables() {
   const db = getDb();

@@ -85,7 +85,7 @@ mock.module("../../gateway-client.js", () => ({
   },
 }));
 
-mock.module("../channel-delivery-routes.js", () => ({
+mock.module("../../channel-reply-delivery.js", () => ({
   deliverReplyViaCallback: async (...args: unknown[]) => {
     const options = args[4] as
       | { messageId?: string; startFromSegment?: number; messageTs?: string }
@@ -296,7 +296,7 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
       },
     ]);
     expect(replyDeliveryCalls).toEqual([
-      { messageId: "assistant-msg-delivery-failure" },
+      { messageId: "assistant-msg-delivery-failure", startFromSegment: 0 },
     ]);
     expect(deliveryFailureEvents).toEqual(["evt-delivery-failure"]);
     expect(deliveredEvents).toEqual([]);
@@ -336,7 +336,7 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
       },
     ]);
     expect(replyDeliveryCalls).toEqual([
-      { messageId: "assistant-msg-fast-path" },
+      { messageId: "assistant-msg-fast-path", startFromSegment: 0 },
     ]);
     expect(deliveredEvents).toEqual(["evt-fast-path"]);
 
@@ -432,6 +432,7 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
       { messageId: "assistant-msg-final", startFromSegment: 1 },
     ]);
     expect(deliveredSegmentCounts).toEqual([
+      { eventId: "evt-incremental-text", count: 1 },
       { eventId: "evt-incremental-text", count: 1 },
     ]);
     expect(storedReplyMessageIds).toEqual([
@@ -574,7 +575,7 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
         .filter(Boolean),
     ).toEqual([]);
     expect(replyDeliveryCalls).toEqual([
-      { messageId: "assistant-msg-channel-final" },
+      { messageId: "assistant-msg-channel-final", startFromSegment: 0 },
     ]);
     expect(deliveredEvents).toEqual(["evt-channel-final-delivery"]);
 
@@ -658,11 +659,12 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
         .filter(Boolean),
     ).toEqual(["First live response.", "Second live response."]);
     expect(replyDeliveryCalls).toEqual([
-      { messageId: "assistant-msg-live-failure-final" },
+      { messageId: "assistant-msg-live-failure-final", startFromSegment: 0 },
     ]);
     expect(deliveryFailureEvents).toEqual([]);
     expect(deliveredEvents).toEqual(["evt-live-failure-recovery"]);
     expect(deliveredSegmentCounts).toEqual([
+      { eventId: "evt-live-failure-recovery", count: 0 },
       { eventId: "evt-live-failure-recovery", count: 1 },
     ]);
 
@@ -843,7 +845,7 @@ describe("Slack thinking status timing", () => {
           channel: channelId,
           threadTs,
           status: expect.any(String),
-          loadingMessages: ["Working on it..."],
+          loadingMessages: ["Thinking\u2026"],
         },
       );
       const threadStatus = deliveredChannelReplies[0]!.payload
@@ -946,13 +948,13 @@ describe("Slack thinking status timing", () => {
         channel: channelId,
         threadTs,
         status: expect.any(String),
-        loadingMessages: ["Working on it..."],
+        loadingMessages: ["Thinking\u2026"],
       },
       {
         channel: channelId,
         threadTs,
         status: expect.any(String),
-        loadingMessages: ["Working on it..."],
+        loadingMessages: ["Thinking\u2026"],
       },
       {
         channel: channelId,

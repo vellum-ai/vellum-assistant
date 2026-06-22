@@ -24,15 +24,25 @@ import {
 import {
   enqueueMemoryJob,
   hasActiveJobOfType,
+  MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS,
 } from "../../memory/jobs-store.js";
 import { GRAPH_MAINTENANCE_CHECKPOINTS } from "../../memory/jobs-worker.js";
+import { getUsageCostForConversationWindow } from "../../memory/llm-usage-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
+import {
+  paginateRuns,
+  parseRunsBeforeCursor,
+  parseRunsLimit,
+  RUNS_NEXT_CURSOR_SCHEMA,
+  RUNS_PAGINATION_QUERY_PARAMS,
+} from "./runs-pagination.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 function isConsolidationAvailable(): boolean {
-  return getConfig().memory.v2.enabled;
+  const config = getConfig();
+  return config.memory.enabled !== false && config.memory.v2.enabled;
 }
 
 function consolidationIntervalMs(): number {
@@ -46,6 +56,24 @@ function readLastRunAt(): number | null {
   if (!raw) return null;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function readConsolidationConfigResponse() {
+  const config = getConfig();
+  const available = config.memory.enabled !== false && config.memory.v2.enabled;
+  const enabled = available;
+  const intervalMs = consolidationIntervalMs();
+  const lastRunAt = readLastRunAt();
+  const nextRunAt =
+    enabled && lastRunAt != null ? lastRunAt + intervalMs : null;
+  return {
+    available,
+    enabled,
+    intervalMs,
+    nextRunAt,
+    lastRunAt,
+    success: true,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -74,18 +102,7 @@ export const ROUTES: RouteDefinition[] = [
       success: z.boolean(),
     }),
     handler: async (_args: RouteHandlerArgs) => {
-      const enabled = getConfig().memory.v2.enabled;
-      const intervalMs = consolidationIntervalMs();
-      const lastRunAt = readLastRunAt();
-      const nextRunAt = lastRunAt != null ? lastRunAt + intervalMs : null;
-      return {
-        available: enabled,
-        enabled,
-        intervalMs,
-        nextRunAt,
-        lastRunAt,
-        success: true,
-      };
+      return readConsolidationConfigResponse();
     },
   },
   {
@@ -117,7 +134,9 @@ export const ROUTES: RouteDefinition[] = [
       if (hasActiveJobOfType("memory_v2_consolidate")) {
         return { success: true, ran: false, jobId: null };
       }
-      const jobId = enqueueMemoryJob("memory_v2_consolidate", {});
+      const jobId = enqueueMemoryJob("memory_v2_consolidate", {
+        trigger: MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS.manual,
+      });
       return { success: true, ran: true, jobId };
     },
   },
@@ -150,13 +169,7 @@ export const ROUTES: RouteDefinition[] = [
       "on the conversation row. Shape mirrors `heartbeat/runs` so the " +
       "schedules settings UI can reuse its run-row component.",
     tags: ["consolidation"],
-    queryParams: [
-      {
-        name: "limit",
-        schema: { type: "integer" },
-        description: "Max runs to return (default 20, max 100)",
-      },
-    ],
+    queryParams: RUNS_PAGINATION_QUERY_PARAMS(20),
     responseBody: z.object({
       runs: z
         .array(
@@ -170,20 +183,25 @@ export const ROUTES: RouteDefinition[] = [
             skipReason: z.string().nullable(),
             error: z.string().nullable(),
             conversationId: z.string().nullable(),
+            conversationExists: z.boolean(),
+            conversationArchivedAt: z.number().nullable(),
+            estimatedCostUsd: z.number(),
             createdAt: z.number(),
           }),
         )
         .describe("Consolidation run records"),
+      nextCursor: RUNS_NEXT_CURSOR_SCHEMA,
     }),
     handler: async ({ queryParams }: RouteHandlerArgs) => {
       const params = queryParams ?? {};
-      const rawLimit = Number(params.limit ?? 20);
-      const limit = Number.isFinite(rawLimit)
-        ? Math.min(Math.max(Math.floor(rawLimit), 1), 100)
-        : 20;
-      const rows = listConversationsBySource(
-        MEMORY_V2_CONSOLIDATION_SOURCE,
+      const limit = parseRunsLimit(params, 20);
+      const before = parseRunsBeforeCursor(params);
+      const { rows, nextCursor } = paginateRuns(
+        listConversationsBySource(MEMORY_V2_CONSOLIDATION_SOURCE, limit + 1, {
+          beforeCreatedAt: before,
+        }),
         limit,
+        (c) => c.createdAt,
       );
       // Aggregate assistant-message stats in one batched query: presence of
       // an assistant message is the strongest "agent emitted output" signal
@@ -195,24 +213,34 @@ export const ROUTES: RouteDefinition[] = [
         rows.map((r) => r.id),
         "assistant",
       );
+      const now = Date.now();
       return {
+        nextCursor,
         runs: rows.map((c) => {
           const stat = assistantStats.get(c.id);
           const hasAssistantOutput = (stat?.count ?? 0) > 0;
           const finishedAt = hasAssistantOutput ? stat!.lastAt : null;
+          const estimatedCostUsd =
+            c.totalEstimatedCost > 0
+              ? c.totalEstimatedCost
+              : getUsageCostForConversationWindow({
+                  conversationId: c.id,
+                  from: c.createdAt,
+                  to: finishedAt ?? now,
+                });
           return {
             id: c.id,
             scheduledFor: c.createdAt,
             startedAt: c.createdAt,
             finishedAt,
-            durationMs:
-              finishedAt != null ? finishedAt - c.createdAt : null,
-            status: (hasAssistantOutput ? "ok" : "running") as
-              | "ok"
-              | "running",
+            durationMs: finishedAt != null ? finishedAt - c.createdAt : null,
+            status: (hasAssistantOutput ? "ok" : "running") as "ok" | "running",
             skipReason: null,
             error: null,
             conversationId: c.id,
+            conversationExists: true,
+            conversationArchivedAt: c.archivedAt,
+            estimatedCostUsd,
             createdAt: c.createdAt,
           };
         }),

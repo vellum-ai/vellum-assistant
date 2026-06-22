@@ -39,17 +39,29 @@ import { SubagentEventEventSchema } from "./events/subagent-event.js";
 import { SubagentSpawnedEventSchema } from "./events/subagent-spawned.js";
 import { SubagentStatusChangedEventSchema } from "./events/subagent-status-changed.js";
 import { SyncChangedEventSchema } from "./events/sync-changed.js";
+import { ToolOutputChunkEventSchema } from "./events/tool-output-chunk.js";
 import { ToolResultEventSchema } from "./events/tool-result.js";
+import { ToolUsePreviewStartEventSchema } from "./events/tool-use-preview-start.js";
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
+import { TraceEventSchema } from "./events/trace-event.js";
 import { TurnProfileAutoRoutedEventSchema } from "./events/turn-profile-auto-routed.js";
 import { UISurfaceCompleteEventSchema } from "./events/ui-surface-complete.js";
 import { UISurfaceDismissEventSchema } from "./events/ui-surface-dismiss.js";
 import { UISurfaceShowEventSchema } from "./events/ui-surface-show.js";
 import { UISurfaceUpdateEventSchema } from "./events/ui-surface-update.js";
+import { UsageProgressEventSchema } from "./events/usage-progress.js";
 import { UsageUpdateEventSchema } from "./events/usage-update.js";
 import { UserMessageEchoEventSchema } from "./events/user-message-echo.js";
+import { WorkflowCompletedEventSchema } from "./events/workflow-completed.js";
+import { WorkflowLeafFinishedEventSchema } from "./events/workflow-leaf-finished.js";
+import { WorkflowLeafStartedEventSchema } from "./events/workflow-leaf-started.js";
+import { WorkflowProgressEventSchema } from "./events/workflow-progress.js";
+import { WorkflowStartedEventSchema } from "./events/workflow-started.js";
 
-export { CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE } from "./constants/call-sites.js";
+export {
+  CALL_SITE_COMPACTION_AGENT,
+  CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
+} from "./constants/call-sites.js";
 export { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "./constants/tool-execution.js";
 export {
   type AssistantActivityAnchor,
@@ -248,6 +260,12 @@ export {
   SyncChangedEventSchema,
 } from "./events/sync-changed.js";
 export {
+  type ToolOutputChunkEvent,
+  ToolOutputChunkEventSchema,
+  type ToolOutputChunkSubType,
+  ToolOutputChunkSubTypeSchema,
+} from "./events/tool-output-chunk.js";
+export {
   type RiskScopeOption,
   RiskScopeOptionSchema,
   type ToolActivityMetadata,
@@ -264,9 +282,21 @@ export {
   WebSearchResultItemSchema,
 } from "./events/tool-result.js";
 export {
+  type ToolUsePreviewStartEvent,
+  ToolUsePreviewStartEventSchema,
+} from "./events/tool-use-preview-start.js";
+export {
   type ToolUseStartEvent,
   ToolUseStartEventSchema,
 } from "./events/tool-use-start.js";
+export {
+  type TraceEvent,
+  type TraceEventKind,
+  TraceEventKindSchema,
+  TraceEventSchema,
+  type TraceEventStatus,
+  TraceEventStatusSchema,
+} from "./events/trace-event.js";
 export {
   type TurnProfileAutoRoutedEvent,
   TurnProfileAutoRoutedEventSchema,
@@ -290,6 +320,10 @@ export {
   UISurfaceUpdateEventSchema,
 } from "./events/ui-surface-update.js";
 export {
+  type UsageProgressEvent,
+  UsageProgressEventSchema,
+} from "./events/usage-progress.js";
+export {
   type UsageUpdateEvent,
   UsageUpdateEventSchema,
 } from "./events/usage-update.js";
@@ -298,12 +332,36 @@ export {
   UserMessageEchoEventSchema,
 } from "./events/user-message-echo.js";
 export {
+  type WorkflowCompletedEvent,
+  WorkflowCompletedEventSchema,
+  type WorkflowRunStatus,
+  WorkflowRunStatusSchema,
+} from "./events/workflow-completed.js";
+export {
+  type WorkflowLeafFinishedEvent,
+  WorkflowLeafFinishedEventSchema,
+} from "./events/workflow-leaf-finished.js";
+export {
+  type WorkflowLeafStartedEvent,
+  WorkflowLeafStartedEventSchema,
+} from "./events/workflow-leaf-started.js";
+export {
+  type WorkflowProgressEvent,
+  WorkflowProgressEventSchema,
+} from "./events/workflow-progress.js";
+export {
+  type WorkflowStartedEvent,
+  WorkflowStartedEventSchema,
+} from "./events/workflow-started.js";
+export {
   type DictationContext,
   DictationContextSchema,
   type DictationRequest,
   DictationRequestSchema,
 } from "./requests/dictation.js";
 export {
+  type ConversationAttachmentBlock,
+  ConversationAttachmentBlockSchema,
   type ConversationContentBlock,
   ConversationContentBlockSchema,
   type ConversationMessage,
@@ -318,6 +376,16 @@ export {
   ConversationSlackMessageSchema,
   type ConversationSubagentNotification,
   ConversationSubagentNotificationSchema,
+  type ConversationSurfaceBlock,
+  ConversationSurfaceBlockSchema,
+  type ConversationTextBlock,
+  ConversationTextBlockSchema,
+  type ConversationThinkingBlock,
+  ConversationThinkingBlockSchema,
+  type ConversationToolUseBlock,
+  ConversationToolUseBlockSchema,
+  type PendingToolConfirmation,
+  PendingToolConfirmationSchema,
 } from "./responses/conversation-message.js";
 export {
   type DiskPressureStatusResponse,
@@ -344,6 +412,8 @@ export {
   FeedItemDetailPanelKindSchema,
   FeedItemDetailPanelSchema,
   FeedItemSchema,
+  type FeedItemSourceType,
+  FeedItemSourceTypeSchema,
   type FeedItemStatus,
   FeedItemStatusSchema,
   type FeedItemType,
@@ -400,6 +470,12 @@ export {
   type SubagentDetailResponse,
   SubagentDetailResponseSchema,
 } from "./responses/subagent-detail.js";
+export {
+  type WorkflowJournalResponse,
+  WorkflowJournalResponseSchema,
+  type WorkflowLeaf,
+  WorkflowLeafSchema,
+} from "./responses/workflow-journal.js";
 
 /**
  * Canonical SSE event schema for the assistant runtime.
@@ -454,15 +530,24 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   SubagentSpawnedEventSchema,
   SubagentStatusChangedEventSchema,
   SyncChangedEventSchema,
+  ToolOutputChunkEventSchema,
   ToolResultEventSchema,
+  ToolUsePreviewStartEventSchema,
   ToolUseStartEventSchema,
+  TraceEventSchema,
   TurnProfileAutoRoutedEventSchema,
   UISurfaceCompleteEventSchema,
   UISurfaceDismissEventSchema,
   UISurfaceShowEventSchema,
   UISurfaceUpdateEventSchema,
+  UsageProgressEventSchema,
   UsageUpdateEventSchema,
   UserMessageEchoEventSchema,
+  WorkflowCompletedEventSchema,
+  WorkflowLeafFinishedEventSchema,
+  WorkflowLeafStartedEventSchema,
+  WorkflowProgressEventSchema,
+  WorkflowStartedEventSchema,
 ]);
 
 /**

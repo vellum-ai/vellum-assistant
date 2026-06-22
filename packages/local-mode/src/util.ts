@@ -42,6 +42,39 @@ export function stripSensitiveFields(data: Record<string, unknown>): void {
   }
 }
 
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return (
+    normalized === "localhost" ||
+    normalized === "[::1]" ||
+    normalized === "::1" ||
+    normalized === "0:0:0:0:0:0:0:1" ||
+    /^127(?:\.\d{1,3}){3}$/.test(normalized)
+  );
+}
+
+export function headerHostIsLoopback(hostHeader: string | undefined): boolean {
+  if (!hostHeader) return false;
+  try {
+    return isLoopbackHostname(new URL(`http://${hostHeader}`).hostname);
+  } catch {
+    return false;
+  }
+}
+
+export function originIsAllowed(originHeader: string | undefined): boolean {
+  if (!originHeader) return true;
+  try {
+    const origin = new URL(originHeader);
+    return (
+      (origin.protocol === "http:" || origin.protocol === "https:") &&
+      isLoopbackHostname(origin.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function isLoopbackAddr(addr: string): boolean {
   const v4Mapped = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
   const normalized = v4Mapped ? v4Mapped[1]! : addr;

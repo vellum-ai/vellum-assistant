@@ -445,7 +445,7 @@ graph TB
 
 ### Key design decisions
 
-- **Scope**: Sandbox workspace only (`~/.vellum/workspace`). Non-recursive — only top-level directories.
+- **Scope**: Sandbox workspace only (`$VELLUM_WORKSPACE_DIR`). Non-recursive — only top-level directories.
 - **Bounded**: Maximum 120 directory entries (`MAX_TOP_LEVEL_ENTRIES`). Excess is truncated with a note.
 - **Prepend, not append**: The workspace block is prepended to the user message content so that Anthropic cache breakpoints continue to land on the trailing user text block, preserving prompt cache efficiency.
 - **Persists in history**: The injected `<workspace>` block persists in conversation history, giving the model workspace grounding across turns. Legacy `<workspace_top_level>` blocks from pre-change history are stripped for backward compatibility.
@@ -512,7 +512,7 @@ graph TB
 
 ## Workspace Git Tracking — Change Management
 
-The workspace sandbox (`~/.vellum/workspace`) is automatically tracked by a per-workspace git repository. Every file change made by the assistant is captured in structured commits, providing a full audit trail and natural undo/history exploration via standard git commands.
+The workspace sandbox (`$VELLUM_WORKSPACE_DIR`) is automatically tracked by a per-workspace git repository. Every file change made by the assistant is captured in structured commits, providing a full audit trail and natural undo/history exploration via standard git commands.
 
 ### Architecture overview
 

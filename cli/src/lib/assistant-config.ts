@@ -76,7 +76,19 @@ export interface AssistantEntry {
    *  Avoids mDNS resolution issues when the machine checks its own gateway. */
   localUrl?: string;
   bearerToken?: string;
+  /** Deployment topology / how the assistant is reached. Known values:
+   *  `"local"` (on-machine daemon), `"docker"` (local container),
+   *  `"apple-container"` (macOS-app-managed container), `"vellum"`
+   *  (platform-managed, uses the X-Session-Token auth path), `"gcp"` / `"aws"`
+   *  / `"custom"` (remote, SSH-managed), and `"paired"` (a remote assistant
+   *  paired from another machine — reached via a bearer guardian token at
+   *  `runtimeUrl`; has no local process, container, or `resources`).
+   *  Kept as a free `string` (not a union) for forward-compatibility. */
   cloud: string;
+  /** True when this entry was registered via `vellum connect import` (a remote
+   *  pairing). Set alongside `cloud: "paired"`; also backs the re-import /
+   *  overwrite guard in connect import. */
+  paired?: boolean;
   instanceId?: string;
   namespace?: string;
   project?: string;

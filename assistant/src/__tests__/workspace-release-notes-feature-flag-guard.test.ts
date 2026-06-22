@@ -1,36 +1,28 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-type Registry = {
-  flags: Array<{
-    key: string;
-    scope: string;
-    defaultEnabled: boolean;
-  }>;
-};
-
-const LEGACY_FLAGGED_RELEASE_NOTE_ALLOWLIST = new Map<string, string>([
-  [
-    "045-release-notes-meet-avatar.ts",
-    "Historical bulletin that already shipped before this guard existed.",
-  ],
-]);
-
-const FLAGGED_FEATURE_LANGUAGE_PATTERNS: Array<{
-  label: string;
-  pattern: RegExp;
-}> = [
-  { label: "feature flag", pattern: /\bfeature[- ]flag(?:ged)?\b/i },
-  { label: "rollout flag", pattern: /\brollout flag\b/i },
-  { label: "behind ... flag", pattern: /\bbehind\b[^\n.]{0,120}\bflag\b/i },
-  { label: "gated on", pattern: /\bgated on\b/i },
-  { label: "when enabled", pattern: /\bwhen enabled\b/i },
+/**
+ * The historical release-note workspace migrations. These appended bulletins
+ * to `<workspace>/UPDATES.md`, which a background job processed at daemon
+ * startup. That job has been removed — nothing consumes UPDATES.md release
+ * notes anymore — so the set below is frozen. Migration files themselves are
+ * append-only and must never be deleted (see the migrations AGENTS.md), but
+ * no new ones of this shape may be added.
+ */
+const FROZEN_RELEASE_NOTE_MIGRATIONS = [
+  "043-release-notes-latex-rendering.ts",
+  "045-release-notes-meet-avatar.ts",
+  "049-release-notes-default-sonnet.ts",
+  "053-release-notes-acp-codex.ts",
+  "055-release-notes-agentic-recall.ts",
+  "056-release-notes-inference-profile-reordering.ts",
+  "058-release-notes-acp-sessions-ui.ts",
+  "063-release-notes-dynamic-model-context.ts",
+  "067-release-notes-safe-storage-limits.ts",
+  "068-release-notes-local-timezone.ts",
+  "078-release-notes-tavily-web-search.ts",
 ];
-
-function getRepoRoot(): string {
-  return join(process.cwd(), "..");
-}
 
 function getReleaseNoteMigrationFiles(): string[] {
   const migrationsDir = join(process.cwd(), "src", "workspace", "migrations");
@@ -39,77 +31,35 @@ function getReleaseNoteMigrationFiles(): string[] {
     .sort();
 }
 
-function loadDefaultDisabledAssistantFlagKeys(): string[] {
-  const registryPath = join(
-    getRepoRoot(),
-    "meta",
-    "feature-flags",
-    "feature-flag-registry.json",
-  );
-  const registry = JSON.parse(readFileSync(registryPath, "utf-8")) as Registry;
-  return registry.flags
-    .filter((flag) => flag.scope === "assistant" && !flag.defaultEnabled)
-    .map((flag) => flag.key)
-    .sort();
-}
+describe("workspace release-note migrations guard", () => {
+  test("no new release-note migrations are added", () => {
+    const found = getReleaseNoteMigrationFiles();
+    const newMigrations = found.filter(
+      (fileName) => !FROZEN_RELEASE_NOTE_MIGRATIONS.includes(fileName),
+    );
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function featureFlagKeyPattern(key: string): RegExp {
-  const escaped = escapeRegExp(key);
-  if (key.includes("-")) {
-    return new RegExp(`(?:^|[^a-z0-9-])${escaped}(?:$|[^a-z0-9-])`, "i");
-  }
-
-  return new RegExp("[`'\"]" + escaped + "[`'\"]", "i");
-}
-
-describe("workspace release-note migrations feature flag guard", () => {
-  test("new release-note migrations do not announce default-disabled feature-flagged work", () => {
-    const migrationsDir = join(process.cwd(), "src", "workspace", "migrations");
-    const defaultDisabledFlagKeys = loadDefaultDisabledAssistantFlagKeys();
-    const violations: string[] = [];
-
-    for (const fileName of getReleaseNoteMigrationFiles()) {
-      if (LEGACY_FLAGGED_RELEASE_NOTE_ALLOWLIST.has(fileName)) {
-        continue;
-      }
-
-      const content = readFileSync(join(migrationsDir, fileName), "utf-8");
-
-      for (const { label, pattern } of FLAGGED_FEATURE_LANGUAGE_PATTERNS) {
-        if (pattern.test(content)) {
-          violations.push(
-            `${fileName}: contains flagged-feature language "${label}"`,
-          );
-        }
-      }
-
-      for (const key of defaultDisabledFlagKeys) {
-        if (featureFlagKeyPattern(key).test(content)) {
-          violations.push(
-            `${fileName}: references default-disabled assistant feature flag "${key}"`,
-          );
-        }
-      }
-    }
-
-    if (violations.length > 0) {
+    if (newMigrations.length > 0) {
       const message = [
-        "Release-note migrations write to UPDATES.md, which is processed without checking feature flags.",
-        "Do not announce features that are still behind default-disabled assistant flags or rollout flags.",
-        "Wait until GA and add a new append-only release-note migration with a new marker.",
+        "Release-note migrations append to <workspace>/UPDATES.md, but the",
+        "background job that processed that file has been removed — nothing",
+        "consumes release notes written there. Do not add new release-note",
+        "migrations until a replacement surfacing mechanism is designed.",
         "",
-        "Violations:",
-        ...violations.map((violation) => `  - ${violation}`),
-        "",
-        "If this is an already-shipped historical bulletin, add a narrow entry to",
-        "LEGACY_FLAGGED_RELEASE_NOTE_ALLOWLIST in workspace-release-notes-feature-flag-guard.test.ts.",
+        "New release-note migrations found:",
+        ...newMigrations.map((fileName) => `  - ${fileName}`),
       ].join("\n");
 
-      expect(violations, message).toEqual([]);
+      expect(newMigrations, message).toEqual([]);
+    }
+  });
+
+  test("frozen release-note migrations are never deleted", () => {
+    // Migrations are append-only: even though their bulletins are no longer
+    // processed, deleting an entry breaks the sequential migration chain on
+    // existing installs.
+    const found = getReleaseNoteMigrationFiles();
+    for (const fileName of FROZEN_RELEASE_NOTE_MIGRATIONS) {
+      expect(found).toContain(fileName);
     }
   });
 });

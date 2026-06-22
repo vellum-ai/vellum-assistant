@@ -11,6 +11,7 @@ import { z } from "zod";
 import {
   checkpointKey,
   CK_ITEM_COUNT,
+  CK_LAST_ATTEMPT_AT,
   CK_LAST_GEN_AT,
   countActiveMemoryNodes,
   getCheckpointValue,
@@ -20,7 +21,7 @@ import {
   buildConversationStarterValidationContext,
   isValidConversationStarterText,
 } from "../../memory/conversation-starter-validation.js";
-import { getDb } from "../../memory/db-connection.js";
+import { getDb, getMemoryDb } from "../../memory/db-connection.js";
 import { enqueueMemoryJob, isMemoryEnabled } from "../../memory/jobs-store.js";
 import { conversationStarters, memoryJobs } from "../../memory/schema.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -42,17 +43,17 @@ const starterItemSchema = z.object({
 
 type StarterItem = z.infer<typeof starterItemSchema>;
 
-export const CONVERSATION_STARTERS_STALE_TTL_MS = 24 * 60 * 60 * 1000;
+export const CONVERSATION_STARTERS_STALE_TTL_MS = 4 * 60 * 60 * 1000;
 
-/** Minimum interval between re-enqueue attempts triggered by invalid items. */
-const REFRESH_COOLDOWN_MS = 60_000;
+/** Minimum interval between re-enqueue attempts (prevents tight retry loops
+ *  when generation repeatedly fails or produces 0 valid starters). */
+const REFRESH_COOLDOWN_MS = 5 * 60 * 1000;
 
-function hasActiveConversationStarterJob(
-  db: ReturnType<typeof getDb>,
-  scopeId: string,
-): boolean {
+function hasActiveConversationStarterJob(scopeId: string): boolean {
+  const memoryDb = getMemoryDb();
+  if (!memoryDb) return false;
   return (
-    db
+    memoryDb
       .select({ id: memoryJobs.id })
       .from(memoryJobs)
       .where(
@@ -198,13 +199,17 @@ function handleListConversationStarters({
       lastGenAt == null ||
       Date.now() - lastGenAt >= CONVERSATION_STARTERS_STALE_TTL_MS;
     const checkpointAhead = lastCount != null && totalActive < lastCount;
-    let hasActiveJob = hasActiveConversationStarterJob(db, scopeId);
+    let hasActiveJob = hasActiveConversationStarterJob(scopeId);
+    const lastAttemptAt = parseCheckpointInt(
+      getCheckpointValue(checkpointKey(CK_LAST_ATTEMPT_AT, scopeId)),
+    );
     const withinCooldown =
-      lastGenAt != null && Date.now() - lastGenAt < REFRESH_COOLDOWN_MS;
+      lastAttemptAt != null && Date.now() - lastAttemptAt < REFRESH_COOLDOWN_MS;
     const shouldRefresh =
-      staleByAge ||
-      checkpointAhead ||
-      (invalidItemCount > 0 && totalActive > 0 && !withinCooldown);
+      !withinCooldown &&
+      (staleByAge ||
+        checkpointAhead ||
+        (invalidItemCount > 0 && totalActive > 0));
 
     if (shouldRefresh && !hasActiveJob && isMemoryEnabled()) {
       enqueueMemoryJob("generate_conversation_starters", { scopeId });
@@ -226,7 +231,7 @@ function handleListConversationStarters({
     return { starters: [], total: 0, status: "empty" };
   }
 
-  const existing = hasActiveConversationStarterJob(db, scopeId);
+  const existing = hasActiveConversationStarterJob(scopeId);
 
   if (!existing && isMemoryEnabled()) {
     enqueueMemoryJob("generate_conversation_starters", { scopeId });

@@ -12,8 +12,8 @@ import { describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent } from "../agent/loop.js";
-import type { ContextWindowResult } from "../context/window-manager.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -39,11 +39,6 @@ function makeLoggerStub(): Record<string, unknown> {
 
 mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
-}));
-
-mock.module("../memory/guardian-action-store.js", () => ({
-  getGuardianActionRequest: () => null,
-  resolveGuardianActionRequest: () => {},
 }));
 
 mock.module("../providers/registry.js", () => ({
@@ -79,7 +74,14 @@ mock.module("../config/loader.js", () => ({
         },
       },
       profiles: {},
-      callSites: {},
+      callSites: {
+        // Resolves a SMALLER window than mainAgent (which inherits
+        // llm.default's 100000) — exercised by the maybeCompact gate-sizing
+        // tests below.
+        memoryRetrospective: {
+          contextWindow: { maxInputTokens: 50000 },
+        },
+      },
       pricingOverrides: [],
     },
     rateLimit: { maxRequestsPerMinute: 0 },
@@ -187,17 +189,31 @@ let mockCompactResult: ContextWindowResult = {
   summaryText: "",
 };
 
-mock.module("../context/window-manager.js", () => ({
+// Config payloads handed to the manager's updateConfig — runCompaction calls
+// it with the (possibly sizing-threaded) resolved context-window config
+// before delegating to the manager.
+const updateConfigCalls: Array<{ maxInputTokens?: number }> = [];
+
+mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
+    estimateInputTokens() {
+      return 0;
+    }
+    get tokenCountInputs() {
+      return { systemPrompt: "", tools: undefined };
+    }
     nonPersistedPrefixCount = 0;
-    summaryIsInjected = false;
     constructor() {}
+    updateConfig(cfg: { maxInputTokens?: number }) {
+      updateConfigCalls.push(cfg);
+    }
     shouldCompact() {
       return { needed: false, estimatedTokens: 0 };
     }
     async maybeCompact(): Promise<ContextWindowResult> {
       return mockCompactResult;
     }
+    resetOverflowRecovery() {}
   },
   createContextSummaryMessage: () => ({
     role: "user",
@@ -228,10 +244,10 @@ mock.module("../agent/loop.js", () => ({
     getActiveModel() {
       return undefined;
     }
-    async run(
-      _messages: Message[],
-      _onEvent: (event: AgentEvent) => void,
-    ): Promise<Message[]> {
+    async run(_options: {
+      messages: Message[];
+      onEvent: (event: AgentEvent) => void;
+    }): Promise<Message[]> {
       return [];
     }
   },
@@ -429,6 +445,53 @@ describe("forceCompact event emission", () => {
       0,
     );
     expect(collected.filter((m) => m.type === "usage_update").length).toBe(0);
+  });
+});
+
+describe("maybeCompact gate sizing", () => {
+  test("default sizing resolves mainAgent's window; wake sizing resolves the wake's call-site window", async () => {
+    // The auto-threshold gate derives its trip point from the
+    // context-window config pushed via updateConfig. Sized against
+    // mainAgent (100k here), a wake whose call site resolves a smaller
+    // window (memoryRetrospective → 50k) would pass the gate un-compacted
+    // and then overflow at the provider — threading the sizing makes the
+    // gate see the 50k window instead.
+    mockCompactResult = {
+      messages: [],
+      compacted: false,
+      previousEstimatedInputTokens: 0,
+      estimatedInputTokens: 0,
+      maxInputTokens: 0,
+      thresholdTokens: 0,
+      compactedMessages: 0,
+      compactedPersistedMessages: 0,
+      summaryCalls: 0,
+      summaryInputTokens: 0,
+      summaryOutputTokens: 0,
+      summaryModel: "",
+      summaryText: "",
+    };
+    const conversation = makeConversation([], "conv-compact-sizing");
+
+    updateConfigCalls.length = 0;
+    await conversation.maybeCompact();
+    await conversation.maybeCompact({ callSite: "memoryRetrospective" });
+
+    expect(updateConfigCalls.map((cfg) => cfg.maxInputTokens)).toEqual([
+      100000, 50000,
+    ]);
+  });
+
+  test("forceCompact keeps mainAgent sizing", async () => {
+    mockCompactResult = { ...mockCompactResult, compacted: false };
+    const conversation = makeConversation([], "conv-compact-force-sizing");
+
+    updateConfigCalls.length = 0;
+    await conversation.forceCompact();
+
+    expect(updateConfigCalls.map((cfg) => cfg.maxInputTokens)).toEqual([
+      100000,
+    ]);
   });
 });
 

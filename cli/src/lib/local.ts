@@ -17,6 +17,7 @@ import {
 } from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
 import { httpHealthCheck, waitForDaemonReady } from "./http-client.js";
+import { stopIngressNginx } from "./nginx-ingress.js";
 import {
   resolveProcessState,
   stopProcess,
@@ -961,6 +962,7 @@ export async function startLocalDaemon(
         "VELLUM_DEBUG",
         "VELLUM_DEV",
         "VELLUM_DESKTOP_APP",
+        "VELLUM_DISABLE_PLATFORM",
         "VELLUM_WORKSPACE_DIR",
       ]) {
         if (process.env[key]) {
@@ -1016,7 +1018,7 @@ export async function startLocalDaemon(
     let daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
 
     // Dev fallback: if the bundled daemon did not become ready in time,
-    // fall back to source daemon startup so local `./build.sh run` still works.
+    // fall back to source daemon startup so local source runs still work.
     if (!daemonReady) {
       const assistantIndex = resolveAssistantIndexPath();
       if (assistantIndex) {
@@ -1057,7 +1059,11 @@ export async function startLocalDaemon(
 export async function startGateway(
   watch: boolean = false,
   resources?: LocalInstanceResources,
-  options?: { signingKey?: string; bootstrapSecret?: string },
+  options?: {
+    signingKey?: string;
+    bootstrapSecret?: string;
+    envOverrides?: Record<string, string>;
+  },
 ): Promise<string> {
   const effectiveGatewayPort = resources?.gatewayPort ?? GATEWAY_PORT;
 
@@ -1083,6 +1089,7 @@ export async function startGateway(
 
   const gatewayEnv: Record<string, string> = {
     ...(process.env as Record<string, string>),
+    ...options?.envOverrides,
     RUNTIME_HTTP_PORT: String(effectiveDaemonPort),
     GATEWAY_PORT: String(effectiveGatewayPort),
     // Pass gateway operational settings via env vars so the CLI does not
@@ -1234,4 +1241,8 @@ export async function stopLocalProcesses(
       unlinkSync(ngrokPidFile);
     } catch {}
   }
+
+  // Stop the nginx ingress if one is fronting this gateway (it guards against
+  // PID reuse itself, mirroring the ngrok handling above).
+  await stopIngressNginx(join(vellumDir, "workspace"));
 }

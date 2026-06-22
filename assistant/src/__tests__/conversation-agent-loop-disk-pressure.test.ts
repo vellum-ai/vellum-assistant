@@ -2,11 +2,11 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentLoop } from "../agent/loop.js";
-import type { AgentLoopConversationContext } from "../daemon/conversation-agent-loop.js";
+import type { Conversation } from "../daemon/conversation.js";
 import type { DiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 
-type Context = AgentLoopConversationContext;
+type Context = Conversation;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -96,7 +96,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getMessageById: () => null,
   getConversationOriginChannel: () => null,
   getConversationOriginInterface: () => null,
-  getConversationOverrideProfileFromRow: () => null,
+  resolveOverrideProfile: () => null,
   provenanceFromTrustContext: () => ({}),
   setConversationHistoryStrippedAt: () => {},
   updateConversationContextWindow: () => {},
@@ -106,9 +106,7 @@ mock.module("../memory/conversation-crud.js", () => ({
 
 import { runAgentLoopImpl } from "../daemon/conversation-agent-loop.js";
 
-function makeCtx(
-  overrides: Partial<Context> = {},
-): AgentLoopConversationContext {
+function makeCtx(overrides: Partial<Context> = {}): Conversation {
   let processing = true;
   return {
     conversationId: "conv-123",
@@ -137,6 +135,8 @@ function makeCtx(
     } as unknown as Context["contextWindowManager"],
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
+    conversationType: "background",
+    source: "memory",
     memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
     currentActiveSurfaceId: undefined,
     currentPage: undefined,
@@ -145,8 +145,6 @@ function makeCtx(
     surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
     workingDir: "/tmp",
-    workspaceTopLevelContext: null,
-    workspaceTopLevelDirty: false,
     channelCapabilities: undefined,
     commandIntent: undefined,
     trustContext: undefined,
@@ -172,7 +170,6 @@ function makeCtx(
     hasNoClient: false,
     prompter: {} as Context["prompter"],
     queue: {} as Context["queue"],
-    refreshWorkspaceTopLevelContextIfNeeded: () => {},
     markWorkspaceTopLevelDirty: () => {},
     emitActivityState: () => {},
     getQueueDepth: () => 0,
@@ -181,9 +178,12 @@ function makeCtx(
     drainQueue: async () => {},
     getTurnInterfaceContext: () => null,
     getTurnChannelContext: () => null,
+
+    buildCurrentSystemPrompt: () => "system prompt",
+    modelOverride: undefined,
     graphMemory: {} as Context["graphMemory"],
     ...overrides,
-  } as AgentLoopConversationContext;
+  } as unknown as Conversation;
 }
 
 describe("runAgentLoopImpl disk pressure gate", () => {

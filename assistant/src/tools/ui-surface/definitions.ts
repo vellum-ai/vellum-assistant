@@ -8,6 +8,8 @@
  */
 
 import { RiskLevel } from "../../permissions/types.js";
+import { isWeakOpenModel } from "../../providers/weak-open-model.js";
+import { ACTIVATION_MOMENT_PARAMS } from "../../telemetry/activation-funnel.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -19,7 +21,7 @@ import type {
 // ---------------------------------------------------------------------------
 
 const APP_BUILDER_ARTIFACT_RE =
-  /\b(app|apps|application|applications|website|websites|site|sites|dashboard|dashboards|game|games|calculator|calculators|tracker|trackers|visualization|visualizations|visualisation|visualisations|tool|tools|utility|utilities|counter|counters)\b/i;
+  /\b(app|apps|application|applications|website|websites|site|sites|dashboard|dashboards|game|games|calculator|calculators|tracker|trackers|visualization|visualizations|visualisation|visualisations|visualize|visualise|artifact|artifacts|chart|charts|graph|graphs|tool|tools|utility|utilities|counter|counters)\b/i;
 const APP_BUILDER_BUILD_RE =
   /\b(build|building|built|create|creating|created|make|making|made|generate|generating|generated)\b/i;
 
@@ -34,10 +36,35 @@ function proxyExecute(toolName: string) {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> => {
+    if (toolName === "ui_show" && isEmptyDynamicPage(input)) {
+      return {
+        content: isWeakOpenModel(context.attribution?.resolvedModel)
+          ? EMPTY_DYNAMIC_PAGE_DECLARATIVE_REDIRECT
+          : EMPTY_DYNAMIC_PAGE_HTML_HINT,
+        isError: true,
+      };
+    }
+
+    if (toolName === "ui_show" && isEmptyCard(input)) {
+      return {
+        content:
+          "Error: ui_show card requires content — provide `data.body`, a `template` (e.g. task_progress with steps), `data.metadata`, or `actions`. The surface was not displayed because it carried only a title, which renders as a blank box. Resend ui_show with populated card content.",
+        isError: true,
+      };
+    }
+
     if (toolName === "ui_show" && isDynamicPageAppSubstitute(input)) {
       return {
         content:
           'Error: ui_show dynamic_page is for transient UI surfaces only. This request is building an app-like experience, so load the app-builder skill first with `skill_load` using `skill: "app-builder"`, then create a persistent Library app with the app-builder workflow.',
+        isError: true,
+      };
+    }
+
+    if (toolName === "ui_update" && isEmptyUpdate(input)) {
+      return {
+        content:
+          'Error: ui_update received an empty `data` payload, so the surface was unchanged — the user still sees its previous state. The provided data is merged into the surface\'s current data, and merging nothing is a no-op. To advance a task_progress card, send the full step list: ui_update { surface_id: "<id>", data: { templateData: { steps: [{ label: "<step>", status: "completed" }, { label: "<step>", status: "in_progress" }] } } }. Resend ui_update with the fields you intend to change under `data`.',
         isError: true,
       };
     }
@@ -48,8 +75,132 @@ function proxyExecute(toolName: string) {
         isError: true,
       };
     }
-    return context.proxyToolResolver(toolName, input);
+    const result = await context.proxyToolResolver(toolName, input);
+    if (
+      toolName === "ui_show" &&
+      !result.isError &&
+      typeof result.content === "string" &&
+      isTaskProgressCardShow(input)
+    ) {
+      return {
+        ...result,
+        content: `${result.content}\n\n${TASK_PROGRESS_UPDATE_HINT}`,
+      };
+    }
+    return result;
   };
+}
+
+/**
+ * Rejection envelope for an empty `dynamic_page` ui_show from a capable model:
+ * the surface carried no `data.html`, so it would render as a blank box. These
+ * models reliably author HTML, so the fix is simply to resend it inline.
+ */
+const EMPTY_DYNAMIC_PAGE_HTML_HINT =
+  "Error: ui_show dynamic_page requires non-empty HTML in `data.html`. The surface was not displayed because no content was provided — the user would see a blank box. Resend ui_show with the full HTML markup in `data.html`.";
+
+/**
+ * Rejection envelope for an empty `dynamic_page` ui_show from a weak open model.
+ * Authoring full HTML inline is the generation task these models fail at (an
+ * empty `data: {}` here, or broken markup otherwise), so steering them to
+ * "resend the HTML" just repeats the failure. Most widget requests are really
+ * structured data — comparisons, results, metrics — which render reliably via a
+ * field-based surface the model populates without writing any HTML, and which
+ * cannot render blank. dynamic_page stays available for genuinely custom visual
+ * HTML.
+ */
+const EMPTY_DYNAMIC_PAGE_DECLARATIVE_REDIRECT =
+  'Error: ui_show dynamic_page was not displayed — `data.html` was empty, so the user would see a blank box. Authoring full HTML inline is error-prone; for data, comparisons, results, or metrics prefer a structured surface, which you fill with fields (no HTML) and which never renders blank. Re-show the content as one of: a `table` (ui_show { surface_type: "table", data: { columns: [{ id, label }], rows: [{ id, cells: { <columnId>: "<value>" } }] } }), a `card` ({ title, body, metadata: [{ label, value }] }), or `work_result` ({ summary, metrics: [{ label, value }] }). Only use dynamic_page when you genuinely need custom visual HTML, in which case include the complete markup in `data.html` now.';
+
+/**
+ * Worked ui_update example, appended to a successful task_progress `ui_show`
+ * result so the model learns the update pattern at the point of use (with the
+ * real surface_id in hand) rather than carrying it in the always-present tool
+ * description.
+ */
+const TASK_PROGRESS_UPDATE_HINT =
+  'As each step finishes, call ui_update with this surface_id to advance it — e.g. ui_update { surface_id: "<the surface_id above>", data: { templateData: { steps: [{ label: "Scaffold project", status: "completed" }, { label: "Wire up commands", status: "in_progress" }] } } }';
+
+function isTaskProgressCardShow(input: Record<string, unknown>): boolean {
+  if (input.template === "task_progress") {
+    return true;
+  }
+  const data = asRecord(input.data);
+  return data?.template === "task_progress";
+}
+
+/**
+ * A `ui_update` whose `data` merge would change nothing: missing, not an
+ * object, or containing only (recursively) empty objects. Merging such a
+ * payload is a silent no-op — the surface keeps its prior state while the
+ * client still reports "Surface updated" — so the model never learns its
+ * update was hollow and a live card (e.g. task_progress) appears frozen.
+ * Arrays (e.g. `templateData.steps`) and any non-empty primitive leaf count
+ * as content.
+ */
+function isEmptyUpdate(input: Record<string, unknown>): boolean {
+  const data = asRecord(input.data);
+  return data === null || !hasContent(data);
+}
+
+function hasContent(value: unknown): boolean {
+  if (value === null || value === undefined) {
+    return false;
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  if (typeof value === "object") {
+    return Object.values(value).some(hasContent);
+  }
+  if (typeof value === "string") {
+    return value.trim().length > 0;
+  }
+  return true;
+}
+
+function isEmptyDynamicPage(input: Record<string, unknown>): boolean {
+  if (input.surface_type !== "dynamic_page") {
+    return false;
+  }
+  const data = asRecord(input.data);
+  const html = data?.html;
+  return typeof html !== "string" || html.trim().length === 0;
+}
+
+/**
+ * A `card` ui_show carrying no renderable content — only a title (or nothing)
+ * — renders as a blank bordered box. A declared `template` (task_progress,
+ * weather_forecast, …) renders its own shell, and `body`/`subtitle`/`metadata`/
+ * `actions` are real content; any of those passes. The model places these
+ * either nested in `data` or at the top level, so both are checked. Title is
+ * intentionally not content: a title-only card is the blank box.
+ */
+function isEmptyCard(input: Record<string, unknown>): boolean {
+  if (input.surface_type !== "card") {
+    return false;
+  }
+  const data = asRecord(input.data) ?? {};
+
+  const template =
+    nonEmptyString(input.template) ?? nonEmptyString(data.template);
+  if (template) {
+    return false;
+  }
+
+  const hasBody = !!(nonEmptyString(input.body) ?? nonEmptyString(data.body));
+  const hasSubtitle = !!nonEmptyString(data.subtitle);
+  const hasMetadata = Array.isArray(data.metadata) && data.metadata.length > 0;
+  const actions = input.actions ?? data.actions;
+  const hasActions = Array.isArray(actions) && actions.length > 0;
+
+  return !(hasBody || hasSubtitle || hasMetadata || hasActions);
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? value
+    : undefined;
 }
 
 function isDynamicPageAppSubstitute(input: Record<string, unknown>): boolean {
@@ -58,11 +209,31 @@ function isDynamicPageAppSubstitute(input: Record<string, unknown>): boolean {
   }
 
   const text = collectRoutingText(input).join(" ");
-  if (!APP_BUILDER_ARTIFACT_RE.test(text)) {
-    return false;
+  if (
+    APP_BUILDER_ARTIFACT_RE.test(text) &&
+    (APP_BUILDER_BUILD_RE.test(text) || /\b(app|application)\b/i.test(text))
+  ) {
+    return true;
   }
 
-  return APP_BUILDER_BUILD_RE.test(text) || /\b(app|application)\b/i.test(text);
+  // Second signal: even when the model gives the surface a clean,
+  // non-app-sounding title (dodging the text regex above), substantial
+  // interactive HTML is an app being smuggled in as a transient surface.
+  // A genuinely transient page is small and static; an app has real
+  // scripted markup. Keep the bar high so simple snippets still pass.
+  return isSubstantialInteractiveHtml(input);
+}
+
+const INTERACTIVE_HTML_RE =
+  /<script\b|on[a-z]+\s*=|addEventListener|new Chart\b|window\.vellum\b/i;
+
+function isSubstantialInteractiveHtml(input: Record<string, unknown>): boolean {
+  const data = asRecord(input.data);
+  const html = data?.html;
+  if (typeof html !== "string") {
+    return false;
+  }
+  return html.length > 2000 && INTERACTIVE_HTML_RE.test(html);
 }
 
 function collectRoutingText(input: Record<string, unknown>): string[] {
@@ -114,8 +285,9 @@ export const uiShowTool = {
     "- confirmation: { message, detail?, confirmLabel?, confirmedLabel?, cancelLabel?, destructive? }\n" +
     "- dynamic_page: { html, width?, height?, preview?: { title, subtitle?, description?, icon?, metrics?: [{ label, value }] } }\n" +
     "- file_upload: { prompt, acceptedTypes?, maxFiles? }\n" +
-    "- task_preferences: {} (no data needed — categories are rendered client-side)\n\n" +
-    "Proactively show a task_progress card before multi-step or long-running work (web searches, file operations, research). Show it before your first tool call, then update steps as work progresses.",
+    "- task_preferences: {} (no data needed — categories are rendered client-side)\n" +
+    '- work_result: { eyebrow?, status?: "completed"|"partial"|"failed"|"in_progress", summary?, metrics?: [{ label, value, detail?, tone?: "neutral"|"positive"|"warning"|"negative" }], sections?: [{ id?, title, description?, type?: "items"|"timeline"|"diff"|"artifacts"|"warnings", items?: [{ id?, title, description?, status?, tone?, metadata?: [{ label, value }], href? }], diffs?: [{ label?, before?, after? }] }] }. Shows a structured receipt after real work: what changed, what was skipped, proof points, and next actions. Keep display-only unless explicit follow-up buttons are needed.\n\n' +
+    "For multi-step or long-running turns (web searches, file operations, research), show a task_progress card early and keep its steps updated as work progresses. Coarse steps are fine, and you can add or revise them as the work takes shape — a rough card beats no signal.",
   category: "ui-surface",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "host",
@@ -137,6 +309,7 @@ export const uiShowTool = {
           "dynamic_page",
           "file_upload",
           "task_preferences",
+          "work_result",
         ],
         description: "The type of surface to display",
       },
@@ -182,6 +355,12 @@ export const uiShowTool = {
         description:
           "When true, clicking an action does not dismiss the surface — the card stays visible and only the clicked action is marked as spent. Use for launcher or menu-style cards where multiple buttons may be clicked. Defaults to false.",
       },
+      activation_moment: {
+        type: "string",
+        enum: ACTIVATION_MOMENT_PARAMS,
+        description:
+          "Activation-rail telemetry tag (cohort only). Set this when this surface IS one of the activation funnel moments; the milestone is recorded automatically when the user commits the surface. Omit for all non-activation surfaces.",
+      },
     },
     required: ["surface_type", "data"],
   },
@@ -193,7 +372,7 @@ export const uiShowTool = {
 // ui_update
 // ---------------------------------------------------------------------------
 
-const uiUpdateTool = {
+export const uiUpdateTool = {
   name: "ui_update",
   description:
     "Update an existing surface's data. The provided data object is merged into the surface's current data.\n" +

@@ -195,7 +195,7 @@ async function prepareConversationForMessage(
         "wiring in conversation-routes.ts into a shared helper.",
     );
   }
-  const sourceActorPrincipalId = conversation.trustContext?.guardianPrincipalId;
+  const sourceActorPrincipalId = conversation.authContext?.actorPrincipalId;
   // CU is per-conversation (owns step count, AX tree history, loop detection).
   if (
     shouldAttachHostProxyForCapability(
@@ -534,6 +534,9 @@ export async function processMessage(
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
       ...(options?.callSite ? { callSite: options.callSite } : {}),
+      ...(options?.overrideProfile
+        ? { overrideProfile: options.overrideProfile }
+        : {}),
     });
   } finally {
     if (
@@ -591,6 +594,9 @@ export async function processMessageInBackground(
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
       ...(options?.callSite ? { callSite: options.callSite } : {}),
+      ...(options?.overrideProfile
+        ? { overrideProfile: options.overrideProfile }
+        : {}),
     })
     .finally(() => {
       if (

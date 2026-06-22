@@ -7,8 +7,8 @@
  * - `user-prompt-submit` — first-pass generation from the submitted prompt,
  *   scheduled on a later macrotask so the main agent-loop LLM request is
  *   issued first.
- * - `stop` — second-pass regeneration once the conversation reaches its third
- *   user turn (turn count derived from the user prompts in history).
+ * - `stop` — fallback retry for replaceable titles and second-pass
+ *   regeneration once the conversation reaches its third user turn.
  *
  * Both let the title service resolve the provider, persist the title, and
  * broadcast the resulting `conversation_title_updated` / `sync_changed`
@@ -31,11 +31,40 @@ const queueGenerateConversationTitleMock = mock(
   }): void => undefined,
 );
 const queueRegenerateConversationTitleMock = mock(
-  (_params: { conversationId: string; provider?: unknown }): void => undefined,
+  (_params: {
+    conversationId: string;
+    provider?: unknown;
+    onlyIfReplaceable?: boolean;
+  }): void => undefined,
 );
 mock.module("../memory/conversation-title-service.js", () => ({
+  AUTO_TITLE_DETERMINISTIC: 2,
+  isReplaceableTitle: (title: string | null) =>
+    title == null ||
+    title === "" ||
+    title === "Generating title..." ||
+    title === "New Conversation" ||
+    title === "Untitled" ||
+    title === "Untitled Conversation" ||
+    title.startsWith("Runtime: "),
   queueGenerateConversationTitle: queueGenerateConversationTitleMock,
   queueRegenerateConversationTitle: queueRegenerateConversationTitleMock,
+}));
+
+const mockGetConversation = mock(
+  (_conversationId: string) =>
+    ({
+      title: "Existing Title",
+      isAutoTitle: 1,
+      conversationType: "standard",
+    }) as {
+      title: string;
+      isAutoTitle: number;
+      conversationType: string;
+    },
+);
+mock.module("../memory/conversation-crud.js", () => ({
+  getConversation: mockGetConversation,
 }));
 
 // The `stop` hook reads `conversations.skipAutoRetitling`; stub the loader so
@@ -51,9 +80,9 @@ import type {
   StopContext,
   UserPromptSubmitContext,
 } from "../plugin-api/types.js";
+import { defaultTitleGeneratePlugin } from "../plugins/defaults/index.js";
 import stop from "../plugins/defaults/title-generate/hooks/stop.js";
 import userPromptSubmit from "../plugins/defaults/title-generate/hooks/user-prompt-submit.js";
-import { defaultTitleGeneratePlugin } from "../plugins/defaults/title-generate/register.js";
 import { runHook } from "../plugins/pipeline.js";
 import {
   registerPlugin,
@@ -76,6 +105,10 @@ function makeCtx(
   ];
   return {
     conversationId: "conv-1",
+    userMessageId: "msg-1",
+    requestId: "req-1",
+    modelProfileKey: null,
+    isNonInteractive: false,
     prompt: "first message",
     originalMessages: messages,
     latestMessages: messages,
@@ -119,9 +152,7 @@ function makeStopCtx(overrides: Partial<StopContext> = {}): StopContext {
   return {
     conversationId: "conv-1",
     messages: historyWithUserTurns(3),
-    responseContent: [{ type: "text", text: "reply 3" }],
-    stopReason: "end_turn",
-    decision: "stop",
+    exitReason: "no_tool_calls",
     logger: noopLogger,
     ...overrides,
   };
@@ -190,6 +221,19 @@ describe("title-generate stop hook", () => {
     resetPluginRegistryForTests();
     queueRegenerateConversationTitleMock.mockReset();
     queueRegenerateConversationTitleMock.mockImplementation(() => undefined);
+    mockGetConversation.mockReset();
+    mockGetConversation.mockImplementation(
+      (_conversationId: string) =>
+        ({
+          title: "Existing Title",
+          isAutoTitle: 1,
+          conversationType: "standard",
+        }) as {
+          title: string;
+          isAutoTitle: number;
+          conversationType: string;
+        },
+    );
     skipAutoRetitling = false;
   });
 
@@ -208,6 +252,61 @@ describe("title-generate stop hook", () => {
     expect(call?.conversationId).toBe("conv-1");
     expect(call).not.toHaveProperty("provider");
     expect(call).not.toHaveProperty("signal");
+    expect(call).not.toHaveProperty("onlyIfReplaceable");
+  });
+
+  test("retries a replaceable fallback title after a successful turn", async () => {
+    mockGetConversation.mockReturnValueOnce({
+      title: "Untitled Conversation",
+      isAutoTitle: 2,
+      conversationType: "standard",
+    });
+    const ctx = makeStopCtx({ messages: historyWithUserTurns(1) });
+
+    await stop(ctx);
+    await flushMacrotasks();
+
+    expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(1);
+    expect(queueRegenerateConversationTitleMock).toHaveBeenCalledWith({
+      conversationId: "conv-1",
+      onlyIfReplaceable: true,
+    });
+  });
+
+  test("preserves the third-turn retitle when the title is still replaceable", async () => {
+    mockGetConversation.mockReturnValueOnce({
+      title: "Untitled Conversation",
+      isAutoTitle: 2,
+      conversationType: "standard",
+    });
+    const ctx = makeStopCtx({ messages: historyWithUserTurns(3) });
+
+    await stop(ctx);
+    await flushMacrotasks();
+
+    expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(1);
+    const call = queueRegenerateConversationTitleMock.mock.calls[0]?.[0];
+    expect(call?.conversationId).toBe("conv-1");
+    expect(call).not.toHaveProperty("onlyIfReplaceable");
+  });
+
+  test("fallback title retry is not blocked by the retitling opt-out", async () => {
+    skipAutoRetitling = true;
+    mockGetConversation.mockReturnValueOnce({
+      title: "Generating title...",
+      isAutoTitle: 1,
+      conversationType: "standard",
+    });
+    const ctx = makeStopCtx({ messages: historyWithUserTurns(1) });
+
+    await stop(ctx);
+    await flushMacrotasks();
+
+    expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(1);
+    expect(queueRegenerateConversationTitleMock).toHaveBeenCalledWith({
+      conversationId: "conv-1",
+      onlyIfReplaceable: true,
+    });
   });
 
   test("defers the regeneration so the completed turn is persisted first", async () => {
@@ -271,18 +370,20 @@ describe("title-generate stop hook", () => {
     expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(1);
   });
 
-  test("defers when an earlier hook chose to continue the run", async () => {
-    // GIVEN a third-user-turn stop that an earlier hook flipped to "continue"
+  test("does not regenerate on a non-success terminal exit", async () => {
+    // GIVEN a third-user-turn stop that ended on a provider error rather than
+    // a finalized no-tool reply
     const ctx = makeStopCtx({
       messages: historyWithUserTurns(3),
-      decision: "continue",
+      exitReason: "error",
+      error: new Error("provider rejected"),
     });
 
     // WHEN the stop hook runs and any deferred work flushes
     await stop(ctx);
     await flushMacrotasks();
 
-    // THEN it defers to the eventual terminal stop rather than re-titling now
+    // THEN no regeneration fires — there is no new topic to re-title from
     expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(0);
   });
 

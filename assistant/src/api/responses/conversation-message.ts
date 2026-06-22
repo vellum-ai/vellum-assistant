@@ -25,6 +25,14 @@
 
 import { z } from "zod";
 
+import {
+  AllowlistOptionSchema,
+  DirectoryScopeOptionSchema,
+  ScopeOptionSchema,
+} from "../events/confirmation-request.js";
+import { QuestionEntrySchema } from "../events/question-request.js";
+import { ToolActivityMetadataSchema } from "../events/tool-result.js";
+
 // ---------------------------------------------------------------------------
 // Attachment metadata
 // ---------------------------------------------------------------------------
@@ -68,6 +76,68 @@ const RiskDirectoryScopeOptionSchema = z.object({
 });
 
 /**
+ * In-flight permission prompt awaiting a user decision, mirrored onto a
+ * history tool call so a cold reconnect (or a conversation reopened after the
+ * event-buffer window has elapsed) can restore the inline confirmation card
+ * without replaying the live `confirmation_request` SSE event.
+ *
+ * The daemon stamps this at render time by consulting the in-memory
+ * `pending-interactions` registry (the authoritative store of unresolved
+ * prompts) — it is not persisted to the database, so it appears only while the
+ * prompt is genuinely outstanding and disappears once the interaction
+ * resolves. The shape mirrors the `confirmation_request` event the live path
+ * delivers, so both paths hydrate the same client state.
+ */
+export const PendingToolConfirmationSchema = z.object({
+  requestId: z.string(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  toolName: z.string().optional(),
+  riskLevel: z.string().optional(),
+  riskReason: z.string().optional(),
+  input: z.record(z.string(), z.unknown()).optional(),
+  allowlistOptions: z.array(AllowlistOptionSchema).optional(),
+  scopeOptions: z.array(ScopeOptionSchema).optional(),
+  directoryScopeOptions: z.array(DirectoryScopeOptionSchema).optional(),
+  persistentDecisionsAllowed: z.boolean().optional(),
+});
+export type PendingToolConfirmation = z.infer<
+  typeof PendingToolConfirmationSchema
+>;
+
+/**
+ * In-flight `ask_question` prompt awaiting a user answer, mirrored onto the
+ * history tool call that raised it so a cold reconnect (or a conversation
+ * reopened after the event-buffer window has elapsed) can restore the inline
+ * question card without replaying the live `question_request` SSE event.
+ *
+ * Stamped at render time from the in-memory `pending-interactions` registry
+ * (the authoritative store of unresolved prompts) — not persisted to the
+ * database, so it appears only while the prompt is genuinely outstanding and
+ * disappears once the interaction resolves. `entries` mirrors the
+ * `question_request` event's `questions[]`, so both paths hydrate the same
+ * client state.
+ */
+export const PendingToolQuestionSchema = z.object({
+  requestId: z.string(),
+  entries: z.array(QuestionEntrySchema),
+});
+export type PendingToolQuestion = z.infer<typeof PendingToolQuestionSchema>;
+
+/**
+ * Closed set of confirmation outcomes recorded for a tool call. The daemon
+ * only ever persists one of these three values (the outcome map is gated to
+ * them in `conversation-agent-loop.ts`), so the wire carries the closed enum
+ * rather than a free string and clients consume it without re-narrowing.
+ */
+export const ConfirmationDecisionSchema = z.enum([
+  "approved",
+  "denied",
+  "timed_out",
+]);
+export type ConfirmationDecision = z.infer<typeof ConfirmationDecisionSchema>;
+
+/**
  * A single tool call rendered into a history row. Mirrors the object the
  * daemon's `renderHistoryContent` emits; `contentOrder` references it as
  * `tool:N` where `N` indexes into `toolCalls`.
@@ -87,8 +157,12 @@ export const ConversationMessageToolCallSchema = z.object({
   startedAt: z.number().optional(),
   /** Unix ms when the tool completed. */
   completedAt: z.number().optional(),
-  /** Confirmation decision for this tool call: "approved" | "denied" | "timed_out". */
-  confirmationDecision: z.string().optional(),
+  /**
+   * Confirmation outcome for this tool call, when one was recorded. Closed
+   * enum: the daemon has only ever emitted these three values since the field
+   * was introduced, so every daemon that carries it conforms — no version gate.
+   */
+  confirmationDecision: ConfirmationDecisionSchema.optional(),
   /** Friendly label for the confirmation (e.g. "Edit File", "Run Command"). */
   confirmationLabel: z.string().optional(),
   /** Risk level classification at invocation time ("low" | "medium" | "high" | "unknown"). */
@@ -111,6 +185,37 @@ export const ConversationMessageToolCallSchema = z.object({
   riskAllowlistOptions: z.array(RiskAllowlistOptionSchema).optional(),
   /** Directory scope ladder for the rule editor. */
   riskDirectoryScopeOptions: z.array(RiskDirectoryScopeOptionSchema).optional(),
+  /**
+   * Structured tool activity (web_search / web_fetch) for rich client cards.
+   * Persisted alongside the tool call so the activity card survives a history
+   * reopen instead of degrading to the plain `result` text. Mirrors the live
+   * `tool_result` event's `activityMetadata`. Guaranteed present for tool calls
+   * that produced activity as of daemon v0.8.8; absent for older history rows.
+   */
+  activityMetadata: ToolActivityMetadataSchema.optional(),
+  /**
+   * Confirmation scope ladder (`{label, scope}`) for scope-aware tools
+   * (file/bash). Derived at render time via the permission checker's pure
+   * `generateScopeOptions(workspaceDir, toolName)`, so it is reconstructed for
+   * completed tool calls on history reopen rather than persisted. Feeds the
+   * rule editor's trust-rule suggestion fallback. Distinct from the
+   * regex-flavored `riskScopeOptions` (`{pattern, label}`). Guaranteed present
+   * for scope-aware tools as of daemon v0.8.8; absent for older history rows.
+   */
+  scopeOptions: z.array(ScopeOptionSchema).optional(),
+  /**
+   * In-flight permission prompt, present only while the tool call is awaiting
+   * a user decision (read from the `pending-interactions` registry at render
+   * time). Lets a cold reconnect restore the inline confirmation card.
+   * Guaranteed present for outstanding prompts as of daemon v0.8.8.
+   */
+  pendingConfirmation: PendingToolConfirmationSchema.optional(),
+  /**
+   * In-flight `ask_question` prompt, present only while the tool call is
+   * awaiting a user answer (read from the `pending-interactions` registry at
+   * render time). Lets a cold reconnect restore the inline question card.
+   */
+  pendingQuestion: PendingToolQuestionSchema.optional(),
 });
 export type ConversationMessageToolCall = z.infer<
   typeof ConversationMessageToolCallSchema
@@ -197,6 +302,53 @@ export type ConversationSlackMessage = z.infer<
 // Content block (unified ordered content)
 // ---------------------------------------------------------------------------
 
+/** A run of assistant prose. */
+export const ConversationTextBlockSchema = z.object({
+  type: z.literal("text"),
+  text: z.string(),
+});
+export type ConversationTextBlock = z.infer<typeof ConversationTextBlockSchema>;
+
+/** A contiguous model reasoning run with its timing. */
+export const ConversationThinkingBlockSchema = z.object({
+  type: z.literal("thinking"),
+  thinking: z.string(),
+  /** Unix ms when the model began emitting this reasoning block. */
+  startedAt: z.number().optional(),
+  /** Unix ms when this reasoning block completed. */
+  completedAt: z.number().optional(),
+});
+export type ConversationThinkingBlock = z.infer<
+  typeof ConversationThinkingBlockSchema
+>;
+
+/** A tool invocation carrying its paired result (`toolCall.result`). */
+export const ConversationToolUseBlockSchema = z.object({
+  type: z.literal("tool_use"),
+  toolCall: ConversationMessageToolCallSchema,
+});
+export type ConversationToolUseBlock = z.infer<
+  typeof ConversationToolUseBlockSchema
+>;
+
+/** A vellum surface projection (no provider analog). */
+export const ConversationSurfaceBlockSchema = z.object({
+  type: z.literal("surface"),
+  surface: ConversationMessageSurfaceSchema,
+});
+export type ConversationSurfaceBlock = z.infer<
+  typeof ConversationSurfaceBlockSchema
+>;
+
+/** A vellum attachment projection (no provider analog). */
+export const ConversationAttachmentBlockSchema = z.object({
+  type: z.literal("attachment"),
+  attachment: ConversationMessageAttachmentSchema,
+});
+export type ConversationAttachmentBlock = z.infer<
+  typeof ConversationAttachmentBlockSchema
+>;
+
 /**
  * A single ordered content block. `contentBlocks` is the unified, display-ready
  * projection of a message's model-native content — one ordered tagged array so
@@ -221,20 +373,11 @@ export type ConversationSlackMessage = z.infer<
  * it from the positional arrays, so it stays correct once those are retired.
  */
 export const ConversationContentBlockSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("text"), text: z.string() }),
-  z.object({ type: z.literal("thinking"), thinking: z.string() }),
-  z.object({
-    type: z.literal("tool_use"),
-    toolCall: ConversationMessageToolCallSchema,
-  }),
-  z.object({
-    type: z.literal("surface"),
-    surface: ConversationMessageSurfaceSchema,
-  }),
-  z.object({
-    type: z.literal("attachment"),
-    attachment: ConversationMessageAttachmentSchema,
-  }),
+  ConversationTextBlockSchema,
+  ConversationThinkingBlockSchema,
+  ConversationToolUseBlockSchema,
+  ConversationSurfaceBlockSchema,
+  ConversationAttachmentBlockSchema,
 ]);
 export type ConversationContentBlock = z.infer<
   typeof ConversationContentBlockSchema
@@ -256,25 +399,106 @@ export const ConversationMessageSchema = z.object({
    * assistant messages were consolidated for history rendering.
    */
   mergedMessageIds: z.array(z.string()).optional(),
-  role: z.string(),
   /**
-   * Flat plain-text body (joined text segments). Redundant with
-   * `textSegments`/`contentOrder` for clients that render from the positional
-   * arrays (web, CLI), but the legacy Swift macOS client reads `content`
-   * directly and drops any history row missing it (its
-   * `HistoryReconstructionService` skips rows with empty text). The serializer
-   * always emits it — do not remove without updating that client.
+   * Client-generated idempotency nonce echoed back on the persisted row.
+   * Present only for messages a client sent with one (user sends); lets the
+   * client correlate an optimistic row with its confirmed server row by
+   * identity instead of matching message text.
    */
-  content: z.string().optional(),
+  clientMessageId: z.string().optional(),
+  /**
+   * Renderable conversation roles only. The messages endpoint emits a
+   * UI-facing transcript, so it excludes the `system` rows that the
+   * underlying `MessageRole` column also permits — those are agent-context
+   * scaffolding, never a displayed turn.
+   */
+  role: z.enum(["user", "assistant"]),
+  /**
+   * @deprecated Superseded by `contentBlocks`. Flat plain-text body (joined
+   * text segments). Redundant with `textSegments`/`contentOrder` for clients
+   * that render from the positional arrays (web, CLI). The serializer always
+   * emits it — do not remove without auditing clients that read it directly.
+   */
+  content: z
+    .string()
+    .meta({
+      deprecated: true,
+      description:
+        "Deprecated: superseded by contentBlocks. Flat plain-text body (joined text segments).",
+    })
+    .optional(),
   /** Display timestamp as an ISO-8601 string. */
   timestamp: z.string(),
+  /**
+   * Flat list of attachment metadata for the row. Not yet supersedable by
+   * `contentBlocks`: `renderHistoryContent` emits an `attachment` content
+   * block only for file-block refs with an inline placement, so orphan rows
+   * (unmatched ids, count mismatch, no DB rows — see `alignAttachments`) ship
+   * here alone. Kept non-deprecated until `contentBlocks` reaches attachment
+   * parity, so clients that migrate off the positional arrays don't drop those
+   * chips.
+   */
   attachments: z.array(ConversationMessageAttachmentSchema),
-  toolCalls: z.array(ConversationMessageToolCallSchema).optional(),
-  surfaces: z.array(ConversationMessageSurfaceSchema).optional(),
-  textSegments: z.array(z.string()).optional(),
-  thinkingSegments: z.array(z.string()).optional(),
-  /** Positional `"<type>:<index>"` content ordering (e.g. `"text:0"`, `"thinking:1"`). */
-  contentOrder: z.array(z.string()).optional(),
+  /**
+   * @deprecated Superseded by `contentBlocks` (the `tool_use` variant). Flat
+   * list of tool calls for the row.
+   */
+  toolCalls: z
+    .array(ConversationMessageToolCallSchema)
+    .meta({
+      deprecated: true,
+      description:
+        "Deprecated: superseded by contentBlocks (the tool_use variant). Flat list of tool calls.",
+    })
+    .optional(),
+  /**
+   * @deprecated Superseded by `contentBlocks` (the `surface` variant). Flat
+   * list of surfaces for the row.
+   */
+  surfaces: z
+    .array(ConversationMessageSurfaceSchema)
+    .meta({
+      deprecated: true,
+      description:
+        "Deprecated: superseded by contentBlocks (the surface variant). Flat list of surfaces.",
+    })
+    .optional(),
+  /**
+   * @deprecated Superseded by `contentBlocks`. Text split by tool-call
+   * boundaries; positional sibling of `contentOrder`.
+   */
+  textSegments: z
+    .array(z.string())
+    .meta({
+      deprecated: true,
+      description:
+        "Deprecated: superseded by contentBlocks. Text segments split by tool-call boundaries.",
+    })
+    .optional(),
+  /**
+   * @deprecated Superseded by `contentBlocks`. Reasoning text extracted from
+   * thinking blocks; positional sibling of `contentOrder`.
+   */
+  thinkingSegments: z
+    .array(z.string())
+    .meta({
+      deprecated: true,
+      description:
+        "Deprecated: superseded by contentBlocks. Reasoning text extracted from thinking blocks.",
+    })
+    .optional(),
+  /**
+   * @deprecated Superseded by `contentBlocks`. Positional
+   * `"<type>:<index>"` content ordering (e.g. `"text:0"`, `"thinking:1"`).
+   */
+  contentOrder: z
+    .array(z.string())
+    .meta({
+      deprecated: true,
+      description:
+        'Deprecated: superseded by contentBlocks. Positional "<type>:<index>" content ordering (e.g. "text:0", "thinking:1").',
+    })
+    .optional(),
   /**
    * Unified ordered content blocks — the display-ready projection of the
    * row's model-native content. Ships alongside the positional

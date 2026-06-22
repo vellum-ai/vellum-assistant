@@ -5,6 +5,7 @@ import type { CredentialPromptResult } from "../../runtime/routes/credential-pro
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
+import { tryResolveConversationId } from "../utils/conversation-id.js";
 
 // ---------------------------------------------------------------------------
 // Format-aware error output
@@ -114,8 +115,7 @@ export function registerCredentialsCommand(program: Command): void {
     description:
       "Manage credentials in the encrypted vault (API keys, tokens, passwords)",
     build: (credential) => {
-      credential
-        .option("--json", "Machine-readable compact JSON output");
+      credential.option("--json", "Machine-readable compact JSON output");
 
       credential.addHelpText(
         "after",
@@ -224,9 +224,7 @@ Examples:
 
       credential
         .command("status")
-        .description(
-          "Show the active credential backend and its configuration",
-        )
+        .description("Show the active credential backend and its configuration")
         .addHelpText(
           "after",
           `
@@ -248,9 +246,8 @@ Examples:
   $ assistant credentials status --json`,
         )
         .action(async (_opts: Record<string, unknown>, cmd: Command) => {
-          const r = await cliIpcCall<CredentialsStatusResponse>(
-            "credentials_status",
-          );
+          const r =
+            await cliIpcCall<CredentialsStatusResponse>("credentials_status");
           if (!r.ok) {
             return exitFromIpcResult(
               r as { ok: false; error?: string; statusCode?: number },
@@ -286,7 +283,10 @@ Examples:
       credential
         .command("set <value>")
         .description("Store a secret and create or update its metadata")
-        .requiredOption("--service <service>", "Service namespace (e.g. google)")
+        .requiredOption(
+          "--service <service>",
+          "Service namespace (e.g. google)",
+        )
         .requiredOption("--field <field>", "Field name (e.g. client_secret)")
         .option("--label <label>", 'Human-friendly label (e.g. "prod", "work")')
         .option(
@@ -345,7 +345,8 @@ Examples:
             if (!r.ok) {
               writeError(
                 cmd,
-                r.error ?? `Failed to store credential ${opts.service}:${opts.field}`,
+                r.error ??
+                  `Failed to store credential ${opts.service}:${opts.field}`,
               );
               process.exitCode = 1;
               return;
@@ -397,7 +398,8 @@ Examples:
             if (!r.ok) {
               writeError(
                 cmd,
-                r.error ?? `Failed to delete credential ${opts.service}:${opts.field}`,
+                r.error ??
+                  `Failed to delete credential ${opts.service}:${opts.field}`,
               );
               process.exitCode = 1;
               return;
@@ -410,9 +412,7 @@ Examples:
                 field: opts.field,
               });
             } else {
-              log.info(
-                `Deleted credential ${opts.service}:${opts.field}`,
-              );
+              log.info(`Deleted credential ${opts.service}:${opts.field}`);
             }
           },
         );
@@ -589,6 +589,10 @@ Examples:
         .option("--description <description>", "Context shown in the prompt UI")
         .option("--placeholder <placeholder>", "Placeholder text for the input")
         .option(
+          "--usage-description <description>",
+          "Human-readable description of intended usage, stored in credential metadata and shown as the prompt's purpose",
+        )
+        .option(
           "--allowed-domains <domains>",
           "Comma-separated domains where this credential may be used",
         )
@@ -613,6 +617,7 @@ Requires the assistant to be running with at least one connected client.
 Examples:
   $ assistant credentials prompt --service sentry --field auth_token \\
       --label "Sentry Auth Token" --placeholder "sntrys_..." \\
+      --usage-description "Read Sentry issues and events" \\
       --allowed-domains "sentry.io" \\
       --injection-templates '[{"hostPattern":"sentry.io","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]'`,
         )
@@ -624,6 +629,7 @@ Examples:
               label: string;
               description?: string;
               placeholder?: string;
+              usageDescription?: string;
               allowedDomains?: string;
               allowedTools?: string;
               injectionTemplates?: string;
@@ -663,9 +669,11 @@ Examples:
                   label: opts.label,
                   description: opts.description,
                   placeholder: opts.placeholder,
+                  usageDescription: opts.usageDescription,
                   allowedDomains,
                   allowedTools,
                   injectionTemplates,
+                  conversationId: tryResolveConversationId(),
                 },
               },
               { timeoutMs: PROMPT_TIMEOUT_MS },
@@ -681,22 +689,18 @@ Examples:
             }
 
             if (!ipc.result?.ok) {
-              writeError(
-                cmd,
-                ipc.result?.error ?? "Credential prompt failed",
-              );
+              writeError(cmd, ipc.result?.error ?? "Credential prompt failed");
               process.exitCode = 1;
               return;
             }
 
             if (shouldOutputJson(cmd)) {
-              writeOutput(cmd, {
-                ok: true,
-                service: opts.service,
-                field: opts.field,
-              });
+              writeOutput(cmd, ipc.result);
             } else {
-              log.info(`Stored credential ${opts.service}:${opts.field}`);
+              log.info(
+                ipc.result.message ??
+                  `Stored credential ${opts.service}:${opts.field}`,
+              );
             }
           },
         );

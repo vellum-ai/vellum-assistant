@@ -351,6 +351,23 @@ describe("mapOpenAIError", () => {
     expect(msg).toContain("Rate limit");
   });
 
+  test("maps 402 status to a non-retryable out-of-credits message", () => {
+    const msg = mapOpenAIError(new FakeAPIError(402, "payment required"));
+    expect(msg).toContain("out of credits");
+    expect(msg).not.toContain("Please try again");
+  });
+
+  test("maps insufficient_quota (reported as 429) to out-of-credits message", () => {
+    const msg = mapOpenAIError(
+      new FakeAPIError(
+        429,
+        "You exceeded your current quota, please check your plan and billing details. (insufficient_quota)",
+      ),
+    );
+    expect(msg).toContain("out of credits");
+    expect(msg).not.toContain("Rate limit");
+  });
+
   test("maps 500 status to server error message", () => {
     const msg = mapOpenAIError(new FakeAPIError(500, "internal"));
     expect(msg).toContain("temporarily unavailable");

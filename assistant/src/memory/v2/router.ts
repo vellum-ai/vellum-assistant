@@ -39,15 +39,12 @@ import {
   getAssistantName,
   resolveUserName,
 } from "../../daemon/identity-helpers.js";
+import { cachedTextBlock } from "../../providers/cache-control.js";
 import {
   extractToolUse,
   getConfiguredProvider,
 } from "../../providers/provider-send-message.js";
-import type {
-  ContentBlock,
-  Message,
-  ToolDefinition,
-} from "../../providers/types.js";
+import type { Message, ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import type { DrizzleDb } from "../db-connection.js";
 import { computeInjectionScores } from "./injection-events.js";
@@ -601,27 +598,4 @@ export function applyHistoricalCharBudget(
     const slot = included.get(idx)!;
     return { assistantMessage: slot.assistant, userMessage: slot.user };
   });
-}
-
-/**
- * Build a text content block carrying an ephemeral `cache_control`
- * breakpoint with a 1h TTL. The Anthropic SDK accepts the field as an extra
- * property on text blocks, but our internal `TextContent` type intentionally
- * omits it (only the Anthropic provider transforms it onto the wire), so we
- * reach through a `Record` cast here for the same reason `client.ts` does —
- * it keeps the core types provider-agnostic. The 1h TTL matches the
- * provider's auto-applied breakpoints (see `cacheTtl` in
- * `providers/anthropic/client.ts`); the `<now>` block is stable across most
- * turns, so default 5m would force unnecessary re-creation. The
- * `extended-cache-ttl-2025-04-11` beta header is added unconditionally for
- * non-Haiku models in `client.ts`, so this works without any call-site
- * config.
- */
-function cachedTextBlock(text: string): ContentBlock {
-  const block: ContentBlock = { type: "text", text };
-  (block as unknown as Record<string, unknown>).cache_control = {
-    type: "ephemeral",
-    ttl: "1h",
-  };
-  return block;
 }

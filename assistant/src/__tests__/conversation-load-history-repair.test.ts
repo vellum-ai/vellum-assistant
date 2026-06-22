@@ -552,3 +552,104 @@ describe("loadFromDb history repair", () => {
     ]);
   });
 });
+
+describe("loadFromDb turn-count rehydration", () => {
+  beforeEach(() => {
+    nextMockMessageId = 1;
+    mockConversation = {
+      id: "conv-1",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+  });
+
+  const userText = (text: string) => ({
+    role: "user",
+    content: JSON.stringify([{ type: "text", text }]),
+  });
+  const assistantText = (text: string) => ({
+    role: "assistant",
+    content: JSON.stringify([{ type: "text", text }]),
+  });
+  const assistantToolUse = (id: string) => ({
+    role: "assistant",
+    content: JSON.stringify([
+      { type: "tool_use", id, name: "bash", input: { cmd: "ls" } },
+    ]),
+  });
+  const toolResult = (id: string) => ({
+    role: "user",
+    content: JSON.stringify([
+      { type: "tool_result", tool_use_id: id, content: "ok" },
+    ]),
+  });
+  const withIds = (msgs: Array<{ role: string; content: string }>) =>
+    msgs.map((m, i) => ({ id: `m${i}`, ...m }));
+
+  test("restores turnCount from persisted history rather than resetting to 0", async () => {
+    // Three completed human turns persisted before this conversation object
+    // was (re)created — e.g. after an idle eviction or daemon restart.
+    mockDbMessages = withIds([
+      userText("Hello"),
+      assistantText("Hi"),
+      userText("How are you?"),
+      assistantText("Good"),
+      userText("Bye"),
+      assistantText("Later"),
+    ]);
+
+    const conversation = makeConversation();
+    // Fresh object starts at 0 (the bug: it would stay 0 after reload).
+    expect(conversation.turnCount).toBe(0);
+
+    await conversation.loadFromDb();
+
+    expect(conversation.turnCount).toBe(3);
+  });
+
+  test("counts a multi-iteration tool-use turn as a single turn", async () => {
+    // One real user message; the tool_result user messages are continuations
+    // within the same turn, not new turns.
+    mockDbMessages = withIds([
+      userText("convert the voice memo"),
+      assistantToolUse("tu_1"),
+      toolResult("tu_1"),
+      assistantToolUse("tu_2"),
+      toolResult("tu_2"),
+      assistantText("done"),
+    ]);
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    expect(conversation.turnCount).toBe(1);
+  });
+
+  test("counts only real user turns when tool iterations are interleaved", async () => {
+    mockDbMessages = withIds([
+      userText("q1"),
+      assistantToolUse("tu_1"),
+      toolResult("tu_1"),
+      assistantText("a1"),
+      userText("q2"),
+      assistantText("a2"),
+    ]);
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    expect(conversation.turnCount).toBe(2);
+  });
+
+  test("empty history yields turnCount 0", async () => {
+    mockDbMessages = [];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    expect(conversation.turnCount).toBe(0);
+  });
+});

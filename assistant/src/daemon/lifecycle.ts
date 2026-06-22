@@ -20,6 +20,7 @@ import {
 import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
+import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { createCesClient } from "../credential-execution/client.js";
 import { refreshManagedConnectionCache } from "../credential-execution/managed-catalog.js";
@@ -31,10 +32,10 @@ import {
 import {
   awaitCesClientWithTimeout,
   DEFAULT_CES_STARTUP_TIMEOUT_MS,
+  injectCesClientWhenReady,
 } from "../credential-execution/startup-timeout.js";
 import { FilingService } from "../filing/filing-service.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
-import { startHomeContentRefresh } from "../home/home-content-refresh.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import {
@@ -60,7 +61,10 @@ import { sweepConceptPageFrontmatter } from "../memory/v2/frontmatter-sweep.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
-import { backfillGuardIfNeeded } from "../proactive-artifact/index.js";
+import {
+  startConsentRefresh,
+  stopConsentRefresh,
+} from "../platform/consent-cache.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { resolveManagedProxyContext } from "../providers/platform-proxy/context.js";
@@ -72,10 +76,14 @@ import {
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
 import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
-import { publishConversationListChanged } from "../runtime/sync/resource-sync-events.js";
+import {
+  publishConfigChanged,
+  publishConversationListChanged,
+} from "../runtime/sync/resource-sync-events.js";
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import {
+  getCesClient,
   onCesClientChanged,
   setCesClient,
   setCesReconnect,
@@ -84,6 +92,7 @@ import {
   setUsageTelemetryReporter,
   UsageTelemetryReporter,
 } from "../telemetry/usage-telemetry-reporter.js";
+import { syncFlagGatedTools } from "../tools/registry.js";
 import { registerBuiltinTtsProviders } from "../tts/providers/register-builtins.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger, initLogger } from "../util/logger.js";
@@ -97,6 +106,8 @@ import {
   listWorkItems,
   updateWorkItem,
 } from "../work-items/work-item-store.js";
+import { getWorkflowRunManager } from "../workflows/run-manager.js";
+import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-thinking-repair.js";
 import { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
@@ -127,6 +138,7 @@ import {
 } from "./providers-setup.js";
 import { DaemonServer } from "./server.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
+import { registerShutdownHook } from "./shutdown-registry.js";
 import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
 
 const log = getLogger("lifecycle");
@@ -281,9 +293,10 @@ export async function runDaemon(): Promise<void> {
   log.info({ version: APP_VERSION }, "Daemon starting");
 
   try {
-    // Initialize crash reporting eagerly so early startup failures are
-    // captured. After config loads we check the opt-out flag and call
-    // closeSentry() if the user has disabled it.
+    // Initialize crash reporting eagerly so the Sentry client is ready before
+    // early startup failures occur. Events are dropped (beforeSend) until the
+    // consent gate below confirms share_diagnostics opt-in; dev mode and the
+    // legacy local opt-out hard-disable via closeSentry().
     initSentry();
 
     ensureDataDir();
@@ -357,9 +370,29 @@ export async function runDaemon(): Promise<void> {
     // so a slow or unreachable gateway doesn't delay daemon startup (the
     // IPC call has a 3s connect + 5s call timeout that would otherwise
     // stall the critical path).
-    void initFeatureFlagOverrides().catch((err) =>
-      log.warn({ err }, "Background feature flag init failed"),
-    );
+    // After the async fetch resolves, (re)register any flag-gated tools
+    // (`workflows`, `ces-tools`): `initializeTools()` runs during startup before
+    // this fetch completes, so without this follow-up sync a flag-enabled
+    // assistant would not expose the gated tools until a restart (which can lose
+    // the same race). Enable-direction only; chained so it sees the fresh cache.
+    // Then reconcile flag-gated managed profiles (OS Beta): `seedInferenceProfiles()`
+    // runs synchronously earlier in boot before flags are available, so this lands
+    // the profile on the same boot once the flag cache is populated. When this
+    // reconcile is the call that mutates config (it raced ahead of the gateway
+    // flag listener), publish the config invalidation so any client that already
+    // fetched `GET /v1/config` refreshes its profile picker.
+    // Profiles are reconciled only when flags actually loaded from the gateway:
+    // a failed fetch leaves the cache unset and resolves `os-beta` to its
+    // registry default `false`, which would remove the user's profile and reset
+    // their selection. Tool sync tolerates the default and stays unconditional.
+    void initFeatureFlagOverrides()
+      .then(async (loaded) => {
+        await syncFlagGatedTools();
+        if (loaded && reconcileFlagGatedProfiles()) {
+          publishConfigChanged();
+        }
+      })
+      .catch((err) => log.warn({ err }, "Background feature flag init failed"));
 
     startGatewayFlagListener();
 
@@ -377,7 +410,7 @@ export async function runDaemon(): Promise<void> {
     // remains reachable for health checks and diagnostics.
     let dbReady = false;
     try {
-      initializeDb();
+      await initializeDb();
       dbReady = true;
       log.info("Daemon startup: DB initialized");
     } catch (err) {
@@ -399,8 +432,14 @@ export async function runDaemon(): Promise<void> {
     }
 
     if (dbReady) {
-      await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
-      log.info("Daemon startup: workspace migrations complete");
+      const migrationSummary = await runWorkspaceMigrations(
+        getWorkspaceDir(),
+        WORKSPACE_MIGRATIONS,
+      );
+      log.info(
+        migrationSummary,
+        "Daemon startup: workspace migrations complete",
+      );
 
       // Seed canonical inference provider_connections and backfill any legacy
       // profiles that pre-date the connection field. Runs after workspace
@@ -477,10 +516,6 @@ export async function runDaemon(): Promise<void> {
           ),
         );
       });
-
-      // Pre-warm LLM-generated home page content (greeting + suggestion
-      // prompts) so the GET handler never triggers LLM calls.
-      startHomeContentRefresh();
 
       // Backfill injection templates on Slack bot token credentials so the
       // credential proxy can inject Authorization headers. Safe on every startup.
@@ -589,6 +624,26 @@ export async function runDaemon(): Promise<void> {
       );
     }
 
+    // Re-run the adaptive thinking repair after overlay merge + profile seeding.
+    // Workspace migration 097 enables adaptive thinking on managed profiles, but
+    // it runs before mergeDefaultWorkspaceConfig() which can overwrite the fix
+    // with overlay profiles that have thinking disabled or absent. On-platform
+    // instances where the overlay supplies "balanced" / "quality-optimized"
+    // profiles without thinking enabled would be stuck permanently because the
+    // migration is already checkpointed as completed. This idempotent repair
+    // ensures thinking is enabled regardless of overlay ordering.
+    if (defaultConfigMerge.hadOverlay) {
+      try {
+        repairAdaptiveThinkingOnManagedProfiles(getWorkspaceDir());
+        log.info("Post-overlay adaptive thinking repair complete");
+      } catch (err) {
+        log.warn(
+          { err },
+          "Post-overlay adaptive thinking repair failed — continuing startup",
+        );
+      }
+    }
+
     log.info("Daemon startup: loading config");
     const config = loadConfig();
 
@@ -612,23 +667,50 @@ export async function runDaemon(): Promise<void> {
       });
     }
 
-    // Privacy gating: Sentry crash/error reporting is gated by sendDiagnostics,
-    // while the usage telemetry reporter is gated by collectUsageData. Both are
-    // disabled in dev mode. Early-startup crashes before this point are still captured.
+    // Privacy gating: Sentry crash/error reporting follows the platform owner's
+    // share_diagnostics consent; the usage telemetry reporter re-checks
+    // share_analytics on every flush. Both are disabled in dev mode. Sentry was
+    // initialized early, but beforeSend re-reads getCachedShareDiagnostics() on
+    // every event, so it drops events until consent confirms opt-in and honors a
+    // later revocation within one refresh cycle (the cache is refreshed by
+    // startConsentRefresh() below, mirroring the share_analytics posture).
     const isDevMode = process.env.VELLUM_DEV === "1";
-    const sendDiagnostics = !isDevMode && config.sendDiagnostics;
-    const collectUsageData = !isDevMode && config.collectUsageData;
-    if (!sendDiagnostics) {
+    if (isDevMode || config.legacyDiagnosticsOptOut === true) {
+      // Dev mode and a preserved legacy local opt-out both disable Sentry
+      // unconditionally, without waiting on platform consent.
       await closeSentry();
     }
 
+    // Construct and start the reporter even when usage collection is disabled:
+    // flush() re-checks the platform share_analytics consent each cycle and,
+    // when opted out, sends nothing but advances all watermarks (including the
+    // final flush in stop()). New opted-out tool_invocations rows are already
+    // unreportable by construction — the audit listener persists NULL telemetry
+    // columns for them, which the tool_executed projection filters out — so the
+    // opted-out
+    // flushes are defense in depth there (covering rows recorded under builds
+    // that predate that write-time gate) and remain the primary guard for the
+    // always-on tables without a write-time gate (llm_usage, turn events).
+    // Deliberately NOT gated on dbReady: getDb()
+    // can still work when initializeDb() failed mid-migration, in which case
+    // the audit listener keeps writing rows that the opt-out branch must keep
+    // covered. The reporter is degraded-mode safe — its constructor and
+    // flush() treat DB errors as non-fatal.
     let telemetryReporter: UsageTelemetryReporter | null = null;
-    if (collectUsageData) {
+    if (!isDevMode) {
       telemetryReporter = new UsageTelemetryReporter();
       setUsageTelemetryReporter(telemetryReporter);
       telemetryReporter.start();
       log.info("Usage telemetry reporter started");
     }
+
+    // Refresh the consent cache regardless of dev mode so record-time telemetry
+    // writes (gated on getCachedShareAnalytics()) work in dev too. The reporter
+    // flush stays dev-gated above, so dev still never sends telemetry to the
+    // platform. Fire-and-forget: startConsentRefresh() runs an immediate
+    // non-blocking refresh, so the startup hot path is never blocked.
+    startConsentRefresh();
+    registerShutdownHook("consent-cache", () => stopConsentRefresh());
 
     // CES lifecycle — kick off early so CES handshake runs concurrently with
     // provider/tool initialization. The CES sidecar accepts exactly one
@@ -653,6 +735,16 @@ export async function runDaemon(): Promise<void> {
       });
       if (client) {
         setCesClient(client);
+      } else {
+        // The handshake lost the startup race, so provider init proceeds on
+        // the direct credential store. Still inject the CES client into the
+        // resolver once the handshake completes, so CES tools and the
+        // approval bridge route through CES rather than reporting it
+        // unavailable for the rest of the process.
+        injectCesClientWhenReady(cesResult.clientPromise, {
+          getCesClient,
+          setCesClient,
+        });
       }
     }
 
@@ -730,20 +822,6 @@ export async function runDaemon(): Promise<void> {
     log.info("Daemon startup: DaemonServer started");
     startDiskPressureGuardForLifecycle();
     startOrphanReaper();
-
-    // Kick off the update bulletin background job AFTER `server.start()`
-    // resolves. The conversation store must be initialized before wake
-    // calls can resolve targets.
-    //
-    // Kept fire-and-forget (`void import(...).then(...).catch(...)`) so the
-    // daemon never blocks startup on it.
-    if (dbReady) {
-      void import("../prompts/update-bulletin-job.js")
-        .then((m) => m.runUpdateBulletinJobIfNeeded())
-        .catch((err) =>
-          log.warn({ err }, "Update bulletin job failed — continuing startup"),
-        );
-    }
 
     // Mutable refs for Qdrant and memory worker so background
     // init can assign them and the shutdown handler always sees the latest value.
@@ -921,6 +999,26 @@ export async function runDaemon(): Promise<void> {
       log.error({ err }, "Schedule recovery failed — continuing startup");
     }
 
+    // Reconcile workflow runs orphaned by a crash: any row still `running` was
+    // in flight when the process died (the engine always finishes its row on
+    // exit), so flip it to `interrupted` to make it eligible for an explicit
+    // resume. Status only — accounting counters are preserved. Never blocks
+    // startup on failure.
+    try {
+      const reconciled = getWorkflowRunManager().reconcileOrphanedRuns();
+      if (reconciled > 0) {
+        log.info(
+          { reconciled },
+          "Reconciled orphaned workflow runs to interrupted",
+        );
+      }
+    } catch (err) {
+      log.error(
+        { err },
+        "Workflow run reconciliation failed — continuing startup",
+      );
+    }
+
     const scheduler = startScheduler(
       async (conversationId, message, options) => {
         await processMessage(
@@ -937,6 +1035,9 @@ export async function runDaemon(): Promise<void> {
                     }
                   : {}),
                 ...(options.taskRunId ? { taskRunId: options.taskRunId } : {}),
+                ...(options.overrideProfile
+                  ? { overrideProfile: options.overrideProfile }
+                  : {}),
               }
             : undefined,
         );
@@ -1275,12 +1376,6 @@ export async function runDaemon(): Promise<void> {
       },
       "Heartbeat service configured",
     );
-
-    try {
-      backfillGuardIfNeeded();
-    } catch (err) {
-      log.warn({ err }, "Proactive artifact backfill failed");
-    }
 
     // Filing yields to the memory v2 consolidation job when v2 is enabled —
     // both serve the same role (periodic background memory processing) and

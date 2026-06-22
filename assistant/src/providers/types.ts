@@ -183,6 +183,16 @@ export interface SendMessageConfig {
    */
   overrideProfile?: string;
   /**
+   * When true, the resolver floats `overrideProfile` above the call-site
+   * layers (named site profile + call-site override) for non-main-agent call
+   * sites — see `ResolveCallSiteOpts.forceOverrideProfile`. Used by callers
+   * that must run a background call site under a specific conversation's
+   * inference profile (e.g. fork-based memory retrospectives). A
+   * resolution/routing-time concern only; stripped before any provider wire
+   * request.
+   */
+  forceOverrideProfile?: boolean;
+  /**
    * Per-conversation seed for deterministic `mix`-profile expansion. The agent
    * loop sets this to the conversation id so every resolver call this send
    * triggers — provider/transport selection, wire-param normalization, usage
@@ -208,6 +218,12 @@ export interface SendMessageConfig {
   speed?: "standard" | "fast";
   verbosity?: "low" | "medium" | "high";
   /**
+   * Wire-format `logit_bias` map (`{ "<tokenId>": bias }`). Set by
+   * `RetryProvider` from a profile's `logitBias` preset and forwarded only on
+   * the OpenAI-compatible (Fireworks) path; other providers ignore it.
+   */
+  logit_bias?: Record<string, number>;
+  /**
    * When true, the most recent user message's content varies across
    * otherwise-identical turns (e.g. a per-turn memory block was injected into
    * it). The provider places the primary long-TTL cache breakpoint on the most
@@ -216,6 +232,17 @@ export interface SendMessageConfig {
    * behavior.
    */
   mutableLatestUserMessage?: boolean;
+  /**
+   * When true, the provider sends no prompt-cache breakpoints at all (and
+   * strips any block-level `cache_control` markers callers stamped on
+   * messages). For one-shot call sites whose prompts are unique per call or
+   * whose call cadence exceeds the cache TTL, every breakpoint is a paid
+   * cache write that will never be read — opting out saves the write
+   * premium. Resolved per call site via `resolveCallSiteConfig` (see
+   * `disableCache` in the LLM config schema); a per-call explicit value
+   * wins. Default false — existing behavior.
+   */
+  disableCache?: boolean;
   [key: string]: unknown;
 }
 
@@ -242,6 +269,22 @@ export interface Provider {
     messages: Message[],
     options?: SendMessageOptions,
   ): Promise<ProviderResponse>;
+  /**
+   * Exact prompt-token count from the provider's own tokenizer, for the
+   * `messages` + `systemPrompt` + `tools` composition the next call would
+   * send. Optional: providers without a token-counting endpoint omit it, and
+   * callers must fall back to the local estimator (`estimatePromptTokens`).
+   *
+   * This runs a dedicated counting request (no inference), so it carries a
+   * network round-trip and the provider's own rate limit — use it for
+   * user-initiated, occasional actions (e.g. `/compact`), never on the
+   * per-turn hot path.
+   */
+  countInputTokens?(
+    messages: Message[],
+    systemPrompt: string,
+    tools?: ToolDefinition[],
+  ): Promise<number>;
 }
 
 // ── Context-overflow error ────────────────────────────────────────────

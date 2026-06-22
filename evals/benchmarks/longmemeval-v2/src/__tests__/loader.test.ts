@@ -83,7 +83,7 @@ describe("loadLongMemEvalV2", () => {
     const dir = await mkdtemp(join(tmpdir(), "lme-v2-"));
     await expect(
       loadLongMemEvalV2({ dataRoot: dir, tier: "small" }),
-    ).rejects.toThrow(/questions\.jsonl not found.*data\/download\.sh/);
+    ).rejects.toThrow(/questions\.jsonl not found.*data\/download\.ts/);
   });
 
   test("reports a helpful error when the tier haystack is missing", async () => {
@@ -92,7 +92,7 @@ describe("loadLongMemEvalV2", () => {
     await expect(
       loadLongMemEvalV2({ dataRoot: dir, tier: "small" }),
     ).rejects.toThrow(
-      /haystack mapping for tier "small" not found.*data\/download\.sh/,
+      /haystack mapping for tier "small" not found.*data\/download\.ts/,
     );
   });
 

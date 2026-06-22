@@ -37,17 +37,22 @@ function createMockProvider(): {
 describe("AgentLoop thinking and effort", () => {
   test("sends adaptive thinking when thinking is enabled", async () => {
     const { provider, lastConfig } = createMockProvider();
-    const loop = new AgentLoop(provider, "test", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "test",
+      conversationId: "test-conversation",
       config: {
         maxTokens: 64000,
         thinking: { enabled: true },
       },
     });
 
-    await loop.run(
-      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      () => {},
-    );
+    await loop.run({
+      requestId: "test-request",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     const config = lastConfig()!;
     const thinking = config.thinking as { type: string };
@@ -56,17 +61,22 @@ describe("AgentLoop thinking and effort", () => {
 
   test("sends disabled thinking when thinking is disabled", async () => {
     const { provider, lastConfig } = createMockProvider();
-    const loop = new AgentLoop(provider, "test", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "test",
+      conversationId: "test-conversation",
       config: {
         maxTokens: 64000,
         thinking: { enabled: false },
       },
     });
 
-    await loop.run(
-      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      () => {},
-    );
+    await loop.run({
+      requestId: "test-request",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     const config = lastConfig()!;
     expect(config.thinking).toEqual({ type: "disabled" });
@@ -74,17 +84,22 @@ describe("AgentLoop thinking and effort", () => {
 
   test("sends effort in provider config", async () => {
     const { provider, lastConfig } = createMockProvider();
-    const loop = new AgentLoop(provider, "test", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "test",
+      conversationId: "test-conversation",
       config: {
         maxTokens: 64000,
         effort: "high",
       },
     });
 
-    await loop.run(
-      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      () => {},
-    );
+    await loop.run({
+      requestId: "test-request",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     const config = lastConfig()!;
     expect(config.effort).toBe("high");
@@ -92,7 +107,10 @@ describe("AgentLoop thinking and effort", () => {
 
   test("sends effort with disabled thinking when thinking is disabled", async () => {
     const { provider, lastConfig } = createMockProvider();
-    const loop = new AgentLoop(provider, "test", {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "test",
+      conversationId: "test-conversation",
       config: {
         maxTokens: 64000,
         effort: "medium",
@@ -100,10 +118,12 @@ describe("AgentLoop thinking and effort", () => {
       },
     });
 
-    await loop.run(
-      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      () => {},
-    );
+    await loop.run({
+      requestId: "test-request",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     const config = lastConfig()!;
     expect(config.effort).toBe("medium");

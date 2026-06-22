@@ -91,11 +91,14 @@ mock.module("../config/loader.js", () => ({
 let _conversationFactory: (() => Conversation) | undefined;
 let _approvalGenerator: unknown;
 
-mock.module("../daemon/conversation-store.js", () => ({
+mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: () => {
     if (!_conversationFactory) return undefined;
     return _conversationFactory();
   },
+}));
+
+mock.module("../daemon/conversation-store.js", () => ({
   getOrCreateConversation: async (..._args: unknown[]) => {
     if (!_conversationFactory)
       throw new Error("_conversationFactory not set in test");
@@ -124,7 +127,7 @@ import { RuntimeHttpServer } from "../runtime/http-server.js";
 import type { ApprovalConversationGenerator } from "../runtime/http-types.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Conversation helpers

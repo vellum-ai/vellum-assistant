@@ -13,7 +13,8 @@ threads.md
 buffer.md
 `;
 
-const INDEX_ENTRY = "- _autoinject.md — Controls which files are loaded into every conversation";
+const INDEX_ENTRY =
+  "- _autoinject.md — Controls which files are loaded into every conversation";
 
 export const seedPkbAutoinjectMigration: WorkspaceMigration = {
   id: "030-seed-pkb-autoinject",

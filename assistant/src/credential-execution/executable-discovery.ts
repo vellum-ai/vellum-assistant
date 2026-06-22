@@ -63,7 +63,7 @@ function getManagedBootstrapSocketPath(): string {
  * in order. The first existing path wins.
  *
  * Only paths outside the sandbox working directory are eligible.
- * `getDataDir()` (under `~/.vellum/workspace/data`) was previously included
+ * `getDataDir()` (under `$VELLUM_WORKSPACE_DIR/data`) was previously included
  * but is inside the sandbox write boundary, so a sandboxed tool could plant
  * a malicious binary there. Removed to close the sandbox-escape vector.
  *

@@ -29,17 +29,7 @@ export function publishIdentityChanged(
     emoji: fields.emoji,
     home: fields.home,
   });
-  void publishSyncInvalidation(
-    [SYNC_TAGS.assistantIdentity, SYNC_TAGS.assistantIdentityIntro],
-    originClientId,
-  );
-}
-
-export function publishIdentityIntroChanged(originClientId?: string): void {
-  void publishSyncInvalidation(
-    [SYNC_TAGS.assistantIdentityIntro],
-    originClientId,
-  );
+  void publishSyncInvalidation([SYNC_TAGS.assistantIdentity], originClientId);
 }
 
 export function publishConfigChanged(originClientId?: string): void {

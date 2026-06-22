@@ -178,8 +178,6 @@ export class ConfigWatcher {
    * Start all file watchers. `onConversationEvict` is called when watched
    * files change and conversations need to be evicted for reload.
    * `onIdentityChanged` is called when IDENTITY.md changes on disk.
-   * `onIdentityIntroChanged` is called when SOUL.md changes and cached
-   * identity intro greetings should be invalidated.
    * `onSkillsChanged` is called after skill directory changes evict
    * conversations.
    */
@@ -190,7 +188,6 @@ export class ConfigWatcher {
     onAvatarChanged?: () => void,
     onConfigChanged?: () => void,
     onSkillsChanged?: () => void,
-    onIdentityIntroChanged?: () => void,
   ): void {
     // Reset the stopped flag so a stop()→start() cycle on the same
     // instance resumes hot-reload instead of silently bailing in every
@@ -226,7 +223,6 @@ export class ConfigWatcher {
       },
       "SOUL.md": () => {
         onConversationEvict();
-        onIdentityIntroChanged?.();
       },
       "IDENTITY.md": () => {
         onConversationEvict();

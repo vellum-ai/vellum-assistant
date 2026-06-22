@@ -5,7 +5,11 @@ import {
   getCanonicalGuardianRequest,
   updateCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
+import {
+  isUnparseableToolArgs,
+  unparseableToolArgsMessage,
+} from "../providers/unparseable-tool-args.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
 import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-helper.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
@@ -153,7 +157,6 @@ const UI_SURFACE_TOOLS = new Set(["ui_show", "ui_update", "ui_dismiss"]);
 
 function requiresGuardianApprovalForActor(
   toolName: string,
-  input: Record<string, unknown>,
   executionTarget: ExecutionTarget,
 ): boolean {
   // UI surface tools are passive, user-visible operations (cards, forms,
@@ -166,14 +169,14 @@ function requiresGuardianApprovalForActor(
   // Side-effect tools always require guardian approval for untrusted actors.
   // Read-only host execution is also blocked because it can leak sensitive
   // local information (e.g. shell/file reads).
-  return isSideEffectTool(toolName, input) || executionTarget === "host";
+  return isSideEffectTool(toolName) || executionTarget === "host";
 }
 
 function guardianApprovalDeniedMessage(
   trustClass: ToolContext["trustClass"],
   toolName: string,
 ): string {
-  if (trustClass === "unknown") {
+  if (resolveCapabilities(trustClass).sensitiveToolApproval === "deny") {
     return `Permission denied for "${toolName}": this action requires guardian approval from a verified channel identity.`;
   }
   return `Permission denied for "${toolName}": this action requires guardian approval and the current actor is not the guardian.`;
@@ -241,6 +244,33 @@ export class ToolApprovalHandler {
       };
     }
 
+    // Reject tool calls whose arguments failed JSON parsing in the provider
+    // layer (wrapped under the `_raw` marker). Executing with the marker
+    // object would feed garbage input to the tool — and worse, a tool that
+    // tolerates missing fields can "succeed" (e.g. ui_show creating a
+    // typeless surface), so the model never learns its arguments were
+    // mangled. Fail loudly instead so the model retries.
+    if (isUnparseableToolArgs(input)) {
+      const msg = unparseableToolArgsMessage(name, input._raw);
+      const durationMs = Date.now() - startTime;
+      emitLifecycleEvent({
+        type: "error",
+        toolName: name,
+        executionTarget,
+        input,
+        workingDir: context.workingDir,
+        conversationId: context.conversationId,
+        requestId: context.requestId,
+        riskLevel,
+        decision: "error",
+        durationMs,
+        errorMessage: msg,
+        isExpected: true,
+        errorCategory: "tool_failure",
+      });
+      return { allowed: false, result: { content: msg, isError: true } };
+    }
+
     // Reject tool invocations targeting guardian control-plane endpoints from non-guardian actors.
     const guardianCheck = enforceVerificationControlPlanePolicy(
       name,
@@ -289,11 +319,14 @@ export class ToolApprovalHandler {
 
     const guardianApprovalRequired = requiresGuardianApprovalForActor(
       name,
-      input,
       executionTarget,
     );
 
-    if (isUntrustedTrustClass(context.trustClass) && guardianApprovalRequired) {
+    if (
+      resolveCapabilities(context.trustClass).sensitiveToolApproval !==
+        "self" &&
+      guardianApprovalRequired
+    ) {
       const inputDigest = computeToolApprovalDigest(name, input);
       needsGrantConsumption = true;
       deferredConsumeParams = {
@@ -501,15 +534,18 @@ export class ToolApprovalHandler {
 
       // No matching grant or race condition - deny or wait inline.
       //
-      // For verified non-guardian actors (trusted_contact) with sufficient
-      // context, escalate to the guardian by creating a canonical
-      // tool_grant_request. Then wait bounded for the grant to become
-      // available - this lets the tool call succeed inline after guardian
-      // approval without the requester having to retry manually.
+      // For non-guardian actors with established identity (trusted_contact
+      // or unverified_contact) and sufficient context, escalate to the
+      // guardian by creating a canonical tool_grant_request. Then wait
+      // bounded for the grant to become available - this lets the tool call
+      // succeed inline after guardian approval without the requester having
+      // to retry manually.
       //
-      // Unverified actors remain fail-closed with no escalation or wait.
+      // Actors with no identity (unknown) remain fail-closed with no
+      // escalation or wait.
       if (
-        context.trustClass === "trusted_contact" &&
+        resolveCapabilities(context.trustClass).sensitiveToolApproval ===
+          "escalate-and-wait" &&
         context.assistantId &&
         context.executionChannel &&
         context.requesterExternalUserId

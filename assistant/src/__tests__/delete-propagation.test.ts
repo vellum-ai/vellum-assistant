@@ -35,7 +35,7 @@ import {
 import { _setDeleteLookupConfigForTests } from "../runtime/routes/inbound-message-handler.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 
-initializeDb();
+await initializeDb();
 
 const TEST_BEARER_TOKEN = "test-token";
 // Slack `message_deleted` events stamp the deleted message's original author

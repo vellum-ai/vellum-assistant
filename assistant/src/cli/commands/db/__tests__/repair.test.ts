@@ -431,20 +431,29 @@ async function initSchema(): Promise<void> {
   // The repair step opens its own bun:sqlite handle but expects the schema
   // to already exist (production-wise, the daemon creates it). Touching the
   // global init triggers schema creation against the env-isolated path.
-  const { initializeDb } = await import("../../../../memory/db-init.js");
-  initializeDb();
-  // Close the singleton so backfill can open its own handle without
-  // collision. WAL allows concurrent handles but cleaner ownership avoids
-  // test cross-talk through the in-process cache.
   const { getDb, getSqliteFrom } =
     await import("../../../../memory/db-connection.js");
   const { clearStoredDb } = await import("../../../../memory/db-singleton.js");
+  // Drop any connections a prior test (or test file) left open against a
+  // now-deleted workspace, so init below opens fresh handles — main and the
+  // dedicated logs/memory connections — at THIS test's workspace.
+  clearStoredDb("main");
+  clearStoredDb("logs");
+  clearStoredDb("memory");
+
+  const { initializeDb } = await import("../../../../memory/db-init.js");
+  await initializeDb();
+  // Close the singletons so backfill can open its own handle without
+  // collision. WAL allows concurrent handles but cleaner ownership avoids
+  // test cross-talk through the in-process cache.
   try {
     getSqliteFrom(getDb()).close();
   } catch {
     /* already closed */
   }
-  clearStoredDb();
+  clearStoredDb("main");
+  clearStoredDb("logs");
+  clearStoredDb("memory");
 }
 
 describe("assistant db repair — conversation-backfill step", () => {
@@ -507,7 +516,9 @@ describe("assistant db repair — conversation-backfill step", () => {
     expect(parsed.steps[1].result.data.recovered).toBe(0);
     expect(parsed.steps[1].result.data.skipped).toBe(1);
     expect(parsed.steps[1].result.status).toBe("ok");
-  });
+    // Two full repair passes (each walks the DB via integrity-check) exceed
+    // bun's 5s per-test default, so raise the ceiling to keep CI stable.
+  }, 30_000);
 
   test("reports nothing-to-backfill on an empty conversations dir", async () => {
     await initSchema();

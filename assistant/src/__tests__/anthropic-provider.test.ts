@@ -2,7 +2,11 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { Anthropic } from "@anthropic-ai/sdk";
 
-import type { Message, ToolDefinition } from "../providers/types.js";
+import type {
+  ContentBlock,
+  Message,
+  ToolDefinition,
+} from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
 // Mock Anthropic SDK — must be before importing the provider
@@ -102,7 +106,7 @@ mock.module("@anthropic-ai/sdk", () => ({
 }));
 
 // Import after mocking
-import { cachedTextBlock } from "../memory/v3/provider-blocks.js";
+import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../prompts/cache-boundary.js";
 import { AnthropicProvider } from "../providers/anthropic/client.js";
 import {
   isPlaceholderSentinelText,
@@ -136,6 +140,18 @@ function toolResultMsg(toolUseId: string, content: string): Message {
       { type: "tool_result", tool_use_id: toolUseId, content, is_error: false },
     ],
   };
+}
+
+// A stable prefix text block carrying a 1h-TTL cache_control breakpoint, as a
+// caller may stamp before the provider sees it. The internal ContentBlock type
+// omits cache_control (only the provider transforms it onto the wire), so reach
+// it via a cast.
+function cachedPrefixBlock(text: string): ContentBlock {
+  return {
+    type: "text",
+    text,
+    cache_control: { type: "ephemeral", ttl: "1h" },
+  } as unknown as ContentBlock;
 }
 
 const sampleTools: ToolDefinition[] = [
@@ -293,6 +309,91 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     });
   });
 
+  test("splits a boundary-carrying system prompt into two cached blocks and drops the tool breakpoint", async () => {
+    /**
+     * Tests that the SYSTEM_PROMPT_CACHE_BOUNDARY marker yields two
+     * independently cached system blocks, and that the explicit
+     * last-tool breakpoint is suppressed (the first system breakpoint
+     * already covers tools) so the total stays within Anthropic's
+     * 4-breakpoint budget.
+     */
+    // GIVEN a system prompt carrying a cache boundary, plus tools and a
+    // tool-use loop (so turn-start and tail breakpoints also apply)
+    const prompt = `stable sections${SYSTEM_PROMPT_CACHE_BOUNDARY}volatile sections`;
+    const messages: Message[] = [
+      userMsg("Do something"),
+      toolUseMsg("tu_1", "bash"),
+      toolResultMsg("tu_1", "output"),
+    ];
+
+    // WHEN the message is sent
+    await provider.sendMessage(messages, {
+      tools: sampleTools,
+      systemPrompt: prompt,
+    });
+
+    // THEN the system prompt is split into two blocks, each 1h-cached
+    const system = lastStreamParams!.system as Array<{
+      type: string;
+      text: string;
+      cache_control?: { type: string; ttl?: string };
+    }>;
+    expect(system).toHaveLength(2);
+    expect(system[0].text).toBe("stable sections");
+    expect(system[1].text).toBe("volatile sections");
+    expect(system[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(system[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+
+    // AND no tool carries a breakpoint (system block 1 covers them)
+    const tools = lastStreamParams!.tools as Array<{
+      cache_control?: { type: string; ttl?: string };
+    }>;
+    for (const tool of tools) {
+      expect(tool.cache_control).toBeUndefined();
+    }
+
+    // AND the turn-start and tail message breakpoints are unchanged,
+    // keeping the total at the 4-breakpoint cap
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
+    const turnStart = sent[0];
+    expect(
+      turnStart.content[turnStart.content.length - 1].cache_control,
+    ).toEqual({ type: "ephemeral", ttl: "1h" });
+    const lastMsg = sent[sent.length - 1];
+    expect(lastMsg.content[lastMsg.content.length - 1].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "5m",
+    });
+  });
+
+  test("keeps the last-tool breakpoint when the system prompt has no boundary", async () => {
+    /**
+     * Tests that a boundary-free system prompt preserves the explicit
+     * tool breakpoint (single system block leaves budget for it).
+     */
+    // GIVEN a system prompt without a cache boundary and tools
+    // WHEN the message is sent
+    await provider.sendMessage([userMsg("Hi")], {
+      tools: sampleTools,
+      systemPrompt: "You are helpful.",
+    });
+
+    // THEN the last tool keeps its breakpoint
+    const tools = lastStreamParams!.tools as Array<{
+      cache_control?: { type: string; ttl?: string };
+    }>;
+    expect(tools[tools.length - 1].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
+  });
+
   // -----------------------------------------------------------------------
   // Tool cache control
   // -----------------------------------------------------------------------
@@ -325,13 +426,13 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   });
 
   test("preserves a caller's 1h block cache_control and sends the extended-cache beta (non-Haiku)", async () => {
-    // v3's `cachedTextBlock` stamps a stable prefix block with a 1h TTL; the
-    // non-Haiku path must forward it unchanged and send the beta header.
+    // A caller that stamps a stable prefix block with a 1h TTL: the non-Haiku
+    // path must forward it unchanged and send the beta header.
     await provider.sendMessage([
       {
         role: "user",
         content: [
-          cachedTextBlock("stable pages block"),
+          cachedPrefixBlock("stable pages block"),
           { type: "text", text: "volatile current message" },
         ],
       },
@@ -349,7 +450,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
   test("strips ttl from a caller's block cache_control and omits the beta for Haiku", async () => {
     // Haiku doesn't support the extended-cache-ttl beta, so a caller-stamped
-    // 1h ttl (e.g. from `cachedTextBlock`) must be stripped before sending.
+    // 1h ttl on a message block must be stripped before sending.
     const haiku = new AnthropicProvider(
       "sk-ant-test",
       "claude-haiku-4-5-20251001",
@@ -358,7 +459,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       {
         role: "user",
         content: [
-          cachedTextBlock("stable pages block"),
+          cachedPrefixBlock("stable pages block"),
           { type: "text", text: "volatile current message" },
         ],
       },
@@ -374,6 +475,49 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     ).not.toContain("extended-cache-ttl-2025-04-11");
   });
 
+  test("disableCache sends no cache_control anywhere and strips caller-stamped block markers", async () => {
+    // A one-shot call site that opted out of prompt caching: no breakpoint
+    // on system, tools, turn-start, or tail — and a caller-stamped block
+    // marker is removed rather than forwarded.
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          cachedPrefixBlock("stable pages block"),
+          { type: "text", text: "Do something" },
+        ],
+      },
+      toolUseMsg("tu_1", "bash"),
+      toolResultMsg("tu_1", "output"),
+    ];
+    await provider.sendMessage(messages, {
+      tools: sampleTools,
+      systemPrompt: "You are a helpful assistant.",
+      config: { disableCache: true },
+    });
+
+    const system = lastStreamParams!.system as Array<{
+      cache_control?: unknown;
+    }>;
+    expect(system[0].cache_control).toBeUndefined();
+
+    const tools = lastStreamParams!.tools as Array<{
+      cache_control?: unknown;
+    }>;
+    for (const tool of tools) {
+      expect(tool.cache_control).toBeUndefined();
+    }
+
+    const sent = lastStreamParams!.messages as Array<{
+      content: Array<{ cache_control?: unknown }>;
+    }>;
+    for (const message of sent) {
+      for (const block of message.content) {
+        expect(block.cache_control).toBeUndefined();
+      }
+    }
+  });
+
   test("v3-shape call (system + tools + cached prefix block) stays within the 4-breakpoint cap", async () => {
     // Mirrors a v3 L2 selector call: a system prompt, a forced tool, and a user
     // message whose stable <pages> block carries a cache_control breakpoint
@@ -385,7 +529,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         {
           role: "user",
           content: [
-            cachedTextBlock("stable pages block"),
+            cachedPrefixBlock("stable pages block"),
             { type: "text", text: "volatile current message" },
           ],
         },
@@ -554,10 +698,12 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   // -----------------------------------------------------------------------
   // mutableLatestUserMessage — volatile trailing user message cache anchor
   // -----------------------------------------------------------------------
-  test("mutableLatestUserMessage: first-of-turn skips the volatile turn-start anchor and anchors the previous stable user message", async () => {
+  test("mutableLatestUserMessage: first-of-turn moves the 1h anchor off the volatile latest message and bridges it with a 5m tail", async () => {
     // The latest user message carries per-turn-volatile content (e.g. an
-    // injected memory block). The long-TTL anchor must move off it onto the
-    // most recent stable user message so the cached prefix stays reusable.
+    // injected memory block). The 1h anchor must move off it onto the most
+    // recent stable user message so the cached prefix stays reusable across
+    // turns; the volatile message still gets a cheap 5m tail breakpoint so the
+    // next request in the same turn has an exact, reachable boundary.
     const messages: Message[] = [
       userMsg("Turn 1"),
       assistantMsg("Response 1"),
@@ -577,13 +723,13 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     }>;
     const userMessages = sent.filter((m) => m.role === "user");
 
-    // Latest (turn-start) user message gets NO long-TTL breakpoint — it's volatile.
+    // Latest (turn-start) user message gets the cheap 5m tail bridge, never the
+    // 1h anchor — it's volatile.
     const latest = userMessages[userMessages.length - 1];
-    for (const block of latest.content) {
-      expect(block.cache_control).toBeUndefined();
-    }
+    const latestLast = latest.content[latest.content.length - 1];
+    expect(latestLast.cache_control).toEqual({ type: "ephemeral", ttl: "5m" });
 
-    // Previous stable user message (Turn 1) becomes the primary anchor.
+    // Previous stable user message (Turn 1) becomes the primary 1h anchor.
     const prev = userMessages[userMessages.length - 2];
     const prevLast = prev.content[prev.content.length - 1];
     expect(prevLast.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
@@ -659,9 +805,141 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       }>;
     }>;
     // Only user message is volatile and there is no prior stable one, so no
-    // long-TTL breakpoint lands on any user message — graceful, no throw.
+    // 1h anchor and no 5m tail bridge land on any user message — there is no
+    // previous-turn anchor to bridge to. Graceful, no throw.
     const lastBlock = sent[0].content[sent[0].content.length - 1];
     expect(lastBlock.cache_control).toBeUndefined();
+  });
+
+  test("mutableLatestUserMessage: first-of-turn after a long autonomous tail bridges the volatile latest message so the next call stays within the lookback window", async () => {
+    // Reproduces the memory-retrospective / heartbeat case: a long run of
+    // autonomous assistant + tool turns sits between the previous user message
+    // and the volatile latest one. The 1h anchor moves back onto the previous
+    // user message (now >20 content blocks away); without a breakpoint on the
+    // latest message the next request's anchor would land beyond Anthropic's
+    // ~20-block lookback and re-create the whole prefix. The 5m tail bridge
+    // gives the next call an exact, reachable boundary.
+    const tail: Message[] = [];
+    for (let i = 0; i < 8; i++) {
+      tail.push(
+        assistantMsg(`heartbeat ${i}`),
+        toolUseMsg(`hb_${i}`, "bash"),
+        toolResultMsg(`hb_${i}`, "wake"),
+      );
+    }
+    // End the tail on an assistant message so the latest user message is not
+    // merged with a preceding tool_result (both user role).
+    tail.push(assistantMsg("still here"));
+    const messages: Message[] = [
+      userMsg("Turn 1"),
+      ...tail,
+      userMsg("Turn 2 (volatile)"),
+    ];
+    await provider.sendMessage(messages, {
+      config: { mutableLatestUserMessage: true },
+    });
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        text?: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
+    const findUser = (text: string) =>
+      sent.find(
+        (m) => m.role === "user" && m.content.some((b) => b.text === text),
+      )!;
+
+    // The volatile latest message gets the 5m tail bridge.
+    const turn2 = findUser("Turn 2 (volatile)");
+    const turn2Last = turn2.content[turn2.content.length - 1];
+    expect(turn2Last.cache_control).toEqual({ type: "ephemeral", ttl: "5m" });
+
+    // The previous stable user message — across the whole autonomous tail —
+    // is the 1h anchor.
+    const turn1 = findUser("Turn 1");
+    const turn1Last = turn1.content[turn1.content.length - 1];
+    expect(turn1Last.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+  });
+
+  test("mutableLatestUserMessage absent: the same long autonomous tail gets no extra tail bridge (placement unchanged)", async () => {
+    // Regression guard: the tail bridge is gated on the volatile-latest flag,
+    // not on tail length. With the flag off, the latest message keeps the
+    // ordinary 1h turn-start anchor and no 5m bridge is added.
+    const tail: Message[] = [];
+    for (let i = 0; i < 8; i++) {
+      tail.push(
+        assistantMsg(`heartbeat ${i}`),
+        toolUseMsg(`hb_${i}`, "bash"),
+        toolResultMsg(`hb_${i}`, "wake"),
+      );
+    }
+    // End the tail on an assistant message so the latest user message is not
+    // merged with a preceding tool_result (both user role).
+    tail.push(assistantMsg("still here"));
+    const messages: Message[] = [userMsg("Turn 1"), ...tail, userMsg("Turn 2")];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        text?: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
+    const findUser = (text: string) =>
+      sent.find(
+        (m) => m.role === "user" && m.content.some((b) => b.text === text),
+      )!;
+
+    // Latest message keeps the 1h turn-start anchor — no 5m bridge.
+    const turn2 = findUser("Turn 2");
+    const turn2Last = turn2.content[turn2.content.length - 1];
+    expect(turn2Last.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    // Previous-turn anchor keeps 1h.
+    const turn1 = findUser("Turn 1");
+    const turn1Last = turn1.content[turn1.content.length - 1];
+    expect(turn1Last.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+  });
+
+  test("mutableLatestUserMessage + disableTurnStartCache: the first-of-turn tail bridge is suppressed on the volatile latest block", async () => {
+    // The volatile-latest tail bridge lands on the turn-start block, so it must
+    // honor disableTurnStartCache (the explicit opt-out from paid cache writes
+    // on volatile turn-start content) just like the long-TTL anchor does. The
+    // previous-turn anchor is unaffected — it targets a stable prior block.
+    const messages: Message[] = [
+      userMsg("Turn 1"),
+      assistantMsg("Response 1"),
+      userMsg("Turn 2 (volatile)"),
+    ];
+    await provider.sendMessage(messages, {
+      config: { mutableLatestUserMessage: true, disableTurnStartCache: true },
+    });
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        text: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
+    const userMessages = sent.filter((m) => m.role === "user");
+
+    // Latest (turn-start) user message gets NO breakpoint — disableTurnStartCache
+    // suppresses the 5m bridge.
+    const latest = userMessages[userMessages.length - 1];
+    for (const block of latest.content) {
+      expect(block.cache_control).toBeUndefined();
+    }
+
+    // Previous stable user message (Turn 1) still gets the 1h anchor.
+    const prev = userMessages[userMessages.length - 2];
+    const prevLast = prev.content[prev.content.length - 1];
+    expect(prevLast.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
   test("mutableLatestUserMessage is not forwarded to the Anthropic API", async () => {

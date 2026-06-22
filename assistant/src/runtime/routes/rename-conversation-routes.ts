@@ -23,6 +23,10 @@ const RenameConversationBody = z.object({
   title: z.string().min(1),
 });
 
+const RenameConversationResponse = z.object({
+  ok: z.literal(true),
+});
+
 export const ROUTES: RouteDefinition[] = [
   {
     operationId: "rename_conversation",
@@ -36,6 +40,7 @@ export const ROUTES: RouteDefinition[] = [
     description: "Update the display title of a conversation.",
     tags: ["conversations"],
     requestBody: RenameConversationBody,
+    responseBody: RenameConversationResponse,
     handler: ({ body, headers }) => {
       const parsed = RenameConversationBody.safeParse(body);
       if (!parsed.success) {

@@ -2,6 +2,7 @@
 
 import type { AssistantActivityStateEvent } from "../../api/events/assistant-activity-state.js";
 import type { AssistantTextDeltaEvent } from "../../api/events/assistant-text-delta.js";
+import type { AssistantThinkingDeltaEvent } from "../../api/events/assistant-thinking-delta.js";
 import type { AssistantTurnStartEvent } from "../../api/events/assistant-turn-start.js";
 import type { ConfirmationRequestEvent } from "../../api/events/confirmation-request.js";
 import type { ErrorEvent } from "../../api/events/error.js";
@@ -13,8 +14,14 @@ import type { MessageQueuedDeletedEvent } from "../../api/events/message-queued-
 import type { MessageRequestCompleteEvent } from "../../api/events/message-request-complete.js";
 import type { QuestionRequestEvent } from "../../api/events/question-request.js";
 import type { SecretRequestEvent } from "../../api/events/secret-request.js";
+import type { ToolOutputChunkEvent } from "../../api/events/tool-output-chunk.js";
 import type { ToolResultEvent } from "../../api/events/tool-result.js";
+import type { ToolUsePreviewStartEvent } from "../../api/events/tool-use-preview-start.js";
 import type { ToolUseStartEvent } from "../../api/events/tool-use-start.js";
+import type {
+  TraceEvent,
+  TraceEventKind,
+} from "../../api/events/trace-event.js";
 import type { TurnProfileAutoRoutedEvent } from "../../api/events/turn-profile-auto-routed.js";
 import type { UserMessageEchoEvent } from "../../api/events/user-message-echo.js";
 import type { ChannelId, InterfaceId } from "../../channels/types.js";
@@ -69,40 +76,6 @@ export interface SuggestionRequest {
 }
 
 // === Server → Client ===
-
-export interface AssistantThinkingDelta {
-  type: "assistant_thinking_delta";
-  thinking: string;
-  conversationId?: string;
-  /** Database ID of the assistant message this thinking delta belongs to.
-   *  Same semantics as `AssistantTextDeltaEvent.messageId`. */
-  messageId?: string;
-}
-
-export interface ToolOutputChunk {
-  type: "tool_output_chunk";
-  chunk: string;
-  conversationId?: string;
-  toolUseId?: string;
-  subType?: "tool_start" | "tool_complete" | "status";
-  subToolName?: string;
-  subToolInput?: string;
-  subToolIsError?: boolean;
-  subToolId?: string;
-  /** Database ID of the assistant message that owns the parent tool_use
-   *  block. Same semantics as `AssistantTextDeltaEvent.messageId`. */
-  messageId?: string;
-}
-
-export interface ToolUsePreviewStart {
-  type: "tool_use_preview_start";
-  toolUseId: string;
-  toolName: string;
-  conversationId?: string;
-  /** Database ID of the assistant message that owns this tool_use block.
-   *  Same semantics as `AssistantTextDeltaEvent.messageId`. */
-  messageId?: string;
-}
 
 export interface ToolInputDelta {
   type: "tool_input_delta";
@@ -165,36 +138,7 @@ export interface ConversationInferenceProfileUpdated {
   expiresAt?: number | null;
 }
 
-export type TraceEventKind =
-  | "request_received"
-  | "request_queued"
-  | "request_dequeued"
-  | "llm_call_started"
-  | "llm_call_finished"
-  | "assistant_message"
-  | "tool_started"
-  | "tool_permission_requested"
-  | "tool_permission_decided"
-  | "tool_finished"
-  | "tool_failed"
-  | "generation_handoff"
-  | "message_complete"
-  | "generation_cancelled"
-  | "request_error"
-  | "tool_profiling_summary";
-
-export interface TraceEvent {
-  type: "trace_event";
-  eventId: string;
-  conversationId: string;
-  requestId?: string;
-  timestampMs: number;
-  sequence: number;
-  kind: TraceEventKind;
-  status?: "info" | "success" | "warning" | "error";
-  summary: string;
-  attributes?: Record<string, string | number | boolean | null>;
-}
+export type { TraceEvent, TraceEventKind };
 
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
@@ -208,10 +152,10 @@ export type _MessagesServerMessages =
   | UserMessageEchoEvent
   | AssistantTurnStartEvent
   | AssistantTextDeltaEvent
-  | AssistantThinkingDelta
+  | AssistantThinkingDeltaEvent
   | ToolUseStartEvent
-  | ToolUsePreviewStart
-  | ToolOutputChunk
+  | ToolUsePreviewStartEvent
+  | ToolOutputChunkEvent
   | ToolInputDelta
   | ToolResultEvent
   | ConfirmationRequestEvent

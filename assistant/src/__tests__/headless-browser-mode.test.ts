@@ -75,6 +75,16 @@ mock.module("../tools/browser/cdp-client/factory.js", () => ({
   },
 }));
 
+// The real proxy is an always-present singleton; stub the grace wait so
+// extension-pinned acquisition doesn't poll for the full window here.
+mock.module("../daemon/host-browser-proxy.js", () => ({
+  HostBrowserProxy: {
+    get instance() {
+      return { waitForExtensionClient: async () => true };
+    },
+  },
+}));
+
 // ── Minimal browserManager stub ──────────────────────────────────────
 
 /** Mutable memo shared between mock methods and tests. */

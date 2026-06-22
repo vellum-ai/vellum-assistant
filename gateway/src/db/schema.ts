@@ -29,6 +29,12 @@ export const slackActiveThreads = sqliteTable("slack_active_threads", {
   channelId: text("channel_id"),
   trackedAt: integer("tracked_at").notNull(),
   expiresAt: integer("expires_at").notNull(),
+  // Set when the thread was explicitly detached (the Slack mute command or
+  // the daemon's detach IPC route). NULL = actively tracked. A detached row
+  // is kept as a marker — rather than deleted — so the Socket Mode echo of
+  // the bot's own mute confirmation cannot silently re-arm the thread it
+  // just muted. An explicit human re-engagement (trackThread) clears it.
+  detachedAt: integer("detached_at"),
 });
 
 export const slackSeenEvents = sqliteTable("slack_seen_events", {
@@ -60,6 +66,33 @@ export const slackLastSeenTs = sqliteTable("slack_last_seen_ts", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+/**
+ * Persisted bot identity for any channel adapter.
+ *
+ * Each channel adapter (Slack, Telegram, Discord, etc.) resolves the bot's
+ * own identity via a provider-specific API call (e.g. Slack `auth.test`,
+ * Telegram `getMe`). The bot's identity is a deployment constant — it
+ * never changes for a given token. Persisting it here decouples the gateway
+ * from a successful API call at every startup: the first successful
+ * resolution writes the row, and subsequent startups load it directly.
+ * The provider API is still called to validate the token; a transient
+ * failure falls back to the persisted value instead of leaving the gateway
+ * unable to identify its own messages.
+ *
+ * One row per channel type. `channel_type` is the primary key.
+ */
+export const channelBotIdentity = sqliteTable("channel_bot_identity", {
+  /** Channel adapter type (e.g. `'slack'`, `'telegram'`, `'discord'`). */
+  channelType: text("channel_type").primaryKey(),
+  /** The bot's user ID on the channel (e.g. Slack `U01ABC123`, Telegram numeric ID). */
+  userId: text("user_id").notNull(),
+  /** The bot's display name / username on the channel. */
+  username: text("username"),
+  /** Channel-specific metadata as JSON (e.g. Slack team name, Telegram first_name). */
+  metadata: text("metadata"),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 // ---------------------------------------------------------------------------
 // Data migrations
 // ---------------------------------------------------------------------------
@@ -72,6 +105,23 @@ export const oneTimeMigrations = sqliteTable("one_time_migrations", {
 // ---------------------------------------------------------------------------
 // Contacts (auth/authz — gateway-owned)
 // ---------------------------------------------------------------------------
+//
+// ACL / INFO SPLIT — see memory/concepts/decision/contact-data-split.md.
+//
+// The gateway DB owns ONLY the data the ACL needs to answer "can this contact
+// do X?". Informational / UX / product data that does NOT affect access
+// decisions lives in the assistant DB and is joined at read time via
+// `assistantDbQuery` (see contacts-info-joiner.ts).
+//
+// Gateway-owned (this table + contact_channels): id, role, principalId,
+// displayName (cache only — NOT used for ACL, kept for log readability),
+// and every contact_channels column (type, address, status, policy,
+// verifiedAt, verifiedVia, inviteId, lastSeenAt, interactionCount,
+// lastInteraction, revokedReason, blockedReason).
+//
+// Assistant-owned (DO NOT add here): notes, userFile, contactType,
+// assistant_contact_metadata (species + metadata blob). Adding any of these
+// to the gateway schema violates the split and will be rejected in review.
 
 export const contacts = sqliteTable("contacts", {
   id: text("id").primaryKey(),
@@ -94,7 +144,6 @@ export const contactChannels = sqliteTable(
     isPrimary: integer("is_primary", { mode: "boolean" })
       .notNull()
       .default(false),
-    externalUserId: text("external_user_id"),
     externalChatId: text("external_chat_id"),
     status: text("status").notNull().default("unverified"),
     policy: text("policy").notNull().default("allow"),
@@ -110,13 +159,13 @@ export const contactChannels = sqliteTable(
     updatedAt: integer("updated_at"),
   },
   (table) => [
-    index("idx_contact_channels_type_ext_user").on(
-      table.type,
-      table.externalUserId,
-    ),
     index("idx_contact_channels_type_ext_chat").on(
       table.type,
       table.externalChatId,
+    ),
+    uniqueIndex("idx_contact_channels_type_address_unique").on(
+      table.type,
+      table.address,
     ),
   ],
 );
@@ -217,6 +266,7 @@ export const actorRefreshTokenRecords = sqliteTable(
     absoluteExpiresAt: integer("absolute_expires_at").notNull(),
     inactivityExpiresAt: integer("inactivity_expires_at").notNull(),
     lastUsedAt: integer("last_used_at"),
+    browserRefreshCookiePath: text("browser_refresh_cookie_path"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
@@ -252,6 +302,27 @@ export const trustRules = sqliteTable(
   (table) => [
     uniqueIndex("idx_trust_rules_tool_pattern").on(table.tool, table.pattern),
   ],
+);
+
+// ---------------------------------------------------------------------------
+// Channel admission policy (per channel type)
+// ---------------------------------------------------------------------------
+
+export const channelAdmissionPolicy = sqliteTable(
+  "channel_admission_policy",
+  {
+    // Channel TYPE — matches `ChannelId` in gateway/src/channels/types.ts.
+    // Stored as text rather than an enum because SQLite has no enum type;
+    // the app layer validates against CHANNEL_IDS at write time.
+    channelType: text("channel_type").primaryKey(),
+    // One of: 'no_one' | 'guardian_only' | 'trusted_contacts' |
+    //         'any_contact' | 'strangers'. Read-side default lives in the
+    //         store (ADMISSION_POLICY_DEFAULT) — absent rows resolve to it.
+    policy: text("policy").notNull().default("trusted_contacts"),
+    // Optional human note (e.g. "switched to no_one because <reason>").
+    note: text("note"),
+    updatedAt: integer("updated_at").notNull(),
+  },
 );
 
 // ---------------------------------------------------------------------------

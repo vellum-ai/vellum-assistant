@@ -30,7 +30,7 @@ import {
 import { renderTemplate } from "../tasks/task-runner.js";
 import { getTask } from "../tasks/task-store.js";
 
-initializeDb();
+await initializeDb();
 
 // ── Helpers ──────────────────────────────────────────────────────────
 

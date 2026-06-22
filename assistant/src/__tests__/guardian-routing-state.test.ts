@@ -31,7 +31,7 @@ import {
 } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();
@@ -162,7 +162,6 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
         {
           type: "telegram",
           address: "telegram-user-default",
-          externalUserId: "telegram-user-default",
           status: "active",
           policy: "allow",
         },

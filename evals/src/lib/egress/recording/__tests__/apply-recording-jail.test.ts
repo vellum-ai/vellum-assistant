@@ -82,6 +82,55 @@ describe("apply-recording-jail.sh", () => {
     expect(redirect).toBeGreaterThan(exempt);
   });
 
+  test("re-adds Docker's embedded-DNS jump after flushing the nat OUTPUT chain", async () => {
+    // GIVEN the nat OUTPUT chain is flushed before the REDIRECT rules go in
+    // AND Docker's embedded DNS reaches its resolver via an
+    //     `-d 127.0.0.11/32 -j DOCKER_OUTPUT` jump in that same chain
+    const lines = await readScript();
+    const capture = findLine(
+      lines,
+      "dns_jump=$(iptables -t nat -S OUTPUT | grep -- '-d 127.0.0.11/32 -j DOCKER_OUTPUT'",
+    );
+    const flush = findLine(lines, "iptables -t nat -F OUTPUT");
+    const readd = findLine(
+      lines,
+      "iptables -t nat -A OUTPUT -d 127.0.0.11/32 -j DOCKER_OUTPUT",
+    );
+    const redirect = findLine(
+      lines,
+      "iptables -t nat -A OUTPUT -p tcp --dport 443 -j REDIRECT",
+    );
+
+    // THEN the jump is captured before the flush wipes it, re-added after,
+    // and restored before the REDIRECT — so in-netns lookups against
+    // 127.0.0.11 keep resolving for tenants born into the jailed netns
+    // (without it, getaddrinfo returns EAI_AGAIN and the first model call
+    // fails with a bare "Connection error").
+    expect(capture).toBeGreaterThanOrEqual(0);
+    expect(flush).toBeGreaterThan(capture);
+    expect(readd).toBeGreaterThan(flush);
+    expect(redirect).toBeGreaterThan(readd);
+  });
+
+  test("flushes pre-jail conntrack after installing the NAT REDIRECT", async () => {
+    // The sidecar attaches to an already-running assistant netns, so the
+    // daemon may have opened a keep-alive provider connection before
+    // these rules existed. NAT REDIRECT only rewrites NEW flows and the
+    // filter chain accepts ESTABLISHED ones, so that pre-jail connection
+    // would egress past mitmproxy unrecorded. Flushing conntrack forces
+    // it to be re-evaluated. The flush must come AFTER the REDIRECT is
+    // installed — flushing before would just let the connection
+    // re-establish on the still-unredirected path.
+    const lines = await readScript();
+    const redirect = findLine(
+      lines,
+      "iptables -t nat -A OUTPUT -p tcp --dport 443 -j REDIRECT",
+    );
+    const flush = findLine(lines, "conntrack -F");
+
+    expect(flush).toBeGreaterThan(redirect);
+  });
+
   test("requires ALLOW_HOSTS so a misconfig fails loud, not silent", async () => {
     // A missing ALLOW_HOSTS means no upstream the recording sidecar
     // can reach — running mitmproxy in that state would record

@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { VELAY_BRIDGE_AUTH_HEADER } from "./bridge-auth.js";
 import {
   VELAY_FRAME_TYPES,
   VELAY_WEBSOCKET_MESSAGE_TYPES,
@@ -65,6 +66,7 @@ describe("VelayWebSocketBridge", () => {
           host: ["public.example.com"],
           "sec-websocket-key": ["client-key"],
           "x-twilio-signature": ["sig-123"],
+          [VELAY_BRIDGE_AUTH_HEADER]: ["spoofed"],
         },
         subprotocol: "twilio-relay",
       }),
@@ -84,6 +86,8 @@ describe("VelayWebSocketBridge", () => {
     expect(options.headers.authorization).toBe("Bearer edge-token");
     expect(options.headers.host).toBe("public.example.com");
     expect(options.headers["x-twilio-signature"]).toBe("sig-123");
+    expect(options.headers[VELAY_BRIDGE_AUTH_HEADER]).toBeString();
+    expect(options.headers[VELAY_BRIDGE_AUTH_HEADER]).not.toBe("spoofed");
     expect(options.headers.connection).toBeUndefined();
     expect(options.headers["sec-websocket-key"]).toBeUndefined();
 
@@ -334,6 +338,27 @@ describe("VelayWebSocketBridge", () => {
         reason: "Invalid WebSocket path",
       },
     ]);
+  });
+
+  test("allows live voice and STT websocket paths declared in the tunnel allowlist", () => {
+    bridge.open(
+      makeOpenFrame({ path: "/v1/live-voice", raw_query: "token=t" }),
+    );
+    bridge.open(
+      makeOpenFrame({
+        connection_id: "conn-stt",
+        path: "/v1/stt/stream",
+        raw_query: "token=t",
+      }),
+    );
+
+    expect(WebSocketMock).toHaveBeenCalledTimes(2);
+    expect((WebSocketMock.mock.calls[0] as [string])[0]).toBe(
+      "ws://127.0.0.1:7830/v1/live-voice?token=t",
+    );
+    expect((WebSocketMock.mock.calls[1] as [string])[0]).toBe(
+      "ws://127.0.0.1:7830/v1/stt/stream?token=t",
+    );
   });
 
   test("forwards local close frames back to Velay and cleans up", () => {

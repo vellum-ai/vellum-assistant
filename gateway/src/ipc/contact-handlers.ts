@@ -8,12 +8,10 @@
 
 import { z } from "zod";
 
-import {
-  assistantDbQuery,
-  assistantDbRun,
-} from "../db/assistant-db-proxy.js";
+import { assistantDbQuery, assistantDbRun } from "../db/assistant-db-proxy.js";
 import { ContactStore } from "../db/contact-store.js";
 import { getLogger } from "../logger.js";
+import { canonicalizeInboundIdentity } from "../verification/identity.js";
 import type { IpcRoute } from "./server.js";
 
 const log = getLogger("contact-handlers");
@@ -86,7 +84,8 @@ export const contactRoutes: IpcRoute[] = [
       const { channelType, address, role, displayName } =
         CreateContactParamsSchema.parse(params);
 
-      const normalizedAddress = address.toLowerCase().trim();
+      const normalizedAddress =
+        canonicalizeInboundIdentity(channelType, address) ?? address.trim();
       const effectiveDisplayName = displayName ?? normalizedAddress;
       // Map prompt roles to valid ContactRole values ("guardian" | "contact").
       const effectiveRole: string =
@@ -100,7 +99,7 @@ export const contactRoutes: IpcRoute[] = [
       }>(
         `SELECT cc.id AS channelId, cc.contact_id AS contactId
          FROM contact_channels cc
-         WHERE cc.type = ? AND cc.address = ?
+         WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
          LIMIT 1`,
         [channelType, normalizedAddress],
       );
@@ -142,7 +141,13 @@ export const contactRoutes: IpcRoute[] = [
       }
 
       log.info(
-        { channelType, address: normalizedAddress, contactId, channelId, role: effectiveRole },
+        {
+          channelType,
+          address: normalizedAddress,
+          contactId,
+          channelId,
+          role: effectiveRole,
+        },
         "create_contact: created new contact + channel",
       );
 

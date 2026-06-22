@@ -5,6 +5,8 @@
  * parses it via the real frontmatter parser, and verifies that `skillFlagKey()`
  * returns the correct key and `resolveSkillStates()` correctly gates the skill.
  */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
@@ -223,5 +225,34 @@ describe("frontmatter feature-flag integration", () => {
 
     const resolvedOff = resolveSkillStates([skill], configOff);
     expect(resolvedOff.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bundled ACP skill: discoverability when ACP is disabled
+// ---------------------------------------------------------------------------
+
+describe("bundled acp skill discoverability", () => {
+  test("acp skill resolves with no frontmatter flag gate", () => {
+    // The ACP skill carries its own first-time-setup instructions and is
+    // always discoverable: it has no frontmatter feature-flag gate.
+    const skillMdPath = fileURLToPath(
+      new URL("../config/bundled-skills/acp/SKILL.md", import.meta.url),
+    );
+    const skillMd = readFileSync(skillMdPath, "utf8");
+
+    const skill = buildSkillSummary("acp", skillMd);
+    expect(skill).not.toBeNull();
+    expect(skill!.featureFlag).toBeUndefined();
+    expect(skillFlagKey(skill!)).toBeUndefined();
+
+    const config = makeConfig({
+      acp: { maxConcurrentSessions: 4, agents: {} },
+    });
+
+    const resolved = resolveSkillStates([skill!], config);
+    expect(resolved.length).toBe(1);
+    expect(resolved[0].summary.id).toBe("acp");
+    expect(resolved[0].state).toBe("enabled");
   });
 });

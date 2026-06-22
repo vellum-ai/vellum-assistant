@@ -21,7 +21,7 @@ import {
 import { runComparisonOverHistory } from "../harness/compare.js";
 import type { RetrievalOutput, Retriever } from "../harness/retriever.js";
 
-initializeDb();
+await initializeDb();
 
 // loadNowText reads workspace files; a nonexistent dir yields "".
 const WORKSPACE = "/tmp/harness-compare-nonexistent-workspace";

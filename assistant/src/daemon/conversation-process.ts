@@ -12,14 +12,12 @@ import {
   createUserMessage,
 } from "../agent/message-types.js";
 import {
-  type InterfaceId,
   parseChannelId,
   parseInterfaceId,
   type TurnChannelContext,
   type TurnInterfaceContext,
 } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import type { ContextWindowResult } from "../context/window-manager.js";
 import { listPendingRequestsByConversationScope } from "../memory/canonical-guardian-store.js";
 import {
   addMessage,
@@ -29,22 +27,22 @@ import {
 } from "../memory/conversation-crud.js";
 import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
-import type { Message } from "../providers/types.js";
-import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
+import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
+import {
+  type GuardianPendingScope,
+  routeGuardianReply,
+} from "../runtime/guardian-reply-router.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
-import type { CleanResult } from "./conversation.js";
-import type { PersistMessageOptions } from "./conversation-messaging.js";
+import type { CleanResult, Conversation } from "./conversation.js";
 import {
   persistQueuedMessageBody,
   serializePersistedUserMessageContent,
 } from "./conversation-messaging.js";
 import type {
-  MessageQueue,
   QueuedMessage,
   QueueDrainReason,
 } from "./conversation-queue-manager.js";
-import type { ChannelCapabilities } from "./conversation-runtime-assembly.js";
 import {
   buildSlashContextForContent,
   classifySlash,
@@ -55,13 +53,9 @@ import { getModelInfo } from "./handlers/config-model.js";
 import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
 import type {
   ServerMessage,
-  UsageStats,
   UserMessageAttachment,
 } from "./message-protocol.js";
-import type { ConversationTransportMetadata } from "./message-types/conversations.js";
-import type { TraceEmitter } from "./trace-emitter.js";
 import { buildTransportHints } from "./transport-hints.js";
-import type { TrustContext } from "./trust-context.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
 
 const log = getLogger("conversation-process");
@@ -117,123 +111,6 @@ export function isModelSlashCommand(content: string): boolean {
   return content.trim() === "/models";
 }
 
-// ── Context Interface ────────────────────────────────────────────────
-
-/**
- * Subset of Conversation state that drainQueue / processMessage need access to.
- * The Conversation class implements this interface so its instances can be
- * passed directly to the extracted functions.
- */
-export interface ProcessConversationContext {
-  readonly conversationId: string;
-  messages: Message[];
-  isProcessing(): boolean;
-  setProcessing(value: boolean): void;
-  abortController: AbortController | null;
-  currentRequestId?: string;
-  readonly queue: MessageQueue;
-  readonly traceEmitter: TraceEmitter;
-  /**
-   * Set of requestIds created by surface-action responses. Used to
-   * distinguish surface-action turns from regular user turns (e.g. for
-   * stale-surface auto-dismiss guards and batched-drain exclusion).
-   */
-  readonly surfaceActionRequestIds: Set<string>;
-  currentActiveSurfaceId?: string;
-  currentPage?: string;
-  /** When true, the drain path should inject synthetic tool_result messages
-   *  for any pending tool_use blocks abandoned by a steered abort. */
-  pendingSteerRepair?: boolean;
-  /** Cumulative token usage stats for the conversation. */
-  readonly usageStats: UsageStats;
-  /** Request-scoped skill IDs preactivated via config or programmatic injection. */
-  preactivatedSkillIds?: string[];
-  /** Add a skill ID to the preactivated set without replacing existing entries. */
-  addPreactivatedSkillId(id: string): void;
-  /** Assistant identity — used for scoping notification preferences. */
-  readonly assistantId?: string;
-  trustContext?: TrustContext;
-  channelCapabilities?: ChannelCapabilities;
-  /** Per-turn snapshot of trustContext, frozen at message-processing start. */
-  currentTurnTrustContext?: TrustContext;
-  /** Per-turn snapshot of channelCapabilities, frozen at message-processing start. */
-  currentTurnChannelCapabilities?: ChannelCapabilities;
-  ensureActorScopedHistory(): Promise<void>;
-  persistUserMessage(
-    options: PersistMessageOptions,
-  ): Promise<{ id: string; deduplicated: boolean }>;
-  runAgentLoop(
-    content: string,
-    userMessageId: string,
-    options?: {
-      onEvent?: (msg: ServerMessage) => void;
-      isInteractive?: boolean;
-      isUserMessage?: boolean;
-      titleText?: string;
-      callSite?: LLMCallSite;
-    },
-  ): Promise<void>;
-  getTurnChannelContext(): TurnChannelContext | null;
-  setTurnChannelContext(ctx: TurnChannelContext): void;
-  getTurnInterfaceContext(): TurnInterfaceContext | null;
-  setTurnInterfaceContext(ctx: TurnInterfaceContext): void;
-  emitActivityState(
-    phase:
-      | "idle"
-      | "thinking"
-      | "streaming"
-      | "tool_running"
-      | "awaiting_confirmation",
-    reason:
-      | "message_dequeued"
-      | "thinking_delta"
-      | "first_text_delta"
-      | "tool_use_start"
-      | "tool_result_received"
-      | "confirmation_requested"
-      | "confirmation_resolved"
-      | "message_complete"
-      | "generation_cancelled"
-      | "error_terminal"
-      | "preview_start"
-      | "context_compacting",
-    options?: {
-      anchor?: "assistant_turn" | "user_turn" | "global";
-      requestId?: string;
-      statusText?: string;
-    },
-  ): void;
-  /** Force context compaction regardless of threshold/cooldown. */
-  forceCompact(): Promise<ContextWindowResult>;
-  /** Strip runtime injections and reset memory-injection state. */
-  forceClean(): Promise<CleanResult>;
-  /** Set transport-derived hints for the conversation. */
-  setTransportHints(hints: string[] | undefined): void;
-  /** IANA timezone reported by the active client for the current turn. */
-  clientTimezone?: string;
-  /**
-   * Apply client-reported host env (home dir, username) from transport
-   * metadata, gating on `supportsHostProxy` so non-host-proxy interfaces
-   * clear any stale values. Shared between the create/reuse path in
-   * `DaemonServer.applyTransportMetadata` and the queue-drain path below.
-   */
-  applyHostEnvFromTransport(transport: ConversationTransportMetadata): void;
-  /** Apply the per-turn client timezone reported by transport metadata. */
-  applyClientTimezoneFromTransport(
-    transport: ConversationTransportMetadata,
-  ): void;
-  /**
-   * Instantiate host proxies for capabilities that have become reachable
-   * mid-queue (e.g. a macOS client connected after a web turn was enqueued
-   * without a proxy). Called from drain paths before preactivation so skills
-   * are only activated when the proxy that services them is present.
-   */
-  ensureHostProxiesForTurn(
-    sourceInterface: InterfaceId | undefined,
-    sourceActorPrincipalId?: string,
-  ): void;
-}
-
 function resolveQueuedTurnContext(
   queued: {
     turnChannelContext?: TurnChannelContext;
@@ -279,9 +156,9 @@ function resolveQueuedTurnInterfaceContext(
 }
 
 /** Build a SlashContext from the current conversation state and config. */
-function buildSlashContext(
+export function buildSlashContext(
   content: string,
-  conversation: ProcessConversationContext,
+  conversation: Conversation,
 ): SlashContext | undefined {
   const turnInterface = conversation.getTurnInterfaceContext();
   return buildSlashContextForContent(content, {
@@ -306,7 +183,7 @@ function buildSlashContext(
  * accounting centralized in `MessageQueue` rather than mutating mid-walk.
  */
 async function buildPassthroughBatch(
-  conversation: ProcessConversationContext,
+  conversation: Conversation,
 ): Promise<QueuedMessage[]> {
   const head = conversation.queue.peek(0);
   if (head === undefined) return [];
@@ -348,6 +225,7 @@ async function buildPassthroughBatch(
     // otherwise diverge.
     if (candIf?.userMessageInterface !== headInterface?.userMessageInterface)
       break;
+    if (candidate.sourceActorPrincipalId !== head.sourceActorPrincipalId) break;
     if (classifySlash(candidate.content) !== "passthrough") break;
     if (
       resolveVerificationSessionIntent(candidate.content).kind ===
@@ -379,9 +257,7 @@ async function buildPassthroughBatch(
  * history and injects synthetic error `tool_result` messages for any
  * unmatched `tool_use` blocks.
  */
-function repairPendingToolUseBlocks(
-  conversation: ProcessConversationContext,
-): void {
+function repairPendingToolUseBlocks(conversation: Conversation): void {
   if (!conversation.pendingSteerRepair) return;
   conversation.pendingSteerRepair = false;
 
@@ -452,7 +328,7 @@ function repairPendingToolUseBlocks(
  * remaining queued messages would be stranded.
  */
 export async function drainQueue(
-  conversation: ProcessConversationContext,
+  conversation: Conversation,
   reason: QueueDrainReason = "loop_complete",
 ): Promise<void> {
   // After a steer, drain only the promoted head message — don't batch
@@ -485,7 +361,7 @@ export async function drainQueue(
 }
 
 async function drainSingleMessage(
-  conversation: ProcessConversationContext,
+  conversation: Conversation,
   next: QueuedMessage,
   reason: QueueDrainReason,
 ): Promise<void> {
@@ -550,6 +426,9 @@ async function drainSingleMessage(
     conversation.applyClientTimezoneFromTransport(next.transport);
   }
 
+  conversation.currentTurnAuthContext = next.authContext;
+  conversation.currentTurnSourceActorPrincipalId = next.sourceActorPrincipalId;
+
   // Re-attach and re-preactivate host-proxy skills for interactive turns.
   // The dequeue path reset `preactivatedSkillIds` above; without these
   // re-adds the relevant skill tools won't be projected to the LLM for
@@ -561,8 +440,7 @@ async function drainSingleMessage(
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
     const sourceInterface = interfaceCtx?.userMessageInterface;
-    const sourceActorPrincipalId =
-      conversation.trustContext?.guardianPrincipalId;
+    const sourceActorPrincipalId = next.sourceActorPrincipalId;
     conversation.ensureHostProxiesForTurn(
       sourceInterface,
       sourceActorPrincipalId,
@@ -1059,7 +937,7 @@ async function drainSingleMessage(
 // runAgentLoop run. Per-message dequeue events and DB persistence are
 // preserved; the agent reply fans out to every batched client.
 async function drainBatch(
-  conversation: ProcessConversationContext,
+  conversation: Conversation,
   batch: QueuedMessage[],
   reason: QueueDrainReason,
 ): Promise<void> {
@@ -1107,14 +985,16 @@ async function drainBatch(
     conversation.applyClientTimezoneFromTransport(head.transport);
   }
 
+  conversation.currentTurnAuthContext = head.authContext;
+  conversation.currentTurnSourceActorPrincipalId = head.sourceActorPrincipalId;
+
   // Re-attach and re-preactivate host-proxy skills for interactive turns.
   // Mirrors the single-message path exactly — sourced from `head`.
   if (head.isInteractive !== false) {
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
     const sourceInterface = interfaceCtx?.userMessageInterface;
-    const sourceActorPrincipalId =
-      conversation.trustContext?.guardianPrincipalId;
+    const sourceActorPrincipalId = head.sourceActorPrincipalId;
     conversation.ensureHostProxiesForTurn(
       sourceInterface,
       sourceActorPrincipalId,
@@ -1480,6 +1360,12 @@ export interface ProcessMessageOptions {
   currentPage?: string;
   isInteractive?: boolean;
   callSite?: LLMCallSite;
+  /**
+   * Optional ad-hoc inference-profile override applied to every LLM call
+   * this turn issues (e.g. a schedule's pinned profile). Forwarded to
+   * {@link Conversation.runAgentLoop}.
+   */
+  overrideProfile?: string;
   displayContent?: string;
 }
 
@@ -1490,7 +1376,7 @@ export interface ProcessMessageOptions {
  * in a single call. Used by the message-handler path where blocking is expected.
  */
 export async function processMessage(
-  conversation: ProcessConversationContext,
+  conversation: Conversation,
   options: ProcessMessageOptions,
 ): Promise<string> {
   const {
@@ -1502,12 +1388,16 @@ export async function processMessage(
     currentPage,
     isInteractive,
     callSite,
+    overrideProfile,
     displayContent,
   } = options;
   await conversation.ensureActorScopedHistory();
   // Snapshot persona context at turn start so later tool turns can't pick up
   // a different actor's context if a concurrent request mutates the live fields.
   conversation.currentTurnTrustContext = conversation.trustContext;
+  conversation.currentTurnAuthContext = conversation.authContext;
+  conversation.currentTurnSourceActorPrincipalId =
+    conversation.authContext?.actorPrincipalId;
   conversation.currentTurnChannelCapabilities =
     conversation.channelCapabilities;
   conversation.currentActiveSurfaceId = activeSurfaceId;
@@ -1520,9 +1410,14 @@ export async function processMessage(
           "vellum",
         ).map((request) => request.id)
       : [];
-  const canonicalPendingRequestIdsForConversation =
+  // Empty hints → leave the scope unset (identity-fallback): the desktop
+  // guardian can still resolve their pending work by identity/principal.
+  const pendingScope: GuardianPendingScope | undefined =
     canonicalPendingRequestHintIdsForConversation.length > 0
-      ? canonicalPendingRequestHintIdsForConversation
+      ? {
+          mode: "scoped",
+          requestIds: canonicalPendingRequestHintIdsForConversation,
+        }
       : undefined;
 
   // ── Canonical guardian reply router (desktop/conversation path) ──
@@ -1541,7 +1436,7 @@ export async function processMessage(
           conversation.trustContext?.guardianPrincipalId ?? undefined,
       },
       conversationId: conversation.conversationId,
-      pendingRequestIds: canonicalPendingRequestIdsForConversation,
+      pendingScope,
       // Desktop path: disable NL classification to avoid consuming non-decision
       // messages while a tool confirmation is pending. Deterministic code-prefix
       // and callback parsing remain active.
@@ -1971,11 +1866,14 @@ export async function processMessage(
     isUserMessage?: boolean;
     titleText?: string;
     callSite?: LLMCallSite;
+    overrideProfile?: string;
   } = { isUserMessage: true };
   if (isInteractive !== undefined) loopOptions.isInteractive = isInteractive;
   if (agentLoopContent !== resolvedContent)
     loopOptions.titleText = resolvedContent;
   if (callSite !== undefined) loopOptions.callSite = callSite;
+  if (overrideProfile !== undefined)
+    loopOptions.overrideProfile = overrideProfile;
 
   await conversation.runAgentLoop(agentLoopContent, userMessageId, {
     ...loopOptions,

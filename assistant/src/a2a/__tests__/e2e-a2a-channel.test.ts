@@ -68,7 +68,7 @@ import {
   updateState,
 } from "../task-store.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Global fetch intercept
@@ -164,7 +164,6 @@ describe("e2e: trusted contact setup", () => {
         {
           type: "a2a",
           address: "assistant-b",
-          externalUserId: "assistant-b",
           status: "active",
           policy: "allow",
         },
@@ -367,7 +366,6 @@ describe("e2e: unknown sender blocked (ACL enforcement)", () => {
         {
           type: "a2a",
           address: "trusted-assistant",
-          externalUserId: "trusted-assistant",
           status: "active",
           policy: "allow",
         },
@@ -403,7 +401,6 @@ describe("e2e: unknown sender blocked (ACL enforcement)", () => {
         {
           type: "a2a",
           address: "blocked-assistant",
-          externalUserId: "blocked-assistant",
           status: "blocked",
           policy: "deny",
         },
@@ -518,7 +515,6 @@ describe("e2e: full A2A round-trip", () => {
         {
           type: "a2a",
           address: "assistant-b",
-          externalUserId: "assistant-b",
           status: "active",
           policy: "allow",
         },

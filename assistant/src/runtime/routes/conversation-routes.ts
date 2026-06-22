@@ -11,6 +11,10 @@ import {
   createUserMessage,
 } from "../../agent/message-types.js";
 import {
+  type ConversationContentBlock,
+  ConversationMessageSchema,
+} from "../../api/responses/conversation-message.js";
+import {
   CHANNEL_IDS,
   INTERFACE_IDS,
   isInteractiveInterface,
@@ -96,6 +100,7 @@ import {
   getOrCreateConversation,
 } from "../../memory/conversation-key-store.js";
 import { searchConversations } from "../../memory/conversation-queries.js";
+import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "../../memory/memory-retrospective-constants.js";
 import { recordOnboardingEvent } from "../../memory/onboarding-events-store.js";
 import { buildSlackMessageDeepLinks } from "../../messaging/providers/slack/deep-link.js";
 import {
@@ -109,13 +114,19 @@ import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { getLogger } from "../../util/logger.js";
-import { getWorkspacePromptPath } from "../../util/platform.js";
+import {
+  getWorkspaceDir,
+  getWorkspacePromptPath,
+} from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { getPersistedSeq } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { routeGuardianReply } from "../guardian-reply-router.js";
+import {
+  type GuardianPendingScope,
+  routeGuardianReply,
+} from "../guardian-reply-router.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
 import type {
   ApprovalConversationGenerator,
@@ -139,6 +150,14 @@ import {
   NotFoundError,
   RouteError,
 } from "./errors.js";
+import {
+  collectPendingConfirmations,
+  enrichToolCallsWithConfirmation,
+} from "./tool-call-confirmation-enrichment.js";
+import {
+  collectPendingQuestions,
+  enrichToolCallsWithQuestion,
+} from "./tool-call-question-enrichment.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { RouteResponse } from "./types.js";
 
@@ -477,12 +496,14 @@ async function tryConsumeCanonicalGuardianReply(params: {
     sourceChannel,
     conversation,
   );
-  // Always pass the hints array (even when empty) so
-  // findPendingCanonicalRequests respects the in-memory staleness filter
-  // applied by collectCanonicalGuardianRequestHintIds. Converting empty
-  // hints to `undefined` caused the router to fall through to raw DB
-  // queries that rediscovered stale canonical requests.
-  const pendingRequestIds = pendingRequestHintIds;
+  // An empty hint set is `blocked`, not absence: the in-memory staleness
+  // filter in collectCanonicalGuardianRequestHintIds found no live requests,
+  // so the router must not fall back to identity/DB lookup (which rediscovered
+  // stale canonical requests). A non-empty set scopes resolution to it.
+  const pendingScope: GuardianPendingScope =
+    pendingRequestHintIds.length > 0
+      ? { mode: "scoped", requestIds: pendingRequestHintIds }
+      : { mode: "blocked" };
 
   const routerResult = await routeGuardianReply({
     messageText: trimmedContent,
@@ -494,7 +515,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
       guardianPrincipalId: verifiedActorPrincipalId,
     },
     conversationId,
-    pendingRequestIds,
+    pendingScope,
     approvalConversationGenerator,
     emissionContext: {
       source: "inline_nl",
@@ -672,7 +693,25 @@ export function handleListMessages({
   // assistant message has tool_use blocks but its matching user tool_result
   // is left visible, the result will render as a standalone orphan because
   // `mergeToolResultsIntoAssistantMessages` has nothing to merge it into.
-  const visibleFilter = (m: MessageRow) => !isHiddenMessage(m.metadata);
+  //
+  // Exception: memory-retrospective fork conversations show their hidden rows
+  // (the retrospective instruction) so the run is readable as a distinct turn
+  // and its LLM call is inspectable. The instruction row also separates the
+  // copied source tail from the review turn, so `mergeConsecutiveAssistantMessages`
+  // no longer folds the review into the source's last assistant message. This
+  // is display-only and scoped to the fork source; the LLM-side `getMessages`
+  // loader is unfiltered regardless.
+  //
+  // Only renderable roles reach this UI-facing transcript. `system` rows (a
+  // permitted `MessageRole`, e.g. skill-authored context) are agent-context
+  // scaffolding, never a displayed turn, so they are dropped here at the
+  // source rather than narrowed away per-client.
+  const isRetrospectiveFork =
+    getConversation(resolvedConversationId)?.source ===
+    MEMORY_RETROSPECTIVE_FORK_SOURCE;
+  const visibleFilter = (m: MessageRow) =>
+    (isRetrospectiveFork || !isHiddenMessage(m.metadata)) &&
+    (m.role === "user" || m.role === "assistant");
 
   if (isPaginated) {
     const result = getMessagesPaginated(
@@ -764,16 +803,33 @@ export function handleListMessages({
       },
     );
 
+    // `visibleFilter` has already dropped every non-renderable role, so the
+    // only values reaching here are `user` and `assistant`; narrow the raw DB
+    // `string` to the wire union.
+    const role: "user" | "assistant" =
+      msg.role === "assistant" ? "assistant" : "user";
+
     return {
       id: msg.id,
-      role: msg.role,
+      role,
       content,
       createdAt: msg.createdAt,
       sentAt,
       subagentNotification,
       slackMessage,
+      clientMessageId: msg.clientMessageId ?? undefined,
     };
   });
+
+  // Confirmation context layered onto rendered tool calls at render time: the
+  // derived scope ladder for scope-aware tools, and any in-flight prompt read
+  // from the pending-interactions registry. Both are computed once per request
+  // and applied per message below.
+  const workspaceDir = getWorkspaceDir();
+  const pendingConfirmations = collectPendingConfirmations(
+    resolvedConversationId,
+  );
+  const pendingQuestions = collectPendingQuestions(resolvedConversationId);
 
   const messages: RuntimeMessagePayload[] = parsed.map((m) => {
     const mergedMessageIds = m.id ? (mergedIdMap.get(m.id) ?? []) : [];
@@ -837,6 +893,14 @@ export function handleListMessages({
       m.id ?? undefined,
     );
 
+    const toolCalls = enrichToolCallsWithQuestion(
+      enrichToolCallsWithConfirmation(rendered.toolCalls, {
+        workspaceDir,
+        pendingConfirmations,
+      }),
+      { pendingQuestions },
+    );
+
     // Strip <no_response/> markers from assistant messages so web/API clients
     // never see the raw sentinel. Only assistant messages produce it; user
     // messages are untouched. The filter is applied consistently to the flat
@@ -882,7 +946,25 @@ export function handleListMessages({
         .filter((block) => block.type !== "text" || block.text.length > 0);
     }
 
-    const alignedContentOrder = aligned.rewriteContentOrder(contentOrder);
+  // Ensure every hydrated attachment has a corresponding content block.
+  // renderHistoryContent inlines attachment blocks only when it has
+  // file-block refs with matching DB rows; directives (assistant-authored
+  // <vellum-attachment/> tags) don't leave a file block after stripping,
+  // so their attachments end up in the flat `attachments` array but not in
+  // `contentBlocks`. Append any that are missing so the canonical
+  // projection is complete.
+  const existingAttachmentIds = new Set(
+    contentBlocks
+      .filter((b): b is Extract<ConversationContentBlock, { type: "attachment" }> => b.type === "attachment")
+      .map((b) => b.attachment.id),
+  );
+  for (const att of msgAttachments) {
+    if (!existingAttachmentIds.has(att.id)) {
+      contentBlocks.push({ type: "attachment", attachment: att });
+    }
+  }
+
+  const alignedContentOrder = aligned.rewriteContentOrder(contentOrder);
 
     // Use sentAt (actual event time) for the display timestamp when available,
     // falling back to createdAt (persistence time). Clients use this display
@@ -894,15 +976,14 @@ export function handleListMessages({
     return {
       id: m.id ?? "",
       ...(mergedMessageIds.length > 0 ? { mergedMessageIds } : {}),
+      ...(m.clientMessageId ? { clientMessageId: m.clientMessageId } : {}),
       role: m.role,
-      // Flat plain-text body the legacy Swift client reads directly; see the
-      // `content` field on ConversationMessageSchema for why this must stay.
+      // Flat plain-text body; see the `content` field on
+      // ConversationMessageSchema for why this must stay.
       content: text,
       timestamp: new Date(displayTimestamp).toISOString(),
       attachments: msgAttachments,
-      ...(rendered.toolCalls.length > 0
-        ? { toolCalls: rendered.toolCalls }
-        : {}),
+      ...(toolCalls.length > 0 ? { toolCalls } : {}),
       ...(rendered.surfaces.length > 0 ? { surfaces: rendered.surfaces } : {}),
       ...(textSegments.length > 0 ? { textSegments } : {}),
       ...(rendered.thinkingSegments.length > 0
@@ -911,7 +992,7 @@ export function handleListMessages({
       ...(alignedContentOrder.length > 0
         ? { contentOrder: alignedContentOrder }
         : {}),
-      ...(contentBlocks.length > 0 ? { contentBlocks } : {}),
+      contentBlocks,
       ...(m.subagentNotification
         ? { subagentNotification: m.subagentNotification }
         : {}),
@@ -995,6 +1076,7 @@ export function persistOnboardingArtifacts(onboarding: {
   tasks: string[];
   tone: string;
   userName?: string;
+  occupation?: string;
   assistantName?: string;
   priorAssistants?: string[];
   cohort?: string;
@@ -1085,6 +1167,7 @@ export async function handleSendMessage(
       bootstrapTemplate?: string;
       initialMessage?: string;
       skills?: string[];
+      title?: string;
     };
   };
 
@@ -1262,8 +1345,13 @@ export async function handleSendMessage(
         : sourceChannel === "vellum"
           ? crypto.randomUUID()
           : `default:${sourceChannel}:${sourceInterface}`;
+    // An onboarding flow may supply an explicit title for the conversation it
+    // mints behind the scenes (e.g. the research pass) so it isn't left with an
+    // auto-generated title. Applied only when this call creates the row.
+    const onboardingTitle = body.onboarding?.title?.trim() || undefined;
     mapping = getOrCreateConversation(resolvedConversationKey, {
       conversationType: "standard",
+      title: onboardingTitle,
     });
   }
 
@@ -1334,6 +1422,11 @@ export async function handleSendMessage(
       mapping.conversationId,
       requestedInferenceProfile,
     );
+    conversation.applyInferenceProfileState({
+      profile: requestedInferenceProfile,
+      sessionId: null,
+      expiresAt: null,
+    });
   }
 
   // Store pre-chat onboarding context on the conversation when this is the
@@ -1701,6 +1794,7 @@ export async function handleSendMessage(
         ...(body.automated === true ? { automated: true } : {}),
       },
       isInteractive,
+      sourceActorPrincipalId,
       transport,
       clientMessageId,
     });
@@ -1802,6 +1896,7 @@ export async function handleSendMessage(
     userMessageInterface: sourceInterface,
     assistantMessageInterface: sourceInterface,
   });
+  conversation.currentTurnSourceActorPrincipalId = sourceActorPrincipalId;
 
   await conversation.ensureActorScopedHistory();
 
@@ -2568,7 +2663,9 @@ export const ROUTES: RouteDefinition[] = [
       },
     ],
     responseBody: z.object({
-      messages: z.array(z.unknown()).describe("Array of message objects"),
+      messages: z
+        .array(ConversationMessageSchema)
+        .describe("Array of message objects"),
       hasMore: z
         .boolean()
         .optional()
@@ -2635,6 +2732,12 @@ export const ROUTES: RouteDefinition[] = [
       conversationType: z.string().optional(),
       slashCommand: z.string().optional(),
       clientTimezone: z.string().optional(),
+      clientMessageId: z
+        .string()
+        .describe(
+          "Client-generated idempotency nonce. Persisted on the row and echoed back on the message_echo event and the messages snapshot so the client can correlate its optimistic row by identity. Duplicate sends for the same (conversation, clientMessageId) are deduplicated server-side.",
+        )
+        .optional(),
       inferenceProfile: z.string().nullable().optional(),
       riskThreshold: z.enum(VALID_RISK_THRESHOLDS).optional(),
       onboarding: z
@@ -2643,6 +2746,7 @@ export const ROUTES: RouteDefinition[] = [
           tasks: z.array(z.string()),
           tone: z.string(),
           userName: z.string().optional(),
+          occupation: z.string().optional(),
           assistantName: z.string().optional(),
           googleConnected: z.boolean().optional(),
           googleScopes: z.array(z.string()).optional(),
@@ -2653,6 +2757,12 @@ export const ROUTES: RouteDefinition[] = [
           bootstrapTemplate: z.string().optional(),
           initialMessage: z.string().optional(),
           skills: z.array(z.string()).optional(),
+          title: z
+            .string()
+            .optional()
+            .describe(
+              "Explicit title for the conversation minted on this first message. Persisted as a user-set title (never overwritten by the auto-titler). Used by onboarding flows that mint a conversation behind the scenes.",
+            ),
         })
         .describe("PreChat onboarding context, sent on the first message only")
         .optional(),

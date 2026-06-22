@@ -45,12 +45,6 @@ cp .env.example .env
 | `RUNTIME_HTTP_PORT` | No       | —                           | Enable the HTTP server (required for gateway/web) |
 | `RUNTIME_HTTP_HOST` | No       | `127.0.0.1`                 | HTTP server bind address                          |
 
-## Update Bulletin
-
-Release notes are surfaced via a background conversation dispatched at daemon startup. Workspace migrations write release notes to `<workspace>/UPDATES.md`; `runUpdateBulletinJobIfNeeded()` then spawns a `conversationType: "background"` conversation via `runBackgroundJob()` (see `runtime/background-job-runner.ts`) whenever the file's content hash changes. The agent uses judgment to surface updates to the user when relevant, and deletes the file when done.
-
-**For release maintainers:** Add a new migration under `assistant/src/workspace/migrations/0XX-release-notes-<slug>.ts` with the release notes inline as a string literal, and append the export to `WORKSPACE_MIGRATIONS` in `assistant/src/workspace/migrations/registry.ts`. Migrations are append-only. Idempotency requires both the workspace-migration runner AND an in-file marker: `runWorkspaceMigrations()` records each migration's `WorkspaceMigration.id` in `<workspace>/data/.workspace-migrations.json` and skips IDs already in the `applied` set, but a crash between `UPDATES.md` append and checkpoint finalize can cause a duplicate append on next boot. Embed an HTML marker like `<!-- release-note-id:<migration-id> -->` in the appended block, and short-circuit when the marker is already present. See the root `AGENTS.md` "Release Update Hygiene" section for the full rationale. Skip the migration entirely for releases with no user/assistant-facing changes.
-
 ## Usage
 
 ### Lifecycle management (recommended)
@@ -441,7 +435,7 @@ If no guardian binding exists, escalation fails closed — the message is denied
 
 ## Database
 
-SQLite via Drizzle ORM, stored at `~/.vellum/workspace/data/db/assistant.db`. Key tables include conversations, messages, tool invocations, attachments, memory segments, memory items, reminders, and recurrence schedules (cron + RRULE).
+SQLite via Drizzle ORM, stored at `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`. Key tables include conversations, messages, tool invocations, attachments, memory segments, memory items, reminders, and recurrence schedules (cron + RRULE).
 
 > **Note:** The recurrence schedule system supports both cron expressions and iCalendar RRULE syntax. Use the `expression` field with an explicit `syntax` discriminator. See [`docs/architecture/scheduling.md`](docs/architecture/scheduling.md) for details.
 

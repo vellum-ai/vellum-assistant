@@ -31,6 +31,7 @@
  */
 
 export interface LocalAssistantResources {
+  instanceDir?: string;
   gatewayPort: number;
   daemonPort: number;
 }
@@ -42,6 +43,8 @@ export interface LockfileAssistant {
   runtimeUrl?: string;
   species?: string;
   hatchedAt?: string;
+  /** Owning org for platform assistants; absent for local ones. */
+  organizationId?: string;
   resources?: LocalAssistantResources;
 }
 
@@ -67,7 +70,13 @@ function parseResources(value: unknown): LocalAssistantResources | undefined {
   if (!isRecord(value)) return undefined;
   if (typeof value.gatewayPort !== "number") return undefined;
   if (typeof value.daemonPort !== "number") return undefined;
-  return { gatewayPort: value.gatewayPort, daemonPort: value.daemonPort };
+  return {
+    ...(typeof value.instanceDir === "string"
+      ? { instanceDir: value.instanceDir }
+      : {}),
+    gatewayPort: value.gatewayPort,
+    daemonPort: value.daemonPort,
+  };
 }
 
 /**
@@ -87,6 +96,7 @@ function parseAssistant(value: unknown): LockfileAssistant | null {
   if (typeof value.runtimeUrl === "string") assistant.runtimeUrl = value.runtimeUrl;
   if (typeof value.species === "string") assistant.species = value.species;
   if (typeof value.hatchedAt === "string") assistant.hatchedAt = value.hatchedAt;
+  if (typeof value.organizationId === "string") assistant.organizationId = value.organizationId;
   const resources = parseResources(value.resources);
   if (resources) assistant.resources = resources;
   return assistant;

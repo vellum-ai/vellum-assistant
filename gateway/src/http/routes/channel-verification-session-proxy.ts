@@ -11,7 +11,6 @@ import { join } from "node:path";
 import { proxyForwardToResponse } from "@vellumai/assistant-client";
 
 import { bootstrapGuardian } from "../../auth/guardian-bootstrap.js";
-import { rotateCredentials } from "../../auth/guardian-refresh.js";
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { getGatewaySecurityDir } from "../../paths.js";
@@ -417,54 +416,6 @@ export function createChannelVerificationSessionProxyHandler(
         if (providedIndex >= 0) {
           secretsInFlight.delete(providedIndex);
         }
-      }
-    },
-
-    async handleGuardianRefresh(req: Request): Promise<Response> {
-      try {
-        const body = (await req.json()) as Record<string, unknown>;
-        const refreshToken =
-          typeof body.refreshToken === "string" ? body.refreshToken : "";
-
-        if (!refreshToken) {
-          return Response.json(
-            {
-              error: {
-                code: "BAD_REQUEST",
-                message: "Missing required field: refreshToken",
-              },
-            },
-            { status: 400 },
-          );
-        }
-
-        const result = rotateCredentials({ refreshToken });
-
-        if (!result.ok) {
-          const statusCode =
-            result.error === "refresh_reuse_detected"
-              ? 403
-              : result.error === "revoked"
-                ? 403
-                : 401;
-
-          log.warn({ error: result.error }, "Refresh token rotation failed");
-          return Response.json({ error: result.error }, { status: statusCode });
-        }
-
-        log.info(
-          {
-            guardianPrincipalId: result.result.guardianPrincipalId,
-          },
-          "Refresh token rotation succeeded",
-        );
-        return Response.json(result.result);
-      } catch (err) {
-        log.error({ err }, "Guardian refresh failed");
-        return Response.json(
-          { error: "Internal server error" },
-          { status: 500 },
-        );
       }
     },
 

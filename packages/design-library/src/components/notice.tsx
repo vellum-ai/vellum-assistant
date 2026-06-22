@@ -89,7 +89,8 @@ export function Notice({
       role={role}
       data-slot="notice"
       className={cn(
-        "relative flex w-full items-start gap-3 rounded-lg border p-3",
+        "relative flex w-full gap-3 rounded-lg border p-3",
+        title ? "items-start" : "items-center",
         "text-[color:var(--content-default)]",
         toneClasses.container,
         className,
@@ -98,7 +99,8 @@ export function Notice({
       {resolvedIcon ? (
         <span
           className={cn(
-            "mt-0.5 flex shrink-0 items-center justify-center",
+            "flex shrink-0 items-center justify-center",
+            title && "mt-0.5",
             toneClasses.icon,
           )}
         >

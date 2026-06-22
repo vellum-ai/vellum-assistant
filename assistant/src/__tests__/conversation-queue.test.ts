@@ -37,11 +37,6 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
 }));
 
-mock.module("../memory/guardian-action-store.js", () => ({
-  getGuardianActionRequest: () => null,
-  resolveGuardianActionRequest: () => {},
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},
@@ -262,15 +257,23 @@ mock.module("../memory/retriever.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
-mock.module("../context/window-manager.js", () => ({
+mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
+    estimateInputTokens() {
+      return 0;
+    }
+    get tokenCountInputs() {
+      return { systemPrompt: "", tools: undefined };
+    }
     constructor() {}
+    updateConfig() {}
     shouldCompact() {
       return { needed: false, estimatedTokens: 0 };
     }
     async maybeCompact() {
       return { compacted: false };
     }
+    resetOverflowRecovery() {}
   },
   createContextSummaryMessage: () => ({
     role: "user",
@@ -353,22 +356,20 @@ mock.module("../agent/loop.js", () => ({
     getActiveModel() {
       return undefined;
     }
-    async run(
-      messages: Message[],
-      onEvent: (event: AgentEvent) => void | Promise<void>,
-      options?: {
-        onCheckpoint?: (
-          checkpoint: CheckpointInfo,
-        ) => CheckpointDecision | Promise<CheckpointDecision>;
-      },
-    ): Promise<AgentLoopRunResult> {
+    async run(options: {
+      messages: Message[];
+      onEvent: (event: AgentEvent) => void | Promise<void>;
+      onCheckpoint?: (
+        checkpoint: CheckpointInfo,
+      ) => CheckpointDecision | Promise<CheckpointDecision>;
+    }): Promise<AgentLoopRunResult> {
+      const { messages, onEvent } = options;
       return new Promise<AgentLoopRunResult>((resolveResult, reject) => {
         const pending: PendingRun = {
           resolve: (history: Message[]) =>
             resolveResult({
               history,
               exitReason: pending.exitReason,
-              appendedNewMessages: history.length > messages.length,
               newMessages: history.slice(messages.length),
             }),
           reject,
@@ -2196,44 +2197,6 @@ describe("Conversation checkpoint handoff", () => {
 
     // C should have completed successfully
     expect(eventsC.some((e) => e.type === "message_complete")).toBe(true);
-  });
-
-  test("onCheckpoint callback is passed to both initial and retry runs", async () => {
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    // Start processing
-    const p1 = conversation.processMessage({
-      content: "msg-1",
-      attachments: [],
-      requestId: "req-1",
-    });
-    await waitForPendingRun(1);
-
-    // The first run should have onCheckpoint
-    expect(pendingRuns[0].onCheckpoint).toBeDefined();
-
-    // Simulate an ordering error: emit error + resolve with same length
-    // to trigger the retry path
-    const run0 = pendingRuns[0];
-    run0.onEvent({
-      type: "error",
-      error: new Error(
-        "tool_result block not immediately after tool_use block",
-      ),
-    });
-    // Resolve with the same messages (no new messages appended = ordering error)
-    run0.resolve([...run0.messages]);
-
-    // Wait for the retry run
-    await waitForPendingRun(2);
-
-    // The retry run should also have onCheckpoint
-    expect(pendingRuns[1].onCheckpoint).toBeDefined();
-
-    // Complete retry cleanly
-    await resolveRun(1);
-    await p1;
   });
 });
 

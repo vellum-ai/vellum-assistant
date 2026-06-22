@@ -26,6 +26,10 @@ mock.module("../config/loader.js", () => ({
       activeHoursStart: undefined,
       activeHoursEnd: undefined,
     },
+    timeouts: {
+      backgroundTurnTimeoutSec: 1800,
+      scheduleTurnTimeoutSec: 1800,
+    },
   }),
   loadConfig: () => ({}),
   loadRawConfig: () => ({}),
@@ -37,7 +41,7 @@ mock.module("../config/loader.js", () => ({
   getNestedValue: () => undefined,
   setNestedValue: () => {},
   API_KEY_PROVIDERS: [],
-  _appendQuarantineBulletin: () => {},
+  _writeQuarantineNotice: () => {},
   invalidateConfigCache: () => {},
 }));
 
@@ -56,6 +60,7 @@ mock.module("../heartbeat/heartbeat-run-store.js", () => ({
   markStaleRunsAsMissed: mockMarkStaleRunsAsMissed,
   markStaleRunningAsError: mockMarkStaleRunningAsError,
   countCompletedHeartbeatRuns: mock(() => 10),
+  countCompletedRunsToday: mock(() => 0),
   countRecentConsecutiveRuns: mock(() => 0),
 }));
 
@@ -101,6 +106,9 @@ mock.module("../prompts/persona-resolver.js", () => ({
 
 mock.module("../memory/conversation-title-service.js", () => ({
   GENERATING_TITLE: "Generating title...",
+  AUTO_TITLE_DETERMINISTIC: 2,
+  deriveDeterministicTitle: (context: { systemHint?: string }) =>
+    context.systemHint ?? "Untitled Conversation",
   queueGenerateConversationTitle: () => {},
 }));
 

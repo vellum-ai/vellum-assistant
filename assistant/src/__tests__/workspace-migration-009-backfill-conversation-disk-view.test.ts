@@ -50,7 +50,7 @@ import {
 } from "../memory/schema.js";
 import { backfillConversationDiskViewMigration } from "../workspace/migrations/009-backfill-conversation-disk-view.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables() {
   const db = getDb();

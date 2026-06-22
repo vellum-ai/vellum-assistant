@@ -20,13 +20,11 @@ import { mock } from "bun:test";
 import type { AcpAgentConfig } from "../../../config/acp-schema.js";
 
 export interface MockAcpConfig {
-  enabled: boolean;
   maxConcurrentSessions: number;
   agents: Record<string, AcpAgentConfig>;
 }
 
 const DEFAULT_CONFIG: MockAcpConfig = {
-  enabled: true,
   maxConcurrentSessions: 4,
   agents: {},
 };

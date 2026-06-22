@@ -10,7 +10,6 @@ import { applyGuardianDecision } from "../../approvals/guardian-decision-primiti
 import type { ChannelId } from "../../channels/types.js";
 import type { TrustContext } from "../../daemon/trust-context.js";
 import {
-  getAllPendingApprovalsByGuardianChat,
   getPendingApprovalForRequest,
   getUnresolvedApprovalForRequest,
   updateApprovalDecision,
@@ -18,6 +17,7 @@ import {
 import { getLogger } from "../../util/logger.js";
 import { runApprovalConversationTurn } from "../approval-conversation-turn.js";
 import { composeApprovalMessageGenerative } from "../approval-message-composer.js";
+import { resolveCapabilities } from "../capabilities.js";
 import type { ApprovalDecisionResult } from "../channel-approval-types.js";
 import {
   getApprovalInfoByConversation,
@@ -31,13 +31,11 @@ import type {
   ApprovalCopyGenerator,
 } from "../http-types.js";
 import { parseApprovalIntent } from "../nl-approval-parser.js";
-import { isTrackedApprovalPromptTs } from "./approval-prompt-ts-tracker.js";
 import { handleGuardianCallbackDecision } from "./approval-strategies/guardian-callback-strategy.js";
 import { handleGuardianTextEngineDecision } from "./approval-strategies/guardian-text-engine-strategy.js";
 import {
   buildGuardianDenyContext,
   parseCallbackData,
-  parseReactionCallbackData,
 } from "./channel-route-shared.js";
 import { deliverStaleApprovalReply } from "./guardian-approval-reply-helpers.js";
 
@@ -106,7 +104,10 @@ export async function handleApprovalInterception(
   // When the sender is the guardian and there's a pending guardian approval
   // request targeting this chat, the message might be a decision on behalf
   // of a non-guardian requester. Delegated to the guardian callback strategy.
-  if (trustCtx.trustClass === "guardian" && actorExternalId) {
+  if (
+    resolveCapabilities(trustCtx.trustClass).canSelfApproveTools &&
+    actorExternalId
+  ) {
     const guardianResult = await handleGuardianCallbackDecision({
       content,
       callbackData,
@@ -124,71 +125,10 @@ export async function handleApprovalInterception(
     }
   }
 
-  // ── Slack reaction path ──
-  // Reactions produce `callbackData` of the form `reaction:<emoji_name>`.
-  // Handled before the pendingPrompt guard because guardian reactions arrive
-  // on the guardian's chat (guardianChatId), not the requester's conversation,
-  // so getChannelApprovalPrompt(conversationId) would return null.
-  // Only guardians can approve via reaction — non-guardian reactions are
-  // silently ignored to prevent self-approval.
-  //
-  // `reaction_removed:` callbackData never expresses an approval intent, and
-  // `isSlackReactionEvent` short-circuits before reaching here for removals,
-  // but guard explicitly so a future refactor can't turn an un-react into an
-  // unintended approval.
-  if (
-    callbackData?.startsWith("reaction:") &&
-    !callbackData.startsWith("reaction_removed:")
-  ) {
-    if (trustCtx.trustClass !== "guardian" || !actorExternalId) {
-      return { handled: true, type: "stale_ignored" };
-    }
-    const reactionDecision = parseReactionCallbackData(callbackData);
-    if (!reactionDecision) {
-      // Unknown emoji — ignore silently
-      return { handled: true, type: "stale_ignored" };
-    }
-
-    // Require the reacted-to message to be a tracked approval prompt. Without
-    // this check, any unrelated 👍 reaction from the guardian in a subscribed
-    // channel would approve the outstanding pending request (now that
-    // reactions are admitted from any subscribed channel, not just tracked
-    // bot threads). `approvalMessageTs` is `item.ts` of the reacted-to
-    // Slack message, propagated from `sourceMetadata.messageId`.
-    if (
-      !approvalMessageTs ||
-      !isTrackedApprovalPromptTs(
-        sourceChannel,
-        conversationExternalId,
-        approvalMessageTs,
-      )
-    ) {
-      return { handled: true, type: "stale_ignored" };
-    }
-
-    const allPending = getAllPendingApprovalsByGuardianChat(
-      sourceChannel,
-      conversationExternalId,
-    );
-    const guardianPending = allPending.filter(
-      (approval) => approval.guardianExternalUserId === actorExternalId,
-    );
-    if (guardianPending.length !== 1) {
-      return { handled: true, type: "stale_ignored" };
-    }
-
-    const result = await applyGuardianDecision({
-      approval: guardianPending[0],
-      decision: reactionDecision,
-      actorPrincipalId: undefined,
-      actorExternalUserId: actorExternalId,
-      actorChannel: sourceChannel,
-    });
-    if (result.applied) {
-      return { handled: true, type: "guardian_decision_applied" };
-    }
-    return { handled: true, type: "stale_ignored" };
-  }
+  // Slack emoji reactions are handled by the canonical guardian decision
+  // pipeline (`routeGuardianReply`), invoked from the inbound reaction stage:
+  // it resolves the target request from the reacted card's delivery record.
+  // See `guardian-reply-router.ts`.
 
   // ── Standard approval interception (existing flow) ──
   const pendingPrompt = getChannelApprovalPrompt(conversationId);
@@ -220,10 +160,11 @@ export async function handleApprovalInterception(
 
   // When the sender is a non-guardian with established identity and a guardian
   // binding, block self-approval. The non-guardian must wait for the guardian
-  // to decide. This covers trusted contacts and identity-known non-member
-  // senders in shared channels.
+  // to decide. This covers trusted contacts, unverified contacts, and
+  // identity-known non-member senders in shared channels.
   const isIdentityKnownNonGuardian =
-    trustCtx.trustClass === "trusted_contact" ||
+    resolveCapabilities(trustCtx.trustClass).sensitiveToolApproval ===
+      "escalate-and-wait" ||
     (trustCtx.trustClass === "unknown" &&
       !!trustCtx.requesterExternalUserId &&
       !!trustCtx.guardianExternalUserId);
@@ -465,7 +406,7 @@ export async function handleApprovalInterception(
       // standard conversational engine / legacy parser and resolve their own
       // pending request via handleChannelDecision.
       if (
-        trustCtx.trustClass !== "guardian" &&
+        !resolveCapabilities(trustCtx.trustClass).canSelfApproveTools &&
         trustCtx.guardianExternalUserId
       ) {
         log.info(

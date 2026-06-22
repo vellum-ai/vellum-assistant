@@ -11,7 +11,7 @@ mock.module("../util/logger.js", () => ({
 
 // Map conversationId → mock session so findConversation returns the right mock.
 const conversationMocks = new Map<string, unknown>();
-mock.module("../daemon/conversation-store.js", () => ({
+mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => conversationMocks.get(id),
 }));
 

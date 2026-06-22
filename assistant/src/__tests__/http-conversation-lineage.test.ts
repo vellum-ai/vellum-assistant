@@ -41,7 +41,7 @@ import { rawRun } from "../memory/raw-query.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
-initializeDb();
+await initializeDb();
 
 type ConversationSummary = {
   id: string;

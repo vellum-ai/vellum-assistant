@@ -2,25 +2,28 @@
  * Tests for the ACP route handlers.
  *
  * Suites:
- *  - POST /v1/acp/spawn — the three failure paths produced by
- *    `resolveAcpAgent` (acp_disabled, unknown_agent, binary_not_found).
+ *  - POST /v1/acp/spawn: resolver failure paths (unknown_agent) and the
+ *    body-shape guard. The binary_not_found / auto-install surface is
+ *    covered in `__tests__/acp-routes.test.ts`.
  *  - POST /v1/acp/spawn (env injection) — CLAUDE_CODE_OAUTH_TOKEN is read
  *    from the credential broker (policy-gated + audited) and merged into
  *    `agentConfig.env` ONLY for the `claude` agent.
  *  - DELETE /v1/acp/sessions?status=completed — the bulk-clear route that
  *    wipes terminal-state rows (completed/failed/cancelled) from
- *    `acp_session_history` while leaving running/initializing rows intact.
+ *    `acp_session_history` while leaving running/initializing rows and
+ *    rows with an in-flight resume intact.
  *  - DELETE /v1/acp/sessions/:id — single-row delete: completed → 200,
- *    running → 409, unknown id → idempotent { deleted: false }.
+ *    running or mid-resume → 409, unknown id → idempotent
+ *    { deleted: false }.
  *
  * The spawn tests mirror the resolver's test setup using the shared
  * `installAcpConfigStub` and `installWhichStub` helpers so the host
  * environment doesn't influence the resolver's PATH preflight.
  *
- * The single-id delete tests stub `getAcpSessionManager` so we can drive
- * the in-memory-status check without spawning real ACP child processes,
- * and use the real DB (initialized via the test preload's per-file
- * workspace) to verify the row is actually removed.
+ * The delete tests stub `getAcpSessionManager` so we can drive the
+ * in-memory-status and pending-resume checks without spawning real ACP
+ * child processes, and use the real DB (initialized via the test preload's
+ * per-file workspace) to verify the row is actually removed.
  */
 
 import {
@@ -36,6 +39,7 @@ import {
 import { installAcpConfigStub } from "../../acp/__tests__/helpers/acp-config-stub.js";
 import { installWhichStub } from "../../acp/__tests__/helpers/which-stub.js";
 import type { AcpSessionState } from "../../acp/index.js";
+import * as pendingInteractions from "../pending-interactions.js";
 
 const config = await installAcpConfigStub();
 const which = installWhichStub();
@@ -48,8 +52,10 @@ afterAll(() => {
 // in-memory-status check without spawning real ACP processes, and so the
 // env-injection spawn tests can capture the `agentConfig` arg without
 // launching a real subprocess. Stored in mutable state so individual tests
-// can plant arbitrary states / inspect capture.
+// can plant arbitrary states / inspect capture. `pendingResumeIds` models
+// ids reserved by an in-flight resumeFromHistory (no SessionEntry yet).
 const inMemoryStates = new Map<string, AcpSessionState>();
+const pendingResumeIds = new Set<string>();
 
 interface CapturedSpawn {
   agent: string;
@@ -70,6 +76,9 @@ mock.module("../../acp/index.js", () => ({
       if (!state) throw new Error(`ACP session "${id}" not found`);
       return state;
     },
+    getActiveAndPendingIds: () => [
+      ...new Set([...inMemoryStates.keys(), ...pendingResumeIds]),
+    ],
     spawn: async (
       agent: string,
       agentConfig: { env?: Record<string, string> },
@@ -118,8 +127,7 @@ mock.module("../../tools/credentials/metadata-store.js", () => ({
     const existing = metadataStore.get(key);
     metadataStore.set(key, {
       allowedTools: policy?.allowedTools ?? existing?.allowedTools ?? [],
-      usageDescription:
-        policy?.usageDescription ?? existing?.usageDescription,
+      usageDescription: policy?.usageDescription ?? existing?.usageDescription,
     });
     return {
       credentialId: `cred-${key}`,
@@ -162,6 +170,31 @@ mock.module("../../tools/credentials/broker.js", () => ({
   },
 }));
 
+// Drive the spawn route's high-risk approval gate (ATL-822). `spawnSession`
+// registers a `directResolve` confirmation in `pendingInteractions` and then
+// broadcasts a `confirmation_request`. Real broadcasting needs the event hub /
+// SSE wiring, so the mock auto-resolves the freshly registered interaction
+// the same way `POST /v1/confirm` would (resolve + directResolve). Tests flip
+// `approvalBehavior` to exercise allow / deny, and read `confirmationRequests`
+// to assert the prompt's risk shape. `interaction_resolved` and other event
+// types are ignored.
+type ApprovalBehavior = "allow" | "deny";
+let approvalBehavior: ApprovalBehavior = "allow";
+const confirmationRequests: Array<Record<string, unknown>> = [];
+
+mock.module("../../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: (msg: { type?: string; requestId?: string }) => {
+    if (msg?.type !== "confirmation_request") return;
+    confirmationRequests.push(msg as Record<string, unknown>);
+    const decision = approvalBehavior;
+    const interaction = pendingInteractions.resolve(
+      msg.requestId as string,
+      decision === "allow" ? "approved" : "rejected",
+    );
+    interaction?.directResolve?.(decision);
+  },
+}));
+
 import { eq } from "drizzle-orm";
 
 import { getDb, getSqlite } from "../../memory/db-connection.js";
@@ -185,6 +218,8 @@ beforeEach(() => {
   capturedSpawns.length = 0;
   vaultStore.clear();
   metadataStore.clear();
+  approvalBehavior = "allow";
+  confirmationRequests.length = 0;
 });
 
 // ---------------------------------------------------------------------------
@@ -192,21 +227,6 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("POST /v1/acp/spawn", () => {
-  test("throws BadRequestError when ACP is disabled", async () => {
-    config.setConfig({ enabled: false });
-
-    const handler = getSpawnHandler();
-    await expect(
-      handler({
-        body: {
-          agent: "claude",
-          task: "do a thing",
-          conversationId: "conv-1",
-        },
-      }),
-    ).rejects.toThrow("acp.enabled");
-  });
-
   test("throws BadRequestError with merged available list when agent id is unknown", async () => {
     config.setConfig({
       agents: {
@@ -226,29 +246,89 @@ describe("POST /v1/acp/spawn", () => {
     ).rejects.toThrow('Unknown agent "nonexistent"');
   });
 
-  test("throws FailedDependencyError when the agent binary is missing", async () => {
-    config.setConfig({ agents: {} });
-    which.setWhich({});
+  test("body-shape guard short-circuits before the resolver runs", async () => {
+    const handler = getSpawnHandler();
+    await expect(handler({ body: { agent: "claude" } })).rejects.toThrow(
+      "agent, task, and conversationId are required",
+    );
+    // Guard runs before the approval gate — no prompt is surfaced.
+    expect(confirmationRequests).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/acp/spawn — high-risk approval gate (ATL-822)
+//
+// Spawning an ACP agent is a host subprocess with auto-allowed
+// filesystem/terminal access. The skill-tool path gets the descriptor's
+// `risk: "high"` prompt via ToolExecutor; this route reaches the session
+// manager directly, so it surfaces the same confirmation itself and refuses
+// to spawn unless a guardian approves.
+// ---------------------------------------------------------------------------
+
+describe("POST /v1/acp/spawn — approval gate", () => {
+  test("surfaces a high-risk host confirmation before spawning", async () => {
+    seedVaultToken("test-token-abc123");
+
+    const handler = getSpawnHandler();
+    await handler({
+      body: {
+        agent: "claude",
+        task: "do a thing",
+        conversationId: "conv-1",
+        cwd: "/work/repo",
+      },
+    });
+
+    expect(confirmationRequests).toHaveLength(1);
+    const prompt = confirmationRequests[0];
+    expect(prompt.toolName).toBe("acp_spawn");
+    expect(prompt.riskLevel).toBe("high");
+    expect(prompt.executionTarget).toBe("host");
+    expect(prompt.conversationId).toBe("conv-1");
+    expect((prompt.input as { cwd?: string }).cwd).toBe("/work/repo");
+    // Prompt resolved "allow" → spawn proceeds.
+    expect(capturedSpawns).toHaveLength(1);
+  });
+
+  test("throws ForbiddenError and does not spawn when the guardian denies", async () => {
+    approvalBehavior = "deny";
+    seedVaultToken("test-token-abc123");
 
     const handler = getSpawnHandler();
     await expect(
       handler({
         body: {
-          agent: "codex",
+          agent: "claude",
           task: "do a thing",
           conversationId: "conv-1",
         },
       }),
-    ).rejects.toThrow("codex-acp is not on PATH");
+    ).rejects.toThrow(/guardian approval/i);
+
+    // Denied before any host side effects: no subprocess, no pending leak.
+    expect(capturedSpawns).toHaveLength(0);
+    expect(pendingInteractions.getAll()).toHaveLength(0);
   });
 
-  test("body-shape guard short-circuits before the resolver runs", async () => {
-    config.setConfig({ enabled: false });
+  test("denies (and does not spawn) when the client disconnects before approval", async () => {
+    seedVaultToken("test-token-abc123");
+    const controller = new AbortController();
+    controller.abort();
 
     const handler = getSpawnHandler();
-    await expect(handler({ body: { agent: "claude" } })).rejects.toThrow(
-      "agent, task, and conversationId are required",
-    );
+    await expect(
+      handler({
+        body: {
+          agent: "claude",
+          task: "do a thing",
+          conversationId: "conv-1",
+        },
+        abortSignal: controller.signal,
+      }),
+    ).rejects.toThrow(/guardian approval/i);
+
+    expect(capturedSpawns).toHaveLength(0);
   });
 });
 
@@ -452,11 +532,13 @@ function listRows(): RowSnapshot[] {
 }
 
 describe("DELETE /v1/acp/sessions?status=completed", () => {
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   beforeEach(() => {
+    inMemoryStates.clear();
+    pendingResumeIds.clear();
     getSqlite().run("DELETE FROM acp_session_history");
   });
 
@@ -479,6 +561,57 @@ describe("DELETE /v1/acp/sessions?status=completed", () => {
     expect(remaining.map((r) => r.status).sort()).toEqual([
       "initializing",
       "running",
+    ]);
+  });
+
+  test("excludes terminal rows whose session is active in memory (resumed sessions)", async () => {
+    // A resumed session reuses its original id: the in-memory state is
+    // `running` while its history row still carries the old terminal
+    // status until the next terminal upsert. The bulk delete must not
+    // remove that row out from under the live session.
+    seedHistoryRow("row-resumed", "completed", 1000);
+    seedHistoryRow("row-completed", "completed", 2000);
+    inMemoryStates.set("row-resumed", {
+      id: "row-resumed",
+      agentId: "claude",
+      acpSessionId: "proto-resumed",
+      parentConversationId: "conv-test",
+      status: "running",
+      startedAt: 1000,
+    });
+
+    const handler = getBulkDeleteHandler();
+    const result = (await handler({
+      queryParams: { status: "completed" },
+    })) as {
+      deleted: number;
+    };
+    expect(result.deleted).toBe(1);
+
+    const remaining = listRows();
+    expect(remaining).toEqual([{ id: "row-resumed", status: "completed" }]);
+  });
+
+  test("excludes terminal rows whose session has a resume in flight", async () => {
+    // A resume that is still awaiting env preparation has no in-memory
+    // SessionEntry yet, but its history row (still terminal) must survive:
+    // deleting it mid-resume would let the later terminal upsert resurrect
+    // it as an orphan row.
+    seedHistoryRow("row-pending-resume", "completed", 1000);
+    seedHistoryRow("row-completed", "completed", 2000);
+    pendingResumeIds.add("row-pending-resume");
+
+    const handler = getBulkDeleteHandler();
+    const result = (await handler({
+      queryParams: { status: "completed" },
+    })) as {
+      deleted: number;
+    };
+    expect(result.deleted).toBe(1);
+
+    const remaining = listRows();
+    expect(remaining).toEqual([
+      { id: "row-pending-resume", status: "completed" },
     ]);
   });
 
@@ -553,12 +686,13 @@ function insertHistoryRow(opts: {
 }
 
 describe("DELETE /v1/acp/sessions/:id", () => {
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   beforeEach(() => {
     inMemoryStates.clear();
+    pendingResumeIds.clear();
     getDb().delete(acpSessionHistory).run();
   });
 
@@ -609,6 +743,24 @@ describe("DELETE /v1/acp/sessions/:id", () => {
       expect(remaining).toHaveLength(1);
     },
   );
+
+  test("returns 409 when the session has a resume in flight (not yet in memory)", async () => {
+    pendingResumeIds.add("sess-resuming");
+    insertHistoryRow({ id: "sess-resuming", status: "completed" });
+
+    const handler = getDeleteSessionHandler();
+    expect(() => handler({ pathParams: { id: "sess-resuming" } })).toThrow(
+      "resume in flight",
+    );
+
+    // Row untouched.
+    const remaining = getDb()
+      .select()
+      .from(acpSessionHistory)
+      .where(eq(acpSessionHistory.id, "sess-resuming"))
+      .all();
+    expect(remaining).toHaveLength(1);
+  });
 
   test("idempotent for unknown id — returns { deleted: false }", async () => {
     const handler = getDeleteSessionHandler();

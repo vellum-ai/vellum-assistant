@@ -208,17 +208,48 @@
     {
       "id": "frontend-design",
       "name": "frontend-design",
-      "description": "Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics.",
+      "description": "Design-quality layer for frontend code — typography, color, motion, spatial composition, and avoiding generic \"AI slop\" aesthetics. Use this as a companion when you are already writing or styling frontend code and want it to look distinctive and production-grade. For building an app, dashboard, tracker, calculator, visualization, landing page, or slide deck the user wants inside the assistant, load `app-builder` instead — it loads this skill itself for the design pass.",
       "metadata": {
         "icon": "assets/icon.svg",
         "emoji": "🎨",
         "vellum": {
           "category": "development",
-          "display-name": "Frontend Design"
+          "display-name": "Frontend Design",
+          "activation-hints": [
+            "You are already building or styling frontend code in a project folder and want the visual result to be distinctive, not generic",
+            "Another skill (e.g. app-builder) loads this for its aesthetic/design pass"
+          ],
+          "avoid-when": [
+            "The user asks to build or visualize something for their own use inside the assistant (an app, dashboard, tracker, calculator, data visualization, landing page, or slide deck) — that is app-builder's job; it loads this skill itself",
+            "The user asks for an artifact or visualization without an existing project folder — route to app-builder first"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
       "updatedAt": "2026-06-03T03:10:07.000Z"
+    },
+    {
+      "id": "geo-audit",
+      "name": "geo-audit",
+      "description": "Runs a one-command technical GEO audit on any domain. Checks AI crawler access, llms.txt presence, server-side rendering, sitemap, and schema markup. Streams results live and ends with a 0–100 score plus the top 3 prioritized fixes. Built to be both genuinely useful and great to demo on camera.",
+      "metadata": {
+        "emoji": "🔎",
+        "vellum": {
+          "display-name": "GEO Audit",
+          "category": "development",
+          "activation-hints": [
+            "Run a GEO audit on <url>",
+            "Do a GEO audit check on my domain: <url>",
+            "GEO audit <url> / Audit <url> for GEO",
+            "Check how AI-ready / crawlable my site is",
+            "Why isn't my site getting picked up by ChatGPT / Perplexity / Gemini?"
+          ],
+          "avoid-when": [
+            "User wants to write an article, comparison page, or topical hub — route to geo-article-writer",
+            "User wants GEO measurement, strategy, or cadence advice rather than a technical site scan — route to geo-operator"
+          ]
+        }
+      }
     },
     {
       "id": "geo-writing",
@@ -273,7 +304,7 @@
     {
       "id": "guardian-verify-setup",
       "name": "guardian-verify-setup",
-      "description": "Set up channel verification for phone, Telegram, or Slack channels via outbound verification flow",
+      "description": "Set up channel verification for phone, Telegram, Slack, or email channels via outbound verification flow",
       "metadata": {
         "emoji": "🔐",
         "vellum": {
@@ -316,6 +347,9 @@
         "vellum": {
           "category": "email",
           "display-name": "Inbox Cleanup",
+          "includes": [
+            "gmail"
+          ],
           "activation-hints": [
             "When the user asks to clean up, organize, or triage their email inbox",
             "When the user wants to archive old or unwanted emails in bulk",
@@ -445,7 +479,7 @@
     {
       "id": "mcp-setup",
       "name": "mcp-setup",
-      "description": "Add, authenticate, list, and remove MCP (Model Context Protocol) servers",
+      "description": "Add, authenticate, list, and remove MCP (Model Context Protocol) servers — connect any external tool or service that publishes an MCP endpoint to the assistant",
       "metadata": {
         "emoji": "🔌",
         "vellum": {
@@ -453,7 +487,7 @@
           "display-name": "MCP Setup"
         }
       },
-      "compatibility": "Designed for Vellum personal assistants",
+      "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Auth flow differs by environment.",
       "updatedAt": "2026-06-03T03:10:07.000Z"
     },
     {
@@ -520,7 +554,16 @@
         "emoji": "📝",
         "vellum": {
           "category": "productivity",
-          "display-name": "Notion"
+          "display-name": "Notion",
+          "activation-hints": [
+            "User asks to read, find, search, or open a page, doc, database, or directory in their Notion (e.g. 'find it in notion', 'look in my Notion', 'this is a notion directory')",
+            "User references Notion content by name or path and wants its contents pulled",
+            "User wants to create, update, append to, or query Notion pages or databases",
+            "User asks anything that requires reading or writing Notion data, including checking a task list or workspace held in Notion"
+          ],
+          "avoid-when": [
+            "User wants to set up, connect, or reconnect the Notion OAuth integration for the first time; load vellum-oauth-integrations instead"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
@@ -588,6 +631,32 @@
       },
       "compatibility": "Designed for Vellum personal assistants",
       "updatedAt": "2026-06-03T03:10:07.000Z"
+    },
+    {
+      "id": "plugin-builder",
+      "name": "plugin-builder",
+      "description": "Walk the user through building, scaffolding, shipping, and editing a Vellum plugin that bundles hooks, tools, and skills into one installable package. Use when the user wants to extend their assistant with a new capability shipped as a plugin, publish to the marketplace, or push edits to an existing plugin's GitHub repo.",
+      "metadata": {
+        "emoji": "🧩",
+        "vellum": {
+          "category": "development",
+          "display-name": "Plugin Builder",
+          "activation-hints": [
+            "User wants to build, scaffold, or author a Vellum plugin",
+            "User wants to edit, update, or push changes to an existing plugin's GitHub repo",
+            "User wants to package skills, hooks, or tools into an installable plugin",
+            "User wants to extend their assistant with a new capability shipped as a plugin",
+            "User wants to publish a plugin to the Vellum marketplace catalog",
+            "User asks how to ship or distribute extensions for Vellum"
+          ],
+          "avoid-when": [
+            "User only wants to install or upgrade an existing plugin (use the `assistant plugins` CLI directly)",
+            "User only wants to author a single SKILL.md (use the skill-management skill)",
+            "User wants to add a one-off user_route or webhook (use the `assistant routes` skill)"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
     },
     {
       "id": "public-ingress",
@@ -704,14 +773,23 @@
     {
       "id": "slack-app-setup",
       "name": "slack-app-setup",
-      "description": "Connect a Slack app to the Vellum Assistant via Socket Mode with one-click app creation and identity verification",
+      "description": "Connect a Slack app to the Vellum Assistant via Socket Mode. Use whenever the user wants to set up Slack for their assistant, connect a workspace, or get the assistant talking in Slack — the skill generates a one-click manifest URL so they only have to name, save, and copy two tokens.",
       "metadata": {
         "emoji": "💬",
         "vellum": {
           "category": "messaging",
           "display-name": "Slack App Setup",
           "includes": [
-            "guardian-verify-setup"
+            "guardian-verify-setup",
+            "slack"
+          ],
+          "activation-hints": [
+            "set up Slack",
+            "connect Slack",
+            "add a Slack workspace",
+            "get you on Slack",
+            "install you in Slack",
+            "create a Slack bot"
           ]
         }
       },
@@ -759,28 +837,6 @@
         "vellum": {
           "category": "commerce",
           "display-name": "Stripe Link Wallet"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
-    },
-    {
-      "id": "tasks",
-      "name": "tasks",
-      "description": "Two-layer task system with reusable templates and a prioritized work queue",
-      "metadata": {
-        "icon": "assets/icon.svg",
-        "emoji": "✅",
-        "vellum": {
-          "category": "productivity",
-          "display-name": "Tasks",
-          "activation-hints": [
-            "User wants to add, check, or manage items on their to-do list or task queue",
-            "For one-off action items, not recurring automations (use schedule for those)"
-          ],
-          "avoid-when": [
-            "User wants recurring/scheduled automation — use the schedule skill instead"
-          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
@@ -958,6 +1014,28 @@
       },
       "compatibility": "Designed for Vellum personal assistants",
       "updatedAt": "2026-06-03T03:10:07.000Z"
+    },
+    {
+      "id": "vellum-memory-v3-migration",
+      "name": "vellum-memory-v3-migration",
+      "description": "One-time migration of an existing memory-v2 concept corpus into the memory-v3 section-grain \"wiki\" — topical articles with a stand-alone lead and queryable sections — with loss-proof staging, assistant-reviewed authoring, and a retrieval-eval gate before cutover.",
+      "metadata": {
+        "emoji": "🗂️",
+        "vellum": {
+          "category": "system",
+          "display-name": "Memory v3 Migration",
+          "user-invocable": "true",
+          "activation-hints": [
+            "When the user asks to migrate the memory wiki to v3 / the section-grain format",
+            "When memory-v3 retrieval is available but memory/concepts/ is still v2-shaped (flat bullet pages, class folders, summary: frontmatter)"
+          ],
+          "avoid-when": [
+            "When the corpus is already in v3 article shape (leads + ## sections, no summary:) and memory.v3.live is already true",
+            "When memory/concepts/ is empty or near-empty (run vellum-memory-v2-migration first — there is nothing to reform)"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
     },
     {
       "id": "vellum-oauth-integrations",

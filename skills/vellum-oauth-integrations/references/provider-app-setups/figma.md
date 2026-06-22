@@ -108,4 +108,4 @@ Key Figma-specific differences for Path B:
 
 - Loopback callback won't work from a remote channel - need public ingress configured
 - Add the ingress-based redirect URI in the **Callback URL** field on the app settings page
-- The app secret doesn't have a known prefix that triggers scanners, but still use `credential_store prompt` or `credential_store store` for security
+- The app secret doesn't have a known prefix that triggers scanners, but still use `assistant credentials prompt` or `assistant credentials set` for security

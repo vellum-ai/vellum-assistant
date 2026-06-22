@@ -28,6 +28,11 @@ import { findDisplayTurnEndIndex } from "../conversations/message-consolidation.
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
+import {
+  forkEverInjected,
+  MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
+  seedEverInjectedFromSlugs,
+} from "../plugins/defaults/memory-v3-shadow/ever-injected-store.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { UserError } from "../util/errors.js";
 import { safeParseRecord } from "../util/json.js";
@@ -52,12 +57,23 @@ import {
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { runAsyncSqlite } from "./db-async-query.js";
-import { getDb, getSqliteFrom } from "./db-connection.js";
+import {
+  type DrizzleDb,
+  getDb,
+  getLogsDb,
+  getSqliteFrom,
+} from "./db-connection.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
-import { rawExec, rawGet, rawRun } from "./raw-query.js";
+import {
+  rawExec,
+  rawGet,
+  rawLogsRun,
+  rawMemoryRun,
+  rawRun,
+} from "./raw-query.js";
 import {
   channelInboundEvents,
   conversations,
@@ -67,12 +83,30 @@ import {
   memorySummaries,
   messageAttachments,
   messages,
+  skillLoadedEvents,
   toolInvocations,
 } from "./schema.js";
 import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
-import { forkActivationState } from "./v2/activation-store.js";
+import {
+  forkActivationState,
+  seedForkActivationState,
+} from "./v2/activation-store.js";
+import { extractInjectedConceptSlugs } from "./v2/injected-block-slugs.js";
 
 const log = getLogger("conversation-store");
+
+/**
+ * The logs connection (`assistant-logs.db`), where `llm_request_logs` lives.
+ * Throws if the file cannot be opened — the few call sites here that touch
+ * request logs (conversation deletes, turn-window anchoring) have no fallback.
+ */
+function logsDb(): DrizzleDb {
+  const db = getLogsDb();
+  if (!db) {
+    throw new Error("logs database unavailable");
+  }
+  return db;
+}
 
 // ── Message metadata Zod schema ──────────────────────────────────────
 // Validates the JSON stored in messages.metadata. Known fields are typed;
@@ -119,7 +153,7 @@ export const messageMetadataSchema = z
      * and read gate (conversation history loading) to enforce trust-aware access.
      */
     provenanceTrustClass: z
-      .enum(["guardian", "trusted_contact", "unknown"])
+      .enum(["guardian", "trusted_contact", "unverified_contact", "unknown"])
       .optional(),
     provenanceSourceChannel: channelIdSchema.optional(),
     provenanceGuardianExternalUserId: z.string().optional(),
@@ -129,12 +163,22 @@ export const messageMetadataSchema = z
     /** Image source paths from desktop attachments, keyed by filename. */
     imageSourcePaths: z.record(z.string(), z.string()).optional(),
     memoryInjectedBlock: z.string().optional(),
+    /** Memory-v3 frozen net-new card block (unwrapped) — the v3 counterpart
+     *  of `memoryInjectedBlock`. A row carries at most one of the two. */
+    [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]: z.string().optional(),
     turnContextBlock: z.string().optional(),
     pkbSystemReminderBlock: z.string().optional(),
     workspaceBlock: z.string().optional(),
     nowScratchpadBlock: z.string().optional(),
     pkbContextBlock: z.string().optional(),
     memoryV2StaticBlock: z.string().optional(),
+    /** `<background_turn>` block (background/scheduled non-interactive turns),
+     *  rehydrated by `loadFromDb` for reload/fork prefix-cache parity. */
+    backgroundTurnBlock: z.string().optional(),
+    /** `<channel_capabilities>` block, rehydrated for the same reason. */
+    channelCapabilitiesBlock: z.string().optional(),
+    /** `<non_interactive_context>` block, rehydrated for the same reason. */
+    nonInteractiveContextBlock: z.string().optional(),
   })
   .passthrough();
 
@@ -164,6 +208,30 @@ function cloneForkMessageMetadata(
   }
 
   return JSON.stringify({ forkSourceMessageId: sourceMessageId });
+}
+
+/**
+ * Read a persisted memory-injection block off a message's metadata JSON, or
+ * `null` when absent/malformed. `key` selects the injection layer: v2's
+ * `memoryInjectedBlock` or memory-v3's card block
+ * (`MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`). The block is what the request
+ * builder re-attaches as the message's `<memory>` content each turn.
+ */
+function readInjectedBlock(
+  metadata: string | null,
+  key: string,
+): string | null {
+  if (!metadata) return null;
+  try {
+    const parsed: unknown = JSON.parse(metadata);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const block = (parsed as Record<string, unknown>)[key];
+      if (typeof block === "string") return block;
+    }
+  } catch {
+    // Malformed metadata — treat as no block.
+  }
+  return null;
 }
 
 /**
@@ -227,6 +295,7 @@ export interface ConversationRow {
   scheduleJobId: string | null;
   lastMessageAt: number | null;
   archivedAt: number | null;
+  surfacedAt: number | null;
   inferenceProfile: string | null;
   inferenceProfileSessionId: string | null;
   inferenceProfileExpiresAt: number | null;
@@ -261,6 +330,7 @@ export const parseConversation = createRowMapper<
   scheduleJobId: "scheduleJobId",
   lastMessageAt: "lastMessageAt",
   archivedAt: "archivedAt",
+  surfacedAt: "surfacedAt",
   inferenceProfile: "inferenceProfile",
   inferenceProfileSessionId: "inferenceProfileSessionId",
   inferenceProfileExpiresAt: "inferenceProfileExpiresAt",
@@ -277,6 +347,7 @@ export interface MessageRow {
   content: string;
   createdAt: number;
   metadata: string | null;
+  clientMessageId: string | null;
 }
 
 const parseMessage = createRowMapper<typeof messages.$inferSelect, MessageRow>({
@@ -286,6 +357,7 @@ const parseMessage = createRowMapper<typeof messages.$inferSelect, MessageRow>({
   content: "content",
   createdAt: "createdAt",
   metadata: "metadata",
+  clientMessageId: "clientMessageId",
 });
 
 export type ConversationCreateType = "standard" | "background" | "scheduled";
@@ -496,6 +568,13 @@ export function createConversation(
     | string
     | {
         title?: string;
+        /**
+         * Override the `is_auto_title` column (schema default 1). Pass
+         * `AUTO_TITLE_DETERMINISTIC` (2) when the title was derived
+         * deterministically at bootstrap so later generation passes know
+         * they may replace it.
+         */
+        isAutoTitle?: number;
         conversationType?: ConversationCreateType;
         source?: string;
         scheduleJobId?: string;
@@ -525,6 +604,9 @@ export function createConversation(
   const conversation = {
     id,
     title: opts.title ?? null,
+    ...(opts.isAutoTitle !== undefined
+      ? { isAutoTitle: opts.isAutoTitle }
+      : {}),
     createdAt: now,
     updatedAt: now,
     totalInputTokens: 0,
@@ -680,6 +762,13 @@ export function findAnalysisConversationFor(
  * Once the fork accumulates its own retros, those are found at the first
  * iteration and we never walk up.
  *
+ * The returned `forkParentConversationId` is the conversation the
+ * retrospective row is rooted at — `parentConversationId` itself when it has
+ * its own retros, or an ancestor when the chain walk found the row higher
+ * up. Callers that mutate the prior (e.g. GC of superseded runs) must check
+ * it against the source conversation: an ancestor's row is that ancestor's
+ * dedup baseline, not the caller's to delete.
+ *
  * Returns `null` when no prior retrospective exists anywhere in the fork
  * chain (true first-run case).
  *
@@ -690,7 +779,7 @@ const MAX_FORK_CHAIN_DEPTH = 16;
 
 export function findMostRecentRetrospectiveFor(
   parentConversationId: string,
-): { id: string } | null {
+): { id: string; forkParentConversationId: string } | null {
   const db = getDb();
   let currentId: string | null = parentConversationId;
   for (let depth = 0; depth < MAX_FORK_CHAIN_DEPTH && currentId; depth++) {
@@ -706,7 +795,7 @@ export function findMostRecentRetrospectiveFor(
       .orderBy(desc(conversations.createdAt))
       .limit(1)
       .get();
-    if (row) return { id: row.id };
+    if (row) return { id: row.id, forkParentConversationId: currentId };
 
     const parent = db
       .select({
@@ -1031,7 +1120,52 @@ export function forkConversation(params: {
     const isFullHistoryFork = copyBoundaryIndex === sourceMessages.length - 1;
     if (isFullHistoryFork) {
       forkActivationState(db, sourceConversation.id, fc.id);
+      forkEverInjected(db, sourceConversation.id, fc.id);
       forkGraphMemoryState(sourceConversation.id, fc.id);
+    } else {
+      // Truncated fork: the wholesale copy above would over-claim, but
+      // seeding nothing makes the child re-select and re-attach every page
+      // whose `<memory>` attachment it already inherited (observed in
+      // production: 89 duplicate page injections on one fork). Derive
+      // `everInjected` from the inherited attachments themselves — scoped to
+      // the child's visible window, since attachments behind an inherited
+      // compaction boundary are not rendered and must stay re-injectable.
+      // The v2 and v3 layers persist under separate metadata keys with the
+      // same `# memory/concepts/<slug>.md` header convention, so each seeds
+      // its own dedup record from its own blocks.
+      const visibleStartIndex = preserveSourceCompactionState
+        ? visibleWindowStartIndex
+        : 0;
+      const inheritedSlugs = new Set<string>();
+      const inheritedV3Slugs = new Set<string>();
+      for (const message of messagesToCopy.slice(visibleStartIndex)) {
+        const block = readInjectedBlock(
+          message.metadata,
+          "memoryInjectedBlock",
+        );
+        if (block) {
+          for (const slug of extractInjectedConceptSlugs(block)) {
+            inheritedSlugs.add(slug);
+          }
+        }
+        const v3Block = readInjectedBlock(
+          message.metadata,
+          MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
+        );
+        if (v3Block) {
+          for (const slug of extractInjectedConceptSlugs(v3Block)) {
+            inheritedV3Slugs.add(slug);
+          }
+        }
+      }
+      seedForkActivationState(db, fc.id, [...inheritedSlugs]);
+      seedEverInjectedFromSlugs(
+        db,
+        sourceConversation.id,
+        fc.id,
+        [...inheritedV3Slugs],
+        Date.now(),
+      );
     }
     forkRetrospectiveState({
       database: db,
@@ -1077,6 +1211,13 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   const convBeforeDelete = getConversation(id);
   const createdAtForDiskCleanup = convBeforeDelete?.createdAt;
 
+  // llm_request_logs lives in the dedicated logs connection, so it is deleted
+  // there — separately from the main-DB transaction below.
+  logsDb()
+    .delete(llmRequestLogs)
+    .where(eq(llmRequestLogs.conversationId, id))
+    .run();
+
   db.transaction((tx) => {
     // Collect all message IDs for this conversation.
     const messageRows = tx
@@ -1096,11 +1237,11 @@ export function deleteConversation(id: string): DeletedMemoryIds {
       result.segmentIds = linkedSegments.map((r) => r.id);
 
       // Delete non-cascading tables first.
-      tx.delete(llmRequestLogs)
-        .where(eq(llmRequestLogs.conversationId, id))
-        .run();
       tx.delete(toolInvocations)
         .where(eq(toolInvocations.conversationId, id))
+        .run();
+      tx.delete(skillLoadedEvents)
+        .where(eq(skillLoadedEvents.conversationId, id))
         .run();
       // Cascade deletes memory_segments, message_attachments.
       tx.delete(messages).where(eq(messages.conversationId, id)).run();
@@ -1118,11 +1259,11 @@ export function deleteConversation(id: string): DeletedMemoryIds {
       }
     } else {
       // No messages — just clean up non-message tables.
-      tx.delete(llmRequestLogs)
-        .where(eq(llmRequestLogs.conversationId, id))
-        .run();
       tx.delete(toolInvocations)
         .where(eq(toolInvocations.conversationId, id))
+        .run();
+      tx.delete(skillLoadedEvents)
+        .where(eq(skillLoadedEvents.conversationId, id))
         .run();
     }
 
@@ -1181,7 +1322,7 @@ export function wipeConversation(id: string): WipeConversationResult {
 
   // Step D — Delegate to deleteConversation which handles messages (cascade
   // segments, attachments), llmRequestLogs, toolInvocations,
-  // embeddings, and the conversation row.
+  // skillLoadedEvents, embeddings, and the conversation row.
   const deletedMemoryIds = deleteConversation(id);
 
   // Step E — Return the combined result.
@@ -1770,6 +1911,36 @@ export function unarchiveConversation(id: string): boolean {
 }
 
 /**
+ * Set or clear the `surfaced_at` promotion marker for a conversation.
+ *
+ * A non-null `surfaced_at` promotes a background/scheduled conversation
+ * into the default ("standard") conversation listing so clients show it in
+ * the Recents sidebar grouping. Promotion is always explicit — callers are
+ * product flows that decide a background run deserves foreground visibility
+ * (e.g. the user sent a follow-up message in it). Nothing sets this
+ * automatically.
+ *
+ * Returns `null` when the conversation does not exist; otherwise the new
+ * `surfacedAt` value (`number` when surfacing, `null` when clearing).
+ */
+export function setConversationSurfaced(
+  id: string,
+  surfaced: boolean,
+): { surfacedAt: number | null } | null {
+  const conv = getConversation(id);
+  if (!conv) return null;
+  const now = Date.now();
+  const surfacedAt = surfaced ? now : null;
+  rawRun(
+    "UPDATE conversations SET surfaced_at = ?, updated_at = ? WHERE id = ?",
+    surfacedAt,
+    now,
+    id,
+  );
+  return { surfacedAt };
+}
+
+/**
  * Set or clear the inference profile override for a conversation.
  * Pass `null` to clear the override and fall back to the workspace
  * `llm.activeProfile` resolution.
@@ -1903,21 +2074,30 @@ export function listActiveInferenceProfileSessions(
 }
 
 /**
- * Resolve the per-turn inference-profile override from an already-loaded
- * conversation row. Returns the row's `inferenceProfile` for interactive
- * conversations, `undefined` for automation threads (subagent fan-out,
- * scheduled tasks, update bulletins) so they run on the workspace defaults
- * rather than inheriting an interactive override.
- *
- * Prefer this row-based form when the caller already needs to read the
- * conversation row for other reasons (e.g. the agent loop's title check).
+ * The conversation fields needed to resolve a per-turn inference-profile
+ * override. Satisfied by both the DB {@link ConversationRow} and the live
+ * in-memory `Conversation`, so callers can derive the override from whichever
+ * representation they already hold without a redundant row fetch.
  */
-export function getConversationOverrideProfileFromRow(
-  conv: ConversationRow | null,
+export interface OverrideProfileFields {
+  conversationType?: string | null;
+  inferenceProfile?: string | null;
+  inferenceProfileExpiresAt?: number | null;
+}
+
+/**
+ * Resolve the per-turn inference-profile override from a conversation's
+ * fields. Returns the `inferenceProfile` for interactive conversations,
+ * `undefined` for automation threads (subagent fan-out, scheduled
+ * tasks) so they run on the workspace defaults rather than
+ * inheriting an interactive override.
+ */
+export function resolveOverrideProfile(
+  fields: OverrideProfileFields | null,
 ): string | undefined {
   if (
-    conv?.conversationType === "background" ||
-    conv?.conversationType === "scheduled"
+    fields?.conversationType === "background" ||
+    fields?.conversationType === "scheduled"
   ) {
     return undefined;
   }
@@ -1931,24 +2111,23 @@ export function getConversationOverrideProfileFromRow(
   // Without this, a session at the exact-expiry millisecond would be served
   // for one extra turn here while being cleared by the reaper.
   if (
-    conv?.inferenceProfileExpiresAt != null &&
-    conv.inferenceProfileExpiresAt <= Date.now()
+    fields?.inferenceProfileExpiresAt != null &&
+    fields.inferenceProfileExpiresAt <= Date.now()
   ) {
     return undefined;
   }
-  return conv?.inferenceProfile ?? undefined;
+  return fields?.inferenceProfile ?? undefined;
 }
 
 /**
  * Resolve the per-turn inference-profile override by conversation id.
- * Convenience wrapper around `getConversationOverrideProfileFromRow` for
- * standalone callers (e.g. subagent spawn, opportunity-wake) that don't
- * already have the row in hand.
+ * Convenience wrapper for standalone callers (e.g. subagent spawn,
+ * opportunity-wake) that don't already have the conversation in hand.
  */
 export function getConversationOverrideProfile(
   conversationId: string,
 ): string | undefined {
-  return getConversationOverrideProfileFromRow(getConversation(conversationId));
+  return resolveOverrideProfile(getConversation(conversationId));
 }
 
 export function setLastNotifiedInferenceProfile(
@@ -1986,8 +2165,11 @@ export async function clearAll(): Promise<{
   // Each DELETE goes through `runAsyncSqlite`. The original code threw
   // on rawExec failure; mirror that here by throwing when the async
   // result reports `ok: false`, so the route handler still returns 500.
-  const runOrThrow = async (sql: string): Promise<void> => {
-    const result = await runAsyncSqlite(sql);
+  const runOrThrow = async (
+    sql: string,
+    options?: { dbPath?: string },
+  ): Promise<void> => {
+    const result = await runAsyncSqlite(sql, options);
     if (!result.ok) {
       throw new Error(
         `clearAll: \`${sql}\` failed (${result.backend}): ${result.error ?? "unknown"}`,
@@ -2007,13 +2189,17 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM memory_segments");
   await runOrThrow("DELETE FROM memory_summaries");
   await runOrThrow("DELETE FROM memory_embeddings");
-  await runOrThrow("DELETE FROM memory_jobs");
+  // memory_jobs and llm_request_logs each live in their own dedicated
+  // connection; clear them directly on those connections rather than through a
+  // sqlite3 subprocess.
+  rawMemoryRun("DELETE FROM memory_jobs");
   await runOrThrow("DELETE FROM memory_checkpoints");
-  await runOrThrow("DELETE FROM llm_request_logs");
+  rawLogsRun("DELETE FROM llm_request_logs");
   await runOrThrow("DELETE FROM llm_usage_events");
   await runOrThrow("DELETE FROM message_attachments");
   await runOrThrow("DELETE FROM attachments");
   await runOrThrow("DELETE FROM tool_invocations");
+  await runOrThrow("DELETE FROM skill_loaded_events");
   let messagesFtsCorrupted = false;
   const ftsResult = await runAsyncSqlite("DELETE FROM messages_fts");
   if (!ftsResult.ok) {
@@ -2427,12 +2613,17 @@ export function getConversationOriginInterface(
  * in the given conversation, or `undefined` if none is found.
  *
  * Used by the pointer message trust resolver to detect conversations
- * whose audience is a guardian or trusted_contact outside desktop-origin
- * conversations.
+ * whose audience is a guardian, trusted_contact, or unverified_contact
+ * outside desktop-origin conversations.
  */
 export function getConversationRecentProvenanceTrustClass(
   conversationId: string,
-): "guardian" | "trusted_contact" | "unknown" | undefined {
+):
+  | "guardian"
+  | "trusted_contact"
+  | "unverified_contact"
+  | "unknown"
+  | undefined {
   const row = rawGet<{ metadata: string | null }>(
     `SELECT metadata FROM messages
      WHERE conversation_id = ? AND role = 'user' AND metadata IS NOT NULL
@@ -2482,8 +2673,18 @@ export function batchSetDisplayOrders(
         ) {
           safeGroupId = "system:all";
         }
+        // Moving a conversation into the Scheduled/Background system groups
+        // is an explicit demotion out of Recents, so clear any `surfaced_at`
+        // promotion in the same write — otherwise the surfaced marker would
+        // keep the row in the standard listing and the move would appear to
+        // do nothing.
+        const clearsSurfaced =
+          safeGroupId === "system:background" ||
+          safeGroupId === "system:scheduled";
         rawRun(
-          "UPDATE conversations SET display_order = ?, is_pinned = ?, group_id = ? WHERE id = ?",
+          `UPDATE conversations SET display_order = ?, is_pinned = ?, group_id = ?${
+            clearsSurfaced ? ", surfaced_at = NULL" : ""
+          } WHERE id = ?`,
           update.displayOrder,
           safeGroupId === "system:pinned" ? 1 : 0,
           safeGroupId,
@@ -2686,7 +2887,8 @@ export function getTurnTimeBounds(
       : startTime + MAX_TURN_DURATION_MS;
 
   if (hardCeiling > endTime) {
-    const latestLog = db
+    // llm_request_logs lives in the dedicated logs connection.
+    const latestLog = logsDb()
       .select({ createdAt: llmRequestLogs.createdAt })
       .from(llmRequestLogs)
       .where(
