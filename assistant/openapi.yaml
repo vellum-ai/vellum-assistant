@@ -4800,6 +4800,10 @@ paths:
                           - type: "null"
                       interactionCount:
                         type: number
+                      createdAt:
+                        type: number
+                      updatedAt:
+                        type: number
                       channels:
                         type: array
                         items:
@@ -4871,6 +4875,8 @@ paths:
                       - displayName
                       - role
                       - interactionCount
+                      - createdAt
+                      - updatedAt
                       - channels
                     additionalProperties: false
                 required:
@@ -4955,6 +4961,10 @@ paths:
                             - type: "null"
                         interactionCount:
                           type: number
+                        createdAt:
+                          type: number
+                        updatedAt:
+                          type: number
                         channels:
                           type: array
                           items:
@@ -5026,6 +5036,8 @@ paths:
                         - displayName
                         - role
                         - interactionCount
+                        - createdAt
+                        - updatedAt
                         - channels
                       additionalProperties: false
                     description: Contact objects with channels and metadata
@@ -5078,6 +5090,10 @@ paths:
                           - type: number
                           - type: "null"
                       interactionCount:
+                        type: number
+                      createdAt:
+                        type: number
+                      updatedAt:
                         type: number
                       channels:
                         type: array
@@ -5150,6 +5166,8 @@ paths:
                       - displayName
                       - role
                       - interactionCount
+                      - createdAt
+                      - updatedAt
                       - channels
                     additionalProperties: false
                   assistantMetadata:
@@ -5457,6 +5475,10 @@ paths:
                           - type: "null"
                       interactionCount:
                         type: number
+                      createdAt:
+                        type: number
+                      updatedAt:
+                        type: number
                       channels:
                         type: array
                         items:
@@ -5528,6 +5550,8 @@ paths:
                       - displayName
                       - role
                       - interactionCount
+                      - createdAt
+                      - updatedAt
                       - channels
                     additionalProperties: false
                     description: Merged contact
@@ -5646,6 +5670,10 @@ paths:
                         - type: "null"
                     interactionCount:
                       type: number
+                    createdAt:
+                      type: number
+                    updatedAt:
+                      type: number
                     channels:
                       type: array
                       items:
@@ -5717,6 +5745,8 @@ paths:
                     - displayName
                     - role
                     - interactionCount
+                    - createdAt
+                    - updatedAt
                     - channels
                   additionalProperties: false
   /v1/content-source:
@@ -11018,6 +11048,53 @@ paths:
                 required:
                   - success
                   - ran
+                additionalProperties: false
+  /v1/gateway/logs/tail:
+    get:
+      operationId: gateway_logs_tail_get
+      summary: Tail gateway log entries
+      description: Return the last N structured log entries from the gateway log files.
+      tags:
+        - gateway-logs
+      parameters:
+        - name: n
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Number of lines to return (1–1000, default: 10)"
+        - name: level
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Minimum pino level name (default: info)"
+        - name: module
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter to exact pino module name
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lines:
+                    type: array
+                    items:
+                      type: object
+                      propertyNames:
+                        type: string
+                      additionalProperties: {}
+                  truncated:
+                    type: boolean
+                required:
+                  - lines
+                  - truncated
                 additionalProperties: false
   /v1/groups:
     get:
@@ -26655,6 +26732,87 @@ paths:
           description:
             Submitting client does not match the targeted client, or the submitting actor's principal does not match
             the target client's actor.
+  /v1/trust-rules:
+    get:
+      operationId: trustrules_get
+      summary: List trust rules
+      description: List trust rules, optionally filtered by tool, origin, or include_all.
+      tags:
+        - trust-rules
+      parameters:
+        - name: tool
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by tool name
+        - name: origin
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by origin
+        - name: include_all
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Include unmodified defaults
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rules:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        tool:
+                          type: string
+                        pattern:
+                          type: string
+                        risk:
+                          type: string
+                          enum:
+                            - low
+                            - medium
+                            - high
+                        description:
+                          type: string
+                        origin:
+                          type: string
+                          enum:
+                            - default
+                            - user_defined
+                        userModified:
+                          type: boolean
+                        deleted:
+                          type: boolean
+                        createdAt:
+                          type: string
+                        updatedAt:
+                          type: string
+                      required:
+                        - id
+                        - tool
+                        - pattern
+                        - risk
+                        - description
+                        - origin
+                        - userModified
+                        - deleted
+                        - createdAt
+                        - updatedAt
+                      additionalProperties: false
+                required:
+                  - rules
+                additionalProperties: false
   /v1/trust-rules/suggest:
     post:
       operationId: trustrules_suggest_post
