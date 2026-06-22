@@ -2010,9 +2010,9 @@ function PhaseTiming({ run }: { run: ReportRunDetail }) {
   // Grading spans from metrics:start to run completion — NOT sendEnd,
   // which fires before metrics even starts (send:done is the hypothesis
   // capture, metrics:start is the judge call after it).
-  const metricsEnd = run.progressEvents.find(
-    (e) => e.step === "metrics" && e.status === "done",
-  )?.emittedAt ?? run.completedAt;
+  const metricsEnd =
+    run.progressEvents.find((e) => e.step === "metrics" && e.status === "done")
+      ?.emittedAt ?? run.completedAt;
   const metricsMs = span(metricsStart, metricsEnd);
 
   // Ingest vs question split from the event streams.
