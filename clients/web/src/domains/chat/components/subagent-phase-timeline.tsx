@@ -1,11 +1,13 @@
 /**
  * Compact, expandable phase-grouped timeline for the subagent detail panel.
  *
- * Renders one collapsed row per phase (status node + label + a duration / live
- * activity sub-label + an optional "N steps" pill). Clicking a row with an
- * expandable body toggles its step pills open/closed. Reuses the main-chat
- * timeline's connector/node geometry (see `TimelinePhaseSection` in
- * `phase-grouped-step-list.tsx`) so the panel reads as the same timeline.
+ * Renders one collapsed row per phase: a small timeline bullet (the vertical
+ * connector runs between the bullets), then the status icon, the label, a
+ * duration / live activity sub-label, and an optional "N steps" pill. Clicking
+ * a row with an expandable body toggles its step pills open/closed. Reuses the
+ * main-chat timeline's `TimelineConnector` — the bullet's 14px box centres the
+ * dot on the connector's `left-[6.5px]` line, so the status icon is no longer
+ * the node the line connects (it sits inline after the bullet instead).
  *
  * Pure / presentational: takes only `steps`. The owning panel renders the
  * empty state, so this returns `null` for an empty input.
@@ -154,10 +156,20 @@ function SubagentPhaseRow({
           isExpandable && "cursor-pointer",
         )}
       >
+        {/* Timeline bullet — the connector anchor. Its 14px box centres the
+            dot under `TimelineConnector`'s vertical line (left-[6.5px]); the
+            status icon below is no longer on the line and sits inline. */}
+        <span
+          aria-hidden
+          className="flex h-[14px] w-[14px] shrink-0 items-center justify-center"
+        >
+          <span className="h-[5px] w-[5px] rounded-full bg-[var(--content-disabled)]" />
+        </span>
+
         <TimelineNode status={status} isThinking={isThinking} />
         <Typography
           variant="body-medium-default"
-          className="text-[var(--content-default)]"
+          className="shrink-0 text-[var(--content-default)]"
         >
           {section.label}
         </Typography>
@@ -165,7 +177,7 @@ function SubagentPhaseRow({
         {hasTrailingDetail && (
           <span
             aria-hidden
-            className="text-[var(--content-tertiary)] opacity-10"
+            className="shrink-0 text-[var(--content-tertiary)] opacity-10"
           >
             |
           </span>
@@ -187,7 +199,7 @@ function SubagentPhaseRow({
         ) : totalDuration ? (
           <Typography
             variant="body-small-default"
-            className="truncate text-[var(--content-tertiary)]"
+            className="min-w-0 truncate text-[var(--content-tertiary)]"
           >
             {`Worked for ${totalDuration}`}
           </Typography>
@@ -196,11 +208,11 @@ function SubagentPhaseRow({
         {isExpandable && showStepCount && (
           <span
             data-testid="subagent-phase-step-count"
-            className="ml-auto rounded-[100px] bg-[var(--surface-base)] px-1.5 py-1"
+            className="ml-auto shrink-0 whitespace-nowrap rounded-full bg-[var(--surface-base)] px-2 py-0.5"
           >
             <Typography
               variant="body-small-default"
-              className="text-[var(--content-secondary)]"
+              className="whitespace-nowrap text-[var(--content-secondary)]"
             >
               {stepCountLabel}
             </Typography>
@@ -208,8 +220,9 @@ function SubagentPhaseRow({
         )}
       </button>
 
-      {/* Expanded body: the section's steps as default pills, indented to align
-          under the phase title (icon 14px + the row's 8px gap → 22px). */}
+      {/* Expanded body: the section's steps as default pills, indented to clear
+          the bullet rail and align under the status icon (bullet 14px + the
+          row's 8px gap → 22px). */}
       {isExpandable && expanded && (
         <div className="flex flex-col items-start gap-1 pb-3 pl-[22px]">
           {section.steps.map((step, stepIdx) => (
