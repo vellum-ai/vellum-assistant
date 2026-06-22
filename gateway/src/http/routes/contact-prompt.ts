@@ -237,29 +237,30 @@ export async function handleContactPromptSubmit(
       .get();
 
     if (existingChannel && existingChannel.contactId === contactId) {
-      // Heal the best-effort assistant-DB mirror on retry (matching the
-      // non-guardian path's self-healing). Passing the guardian's id preserves
-      // role="guardian" via upsertContact's id-path role preservation; the
-      // gateway channel already exists, so this is a no-op there and only
-      // recovers a previously-unavailable assistant mirror.
-      await getStore().upsertContact({
-        id: contactId,
-        channels: [
-          { type: channelType, address: normalizedAddress, isPrimary: true },
-        ],
-      });
-      channelId = resolveChannelId(contactId, channelType, normalizedAddress);
+      // Reuse is success-guaranteed: the gateway channel already belongs to
+      // this guardian. Best-effort heal the assistant-DB mirror (passing the
+      // guardian's id preserves role="guardian" via upsertContact's id-path
+      // role preservation). The gateway-side syncChannels UPDATE here is
+      // incidental — the real purpose is recovering a stale mirror — so a
+      // transient gateway error must never fail the request.
+      try {
+        await getStore().upsertContact({
+          id: contactId,
+          channels: [
+            { type: channelType, address: normalizedAddress, isPrimary: true },
+          ],
+        });
+      } catch (healErr) {
+        log.warn(
+          { err: healErr, contactId, channelType, address: normalizedAddress },
+          "contact-prompt-submit: guardian reuse mirror-heal failed (best-effort), continuing with existing channel",
+        );
+      }
+      channelId = existingChannel.id;
       log.info(
         { channelType, address: normalizedAddress, contactId, channelId },
         "contact-prompt-submit: channel already exists",
       );
-      if (!channelId) {
-        log.error(
-          { channelType, address: normalizedAddress, contactId },
-          "contact-prompt-submit: channel resolution failed on guardian reuse",
-        );
-        return await channelResolutionError(requestId);
-      }
     } else if (existingChannel) {
       // Channel exists but belongs to a different contact.  The caller must
       // clean up the stale binding before a guardian channel can be created.
@@ -349,6 +350,25 @@ export async function handleContactPromptSubmit(
         { channelType, address: normalizedAddress, contactId, channelId },
         "contact-prompt-submit: created new channel",
       );
+    }
+
+    // Re-assert role="guardian" in the best-effort assistant mirror: if the
+    // bootstrap-create mirror INSERT failed, the Phase-2 upsertContact INSERTs
+    // this id with a hardcoded role="contact", downgrading the guardian in the
+    // mirror (gateway stays authoritative, so ACL is unaffected). Heal only
+    // when this request minted the guardian; never fails the request.
+    if (createdNewContact) {
+      try {
+        await assistantDbRun(
+          "UPDATE contacts SET role = 'guardian', updated_at = ? WHERE id = ?",
+          [now, contactId],
+        );
+      } catch (roleErr) {
+        log.warn(
+          { err: roleErr, contactId },
+          "contact-prompt-submit: assistant DB guardian role re-assert failed (best-effort)",
+        );
+      }
     }
   } catch (err) {
     log.error({ err, requestId }, "contact-prompt-submit: DB error");
