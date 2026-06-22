@@ -53,8 +53,8 @@ mock.module("../../ipc/gateway-client.js", () => ({
   },
 }));
 
-import { ConflictError, TooManyRequestsError } from "../errors.js";
 import { handleCreateVerificationSession } from "../channel-verification-routes.js";
+import { ConflictError, TooManyRequestsError } from "../errors.js";
 
 beforeEach(() => {
   verifyTrustedContactCalls.length = 0;
