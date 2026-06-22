@@ -95,11 +95,9 @@ export interface ChatBodyProps {
   /** Generic chat error rendered above the composer, or `null` when none. */
   genericChatError: { message: string; actions?: ReactNode } | null;
   /**
-   * Dismiss handler for {@link genericChatError}. Required when a
-   * `genericChatError` is passed — the banner renders a "Dismiss" button
-   * as the second action next to the existing actions (typically the
-   * "Go to Doctor" link), so the user has a clear way to close the
-   * banner without clicking the (decorative) error icon.
+   * Dismiss handler for {@link genericChatError}. When provided, the
+   * banner renders a "Dismiss" button as a second action next to the
+   * existing actions (typically "Go to Doctor").
    */
   onDismissChatError?: () => void;
 

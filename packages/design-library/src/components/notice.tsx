@@ -52,10 +52,6 @@ const TONE_CLASSES: Record<NoticeTone, ToneClasses> = {
     container:
       "bg-[var(--system-negative-weak)] border-[color-mix(in_srgb,var(--system-negative-strong)_25%,transparent)]",
     icon: "text-[color:var(--system-negative-strong)]",
-    // TriangleAlert (warning triangle) rather than OctagonX. The X glyph
-    // reads as a "close" affordance and users tap it expecting to dismiss
-    // the banner — but it's just decorative. The warning triangle reads
-    // unambiguously as an error indicator.
     DefaultIcon: TriangleAlert,
   },
   neutral: {

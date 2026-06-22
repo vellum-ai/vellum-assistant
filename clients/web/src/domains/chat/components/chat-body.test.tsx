@@ -282,13 +282,9 @@ describe("ChatBody — channel footer slot", () => {
 });
 
 describe("ChatBody — generic chat error Notice (dismiss UX)", () => {
-  // The Notice is rendered as an inline error banner above the composer when
-  // a chat error (e.g. "model doesn't support image input" when a non-vision
-  // model like the OS Beta profile is active) is surfaced. The banner has a
-  // "Go to Doctor" action and, since the design-library error icon is
-  // decorative-only, ChatBody MUST also render a real "Dismiss" button as a
-  // second action — without it the user has no clear way to close the banner
-  // and clicks the (X-shaped) icon expecting it to dismiss.
+  // The Notice is rendered as an inline error banner above the composer.
+  // The banner has a "Go to Doctor" action and a "Dismiss" button as a
+  // second action (so the user has a real way to close the banner).
 
   test("renders a Dismiss button when genericChatError + onDismissChatError are both provided", () => {
     const html = renderToStaticMarkup(

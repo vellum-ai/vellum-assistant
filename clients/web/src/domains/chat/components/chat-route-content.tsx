@@ -443,9 +443,8 @@ export function ChatMainPanel({
     : null;
 
   const handleDismissChatError = useCallback(() => {
-    // Clears the inline `genericChatError` Notice. The modal variant
-    // (handled by `SendErrorModal`) has its own close path because it
-    // also restores the draft input.
+    // Clears the inline `genericChatError` Notice. The modal variant has
+    // its own close handler because it also restores the draft input.
     useChatSessionStore.getState().setError(null);
   }, []);
 
