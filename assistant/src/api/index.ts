@@ -44,7 +44,6 @@ import { ToolResultEventSchema } from "./events/tool-result.js";
 import { ToolUsePreviewStartEventSchema } from "./events/tool-use-preview-start.js";
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
 import { TraceEventSchema } from "./events/trace-event.js";
-import { TurnProfileAutoRoutedEventSchema } from "./events/turn-profile-auto-routed.js";
 import { UISurfaceCompleteEventSchema } from "./events/ui-surface-complete.js";
 import { UISurfaceDismissEventSchema } from "./events/ui-surface-dismiss.js";
 import { UISurfaceShowEventSchema } from "./events/ui-surface-show.js";
@@ -293,10 +292,6 @@ export {
   TraceEventStatusSchema,
 } from "./events/trace-event.js";
 export {
-  type TurnProfileAutoRoutedEvent,
-  TurnProfileAutoRoutedEventSchema,
-} from "./events/turn-profile-auto-routed.js";
-export {
   type UISurfaceCompleteEvent,
   UISurfaceCompleteEventSchema,
 } from "./events/ui-surface-complete.js";
@@ -500,7 +495,6 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ToolUsePreviewStartEventSchema,
   ToolUseStartEventSchema,
   TraceEventSchema,
-  TurnProfileAutoRoutedEventSchema,
   UISurfaceCompleteEventSchema,
   UISurfaceDismissEventSchema,
   UISurfaceShowEventSchema,

@@ -6,7 +6,6 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import type { ProfileWithName } from "@/domains/settings/ai/utils";
-import { AUTO_PROFILE_NAME } from "@/assistant/profile-pickers";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -56,7 +55,6 @@ export function ProfileListItem({
 }: ProfileListItemProps) {
   const isManaged = profile.source === "managed";
   const isActive = profile.status !== "disabled";
-  const isAutoProfile = profile.name === AUTO_PROFILE_NAME;
 
   return (
     <div className="relative">
@@ -89,7 +87,7 @@ export function ProfileListItem({
             >
               {profile.label ?? profile.name}
             </Typography>
-            {isManaged && profile.name !== AUTO_PROFILE_NAME && (
+            {isManaged && (
               <Tag
                 tone="positive"
                 title="Managed by Platform — auth is locked, but you can rename or disable this profile."
@@ -135,9 +133,7 @@ export function ProfileListItem({
               aria-label={`${isActive ? "Disable" : "Enable"} ${profile.label ?? profile.name}`}
             />
           </div>
-          <div
-            className={`flex w-[92px] items-center justify-end gap-2${isAutoProfile ? " invisible" : ""}`}
-          >
+          <div className="flex w-[92px] items-center justify-end gap-2">
             <Button
               variant="ghost"
               size="compact"
@@ -172,9 +168,6 @@ export function ProfileListItem({
           {deleteError}
         </Typography>
       ) : null}
-      {profile.name === AUTO_PROFILE_NAME && (
-        <div className="mx-2 mt-1 border-b border-[var(--border-subtle)]" />
-      )}
     </div>
   );
 }

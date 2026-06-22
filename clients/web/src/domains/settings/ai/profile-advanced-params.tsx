@@ -236,7 +236,7 @@ function TokenBudgetField({
  * Renders the advanced parameter controls for the profile editor modal.
  * Each control is gated by a `visibility` flag derived from the selected
  * provider/model combination. Hidden entirely when no provider/model is
- * selected (all flags false) or when the profile is the "auto" meta-profile.
+ * selected (all flags false).
  */
 export function ProfileAdvancedParams({
   visibility,

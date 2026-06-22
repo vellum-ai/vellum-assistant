@@ -22,7 +22,6 @@ import {
 } from "@/domains/settings/ai/profile-advanced-params";
 import { ProfileEditorProviderSection } from "@/domains/settings/ai/profile-editor-provider-section";
 import { type GeminiThinkingLevel, isGeminiThinkingLevel, resolveProfileParamVisibility } from "@/domains/settings/ai/profile-param-visibility";
-import { AUTO_PROFILE_NAME } from "@/assistant/profile-pickers";
 import { deriveProfileDefaults } from "@/domains/settings/ai/profile-prefill";
 import type { ConnectionProvider, ProviderConnection } from "@/generated/daemon/types.gen";
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
@@ -149,7 +148,6 @@ function ProfileEditorModalInner({
 }: ProfileEditorModalInnerProps) {
   const [effectiveMode, setEffectiveMode] = useState<"create" | "edit" | "view">(mode);
   const isReadOnly = effectiveMode === "view";
-  const isAutoProfile = profileName === AUTO_PROFILE_NAME;
 
   // Managed profiles open the editor in view mode (mode === "view") so they
   // can't be reshaped (provider, model, advanced params) — those are
@@ -628,7 +626,7 @@ function ProfileEditorModalInner({
     />
   );
 
-  const advancedParamsNode = !isAutoProfile ? (
+  const advancedParamsNode = (
     <ProfileAdvancedParams
       visibility={visibility}
       isReadOnly={isReadOnly}
@@ -657,7 +655,7 @@ function ProfileEditorModalInner({
       thinkingLevel={thinkingLevel}
       onThinkingLevelChange={setThinkingLevel}
     />
-  ) : null;
+  );
 
   const saveErrorNode = saveError ? (
     <Typography
@@ -766,7 +764,7 @@ function ProfileEditorModalInner({
   // model-dependent (effort/thinking/token ranges resolve from the selected
   // model), so showing the disclosure before then is meaningless.
   const createAdvancedDisclosure =
-    !isAutoProfile && model !== "" && advancedParamsNode ? (
+    model !== "" ? (
       <div>
         <button
           type="button"
@@ -803,18 +801,7 @@ function ProfileEditorModalInner({
           // Create mode is provider-first: Provider (with inline create) ->
           // Model -> Name -> Key -> Description -> collapsed Advanced.
           <div className="space-y-4">
-            {isAutoProfile && (
-              <div className="rounded-lg bg-[var(--surface-info-subtle)] p-3">
-                <p className="text-body-small-default text-[var(--content-secondary)]">
-                  Auto mode routes each query to the best profile automatically
-                  — fast for simple questions, capable for complex ones. No
-                  provider or model configuration needed.
-                </p>
-              </div>
-            )}
-
-            {/* Provider + Connection + Model — hidden for the auto profile. */}
-            {!isAutoProfile && createProviderSection}
+            {createProviderSection}
 
             {displayNameField}
             {keyField}
@@ -836,34 +823,19 @@ function ProfileEditorModalInner({
             {keyField}
             {activeToggle}
 
-            {isAutoProfile && (
-              <div className="rounded-lg bg-[var(--surface-info-subtle)] p-3">
-                <p className="text-body-small-default text-[var(--content-secondary)]">
-                  Auto mode routes each query to the best profile automatically
-                  — fast for simple questions, capable for complex ones. No
-                  provider or model configuration needed.
-                </p>
-              </div>
-            )}
+            <ProfileEditorProviderSection
+              provider={provider}
+              model={model}
+              providerConnection={providerConnection}
+              onProviderChange={handleProviderChange}
+              onModelChange={handleModelChange}
+              onConnectionChange={handleConnectionChange}
+              connections={connections}
+              isReadOnly={isReadOnly}
+              availableConnectionsForProvider={availableConnectionsForProvider}
+              connectionNotFound={connectionNotFound}
+            />
 
-            {/* Provider, Connection, Model — hidden for the "auto" meta-profile
-                which has no provider/model of its own. */}
-            {!isAutoProfile && (
-              <ProfileEditorProviderSection
-                provider={provider}
-                model={model}
-                providerConnection={providerConnection}
-                onProviderChange={handleProviderChange}
-                onModelChange={handleModelChange}
-                onConnectionChange={handleConnectionChange}
-                connections={connections}
-                isReadOnly={isReadOnly}
-                availableConnectionsForProvider={availableConnectionsForProvider}
-                connectionNotFound={connectionNotFound}
-              />
-            )}
-
-            {/* Advanced params — hidden for the auto meta-profile */}
             {advancedParamsNode}
 
             {saveErrorNode}
@@ -877,7 +849,6 @@ function ProfileEditorModalInner({
             <Button variant="outlined" onClick={onCancel} disabled={saving} data-testid="modal-cancel-btn">
               Close
             </Button>
-            {!isAutoProfile && (
             <Button
               variant="outlined"
               onClick={() => {
@@ -889,7 +860,6 @@ function ProfileEditorModalInner({
             >
               Save As New
             </Button>
-            )}
             {/* Save in view mode persists ONLY label and status changes
                 (managed profile policy fields). The button is gated by
                 `hasViewModeChanges` so an unchanged view session can't

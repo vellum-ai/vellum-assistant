@@ -3,7 +3,6 @@ import { Check, Plus, SlidersHorizontal, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import {
-    gateAutoProfile,
     profilePickerLabel,
     visibleProfilesForPicker,
     type ProfilePickerEntry,
@@ -25,7 +24,6 @@ import {
     setConversationOverride,
     setGlobalThresholds,
 } from "@/lib/threshold-api";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { findConversation } from "@/utils/conversation-cache";
 import {
@@ -366,16 +364,10 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
     return [...ordered, ...extras];
   }, [profiles, profileOrder]);
 
-  const queryComplexityRoutingEnabled =
-    useAssistantFeatureFlagStore.use.queryComplexityRouting();
-
   const visibleProfileEntries = useMemo(
     () =>
-      gateAutoProfile(
-        visibleProfilesForPicker(orderedProfileEntries, [profileActiveKey]),
-        queryComplexityRoutingEnabled,
-      ),
-    [orderedProfileEntries, profileActiveKey, queryComplexityRoutingEnabled],
+      visibleProfilesForPicker(orderedProfileEntries, [profileActiveKey]),
+    [orderedProfileEntries, profileActiveKey],
   );
 
   // Quick-add is owned by the top-level ProfileQuickAddProvider (chat must not
@@ -550,7 +542,6 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
               leftIcon={<Sparkles className="h-3.5 w-3.5" />}
               className={isActive ? "bg-[var(--surface-active)] text-[var(--content-emphasised)]" : ""}
               shortcut={isActive ? <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" /> : undefined}
-              title={entry.name === "auto" ? "Automatically switches profiles based on the query" : undefined}
             >
               {profilePickerLabel(entry)}
             </Menu.Item>

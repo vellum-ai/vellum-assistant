@@ -39,7 +39,6 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 mock.module("@/stores/assistant-feature-flag-store", () => {
   const store = () => null;
   store.use = {
-    queryComplexityRouting: () => false,
   };
   return { useAssistantFeatureFlagStore: store };
 });
@@ -114,10 +113,7 @@ const NEW_PROFILE_NAME = "fast-cheap";
 const NEW_PROFILE_LABEL = "Fast & Cheap";
 
 // --- generated daemon SDK ----------------------------------------------------
-// Mock the SDK functions used by the component (directly and via generated
-// TanStack Query options). configGetOptions/conversationsByIdGetOptions from
-// the generated react-query module call configGet/conversationsByIdGet
-// internally, so mocking the SDK module covers both layers.
+// Mock the SDK functions used by the component directly.
 const configGetMock = mock(
   async (_opts: unknown): Promise<{ data: unknown }> => ({
     data: { llm: { profileOrder: ["smart"], profiles: { smart: { label: "Smart" } }, activeProfile: "smart" } },
@@ -140,6 +136,33 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   conversationsByIdGet: conversationsByIdGetMock,
   configPatch: configPatchMock,
   conversationsByIdInferenceprofilePut: inferenceprofilePut,
+}));
+
+// Other test files in a combined Bun test process also mock this generated
+// module, so keep the query wrappers local to this suite instead of relying on
+// the SDK mock to flow through whichever generated module mock was registered
+// first.
+mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
+  configGetOptions: (options: { path: { assistant_id: string } }) => ({
+    queryKey: [{ _id: "configGet", path: options.path }],
+    queryFn: async () => {
+      const { data } = await configGetMock(options);
+      return data;
+    },
+  }),
+  configGetQueryKey: (options: { path: { assistant_id: string } }) => [
+    { _id: "configGet", path: options.path },
+  ],
+  conversationsByIdGetOptions: (options: { path: { assistant_id: string; id: string } }) => ({
+    queryKey: [{ _id: "conversationsByIdGet", path: options.path }],
+    queryFn: async () => {
+      const { data } = await conversationsByIdGetMock(options);
+      return data;
+    },
+  }),
+  conversationsByIdGetQueryKey: (options: { path: { assistant_id: string; id: string } }) => [
+    { _id: "conversationsByIdGet", path: options.path },
+  ],
 }));
 
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";

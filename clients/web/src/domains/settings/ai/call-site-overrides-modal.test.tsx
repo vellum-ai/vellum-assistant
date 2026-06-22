@@ -29,7 +29,6 @@ mock.module("@/stores/assistant-feature-flag-store", () => {
   const store = () => null;
   store.use = {
     analyzeConversation: () => flags.analyzeConversation ?? false,
-    queryComplexityRouting: () => false,
   };
   return { useAssistantFeatureFlagStore: store };
 });

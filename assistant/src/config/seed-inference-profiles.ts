@@ -136,17 +136,8 @@ const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   },
 };
 
-/**
- * The "auto" profile key. When active, the daemon injects the
- * `switch_inference_profile` tool and lets the model self-select a profile
- * per query. No provider/model — the resolver falls through to the call-site
- * default (balanced or custom-balanced for BYOK).
- */
-export const AUTO_PROFILE_KEY = "auto";
-
 export const MANAGED_PROFILE_NAMES = new Set([
   ...Object.keys(MANAGED_PROFILE_TEMPLATES),
-  AUTO_PROFILE_KEY,
 ]);
 
 export type SeedInferenceProfilesOptions = {
@@ -290,25 +281,6 @@ export function seedInferenceProfiles(
     profiles[name] = next as ProfileEntry;
   }
 
-  // 1b. Auto profile — a metadata-only profile with no provider/model. When
-  //     the user selects "Auto", the resolver falls through to the call-site
-  //     default (balanced or custom-balanced), and the agent loop injects the
-  //     switch_inference_profile tool so the model can self-select per query.
-  if (!preservedProfileNames.has(AUTO_PROFILE_KEY)) {
-    const previousAuto = readObject(profiles[AUTO_PROFILE_KEY]);
-    const autoEntry: Record<string, unknown> = {
-      source: "managed",
-      label: "Auto",
-      description:
-        "Automatically routes each query to the best profile — fast for simple questions, capable for complex ones",
-    };
-    if (previousAuto) {
-      if ("label" in previousAuto) autoEntry.label = previousAuto.label;
-      if ("status" in previousAuto) autoEntry.status = previousAuto.status;
-    }
-    profiles[AUTO_PROFILE_KEY] = autoEntry as ProfileEntry;
-  }
-
   // 2. User profiles — only at hatch time for off-platform installations.
   let userConnectionName: string | undefined;
   if (options.isHatch && !isPlatform) {
@@ -370,15 +342,10 @@ export function seedInferenceProfiles(
   }
 
   // Profile ordering — ensure all seeded profiles appear in the order array.
-  // "auto" is prepended so it appears first in the picker.
   const profileOrder = Array.isArray(llm.profileOrder)
     ? (llm.profileOrder as string[])
     : [];
   const orderSet = new Set(profileOrder);
-  if (!orderSet.has(AUTO_PROFILE_KEY)) {
-    profileOrder.unshift(AUTO_PROFILE_KEY);
-    orderSet.add(AUTO_PROFILE_KEY);
-  }
   for (const name of Object.keys(MANAGED_PROFILE_TEMPLATES)) {
     if (!orderSet.has(name)) {
       profileOrder.push(name);

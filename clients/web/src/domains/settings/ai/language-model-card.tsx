@@ -5,7 +5,6 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { captureError } from "@/lib/sentry/capture-error";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -17,8 +16,6 @@ import { CallSiteOverridesModal } from "@/domains/settings/ai/call-site-override
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";
 import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal";
 import {
-    AUTO_PROFILE_NAME,
-    gateAutoProfile,
     profilePickerLabel,
     visibleProfilesForPicker,
 } from "@/assistant/profile-pickers";
@@ -60,16 +57,10 @@ export function LanguageModelCard() {
   const [overridesOpen, setOverridesOpen] = useState(false);
   const [manageProvidersOpen, setManageProvidersOpen] = useState(false);
 
-  const queryComplexityRoutingEnabled =
-    useAssistantFeatureFlagStore.use.queryComplexityRouting();
-
   const defaultProfilePickerEntries = useMemo(
     () =>
-      gateAutoProfile(
-        visibleProfilesForPicker(orderedProfiles, [effectiveActiveProfile]),
-        queryComplexityRoutingEnabled,
-      ),
-    [orderedProfiles, effectiveActiveProfile, queryComplexityRoutingEnabled],
+      visibleProfilesForPicker(orderedProfiles, [effectiveActiveProfile]),
+    [orderedProfiles, effectiveActiveProfile],
   );
 
   const overrideCount = Object.entries(callSites).filter(
@@ -111,19 +102,9 @@ export function LanguageModelCard() {
               placeholder="Select a default profile…"
               options={defaultProfilePickerEntries.map((p) => ({
                 value: p.name,
-                label:
-                  p.name === AUTO_PROFILE_NAME
-                    ? "Automatically switch between profiles"
-                    : profilePickerLabel(p),
+                label: profilePickerLabel(p),
               }))}
             />
-            {queryComplexityRoutingEnabled && effectiveActiveProfile === AUTO_PROFILE_NAME && (
-              <div className="flex items-center gap-2 rounded-lg bg-[var(--surface-warning-subtle)] px-3 py-2">
-                <span className="text-body-small-default text-[var(--content-warning)]">
-                  Auto may use more powerful models when needed, which can increase costs.
-                </span>
-              </div>
-            )}
             {defaultProfilePickerEntries.length === 0 ? (
               <Typography
                 variant="body-small-default"

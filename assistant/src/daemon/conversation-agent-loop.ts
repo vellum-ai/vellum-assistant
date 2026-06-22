@@ -71,7 +71,6 @@ import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
-import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import type { ActivationMomentParam } from "../telemetry/activation-funnel.js";
@@ -289,18 +288,11 @@ export async function runAgentLoopImpl(
 
   const config = getConfig();
 
-  // Tool-based auto-routing: the switch_inference_profile tool lets the model
-  // self-select a different profile mid-turn. Reset the per-turn slot so a
-  // stale selection from a previous turn doesn't leak forward.
-  ctx.toolRoutedProfile = undefined;
-
   const turnOverrideProfile = userExplicitOverride;
   const forceOverrideProfile = options?.forceOverrideProfile === true;
 
   const readCurrentOverrideProfile = (): string | undefined =>
-    options?.overrideProfile ??
-    resolveOverrideProfile(ctx) ??
-    ctx.toolRoutedProfile;
+    options?.overrideProfile ?? resolveOverrideProfile(ctx);
 
   const effectiveContextWindow = resolveEffectiveContextWindow({
     llm: config.llm,
@@ -322,7 +314,6 @@ export async function runAgentLoopImpl(
   ctx.contextWindowManager.updateConfig(currentContextWindowConfig);
 
   let appliedOverrideProfile = turnOverrideProfile;
-  let emittedToolRoutedProfile: string | undefined;
   const refreshCurrentProfileState = (): string | undefined => {
     const currentOverrideProfile = readCurrentOverrideProfile();
     if (currentOverrideProfile !== appliedOverrideProfile) {
@@ -347,23 +338,6 @@ export async function runAgentLoopImpl(
         { overrideProfile: currentOverrideProfile ?? null },
         "Turn inference profile changed mid-loop",
       );
-    }
-
-    // Emit turn_profile_auto_routed when the tool-based router selects a
-    // new profile. Deduplicated so the event fires at most once per profile.
-    if (
-      ctx.toolRoutedProfile &&
-      ctx.toolRoutedProfile !== emittedToolRoutedProfile
-    ) {
-      emittedToolRoutedProfile = ctx.toolRoutedProfile;
-      const profileEntry = config.llm.profiles?.[ctx.toolRoutedProfile];
-      const label = profileEntry?.label ?? ctx.toolRoutedProfile;
-      broadcastMessage({
-        type: "turn_profile_auto_routed",
-        conversationId: ctx.conversationId,
-        profile: ctx.toolRoutedProfile,
-        profileLabel: label,
-      });
     }
 
     ctx.currentTurnOverrideProfile = currentOverrideProfile;

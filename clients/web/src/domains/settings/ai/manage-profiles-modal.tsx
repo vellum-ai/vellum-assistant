@@ -1,7 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 
 import { captureError } from "@/lib/sentry/capture-error";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
@@ -15,7 +14,6 @@ import type { BlockedDeleteState } from "@/domains/settings/ai/manage-profiles-b
 import { BlockedDeleteModal } from "@/domains/settings/ai/manage-profiles-blocked-delete-modal";
 import { ProfileListItem } from "@/domains/settings/ai/manage-profiles-list-item";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
-import { gateAutoProfile } from "@/assistant/profile-pickers";
 import { configGetOptions, configGetSetQueryData, inferenceProviderconnectionsGetOptions, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 
 // ---------------------------------------------------------------------------
@@ -242,12 +240,10 @@ function ManageProfilesModalInner({
   const [blockedDeleteReplacement, setBlockedDeleteReplacement] = useState("");
   const [blockedDeleteSaving, setBlockedDeleteSaving] = useState(false);
 
-  const queryComplexityRouting = useAssistantFeatureFlagStore.use.queryComplexityRouting();
-
   // Build ordered profile list
   const allOrderedProfiles: ProfileWithName[] = useMemo(() => {
-    return gateAutoProfile(orderedProfiles, queryComplexityRouting);
-  }, [orderedProfiles, queryComplexityRouting]);
+    return orderedProfiles;
+  }, [orderedProfiles]);
 
   async function handleStatusToggle(
     profile: ProfileWithName,

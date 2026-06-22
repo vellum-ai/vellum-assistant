@@ -70,7 +70,6 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 mock.module("@/stores/assistant-feature-flag-store", () => {
   const store = () => null;
   store.use = {
-    queryComplexityRouting: () => false,
   };
   return { useAssistantFeatureFlagStore: store };
 });

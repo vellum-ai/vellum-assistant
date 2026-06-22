@@ -2,10 +2,9 @@
  * Transcript data derivation — sanitises messages and projects them into
  * the flat `TranscriptItem[]` list the virtualised transcript renders.
  *
- * Reads messages from `useChatSessionStore`, interaction prompts from
- * `useInteractionStore`, and the auto-routed profile label from
- * `useTurnStore`. UI-level flags (`showThinking`, `thinkingLabel`) are
- * received as parameters from the caller's `useChatUIState` result to
+ * Reads messages from `useChatSessionStore` and interaction prompts from
+ * `useInteractionStore`. UI-level flags (`showThinking`, `thinkingLabel`)
+ * are received as parameters from the caller's `useChatUIState` result to
  * avoid duplicating that hook's memoisation chain.
  *
  * @see buildTranscriptItems for the projection rules.
@@ -16,7 +15,6 @@ import { useMemo } from "react";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import { useTurnStore } from "@/domains/chat/turn-store";
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages";
@@ -56,8 +54,6 @@ export function useTranscriptData({
   const pendingSecret = useInteractionStore.use.pendingSecret();
   const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
   const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
-
-  const autoRoutedProfileLabel = useTurnStore.use.autoRoutedProfileLabel();
 
   // --- Sanitise -----------------------------------------------------------
   const sanitizedMessages = useMemo(
@@ -105,7 +101,6 @@ export function useTranscriptData({
           : null,
         isThinking: showThinking,
         thinkingLabel,
-        autoRoutedProfileLabel,
         ephemeralMetaResults,
         showOnboardingChoice,
       }),
@@ -117,7 +112,6 @@ export function useTranscriptData({
       pendingContactRequest,
       showThinking,
       thinkingLabel,
-      autoRoutedProfileLabel,
       ephemeralMetaResults,
       showOnboardingChoice,
     ],

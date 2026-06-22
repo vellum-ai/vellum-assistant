@@ -22,7 +22,6 @@ import { INFERENCE_PROVIDERS } from "@/domains/settings/ai/constants";
 import { CUSTOM_SENTINEL, draftsEqual, isDraftActive } from "@/domains/settings/ai/call-site-helpers";
 import { CallSiteOverrideRow } from "@/domains/settings/ai/call-site-overrides-row";
 import {
-    gateAutoProfile,
     profilePickerLabel,
     selectSeedProfileForOverride,
     visibleProfilesForPicker,
@@ -202,15 +201,11 @@ function CallSiteOverridesModalInner({
     [drafts],
   );
 
-  const queryComplexityRoutingEnabled =
-    useAssistantFeatureFlagStore.use.queryComplexityRouting();
-
   const buildProfileOptionsForRow = useCallback(
     (selectedProfile: string | null) => {
-      const visible = gateAutoProfile(
-        visibleProfilesForPicker(orderedProfiles, [selectedProfile]),
-        queryComplexityRoutingEnabled,
-      );
+      const visible = visibleProfilesForPicker(orderedProfiles, [
+        selectedProfile,
+      ]);
       return [
         ...visible.map((p) => ({
           value: p.name,
@@ -219,7 +214,7 @@ function CallSiteOverridesModalInner({
         { value: CUSTOM_SENTINEL, label: "Custom" },
       ];
     },
-    [orderedProfiles, queryComplexityRoutingEnabled],
+    [orderedProfiles],
   );
 
   const filteredCallSites = useMemo(() => {
@@ -278,7 +273,6 @@ function CallSiteOverridesModalInner({
       const seedProfile = selectSeedProfileForOverride(
         orderedProfiles,
         cs?.defaultProfile,
-        queryComplexityRoutingEnabled,
       );
       if (seedProfile) {
         setDraftEdits((prev) => ({ ...prev, [id]: { profile: seedProfile } }));
@@ -291,7 +285,7 @@ function CallSiteOverridesModalInner({
         }));
       }
     },
-    [gatedCallSites, orderedProfiles, queryComplexityRoutingEnabled],
+    [gatedCallSites, orderedProfiles],
   );
 
   // ---------------------------------------------------------------------------

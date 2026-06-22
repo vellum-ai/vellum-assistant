@@ -60,13 +60,6 @@ export interface TurnState {
    * unified tool-call card selector hook (`useToolCallCardData`).
    */
   liveWebActivity: Record<string, ToolActivityMetadata>;
-  /**
-   * Human-readable label of the inference profile the daemon auto-routed
-   * to for the current turn (e.g. "Claude Sonnet" when tool-based routing
-   * selects a different model). Set by `turn_profile_auto_routed` SSE
-   * events. Cleared on every terminal transition.
-   */
-  autoRoutedProfileLabel: string | null;
 }
 
 export const INITIAL_TURN_STATE: TurnState = {
@@ -77,7 +70,6 @@ export const INITIAL_TURN_STATE: TurnState = {
   lastTerminalReason: null,
   statusText: null,
   liveWebActivity: {},
-  autoRoutedProfileLabel: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -210,11 +202,6 @@ export interface MessageDequeued {
   type: "MESSAGE_DEQUEUED";
 }
 
-export interface ProfileAutoRouted {
-  type: "PROFILE_AUTO_ROUTED";
-  profileLabel: string;
-}
-
 export interface MessageQueuedDeleted {
   type: "MESSAGE_QUEUED_DELETED";
 }
@@ -243,7 +230,6 @@ export type DomainEvent =
   | PollReconciled
   | TurnTimeout
   | TurnReset
-  | ProfileAutoRouted
   | MessageQueued
   | MessageDequeued
   | MessageQueuedDeleted;
@@ -279,7 +265,6 @@ export interface TurnActions {
   onPollReconciled: (turnId?: string) => void;
   onTurnTimeout: () => void;
   resetTurn: () => void;
-  onProfileAutoRouted: (profileLabel: string) => void;
   enqueueMessage: () => void;
   dequeueMessage: () => void;
   deleteQueuedMessage: () => void;
@@ -472,7 +457,6 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
       lastTerminalReason: "complete",
       statusText: null,
       liveWebActivity: {},
-      autoRoutedProfileLabel: null,
     });
   },
 
@@ -493,7 +477,6 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
       lastTerminalReason: "cancelled",
       statusText: null,
       liveWebActivity: {},
-      autoRoutedProfileLabel: null,
     });
   },
 
@@ -506,7 +489,6 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
       lastTerminalReason: "error",
       statusText: null,
       liveWebActivity: {},
-      autoRoutedProfileLabel: null,
     }),
 
   onSessionError: () =>
@@ -518,7 +500,6 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
       lastTerminalReason: "session_error",
       statusText: null,
       liveWebActivity: {},
-      autoRoutedProfileLabel: null,
     }),
 
   onTurnTimeout: () =>
@@ -530,7 +511,6 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
       lastTerminalReason: "timeout",
       statusText: null,
       liveWebActivity: {},
-      autoRoutedProfileLabel: null,
     }),
 
   // ----- Reconciliation -----
@@ -550,20 +530,12 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
       lastTerminalReason: "complete",
       statusText: null,
       liveWebActivity: {},
-      autoRoutedProfileLabel: null,
     });
   },
 
   // ----- Hard reset -----
 
   resetTurn: () => set({ ...INITIAL_TURN_STATE }),
-
-  // ----- Profile auto-routing -----
-
-  onProfileAutoRouted: (profileLabel) => {
-    if (isStale(get())) return;
-    set({ autoRoutedProfileLabel: profileLabel });
-  },
 
   // ----- Queue management -----
 
@@ -593,7 +565,6 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
         lastTerminalReason: "complete",
         statusText: null,
         liveWebActivity: {},
-        autoRoutedProfileLabel: null,
       });
       return;
     }
@@ -709,10 +680,6 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
       if (isStale(state)) return state;
       return { ...state, phase: "awaiting_user_input" };
 
-    case "PROFILE_AUTO_ROUTED":
-      if (isStale(state)) return state;
-      return { ...state, autoRoutedProfileLabel: event.profileLabel };
-
     case "MESSAGE_QUEUED":
       return {
         ...state,
@@ -743,7 +710,6 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
           lastTerminalReason: "complete",
           statusText: null,
           liveWebActivity: {},
-          autoRoutedProfileLabel: null,
         };
       }
       return { ...state, pendingQueuedCount: nextCount };
@@ -759,7 +725,6 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
           lastTerminalReason: "complete",
           statusText: null,
           liveWebActivity: {},
-          autoRoutedProfileLabel: null,
         };
       }
       return {
@@ -770,7 +735,6 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
         lastTerminalReason: "complete",
         statusText: null,
         liveWebActivity: {},
-        autoRoutedProfileLabel: null,
       };
 
     case "GENERATION_HANDOFF":
@@ -791,7 +755,6 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
           lastTerminalReason: "cancelled",
           statusText: null,
           liveWebActivity: {},
-          autoRoutedProfileLabel: null,
         };
       }
       return {
@@ -802,7 +765,6 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
         lastTerminalReason: "cancelled",
         statusText: null,
         liveWebActivity: {},
-        autoRoutedProfileLabel: null,
       };
 
     case "STREAM_ERROR":
@@ -815,7 +777,6 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
         lastTerminalReason: "error",
         statusText: null,
         liveWebActivity: {},
-        autoRoutedProfileLabel: null,
       };
 
     case "SESSION_ERROR":
@@ -828,7 +789,6 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
         lastTerminalReason: "session_error",
         statusText: null,
         liveWebActivity: {},
-        autoRoutedProfileLabel: null,
       };
 
     case "POLL_RECONCILED": {
@@ -845,7 +805,6 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
           lastTerminalReason: "complete",
           statusText: null,
           liveWebActivity: {},
-          autoRoutedProfileLabel: null,
         };
       }
       return {
@@ -856,7 +815,6 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
         lastTerminalReason: "complete",
         statusText: null,
         liveWebActivity: {},
-        autoRoutedProfileLabel: null,
       };
     }
 
@@ -870,7 +828,6 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
         lastTerminalReason: "timeout",
         statusText: null,
         liveWebActivity: {},
-        autoRoutedProfileLabel: null,
       };
 
     case "TURN_RESET":

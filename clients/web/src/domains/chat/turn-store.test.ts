@@ -955,7 +955,6 @@ describe("TURN_RESET", () => {
       lastTerminalReason: "error",
       statusText: null,
       liveWebActivity: {},
-      autoRoutedProfileLabel: null,
     };
     const state = turnReducer(dirty, { type: "TURN_RESET" });
     expect(state).toEqual(INITIAL_TURN_STATE);
