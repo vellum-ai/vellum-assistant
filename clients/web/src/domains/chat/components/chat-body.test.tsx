@@ -51,12 +51,6 @@ mock.module(
   }),
 );
 
-mock.module(
-  "@/domains/chat/components/chat-composer/chat-composer",
-  () => ({
-    ChatComposer: () => <div data-testid="composer">COMPOSER</div>,
-  }),
-);
 
 mock.module("@vellumai/design-library", () => ({
   Button: ({
@@ -112,7 +106,8 @@ function baseProps(
       transcriptRef: null,
       transcriptProps: { messages: [], onScrollToMessage: noop } as never,
     },
-    composerProps: {} as never,
+    composerSlot: <div data-testid="composer">COMPOSER</div>,
+    onStopGenerating: noop,
     dragHandlers: {
       onDragEnter: noopDrag,
       onDragOver: noopDrag,
@@ -232,7 +227,6 @@ describe("ChatBody — read-only cancellation", () => {
       <ChatBody
         {...baseProps({
           isChannelReadonly: true,
-          composerProps: { onStopGenerating: noop } as never,
         })}
       />,
     );
@@ -248,7 +242,6 @@ describe("ChatBody — read-only cancellation", () => {
         {...baseProps({
           isChannelReadonly: true,
           canStopGenerating: true,
-          composerProps: { onStopGenerating: noop } as never,
         })}
       />,
     );

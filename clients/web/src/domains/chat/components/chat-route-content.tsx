@@ -30,8 +30,9 @@ import { useChatBannerSlots } from "@/domains/chat/hooks/use-chat-banner-slots";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
-import { useComposerStore, selectUploadingCount, selectUploadedIds } from "@/domains/chat/composer-store";
+import { useComposerStore } from "@/domains/chat/composer-store";
 import { ChatBody } from "@/domains/chat/components/chat-body";
+import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
 import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-modal";
 import { ComposerNotices } from "@/domains/chat/components/composer-notices";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
@@ -47,7 +48,7 @@ import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
 import { useIsNativePlatform } from "@/runtime/native-auth";
-import { Button, Notice } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library";
 import { Link, useLocation, useNavigate } from "react-router";
 import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
@@ -181,23 +182,12 @@ export function ChatMainPanel({
   const isChannelReadonly = isChannelConversation(activeConversation);
 
   // -------------------------------------------------------------------------
-  // Store reads — composer
-  // -------------------------------------------------------------------------
-  // Draft text is subscribed by `ChatComposer` itself (atomic selector) so a
-  // keystroke doesn't re-render this orchestrator or the transcript. The only
-  // thing this component needs from the draft is whether it's non-empty, which
-  // flips at most once per typing session — read it as its own narrow slice.
-  const composerHasText = useComposerStore((s) => s.input.trim().length > 0);
-  const restoredDraftConversationId = useComposerStore.use.restoredDraftConversationId();
-  const chatAttachments = useComposerStore.use.attachments();
-  const attachmentLastError = useComposerStore.use.attachmentLastError();
-  const removeChatAttachment = useComposerStore.use.removeAttachment();
-  const dismissChatAttachmentError = useComposerStore.use.dismissAttachmentError();
-  const attachmentsUploadingCount = useMemo(() => selectUploadingCount(chatAttachments), [chatAttachments]);
-  const attachmentUploadedIds = useMemo(() => selectUploadedIds(chatAttachments), [chatAttachments]);
-
-  // -------------------------------------------------------------------------
-  // Store reads — identity, lifecycle, feature flags
+  // Composer — `ChatComposer` and `ComposerDraftNotices` self-source every
+  // composer-store slice they render (draft text, attachments, draft notices),
+  // so this orchestrator subscribes to NONE of it: typing or attaching never
+  // re-renders the transcript. The only composer-store touch left here is the
+  // vision-gated *write* below (queueing dropped/attached files), which depends
+  // on the active model and so can't move into the composer.
   // -------------------------------------------------------------------------
   const addChatAttachmentFiles = useCallback(
     (files: FileList | File[]) => useComposerStore.getState().addFiles(files, assistantId),
@@ -477,9 +467,6 @@ export function ChatMainPanel({
       />
     ) : null;
 
-  const canSendAttachments =
-    attachmentsUploadingCount === 0 && attachmentUploadedIds.length > 0;
-
   // While a conversation's row hasn't loaded (a draft, or one opened by URL
   // mid-load), its profile lives in the composer stash, not on a server row —
   // feed it in so attachment/vision gating reflects the profile the first
@@ -496,14 +483,6 @@ export function ChatMainPanel({
   );
   const activeModelSupportsVision = activeProfileModel?.supportsVision ?? true;
   const visionGateActive = useVisionAttachmentGate();
-
-  const showUploadBlockedNotice =
-    attachmentsUploadingCount > 0 &&
-    (composerHasText || attachmentUploadedIds.length > 0);
-
-  const showRestoredDraftNotice =
-    restoredDraftConversationId !== null &&
-    restoredDraftConversationId === activeConversationId;
 
   const isInMaintenanceWithNoMessages =
     !isLoadingHistory &&
@@ -579,26 +558,6 @@ export function ChatMainPanel({
   const handleScrollToLatest = useCallback(() => {
     scrollCoordinator.scrollToLatest({ behavior: "smooth" });
   }, [scrollCoordinator]);
-
-  // -------------------------------------------------------------------------
-  // Draft notice auto-dismiss
-  // -------------------------------------------------------------------------
-  useEffect(() => {
-    if (!showRestoredDraftNotice) return;
-    const id = window.setTimeout(() => {
-      useComposerStore.getState().clearRestoredDraftNotice();
-    }, 5000);
-    return () => window.clearTimeout(id);
-  }, [showRestoredDraftNotice]);
-
-  useEffect(() => {
-    if (
-      restoredDraftConversationId !== null &&
-      restoredDraftConversationId !== activeConversationId
-    ) {
-      useComposerStore.getState().clearRestoredDraftNotice();
-    }
-  }, [activeConversationId, restoredDraftConversationId]);
 
   // -------------------------------------------------------------------------
   // Composer submit (extracted hook — fixes fake FormEvent pattern)
@@ -681,30 +640,6 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // JSX construction
   // -------------------------------------------------------------------------
-  const textStateNoticesJsx = (
-    <>
-      {showUploadBlockedNotice && (
-        <div className="mb-2">
-          <Notice tone="info">
-            {attachmentsUploadingCount === 1
-              ? "Waiting for the attachment to finish uploading before sending."
-              : `Waiting for ${attachmentsUploadingCount} attachments to finish uploading before sending.`}
-          </Notice>
-        </div>
-      )}
-      {showRestoredDraftNotice && (
-        <div className="mb-2">
-          <Notice
-            tone="info"
-            onDismiss={() => useComposerStore.getState().clearRestoredDraftNotice()}
-          >
-            Draft restored from your previous session.
-          </Notice>
-        </div>
-      )}
-    </>
-  );
-
   const chatTranscriptProps: TranscriptProps = {
     items: transcriptItems,
     conversationId: activeConversationId,
@@ -734,90 +669,92 @@ export function ChatMainPanel({
     renderOnboardingChoice,
   };
 
-  const sharedComposerNoticeProps = {
-    billingBannerSlot: billingBannerDecision === "managed_credits"
-      ? <CreditsExhaustedBanner onAddFunds={() => setShowAddCreditsModal(true)} />
-      : billingBannerDecision === "provider_billing"
-      ? <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
-      : null,
-    diskPressureBanner: diskPressureBannerSlot,
-    showMissingApiKeyBanner:
-      error?.code === "PROVIDER_NOT_CONFIGURED" ||
-      error?.code === "MANAGED_KEY_INVALID",
-    onOpenAiSettings: pushToAiSettings,
-    onDismissApiKeyError: handleDismissApiKeyError,
-    compactionCircuitOpenUntil,
-    onCompactionCircuitExpired: handleCompactionCircuitExpired,
-    showMaintenanceBanner:
-      assistantState.kind === "active" &&
-      assistantState.maintenanceMode?.enabled === true,
-    showMaintenanceExitAction: !statusBannerVisible,
-    assistantId,
-    onMaintenanceExited: handleMaintenanceExited,
-  };
-
   const cmdEnterMode = cmdEnterToSend.useValue();
 
-  const chatBodyComposerProps = {
-    cmdEnterMode,
-    placeholder: isEmptyConversation
-      ? emptyStatePlaceholder
-      : "What would you like to do?",
-    onSubmit: handleFormSubmit,
-    inputRef,
-    typingDisabled,
-    sendDisabled,
-    attachmentsUploadingCount,
-    canSendAttachments,
-    chatAttachments,
-    onAddAttachmentFiles: handleDroppedFiles,
-    onRemoveAttachment: removeChatAttachment,
-    voiceInputRef,
-    voiceInterim: voiceInterim ?? undefined,
-    onVoiceTranscript: handleVoiceTranscript,
-    onVoiceInterimTranscript: setVoiceInterim,
-    onVoiceError: setVoiceError,
-    onVoiceBeforeStart: handleVoiceBeforeStart,
-    onStopGenerating: handleStopGenerating,
-    canStopGenerating,
-    assistantId,
-    conversationId: activeConversation?.conversationId,
-    onRecallLastMessage: isIdle ? handleRecallLastMessage : undefined,
-    onCancelEdit: isEditing ? handleCancelEdit : undefined,
-    textareaMaxHeightPx: isEmptyConversation ? 320 : undefined,
-    thresholdPickerSlot: assistantId ? (
-      <ComposerSettingsMenu
-        assistantId={assistantId}
-        conversationId={activeConversation?.conversationId}
-      />
-    ) : undefined,
-    contextWindowIndicatorSlot: (
-      <ContextWindowIndicator
-        usage={contextWindowUsage}
-        assistantName={assistantName}
-        onClearContext={
-          activeConversation?.conversationId && !sendDisabled
-            ? handleClearContext
-            : undefined
-        }
-      />
-    ),
-    noticesAboveFormSlot: (
-      <ComposerNotices
-        {...sharedComposerNoticeProps}
-        attachmentLastError={attachmentLastError}
-        onDismissAttachmentError={dismissChatAttachmentError}
-        voiceError={voiceError}
-        onClearVoiceError={clearVoiceError}
-        onRetryMicPermission={handleRetryMicPermission}
-        onOpenMicSettings={handleOpenMicSettings}
-        onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
-        textStateNoticesSlot={textStateNoticesJsx}
-      />
-    ),
-    suggestion,
-    hasBillingBanner: billingBannerDecision !== null,
-  };
+  // Explicit props (no spread bundle): the contract is visible here, and the
+  // composer self-sources its own store state, so nothing high-frequency is
+  // threaded through. `ChatBody` renders this node as-is.
+  const composerNode = (
+    <ChatComposer
+      cmdEnterMode={cmdEnterMode}
+      placeholder={
+        isEmptyConversation ? emptyStatePlaceholder : "What would you like to do?"
+      }
+      onSubmit={handleFormSubmit}
+      inputRef={inputRef}
+      typingDisabled={typingDisabled}
+      sendDisabled={sendDisabled}
+      onAddAttachmentFiles={handleDroppedFiles}
+      voiceInputRef={voiceInputRef}
+      voiceInterim={voiceInterim ?? undefined}
+      onVoiceTranscript={handleVoiceTranscript}
+      onVoiceInterimTranscript={setVoiceInterim}
+      onVoiceError={setVoiceError}
+      onVoiceBeforeStart={handleVoiceBeforeStart}
+      onStopGenerating={handleStopGenerating}
+      canStopGenerating={canStopGenerating}
+      assistantId={assistantId}
+      conversationId={activeConversation?.conversationId}
+      onRecallLastMessage={isIdle ? handleRecallLastMessage : undefined}
+      onCancelEdit={isEditing ? handleCancelEdit : undefined}
+      textareaMaxHeightPx={isEmptyConversation ? 320 : undefined}
+      suggestion={suggestion}
+      hasBillingBanner={billingBannerDecision !== null}
+      thresholdPickerSlot={
+        assistantId ? (
+          <ComposerSettingsMenu
+            assistantId={assistantId}
+            conversationId={activeConversation?.conversationId}
+          />
+        ) : undefined
+      }
+      contextWindowIndicatorSlot={
+        <ContextWindowIndicator
+          usage={contextWindowUsage}
+          assistantName={assistantName}
+          onClearContext={
+            activeConversation?.conversationId && !sendDisabled
+              ? handleClearContext
+              : undefined
+          }
+        />
+      }
+      noticesAboveFormSlot={
+        <ComposerNotices
+          voiceError={voiceError}
+          onClearVoiceError={clearVoiceError}
+          onRetryMicPermission={handleRetryMicPermission}
+          onOpenMicSettings={handleOpenMicSettings}
+          onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
+          billingBannerSlot={
+            billingBannerDecision === "managed_credits" ? (
+              <CreditsExhaustedBanner
+                onAddFunds={() => setShowAddCreditsModal(true)}
+              />
+            ) : billingBannerDecision === "provider_billing" ? (
+              <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
+            ) : null
+          }
+          diskPressureBanner={diskPressureBannerSlot}
+          showMissingApiKeyBanner={
+            error?.code === "PROVIDER_NOT_CONFIGURED" ||
+            error?.code === "MANAGED_KEY_INVALID"
+          }
+          onOpenAiSettings={pushToAiSettings}
+          onDismissApiKeyError={handleDismissApiKeyError}
+          compactionCircuitOpenUntil={compactionCircuitOpenUntil}
+          onCompactionCircuitExpired={handleCompactionCircuitExpired}
+          showMaintenanceBanner={
+            assistantState.kind === "active" &&
+            assistantState.maintenanceMode?.enabled === true
+          }
+          showMaintenanceExitAction={!statusBannerVisible}
+          assistantId={assistantId}
+          onMaintenanceExited={handleMaintenanceExited}
+        />
+      }
+    />
+  );
 
   const chatBodyScrollAreaPropsBase = {
     isLoadingHistory,
@@ -843,7 +780,8 @@ export function ChatMainPanel({
           ...chatBodyScrollAreaPropsBase,
           showMaintenanceRecoveryCard: isSidePanel ? false : isInMaintenanceWithNoMessages,
         }}
-        composerProps={chatBodyComposerProps}
+        composerSlot={composerNode}
+        onStopGenerating={handleStopGenerating}
         dragHandlers={attachmentDropHandlers}
         isAttachmentDragOver={isAttachmentDragOver}
         showScrollToLatest={

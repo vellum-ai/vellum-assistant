@@ -2,7 +2,6 @@ import { type DragEventHandler, type ReactNode } from "react";
 
 import { Eye, Paperclip, Square } from "lucide-react";
 
-import { ChatComposer, type ChatComposerProps } from "@/domains/chat/components/chat-composer/chat-composer";
 import { QuestionPromptSlot } from "@/domains/chat/components/question-prompt-slot";
 import { ChatScrollArea, type ChatScrollAreaProps } from "@/domains/chat/components/chat-scroll-area";
 import { ScrollToLatestButton } from "@/domains/chat/components/scroll-to-latest-button";
@@ -60,8 +59,18 @@ export interface ChatBodyProps {
   /** Props forwarded to {@link ChatScrollArea}. */
   scrollAreaProps: ChatScrollAreaProps;
 
-  /** Props forwarded to {@link ChatComposer}. */
-  composerProps: ChatComposerProps;
+  /**
+   * The composer element to render below the scroll area. The orchestrator
+   * builds `<ChatComposer …/>` with explicit props and passes it as a node;
+   * `ChatBody` only positions it (and swaps it for the read-only banner).
+   */
+  composerSlot: ReactNode;
+  /**
+   * Stop-generation handler for the read-only banner's cancel control. In
+   * read-only conversations the composer is replaced by the banner, so this is
+   * passed alongside {@link composerSlot} rather than read off it.
+   */
+  onStopGenerating: () => void;
 
   /** Drag handlers attached to the outer container for attachment drag-and-drop. */
   dragHandlers: ChatBodyDragHandlers;
@@ -164,7 +173,8 @@ function ChatReadonlyBanner({
 export function ChatBody({
   variant,
   scrollAreaProps,
-  composerProps,
+  composerSlot,
+  onStopGenerating,
   dragHandlers,
   isAttachmentDragOver,
   showScrollToLatest,
@@ -263,7 +273,7 @@ export function ChatBody({
                   <Button
                     variant="primary"
                     iconOnly={<Square className="h-3 w-3" fill="currentColor" />}
-                    onClick={composerProps.onStopGenerating}
+                    onClick={onStopGenerating}
                     aria-label="Stop generating"
                     title="Stop generation"
                   />
@@ -272,11 +282,11 @@ export function ChatBody({
             ) : (
               <ChatReadonlyBanner
                 canStopGenerating={canStopGenerating}
-                onStopGenerating={composerProps.onStopGenerating}
+                onStopGenerating={onStopGenerating}
               />
             )
           ) : (
-            <ChatComposer {...composerProps} />
+            composerSlot
           )}
           {startersSlot}
         </div>

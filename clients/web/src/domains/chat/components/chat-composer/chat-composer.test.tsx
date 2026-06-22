@@ -402,18 +402,72 @@ describe("computeGhostSuffix", () => {
 afterEach(cleanup);
 beforeEach(() => {
   resetLiveVoiceMocks();
-  // The composer reads its draft from the store; clear it between tests so a
-  // seeded value can't leak across cases.
-  useComposerStore.setState({ input: "" });
+  // The composer self-sources its draft + attachments from the store; reset
+  // them between tests so seeded values can't leak across cases.
+  useComposerStore.setState({
+    input: "",
+    attachments: [],
+    attachmentLastError: null,
+    restoredDraftConversationId: null,
+  });
 });
 
+/**
+ * Build a composer-store `attachments` array from the test's intent. The
+ * composer derives uploading-count and can-send from the real list, so seeding
+ * the list exercises the real derivation rather than injecting the booleans.
+ */
+function seedAttachments(
+  uploadingCount = 0,
+  canSend = false,
+): ChatAttachment[] {
+  const list: ChatAttachment[] = [];
+  for (let i = 0; i < uploadingCount; i++) {
+    list.push({
+      kind: "uploading",
+      localId: `uploading-${i}`,
+      filename: "file",
+      mimeType: "text/plain",
+      sizeBytes: 1,
+    });
+  }
+  if (canSend) {
+    list.push({
+      kind: "uploaded",
+      localId: "uploaded-0",
+      id: "att-id-0",
+      filename: "file",
+      mimeType: "text/plain",
+      sizeBytes: 1,
+      previewUrl: null,
+    });
+  }
+  return list;
+}
+
 function renderComposer(
-  props: Partial<Parameters<typeof ChatComposer>[0]> & { input?: string } = {},
+  props: Partial<Parameters<typeof ChatComposer>[0]> & {
+    input?: string;
+    chatAttachments?: ChatAttachment[];
+    attachmentsUploadingCount?: number;
+    canSendAttachments?: boolean;
+  } = {},
 ) {
-  // The composer self-sources its draft from the store, so seed it there
-  // rather than passing it as a prop.
-  const { input = "", ...rest } = props;
-  useComposerStore.setState({ input });
+  // The composer self-sources its draft + attachments from the store, so seed
+  // them there rather than passing them as props.
+  const {
+    input = "",
+    chatAttachments,
+    attachmentsUploadingCount,
+    canSendAttachments,
+    ...rest
+  } = props;
+  useComposerStore.setState({
+    input,
+    attachments:
+      chatAttachments ??
+      seedAttachments(attachmentsUploadingCount, canSendAttachments),
+  });
   const { container } = render(
     <ChatComposer
       placeholder="Custom placeholder"
@@ -421,11 +475,7 @@ function renderComposer(
       inputRef={createRef<HTMLTextAreaElement>()}
       typingDisabled={false}
       sendDisabled={false}
-      attachmentsUploadingCount={0}
-      canSendAttachments={false}
-      chatAttachments={[]}
       onAddAttachmentFiles={() => {}}
-      onRemoveAttachment={() => {}}
       onStopGenerating={() => {}}
       canStopGenerating={false}
       assistantId="asst_test"
@@ -654,18 +704,14 @@ function renderVoiceComposer(
   props: Partial<Parameters<typeof ChatComposer>[0]> & { input?: string } = {},
 ) {
   const { input = "", ...rest } = props;
-  useComposerStore.setState({ input });
+  useComposerStore.setState({ input, attachments: [] });
   return render(
     <ChatComposer
       onSubmit={() => {}}
       inputRef={createRef<HTMLTextAreaElement>()}
       typingDisabled={false}
       sendDisabled={false}
-      attachmentsUploadingCount={0}
-      canSendAttachments={false}
-      chatAttachments={[]}
       onAddAttachmentFiles={() => {}}
-      onRemoveAttachment={() => {}}
       onStopGenerating={() => {}}
       canStopGenerating={false}
       assistantId="asst_test"
