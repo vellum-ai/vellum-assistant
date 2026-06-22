@@ -136,8 +136,6 @@ function McpPageInner() {
       name: string;
       defaultRiskLevel?: string;
       maxTools?: number;
-      allowedTools?: string[] | null;
-      blockedTools?: string[] | null;
     }) => {
       setIsSaving(true);
       try {

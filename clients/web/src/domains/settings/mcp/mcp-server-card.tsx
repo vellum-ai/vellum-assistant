@@ -13,6 +13,7 @@ import { useCallback, useState } from "react";
 import type { McpServerEntry, McpToolsSummaryServer } from "./mcp-api";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
+import { SkillRow } from "@vellumai/design-library/components/skill-row";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 const STATUS_CONFIG: Record<string, { icon: typeof CheckCircle2; label: string; className: string }> = {
@@ -142,20 +143,18 @@ export function McpServerCard({
             {toolsExpanded ? (
               <div className="mt-2 max-h-60 space-y-1 overflow-y-auto">
                 {toolsSummary.tools.map((tool) => (
-                  <div
+                  <SkillRow
                     key={tool.name}
-                    className="flex items-center justify-between rounded px-2 py-1 text-body-small-default hover:bg-[var(--ghost-hover)]"
-                  >
-                    <div className="min-w-0 flex-1">
+                    title={
                       <span className="font-medium text-[var(--content-default)]">{tool.name}</span>
-                      {tool.description ? (
-                        <p className="truncate text-[var(--content-tertiary)]">{tool.description}</p>
-                      ) : null}
-                    </div>
-                    <span className="shrink-0 text-[var(--content-tertiary)]">
-                      ~{tool.estimatedTokens.toLocaleString()} tok
-                    </span>
-                  </div>
+                    }
+                    subtitle={tool.description || undefined}
+                    action={
+                      <span className="whitespace-nowrap text-body-small-default text-[var(--content-tertiary)]">
+                        ~{tool.estimatedTokens.toLocaleString()} tok
+                      </span>
+                    }
+                  />
                 ))}
               </div>
             ) : null}
