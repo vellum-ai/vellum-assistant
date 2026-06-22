@@ -176,13 +176,11 @@ const contactSchema = z.object({
 async function relayListContacts(
   limit: number,
   role: ContactRole | undefined,
-  contactType: ContactType | undefined,
 ) {
   try {
     const result = await ipcCallPersistent("contacts_list_rich", {
       limit,
       ...(role ? { role } : {}),
-      ...(contactType ? { contactType } : {}),
     });
     const { contacts } = ListContactsIpcResponseSchema.parse(result);
     return {
@@ -194,7 +192,7 @@ async function relayListContacts(
       { err },
       "relayListContacts: gateway relay failed; falling back to assistant DB",
     );
-    const contacts = listContacts(limit, role, contactType);
+    const contacts = listContacts(limit, role);
     return {
       ok: true,
       contacts: contacts.map(prepareContactResponse),
@@ -239,7 +237,22 @@ export async function handleListContacts(queryParams: Record<string, string>) {
     };
   }
 
-  return relayListContacts(limit, role, contactType);
+  // contactType is assistant-owned: serve daemon-native so it's filtered in SQL
+  // BEFORE the limit. The gateway relay filtered it AFTER its limit, which
+  // under-returned (and returned empty on an assistant-DB outage, since the
+  // soft-fail map dropped every row). Mirrors the search boundary.
+  if (contactType) {
+    log.debug(
+      "handleListContacts: contactType-filtered read served daemon-native (gateway-native contactType filtering is design-blocked, pending ACL classification)",
+    );
+    const contacts = listContacts(limit, role, contactType);
+    return {
+      ok: true,
+      contacts: contacts.map(prepareContactResponse),
+    };
+  }
+
+  return relayListContacts(limit, role);
 }
 
 export async function handleGetContact(contactId: string) {
@@ -688,11 +701,7 @@ export const ROUTES: RouteDefinition[] = [
       // No-filter "search" is a list read — relay to the gateway so it returns
       // the same source-of-truth data as `contacts list`.
       if (!hasFilter) {
-        const { contacts } = await relayListContacts(
-          parsed.limit ?? 50,
-          undefined,
-          undefined,
-        );
+        const { contacts } = await relayListContacts(parsed.limit ?? 50, undefined);
         return contacts;
       }
 

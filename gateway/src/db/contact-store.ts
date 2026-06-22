@@ -204,9 +204,15 @@ export class ContactStore {
    * List contacts in the shared ContactRead shape: gateway-DB identity + ACL
    * channels joined to assistant-DB info fields.
    *
-   * Filters: `role` (gateway DB), `contactType` (assistant-owned — applied
-   * against the joined assistant value), `limit` (default 50, capped 200 to
-   * mirror the daemon's listContacts).
+   * Filters: `role` (gateway DB), `limit` (default 50, capped 200 to mirror
+   * the daemon's listContacts). `contactType` is assistant-owned and is NOT
+   * filtered here — the daemon serves contactType-filtered list reads natively
+   * (filtering in SQL before the limit) so a tight limit doesn't under-return
+   * and an assistant-DB outage degrades rather than dropping every row. The
+   * param is retained for forward-compat but not exercised on the relay path.
+   *
+   * Thin adapter over `listContactsWithInfo` (shared assembly/soft-fail logic),
+   * projected down to the ContactRead subset.
    *
    * Ordering mirrors the daemon's listContacts: guardian role first, then
    * updatedAt desc.
@@ -216,68 +222,37 @@ export class ContactStore {
     role?: string;
     contactType?: string;
   }): Promise<ContactRead[]> {
-    const effectiveLimit = Math.min(opts?.limit ?? 50, 200);
-
-    const contactRows = this.db
-      .select()
-      .from(contacts)
-      .where(opts?.role ? eq(contacts.role, opts.role) : undefined)
-      .orderBy(
-        sql`${contacts.role} = 'guardian' DESC`,
-        desc(contacts.updatedAt),
-      )
-      .limit(effectiveLimit)
-      .all();
-
-    if (contactRows.length === 0) return [];
-
-    const ids = contactRows.map((c) => c.id);
-    const channelsByContact = this.channelsForContacts(ids);
-    const infoMap = await this.fetchInfoSoft(ids);
-
-    const result: ContactRead[] = [];
-    for (const contact of contactRows) {
-      const info = infoMap.get(contact.id) ?? null;
-      // contactType is assistant-owned — filter against the joined value.
-      if (opts?.contactType && info?.contactType !== opts.contactType) continue;
-      result.push(
-        this.composeContactRead(
-          contact,
-          channelsByContact.get(contact.id) ?? [],
-          info,
-        ),
-      );
-    }
-    return result;
+    const withInfo = await this.listContactsWithInfo({
+      limit: opts?.limit,
+      role: opts?.role,
+    });
+    return withInfo
+      .filter((c) => !opts?.contactType || c.contactType === opts.contactType)
+      .map((c) => this.toContactRead(c));
   }
 
   /**
    * Get a single contact in the shared ContactRead shape, plus the assistant
    * metadata block for assistant-species contacts. Returns null if the
    * contact is absent from the gateway DB.
+   *
+   * Thin adapter over `getContactWithInfo`, projected down to ContactRead.
    */
   async getContactRich(contactId: string): Promise<{
     contact: ContactRead;
     assistantMetadata?: AssistantContactMetadata;
   } | null> {
-    const contact = this.db
-      .select()
-      .from(contacts)
-      .where(eq(contacts.id, contactId))
-      .get();
-    if (!contact) return null;
+    const withInfo = await this.getContactWithInfo(contactId);
+    if (!withInfo) return null;
 
-    const channels = this.channelsForContacts([contactId]).get(contactId) ?? [];
-    const info = (await this.fetchInfoSoft([contactId])).get(contactId) ?? null;
-    const read = this.composeContactRead(contact, channels, info);
-
-    if (info?.contactType === "assistant" && info.assistantMetadata) {
+    const read = this.toContactRead(withInfo);
+    if (withInfo.contactType === "assistant" && withInfo.assistantMetadata) {
       return {
         contact: read,
         assistantMetadata: {
           contactId,
-          species: info.assistantMetadata.species,
-          metadata: info.assistantMetadata.metadata,
+          species: withInfo.assistantMetadata.species,
+          metadata: withInfo.assistantMetadata.metadata,
         },
       };
     }
@@ -285,86 +260,22 @@ export class ContactStore {
   }
 
   /**
-   * Fetch channels for a set of contact IDs, grouped by contactId and ordered
-   * primary-first then by creation time (mirrors readAssistantContact and the
-   * daemon's withChannels ordering).
+   * Project a ContactWithInfo down to the ContactRead subset (drops the
+   * assistant-only/ACL-internal fields not on the shared contract). Channel
+   * `externalUserId` echoes `address` to match the daemon's withChannelCompat;
+   * status/policy default like the DB columns (notNull, so a no-op on real
+   * rows) to satisfy the non-null ContactRead channel contract.
    */
-  private channelsForContacts(
-    contactIds: string[],
-  ): Map<string, ContactChannel[]> {
-    const byId = new Map<string, ContactChannel[]>();
-    if (contactIds.length === 0) return byId;
-
-    const rows = this.db
-      .select()
-      .from(contactChannels)
-      .where(
-        sql`${contactChannels.contactId} IN (${sql.join(
-          contactIds.map((id) => sql`${id}`),
-          sql`, `,
-        )})`,
-      )
-      .orderBy(
-        sql`${contactChannels.isPrimary} DESC`,
-        contactChannels.createdAt,
-      )
-      .all();
-
-    for (const ch of rows) {
-      const list = byId.get(ch.contactId) ?? [];
-      list.push(ch);
-      byId.set(ch.contactId, list);
-    }
-    return byId;
-  }
-
-  /**
-   * Soft assistant-DB info fetch: on failure, log a warning and return an
-   * empty map so callers degrade to gateway-DB-only values.
-   */
-  private async fetchInfoSoft(
-    contactIds: string[],
-  ): Promise<Map<string, ContactInfoFields>> {
-    try {
-      return await fetchInfoForContacts(contactIds);
-    } catch (err) {
-      log.warn(
-        { err, count: contactIds.length },
-        "rich read: assistant DB info join failed; returning gateway-DB-only fields",
-      );
-      return new Map();
-    }
-  }
-
-  /**
-   * Compose the ContactRead shape: identity + ACL/channel fields from the
-   * gateway DB, info fields (notes, contactType, interactionCount,
-   * lastInteraction) from the assistant DB. interactionCount/lastInteraction
-   * are derived from gateway channels (trust signals live in gateway).
-   * `externalUserId` echoes `address` to match the daemon's withChannelCompat.
-   */
-  private composeContactRead(
-    contact: Contact,
-    channels: ContactChannel[],
-    info: ContactInfoFields | null,
-  ): ContactRead {
-    const interactionCount = channels.reduce(
-      (sum, ch) => sum + (ch.interactionCount ?? 0),
-      0,
-    );
-    const lastInteraction =
-      channels.reduce((max, ch) => Math.max(max, ch.lastInteraction ?? 0), 0) ||
-      null;
-
+  private toContactRead(c: ContactWithInfo): ContactRead {
     return {
-      id: contact.id,
-      displayName: contact.displayName,
-      role: contact.role,
-      notes: info?.notes ?? null,
-      contactType: info?.contactType ?? null,
-      interactionCount,
-      lastInteraction,
-      channels: channels.map((ch) => ({
+      id: c.id,
+      displayName: c.displayName,
+      role: c.role,
+      notes: c.notes,
+      contactType: c.contactType,
+      interactionCount: c.interactionCount,
+      lastInteraction: c.lastInteraction,
+      channels: c.channels.map((ch) => ({
         id: ch.id,
         contactId: ch.contactId,
         type: ch.type,

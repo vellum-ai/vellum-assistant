@@ -271,6 +271,39 @@ describe("ContactStore.listContactsRich", () => {
     expect(result.map((c) => c.id)).toEqual(["bot"]);
   });
 
+  test("contactType filter with a MIX of types + tight limit (forward-compat path)", async () => {
+    // contactType filtering is no longer exercised on the daemon relay path
+    // (the daemon serves contactType-filtered reads natively). This test keeps
+    // the gateway-side filter behavior honest for forward-compat callers: with
+    // a mix of types and a limit, listContactsWithInfo applies the limit to
+    // CONTACTS first, then the contactType filter runs on the limited set — so
+    // a tight limit can still under-return here. The relay path avoids this by
+    // staying daemon-native (SQL contactType filter before the limit).
+    seedGatewayContact({ id: "h1", updatedAt: 500 });
+    seedGatewayContact({ id: "bot1", updatedAt: 400 });
+    seedGatewayContact({ id: "h2", updatedAt: 300 });
+    seedGatewayContact({ id: "bot2", updatedAt: 200 });
+    seedAssistantInfo({ id: "h1", contactType: "human" });
+    seedAssistantInfo({ id: "bot1", contactType: "assistant", species: "vellum" });
+    seedAssistantInfo({ id: "h2", contactType: "human" });
+    seedAssistantInfo({ id: "bot2", contactType: "assistant", species: "vellum" });
+
+    // No limit → all assistant contacts returned.
+    const all = await new ContactStore().listContactsRich({
+      contactType: "assistant",
+    });
+    expect(all.map((c) => c.id)).toEqual(["bot1", "bot2"]);
+
+    // limit 2 → contacts limited to [h1, bot1] first, then filtered to
+    // assistant → only bot1 survives (demonstrates the post-limit truncation
+    // the daemon-native relay path deliberately avoids).
+    const limited = await new ContactStore().listContactsRich({
+      contactType: "assistant",
+      limit: 2,
+    });
+    expect(limited.map((c) => c.id)).toEqual(["bot1"]);
+  });
+
   test("honors limit (capped at 200)", async () => {
     for (let i = 0; i < 5; i++) {
       seedGatewayContact({ id: `c${i}`, updatedAt: i });
