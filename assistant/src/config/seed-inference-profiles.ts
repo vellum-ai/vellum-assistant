@@ -189,6 +189,16 @@ export const MANAGED_PROFILE_NAMES = new Set([
   AUTO_PROFILE_KEY,
 ]);
 
+// Managed names introduced after profile-ownership metadata existed, so any
+// pre-existing same-named entry must have been user-created. The seed loop
+// protects these from being clobbered: a user may already own a profile under
+// such a name (the settings UI saves custom profiles without a `source`), so an
+// entry that isn't explicitly `source: "managed"` is treated as theirs. The
+// original canonical names (`balanced`/`quality-optimized`/`cost-optimized`)
+// predate ownership metadata — migration 052 seeded them source-less — so they
+// are NOT listed here and always reseed, even when source is absent.
+const NEWLY_RESERVED_MANAGED_NAMES = new Set(["frontier"]);
+
 export type SeedInferenceProfilesOptions = {
   /**
    * Profile names supplied by the platform/default overlay for this startup.
@@ -305,15 +315,21 @@ export function seedInferenceProfiles(
     if (preservedProfileNames.has(name)) continue;
 
     const previous = readObject(profiles[name]);
-    // Never clobber a profile we don't own that happens to share a managed name.
-    // Older workspaces may already hold a custom profile under a name we are
-    // only now reserving as managed (e.g. `frontier`); reseeding it would change
-    // its provider/model and mark it managed. Treat anything not explicitly
-    // `source: "managed"` as not ours — the settings UI saves custom profiles
-    // without a `source`, and the source backfill below skips managed names, so
-    // checking for `=== "user"` would miss those source-less collisions. This
-    // mirrors the flag-gated reconcile, which only manages an entry it owns.
-    if (previous && previous.source !== "managed") continue;
+    // Never clobber a custom profile that happens to share a *newly reserved*
+    // managed name (e.g. `frontier`): reseeding would change its provider/model
+    // and mark it managed. Treat anything not explicitly `source: "managed"` as
+    // the user's, since the settings UI saves custom profiles without a `source`
+    // and the source backfill below skips managed names. The original canonical
+    // names are excluded from this guard — they may be source-less *managed*
+    // entries from migration 052, so they must keep reseeding to receive
+    // template updates (see NEWLY_RESERVED_MANAGED_NAMES).
+    if (
+      NEWLY_RESERVED_MANAGED_NAMES.has(name) &&
+      previous &&
+      previous.source !== "managed"
+    ) {
+      continue;
+    }
     const effectiveTemplate: ManagedProfileTemplate = isByokMode
       ? { ...template, label: `${template.label} (Managed)` }
       : template;

@@ -111,6 +111,25 @@ describe("109-swap-quality-profile-to-glm-5p2 migration", () => {
     expect(profile.provider_connection).toBe("fireworks-managed");
   });
 
+  test("swaps a source-less legacy managed quality-optimized", () => {
+    // Migration 052 seeded canonical profiles without a `source`; absent source
+    // on this reserved name means legacy managed, so it must still be swapped.
+    writeConfig({
+      llm: {
+        profiles: {
+          "quality-optimized": {
+            provider: "anthropic",
+            model: "claude-opus-4-8",
+          },
+        },
+      },
+    });
+    swapQualityProfileToGlm52Migration.run(workspaceDir);
+    const profile = readProfiles()["quality-optimized"]!;
+    expect(profile.model).toBe("accounts/fireworks/models/glm-5p2");
+    expect(profile.provider).toBe("fireworks");
+  });
+
   test("leaves a user-owned quality-optimized copy untouched", () => {
     const original = {
       llm: {

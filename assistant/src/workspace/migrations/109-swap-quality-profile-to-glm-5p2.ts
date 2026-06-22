@@ -59,11 +59,14 @@ export const swapQualityProfileToGlm52Migration: WorkspaceMigration = {
     const profiles = readObject(llm.profiles);
     if (profiles !== null) {
       const profile = readObject(profiles["quality-optimized"]);
-      // Only the managed profile is ours to migrate; a user-owned profile of the
-      // same name is left untouched.
+      // Only the managed profile is ours to migrate. `quality-optimized` is a
+      // canonical name reserved since migration 052, which seeded it source-less,
+      // so absent `source` means legacy managed — treat it as ours. Only an
+      // explicit `source: "user"` (a profile the user took ownership of) is left
+      // untouched. Matching by Opus model id also covers the OpenRouter id.
       if (
         profile !== null &&
-        profile.source === "managed" &&
+        profile.source !== "user" &&
         typeof profile.model === "string" &&
         OPUS_48_MODEL_IDS.has(profile.model)
       ) {

@@ -752,6 +752,31 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.advisorProfile).toBe("quality-optimized");
   });
 
+  test("reseed updates a source-less legacy canonical managed profile", () => {
+    // Migration 052 seeded canonical profiles without a `source`. Such a
+    // source-less `quality-optimized` is legacy managed, not user-owned, so it
+    // must still reseed to the latest template (GLM 5.2) and be tagged managed.
+    writeConfig({
+      llm: {
+        profiles: {
+          "quality-optimized": {
+            provider: "anthropic",
+            model: "claude-opus-4-8",
+            provider_connection: "anthropic-managed",
+          },
+        },
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles["quality-optimized"].model).toBe(
+      "accounts/fireworks/models/glm-5p2",
+    );
+    expect(raw.llm.profiles["quality-optimized"].source).toBe("managed");
+  });
+
   test("seeds the managed Frontier profile as the default advisor profile", () => {
     writeConfig({ llm: { default: { provider: "anthropic" } } });
 
