@@ -354,10 +354,14 @@ export async function upsertVerifiedContactChannel(params: {
     ],
   );
 
-  // Dual-write to gateway DB
+  // Dual-write to gateway DB. The parent contact is conflict-tolerant (a
+  // pre-existing contact is fine). For the channel, resolve by logical key so
+  // an existing non-blocked gateway row (e.g. a gateway-created unverified
+  // contact) is UPDATED to active/verified rather than silently no-op'd by the
+  // (type,address) unique index — otherwise the authoritative gateway row stays
+  // unverified while the user gets a success reply.
   try {
-    const gwDb = getGatewayDb();
-    gwDb
+    getGatewayDb()
       .insert(gwContacts)
       .values({
         id: contactId,
@@ -369,25 +373,24 @@ export async function upsertVerifiedContactChannel(params: {
       .onConflictDoNothing()
       .run();
 
-    gwDb
-      .insert(gwContactChannels)
-      .values({
-        id: channelId,
-        contactId,
-        type: sourceChannel,
-        address,
-        isPrimary: false,
-        externalChatId,
-        status: "active",
-        policy: "allow",
-        verifiedAt: now,
-        verifiedVia,
-        interactionCount: 0,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing()
-      .run();
+    const wrote = writeVerifiedGatewayChannel({
+      assistantChannelId: channelId,
+      contactId,
+      type: sourceChannel,
+      address,
+      externalChatId,
+      verifiedVia,
+      now,
+    });
+    // A blocked/revoked gateway row appeared after the pre-check — reject so the
+    // caller suppresses the success reply rather than claiming a blocked actor.
+    if (!wrote) {
+      log.warn(
+        { sourceChannel, address },
+        "Gateway write ignored after pre-check: channel became blocked/revoked",
+      );
+      return { verified: false };
+    }
   } catch (gwErr) {
     log.warn({ err: gwErr }, "Gateway DB contact create dual-write failed");
   }

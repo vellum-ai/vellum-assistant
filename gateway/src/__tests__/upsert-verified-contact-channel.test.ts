@@ -290,6 +290,38 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     expect(gwUpdates).toHaveLength(0);
   });
 
+  test("new-insert path updates an existing non-blocked gateway row by logical key", async () => {
+    // Assistant lookup misses, but the gateway already has a NON-blocked
+    // (unverified) row for the same (type,address) — e.g. a gateway-created,
+    // unmirrored contact. The id-keyed update misses (different UUID); the
+    // logical-key update lands. The channel must end up active/verified, not a
+    // silent no-op, and the path returns verified:true.
+    queryRows = [];
+    gwSelectStatus = null;
+    gwUpdateChanges = [0, 1];
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550001212",
+      externalChatId: "+15550001212",
+    });
+
+    expect(result).toEqual({ verified: true });
+    // id-keyed update missed, logical-key update landed — no insert-mirror.
+    expect(gwUpdates).toHaveLength(2);
+    expect(gwUpdates[1]!.set).toMatchObject({
+      status: "active",
+      policy: "allow",
+      verifiedVia: "challenge",
+    });
+    // No channel insert-mirror: the existing row was updated in place.
+    expect(
+      gwInserts.some(
+        (i) => i.values.type === "phone" && i.values.address === "+15550001212",
+      ),
+    ).toBe(false);
+  });
+
   test("new-insert path returns verified:true when no gateway row exists", async () => {
     queryRows = [];
     gwSelectStatus = null;

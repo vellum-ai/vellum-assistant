@@ -826,12 +826,23 @@ export class ContactStore {
     // calls. The gateway DB remains source of truth.
     if (didWrite) {
       try {
-        await assistantDbRun(
+        const result = await assistantDbRun(
           `UPDATE contact_channels
              SET status = 'active', verified_at = ?, verified_via = ?, updated_at = ?
            WHERE id = ?`,
           [now, verifiedVia, now, channelId],
         );
+        // Legacy mismatch: the caller's id may not be the assistant mirror's id
+        // (the gateway row lives under a different UUID). Fall back to the
+        // resolved row's logical key so the mirror isn't left stale.
+        if (result.changes === 0) {
+          await assistantDbRun(
+            `UPDATE contact_channels
+               SET status = 'active', verified_at = ?, verified_via = ?, updated_at = ?
+             WHERE contact_id = ? AND type = ? AND address = ? COLLATE NOCASE`,
+            [now, verifiedVia, now, after.contactId, after.type, after.address],
+          );
+        }
       } catch (err) {
         log.warn(
           { channelId, err },

@@ -65,9 +65,17 @@ const fakeAssistantDb = {
 // Mock the assistant DB proxy before importing ContactStore. The fake
 // honors `SELECT ... FROM contact_channels WHERE id = ?` and
 // `SELECT ... FROM contacts WHERE id = ?`; all other SELECTs return [].
+// When set, the next id-keyed `UPDATE ... WHERE id = ?` reports 0 changes so
+// the logical-key fallback path is exercised. Cleared after one such update.
+let nextIdUpdateMisses = false;
+
 mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbRun: mock(async (sql: string, bind?: unknown[]) => {
     fakeAssistantDb.runCalls.push({ sql, bind });
+    if (nextIdUpdateMisses && /where id = \?/i.test(sql)) {
+      nextIdUpdateMisses = false;
+      return { changes: 0, lastInsertRowid: 0 };
+    }
     return { changes: 1, lastInsertRowid: 0 };
   }),
   assistantDbQuery: mock(async (sql: string, bind?: unknown[]) => {
@@ -106,6 +114,7 @@ beforeEach(() => {
   db.delete(contactChannels).run();
   db.delete(contacts).run();
   fakeAssistantDb.reset();
+  nextIdUpdateMisses = false;
 });
 
 function seedAssistantContact(id: string, role: string = "guardian"): void {
@@ -484,6 +493,39 @@ describe("ContactStore.markChannelVerified", () => {
     expect(
       getGatewayDb().select().from(contactChannels).all().length,
     ).toBe(1);
+  });
+
+  test("assistant dual-write falls back to the logical key when the id-keyed update misses", async () => {
+    // Legacy mismatch: the caller's id resolves the gateway row, but the
+    // id-keyed assistant UPDATE affects 0 rows (the assistant mirror lives
+    // under a different UUID). The dual-write must then resolve by logical key.
+    seedContact("c1");
+    seedChannel({
+      id: "gw-uuid",
+      contactId: "c1",
+      status: "unverified",
+      address: "shared-addr",
+    });
+    nextIdUpdateMisses = true;
+
+    const result = await new ContactStore().markChannelVerified("gw-uuid");
+    expect(result!.didWrite).toBe(true);
+
+    const idUpdate = fakeAssistantDb.runCalls.find((c) =>
+      /UPDATE contact_channels[\s\S]*WHERE id = \?/i.test(c.sql),
+    );
+    expect(idUpdate).toBeTruthy();
+
+    const keyUpdate = fakeAssistantDb.runCalls.find((c) =>
+      /WHERE contact_id = \? AND type = \? AND address = \? COLLATE NOCASE/i.test(
+        c.sql,
+      ),
+    );
+    expect(keyUpdate).toBeTruthy();
+    // Logical-key update binds the resolved gateway row's (contactId,type,address).
+    expect(keyUpdate!.bind).toContain("c1");
+    expect(keyUpdate!.bind).toContain("vellum");
+    expect(keyUpdate!.bind).toContain("shared-addr");
   });
 });
 
