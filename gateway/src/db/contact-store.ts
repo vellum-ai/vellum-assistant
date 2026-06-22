@@ -19,6 +19,13 @@ import { canonicalizeInboundIdentity } from "../verification/identity.js";
 
 const log = getLogger("contact-store");
 
+/**
+ * Reason that marks the sanctioned guardian-binding teardown. A guardian
+ * channel may only be downgraded with this reason; any other reason is
+ * rejected by the guardian guard (invariant 4).
+ */
+export const GUARDIAN_BINDING_REVOKE_REASON = "guardian_binding_revoked";
+
 export type Contact = typeof contacts.$inferSelect;
 export type ContactChannel = typeof contactChannels.$inferSelect;
 export type IngressInviteRow = typeof ingressInvites.$inferSelect;
@@ -707,6 +714,98 @@ export class ContactStore {
     }
 
     return { channel: after, didWrite };
+  }
+
+  /**
+   * Downgrade a channel to `revoked` (verification-revoke outcome), then
+   * best-effort dual-write to the assistant DB. Gateway DB is source of truth.
+   *
+   * Guardian guard (invariant 4): a guardian contact's channel may only be
+   * downgraded via the sanctioned guardian-binding teardown
+   * (`reason="guardian_binding_revoked"`). Any other reason on a guardian
+   * channel is rejected here at the boundary rather than silently applied.
+   *
+   * Mirrors `markChannelVerified`: when the channel is missing on the gateway
+   * but present on the assistant, it (plus its parent contact) is mirrored in
+   * first so a UI-visible channel id doesn't 404.
+   *
+   * Returns the channel after the write, or `null` if neither DB has the id.
+   */
+  async markChannelRevoked(
+    channelId: string,
+    reason?: string,
+  ): Promise<{ channel: ContactChannel; didWrite: boolean } | null> {
+    const mirrored = await this.mirrorChannelFromAssistantIfMissing(channelId);
+    if (!mirrored) return null;
+
+    const channel = this.db
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, channelId))
+      .get();
+    if (!channel) return null;
+
+    const contact = this.getContact(channel.contactId);
+    if (
+      contact?.role === "guardian" &&
+      reason !== GUARDIAN_BINDING_REVOKE_REASON
+    ) {
+      log.warn(
+        { channelId, reason },
+        "markChannelRevoked: rejected guardian channel downgrade",
+      );
+      throw new CannotDowngradeGuardianError(channelId);
+    }
+
+    // A blocked channel stays blocked: blocked is stricter than revoked, and
+    // downgrading it would clear blockedReason and make the actor re-claimable.
+    // Mirrors the blocked→revoked guard in updateChannelStatus; here it's a
+    // no-op so a guardian-binding teardown over a blocked channel doesn't fail.
+    if (channel.status === "blocked") {
+      return { channel, didWrite: false };
+    }
+
+    // Idempotent: a row already revoked with this reason is a no-op — skip the
+    // write + dual-write (matches markChannelVerified).
+    const alreadyRevoked =
+      channel.status === "revoked" &&
+      channel.revokedReason === (reason ?? null);
+    if (alreadyRevoked) {
+      return { channel, didWrite: false };
+    }
+
+    this.db
+      .update(contactChannels)
+      .set({
+        status: "revoked",
+        revokedReason: reason ?? null,
+        blockedReason: null,
+        updatedAt: Date.now(),
+      })
+      .where(eq(contactChannels.id, channelId))
+      .run();
+
+    const after = this.db
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, channelId))
+      .get();
+    if (!after) return null;
+
+    try {
+      await this.dualWriteChannelStatusToAssistantDb(channelId, {
+        status: "revoked",
+        revokedReason: reason ?? null,
+        blockedReason: null,
+      });
+    } catch (err) {
+      log.warn(
+        { channelId, err },
+        "markChannelRevoked: assistant DB dual-write failed (best-effort)",
+      );
+    }
+
+    return { channel: after, didWrite: true };
   }
 
   // ---------------------------------------------------------------------------
@@ -1812,6 +1911,24 @@ export class CannotRevokeBlockedError extends Error {
       "Cannot revoke a blocked channel. Unblock it first or leave it blocked.",
     );
     this.name = "CannotRevokeBlockedError";
+    this.channelId = channelId;
+  }
+}
+
+/**
+ * Thrown by `markChannelRevoked` when a downgrade would strip a guardian
+ * contact's channel via anything other than the sanctioned guardian-binding
+ * teardown. The caller maps this to HTTP 409.
+ */
+export class CannotDowngradeGuardianError extends Error {
+  readonly channelId: string;
+  readonly statusCode = 409;
+  readonly code = "CONFLICT";
+  constructor(channelId: string) {
+    super(
+      "Cannot downgrade a guardian channel. Revoke the guardian binding instead.",
+    );
+    this.name = "CannotDowngradeGuardianError";
     this.channelId = channelId;
   }
 }

@@ -8,8 +8,8 @@ import {
   getChannelById,
   getContact,
 } from "../../contacts/contact-store.js";
-import { revokeMember } from "../../contacts/contacts-write.js";
 import type { ChannelStatus } from "../../contacts/types.js";
+import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { getBindingByChannelChat } from "../../memory/external-conversation-store.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
@@ -171,23 +171,21 @@ export function getVerificationStatus(
 // Revoke verification binding
 // ---------------------------------------------------------------------------
 
-export function revokeVerificationForChannel(
+export async function revokeVerificationForChannel(
   channel?: ChannelId,
-): ChannelVerificationSessionResult {
+): Promise<ChannelVerificationSessionResult> {
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? "telegram";
 
-  // Cancel any active outbound session so revoke is a complete teardown.
+  // Session teardown stays assistant-side — it is session state, not the ACL
+  // outcome. Cancel any active outbound session and pending challenges first
+  // (the macOS app uses action: "revoke" to cancel an in-flight challenge even
+  // before a binding exists, e.g. during verification setup).
   cancelOutbound({ channel: resolvedChannel });
-
-  // Always revoke pending challenges first — the macOS app uses
-  // action: "revoke" to cancel an in-flight challenge even before
-  // a binding exists (e.g. during verification setup).
   revokePendingSessions(resolvedChannel);
 
-  // Capture binding before revoking so we can revoke the guardian's
-  // contact record — without this, the guardian would still pass
-  // the ACL check after unbinding.
+  // Capture binding before revoking so we can downgrade the guardian's
+  // channel — without this, the guardian would still pass the ACL check.
   const bindingBeforeRevoke = getGuardianBinding(assistantId, resolvedChannel);
   if (!bindingBeforeRevoke) {
     return {
@@ -197,17 +195,15 @@ export function revokeVerificationForChannel(
     };
   }
 
-  // Revoke the member BEFORE the guardian binding so that
-  // revokeMember sees the channel as active/pending and sets the
-  // correct revokedReason ("guardian_binding_revoked"). If the guardian binding
-  // is revoked first, the channel is already marked revoked and the member
-  // revocation becomes a no-op (wrong reason or skipped entirely).
   const contactResult = findContactChannel({
     channelType: resolvedChannel,
     address: bindingBeforeRevoke.guardianExternalUserId,
     externalChatId: bindingBeforeRevoke.guardianDeliveryChatId,
   });
 
+  // Relay the ACL downgrade to the gateway (source of truth). The gateway's
+  // mark_channel_revoked enforces the guardian guard and dual-writes the
+  // contact-channel status back to the assistant DB.
   if (contactResult) {
     const channelStatus: ChannelStatus = contactResult.channel.status;
     if (
@@ -215,10 +211,16 @@ export function revokeVerificationForChannel(
       channelStatus === "pending" ||
       channelStatus === "unverified"
     ) {
-      revokeMember(contactResult.channel.id, "guardian_binding_revoked");
+      await ipcCallPersistent("mark_channel_revoked", {
+        contactChannelId: contactResult.channel.id,
+        reason: "guardian_binding_revoked",
+      });
     }
   }
 
+  // The guardian binding is assistant-owned state the gateway relay does not
+  // manage; tear it down here. revokeBinding also emits the contact-change
+  // invalidation so open client views stop showing the channel as active.
   revokeBinding(assistantId, resolvedChannel);
 
   return {
@@ -590,7 +592,7 @@ export async function handleChannelVerificationSession(
         channel,
       });
     } else if (msg.action === "revoke") {
-      const result = revokeVerificationForChannel(channel);
+      const result = await revokeVerificationForChannel(channel);
       broadcastMessage({
         type: "channel_verification_session_response",
         ...result,
