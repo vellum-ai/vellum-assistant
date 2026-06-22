@@ -14,8 +14,8 @@ import { initSigningKey } from "../auth/token-service.js";
 
 initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long-xx"));
 
-// The assistant DB proxy is no longer on the pair guardian-lookup path, but it
-// is still mocked so any incidental assistant access stays inert in tests.
+// The pair guardian-lookup reads the gateway DB; the assistant DB proxy is
+// mocked so any incidental assistant access stays inert in tests.
 mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbQuery: mock(),
   assistantDbRun: mock(),
