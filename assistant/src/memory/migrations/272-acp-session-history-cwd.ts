@@ -1,8 +1,5 @@
 import type { DrizzleDb } from "../db-connection.js";
 import { getSqliteFrom } from "../db-connection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
-
-const CHECKPOINT_KEY = "migration_acp_session_history_cwd_v1";
 
 const TABLE = "acp_session_history";
 const COLUMN = "cwd";
@@ -21,16 +18,14 @@ const COLUMN = "cwd";
  * exists.
  */
 export function migrateAcpSessionHistoryCwd(database: DrizzleDb): void {
-  withCrashRecovery(database, CHECKPOINT_KEY, () => {
-    const raw = getSqliteFrom(database);
+  const raw = getSqliteFrom(database);
 
-    const columns = raw.query(`PRAGMA table_info(${TABLE})`).all() as Array<{
-      name: string;
-    }>;
-    const columnNames = new Set(columns.map((c) => c.name));
+  const columns = raw.query(`PRAGMA table_info(${TABLE})`).all() as Array<{
+    name: string;
+  }>;
+  const columnNames = new Set(columns.map((c) => c.name));
 
-    if (!columnNames.has(COLUMN)) {
-      raw.exec(`ALTER TABLE ${TABLE} ADD COLUMN ${COLUMN} TEXT`);
-    }
-  });
+  if (!columnNames.has(COLUMN)) {
+    raw.exec(`ALTER TABLE ${TABLE} ADD COLUMN ${COLUMN} TEXT`);
+  }
 }

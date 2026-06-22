@@ -117,16 +117,8 @@ describe("migrateDropCapabilityCardState", () => {
       .query(`SELECT key FROM memory_checkpoints ORDER BY key`)
       .all() as Array<{ key: string }>;
     expect(checkpointKeys.map((row) => row.key)).toEqual([
-      "migration_drop_capability_card_state_v1",
       "other_checkpoint",
     ]);
-
-    const migrationCheckpoint = raw
-      .query(
-        `SELECT value FROM memory_checkpoints WHERE key = 'migration_drop_capability_card_state_v1'`,
-      )
-      .get() as { value: string } | null;
-    expect(migrationCheckpoint?.value).toBe("1");
 
     const legacyTable = raw
       .query(

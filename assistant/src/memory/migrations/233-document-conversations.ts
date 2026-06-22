@@ -1,8 +1,5 @@
 import type { DrizzleDb } from "../db-connection.js";
 import { getSqliteFrom } from "../db-connection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
-
-const CHECKPOINT_KEY = "migration_document_conversations_v1";
 
 /**
  * Create the document_conversations junction table.
@@ -26,29 +23,27 @@ const CHECKPOINT_KEY = "migration_document_conversations_v1";
  * so that pre-existing document–conversation relationships are preserved.
  */
 export function migrateCreateDocumentConversations(database: DrizzleDb): void {
-  withCrashRecovery(database, CHECKPOINT_KEY, () => {
-    const raw = getSqliteFrom(database);
+  const raw = getSqliteFrom(database);
 
-    raw.exec(/*sql*/ `
-      CREATE TABLE IF NOT EXISTS document_conversations (
-        surface_id TEXT NOT NULL,
-        conversation_id TEXT NOT NULL,
-        created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
-        PRIMARY KEY (surface_id, conversation_id),
-        FOREIGN KEY (surface_id) REFERENCES documents(surface_id) ON DELETE CASCADE
-      )
-    `);
+  raw.exec(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS document_conversations (
+      surface_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
+      PRIMARY KEY (surface_id, conversation_id),
+      FOREIGN KEY (surface_id) REFERENCES documents(surface_id) ON DELETE CASCADE
+    )
+  `);
 
-    raw.exec(/*sql*/ `
-      CREATE INDEX IF NOT EXISTS idx_doc_conv_conversation_id
-      ON document_conversations(conversation_id)
-    `);
+  raw.exec(/*sql*/ `
+    CREATE INDEX IF NOT EXISTS idx_doc_conv_conversation_id
+    ON document_conversations(conversation_id)
+  `);
 
-    // Backfill: seed junction table from existing documents.conversation_id
-    raw.exec(/*sql*/ `
-      INSERT OR IGNORE INTO document_conversations (surface_id, conversation_id, created_at)
-      SELECT surface_id, conversation_id, created_at
-      FROM documents
-    `);
-  });
+  // Backfill: seed junction table from existing documents.conversation_id
+  raw.exec(/*sql*/ `
+    INSERT OR IGNORE INTO document_conversations (surface_id, conversation_id, created_at)
+    SELECT surface_id, conversation_id, created_at
+    FROM documents
+  `);
 }

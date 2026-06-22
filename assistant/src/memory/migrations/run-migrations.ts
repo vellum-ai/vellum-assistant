@@ -119,10 +119,9 @@ export function recoverCrashedMigrations(database: DrizzleDb): string[] {
  * unconditional ~200-step re-probe — which floors daemon startup at tens of
  * seconds on a fully-migrated database — into a single bookkeeping read.
  *
- * Step bookkeeping shares the same `memory_checkpoints` ledger that the
- * registry's `withCrashRecovery` uses, under the {@link STEP_CHECKPOINT_PREFIX}
- * namespace, so applied-state for every migration — DDL guard or registry-backed
- * — lives in one place.
+ * Step bookkeeping lives in the `memory_checkpoints` ledger under the
+ * {@link STEP_CHECKPOINT_PREFIX} namespace, so applied-state for every
+ * migration lives in one place.
  *
  * Before the step loop runs, the ledger is created if missing and
  * {@link recoverCrashedMigrations} clears any stalled checkpoints left by a
@@ -201,13 +200,10 @@ export async function runMigrationSteps(
  * Discard every forward-step checkpoint so the next {@link runMigrationSteps}
  * call re-runs and re-records all steps.
  *
- * Migration rollback calls this. A rolled-back step whose body is registry-backed
- * (guarded by `withCrashRecovery`) clears its own `memory_checkpoints` registry
- * entry when its `down()` runs; the `step:` checkpoint recorded here must be
- * discarded in the same operation, otherwise the runner skips the step on the
- * next upgrade and the rolled-back schema is never restored. Only the `step:`
- * namespace is cleared, leaving registry checkpoints and other ledger entries
- * untouched.
+ * Migration rollback calls this. A rolled-back step's `step:` checkpoint
+ * must be discarded, otherwise the runner skips the step on the next
+ * upgrade and the rolled-back schema is never restored. Only the `step:`
+ * namespace is cleared, leaving other ledger entries untouched.
  */
 export function clearMigrationStepCheckpoints(database: DrizzleDb): void {
   getSqliteFrom(database).run(

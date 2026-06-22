@@ -34,7 +34,7 @@ import {
 
 await initializeDb();
 
-const CHECKPOINT_KEY = "migration_backfill_usage_cache_accounting_v1";
+
 
 interface UsageEventRow {
   input_tokens: number;
@@ -161,7 +161,6 @@ describe("migrateBackfillUsageCacheAccounting", () => {
     `);
     getSqlite().run(`DELETE FROM main.llm_request_logs`);
     getSqlite().run(`DELETE FROM llm_usage_events`);
-    rawRun(`DELETE FROM memory_checkpoints WHERE key = ?`, CHECKPOINT_KEY);
     mockPricingOverrides = [];
   });
 
@@ -308,11 +307,7 @@ describe("migrateBackfillUsageCacheAccounting", () => {
       pricing_status: "priced",
     });
 
-    const checkpoint = rawGet<{ value: string }>(
-      `SELECT value FROM memory_checkpoints WHERE key = ?`,
-      CHECKPOINT_KEY,
-    );
-    expect(checkpoint?.value).toBe("1");
+
   });
 
   test("uses pricing overrides when backfilling Anthropic cache-aware usage rows", () => {

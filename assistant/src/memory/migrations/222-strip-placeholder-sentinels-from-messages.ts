@@ -1,7 +1,6 @@
 import { isPlaceholderSentinelText } from "../../providers/placeholder-sentinels.js";
 import type { DrizzleDb } from "../db-connection.js";
 import { getSqliteFrom } from "../db-connection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
 
 /**
  * Strip provider placeholder sentinel text blocks from persisted assistant
@@ -25,59 +24,53 @@ import { withCrashRecovery } from "./validate-migration-state.js";
 export function migrateStripPlaceholderSentinelsFromMessages(
   database: DrizzleDb,
 ): void {
-  withCrashRecovery(
-    database,
-    "migration_strip_placeholder_sentinels_from_messages_v1",
-    () => {
-      const raw = getSqliteFrom(database);
+  const raw = getSqliteFrom(database);
 
-      const BATCH_SIZE = 100;
-      let lastRowid = 0;
+  const BATCH_SIZE = 100;
+  let lastRowid = 0;
 
-      for (;;) {
-        const rows = raw
-          .query(
-            `SELECT rowid, id, content FROM messages
-             WHERE role = 'assistant'
-               AND content LIKE '%__PLACEHOLDER__%'
-               AND rowid > ?
-             ORDER BY rowid
-             LIMIT ?`,
-          )
-          .all(lastRowid, BATCH_SIZE) as Array<{
-          rowid: number;
-          id: string;
-          content: string;
-        }>;
+  for (;;) {
+    const rows = raw
+      .query(
+        `SELECT rowid, id, content FROM messages
+         WHERE role = 'assistant'
+           AND content LIKE '%__PLACEHOLDER__%'
+           AND rowid > ?
+         ORDER BY rowid
+         LIMIT ?`,
+      )
+      .all(lastRowid, BATCH_SIZE) as Array<{
+      rowid: number;
+      id: string;
+      content: string;
+    }>;
 
-        if (rows.length === 0) break;
+    if (rows.length === 0) break;
 
-        for (const row of rows) {
-          lastRowid = row.rowid;
+    for (const row of rows) {
+      lastRowid = row.rowid;
 
-          let blocks: Array<Record<string, unknown>>;
-          try {
-            const parsed = JSON.parse(row.content);
-            if (!Array.isArray(parsed)) continue;
-            blocks = parsed;
-          } catch {
-            continue;
-          }
-
-          const stripped = blocks.filter((b) => {
-            if (typeof b !== "object" || b === null) return false;
-            if (b.type !== "text") return true;
-            const text = typeof b.text === "string" ? b.text : "";
-            return !isPlaceholderSentinelText(text);
-          });
-
-          if (stripped.length === blocks.length) continue;
-
-          raw
-            .query(`UPDATE messages SET content = ? WHERE id = ?`)
-            .run(JSON.stringify(stripped), row.id);
-        }
+      let blocks: Array<Record<string, unknown>>;
+      try {
+        const parsed = JSON.parse(row.content);
+        if (!Array.isArray(parsed)) continue;
+        blocks = parsed;
+      } catch {
+        continue;
       }
-    },
-  );
+
+      const stripped = blocks.filter((b) => {
+        if (typeof b !== "object" || b === null) return false;
+        if (b.type !== "text") return true;
+        const text = typeof b.text === "string" ? b.text : "";
+        return !isPlaceholderSentinelText(text);
+      });
+
+      if (stripped.length === blocks.length) continue;
+
+      raw
+        .query(`UPDATE messages SET content = ? WHERE id = ?`)
+        .run(JSON.stringify(stripped), row.id);
+    }
+  }
 }
