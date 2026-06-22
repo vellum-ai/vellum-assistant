@@ -1,9 +1,16 @@
 # App Interaction Hooks
 
 A sandboxed app drives the assistant and its own on-screen layout through
-`window.vellum.sendAction(actionId, data)`. The host acts on exactly two
-actions — `relay_prompt` and `set_view`. Wire them during the build so the
-app can pull the assistant in and arrange itself.
+`window.vellum.sendAction(actionId, data)`. When the app is open inside a
+conversation — the chat panel, split view, or mobile app overlay, the surface
+this skill builds for — the host acts on exactly two actions: `relay_prompt`
+and `set_view`. Wire them during the build so the app can pull the assistant in
+and arrange itself.
+
+Both actions are about the app↔conversation relationship, so an app opened
+standalone — from the Library, with no chat beside it — has nothing listening,
+and `sendAction` there no-ops. Treat them as enhancements: every feature must
+still work when the call is ignored.
 
 ## `relay_prompt` — send a message to the assistant
 
@@ -61,8 +68,8 @@ itself should change the layout.
 
 ```javascript
 window.vellum.sendAction("set_view", { view: "split" }); // app + chat side by side
-window.vellum.sendAction("set_view", { view: "full" });  // app full-width
-window.vellum.sendAction("set_view", { view: "chat" });  // close app, back to chat
+window.vellum.sendAction("set_view", { view: "full" }); // app full-width
+window.vellum.sendAction("set_view", { view: "chat" }); // close app, back to chat
 ```
 
 - **`"split"`** — side by side with the conversation. Desktop only; ignored on
