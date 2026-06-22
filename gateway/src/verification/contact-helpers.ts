@@ -110,10 +110,15 @@ function writeVerifiedGatewayChannel(params: {
     updatedAt: now,
   };
 
+  // Never reactivate a blocked/revoked gateway row: the caller's guard only
+  // inspects the assistant mirror, which may be stale relative to the
+  // authoritative gateway status.
+  const notBlockedOrRevoked = sql`${gwContactChannels.status} not in ('blocked', 'revoked')`;
+
   const byId = gwDb
     .update(gwContactChannels)
     .set(verifiedSet)
-    .where(eq(gwContactChannels.id, assistantChannelId))
+    .where(and(eq(gwContactChannels.id, assistantChannelId), notBlockedOrRevoked))
     .returning({ id: gwContactChannels.id })
     .all();
   if (byId.length > 0) return;
@@ -126,13 +131,17 @@ function writeVerifiedGatewayChannel(params: {
       and(
         eq(gwContactChannels.type, type),
         sql`${gwContactChannels.address} = ${address} COLLATE NOCASE`,
+        notBlockedOrRevoked,
       ),
     )
     .returning({ id: gwContactChannels.id })
     .all();
   if (byKey.length > 0) return;
 
-  // No gateway row exists — mirror the verified channel (and parent contact).
+  // No gateway row exists, or the only match is blocked/revoked — mirror the
+  // verified channel. onConflictDoNothing preserves an existing blocked/revoked
+  // row (it conflicts on the (type,address) unique index), so this never
+  // reactivates a blocked actor.
   gwDb
     .insert(gwContacts)
     .values({

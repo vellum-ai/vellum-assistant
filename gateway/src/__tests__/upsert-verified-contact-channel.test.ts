@@ -323,6 +323,44 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     expect(gwInserts.some((i) => i.values.id === "co-9")).toBe(true);
   });
 
+  test("guards both gateway update paths against blocked/revoked rows", async () => {
+    // Stale assistant mirror is active, so the caller's guard passes and we
+    // reach the gateway write; the authoritative gateway row may be
+    // blocked/revoked and must not be reactivated.
+    queryRows = [
+      { channelId: "assistant-ch", contactId: "co-10", channelStatus: "active" },
+    ];
+    gwUpdateChanges = [0, 0];
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550004444",
+      externalChatId: "+15550004444",
+    });
+
+    const hasBlockedRevokedGuard = (whereRaw: unknown) => {
+      const where = whereRaw as { op?: string; conds?: unknown[] };
+      return (
+        where.op === "and" &&
+        (where.conds ?? []).some(
+          (c) =>
+            typeof c === "object" &&
+            c !== null &&
+            (c as { op?: string }).op === "sql" &&
+            ((c as { strings?: string[] }).strings ?? [])
+              .join("")
+              .includes("not in ('blocked', 'revoked')"),
+        )
+      );
+    };
+
+    expect(gwUpdates).toHaveLength(2);
+    // Both the id-keyed and logical-key updates carry the guard, so a
+    // blocked/revoked gateway row is excluded from reactivation.
+    expect(hasBlockedRevokedGuard(gwUpdates[0]!.where)).toBe(true);
+    expect(hasBlockedRevokedGuard(gwUpdates[1]!.where)).toBe(true);
+  });
+
   test("honors an explicit verifiedVia value on the update path", async () => {
     queryRows = [
       { channelId: "ch-7", contactId: "co-7", channelStatus: "active" },
