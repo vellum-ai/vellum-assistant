@@ -4,9 +4,9 @@
  * conversation B, sends a follow-up message, and captures the
  * assistant's response as the hypothesis.
  *
- * Designed to be benchmark-agnostic. The caller (e.g. the
- * LongMemEval-V2 Phase 1 wire) is responsible for shaping `inputs`,
- * `ingestMessage`, and `questionMessage` to the benchmark's contract.
+ * Designed for LongMemEval-V2's ingest-then-ask contract. The caller
+ * shapes `inputs`, `ingestMessage`, and `questionMessage` to the
+ * benchmark's specific test item.
  *
  * Why a separate runner instead of extending `runEvalOnce`:
  *
@@ -30,14 +30,14 @@ import type {
   AgentHatchInput,
   BaseAgent,
   WorkspaceFileWrite,
-} from "../adapter";
-import { confirmationRequestId } from "../adapter";
-import type { Profile } from "../profile";
+} from "../../../src/lib/adapter";
+import { confirmationRequestId } from "../../../src/lib/adapter";
+import type { Profile } from "../../../src/lib/profile";
 
-import { createAgent } from "./create-agent";
-import { AgentEventCollector } from "./event-collector";
-import { appendTranscriptTurn } from "../metrics";
-import { assistantContent } from "./run-once";
+import { createAgent } from "../../../src/lib/runner/create-agent";
+import { AgentEventCollector } from "../../../src/lib/runner/event-collector";
+import { appendTranscriptTurn } from "../../../src/lib/metrics";
+import { assistantContent } from "../../../src/lib/runner/run-once";
 
 export interface IngestAskInput {
   /** Profile to hatch. */
