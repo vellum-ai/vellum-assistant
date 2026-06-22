@@ -6,6 +6,7 @@
  * assistant DB proxy (raw SQL), so the gateway owns the write path.
  */
 
+import { MarkChannelVerifiedIpcParamsSchema } from "@vellumai/gateway-client/gateway-ipc-contracts";
 import { z } from "zod";
 
 import { assistantDbQuery, assistantDbRun } from "../db/assistant-db-proxy.js";
@@ -152,6 +153,35 @@ export const contactRoutes: IpcRoute[] = [
       );
 
       return { contactId, channelId };
+    },
+  },
+  {
+    method: "mark_channel_verified",
+    schema: MarkChannelVerifiedIpcParamsSchema,
+    handler: async (params?: Record<string, unknown>) => {
+      const { contactChannelId, verifiedVia } =
+        MarkChannelVerifiedIpcParamsSchema.parse(params);
+      const result = await getStore().markChannelVerified(
+        contactChannelId,
+        verifiedVia,
+      );
+      if (!result) {
+        throw new Error(`Channel "${contactChannelId}" not found`);
+      }
+      const { channel, didWrite } = result;
+      return {
+        ok: true,
+        didWrite,
+        channel: {
+          id: channel.id,
+          contactId: channel.contactId,
+          type: channel.type,
+          address: channel.address,
+          status: channel.status,
+          verifiedAt: channel.verifiedAt,
+          verifiedVia: channel.verifiedVia,
+        },
+      };
     },
   },
 ];
