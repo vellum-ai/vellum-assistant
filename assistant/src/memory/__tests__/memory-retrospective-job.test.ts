@@ -497,6 +497,28 @@ describe("memoryRetrospectiveJob", () => {
     expect(instructionText).not.toContain("(none)");
   });
 
+  test("subsequent run: <already_remembered> flattens a prior batched (array) remember call", async () => {
+    priorRetroId = "prior-retro-conv-1";
+    priorRetroMessages = [
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            type: "tool_use",
+            name: "remember",
+            input: { content: ["Bob switched teams", "Launch slipped to Q3"] },
+          },
+        ]),
+      },
+    ];
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    const instructionText = persistedInstructionText();
+    expect(instructionText).toContain("- Bob switched teams");
+    expect(instructionText).toContain("- Launch slipped to Q3");
+    expect(instructionText).not.toContain("(none)");
+  });
+
   test("malformed prior-retrospective messages are skipped, run still proceeds", async () => {
     priorRetroId = "prior-retro-conv-1";
     priorRetroMessages = [

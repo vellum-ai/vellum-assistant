@@ -775,9 +775,14 @@ function extractRememberContents(messages: MessageLike[]): string[] {
       const input = b.input;
       if (!input || typeof input !== "object") continue;
       const content = (input as Record<string, unknown>).content;
-      if (typeof content !== "string") continue;
-      const trimmed = content.trim();
-      if (trimmed.length > 0) contents.push(trimmed);
+      // `remember` accepts a single string or an array of facts (batch form);
+      // flatten both so batched saves still feed the dedup baseline.
+      const facts = Array.isArray(content) ? content : [content];
+      for (const fact of facts) {
+        if (typeof fact !== "string") continue;
+        const trimmed = fact.trim();
+        if (trimmed.length > 0) contents.push(trimmed);
+      }
     }
   }
   return contents;
@@ -863,6 +868,6 @@ Two dedup sources to skip:
 1. Anything semantically captured in <already_remembered> above (from prior retrospective passes).
 2. Anything you already called \`remember\` on inline within your review window — those appear as \`tool_use\` blocks with \`name: "remember"\` in your history.
 
-For everything else in your review window, use the \`remember\` tool on facts, plans, decisions, preferences, names, dates, felt moments, corrections, commitments, or anything else concrete and worth carrying forward. One \`remember\` call per fact. If nothing new is worth saving, say "Nothing new to save." and stop.
+For everything else in your review window, use the \`remember\` tool on facts, plans, decisions, preferences, names, dates, felt moments, corrections, commitments, or anything else concrete and worth carrying forward. When several facts are worth saving, pass them all as an array to a single \`remember\` call rather than calling it once per fact. If nothing new is worth saving, say "Nothing new to save." and stop.
 `;
 }
