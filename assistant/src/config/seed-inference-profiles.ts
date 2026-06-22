@@ -136,8 +136,11 @@ const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
  * `switch_inference_profile` tool and lets the model self-select a profile
  * per query. No provider/model — the resolver falls through to the call-site
  * default (balanced or custom-balanced for BYOK).
+ *
+ * Re-exported from `@vellumai/assistant-api` (the shared constants package)
+ * so the backend, plugin API, and UI all reference a single source of truth.
  */
-export const AUTO_PROFILE_KEY = "auto";
+export { AUTO_PROFILE_KEY } from "../api/constants/inference-profiles.js";
 
 export const OS_BETA_PROFILE_KEY = "os-beta";
 export const OS_BETA_FEATURE_FLAG_KEY = "os-beta";

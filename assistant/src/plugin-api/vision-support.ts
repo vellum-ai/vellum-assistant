@@ -9,18 +9,13 @@
  * looks up `supportsVision` in the model catalog.
  */
 
+import { AUTO_PROFILE_KEY } from "../api/constants/inference-profiles.js";
 import { getConfig } from "../config/loader.js";
 import {
   getCatalogProviderForModel,
   PROVIDER_CATALOG,
 } from "../providers/model-catalog.js";
 import type { ModelProfileInfo } from "./types.js";
-
-/**
- * Mirrors `AUTO_PROFILE_KEY` in `assistant/src/config/seed-inference-profiles.ts`.
- * See the doc comment on `doesSupportVision` for why this profile is special.
- */
-const AUTO_PROFILE_KEY = "auto";
 
 /**
  * Whether a profile's resolved model can process image input.
@@ -40,15 +35,14 @@ const AUTO_PROFILE_KEY = "auto";
  *   the config GET route's `enrichProfilesWithVisionFlag`.
  */
 export function doesSupportVision(profile: ModelProfileInfo): boolean {
-  const { llm } = getConfig();
-  const entry = llm.profiles[profile.key];
-
   // The "auto" meta-profile has no concrete provider/model — it delegates to
   // the model's own profile selection at runtime, which may route to a
   // text-only model. Conservatively report `false` so image-fallback does not
-  // pick it as a vision candidate.
+  // pick it as a vision candidate. Checked before getConfig() to short-circuit.
   if (profile.key === AUTO_PROFILE_KEY) return false;
 
+  const { llm } = getConfig();
+  const entry = llm.profiles[profile.key];
   if (entry == null) return true;
 
   // Mix: fail-open if any arm supports vision.

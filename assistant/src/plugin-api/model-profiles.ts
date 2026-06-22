@@ -1,20 +1,7 @@
+import { AUTO_PROFILE_KEY } from "../api/constants/inference-profiles.js";
 import { getConfig } from "../config/loader.js";
 import { orderProfileKeys } from "../config/profile-order.js";
 import type { ModelProfileInfo } from "./types.js";
-
-/**
- * Name of the meta-"auto" profile seeded by the daemon. The entry exists in
- * `llm.profiles` unconditionally so a switched-on `query-complexity-routing`
- * flag has something to point at, but it carries no provider/model of its own
- * — when selected, the daemon injects a `switch_inference_profile` tool and
- * the model self-selects a concrete profile per query. It is never a valid
- * concrete routing target for a plugin that needs to dispatch an actual LLM
- * call, so {@link getModelProfiles} excludes it.
- *
- * Mirrors `AUTO_PROFILE_KEY` in `assistant/src/config/seed-inference-profiles.ts`
- * and `AUTO_PROFILE_NAME` in `clients/web/src/assistant/profile-pickers.ts`.
- */
-const AUTO_PROFILE_KEY = "auto";
 
 /**
  * List the workspace inference profiles a plugin can route to, in the order the
