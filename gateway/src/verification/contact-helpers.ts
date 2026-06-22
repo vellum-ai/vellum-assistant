@@ -12,7 +12,7 @@
 
 import { existsSync } from "node:fs";
 
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { assistantDbQuery, assistantDbRun } from "../db/assistant-db-proxy.js";
 import { getGatewayDb } from "../db/connection.js";
@@ -63,6 +63,100 @@ export async function findContactChannelByAddress(
     [channelType, address],
   );
   return rows[0] ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Gateway dual-write (verified outcome)
+// ---------------------------------------------------------------------------
+
+/**
+ * Land the verified outcome in the authoritative gateway DB for an existing
+ * channel, resilient to the assistant channel id being absent or living under
+ * a different gateway UUID.
+ *
+ * Resolution: id-keyed update → logical-key (type,address) update →
+ * insert-mirror. The gateway has a unique index on (type,address), so a
+ * legacy/unmirrored channel may carry a different gateway id than the
+ * assistant id, and a blind id-keyed update would silently affect 0 rows.
+ */
+function writeVerifiedGatewayChannel(params: {
+  assistantChannelId: string;
+  contactId: string;
+  type: string;
+  address: string;
+  externalChatId: string;
+  verifiedVia: string;
+  now: number;
+}): void {
+  const {
+    assistantChannelId,
+    contactId,
+    type,
+    address,
+    externalChatId,
+    verifiedVia,
+    now,
+  } = params;
+  const gwDb = getGatewayDb();
+  const verifiedSet = {
+    status: "active",
+    policy: "allow",
+    address,
+    externalChatId,
+    verifiedAt: now,
+    verifiedVia,
+    revokedReason: null,
+    blockedReason: null,
+    updatedAt: now,
+  };
+
+  const byId = gwDb
+    .update(gwContactChannels)
+    .set(verifiedSet)
+    .where(eq(gwContactChannels.id, assistantChannelId))
+    .returning({ id: gwContactChannels.id })
+    .all();
+  if (byId.length > 0) return;
+
+  // Resolve by the gateway's logical key (type,address unique index).
+  const byKey = gwDb
+    .update(gwContactChannels)
+    .set(verifiedSet)
+    .where(
+      and(
+        eq(gwContactChannels.type, type),
+        sql`${gwContactChannels.address} = ${address} COLLATE NOCASE`,
+      ),
+    )
+    .returning({ id: gwContactChannels.id })
+    .all();
+  if (byKey.length > 0) return;
+
+  // No gateway row exists — mirror the verified channel (and parent contact).
+  gwDb
+    .insert(gwContacts)
+    .values({
+      id: contactId,
+      displayName: address,
+      role: "contact",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing()
+    .run();
+  gwDb
+    .insert(gwContactChannels)
+    .values({
+      id: assistantChannelId,
+      contactId,
+      type,
+      isPrimary: false,
+      interactionCount: 0,
+      createdAt: now,
+      ...verifiedSet,
+    })
+    .onConflictDoNothing()
+    .run();
 }
 
 // ---------------------------------------------------------------------------
@@ -141,24 +235,20 @@ export async function upsertVerifiedContactChannel(params: {
       [address, externalChatId, now, verifiedVia, now, row.channelId],
     );
 
-    // Dual-write to gateway DB
+    // Dual-write to gateway DB. Best-effort: a gateway failure must not break
+    // inbound verification UX (the code already matched). The assistant
+    // channel id may not exist in the gateway DB (legacy/unmirrored channel)
+    // or may live under a different gateway UUID, so resolve by logical key.
     try {
-      const gwDb = getGatewayDb();
-      gwDb
-        .update(gwContactChannels)
-        .set({
-          status: "active",
-          policy: "allow",
-          address,
-          externalChatId,
-          verifiedAt: now,
-          verifiedVia,
-          revokedReason: null,
-          blockedReason: null,
-          updatedAt: now,
-        })
-        .where(eq(gwContactChannels.id, row.channelId))
-        .run();
+      writeVerifiedGatewayChannel({
+        assistantChannelId: row.channelId,
+        contactId: row.contactId,
+        type: sourceChannel,
+        address,
+        externalChatId,
+        verifiedVia,
+        now,
+      });
     } catch (gwErr) {
       log.warn(
         { err: gwErr },

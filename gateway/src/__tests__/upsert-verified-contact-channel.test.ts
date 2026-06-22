@@ -23,6 +23,46 @@ type ExistingRow = {
 let queryRows: ExistingRow[] = [];
 const queryCalls: { sql: string; params: unknown[] }[] = [];
 const runCalls: { sql: string; params: unknown[] }[] = [];
+
+// Fake gateway DB: records update/insert calls and returns a configurable
+// `changes` count per update so the resilient dual-write fallback can be
+// exercised (id-keyed update → logical-key update → insert-mirror).
+type GwUpdate = { set: Record<string, unknown>; where: unknown };
+type GwInsert = { table: unknown; values: Record<string, unknown> };
+const gwUpdates: GwUpdate[] = [];
+const gwInserts: GwInsert[] = [];
+// Successive row-counts returned by `.update(...).returning().all()`, FIFO.
+// A non-zero count means the update matched an existing gateway row.
+let gwUpdateChanges: number[] = [];
+
+mock.module("../db/connection.js", () => ({
+  getGatewayDb: () => ({
+    update: (table: unknown) => ({
+      set: (set: Record<string, unknown>) => ({
+        where: (where: unknown) => ({
+          returning: () => ({
+            all: () => {
+              void table;
+              gwUpdates.push({ set, where });
+              const n = gwUpdateChanges.shift() ?? 0;
+              return Array.from({ length: n }, () => ({ id: "x" }));
+            },
+          }),
+        }),
+      }),
+    }),
+    insert: (table: unknown) => ({
+      values: (values: Record<string, unknown>) => ({
+        onConflictDoNothing: () => ({
+          run: () => {
+            gwInserts.push({ table, values });
+          },
+        }),
+      }),
+    }),
+  }),
+}));
+
 const TEST_SOCKET_PATH = join(
   tmpdir(),
   `vellum-upsert-contact-channel-test-${process.pid}.sock`,
@@ -38,22 +78,19 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   },
 }));
 
-mock.module("../db/connection.js", () => ({
-  getGatewayDb: () => ({
-    update: () => ({ set: () => ({ where: () => ({ run: () => {} }) }) }),
-    insert: () => ({
-      values: () => ({ onConflictDoNothing: () => ({ run: () => {} }) }),
-    }),
-  }),
-}));
-
 mock.module("../db/schema.js", () => ({
-  contactChannels: "contactChannels",
+  contactChannels: { id: "id", type: "type", address: "address" },
   contacts: "contacts",
 }));
 
 mock.module("drizzle-orm", () => ({
-  eq: (col: unknown, val: unknown) => ({ col, val }),
+  eq: (col: unknown, val: unknown) => ({ op: "eq", col, val }),
+  and: (...conds: unknown[]) => ({ op: "and", conds }),
+  sql: (strings: TemplateStringsArray, ...vals: unknown[]) => ({
+    op: "sql",
+    strings: Array.from(strings),
+    vals,
+  }),
 }));
 
 mock.module("../verification/identity.js", () => ({
@@ -72,6 +109,10 @@ beforeEach(() => {
   queryRows = [];
   queryCalls.length = 0;
   runCalls.length = 0;
+  gwUpdates.length = 0;
+  gwInserts.length = 0;
+  // Default: the id-keyed gateway update lands on an existing row.
+  gwUpdateChanges = [1];
   writeFileSync(TEST_SOCKET_PATH, "");
 });
 
@@ -227,6 +268,59 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     expect(channelInsert!.sql).toContain("verified_at");
     expect(channelInsert!.sql).toContain("verified_via");
     expect(channelInsert!.params).toContain("challenge");
+  });
+
+  test("resolves the gateway row by (type,address) when the id-keyed update misses", async () => {
+    queryRows = [
+      { channelId: "assistant-ch", contactId: "co-8", channelStatus: "active" },
+    ];
+    // id-keyed update misses (0 changes); logical-key update lands (1).
+    gwUpdateChanges = [0, 1];
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550002222",
+      externalChatId: "+15550002222",
+    });
+
+    expect(gwUpdates).toHaveLength(2);
+    // Second update is keyed on the logical (type,address) key, not the id.
+    expect(gwUpdates[1]!.where).toMatchObject({ op: "and" });
+    expect(gwUpdates[1]!.set).toMatchObject({
+      status: "active",
+      verifiedVia: "challenge",
+    });
+    expect(gwUpdates[1]!.set.verifiedAt).toEqual(expect.any(Number));
+    // No insert-mirror needed — the logical-key update succeeded.
+    expect(gwInserts).toHaveLength(0);
+  });
+
+  test("inserts a verified gateway channel when no gateway row exists at all", async () => {
+    queryRows = [
+      { channelId: "assistant-ch", contactId: "co-9", channelStatus: "active" },
+    ];
+    // Both id-keyed and logical-key updates miss → insert-mirror.
+    gwUpdateChanges = [0, 0];
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550003333",
+      externalChatId: "+15550003333",
+    });
+
+    expect(gwUpdates).toHaveLength(2);
+    const channelInsert = gwInserts.find(
+      (i) => i.values.type === "phone" && i.values.address === "+15550003333",
+    );
+    expect(channelInsert).toBeTruthy();
+    expect(channelInsert!.values).toMatchObject({
+      contactId: "co-9",
+      status: "active",
+      verifiedVia: "challenge",
+    });
+    expect(channelInsert!.values.verifiedAt).toEqual(expect.any(Number));
+    // Parent contact mirrored too.
+    expect(gwInserts.some((i) => i.values.id === "co-9")).toBe(true);
   });
 
   test("honors an explicit verifiedVia value on the update path", async () => {
