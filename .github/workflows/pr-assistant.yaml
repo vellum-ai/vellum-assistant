@@ -256,18 +256,18 @@ jobs:
       - name: Validate bundled skills against Agent Skills spec
         run: node scripts/skills/lint-skill-spec.mjs --dir assistant/src/config/bundled-skills --allow-tools-json
 
-check-marketplace-prefix:
-  name: Check Marketplace Reserved Prefix
-  runs-on: ubuntu-latest
-  timeout-minutes: 5
-  steps:
-    - name: Checkout
-      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+  check-marketplace-prefix:
+    name: Check Marketplace Reserved Prefix
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-    - name: Setup Node
-      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-      with:
-        node-version: '22.22.2'
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.22.2'
 
-    - name: Check marketplace entries for reserved default- prefix
-      run: node scripts/check-marketplace-prefix.mjs
+      - name: Check marketplace entries for reserved default- prefix
+        run: node scripts/check-marketplace-prefix.mjs
