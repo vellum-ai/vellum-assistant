@@ -258,7 +258,6 @@ import { dropApprovalPromptTsTrackerTable } from "./migrations/295-drop-approval
 import { migrateRewriteBalancedEconomyProfilePins } from "./migrations/296-rewrite-balanced-economy-profile-pins.js";
 import { migrateMoveLlmRequestLogsToLogsDb } from "./migrations/297-move-llm-request-logs-to-logs-db.js";
 import { migrateMoveMemoryJobsToMemoryDb } from "./migrations/298-move-memory-jobs-to-memory-db.js";
-import { migrateRewriteAutoProfilePins } from "./migrations/299-rewrite-auto-profile-pins.js";
 import { runMigrationSteps } from "./migrations/run-migrations.js";
 import { validateMigrationState } from "./migrations/validate-migration-state.js";
 
@@ -691,7 +690,6 @@ export async function initializeDb(): Promise<void> {
     migrateRewriteBalancedEconomyProfilePins,
     migrateMoveLlmRequestLogsToLogsDb,
     migrateMoveMemoryJobsToMemoryDb,
-    migrateRewriteAutoProfilePins,
   ];
 
   // Run each migration step, catching and logging individual failures so one
