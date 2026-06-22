@@ -9,12 +9,22 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+// Capture `log.debug(...)` calls so we can assert the daemon-native-search note
+// is emitted on the search path.
+const debugLogs: string[] = [];
 const realLogger = await import("../util/logger.js");
 mock.module("../util/logger.js", () => ({
   ...realLogger,
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
+      get:
+        (_target, prop: string) =>
+        (...args: unknown[]) => {
+          if (prop === "debug") {
+            const msg = args.find((a) => typeof a === "string");
+            if (typeof msg === "string") debugLogs.push(msg);
+          }
+        },
     }),
 }));
 
@@ -79,9 +89,22 @@ mock.module("../contacts/contact-store.js", () => ({
     localCalls.push("getAssistantContactMetadata");
     return undefined;
   },
+  searchContacts: () => {
+    localCalls.push("searchContacts");
+    return [
+      {
+        id: "search-1",
+        displayName: "Search Contact",
+        role: "contact",
+        contactType: "human",
+        interactionCount: 0,
+        channels: [],
+      },
+    ];
+  },
 }));
 
-const { handleListContacts, handleGetContact } = (await import(
+const { handleListContacts, handleGetContact, ROUTES } = (await import(
   "../runtime/routes/contact-routes.js"
 )) as typeof import("../runtime/routes/contact-routes.js") & {
   handleListContacts: (q: Record<string, string>) => Promise<{
@@ -94,6 +117,17 @@ const { handleListContacts, handleGetContact } = (await import(
     assistantMetadata?: unknown;
   }>;
 };
+
+/** Invoke the inline `search_contacts` POST route handler with a request body. */
+function searchContactsRoute(
+  body: Record<string, unknown>,
+): Promise<Array<{ id: string; displayName: string; role: string }>> {
+  const route = ROUTES.find((r) => r.operationId === "search_contacts");
+  if (!route) throw new Error("search_contacts route not found");
+  return route.handler({ body }) as Promise<
+    Array<{ id: string; displayName: string; role: string }>
+  >;
+}
 
 function gatewayContact(overrides: Record<string, unknown> = {}) {
   return {
@@ -131,6 +165,7 @@ beforeEach(() => {
   ipcStub = () => undefined;
   ipcCalls.length = 0;
   localCalls.length = 0;
+  debugLogs.length = 0;
 });
 
 describe("handleListContacts relay", () => {
@@ -170,6 +205,73 @@ describe("handleListContacts relay", () => {
     expect(ipcCalls.map((c) => c.method)).toEqual(["contacts_list_rich"]);
     expect(localCalls).toContain("listContacts");
     expect(result.contacts[0].id).toBe("local-1");
+  });
+
+  test("search params stay daemon-native and log the boundary note", async () => {
+    const result = await handleListContacts({ query: "alice" });
+
+    expect(ipcCalls).toEqual([]);
+    expect(localCalls).toContain("searchContacts");
+    expect(result.contacts[0].id).toBe("search-1");
+    expect(debugLogs.some((m) => m.includes("daemon-native"))).toBe(true);
+  });
+});
+
+describe("search_contacts route relay boundary", () => {
+  test("real query stays daemon-native and logs the boundary note", async () => {
+    const contacts = await searchContactsRoute({ query: "alice" });
+
+    expect(ipcCalls).toEqual([]);
+    expect(localCalls).toContain("searchContacts");
+    expect(contacts[0].id).toBe("search-1");
+    expect(debugLogs.some((m) => m.includes("daemon-native"))).toBe(true);
+  });
+
+  test("real channelAddress stays daemon-native", async () => {
+    const contacts = await searchContactsRoute({ channelAddress: "tg-001" });
+
+    expect(ipcCalls).toEqual([]);
+    expect(localCalls).toContain("searchContacts");
+    expect(contacts[0].id).toBe("search-1");
+  });
+
+  test("real channelType stays daemon-native", async () => {
+    const contacts = await searchContactsRoute({ channelType: "telegram" });
+
+    expect(ipcCalls).toEqual([]);
+    expect(localCalls).toContain("searchContacts");
+    expect(contacts[0].id).toBe("search-1");
+  });
+
+  test("empty/whitespace query with no filters relays through the gateway", async () => {
+    ipcStub = (method) => {
+      if (method === "contacts_list_rich") {
+        return { ok: true, contacts: [gatewayContact()] };
+      }
+      return undefined;
+    };
+
+    const contacts = await searchContactsRoute({ query: "   " });
+
+    expect(ipcCalls.map((c) => c.method)).toEqual(["contacts_list_rich"]);
+    expect(localCalls).toEqual([]);
+    expect(contacts[0].id).toBe("gw-1");
+    expect(debugLogs.some((m) => m.includes("daemon-native"))).toBe(false);
+  });
+
+  test("no params at all relays through the gateway", async () => {
+    ipcStub = (method) => {
+      if (method === "contacts_list_rich") {
+        return { ok: true, contacts: [gatewayContact()] };
+      }
+      return undefined;
+    };
+
+    const contacts = await searchContactsRoute({});
+
+    expect(ipcCalls.map((c) => c.method)).toEqual(["contacts_list_rich"]);
+    expect(localCalls).toEqual([]);
+    expect(contacts[0].id).toBe("gw-1");
   });
 });
 
