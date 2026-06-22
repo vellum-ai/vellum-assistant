@@ -106,13 +106,33 @@ function peekersFor(style: TalkStyle, colors: string[], scale: number): Peeker[]
   ];
 }
 
+/**
+ * Extra characters that pop in around the other edges as the research steps
+ * progress — `extraPeekLevel` controls how many are shown (one more per step)
+ * to make the looking-you-up + results feel increasingly alive.
+ */
+const EXTRA_PEEKERS: {
+  bodyShape: string;
+  eyeStyle: string;
+  colorIdx: number;
+  pos: (s: number) => Record<string, number | string>;
+}[] = [
+  { bodyShape: "sprout", eyeStyle: "curious", colorIdx: 0, pos: (s) => ({ left: -s * 0.34, top: "44%" }) },
+  { bodyShape: "burst", eyeStyle: "angry", colorIdx: 2, pos: (s) => ({ right: -s * 0.28, bottom: -s * 0.18 }) },
+  { bodyShape: "star", eyeStyle: "goofy", colorIdx: 1, pos: (s) => ({ left: -s * 0.2, bottom: -s * 0.22 }) },
+  { bodyShape: "flower", eyeStyle: "quirky", colorIdx: 0, pos: (s) => ({ right: -s * 0.34, top: "58%" }) },
+];
+
 export function OnboardingTonedBackdrop({
   talkStyle,
   eyesBumpNonce = 0,
+  extraPeekLevel = 0,
 }: {
   talkStyle: TalkStyle | null;
   /** Increment to make the bottom eyes jolt (Mario bump on the coin). */
   eyesBumpNonce?: number;
+  /** How many extra edge characters to reveal (one more per research step). */
+  extraPeekLevel?: number;
 }) {
   const components = useBundledAvatarComponents();
   const characters = useOnboardingAvatarPoolStore.use.characters();
@@ -160,6 +180,41 @@ export function OnboardingTonedBackdrop({
                 reduce={!!reduce}
               />
             ))}
+        </AnimatePresence>
+      )}
+
+      {/* Extra characters pop in around the edges as research progresses. */}
+      {components && (
+        <AnimatePresence>
+          {EXTRA_PEEKERS.slice(0, extraPeekLevel).map((p, i) => {
+            const size = Math.round(220 * peekScale);
+            return (
+              <motion.div
+                key={`extra-${i}`}
+                aria-hidden="true"
+                className="pointer-events-none fixed z-[1]"
+                style={{ ...p.pos(size), width: size, height: size }}
+                initial={reduce ? false : { scale: 0, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={reduce ? undefined : { scale: 0, opacity: 0 }}
+                transition={
+                  reduce
+                    ? { duration: 0 }
+                    : { type: "spring", stiffness: 220, damping: 16, delay: 0.1 }
+                }
+              >
+                <AnimatedAvatar
+                  components={components}
+                  traits={{
+                    bodyShape: p.bodyShape,
+                    eyeStyle: p.eyeStyle,
+                    color: peekColors[p.colorIdx] ?? "teal",
+                  }}
+                  size={size}
+                />
+              </motion.div>
+            );
+          })}
         </AnimatePresence>
       )}
     </>

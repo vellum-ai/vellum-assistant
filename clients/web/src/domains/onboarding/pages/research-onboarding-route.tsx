@@ -44,6 +44,12 @@ import { HowShouldITalkScreen } from "@/domains/onboarding/screens/how-should-i-
 import { IntegrationStep } from "@/domains/onboarding/screens/integration-step";
 import { LetsChatTomorrowStep } from "@/domains/onboarding/screens/lets-chat-tomorrow-step";
 import {
+  MeetingCreatedStep,
+  LookingYouUpStep,
+  ResearchResultsStep,
+  SuggestionsStep,
+} from "@/domains/onboarding/screens/research-result-steps";
+import {
   OnboardingTonedBackdrop,
   type TalkStyle,
 } from "@/domains/onboarding/components/onboarding-toned-backdrop";
@@ -65,7 +71,16 @@ export function ResearchOnboardingRoute() {
   // three share a persistent toned backdrop so the avatars/eyes stay put. The
   // handoff fires from the "let's chat tomorrow" step (or the picker's skip).
   const [step, setStep] = useState<
-    "form" | "face" | "intro" | "talk" | "integration" | "letschat"
+    | "form"
+    | "face"
+    | "intro"
+    | "talk"
+    | "integration"
+    | "letschat"
+    | "meeting"
+    | "looking"
+    | "results"
+    | "suggestions"
   >("form");
   const [formValues, setFormValues] = useState<ResearchOnboardingValues | null>(
     null,
@@ -86,16 +101,15 @@ export function ResearchOnboardingRoute() {
   // name is applied via `assistantName`; the avatar traits are applied to the
   // assistant after hatch (see the avatar-apply effect). The talk style has no
   // backend field yet, so it's captured but not sent.
-  function handoff(
+  function enterAssistant(
     values: ResearchOnboardingValues,
-    face?: GiveMeAFaceValues,
-    _talkStyle?: TalkStyle,
+    face: GiveMeAFaceValues | null,
+    entryPrompt?: string,
   ) {
     const { firstName, lastName, role, hobbies } = values;
     const fullName = [firstName.trim(), lastName.trim()]
       .filter(Boolean)
       .join(" ");
-
     const trimmedFirstName = firstName.trim();
 
     const context: PreChatOnboardingContext = {
@@ -106,13 +120,18 @@ export function ResearchOnboardingRoute() {
       ...(fullName ? { userName: fullName } : {}),
       // `occupation` is the prechat profile's field name for the person's role.
       ...(role.trim() ? { occupation: role.trim() } : {}),
-      // The auto-sent first message: kick off the research pass.
-      initialMessage: buildResearchPrompt({ firstName, lastName, role, hobbies }),
-      // Set an explicit, friendly title on the behind-the-scenes research
-      // conversation so it isn't left with an auto-generated one.
-      title: trimmedFirstName
-        ? `Getting to know ${trimmedFirstName}`
-        : "Getting to know you",
+      // First message: the picked suggestion if we're entering from one,
+      // otherwise the research kickoff prompt.
+      initialMessage:
+        entryPrompt ?? buildResearchPrompt({ firstName, lastName, role, hobbies }),
+      // Friendly title for the behind-the-scenes research conversation.
+      ...(entryPrompt
+        ? {}
+        : {
+            title: trimmedFirstName
+              ? `Getting to know ${trimmedFirstName}`
+              : "Getting to know you",
+          }),
       // Apply the avatar name chosen on the picker (if any).
       ...(face?.name?.trim() ? { assistantName: face.name.trim() } : {}),
     };
@@ -123,10 +142,9 @@ export function ResearchOnboardingRoute() {
     // the assistant is hatched (they're not part of the pre-chat context).
     setPendingAvatarTraits(face?.traits ?? null);
 
-    // The "let's chat tomorrow" gcal step now lives inline in onboarding, so we
-    // no longer trigger the post-handoff check-in overlay. Enter the focused
-    // chat presentation and hand off so the research pass starts immediately.
-    enterFocus();
+    // The research pass renders in the focused presentation; entering directly
+    // from a suggestion is a normal chat, so only focus for the research path.
+    if (!entryPrompt) enterFocus();
     lifecycleService.markExpectingFirstMessage();
     void lifecycleService.checkAssistant().finally(() => {
       void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
@@ -146,18 +164,30 @@ export function ResearchOnboardingRoute() {
     return <Navigate to={routes.assistant} replace />;
   }
 
-  // Talk-style → integration → "let's chat tomorrow" share one persistent
-  // toned backdrop (assistant color + eyes + tone characters) so the avatars
-  // stay put while the foreground content swaps.
-  if (
-    (step === "talk" || step === "integration" || step === "letschat") &&
-    formValues
-  ) {
-    const finish = () =>
-      handoff(formValues, faceValues ?? undefined, talkStyle ?? undefined);
+  // The later steps share one persistent toned backdrop (assistant color +
+  // eyes + tone characters) so the avatars stay put while the foreground
+  // content swaps. Extra edge characters pop in per step to build excitement.
+  const tonedSteps = [
+    "talk",
+    "integration",
+    "letschat",
+    "meeting",
+    "looking",
+    "results",
+    "suggestions",
+  ];
+  if (tonedSteps.includes(step) && formValues) {
+    const extraPeekLevel =
+      { meeting: 1, looking: 2, results: 3, suggestions: 4 }[
+        step as "meeting" | "looking" | "results" | "suggestions"
+      ] ?? 0;
     return (
       <div data-theme="dark" className="relative h-full overflow-hidden">
-        <OnboardingTonedBackdrop talkStyle={talkStyle} eyesBumpNonce={eyesBump} />
+        <OnboardingTonedBackdrop
+          talkStyle={talkStyle}
+          eyesBumpNonce={eyesBump}
+          extraPeekLevel={extraPeekLevel}
+        />
         {step === "talk" && (
           <HowShouldITalkScreen
             selected={talkStyle}
@@ -176,9 +206,37 @@ export function ResearchOnboardingRoute() {
         )}
         {step === "letschat" && (
           <LetsChatTomorrowStep
-            onConnect={finish}
-            onSkip={finish}
+            onConnect={() => setStep("meeting")}
+            onSkip={() => setStep("looking")}
             onBack={() => setStep("integration")}
+          />
+        )}
+        {step === "meeting" && (
+          <MeetingCreatedStep
+            onDone={() => setStep("looking")}
+            onBack={() => setStep("letschat")}
+          />
+        )}
+        {step === "looking" && (
+          <LookingYouUpStep
+            onDone={() => setStep("results")}
+            onBack={() => setStep("letschat")}
+          />
+        )}
+        {step === "results" && (
+          <ResearchResultsStep
+            firstName={formValues.firstName}
+            role={formValues.role}
+            onContinue={() => setStep("suggestions")}
+            onBack={() => setStep("looking")}
+          />
+        )}
+        {step === "suggestions" && (
+          <SuggestionsStep
+            onSuggestionClick={(prompt) =>
+              enterAssistant(formValues, faceValues, prompt)
+            }
+            onBack={() => setStep("results")}
           />
         )}
       </div>
