@@ -57,7 +57,7 @@ CLI process — no IPC round-trip to the daemon.
 Examples:
   $ assistant memory retrospective run abc123`,
         )
-        .action(async (conversationId: string, opts: { json?: boolean }) => {
+        .action(async (conversationId: string, opts: { json?: boolean }, cmd: Command) => {
           const config = getConfig();
           let outcome: MemoryRetrospectiveOutcome;
           try {
@@ -66,10 +66,10 @@ Examples:
             const msg = err instanceof Error ? err.message : String(err);
             log.error(
               { err, conversationId },
-              "memory-v3-retrospective: run threw",
+              "memory-retrospective: run threw",
             );
             if (opts.json === true) {
-              writeOutput(retro, { kind: "error", error: msg });
+              writeOutput(cmd, { kind: "error", error: msg });
             } else {
               log.error(msg);
             }
@@ -77,8 +77,8 @@ Examples:
             return;
           }
 
-          if (shouldOutputJson(retro)) {
-            writeOutput(retro, outcome);
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, outcome);
             return;
           }
 
