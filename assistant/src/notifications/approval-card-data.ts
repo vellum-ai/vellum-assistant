@@ -19,6 +19,7 @@ import {
   parseAccessRequestPayload,
 } from "./access-request-copy.js";
 import {
+  type ApprovalCardBlock,
   type ApprovalCardParams,
   buildApprovalCardBlocks,
 } from "./approval-card-builder.js";
@@ -285,7 +286,9 @@ export function resolveApprovalCardData(
 }
 
 /** Render resolved approval card data into Surface `[ui_surface, text]` blocks. */
-export function renderApprovalCardData(data: ApprovalCardData): unknown[] {
+export function renderApprovalCardData(
+  data: ApprovalCardData,
+): ApprovalCardBlock[] {
   return buildApprovalCardBlocks(data.card);
 }
 
@@ -300,7 +303,7 @@ export function renderApprovalCardData(data: ApprovalCardData): unknown[] {
  */
 export function buildAccessRequestSeedContentBlocks(
   payload: Record<string, unknown>,
-): unknown[] {
+): ApprovalCardBlock[] {
   return renderApprovalCardData({
     kind: "access_request",
     card: resolveAccessRequestCard(payload),
@@ -318,13 +321,13 @@ export function buildAccessRequestSeedContentBlocks(
  */
 export function buildToolApprovalSeedContentBlocks(
   payload: GuardianQuestionPayload,
-): unknown[] | null;
+): ApprovalCardBlock[] | null;
 export function buildToolApprovalSeedContentBlocks(
   payload: Record<string, unknown>,
-): unknown[] | null;
+): ApprovalCardBlock[] | null;
 export function buildToolApprovalSeedContentBlocks(
   payload: GuardianQuestionPayload | Record<string, unknown>,
-): unknown[] | null {
+): ApprovalCardBlock[] | null {
   const data = resolveApprovalCardData(
     "guardian.question",
     payload as Record<string, unknown>,

@@ -7,18 +7,73 @@
  * supplies its domain-specific data (title, subtitle, metadata, etc.)
  * without duplicating the card structure or action wiring.
  *
- * The card data shape matches `CardSurfaceData` from
- * `daemon/message-types/surfaces.ts`: `{ title, subtitle, body, metadata }`.
- * Actions use the canonical `apr:<requestId>:<action>` callback format
- * consumed by `surface-action-routes.ts` → `processGuardianDecision`.
+ * The `[ui_surface, text]` block pair is described by {@link ApprovalCardBlockSchema}
+ * so the builder returns a schema-derived type rather than `unknown[]`: the card
+ * `data` composes the canonical {@link CardSurfaceDataSchema} and actions reuse
+ * the canonical {@link SurfaceActionSchema}. Actions use the
+ * `apr:<requestId>:<action>` callback format consumed by
+ * `surface-action-routes.ts` → `processGuardianDecision`.
  */
+
+import { z } from "zod";
+
+import {
+  type SurfaceAction,
+  SurfaceActionSchema,
+} from "../api/events/ui-surface-show.js";
+import {
+  type CardSurfaceData,
+  CardSurfaceDataSchema,
+} from "../daemon/message-types/surfaces.js";
+
+// ── Seed content block schema ─────────────────────────────────────────────────
+
+/**
+ * The interactive `ui_surface` card block clients render via
+ * `SurfaceRouter → CardSurface`. `data` is the canonical card surface data;
+ * `actions` reuse the canonical surface action schema.
+ */
+export const ApprovalCardSurfaceBlockSchema = z.object({
+  type: z.literal("ui_surface"),
+  surfaceId: z.string(),
+  surfaceType: z.literal("card"),
+  title: z.string(),
+  data: CardSurfaceDataSchema,
+  actions: z.array(SurfaceActionSchema).optional(),
+});
+
+/**
+ * The plain-text fallback block, flagged so the display projector
+ * (`renderHistoryContent`) keeps it in flat `.text` but omits it from the
+ * rendered `contentBlocks` — without it a surface-capable client would render
+ * the card AND a duplicate text line.
+ */
+export const ApprovalCardFallbackBlockSchema = z.object({
+  type: z.literal("text"),
+  text: z.string(),
+  _surfaceFallback: z.literal(true),
+});
+
+/** The `[ui_surface, text]` seed block pair produced for a guardian card. */
+export const ApprovalCardBlockSchema = z.discriminatedUnion("type", [
+  ApprovalCardSurfaceBlockSchema,
+  ApprovalCardFallbackBlockSchema,
+]);
+
+export type ApprovalCardSurfaceBlock = z.infer<
+  typeof ApprovalCardSurfaceBlockSchema
+>;
+export type ApprovalCardFallbackBlock = z.infer<
+  typeof ApprovalCardFallbackBlockSchema
+>;
+export type ApprovalCardBlock = z.infer<typeof ApprovalCardBlockSchema>;
 
 // ── Public types ────────────────────────────────────────────────────────────
 
 export interface ApprovalCardParams {
   /** Prefix for `surfaceId` — combined with `requestId` to form e.g. "access-request-abc123". */
   surfaceIdPrefix: string;
-  /** Top-level card title shown in the surface header (e.g. "Access Request", "Tool Approval"). */
+  /** Top-level card title shown in the surface header (e.g. "Access Request", "Tool approval"). */
   cardTitle: string;
   /** Primary line inside the card (typically the requester's display name). */
   requesterName: string;
@@ -43,13 +98,10 @@ export interface ApprovalCardParams {
  * clients that support Surface rendering. The `text` block is the card's
  * plain-text fallback — it feeds the model, search indexing, CLI display, and
  * channel replies, which read it as ordinary text.
- *
- * The fallback block is flagged `_surfaceFallback` so the display projector
- * (`renderHistoryContent`) keeps it in the flat `.text` body but omits it from
- * `contentBlocks`/`textSegments`. Without that, a surface-capable client would
- * render the card AND its fallback text — the duplicate this flag prevents.
  */
-export function buildApprovalCardBlocks(params: ApprovalCardParams): unknown[] {
+export function buildApprovalCardBlocks(
+  params: ApprovalCardParams,
+): ApprovalCardBlock[] {
   const {
     surfaceIdPrefix,
     cardTitle,
@@ -61,7 +113,7 @@ export function buildApprovalCardBlocks(params: ApprovalCardParams): unknown[] {
     fallbackText,
   } = params;
 
-  const actions = requestId
+  const actions: SurfaceAction[] | undefined = requestId
     ? [
         {
           id: `apr:${requestId}:approve_once`,
@@ -76,27 +128,25 @@ export function buildApprovalCardBlocks(params: ApprovalCardParams): unknown[] {
       ]
     : undefined;
 
-  const surfaceBlock = {
-    type: "ui_surface" as const,
+  const data: CardSurfaceData = {
+    title: requesterName,
+    subtitle,
+    body,
+    metadata,
+  };
+
+  const surfaceBlock: ApprovalCardSurfaceBlock = {
+    type: "ui_surface",
     surfaceId: `${surfaceIdPrefix}-${requestId ?? "unknown"}`,
-    surfaceType: "card" as const,
+    surfaceType: "card",
     title: cardTitle,
-    data: {
-      title: requesterName,
-      subtitle,
-      body,
-      metadata,
-    },
+    data,
     ...(actions ? { actions } : {}),
   };
 
-  const textBlock = {
-    type: "text" as const,
+  const textBlock: ApprovalCardFallbackBlock = {
+    type: "text",
     text: fallbackText,
-    // Display-only hint: surface-capable clients render the card from
-    // `surfaceBlock` and must skip this block (see `renderHistoryContent`), or
-    // they show the card and a duplicate text line. Non-display consumers
-    // (model, search, CLI `.text`) read it as ordinary text.
     _surfaceFallback: true,
   };
 
