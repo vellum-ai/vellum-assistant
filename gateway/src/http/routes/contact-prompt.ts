@@ -110,8 +110,7 @@ export async function handleContactPromptSubmit(
   const normalizedAddress =
     canonicalizeInboundIdentity(channelType, address) ?? address.trim();
   const effectiveDisplayName = displayName ?? normalizedAddress;
-  // Map prompt roles to valid ContactRole values ("guardian" | "contact").
-  const effectiveRole: string = role === "guardian" ? "guardian" : "contact";
+  const isGuardian = role === "guardian";
   const now = Date.now();
 
   let contactId: string;
@@ -127,7 +126,7 @@ export async function handleContactPromptSubmit(
     // -----------------------------------------------------------------------
     let createdNewContact = false;
 
-    if (effectiveRole === "guardian") {
+    if (isGuardian) {
       // Guardian lives in the gateway DB (source of truth) — bootstrap
       // dual-writes it there. Resolve from there, not the assistant mirror.
       const guardianRow = getGatewayDb()
@@ -196,6 +195,14 @@ export async function handleContactPromptSubmit(
         "contact-prompt-submit: upserted contact + channel via ContactStore",
       );
 
+      if (!channelId) {
+        log.error(
+          { channelType, address: normalizedAddress, contactId },
+          "contact-prompt-submit: channel resolution failed after upsert",
+        );
+        return await channelResolutionError(requestId);
+      }
+
       // Non-guardian is fully resolved by upsertContact; skip the guardian-only
       // Phase 2 channel-creation block below and go straight to resolve.
       return await resolveContactPrompt({
@@ -230,11 +237,29 @@ export async function handleContactPromptSubmit(
       .get();
 
     if (existingChannel && existingChannel.contactId === contactId) {
-      channelId = existingChannel.id;
+      // Heal the best-effort assistant-DB mirror on retry (matching the
+      // non-guardian path's self-healing). Passing the guardian's id preserves
+      // role="guardian" via upsertContact's id-path role preservation; the
+      // gateway channel already exists, so this is a no-op there and only
+      // recovers a previously-unavailable assistant mirror.
+      await getStore().upsertContact({
+        id: contactId,
+        channels: [
+          { type: channelType, address: normalizedAddress, isPrimary: true },
+        ],
+      });
+      channelId = resolveChannelId(contactId, channelType, normalizedAddress);
       log.info(
         { channelType, address: normalizedAddress, contactId, channelId },
         "contact-prompt-submit: channel already exists",
       );
+      if (!channelId) {
+        log.error(
+          { channelType, address: normalizedAddress, contactId },
+          "contact-prompt-submit: channel resolution failed on guardian reuse",
+        );
+        return await channelResolutionError(requestId);
+      }
     } else if (existingChannel) {
       // Channel exists but belongs to a different contact.  The caller must
       // clean up the stale binding before a guardian channel can be created.
@@ -259,6 +284,28 @@ export async function handleContactPromptSubmit(
         { status: 409 },
       );
     } else {
+      // Compensating delete — only remove the contact if we created it here.
+      // "Stale over lost": delete gateway-first, then mirror the delete to
+      // the assistant DB best-effort. Used by both the bind-failure path and
+      // the empty-channelId guard below.
+      const rollbackCreatedContact = async (): Promise<void> => {
+        if (!createdNewContact) return;
+        getGatewayDb()
+          .delete(gwContacts)
+          .where(eq(gwContacts.id, contactId))
+          .run();
+        try {
+          await assistantDbRun("DELETE FROM contacts WHERE id = ?", [
+            contactId,
+          ]);
+        } catch (mirrorErr) {
+          log.warn(
+            { err: mirrorErr },
+            "contact-prompt-submit: assistant DB contact rollback mirror DELETE failed",
+          );
+        }
+      };
+
       try {
         // Bind gateway-first. Passing the guardian's id keys the update to the
         // existing guardian and preserves role="guardian" (upsertContact's
@@ -272,29 +319,11 @@ export async function handleContactPromptSubmit(
         });
         channelId = resolveChannelId(contactId, channelType, normalizedAddress);
       } catch (channelErr) {
-        // Compensating delete — only remove the contact if we created it here.
-        // "Stale over lost": delete gateway-first, then mirror the delete to
-        // the assistant DB best-effort.
         log.error(
           { channelErr, contactId, channelType },
           "contact-prompt-submit: channel bind failed, rolling back contact",
         );
-        if (createdNewContact) {
-          getGatewayDb()
-            .delete(gwContacts)
-            .where(eq(gwContacts.id, contactId))
-            .run();
-          try {
-            await assistantDbRun("DELETE FROM contacts WHERE id = ?", [
-              contactId,
-            ]);
-          } catch (mirrorErr) {
-            log.warn(
-              { err: mirrorErr },
-              "contact-prompt-submit: assistant DB contact rollback mirror DELETE failed",
-            );
-          }
-        }
+        await rollbackCreatedContact();
 
         // Notify daemon of failure so the CLI doesn't hang.
         await notifyDaemonResolveError(
@@ -305,6 +334,15 @@ export async function handleContactPromptSubmit(
           { accepted: false, error: "Failed to create contact channel" },
           { status: 500 },
         );
+      }
+
+      if (!channelId) {
+        log.error(
+          { channelType, address: normalizedAddress, contactId },
+          "contact-prompt-submit: channel resolution failed after guardian bind, rolling back contact",
+        );
+        await rollbackCreatedContact();
+        return await channelResolutionError(requestId);
       }
 
       log.info(
@@ -328,6 +366,19 @@ export async function handleContactPromptSubmit(
     channelType,
     address: normalizedAddress,
   });
+}
+
+/**
+ * Notify the daemon of a failed channel resolution and return 500. Used when the
+ * gateway DB read can't find the just-bound channel — resolving the prompt with
+ * an empty channelId would falsely report success for a channel-less contact.
+ */
+async function channelResolutionError(requestId: string): Promise<Response> {
+  await notifyDaemonResolveError(requestId, "Channel resolution failed");
+  return Response.json(
+    { accepted: false, error: "Channel resolution failed" },
+    { status: 500 },
+  );
 }
 
 /**

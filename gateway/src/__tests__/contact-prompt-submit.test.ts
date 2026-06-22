@@ -15,6 +15,7 @@ import {
   describe,
   expect,
   mock,
+  spyOn,
   test,
 } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -67,6 +68,7 @@ const { initGatewayDb, getGatewayDb, resetGatewayDb } = await import(
 );
 const { contactChannels: gwContactChannels, contacts: gwContacts } =
   await import("../db/schema.js");
+const { ContactStore } = await import("../db/contact-store.js");
 const { eq } = await import("drizzle-orm");
 
 // ---------------------------------------------------------------------------
@@ -533,5 +535,150 @@ describe("handleContactPromptSubmit", () => {
       .all();
     expect(gwChannels).toHaveLength(1);
     expect(gwChannels[0].contactId).toBe("guardian-1");
+  });
+
+  test("guardian prompt — reuse path heals the assistant-DB mirror channel", async () => {
+    const now = Date.now();
+    seedGuardian();
+    // Gateway channel already bound to the guardian (the reuse precondition),
+    // but the assistant-DB mirror has NO channel row — simulating a mirror that
+    // was unavailable when the channel was first bound.
+    getGatewayDb()
+      .insert(gwContactChannels)
+      .values({
+        id: "chan-reuse",
+        contactId: "guardian-1",
+        type: "phone",
+        address: "+15551112222",
+        isPrimary: true,
+        status: "active",
+        policy: "allow",
+        interactionCount: 0,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    // Precondition: assistant mirror has no channel for this address.
+    expect(
+      testAssistantDb!
+        .prepare(`SELECT id FROM contact_channels WHERE address = ?`)
+        .all("+15551112222"),
+    ).toHaveLength(0);
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-heal",
+        address: "+15551112222",
+        channelType: "phone",
+        role: "guardian",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.accepted).toBe(true);
+
+    // No new gateway channel — the existing one is reused.
+    const gwChannels = getGatewayDb()
+      .select()
+      .from(gwContactChannels)
+      .where(eq(gwContactChannels.address, "+15551112222"))
+      .all();
+    expect(gwChannels).toHaveLength(1);
+    expect(gwChannels[0].id).toBe("chan-reuse");
+
+    // The reuse path called upsertContact, which healed the assistant-DB
+    // mirror: a channel row for the address now exists under the guardian.
+    const asChannels = testAssistantDb!
+      .prepare(
+        `SELECT contact_id FROM contact_channels WHERE address = ?`,
+      )
+      .all("+15551112222") as { contact_id: string }[];
+    expect(asChannels).toHaveLength(1);
+    expect(asChannels[0].contact_id).toBe("guardian-1");
+
+    const ipcCall = (ipcMock.mock.calls as any[][])[0][1] as {
+      body: Record<string, unknown>;
+    };
+    expect(ipcCall.body.channelId).toBe("chan-reuse");
+  });
+
+  test("non-guardian prompt — 500 + daemon error when channel can't be resolved (no empty channelId)", async () => {
+    // Force resolveChannelId to miss by making getChannelsForContact return [].
+    const spy = spyOn(
+      ContactStore.prototype,
+      "getChannelsForContact",
+    ).mockReturnValue([]);
+
+    let res: Response;
+    try {
+      res = await handleContactPromptSubmit(
+        makeRequest({
+          requestId: "req-noresolve",
+          address: "carol@example.com",
+          channelType: "email",
+          role: "trusted-contact",
+          displayName: "Carol",
+        }),
+      );
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.accepted).toBe(false);
+
+    // Daemon was notified with an error (not a success resolve with empty id).
+    expect(ipcMock).toHaveBeenCalledTimes(1);
+    const ipcCall = (ipcMock.mock.calls as any[][])[0][1] as {
+      body: Record<string, unknown>;
+    };
+    expect(typeof ipcCall.body.error).toBe("string");
+    expect(ipcCall.body.channelId).toBeUndefined();
+  });
+
+  test("guardian bind — rolls back freshly-created guardian + 500 when channel can't be resolved", async () => {
+    // No guardian seeded: the handler mints one gateway-first, then binds the
+    // channel. Force the post-bind resolve to miss so the empty-channelId guard
+    // fires and the just-created guardian is cleaned up.
+    const spy = spyOn(
+      ContactStore.prototype,
+      "getChannelsForContact",
+    ).mockReturnValue([]);
+
+    let res: Response;
+    try {
+      res = await handleContactPromptSubmit(
+        makeRequest({
+          requestId: "req-boot-noresolve",
+          address: "+15553334444",
+          channelType: "phone",
+          role: "guardian",
+          displayName: "Doomed Guardian",
+        }),
+      );
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.accepted).toBe(false);
+
+    // The freshly-created guardian was rolled back (compensating delete).
+    const gwGuardians = getGatewayDb()
+      .select()
+      .from(gwContacts)
+      .where(eq(gwContacts.role, "guardian"))
+      .all();
+    expect(gwGuardians).toHaveLength(0);
+
+    // Daemon notified with an error.
+    const ipcCall = (ipcMock.mock.calls as any[][])[0][1] as {
+      body: Record<string, unknown>;
+    };
+    expect(typeof ipcCall.body.error).toBe("string");
   });
 });
