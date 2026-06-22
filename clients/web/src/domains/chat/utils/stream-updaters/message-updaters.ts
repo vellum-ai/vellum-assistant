@@ -27,24 +27,29 @@ import {
 // assistant_text_delta
 // ---------------------------------------------------------------------------
 
+/** A fresh streaming assistant bubble whose first content entry is text. */
+export function newAssistantTextBubble(
+  text: string,
+  messageId?: string,
+): DisplayMessage {
+  return {
+    id: messageId ?? crypto.randomUUID(),
+    ...(messageId ? {} : { isOptimistic: true }),
+    role: "assistant",
+    textSegments: [text],
+    contentOrder: [{ type: "text", id: "0" }],
+    contentBlocks: [{ type: "text", text }],
+    timestamp: Date.now(),
+  };
+}
+
 /** Create a new streaming assistant bubble for the first text delta. */
 export function createStreamingBubble(
   prev: DisplayMessage[],
   text: string,
   messageId?: string,
 ): DisplayMessage[] {
-  return [
-    ...prev,
-    {
-      id: messageId ?? crypto.randomUUID(),
-      ...(messageId ? {} : { isOptimistic: true }),
-      role: "assistant",
-      textSegments: [text],
-      contentOrder: [{ type: "text", id: "0" }],
-      contentBlocks: [{ type: "text", text }],
-      timestamp: Date.now(),
-    },
-  ];
+  return [...prev, newAssistantTextBubble(text, messageId)];
 }
 
 /**
@@ -77,13 +82,12 @@ function upsertTrailingSegmentBlock(
  * already text the chunk extends the trailing segment/block; otherwise a
  * new text segment and order entry are opened.
  */
-function appendTextSegmentIntoRow(
-  prev: DisplayMessage[],
-  idx: number,
+export function appendTextSegmentToRow(
+  row0: DisplayMessage,
   content: string,
   messageId: string | undefined,
-): DisplayMessage[] {
-  const row = withMergedAlias(prev[idx]!, messageId);
+): DisplayMessage {
+  const row = withMergedAlias(row0, messageId);
   const segments = [...(row.textSegments ?? [])];
   const order = [...(row.contentOrder ?? [])];
   const blocks = [...(row.contentBlocks ?? [])];
@@ -103,13 +107,22 @@ function appendTextSegmentIntoRow(
     coalesce,
   );
 
-  const next = [...prev];
-  next[idx] = {
+  return {
     ...row,
     textSegments: segments,
     contentOrder: order,
     contentBlocks: blocks,
   };
+}
+
+function appendTextSegmentIntoRow(
+  prev: DisplayMessage[],
+  idx: number,
+  content: string,
+  messageId: string | undefined,
+): DisplayMessage[] {
+  const next = [...prev];
+  next[idx] = appendTextSegmentToRow(prev[idx]!, content, messageId);
   return next;
 }
 
@@ -120,13 +133,12 @@ function appendTextSegmentIntoRow(
  * entry is already thinking the chunk extends the trailing segment/block;
  * otherwise a new thinking segment and order entry are opened.
  */
-function appendThinkingSegmentIntoRow(
-  prev: DisplayMessage[],
-  idx: number,
+export function appendThinkingSegmentToRow(
+  row0: DisplayMessage,
   content: string,
   messageId: string | undefined,
-): DisplayMessage[] {
-  const row = withMergedAlias(prev[idx]!, messageId);
+): DisplayMessage {
+  const row = withMergedAlias(row0, messageId);
   const segments = [...(row.thinkingSegments ?? [])];
   const order = [...(row.contentOrder ?? [])];
   const blocks = [...(row.contentBlocks ?? [])];
@@ -146,13 +158,22 @@ function appendThinkingSegmentIntoRow(
     coalesce,
   );
 
-  const next = [...prev];
-  next[idx] = {
+  return {
     ...row,
     thinkingSegments: segments,
     contentOrder: order,
     contentBlocks: blocks,
   };
+}
+
+function appendThinkingSegmentIntoRow(
+  prev: DisplayMessage[],
+  idx: number,
+  content: string,
+  messageId: string | undefined,
+): DisplayMessage[] {
+  const next = [...prev];
+  next[idx] = appendThinkingSegmentToRow(prev[idx]!, content, messageId);
   return next;
 }
 
@@ -209,23 +230,28 @@ export function appendTextDelta(
  * chain of thought before any `assistant_text_delta`, so the row is often
  * born from a thinking delta rather than a text one.
  */
+/** A fresh streaming assistant bubble whose first content entry is thinking. */
+export function newAssistantThinkingBubble(
+  thinking: string,
+  messageId?: string,
+): DisplayMessage {
+  return {
+    id: messageId ?? crypto.randomUUID(),
+    ...(messageId ? {} : { isOptimistic: true }),
+    role: "assistant",
+    thinkingSegments: [thinking],
+    contentOrder: [{ type: "thinking", id: "0" }],
+    contentBlocks: [{ type: "thinking", thinking }],
+    timestamp: Date.now(),
+  };
+}
+
 export function createStreamingThinkingBubble(
   prev: DisplayMessage[],
   thinking: string,
   messageId?: string,
 ): DisplayMessage[] {
-  return [
-    ...prev,
-    {
-      id: messageId ?? crypto.randomUUID(),
-      ...(messageId ? {} : { isOptimistic: true }),
-      role: "assistant",
-      thinkingSegments: [thinking],
-      contentOrder: [{ type: "thinking", id: "0" }],
-      contentBlocks: [{ type: "thinking", thinking }],
-      timestamp: Date.now(),
-    },
-  ];
+  return [...prev, newAssistantThinkingBubble(thinking, messageId)];
 }
 
 /**

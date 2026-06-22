@@ -36,6 +36,13 @@ import type {
 import type { ChatError } from "@/domains/chat/types";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
+import {
+  type MessageEntityState,
+  emptyEntityState,
+  patch as patchEntity,
+  rebuildFromArray,
+  toArray,
+} from "@/domains/chat/utils/message-entities";
 
 // ---------------------------------------------------------------------------
 // State
@@ -44,6 +51,18 @@ import type { TranscriptPaginationState } from "@/domains/chat/transcript/types"
 /** Reactive state — drives UI via `.use.*` selectors. */
 export interface ChatSessionState {
   // --- Core message state ---
+  /**
+   * Normalized in-flight messages: `byId` keyed by a stable `rowKey` + an
+   * `order` list + a `serverId → rowKey` index. A streaming token patches one
+   * entity (`patchMessage`) instead of replacing an array. Source of truth.
+   */
+  entities: MessageEntityState;
+  /**
+   * Transitional flat mirror of `entities`, kept in sync on every mutation and
+   * read via `selectTranscriptMessages`. Exists so readers not yet on
+   * per-entity selectors keep working; removed once they migrate (LUM-2537,
+   * PR B).
+   */
   messages: DisplayMessage[];
   error: ChatError | null;
   isLoadingHistory: boolean;
@@ -116,6 +135,14 @@ export interface ChatSessionState {
 export interface ChatSessionActions {
   // --- Setters ---
   setMessages: (updater: DisplayMessage[] | ((prev: DisplayMessage[]) => DisplayMessage[])) => void;
+  /**
+   * Apply an entity-level updater (routing + row transform) from a stream
+   * handler — the live-turn mutation entry. `setMessages` stays the bulk
+   * server-snapshot path (history / reconcile).
+   */
+  updateMessages: (updater: (entities: MessageEntityState) => MessageEntityState) => void;
+  /** Patch a single row by `rowKey` — the streaming hot path (O(1)). */
+  patchMessage: (rowKey: string, transform: (row: DisplayMessage) => DisplayMessage) => void;
   setError: (updater: ChatError | null | ((prev: ChatError | null) => ChatError | null)) => void;
   setIsLoadingHistory: (value: boolean) => void;
   setTranscriptPagination: (
@@ -201,6 +228,7 @@ const INITIAL_PAGINATION: Omit<TranscriptPaginationState, "items"> = {
 
 function initialState(): ChatSessionState {
   return {
+    entities: emptyEntityState(),
     messages: [],
     error: null,
     isLoadingHistory: true,
@@ -244,7 +272,24 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
 
   // --- Setters ---
   setMessages: (updater) =>
-    set((s) => ({ messages: applyUpdater(s.messages, updater) })),
+    set((s) => {
+      const messages = applyUpdater(s.messages, updater);
+      return { entities: rebuildFromArray(messages), messages };
+    }),
+
+  updateMessages: (updater) =>
+    set((s) => {
+      const entities = updater(s.entities);
+      if (entities === s.entities) return s;
+      return { entities, messages: toArray(entities) };
+    }),
+
+  patchMessage: (rowKey, transform) =>
+    set((s) => {
+      const entities = patchEntity(s.entities, rowKey, transform);
+      if (entities === s.entities) return s;
+      return { entities, messages: toArray(entities) };
+    }),
 
   setError: (updater) =>
     set((s) => ({ error: applyUpdater(s.error, updater) })),
@@ -327,6 +372,7 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       : state.contextWindowUsageByConversation;
 
     set({
+      entities: emptyEntityState(),
       messages: [],
       ephemeralMetaResults: [],
       error: shouldSuppressGenericChatErrorNotice(state.error) ? state.error : null,
@@ -491,3 +537,13 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
 }));
 
 export const useChatSessionStore = createSelectors(useChatSessionStoreBase);
+
+/**
+ * The transcript message list — the seam every full-transcript reader goes
+ * through. Today it returns the in-flight mirror; in Phase 2 (LUM-2538) this
+ * becomes the union of cached history + the live turn, swapped here alone so
+ * call sites don't change again.
+ */
+export function selectTranscriptMessages(state: ChatSessionState): DisplayMessage[] {
+  return state.messages;
+}
