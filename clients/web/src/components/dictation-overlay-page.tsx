@@ -1,5 +1,11 @@
 import { Check, Loader2, Square, TriangleAlert } from "lucide-react";
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+  type RefObject,
+} from "react";
 
 import {
   getDictationOverlayState,
@@ -25,6 +31,8 @@ import type { DictationOverlayState } from "@/runtime/is-electron";
  */
 export function DictationOverlayPage() {
   const [state, setState] = useState<DictationOverlayState | null>(null);
+  const stopButtonRef = useRef<HTMLButtonElement | null>(null);
+  const interactiveRef = useRef(false);
 
   useEffect(() => {
     const unsubscribe = subscribeToDictationOverlayState(setState);
@@ -40,6 +48,18 @@ export function DictationOverlayPage() {
     return unsubscribe;
   }, []);
 
+  useEffect(() => {
+    return () => {
+      setDictationOverlayInteractive(false);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (state?.kind === "recording" || !interactiveRef.current) return;
+    interactiveRef.current = false;
+    setDictationOverlayInteractive(false);
+  }, [state?.kind]);
+
   if (!state) {
     return null;
   }
@@ -47,16 +67,56 @@ export function DictationOverlayPage() {
   const transcription =
     state.kind === "recording" ? state.transcription.trim() : "";
   const audioLevel = state.kind === "recording" ? (state.audioLevel ?? 0) : 0;
+  const setInteractive = (interactive: boolean) => {
+    if (interactiveRef.current === interactive) return;
+    interactiveRef.current = interactive;
+    setDictationOverlayInteractive(interactive);
+  };
+  const updateInteractionFromPointer = (
+    event: MouseEvent<HTMLDivElement>,
+  ) => {
+    if (state.kind !== "recording") {
+      setInteractive(false);
+      return;
+    }
+    const button = stopButtonRef.current;
+    if (!button) {
+      setInteractive(false);
+      return;
+    }
+    const rect = button.getBoundingClientRect();
+    setInteractive(
+      event.clientX >= rect.left &&
+        event.clientX <= rect.right &&
+        event.clientY >= rect.top &&
+        event.clientY <= rect.bottom,
+    );
+  };
+  const stopRecording = () => {
+    requestDictationOverlayStop();
+    setInteractive(false);
+  };
 
   return (
-    <div className="flex h-screen w-screen items-start justify-center bg-transparent p-4">
+    <div
+      className="flex h-screen w-screen items-start justify-center bg-transparent p-4"
+      onMouseMove={updateInteractionFromPointer}
+      onMouseLeave={() => setInteractive(false)}
+    >
       <div className="flex w-[min(28rem,calc(100vw-2rem))] flex-col gap-1 rounded-xl border border-[var(--border-default)] bg-[var(--surface-base)] px-4 py-2.5 shadow-lg">
         <div className="flex min-w-0 items-center gap-2">
           <StateIcon state={state} />
           <span className="truncate text-[11px] font-medium text-[var(--content-secondary)]">
             {stateLabel(state)}
           </span>
-          {state.kind === "recording" && <RecordingActions level={audioLevel} />}
+          {state.kind === "recording" && (
+            <RecordingActions
+              level={audioLevel}
+              stopButtonRef={stopButtonRef}
+              onInteractiveChange={setInteractive}
+              onStop={stopRecording}
+            />
+          )}
         </div>
         {transcription && (
           // Bottom-anchored two-line text: the transcript grows as words
@@ -73,37 +133,31 @@ export function DictationOverlayPage() {
   );
 }
 
-function RecordingActions({ level }: { level: number }) {
-  useEffect(() => {
-    return () => {
-      setDictationOverlayInteractive(false);
-    };
-  }, []);
-
-  const enableInteraction = () => {
-    setDictationOverlayInteractive(true);
-  };
-  const disableInteraction = () => {
-    setDictationOverlayInteractive(false);
-  };
-  const stopRecording = () => {
-    requestDictationOverlayStop();
-    setDictationOverlayInteractive(false);
-  };
-
+function RecordingActions({
+  level,
+  stopButtonRef,
+  onInteractiveChange,
+  onStop,
+}: {
+  level: number;
+  stopButtonRef: RefObject<HTMLButtonElement | null>;
+  onInteractiveChange: (interactive: boolean) => void;
+  onStop: () => void;
+}) {
   return (
     <div className="ml-auto flex shrink-0 items-center gap-2">
       <AudioMeter level={level} />
       <button
+        ref={stopButtonRef}
         type="button"
         className="flex size-5 items-center justify-center rounded-full text-[var(--content-secondary)] transition-colors hover:bg-[var(--surface-overlay)] hover:text-[var(--system-negative-strong)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--system-negative-strong)]"
         aria-label="Stop recording"
         title="Stop recording"
-        onMouseEnter={enableInteraction}
-        onMouseLeave={disableInteraction}
-        onFocus={enableInteraction}
-        onBlur={disableInteraction}
-        onClick={stopRecording}
+        onMouseEnter={() => onInteractiveChange(true)}
+        onMouseLeave={() => onInteractiveChange(false)}
+        onFocus={() => onInteractiveChange(true)}
+        onBlur={() => onInteractiveChange(false)}
+        onClick={onStop}
       >
         <Square className="size-2.5 fill-current" strokeWidth={2} aria-hidden />
       </button>

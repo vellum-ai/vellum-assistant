@@ -31,14 +31,63 @@ describe("DictationOverlayPage", () => {
       audioLevel: 0.5,
     };
 
-    const { getByLabelText } = render(<DictationOverlayPage />);
+    const { container, getByLabelText } = render(<DictationOverlayPage />);
     const stopButton = await waitFor(() => getByLabelText("Stop recording"));
+    const overlay = container.firstElementChild;
+    if (!overlay) {
+      throw new Error("Expected overlay root to render");
+    }
+    stopButton.getBoundingClientRect = () =>
+      ({
+        left: 10,
+        right: 30,
+        top: 10,
+        bottom: 30,
+        x: 10,
+        y: 10,
+        width: 20,
+        height: 20,
+        toJSON: () => ({}),
+      }) as DOMRect;
 
-    fireEvent.mouseEnter(stopButton);
+    fireEvent.mouseMove(overlay, { clientX: 20, clientY: 20 });
     fireEvent.click(stopButton);
 
     expect(setInteractiveMock.mock.calls).toContainEqual([true]);
     expect(requestStopMock).toHaveBeenCalledTimes(1);
+    expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
+  });
+
+  test("returns to click-through when forwarded mouse movement leaves the stop control", async () => {
+    currentState = {
+      kind: "recording",
+      transcription: "",
+      audioLevel: 0.5,
+    };
+
+    const { container, getByLabelText } = render(<DictationOverlayPage />);
+    const stopButton = await waitFor(() => getByLabelText("Stop recording"));
+    const overlay = container.firstElementChild;
+    if (!overlay) {
+      throw new Error("Expected overlay root to render");
+    }
+    stopButton.getBoundingClientRect = () =>
+      ({
+        left: 10,
+        right: 30,
+        top: 10,
+        bottom: 30,
+        x: 10,
+        y: 10,
+        width: 20,
+        height: 20,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    fireEvent.mouseMove(overlay, { clientX: 20, clientY: 20 });
+    fireEvent.mouseMove(overlay, { clientX: 100, clientY: 100 });
+
+    expect(setInteractiveMock.mock.calls).toContainEqual([true]);
     expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
   });
 
