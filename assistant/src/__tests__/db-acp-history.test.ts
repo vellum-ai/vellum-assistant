@@ -319,11 +319,11 @@ describe("acp_session_history cwd migration (272)", () => {
     // Second run short-circuits on the completed checkpoint.
     expect(() => migrateAcpSessionHistoryCwd(db)).not.toThrow();
 
-    // Even with the checkpoint cleared (simulating crash recovery), the
+    // Even with the step checkpoint cleared (simulating crash recovery), the
     // column-existence guard makes the ALTER a no-op.
     raw
       .query(`DELETE FROM memory_checkpoints WHERE key = ?`)
-      .run("migration_acp_session_history_cwd_v1");
+      .run("step:migrateAcpSessionHistoryCwd");
     expect(() => migrateAcpSessionHistoryCwd(db)).not.toThrow();
 
     const columns = raw

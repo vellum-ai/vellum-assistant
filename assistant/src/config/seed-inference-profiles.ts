@@ -42,12 +42,12 @@ type ManagedProfileTemplate = Omit<
  * (`preserveProfileNames`) take precedence when present.
  */
 const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
-  // Served by MiniMax M3 on Fireworks via managed platform inference: a strong
+  // Served by MiniMax M3 on Together AI via managed platform inference: a strong
   // open model at a lower price point than the managed Anthropic route.
   balanced: {
     intent: "balanced",
-    provider: "fireworks",
-    connectionName: "fireworks-managed",
+    provider: "together",
+    connectionName: "together-managed",
     source: "managed",
     label: "Balanced",
     description: "Good balance of quality, cost, and speed",

@@ -29,6 +29,7 @@ import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provid
 import { OpenAIResponsesProvider } from "../openai/responses-provider.js";
 import { OpenRouterProvider } from "../openrouter/client.js";
 import { RetryProvider } from "../retry.js";
+import { TogetherProvider } from "../together/client.js";
 import type { Provider } from "../types.js";
 import { UsageTrackingProvider } from "../usage-tracking.js";
 import type { ResolvedAuth } from "./auth.js";
@@ -117,6 +118,11 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
     new MinimaxProvider(apiKey, model, { streamTimeoutMs }),
   atlascloud: ({ apiKey, model, streamTimeoutMs }) =>
     new AtlasCloudProvider(apiKey, model, { streamTimeoutMs }),
+  together: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new TogetherProvider(apiKey, model, {
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
+    }),
 };
 
 /**

@@ -130,7 +130,7 @@ export async function memoryRetrospectiveJob(
 // the source's turns.
 // ---------------------------------------------------------------------------
 
-async function runForkBasedRetrospective(
+export async function runForkBasedRetrospective(
   sourceConversationId: string,
   config: AssistantConfig,
 ): Promise<MemoryRetrospectiveOutcome> {

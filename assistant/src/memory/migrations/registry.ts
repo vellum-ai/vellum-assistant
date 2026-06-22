@@ -62,6 +62,12 @@ import { downScheduleDescription } from "./270-schedule-description.js";
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
   key: string;
+  /**
+   * The name of the migration step function (as registered in db-init's step
+   * array). The step runner writes `step:${stepName}` checkpoints — this field
+   * maps registry entries to those step checkpoints for validation and rollback.
+   */
+  stepName: string;
   /** Monotonic version number used for ordering assertions. */
   version: number;
   /** Keys of other migrations that must complete before this one runs. */
@@ -86,6 +92,7 @@ export interface MigrationRegistryEntry {
 export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   {
     key: "migration_job_deferrals",
+    stepName: "migrateJobDeferrals",
     version: 1,
     description:
       "Reconcile legacy deferral history from attempts column into deferrals column",
@@ -93,6 +100,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_memory_entity_relations_dedup_v1",
+    stepName: "migrateMemoryEntityRelationDedup",
     version: 2,
     description:
       "Deduplicate entity relation edges before enforcing the (source, target, relation) unique index",
@@ -100,6 +108,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_memory_items_fingerprint_scope_unique_v1",
+    stepName: "migrateMemoryItemsFingerprintScopeUnique",
     version: 3,
     description:
       "Replace column-level UNIQUE on fingerprint with compound (fingerprint, scope_id) unique index",
@@ -107,6 +116,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_memory_items_scope_salted_fingerprints_v1",
+    stepName: "migrateMemoryItemsScopeSaltedFingerprints",
     version: 4,
     dependsOn: ["migration_memory_items_fingerprint_scope_unique_v1"],
     description:
@@ -115,6 +125,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_normalize_assistant_id_to_self_v1",
+    stepName: "migrateAssistantIdToSelf",
     version: 5,
     description:
       'Normalize all assistant_id values in scoped tables to the implicit "self" single-tenant identity',
@@ -122,6 +133,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_remove_assistant_id_columns_v1",
+    stepName: "migrateRemoveAssistantIdColumns",
     version: 6,
     dependsOn: ["migration_normalize_assistant_id_to_self_v1"],
     description:
@@ -130,6 +142,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_remove_assistant_id_lue_v1",
+    stepName: "migrateLlmUsageEventsDropAssistantId",
     version: 7,
     dependsOn: ["migration_normalize_assistant_id_to_self_v1"],
     description:
@@ -138,6 +151,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "backfill_inbox_thread_state_from_bindings",
+    stepName: "createAssistantInboxTables",
     version: 8,
     description:
       "Seed assistant_inbox_thread_state from external_conversation_bindings",
@@ -145,6 +159,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "drop_active_search_index_v1",
+    stepName: "createCoreIndexes",
     version: 9,
     description:
       "Drop old idx_memory_items_active_search so it can be recreated with updated covering columns",
@@ -152,6 +167,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_notification_tables_schema_v1",
+    stepName: "createNotificationTables",
     version: 10,
     description:
       "Drop legacy enum-based notification tables so they can be recreated with the new signal-contract schema",
@@ -159,6 +175,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_rename_macos_ios_channel_to_vellum_v1",
+    stepName: "migrateRenameChannelToVellum",
     version: 11,
     description:
       "Rename macos and ios channel identifiers to vellum across all tables",
@@ -166,6 +183,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_embedding_vector_blob_v1",
+    stepName: "migrateEmbeddingVectorBlob",
     version: 12,
     description:
       "Add vector_blob BLOB column to memory_embeddings and backfill from vector_json for compact binary storage",
@@ -173,6 +191,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_embeddings_nullable_vector_json_v1",
+    stepName: "migrateEmbeddingsNullableVectorJson",
     version: 13,
     dependsOn: ["migration_embedding_vector_blob_v1"],
     description:
@@ -181,6 +200,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_normalize_phone_identities_v1",
+    stepName: "migrateNormalizePhoneIdentities",
     version: 14,
     description:
       "Normalize phone-like identity fields to E.164 format across guardian bindings, verification challenges, canonical requests, ingress members, and rate limits",
@@ -188,6 +208,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_backfill_guardian_principal_id_v3",
+    stepName: "migrateBackfillGuardianPrincipalId",
     version: 15,
     description:
       "Backfill guardianPrincipalId for existing channel_guardian_bindings and canonical_guardian_requests rows, expire unresolvable pending requests",
@@ -195,6 +216,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_guardian_principal_id_not_null_v1",
+    stepName: "migrateGuardianPrincipalIdNotNull",
     version: 16,
     dependsOn: ["migration_backfill_guardian_principal_id_v3"],
     description:
@@ -203,6 +225,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_contacts_notes_column_v1",
+    stepName: "migrateContactsNotesColumn",
     version: 17,
     description:
       "Consolidate relationship/importance/response_expectation/preferred_tone into a single notes TEXT column, then drop the legacy columns",
@@ -210,6 +233,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "backfill_contact_interaction_stats",
+    stepName: "migrateBackfillContactInteractionStats",
     version: 18,
     description:
       "Backfill contacts.last_interaction from the max lastSeenAt across each contact's channels",
@@ -217,6 +241,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_drop_assistant_id_columns_v1",
+    stepName: "migrateDropAssistantIdColumns",
     version: 19,
     dependsOn: ["migration_normalize_assistant_id_to_self_v1"],
     description:
@@ -225,6 +250,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_backfill_usage_cache_accounting_v1",
+    stepName: "migrateBackfillUsageCacheAccounting",
     version: 20,
     description:
       "Backfill historical Anthropic llm_usage_events rows from llm_request_logs with cache-aware pricing",
@@ -232,6 +258,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_rename_verification_table_v1",
+    stepName: "migrateRenameVerificationTable",
     version: 21,
     description:
       "Rename channel_guardian_verification_challenges table to channel_verification_sessions and update indexes",
@@ -239,6 +266,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_rename_verification_session_id_column_v1",
+    stepName: "migrateRenameVerificationSessionIdColumn",
     version: 22,
     description:
       "Rename guardian_verification_session_id column in call_sessions to verification_session_id",
@@ -246,6 +274,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_rename_guardian_verification_values_v1",
+    stepName: "migrateRenameGuardianVerificationValues",
     version: 23,
     description:
       "Rename persisted guardian_verification call_mode and guardian_voice_verification_* event_type values to drop the guardian_ prefix",
@@ -253,6 +282,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_rename_voice_to_phone_v1",
+    stepName: "migrateRenameVoiceToPhone",
     version: 24,
     description:
       'Rename stored "voice" channel values to "phone" across all tables with channel text columns',
@@ -260,6 +290,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_drop_accounts_table_v1",
+    stepName: "migrateDropAccountsTable",
     version: 25,
     description:
       "Drop the unused legacy accounts table and its leftover indexes after account_manage removal",
@@ -267,6 +298,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_reminders_to_schedules_v1",
+    stepName: "migrateRemindersToSchedules",
     version: 26,
     description:
       "Copy all existing reminders into cron_jobs as one-shot schedules with correct status and field mapping",
@@ -274,6 +306,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_drop_reminders_table_v1",
+    stepName: "migrateDropRemindersTable",
     version: 27,
     dependsOn: ["migration_reminders_to_schedules_v1"],
     description:
@@ -282,6 +315,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_oauth_apps_client_secret_path_v1",
+    stepName: "migrateOAuthAppsClientSecretPath",
     version: 28,
     description:
       "Add client_secret_credential_path column to oauth_apps and backfill existing rows with convention-based paths",
@@ -289,6 +323,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_guardian_timestamps_epoch_ms_v1",
+    stepName: "migrateGuardianTimestampsEpochMs",
     version: 29,
     description:
       "Convert guardian table timestamps from ISO 8601 text to epoch ms integers for consistency with all other tables",
@@ -296,6 +331,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_guardian_timestamps_rebuild_v1",
+    stepName: "migrateGuardianTimestampsEpochMs",
     version: 30,
     dependsOn: ["migration_guardian_timestamps_epoch_ms_v1"],
     description:
@@ -304,6 +340,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_rename_gmail_provider_key_to_google_v1",
+    stepName: "migrateRenameGmailProviderKeyToGoogle",
     version: 31,
     description:
       "Rename integration:gmail provider key to integration:google across oauth_providers, oauth_apps, and oauth_connections",
@@ -311,6 +348,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_rename_thread_starters_table_v1",
+    stepName: "migrateRenameThreadStartersTable",
     version: 32,
     description:
       "Rename thread_starters table to conversation_starters and recreate indexes with new names",
@@ -318,6 +356,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_drop_capability_card_state_v1",
+    stepName: "migrateDropCapabilityCardState",
     version: 33,
     dependsOn: ["migration_rename_thread_starters_table_v1"],
     description:
@@ -326,6 +365,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_backfill_inline_attachments_v1",
+    stepName: "migrateBackfillInlineAttachmentsToDisk",
     version: 34,
     description:
       "Backfill existing inline base64 attachments to on-disk storage and clear dataBase64",
@@ -333,6 +373,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_rename_thread_starters_checkpoints_v1",
+    stepName: "migrateRenameThreadStartersCheckpoints",
     version: 35,
     dependsOn: ["migration_rename_thread_starters_table_v1"],
     description:
@@ -341,6 +382,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_backfill_audio_attachment_mime_types_v1",
+    stepName: "migrateBackfillAudioAttachmentMimeTypes",
     version: 36,
     description:
       "Backfill correct MIME types for audio attachments stored as application/octet-stream due to missing extension map entries",
@@ -348,6 +390,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_add_source_type_columns_v1",
+    stepName: "migrateAddSourceTypeColumns",
     version: 37,
     description:
       "Add source_type and source_message_role columns to memory_items with backfill from verification_state and source messages",
@@ -355,6 +398,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_strip_integration_prefix_from_provider_keys_v1",
+    stepName: "migrateStripIntegrationPrefixFromProviderKeys",
     version: 38,
     description:
       "Strip integration: prefix from provider_key across oauth_providers, oauth_apps, and oauth_connections",
@@ -362,6 +406,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_rename_memory_graph_type_values_v1",
+    stepName: "migrateRenameMemoryGraphTypeValues",
     version: 39,
     description:
       "Rename legacy memory graph node type values: style → behavioral, relationship → semantic",
@@ -369,6 +414,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_scrub_corrupted_image_attachments_v1",
+    stepName: "migrateScrubCorruptedImageAttachments",
     version: 40,
     description:
       "Remove image attachments containing HTML error pages instead of image data",
@@ -376,6 +422,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_conversation_host_access_v1",
+    stepName: "migrateConversationHostAccess",
     version: 41,
     description:
       "Add a host_access column to conversations so computer access is persisted per conversation with a safe default of disabled",
@@ -383,6 +430,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_normalize_user_file_by_principal_v1",
+    stepName: "migrateNormalizeUserFileByPrincipal",
     version: 42,
     description:
       "Normalize contacts.user_file across rows sharing the same principal_id so every channel for one principal loads the same users/<slug>.md persona and journal directory",
@@ -390,12 +438,14 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_activation_state_v1",
+    stepName: "migrateActivationState",
     version: 43,
     description: "Create activation_state table for memory v2",
     down: downActivationState,
   },
   {
     key: "migration_memory_v2_activation_logs_v1",
+    stepName: "migrateMemoryV2ActivationLogs",
     version: 44,
     description:
       "Create memory_v2_activation_logs table for per-turn v2 activation telemetry consumed by the LLM Context Inspector",
@@ -403,6 +453,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_slack_compaction_watermark_v1",
+    stepName: "migrateSlackCompactionWatermark",
     version: 45,
     description:
       "Add Slack-specific compaction watermark columns to conversations",
@@ -410,6 +461,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_tool_invocations_matched_trust_rule_id_v1",
+    stepName: "migrateToolInvocationsMatchedRuleId",
     version: 46,
     description:
       "Add matched_trust_rule_id column to tool_invocations for trust rule audit and rule editor UI",
@@ -417,6 +469,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_heartbeat_runs_v1",
+    stepName: "migrateHeartbeatRuns",
     version: 47,
     description:
       "Create heartbeat_runs table for tracking heartbeat execution lifecycle with CAS state transitions",
@@ -424,6 +477,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_normalize_slack_external_content_v1",
+    stepName: "migrateNormalizeSlackExternalContent",
     version: 48,
     description:
       "Normalize legacy persisted Slack external_content wrappers back to raw message content",
@@ -431,6 +485,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_a2a_tasks_v1",
+    stepName: "migrateA2ATasks",
     version: 49,
     description:
       "Create a2a_tasks table for tracking A2A request/response lifecycle",
@@ -438,6 +493,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_external_conversation_binding_chat_name_v1",
+    stepName: "migrateExternalConversationBindingChatName",
     version: 50,
     description:
       "Add external_chat_name to external conversation bindings for channel footer metadata",
@@ -445,6 +501,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_memory_v2_injection_events_v1",
+    stepName: "migrateMemoryV2InjectionEvents",
     version: 51,
     dependsOn: ["migration_memory_v2_activation_logs_v1"],
     description:
@@ -453,6 +510,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_conversation_cleaned_at_v1",
+    stepName: "migrateConversationCleanedAt",
     version: 52,
     description:
       "Add cleaned_at timestamp to conversations so /clean survives reload and forks inherit conditionally on fork point",
@@ -460,6 +518,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_rename_cleaned_at_v1",
+    stepName: "migrateRenameCleanedAt",
     version: 53,
     dependsOn: ["migration_conversation_cleaned_at_v1"],
     description:
@@ -468,6 +527,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_llm_usage_add_raw_usage_v1",
+    stepName: "migrateLlmUsageAddRawUsage",
     version: 54,
     description:
       "Add raw_usage TEXT column to llm_usage_events for storing the provider's untouched usage block as JSON (Anthropic TTL breakdown, OpenAI prompt/completion token details, etc.) so downstream consumers can extract provider-specific detail without per-field schema changes",
@@ -475,6 +535,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_memory_v3_coactivation_v1",
+    stepName: "migrateMemoryV3Coactivation",
     version: 55,
     description:
       "Create memory_v3_coactivation table — append-only log of pass-1 → pass-N co-activation pairs (gradient signal) emitted by the v3 retrieval loop and reconciled later by edge-learning",
@@ -482,6 +543,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_memory_v3_auto_edges_v1",
+    stepName: "migrateMemoryV3AutoEdges",
     version: 56,
     description:
       "Create memory_v3_auto_edges table — weighted, decaying learned association graph (distinct from curated edges:) accrued by the edge-learning job from used co-activations and consumed above-threshold by edge expansion",
@@ -489,6 +551,7 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
   },
   {
     key: "migration_schedule_description_backfill_v1",
+    stepName: "migrateScheduleDescription",
     version: 57,
     description:
       "Backfill authored schedule descriptions for legacy non-defer schedules from their existing names",

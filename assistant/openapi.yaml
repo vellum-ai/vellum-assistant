@@ -13317,8 +13317,8 @@ paths:
           schema:
             type: string
           description:
-            "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, openai-compatible,
-            minimax, atlascloud"
+            "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
+            openai-compatible, minimax, atlascloud"
       responses:
         "200":
           description: Successful response
@@ -29216,6 +29216,7 @@ components:
         - openai-compatible
         - minimax
         - atlascloud
+        - together
     ProfilePatchEntry:
       type: object
       properties:
@@ -29592,6 +29593,7 @@ components:
         - gemini
         - ollama
         - fireworks
+        - together
         - openrouter
         - openai-compatible
         - minimax

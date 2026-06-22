@@ -22,7 +22,7 @@ function resetContactTables(): void {
   sqlite.run("DELETE FROM contact_channels");
   sqlite.run("DELETE FROM contacts");
   sqlite.run(
-    "DELETE FROM memory_checkpoints WHERE key = 'migration_normalize_user_file_by_principal_v1'",
+    "DELETE FROM memory_checkpoints WHERE key = 'step:migrateNormalizeUserFileByPrincipal'",
   );
 }
 

@@ -44,6 +44,7 @@ const EFFORT_SUPPORTED_PROVIDERS = new Set([
   "openai",
   "openrouter",
   "fireworks",
+  "together",
 ]);
 
 /**

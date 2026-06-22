@@ -23,6 +23,7 @@ export const CONNECTION_PROVIDERS: ConnectionProvider[] = [
   "gemini",
   "ollama",
   "fireworks",
+  "together",
   "openrouter",
   "minimax",
   "atlascloud",
