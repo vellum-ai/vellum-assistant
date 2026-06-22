@@ -479,8 +479,12 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       // disturbing the `content` summary computed above.
       input:
         params.event.type === "tool_use_start" ? params.event.input : undefined,
+      // Key off the RAW event type, not the mapped timeline type: a failed
+      // tool emits `tool_result` with `isError: true`, which `mapInnerEventType`
+      // routes to `"error"`. Using `eventType` here would drop the error output
+      // the detail view needs, so capture both success and error results.
       result:
-        eventType === "tool_result"
+        params.event.type === "tool_result"
           ? params.event.result ?? params.event.content ?? params.event.text
           : undefined,
     };

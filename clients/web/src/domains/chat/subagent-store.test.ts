@@ -656,6 +656,33 @@ describe("receiveEvent", () => {
     expect(ev.input).toBeUndefined();
   });
 
+  it("preserves result on an errored tool_result (mapped to type error)", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+
+    getState().receiveEvent({
+      subagentId: "sa-1",
+      event: {
+        type: "tool_result",
+        toolName: "bash",
+        result: "Error: command not found: foo",
+        isError: true,
+      },
+      timestamp: NOW + 400,
+    });
+
+    const ev = getState().byId["sa-1"]!.events[0]!;
+    // mapInnerEventType routes isError to "error", but the raw result must
+    // still be retained for the detail view.
+    expect(ev.type).toBe("error");
+    expect(ev.isError).toBe(true);
+    expect(ev.result).toBe("Error: command not found: foo");
+  });
+
   it("falls back to content for tool_result result when result is absent", () => {
     getState().spawnSubagent({
       subagentId: "sa-1",
