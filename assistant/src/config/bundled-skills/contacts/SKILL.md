@@ -480,7 +480,7 @@ Each channel has:
 
 **"Revoke invite"** / **"Cancel invite link"** -- List invites to identify the target, confirm, then revoke with `assistant contacts invites revoke <invite_id> --json`.
 
-**"Create a voice invite for +15551234567"** -- Look up or create the contact first, then create a voice invite with `assistant contacts invites create --source-channel phone --contact-id <contact_id> --expected-external-user-id "+15551234567" --friend-name "<name>" --guardian-name "<name>"`. Present the invite code and instructions: the person must call from that number and enter the code.
+**"Create a voice invite for +15551234567"** -- Look up or create the contact first, then create a voice invite with `assistant contacts invites create --source-channel phone --contact-id <contact_id> --expected-external-user-id "+15551234567"`. Present the invite code and instructions: the person must call from that number and enter the code. The caller's name and the guardian's name resolve from the bound contact and the runtime guardian — no name flags needed.
 
 **"Let my mom call in"** / **"Invite someone by phone"** -- Ask for the phone number in E.164 format, look up or create the contact first, then create a voice invite with `assistant contacts invites create --source-channel phone --contact-id <contact_id>`, and present the code + calling instructions.
 
