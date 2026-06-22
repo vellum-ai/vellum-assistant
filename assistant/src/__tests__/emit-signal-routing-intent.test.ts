@@ -57,6 +57,21 @@ mock.module("../notifications/decisions-store.js", () => ({
 mock.module("../notifications/deterministic-checks.js", () => ({
   runDeterministicChecks: (...args: unknown[]) =>
     runDeterministicChecksMock(...args),
+  // emit-signal also imports checkSourceActiveSuppression for the pre-decision
+  // gate. Mirror its real signal-only contract here so the gate behaves under
+  // the mock without depending on bun's export-merge semantics. The real
+  // implementation is unit-tested in
+  // notifications/__tests__/deterministic-checks.test.ts.
+  checkSourceActiveSuppression: (signal: {
+    attentionHints: { visibleInSourceNow?: boolean };
+  }) =>
+    signal.attentionHints.visibleInSourceNow
+      ? {
+          passed: false,
+          reason:
+            "Source-active suppression: user is already viewing the source context",
+        }
+      : { passed: true },
 }));
 
 mock.module("../notifications/events-store.js", () => ({
@@ -213,5 +228,73 @@ describe("emitNotificationSignal routing intent re-persistence", () => {
     const callArgs = evaluateSignalMock.mock.calls[0];
     expect(callArgs).toBeDefined();
     expect(callArgs?.[1]).toEqual(["vellum"]);
+  });
+});
+
+describe("emitNotificationSignal source-active pre-gate", () => {
+  beforeEach(() => {
+    evaluateSignalMock.mockReset();
+    runDeterministicChecksMock.mockReset();
+    createEventMock.mockReset();
+    dispatchDecisionMock.mockReset();
+
+    createEventMock.mockReturnValue({ id: "evt-src-active" });
+    runDeterministicChecksMock.mockResolvedValue({ passed: true });
+    dispatchDecisionMock.mockResolvedValue({
+      dispatched: true,
+      reason: "ok",
+      deliveryResults: [],
+    });
+  });
+
+  test("suppresses visibleInSourceNow signals before the decision engine runs", async () => {
+    const result = await emitNotificationSignal({
+      sourceEventName: "ingress.trusted_contact.verification_sent",
+      sourceChannel: "slack",
+      sourceContextId: "conv-1",
+      attentionHints: {
+        requiresAction: false,
+        urgency: "low",
+        isAsyncBackground: true,
+        visibleInSourceNow: true,
+      },
+      contextPayload: { verificationSessionId: "vs-1" },
+    });
+
+    // The event row is still persisted (audit trail), but the signal
+    // short-circuits before the LLM-backed decision stage and never dispatches.
+    expect(createEventMock).toHaveBeenCalledTimes(1);
+    expect(evaluateSignalMock).not.toHaveBeenCalled();
+    expect(runDeterministicChecksMock).not.toHaveBeenCalled();
+    expect(dispatchDecisionMock).not.toHaveBeenCalled();
+    expect(result.dispatched).toBe(false);
+    expect(result.reason).toContain("Source-active suppression");
+  });
+
+  test("does not short-circuit when visibleInSourceNow is false", async () => {
+    evaluateSignalMock.mockResolvedValue({
+      shouldNotify: false,
+      selectedChannels: [],
+      reasoningSummary: "no notify",
+      renderedCopy: {},
+      dedupeKey: "dk-not-source-active",
+      confidence: 0.5,
+      fallbackUsed: false,
+    });
+
+    await emitNotificationSignal({
+      sourceEventName: "schedule.notify",
+      sourceChannel: "scheduler",
+      sourceContextId: "conv-2",
+      attentionHints: {
+        requiresAction: false,
+        urgency: "low",
+        isAsyncBackground: true,
+        visibleInSourceNow: false,
+      },
+      contextPayload: {},
+    });
+
+    expect(evaluateSignalMock).toHaveBeenCalledTimes(1);
   });
 });
