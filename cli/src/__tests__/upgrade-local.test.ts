@@ -39,9 +39,6 @@ const getActiveAssistantMock = mock<typeof assistantConfig.getActiveAssistant>(
 const loadAllAssistantsMock = mock<typeof assistantConfig.loadAllAssistants>(
   () => [],
 );
-const resolveCloudMock = mock<typeof assistantConfig.resolveCloud>(
-  (entry) => entry.cloud,
-);
 const saveAssistantEntryMock = mock<typeof assistantConfig.saveAssistantEntry>(
   () => {},
 );
@@ -51,7 +48,6 @@ mock.module("../lib/assistant-config", () => ({
   findAssistantByName: findAssistantByNameMock,
   getActiveAssistant: getActiveAssistantMock,
   loadAllAssistants: loadAllAssistantsMock,
-  resolveCloud: resolveCloudMock,
   saveAssistantEntry: saveAssistantEntryMock,
 }));
 
@@ -234,8 +230,6 @@ beforeEach(() => {
   getActiveAssistantMock.mockReturnValue("local-assistant");
   loadAllAssistantsMock.mockReset();
   loadAllAssistantsMock.mockReturnValue([entry]);
-  resolveCloudMock.mockReset();
-  resolveCloudMock.mockImplementation((target) => target.cloud);
   saveAssistantEntryMock.mockReset();
   createBackupMock.mockReset();
   createBackupMock.mockResolvedValue("/tmp/local-pre-upgrade.vbundle");
