@@ -199,6 +199,25 @@ describe("109-swap-quality-profile-to-glm-5p2 migration", () => {
     expect(readLlm().advisorProfile).toBe("quality-optimized");
   });
 
+  test("does not repoint the advisor when a source-less frontier exists", () => {
+    // Custom profiles from the settings UI are saved without a `source`.
+    writeConfig({
+      llm: {
+        advisorProfile: "quality-optimized",
+        profiles: {
+          "quality-optimized": {
+            source: "managed",
+            provider: "anthropic",
+            model: "claude-opus-4-8",
+          },
+          frontier: { provider: "openai", model: "gpt-5.4" },
+        },
+      },
+    });
+    swapQualityProfileToGlm52Migration.run(workspaceDir);
+    expect(readLlm().advisorProfile).toBe("quality-optimized");
+  });
+
   test("leaves a custom advisor profile untouched", () => {
     writeConfig({
       llm: {

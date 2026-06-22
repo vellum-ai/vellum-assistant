@@ -734,6 +734,24 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.advisorProfile).toBe("quality-optimized");
   });
 
+  test("reseed leaves a source-less profile sharing a managed name untouched", () => {
+    // The settings UI saves custom profiles without a `source` field; such a
+    // profile keyed `frontier` must not be clobbered or marked managed.
+    const sourcelessFrontier = {
+      provider: "openai",
+      model: "gpt-5.4",
+      provider_connection: "openai-personal",
+      label: "My Frontier",
+    };
+    writeConfig({ llm: { profiles: { frontier: sourcelessFrontier } } });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles.frontier).toEqual(sourcelessFrontier);
+    expect(raw.llm.advisorProfile).toBe("quality-optimized");
+  });
+
   test("seeds the managed Frontier profile as the default advisor profile", () => {
     writeConfig({ llm: { default: { provider: "anthropic" } } });
 
