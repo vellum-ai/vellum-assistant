@@ -181,6 +181,14 @@ const inflight = new Map<string, Promise<unknown>>();
  */
 const discoveredPluginDirs = new Map<string, string>();
 
+/**
+ * Plugin directories that have a `.disabled` sentinel and were logged as
+ * disabled. Tracked so we only emit the "plugin disabled" log line once
+ * per scan cycle (the scan runs on every hook read). Cleared when a plugin
+ * transitions back to active or is evicted entirely.
+ */
+const disabledPluginDirs = new Set<string>();
+
 // ─── Mtime helpers ───────────────────────────────────────────────────────────
 
 /**
@@ -400,11 +408,32 @@ async function scanPlugins(): Promise<void> {
     }
     if (!existsSync(join(pluginDir, "package.json"))) continue;
 
+    // Check for the .disabled sentinel. A plugin is disabled when a file
+    // named `.disabled` exists inside its plugin directory. Disabled
+    // plugins are skipped entirely — no hooks, no tools, no cache entries.
+    // If the plugin was previously active, its cache entries are evicted.
+    if (existsSync(join(pluginDir, ".disabled"))) {
+      const manifest = await parsePluginManifest(pluginDir);
+      const pluginName = manifest?.name ?? entry;
+      if (discoveredPluginDirs.has(pluginDir)) {
+        await evictPlugin(pluginDir, pluginName);
+      }
+      if (!disabledPluginDirs.has(pluginDir)) {
+        log.info(
+          { plugin: pluginName, pluginDir },
+          "plugin disabled via .disabled sentinel — skipping",
+        );
+        disabledPluginDirs.add(pluginDir);
+      }
+      continue;
+    }
+
     const manifest = await parsePluginManifest(pluginDir);
     if (manifest === undefined) continue;
     const { name: pluginName } = manifest;
 
     currentDirs.set(pluginDir, pluginName);
+    disabledPluginDirs.delete(pluginDir);
 
     if (!discoveredPluginDirs.has(pluginDir)) {
       log.info({ plugin: pluginName, pluginDir }, "plugin discovered");
@@ -472,6 +501,7 @@ async function evictAll(): Promise<void> {
   toolCache.clear();
   discoveredPluginDirs.clear();
   installDateCache.clear();
+  disabledPluginDirs.clear();
 }
 
 // ─── Import dedup ────────────────────────────────────────────────────────────
@@ -698,6 +728,7 @@ export function resetPluginCacheForTests(): void {
   discoveredPluginDirs.clear();
   installDateCache.clear();
   activatedPlugins.length = 0;
+  disabledPluginDirs.clear();
 }
 
 /**

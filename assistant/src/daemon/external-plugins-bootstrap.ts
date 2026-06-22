@@ -56,7 +56,7 @@
  * plugin level so the plugin name is attributed.
  */
 
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
@@ -82,7 +82,7 @@ import {
   unregisterPluginTools,
 } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
+import { getWorkspaceDir, getWorkspacePluginsDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
 
@@ -258,6 +258,29 @@ export async function bootstrapPlugins(): Promise<void> {
       log.info(
         { plugin: name, flag: disabledFlag },
         `skipping plugin ${name}: feature flag ${disabledFlag} is disabled`,
+      );
+      unregisterPlugin(name);
+      continue;
+    }
+
+    // Check for the .disabled sentinel. Both default and user plugins
+    // can be disabled by creating a `.disabled` file at
+    // <workspace>/plugins/<manifest-name>/.disabled. For user plugins
+    // this is the plugin's own directory; for default plugins (which
+    // live in the source tree) the workspace directory acts as an
+    // out-of-band kill switch — the operator creates a directory named
+    // after the plugin's manifest name (e.g. `plugins/default-advisor/`)
+    // and drops a `.disabled` file inside it. Runs before init so no
+    // hooks, tools, or routes from the disabled plugin are ever wired.
+    const disabledSentinelPath = join(
+      getWorkspacePluginsDir(),
+      name,
+      ".disabled",
+    );
+    if (existsSync(disabledSentinelPath)) {
+      log.info(
+        { plugin: name, sentinel: disabledSentinelPath },
+        `skipping plugin ${name}: disabled via .disabled sentinel`,
       );
       unregisterPlugin(name);
       continue;
