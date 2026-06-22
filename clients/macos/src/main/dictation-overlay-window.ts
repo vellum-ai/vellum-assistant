@@ -218,6 +218,7 @@ const hideOverlay = (): void => {
   latestState = null;
   const win = getFloatingWindow(OVERLAY_KIND);
   if (win) {
+    setOverlayInteractive(false);
     win.hide();
   }
 };

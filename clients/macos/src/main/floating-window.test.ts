@@ -291,6 +291,31 @@ describe("createFloatingWindow", () => {
     ]);
   });
 
+  test("reapplies click-through behavior when reusing an existing window", () => {
+    const singletonKind = kind("click-through-reuse");
+
+    const win = createFloatingWindow({
+      kind: singletonKind,
+      route: "/overlay",
+      width: 100,
+      height: 100,
+      ignoreMouseEvents: { forward: true },
+    }) as unknown as StubWindow;
+    win.setIgnoreMouseEvents.mockClear();
+
+    createFloatingWindow({
+      kind: singletonKind,
+      route: "/overlay",
+      width: 100,
+      height: 100,
+      ignoreMouseEvents: { forward: true },
+    });
+
+    expect(win.setIgnoreMouseEvents.mock.calls).toEqual([
+      [true, { forward: true }],
+    ]);
+  });
+
   test("drops the singleton reference when the window closes", () => {
     const cleanupKind = kind("closed");
     const first = createFloatingWindow({
