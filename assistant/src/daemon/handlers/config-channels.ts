@@ -25,6 +25,7 @@ import {
   findActiveSession,
   getGuardianBinding,
   getPendingSession,
+  revokeBinding,
   revokePendingSessions,
   updateSessionDelivery,
 } from "../../runtime/channel-verification-service.js";
@@ -202,7 +203,7 @@ export async function revokeVerificationForChannel(
 
   // Relay the ACL downgrade to the gateway (source of truth). The gateway's
   // mark_channel_revoked enforces the guardian guard and dual-writes the
-  // outcome back to the assistant DB; no assistant-side ACL fallback.
+  // contact-channel status back to the assistant DB.
   if (contactResult) {
     const channelStatus: ChannelStatus = contactResult.channel.status;
     if (
@@ -216,6 +217,11 @@ export async function revokeVerificationForChannel(
       });
     }
   }
+
+  // The guardian binding is assistant-owned state the gateway relay does not
+  // manage; tear it down here. revokeBinding also emits the contact-change
+  // invalidation so open client views stop showing the channel as active.
+  revokeBinding(assistantId, resolvedChannel);
 
   return {
     success: true,

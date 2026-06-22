@@ -313,6 +313,34 @@ describe("mark_channel_revoked IPC handler", () => {
     expect(res.channel.status).toBe("revoked");
   });
 
+  test("does not downgrade a blocked channel (preserves block + reason)", async () => {
+    seedContact("c1", "contact");
+    seedChannel({ id: "ch1", contactId: "c1", status: "blocked" });
+    getGatewayDb()
+      .update(contactChannels)
+      .set({ blockedReason: "abuse" })
+      .where(eq(contactChannels.id, "ch1"))
+      .run();
+
+    const res = (await markChannelRevokedHandler({
+      contactChannelId: "ch1",
+      reason: "guardian_binding_revoked",
+    })) as { ok: boolean; didWrite: boolean; channel: { status: string } };
+
+    expect(res.ok).toBe(true);
+    expect(res.didWrite).toBe(false);
+    expect(res.channel.status).toBe("blocked");
+
+    const row = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, "ch1"))
+      .get();
+    expect(row!.status).toBe("blocked");
+    expect(row!.blockedReason).toBe("abuse");
+    expect(row!.revokedReason).toBeNull();
+  });
+
   test("throws on a missing channel id (no silent success)", async () => {
     await expect(
       markChannelRevokedHandler({ contactChannelId: "nonexistent" }),

@@ -53,6 +53,10 @@ mock.module("../../verification-outbound-actions.js", () => ({
 }));
 
 const revokePendingSessionsMock = mock((_channel: string) => {});
+const revokeBindingMock = mock((_assistantId: string, _channel: string) => {
+  revokeGuardianBindingMock();
+  return true;
+});
 let guardianBinding:
   | {
       guardianExternalUserId: string;
@@ -65,6 +69,7 @@ const actualVerificationService = await import(
 mock.module("../../channel-verification-service.js", () => ({
   ...actualVerificationService,
   revokePendingSessions: revokePendingSessionsMock,
+  revokeBinding: revokeBindingMock,
   getGuardianBinding: mock(() => guardianBinding),
 }));
 
@@ -78,15 +83,18 @@ mock.module("../../../contacts/contact-store.js", () => ({
   ),
 }));
 
-// Guard: the local ACL write paths must never run on the relayed revoke.
+// Guard: the contact-channel ACL write moves to the gateway relay and must
+// never run locally. The assistant-owned guardian-binding teardown
+// (revokeGuardianBinding) still runs locally — assert it is invoked.
 const localAclWrite = mock(() => {
   throw new Error("local ACL write must not happen on relayed revoke");
 });
+const revokeGuardianBindingMock = mock(() => true);
 const actualContactsWrite = await import("../../../contacts/contacts-write.js");
 mock.module("../../../contacts/contacts-write.js", () => ({
   ...actualContactsWrite,
   revokeMember: localAclWrite,
-  revokeGuardianBinding: localAclWrite,
+  revokeGuardianBinding: revokeGuardianBindingMock,
 }));
 
 const { ROUTES } = await import("../channel-verification-routes.js");
@@ -107,6 +115,8 @@ describe("verification revoke relay", () => {
     ipcCallPersistentMock.mockClear();
     cancelOutboundMock.mockClear();
     revokePendingSessionsMock.mockClear();
+    revokeBindingMock.mockClear();
+    revokeGuardianBindingMock.mockClear();
     localAclWrite.mockClear();
   });
 
@@ -130,7 +140,11 @@ describe("verification revoke relay", () => {
     expect(cancelOutboundMock).toHaveBeenCalledTimes(1);
     expect(revokePendingSessionsMock).toHaveBeenCalledTimes(1);
 
-    // No assistant-side ACL fallback.
+    // Assistant-owned guardian binding torn down locally.
+    expect(revokeBindingMock).toHaveBeenCalledTimes(1);
+    expect(revokeGuardianBindingMock).toHaveBeenCalledTimes(1);
+
+    // The contact-channel ACL write does not fall back to the assistant.
     expect(localAclWrite).not.toHaveBeenCalled();
 
     expect(result.success).toBe(true);
@@ -152,9 +166,11 @@ describe("verification revoke relay", () => {
 
     expect(thrown).toBeDefined();
     expect(thrown!.statusCode).toBe(409);
-    // Teardown still ran before the relay rejected.
+    // Session teardown ran before the relay rejected; the binding teardown
+    // does not run when the gateway refuses the downgrade.
     expect(cancelOutboundMock).toHaveBeenCalledTimes(1);
     expect(revokePendingSessionsMock).toHaveBeenCalledTimes(1);
+    expect(revokeBindingMock).not.toHaveBeenCalled();
     expect(localAclWrite).not.toHaveBeenCalled();
   });
 
@@ -168,6 +184,7 @@ describe("verification revoke relay", () => {
     expect(ipcCalls).toEqual([]);
     expect(cancelOutboundMock).toHaveBeenCalledTimes(1);
     expect(revokePendingSessionsMock).toHaveBeenCalledTimes(1);
+    expect(revokeBindingMock).not.toHaveBeenCalled();
     expect(result.success).toBe(true);
     expect(result.bound).toBe(false);
   });
@@ -180,5 +197,7 @@ describe("verification revoke relay", () => {
     expect(ipcCalls).toEqual([]);
     expect(cancelOutboundMock).toHaveBeenCalledTimes(1);
     expect(revokePendingSessionsMock).toHaveBeenCalledTimes(1);
+    // Binding teardown still runs even when the channel is already revoked.
+    expect(revokeBindingMock).toHaveBeenCalledTimes(1);
   });
 });

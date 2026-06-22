@@ -757,6 +757,14 @@ export class ContactStore {
       throw new CannotDowngradeGuardianError(channelId);
     }
 
+    // A blocked channel stays blocked: blocked is stricter than revoked, and
+    // downgrading it would clear blockedReason and make the actor re-claimable.
+    // Mirrors the blocked→revoked guard in updateChannelStatus; here it's a
+    // no-op so a guardian-binding teardown over a blocked channel doesn't fail.
+    if (channel.status === "blocked") {
+      return { channel, didWrite: false };
+    }
+
     // Idempotent: a row already revoked with this reason is a no-op — skip the
     // write + dual-write (matches markChannelVerified).
     const alreadyRevoked =
