@@ -169,7 +169,7 @@ function PhaseDurationLabel({
 }
 
 /** Total of `formatMs`-style labels, re-formatted via `formatMs`. */
-function sumDurationLabels(labels: string[]): string {
+export function sumDurationLabels(labels: string[]): string {
   let total = 0;
   let anyPresent = false;
   for (const label of labels) {
@@ -186,7 +186,7 @@ function sumDurationLabels(labels: string[]): string {
  * an in-flight retry inside a phase that has already produced a failure
  * still reads as in-progress.
  */
-type PhaseHeaderStatus = "completed" | "failed" | "running";
+export type PhaseHeaderStatus = "completed" | "failed" | "running";
 
 /**
  * Classify a phase's overall status for header icon rendering.
@@ -200,7 +200,9 @@ type PhaseHeaderStatus = "completed" | "failed" | "running";
  * "Searched the web"), so we treat any `web_search` step with that title
  * as in-flight. `thinking` is always neutral (no in-flight signal carried).
  */
-function phaseHeaderStatus(steps: ToolCallCardStep[]): PhaseHeaderStatus {
+export function phaseHeaderStatus(
+  steps: ToolCallCardStep[],
+): PhaseHeaderStatus {
   if (steps.length === 0) return "running";
   let failed = false;
   for (const step of steps) {
@@ -224,7 +226,7 @@ function phaseHeaderStatus(steps: ToolCallCardStep[]): PhaseHeaderStatus {
 }
 
 /** Phase-grouped section as consumed by the renderer. */
-interface PhaseSection {
+export interface PhaseSection {
   label: string;
   steps: ToolCallCardStep[];
 }
@@ -446,7 +448,7 @@ function TimelinePhaseSection({
  * below / end above each node (with a small gap), so the icon never needs to
  * mask the line passing behind it.
  */
-function TimelineNode({
+export function TimelineNode({
   status,
   isThinking,
 }: {
