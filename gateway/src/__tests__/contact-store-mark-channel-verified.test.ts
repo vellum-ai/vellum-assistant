@@ -387,9 +387,54 @@ describe("ContactStore.markChannelVerified", () => {
     expect(contactInGateway!.role).toBe("guardian");
   });
 
+  test("verifies the existing gateway row when (type,address) lives under a different id", async () => {
+    // Split-brain: the caller's channelId is the assistant id, but the gateway
+    // already holds the same (type,address) under a DIFFERENT id (pre-canonical
+    // split). Resolve by (type,address) and verify that row instead of 404ing.
+    seedContact("c-gw", "contact");
+    seedChannel({ id: "gw-ch", contactId: "c-gw", status: "unverified" });
+    seedAssistantContact("c-asst", "contact");
+    seedAssistantChannel({
+      id: "asst-ch",
+      contactId: "c-asst",
+      status: "unverified",
+    });
+    fakeAssistantDb.channels.get("asst-ch")!.address = "addr-gw-ch";
+
+    const result = await new ContactStore().markChannelVerified("asst-ch");
+
+    // Existing gateway row was verified; no 404, no duplicate mirror.
+    expect(result).not.toBeNull();
+    expect(result!.channel.id).toBe("gw-ch");
+    expect(result!.channel.status).toBe("active");
+    expect(result!.channel.verifiedVia).toBe("manual");
+    expect(
+      getGatewayDb()
+        .select()
+        .from(contactChannels)
+        .where(eq(contactChannels.id, "asst-ch"))
+        .get(),
+    ).toBeUndefined();
+
+    // The assistant-side mirror targets the ORIGINAL assistant id, not the
+    // resolved gateway id — otherwise the UPDATE no-ops on the split-id path.
+    const mirror = fakeAssistantDb.runCalls.find(
+      (c) =>
+        c.sql.includes("UPDATE contact_channels") &&
+        c.sql.includes("WHERE id = ?"),
+    );
+    expect(mirror).toBeTruthy();
+    expect(mirror!.bind?.[mirror!.bind!.length - 1]).toBe("asst-ch");
+    expect(mirror!.bind).not.toContain("gw-ch");
+  });
+
   test("refuses to mirror when assistant channel references a missing contact", async () => {
     // Channel present, parent contact absent — broken state, refuse silently.
-    seedAssistantChannel({ id: "ch1", contactId: "orphan", status: "unverified" });
+    seedAssistantChannel({
+      id: "ch1",
+      contactId: "orphan",
+      status: "unverified",
+    });
 
     const result = await new ContactStore().markChannelVerified("ch1");
     expect(result).toBeNull();
@@ -418,9 +463,7 @@ describe("ContactStore.markChannelVerified", () => {
     expect(second!.didWrite).toBe(false);
     expect(second!.channel.verifiedAt).toBe(first!.channel.verifiedAt);
     // Mirror INSERT OR IGNORE: still exactly one channel row, one contact row.
-    expect(
-      getGatewayDb().select().from(contactChannels).all().length,
-    ).toBe(1);
+    expect(getGatewayDb().select().from(contactChannels).all().length).toBe(1);
     expect(getGatewayDb().select().from(contacts).all().length).toBe(1);
   });
 
@@ -571,5 +614,103 @@ describe("ContactStore.markChannelRevoked", () => {
     expect(
       getGatewayDb().select().from(contactChannels).all().length,
     ).toBe(1);
+  });
+});
+
+describe("ContactStore.updateChannelStatus (assistant-only backfill)", () => {
+  test("backfills a legacy assistant-only channel into the gateway, then revokes", async () => {
+    seedAssistantContact("c1", "contact");
+    seedAssistantChannel({ id: "ch1", contactId: "c1", status: "active" });
+
+    const updated = await new ContactStore().updateChannelStatus("ch1", {
+      status: "revoked",
+      reason: "spam",
+    });
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe("revoked");
+    expect(updated!.revokedReason).toBe("spam");
+
+    // Channel + parent contact were materialized in the gateway DB.
+    const channelInGateway = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, "ch1"))
+      .get();
+    expect(channelInGateway!.status).toBe("revoked");
+    const contactInGateway = getGatewayDb()
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, "c1"))
+      .get();
+    expect(contactInGateway).toBeTruthy();
+  });
+
+  test("updates the existing gateway row when (type,address) lives under a different contact id", async () => {
+    // Split-brain: the assistant resolves the id to a (type,address) that the
+    // gateway already holds under a DIFFERENT contact id. `(type,address)` is
+    // globally UNIQUE, so we must update that existing ACL row instead of
+    // re-mirroring (which would hit the constraint and 404).
+    seedContact("c-gw", "contact");
+    seedChannel({ id: "gw-ch", contactId: "c-gw", status: "active" });
+    // Assistant channel "asst-ch" shares addr (addr-gw-ch) under contact c-asst.
+    seedAssistantContact("c-asst", "contact");
+    seedAssistantChannel({
+      id: "asst-ch",
+      contactId: "c-asst",
+      status: "active",
+    });
+    fakeAssistantDb.channels.get("asst-ch")!.address = "addr-gw-ch";
+
+    const updated = await new ContactStore().updateChannelStatus("asst-ch", {
+      status: "revoked",
+      reason: "spam",
+    });
+
+    // Existing gateway row was updated; no 404, no unique-constraint failure.
+    expect(updated).not.toBeNull();
+    expect(updated!.id).toBe("gw-ch");
+    expect(updated!.status).toBe("revoked");
+
+    // No second channel row was mirrored under the assistant id.
+    expect(
+      getGatewayDb()
+        .select()
+        .from(contactChannels)
+        .where(eq(contactChannels.id, "asst-ch"))
+        .get(),
+    ).toBeUndefined();
+  });
+
+  test("revoke-of-blocked still 409s after backfill", async () => {
+    seedAssistantContact("c1", "contact");
+    seedAssistantChannel({ id: "ch1", contactId: "c1", status: "blocked" });
+
+    await expect(
+      new ContactStore().updateChannelStatus("ch1", { status: "revoked" }),
+    ).rejects.toThrow("Cannot revoke a blocked channel");
+  });
+
+  test("returns null when neither DB has the channel", async () => {
+    const updated = await new ContactStore().updateChannelStatus("missing", {
+      status: "revoked",
+    });
+    expect(updated).toBeNull();
+  });
+
+  test("degrades to null when the assistant channel references a missing contact", async () => {
+    // Backfill can't complete (orphan channel) → soft-fail to 404, never throw.
+    seedAssistantChannel({ id: "ch1", contactId: "orphan", status: "active" });
+
+    const updated = await new ContactStore().updateChannelStatus("ch1", {
+      status: "revoked",
+    });
+    expect(updated).toBeNull();
+
+    const channelInGateway = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, "ch1"))
+      .get();
+    expect(channelInGateway).toBeUndefined();
   });
 });

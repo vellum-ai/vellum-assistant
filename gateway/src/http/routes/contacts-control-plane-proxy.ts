@@ -60,6 +60,25 @@ export class InviteNativeError extends Error {
   }
 }
 
+/**
+ * Error thrown by the transport-agnostic contact-channel core to signal a
+ * client-facing failure with a stable code + status. The HTTP handler maps it
+ * to `Response.json`; the gateway IPC route lets it propagate (the IPC server
+ * stringifies thrown errors and mirrors `statusCode`/`code` into the wire
+ * envelope).
+ */
+export class ContactChannelNativeError extends Error {
+  readonly statusCode: number;
+  readonly code: string;
+
+  constructor(message: string, statusCode: number, code: string) {
+    super(message);
+    this.name = "ContactChannelNativeError";
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
 /** Map an InviteNativeError (or generic error) to the HTTP error Response. */
 function inviteErrorResponse(err: unknown): Response {
   if (err instanceof InviteNativeError) {
@@ -654,6 +673,120 @@ function isChannelPolicy(v: unknown): v is ChannelPolicy {
 }
 
 /**
+ * Transport-agnostic channel status/policy write.
+ *
+ * Shared by the HTTP `handleUpdateContactChannel` and the gateway IPC
+ * `update_contact_channel` route. Validates status/policy, performs the
+ * gateway DB write (source of truth) via `ContactStore.updateChannelStatus`
+ * — which preserves the revoke-of-blocked guard and resolves assistant-side
+ * channel IDs via the (contactId, type, address) backward-compat path —
+ * best-effort mirrors into the assistant DB, emits `contacts_changed`, and
+ * returns the parent contact payload.
+ *
+ * Throws `ContactChannelNativeError` for client-facing failures (400 bad
+ * status/policy, 404 unknown channel, 409 revoke-of-blocked). Unexpected
+ * errors propagate so each transport surfaces a 500-equivalent — never a
+ * silent fallback.
+ */
+export async function updateContactChannelCore(params: {
+  contactChannelId: string;
+  status?: string;
+  policy?: string;
+  reason?: string | null;
+}): Promise<{ ok: true; contact?: Record<string, unknown> }> {
+  const { contactChannelId } = params;
+  const status = params.status;
+  const policy = params.policy;
+  const reason = params.reason ?? null;
+
+  if (status !== undefined && !isChannelStatus(status)) {
+    throw new ContactChannelNativeError(
+      `Invalid status "${status}". Must be one of: ${VALID_CHANNEL_STATUSES.join(", ")}`,
+      400,
+      "BAD_REQUEST",
+    );
+  }
+  if (policy !== undefined && !isChannelPolicy(policy)) {
+    throw new ContactChannelNativeError(
+      `Invalid policy "${policy}". Must be one of: ${VALID_CHANNEL_POLICIES.join(", ")}`,
+      400,
+      "BAD_REQUEST",
+    );
+  }
+  if (status === undefined && policy === undefined) {
+    throw new ContactChannelNativeError(
+      "At least one of status or policy must be provided",
+      400,
+      "BAD_REQUEST",
+    );
+  }
+
+  const store = new ContactStore();
+  let updated;
+  try {
+    updated = await store.updateChannelStatus(contactChannelId, {
+      status,
+      policy,
+      reason,
+    });
+  } catch (err) {
+    if (err instanceof CannotRevokeBlockedError) {
+      throw new ContactChannelNativeError(err.message, 409, "CONFLICT");
+    }
+    throw err;
+  }
+
+  if (!updated) {
+    throw new ContactChannelNativeError(
+      `Channel "${contactChannelId}" not found`,
+      404,
+      "NOT_FOUND",
+    );
+  }
+
+  // Best-effort dual-write to assistant DB.
+  const dualWriteParams: {
+    status?: string;
+    policy?: string;
+    revokedReason?: string | null;
+    blockedReason?: string | null;
+  } = {};
+  if (status !== undefined) {
+    dualWriteParams.status = status;
+    dualWriteParams.revokedReason = status === "revoked" ? reason : null;
+    dualWriteParams.blockedReason = status === "blocked" ? reason : null;
+  }
+  if (policy !== undefined) dualWriteParams.policy = policy;
+
+  try {
+    await store.dualWriteChannelStatusToAssistantDb(
+      contactChannelId,
+      dualWriteParams,
+    );
+  } catch (err) {
+    log.warn(
+      { contactChannelId, err },
+      "update_channel: assistant DB dual-write failed (best-effort)",
+    );
+  }
+
+  // Emit contacts_changed so connected clients refresh.
+  void ipcCallAssistant("emit_event", {
+    body: { kind: "contacts_changed" },
+  } as unknown as Record<string, unknown>).catch(() => {});
+
+  const contact = await store.getContactWithInfo(updated.contactId);
+  log.info(
+    { contactChannelId, contactId: updated.contactId, status, policy },
+    "update_channel: handled natively",
+  );
+  return {
+    ok: true,
+    contact: contact ? toContactPayload(contact) : undefined,
+  };
+}
+
+/**
  * Validate that metadata matches the expected shape for the given species.
  * Mirrors `validateSpeciesMetadata` in `assistant/src/contacts/contact-store.ts`.
  */
@@ -1217,116 +1350,19 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       const policy = body.policy as string | undefined;
       const reason = (body.reason as string | null | undefined) ?? null;
 
-      if (status !== undefined && !isChannelStatus(status)) {
-        return Response.json(
-          {
-            error: {
-              code: "BAD_REQUEST",
-              message: `Invalid status "${status}". Must be one of: ${VALID_CHANNEL_STATUSES.join(", ")}`,
-            },
-          },
-          { status: 400 },
-        );
-      }
-
-      if (policy !== undefined && !isChannelPolicy(policy)) {
-        return Response.json(
-          {
-            error: {
-              code: "BAD_REQUEST",
-              message: `Invalid policy "${policy}". Must be one of: ${VALID_CHANNEL_POLICIES.join(", ")}`,
-            },
-          },
-          { status: 400 },
-        );
-      }
-
-      if (status === undefined && policy === undefined) {
-        return Response.json(
-          {
-            error: {
-              code: "BAD_REQUEST",
-              message: "At least one of status or policy must be provided",
-            },
-          },
-          { status: 400 },
-        );
-      }
-
       try {
-        const store = new ContactStore();
-        const updated = await store.updateChannelStatus(contactChannelId, {
+        const result = await updateContactChannelCore({
+          contactChannelId,
           status,
           policy,
           reason,
         });
-
-        if (!updated) {
-          return Response.json(
-            {
-              error: {
-                code: "NOT_FOUND",
-                message: `Channel "${contactChannelId}" not found`,
-              },
-            },
-            { status: 404 },
-          );
-        }
-
-        // Best-effort dual-write to assistant DB.
-        const dualWriteParams: {
-          status?: string;
-          policy?: string;
-          revokedReason?: string | null;
-          blockedReason?: string | null;
-        } = {};
-        if (status !== undefined) {
-          dualWriteParams.status = status;
-          dualWriteParams.revokedReason =
-            status === "revoked" ? reason : null;
-          dualWriteParams.blockedReason =
-            status === "blocked" ? reason : null;
-        }
-        if (policy !== undefined) dualWriteParams.policy = policy;
-
-        try {
-          await store.dualWriteChannelStatusToAssistantDb(
-            contactChannelId,
-            dualWriteParams,
-          );
-        } catch (err) {
-          log.warn(
-            { contactChannelId, err },
-            "update_channel: assistant DB dual-write failed (best-effort)",
-          );
-        }
-
-        // Emit contacts_changed so connected clients refresh.
-        void ipcCallAssistant("emit_event", {
-          body: { kind: "contacts_changed" },
-        } as unknown as Record<string, unknown>).catch(() => {});
-
-        // Return the parent contact with info join, matching the daemon's
-        // response shape.
-        const contact = await store.getContactWithInfo(updated.contactId);
-        log.info(
-          { contactChannelId, contactId: updated.contactId, status, policy },
-          "update_channel: handled natively",
-        );
-        return Response.json({
-          ok: true,
-          contact: contact ? toContactPayload(contact) : undefined,
-        });
+        return Response.json(result);
       } catch (err) {
-        if (err instanceof CannotRevokeBlockedError) {
+        if (err instanceof ContactChannelNativeError) {
           return Response.json(
-            {
-              error: {
-                code: "CONFLICT",
-                message: err.message,
-              },
-            },
-            { status: 409 },
+            { error: { code: err.code, message: err.message } },
+            { status: err.statusCode },
           );
         }
         log.error(

@@ -11,25 +11,19 @@
 import {
   GetContactIpcResponseSchema,
   ListContactsIpcResponseSchema,
+  UpdateContactChannelIpcResponseSchema,
 } from "@vellumai/gateway-client/gateway-ipc-contracts";
 import { IpcCallError } from "@vellumai/gateway-client/ipc-client";
 import { z } from "zod";
 
 import {
   getAssistantContactMetadata,
-  getChannelById,
   getContact,
   listContacts,
   mergeContacts,
   searchContacts,
-  updateChannelStatus,
 } from "../../contacts/contact-store.js";
-import type {
-  ChannelPolicy,
-  ChannelStatus,
-  ContactRole,
-  ContactType,
-} from "../../contacts/types.js";
+import type { ContactRole, ContactType } from "../../contacts/types.js";
 import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
 import { getLogger } from "../../util/logger.js";
@@ -39,12 +33,7 @@ import {
   redeemVoiceInviteCode,
   triggerInviteCall,
 } from "../invite-service.js";
-import {
-  BadRequestError,
-  ConflictError,
-  NotFoundError,
-  RouteError,
-} from "./errors.js";
+import { BadRequestError, NotFoundError, RouteError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("contact-routes");
@@ -104,29 +93,8 @@ function prepareContactResponse<
 
 const VALID_CONTACT_TYPES: readonly ContactType[] = ["human", "assistant"];
 
-const VALID_CHANNEL_STATUSES: readonly ChannelStatus[] = [
-  "active",
-  "pending",
-  "revoked",
-  "blocked",
-  "unverified",
-];
-const VALID_CHANNEL_POLICIES: readonly ChannelPolicy[] = [
-  "allow",
-  "deny",
-  "escalate",
-];
-
 function isContactType(value: string): value is ContactType {
   return (VALID_CONTACT_TYPES as readonly string[]).includes(value);
-}
-
-function isChannelStatus(value: string): value is ChannelStatus {
-  return (VALID_CHANNEL_STATUSES as readonly string[]).includes(value);
-}
-
-function isChannelPolicy(value: string): value is ChannelPolicy {
-  return (VALID_CHANNEL_POLICIES as readonly string[]).includes(value);
 }
 
 // ---------------------------------------------------------------------------
@@ -814,62 +782,33 @@ function handleMergeContactsRoute(args: RouteHandlerArgs) {
   }
 }
 
-function handleUpdateContactChannelRoute(args: RouteHandlerArgs) {
-  const channelId = args.pathParams!.contactChannelId;
+/**
+ * Relay the channel status/policy update to the gateway-native handler.
+ *
+ * The gateway DB is the source of truth: it owns validation, the
+ * revoke-of-blocked guard, the assistant-side channel-ID backward-compat
+ * resolution, the assistant-DB mirror, and the `contacts_changed` emit. This
+ * daemon handler writes NOTHING to the assistant DB directly — it forwards the
+ * raw channel ID + body and returns the gateway response verbatim. No fallback:
+ * an unexpected relay failure surfaces as an error (never a silent second
+ * write).
+ */
+export async function handleUpdateContactChannelRoute(args: RouteHandlerArgs) {
   const body = (args.body ?? {}) as {
     status?: string;
     policy?: string;
     reason?: string;
   };
 
-  if (body.status !== undefined && !isChannelStatus(body.status)) {
-    throw new BadRequestError(
-      `Invalid status "${body.status}". Must be one of: ${VALID_CHANNEL_STATUSES.join(", ")}`,
-    );
+  try {
+    const result = await ipcCallPersistent("update_contact_channel", {
+      contactChannelId: args.pathParams!.contactChannelId,
+      ...(body.status !== undefined ? { status: body.status } : {}),
+      ...(body.policy !== undefined ? { policy: body.policy } : {}),
+      ...(body.reason !== undefined ? { reason: body.reason } : {}),
+    });
+    return UpdateContactChannelIpcResponseSchema.parse(result);
+  } catch (err) {
+    rethrowGatewayError(err);
   }
-
-  if (body.policy !== undefined && !isChannelPolicy(body.policy)) {
-    throw new BadRequestError(
-      `Invalid policy "${body.policy}". Must be one of: ${VALID_CHANNEL_POLICIES.join(", ")}`,
-    );
-  }
-
-  if (body.status === "revoked") {
-    const existing = getChannelById(channelId);
-    if (!existing) {
-      throw new NotFoundError(`Channel "${channelId}" not found`);
-    }
-    if (existing.status === "blocked") {
-      throw new ConflictError(
-        "Cannot revoke a blocked channel. Unblock it first or leave it blocked.",
-      );
-    }
-  }
-
-  const updated = updateChannelStatus(channelId, {
-    status: body.status,
-    policy: body.policy,
-    revokedReason:
-      body.status !== undefined
-        ? body.status === "revoked"
-          ? (body.reason ?? null)
-          : null
-        : undefined,
-    blockedReason:
-      body.status !== undefined
-        ? body.status === "blocked"
-          ? (body.reason ?? null)
-          : null
-        : undefined,
-  });
-
-  if (!updated) {
-    throw new NotFoundError(`Channel "${channelId}" not found`);
-  }
-
-  const parentContact = getContact(updated.contactId);
-  return {
-    ok: true,
-    contact: parentContact ? prepareContactResponse(parentContact) : undefined,
-  };
 }
