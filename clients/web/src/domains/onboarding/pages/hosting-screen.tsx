@@ -55,7 +55,7 @@ function useHostingOptions(): HostingOption[] {
       mode: "local",
       label: "Local",
       subtitle:
-        "Runs directly on your machine. Your data never leaves your computer.",
+        "Runs on this computer only. Your data stays private and won't sync to the web app or your phone.",
       icon: <Laptop className={ICON_CLASS} />,
     },
   ];
