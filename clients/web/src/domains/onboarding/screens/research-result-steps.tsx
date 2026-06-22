@@ -195,7 +195,7 @@ export function LookingYouUpStep({
         <AnimatePresence mode="wait">
           <motion.p
             key={index}
-            className="text-[1.6rem]"
+            className="text-[2.6rem] leading-none"
             style={{ fontFamily: "var(--font-serif)" }}
             initial={{ y: 12, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
