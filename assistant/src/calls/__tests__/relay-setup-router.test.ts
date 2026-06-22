@@ -20,10 +20,7 @@ import {
   type AdmissionPolicy,
 } from "@vellumai/gateway-client";
 
-import type {
-  ChannelPolicy,
-  ChannelStatus,
-} from "../../contacts/types.js";
+import type { ChannelPolicy, ChannelStatus } from "../../contacts/types.js";
 import type {
   ActorTrustContext,
   TrustClass,
@@ -64,37 +61,43 @@ mock.module("../../memory/invite-store.js", () => ({
 }));
 
 // Real floor semantics, exemption bypassed (see file header).
-mock.module(
-  "../../runtime/routes/inbound-stages/admission-policy.js",
-  () => ({
-    enforceAdmissionPolicy: (input: {
-      trustClass: TrustClass;
-      memberStatus: ChannelStatus | undefined;
-      policy: AdmissionPolicy;
-    }) => {
-      if (input.memberStatus === "blocked" || input.memberStatus === "revoked") {
-        return {
-          admitted: false,
-          reason:
-            input.memberStatus === "blocked"
-              ? "member_blocked"
-              : "member_revoked",
-          shouldChallenge: false,
-          effectivePolicy: input.policy,
-        };
-      }
-      const rank = TRUST_CLASS_RANK[input.trustClass];
-      const floor = ADMISSION_FLOOR[input.policy];
-      if (rank >= floor) return { admitted: true };
+mock.module("../../runtime/routes/inbound-stages/admission-policy.js", () => ({
+  enforceAdmissionPolicy: (input: {
+    trustClass: TrustClass;
+    memberStatus: ChannelStatus | undefined;
+    policy: AdmissionPolicy;
+  }) => {
+    if (input.memberStatus === "blocked" || input.memberStatus === "revoked") {
       return {
         admitted: false,
-        reason: `admission_policy_${input.policy}`,
+        reason:
+          input.memberStatus === "blocked"
+            ? "member_blocked"
+            : "member_revoked",
         shouldChallenge: false,
         effectivePolicy: input.policy,
       };
-    },
-  }),
-);
+    }
+    const rank = TRUST_CLASS_RANK[input.trustClass];
+    const floor = ADMISSION_FLOOR[input.policy];
+    if (rank >= floor) return { admitted: true };
+    return {
+      admitted: false,
+      reason: `admission_policy_${input.policy}`,
+      shouldChallenge: false,
+      effectivePolicy: input.policy,
+    };
+  },
+}));
+
+// `routeSetup` resolves the invitee's display name from the bound contact for
+// the post-redemption greeting. Stub the contact store so the router never
+// touches a real DB. This keeps the test self-contained regardless of
+// `bun test` file-load order — without it the test relies on a sibling file's
+// leaked `mock.module`, which breaks whenever the suite's file set changes.
+mock.module("../../contacts/contact-store.js", () => ({
+  getContact: () => null,
+}));
 
 const { routeSetup } = await import("../relay-setup-router.js");
 
