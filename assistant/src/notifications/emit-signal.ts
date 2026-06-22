@@ -27,7 +27,6 @@ import {
 import { enforceRoutingIntent, evaluateSignal } from "./decision-engine.js";
 import { updateDecision } from "./decisions-store.js";
 import {
-  checkSourceActiveSuppression,
   type DeterministicCheckContext,
   runDeterministicChecks,
 } from "./deterministic-checks.js";
@@ -210,12 +209,7 @@ export interface EmitSignalResult {
 
 /**
  * Emit a notification signal through the full pipeline:
- * createEvent -> (source-active pre-gate) -> evaluateSignal ->
- * runDeterministicChecks -> dispatchDecision.
- *
- * Source-active suppression runs before the decision engine: it depends only
- * on the signal, so a statically-suppressed signal short-circuits here without
- * paying for an LLM inference whose result would be discarded downstream.
+ * createEvent -> evaluateSignal -> runDeterministicChecks -> dispatchDecision.
  *
  * Fire-and-forget safe by default: errors are caught and logged unless
  * `throwOnError` is enabled by the caller.
@@ -263,28 +257,6 @@ export async function emitNotificationSignal<TEventName extends string>(
         deduplicated: true,
         dispatched: false,
         reason: "Signal deduplicated at event store level",
-        deliveryResults: [],
-      };
-    }
-
-    // Step 1.5: Source-active pre-gate. visibleInSourceNow is a hard invariant
-    // the decision engine cannot override, and it depends only on the signal —
-    // so when it is set, the outcome is predetermined: suppress. Short-circuit
-    // before the (LLM-backed) decision stage so statically-suppressed signals
-    // (e.g. trusted-contact verification_sent) never incur an inference, a
-    // discarded decision row, or an LLM-dependent home-feed mirror. The event
-    // row persisted above preserves the lifecycle/audit trail.
-    const sourceActiveCheck = checkSourceActiveSuppression(signal);
-    if (!sourceActiveCheck.passed) {
-      log.info(
-        { signalId, reason: sourceActiveCheck.reason },
-        "Signal suppressed before decision stage (source-active)",
-      );
-      return {
-        signalId,
-        deduplicated: false,
-        dispatched: false,
-        reason: `Signal suppressed: ${sourceActiveCheck.reason}`,
         deliveryResults: [],
       };
     }
