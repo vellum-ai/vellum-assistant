@@ -33,7 +33,7 @@ describe("VELAY_ALLOWED_PATHS", () => {
     }
   });
 
-  it("matches the four gateway public-surface route shapes", () => {
+  it("matches the three gateway public-surface route shapes", () => {
     // Allowlist coverage check — if you add a public route in
     // `gateway/src/index.ts` that needs to be reachable through the Velay
     // tunnel, add a matching regex to VELAY_ALLOWED_PATHS and a sample here.
@@ -50,8 +50,11 @@ describe("VELAY_ALLOWED_PATHS", () => {
       "/webhooks/oauth/callback": true,
       "/v1/audio/some-uuid.mp3": true,
       "/v1/live-voice": true,
-      "/v1/stt/stream": true,
       // Negative samples — paths that must NOT be tunnel-public.
+      // `/v1/stt/stream` authenticates only with the local actor edge JWT and
+      // has no velay-attested auth path, so it must never be reachable through
+      // the tunnel (ATL-713).
+      "/v1/stt/stream": false,
       "/v1/contacts/abc": false,
       "/v1/health": false,
       "/v1/pair": false,

@@ -340,10 +340,18 @@ describe("VelayWebSocketBridge", () => {
     ]);
   });
 
-  test("allows live voice and STT websocket paths declared in the tunnel allowlist", () => {
+  test("allows the live-voice websocket path declared in the tunnel allowlist", () => {
     bridge.open(
       makeOpenFrame({ path: "/v1/live-voice", raw_query: "token=t" }),
     );
+
+    expect(WebSocketMock).toHaveBeenCalledTimes(1);
+    expect((WebSocketMock.mock.calls[0] as [string])[0]).toBe(
+      "ws://127.0.0.1:7830/v1/live-voice?token=t",
+    );
+  });
+
+  test("rejects the STT stream websocket path (not tunnel-public — ATL-713)", () => {
     bridge.open(
       makeOpenFrame({
         connection_id: "conn-stt",
@@ -352,13 +360,16 @@ describe("VelayWebSocketBridge", () => {
       }),
     );
 
-    expect(WebSocketMock).toHaveBeenCalledTimes(2);
-    expect((WebSocketMock.mock.calls[0] as [string])[0]).toBe(
-      "ws://127.0.0.1:7830/v1/live-voice?token=t",
-    );
-    expect((WebSocketMock.mock.calls[1] as [string])[0]).toBe(
-      "ws://127.0.0.1:7830/v1/stt/stream?token=t",
-    );
+    // STT authenticates only with the local actor edge JWT, which must never
+    // traverse the velay edge, so the bridge refuses to open the connection.
+    expect(WebSocketMock).not.toHaveBeenCalled();
+    expect(sentFrames).toEqual([
+      {
+        type: VELAY_FRAME_TYPES.websocketOpenError,
+        connection_id: "conn-stt",
+        reason: "Invalid WebSocket path",
+      },
+    ]);
   });
 
   test("forwards local close frames back to Velay and cleans up", () => {

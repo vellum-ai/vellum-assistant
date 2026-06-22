@@ -8,6 +8,7 @@ import { isActorTokenRevoked } from "../../auth/actor-token-revocation.js";
 import { parseSub } from "../../auth/subject.js";
 import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
+import { requestHasVelayBridgeAuth } from "../../velay/bridge-auth.js";
 
 const log = getLogger("stt-stream-ws");
 
@@ -51,6 +52,23 @@ export function createSttStreamWebsocketHandler(config: GatewayConfig) {
   ): Response | undefined {
     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       return new Response("Upgrade Required", { status: 426 });
+    }
+
+    // ── Velay tunnel guard (defense in depth) ──
+    // STT streaming authenticates only with the local actor edge JWT, which
+    // must never transit the platform's velay edge (it would be observable in
+    // the `?token=` query string / Authorization header of the bridged frame,
+    // letting the platform exfiltrate the long-lived, full-access token).
+    // `/v1/stt/stream` is excluded from the velay path allowlist
+    // (`velay/allowed-paths.ts`); this in-process check is the belt to that
+    // suspenders — reject anything opened over this gateway's own velay bridge
+    // regardless of allowlist drift. The bridge proof cannot be spoofed by a
+    // direct caller. Mirrors the live-voice bridge-proof model (ATL-713).
+    if (requestHasVelayBridgeAuth(req)) {
+      log.warn(
+        "STT stream WS: rejected velay-bridged request (local-only path)",
+      );
+      return new Response("Forbidden", { status: 403 });
     }
 
     const url = new URL(req.url);

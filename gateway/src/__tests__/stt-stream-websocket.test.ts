@@ -7,6 +7,7 @@ import {
   getSttStreamWebsocketHandlers,
   type SttStreamSocketData,
 } from "../http/routes/stt-stream-websocket.js";
+import { setVelayBridgeAuthHeader } from "../velay/bridge-auth.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
@@ -291,6 +292,67 @@ describe("createSttStreamWebsocketHandler", () => {
     expect(opts.data.provider).toBe("deepgram");
     expect(opts.data.mimeType).toBe("audio/webm");
     expect(opts.data.sampleRate).toBe(16000);
+  });
+
+  // -------------------------------------------------------------------------
+  // Velay tunnel guard (ATL-713)
+  //
+  // STT authenticates only with the local actor edge JWT, which must never
+  // transit the platform's velay edge. The endpoint is excluded from the velay
+  // path allowlist; this in-process guard rejects anything that nonetheless
+  // arrives over the gateway's own velay bridge (identified by the unspoofable
+  // per-process bridge proof), regardless of allowlist drift.
+  // -------------------------------------------------------------------------
+
+  test("rejects a velay-bridged request with 403 even with a valid token", () => {
+    const handler = createSttStreamWebsocketHandler(makeConfig());
+    const headers = new Headers({
+      upgrade: "websocket",
+    });
+    setVelayBridgeAuthHeader(headers);
+    const req = new Request(
+      `http://localhost:7830/v1/stt/stream?token=${TEST_TOKEN}&mimeType=audio/webm`,
+      { headers },
+    );
+    const server = makeFakeServer();
+    const res = handler(req, server);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(403);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("velay-bridge guard short-circuits before auth/param checks", () => {
+    // No token, no mimeType: the guard must still return 403 rather than
+    // falling through to the 401/400 paths.
+    const handler = createSttStreamWebsocketHandler(makeConfig());
+    const headers = new Headers({ upgrade: "websocket" });
+    setVelayBridgeAuthHeader(headers);
+    const req = new Request("http://localhost:7830/v1/stt/stream", { headers });
+    const server = makeFakeServer();
+    const res = handler(req, server);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(403);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("velay-bridge guard applies even when auth is disabled (dev bypass)", () => {
+    const handler = createSttStreamWebsocketHandler(
+      makeConfig({ runtimeProxyRequireAuth: false }),
+    );
+    const headers = new Headers({ upgrade: "websocket" });
+    setVelayBridgeAuthHeader(headers);
+    const req = new Request(
+      "http://localhost:7830/v1/stt/stream?mimeType=audio/webm",
+      { headers },
+    );
+    const server = makeFakeServer();
+    const res = handler(req, server);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(403);
+    expect(server.upgrade).not.toHaveBeenCalled();
   });
 });
 

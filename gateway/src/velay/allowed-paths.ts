@@ -19,9 +19,20 @@
  *     Velay.
  *   - `^/v1/audio/` — Twilio fetches generated audio URLs directly on the
  *     public surface (see comment at `gateway/src/index.ts` audio route).
- *   - `^/v1/live-voice` — exact match for the Twilio media-stream WebSocket
- *     used for live voice calls.
- *   - `^/v1/stt/stream` — exact match for the public STT streaming WebSocket.
+ *   - `^/v1/live-voice` — exact match for the live-voice WebSocket. Its cloud
+ *     path authenticates with a short-lived, org+assistant-scoped velay WS
+ *     token (validated by velay, attested to the gateway via the per-process
+ *     bridge proof — see `live-voice-websocket.ts`), so the long-lived local
+ *     actor edge JWT is never carried across the velay edge.
+ *
+ * `/v1/stt/stream` is intentionally NOT tunnel-public. Unlike live-voice, the
+ * STT streaming WebSocket has no velay-attested auth path — it authenticates
+ * only with the local actor edge JWT. Routing it through velay would force
+ * that long-lived, full-access token across the cross-origin platform edge
+ * (in the `?token=` query string), letting the platform exfiltrate it. STT
+ * streaming is therefore self-hosted-only (the client connects straight to the
+ * user's own gateway ingress); cloud STT, if ever wired, must adopt the
+ * live-voice token-exchange model instead of being added back here (ATL-713).
  *
  * If you add a new public route to `gateway/src/index.ts` that must be
  * reachable through the Velay tunnel (i.e. anything an external provider
@@ -33,7 +44,6 @@ export const VELAY_ALLOWED_PATHS: readonly string[] = Object.freeze([
   "^/webhooks/",
   "^/v1/audio/",
   "^/v1/live-voice$",
-  "^/v1/stt/stream$",
 ]);
 
 /**
@@ -48,6 +58,5 @@ export const VELAY_ALLOWED_PATHS_HEADER = "X-Vellum-Velay-Allowed-Paths";
  * module load — the allowlist is static for the lifetime of the gateway
  * process.
  */
-export const VELAY_ALLOWED_PATHS_HEADER_VALUE = JSON.stringify(
-  VELAY_ALLOWED_PATHS,
-);
+export const VELAY_ALLOWED_PATHS_HEADER_VALUE =
+  JSON.stringify(VELAY_ALLOWED_PATHS);

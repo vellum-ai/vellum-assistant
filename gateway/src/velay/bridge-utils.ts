@@ -7,10 +7,10 @@ import type { VelayHeaders } from "./protocol.js";
 const MAX_WEBSOCKET_CLOSE_REASON_BYTES = 123;
 
 const VELAY_ALLOWED_HTTP_PATH_PREFIXES = ["/webhooks/twilio/"] as const;
-const VELAY_ALLOWED_WEBSOCKET_EXACT_PATHS = [
-  "/v1/live-voice",
-  "/v1/stt/stream",
-] as const;
+// `/v1/stt/stream` is intentionally absent: it authenticates only with the
+// local actor edge JWT, which must never traverse the velay edge. Keep this in
+// sync with `VELAY_ALLOWED_PATHS` in ./allowed-paths.ts (ATL-713).
+const VELAY_ALLOWED_WEBSOCKET_EXACT_PATHS = ["/v1/live-voice"] as const;
 
 /**
  * Injected unconditionally by the HTTP bridge on every request forwarded to
