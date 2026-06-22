@@ -8,6 +8,10 @@
  * they don't shadow more-specific sub-paths like contacts/invites.
  */
 
+import {
+  GetContactIpcResponseSchema,
+  ListContactsIpcResponseSchema,
+} from "@vellumai/gateway-client/gateway-ipc-contracts";
 import { IpcCallError } from "@vellumai/gateway-client/ipc-client";
 import { z } from "zod";
 
@@ -28,6 +32,7 @@ import type {
 } from "../../contacts/types.js";
 import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
+import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   redeemIngressInvite,
@@ -41,6 +46,8 @@ import {
   RouteError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+const log = getLogger("contact-routes");
 
 /**
  * Re-throw a relayed gateway `IpcCallError` as a `RouteError` so the IPC/HTTP
@@ -160,7 +167,7 @@ const contactSchema = z.object({
 // Contact handlers (transport-agnostic)
 // ---------------------------------------------------------------------------
 
-function handleListContacts(queryParams: Record<string, string>) {
+export async function handleListContacts(queryParams: Record<string, string>) {
   const limit = Number(queryParams.limit ?? 50);
   const role = (queryParams.role as ContactRole) || undefined;
   const contactTypeParam = queryParams.contactType;
@@ -178,6 +185,7 @@ function handleListContacts(queryParams: Record<string, string>) {
     ? (contactTypeParam as ContactType)
     : undefined;
 
+  // Search params still proxy to the local DB (PR 4 governs the search relay).
   if (query || channelAddress || channelType) {
     const contacts = searchContacts({
       query,
@@ -193,27 +201,66 @@ function handleListContacts(queryParams: Record<string, string>) {
     };
   }
 
-  const contacts = listContacts(limit, role, contactType);
-  return {
-    ok: true,
-    contacts: contacts.map(prepareContactResponse),
-  };
+  // Non-search reads relay to the gateway (source of truth for ACL fields).
+  try {
+    const result = await ipcCallPersistent("contacts_list_rich", {
+      limit,
+      ...(role ? { role } : {}),
+      ...(contactType ? { contactType } : {}),
+    });
+    const { contacts } = ListContactsIpcResponseSchema.parse(result);
+    return {
+      ok: true,
+      contacts: contacts.map(prepareContactResponse),
+    };
+  } catch (err) {
+    log.warn(
+      { err },
+      "handleListContacts: gateway relay failed; falling back to assistant DB",
+    );
+    const contacts = listContacts(limit, role, contactType);
+    return {
+      ok: true,
+      contacts: contacts.map(prepareContactResponse),
+    };
+  }
 }
 
-function handleGetContact(contactId: string) {
-  const contact = getContact(contactId);
-  if (!contact) {
-    throw new NotFoundError(`Contact "${contactId}" not found`);
+export async function handleGetContact(contactId: string) {
+  try {
+    const result = await ipcCallPersistent("contacts_get_rich", { contactId });
+    // The gateway returns null (no `contact`) on a clean not-found.
+    if (!result || (result as { contact?: unknown }).contact === undefined) {
+      throw new NotFoundError(`Contact "${contactId}" not found`);
+    }
+    const { contact, assistantMetadata } =
+      GetContactIpcResponseSchema.parse(result);
+    return {
+      ok: true,
+      contact: prepareContactResponse(contact),
+      assistantMetadata: assistantMetadata ?? undefined,
+    };
+  } catch (err) {
+    // A clean not-found is a real 404 — don't fall back or mask it.
+    if (err instanceof NotFoundError) throw err;
+    log.warn(
+      { err, contactId },
+      "handleGetContact: gateway relay failed; falling back to assistant DB",
+    );
+    const contact = getContact(contactId);
+    if (!contact) {
+      throw new NotFoundError(`Contact "${contactId}" not found`);
+    }
+    const assistantMeta =
+      contact.contactType === "assistant"
+        ? getAssistantContactMetadata(contact.id)
+        : undefined;
+    return {
+      ok: true,
+      contact: prepareContactResponse(contact),
+      assistantMetadata: assistantMeta ?? undefined,
+    };
   }
-  const assistantMeta =
-    contact.contactType === "assistant"
-      ? getAssistantContactMetadata(contact.id)
-      : undefined;
-  return {
-    ok: true,
-    contact: prepareContactResponse(contact),
-    assistantMetadata: assistantMeta ?? undefined,
-  };
 }
 
 // ---------------------------------------------------------------------------
