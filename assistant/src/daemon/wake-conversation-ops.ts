@@ -22,6 +22,7 @@ import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import { backfillMessageIdOnLogs } from "../memory/llm-request-log-store.js";
 import type { Message } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
+import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import type { ServerMessage } from "./message-protocol.js";
@@ -306,6 +307,20 @@ export async function persistWakeTriggerMessage(
     log.warn(
       { err, conversationId: conversation.conversationId },
       "wake trigger persist: syncMessageToDisk failed (non-fatal)",
+    );
+  }
+  // Tell connected clients the message list changed so they refetch and the
+  // visible trigger renders live. The normal user-send path publishes the same
+  // invalidation after persisting a user message; without it a wake that
+  // produces no assistant stream (silent no-op), or a conversation open in
+  // another client, would not show the <background_event> row until a manual
+  // reload.
+  try {
+    publishConversationMessagesChanged(conversation.conversationId);
+  } catch (err) {
+    log.warn(
+      { err, conversationId: conversation.conversationId },
+      "wake trigger persist: publishConversationMessagesChanged failed (non-fatal)",
     );
   }
 }

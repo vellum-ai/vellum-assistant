@@ -182,6 +182,17 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
+// Sync invalidations published after persisting a wake trigger
+// (`persistTriggerAsEvent`). Captured so tests can assert connected clients are
+// told to refetch the message list so the visible trigger renders live. Reset
+// in beforeEach.
+const publishMessagesChangedCalls: string[] = [];
+mock.module("../../runtime/sync/resource-sync-events.js", () => ({
+  publishConversationMessagesChanged: (conversationId: string) => {
+    publishMessagesChangedCalls.push(conversationId);
+  },
+}));
+
 const mockGetOrCreateConversationCalls: Array<{
   conversationId: string;
   options: unknown;
@@ -516,6 +527,7 @@ beforeEach(() => {
   wakeConvRegistry.clear();
   recordRequestLogCalls.length = 0;
   recordUsageCalls.length = 0;
+  publishMessagesChangedCalls.length = 0;
   mockGetOrCreateConversationCalls.length = 0;
   mockResolverTarget = null;
   mockGetConversationOverrideProfile = () => undefined;
@@ -887,6 +899,9 @@ describe("wakeAgentForOpportunity", () => {
     // user message, before the assistant reply.
     expect(conversation.pushedMessages[0]).toEqual(trigger);
     expect(conversation.persistedTailCalls[0]).toEqual(trigger);
+    // Connected clients are told the message list changed so the visible
+    // trigger renders live (not only on a later manual reload).
+    expect(publishMessagesChangedCalls).toContain(conversation.conversationId);
 
     // It is part of the baseline the loop ran against (proves the push
     // landed before the snapshot on a live, in-memory conversation), and no
@@ -985,6 +1000,9 @@ describe("wakeAgentForOpportunity", () => {
     expect(conversation.persistedTailCalls).toHaveLength(1);
     expect(conversation.pushedMessages).toHaveLength(1);
     expect(conversation.emittedEvents).toHaveLength(0);
+    // The whole point of the notification: even with NO assistant stream,
+    // clients are told to refetch so the trigger shows live.
+    expect(publishMessagesChangedCalls).toContain(conversation.conversationId);
     // The error-path trigger carries framing only (no untrusted fence).
     const text = (
       conversation.persistedTailCalls[0]!.content as Array<{ text: string }>
