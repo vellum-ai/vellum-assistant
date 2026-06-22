@@ -167,6 +167,41 @@ const contactSchema = z.object({
 // Contact handlers (transport-agnostic)
 // ---------------------------------------------------------------------------
 
+/**
+ * Relay a non-search contact list read to the gateway (source of truth for ACL
+ * fields), falling back to the assistant DB on IPC failure. Shared by the GET
+ * `contacts` list and the `search_contacts` no-filter case so both serve
+ * gateway-sourced data consistently.
+ */
+async function relayListContacts(
+  limit: number,
+  role: ContactRole | undefined,
+  contactType: ContactType | undefined,
+) {
+  try {
+    const result = await ipcCallPersistent("contacts_list_rich", {
+      limit,
+      ...(role ? { role } : {}),
+      ...(contactType ? { contactType } : {}),
+    });
+    const { contacts } = ListContactsIpcResponseSchema.parse(result);
+    return {
+      ok: true,
+      contacts: contacts.map(prepareContactResponse),
+    };
+  } catch (err) {
+    log.warn(
+      { err },
+      "relayListContacts: gateway relay failed; falling back to assistant DB",
+    );
+    const contacts = listContacts(limit, role, contactType);
+    return {
+      ok: true,
+      contacts: contacts.map(prepareContactResponse),
+    };
+  }
+}
+
 export async function handleListContacts(queryParams: Record<string, string>) {
   const limit = Number(queryParams.limit ?? 50);
   const role = (queryParams.role as ContactRole) || undefined;
@@ -185,8 +220,11 @@ export async function handleListContacts(queryParams: Record<string, string>) {
     ? (contactTypeParam as ContactType)
     : undefined;
 
-  // Search params still proxy to the local DB (PR 4 governs the search relay).
+  // True search stays daemon-native pending gateway-native search (Tier 3 / PR 6).
   if (query || channelAddress || channelType) {
+    log.debug(
+      "handleListContacts: search served daemon-native (gateway-native search is design-blocked, Tier 3 / PR 6)",
+    );
     const contacts = searchContacts({
       query,
       channelAddress,
@@ -201,29 +239,7 @@ export async function handleListContacts(queryParams: Record<string, string>) {
     };
   }
 
-  // Non-search reads relay to the gateway (source of truth for ACL fields).
-  try {
-    const result = await ipcCallPersistent("contacts_list_rich", {
-      limit,
-      ...(role ? { role } : {}),
-      ...(contactType ? { contactType } : {}),
-    });
-    const { contacts } = ListContactsIpcResponseSchema.parse(result);
-    return {
-      ok: true,
-      contacts: contacts.map(prepareContactResponse),
-    };
-  } catch (err) {
-    log.warn(
-      { err },
-      "handleListContacts: gateway relay failed; falling back to assistant DB",
-    );
-    const contacts = listContacts(limit, role, contactType);
-    return {
-      ok: true,
-      contacts: contacts.map(prepareContactResponse),
-    };
-  }
+  return relayListContacts(limit, role, contactType);
 }
 
 export async function handleGetContact(contactId: string) {
@@ -654,7 +670,7 @@ export const ROUTES: RouteDefinition[] = [
       limit: z.number().optional(),
     }),
     responseBody: z.array(contactSchema),
-    handler: ({ body = {} }: RouteHandlerArgs) => {
+    handler: async ({ body = {} }: RouteHandlerArgs) => {
       const parsed = z
         .object({
           query: z.string().optional(),
@@ -663,6 +679,27 @@ export const ROUTES: RouteDefinition[] = [
           limit: z.number().optional(),
         })
         .parse(body);
+
+      const hasFilter =
+        Boolean(parsed.query?.trim()) ||
+        Boolean(parsed.channelAddress) ||
+        Boolean(parsed.channelType);
+
+      // No-filter "search" is a list read — relay to the gateway so it returns
+      // the same source-of-truth data as `contacts list`.
+      if (!hasFilter) {
+        const { contacts } = await relayListContacts(
+          parsed.limit ?? 50,
+          undefined,
+          undefined,
+        );
+        return contacts;
+      }
+
+      // True search stays daemon-native pending gateway-native search (Tier 3 / PR 6).
+      log.debug(
+        "search_contacts: search served daemon-native (gateway-native search is design-blocked, Tier 3 / PR 6)",
+      );
       return searchContacts(parsed).map(prepareContactResponse);
     },
   },
