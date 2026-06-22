@@ -2,7 +2,7 @@ import {
   CircleAlert,
   CircleCheck,
   Info,
-  OctagonX,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import { type ReactElement, type ReactNode } from "react";
@@ -60,7 +60,10 @@ const VARIANT_STYLES: Record<
     container:
       "bg-[var(--system-negative-weak)] border-[var(--system-negative-strong)] text-[var(--system-negative-strong)]",
     icon: "text-[var(--system-negative-strong)]",
-    iconElement: <OctagonX className="h-4 w-4" />,
+    // TriangleAlert rather than OctagonX: the X glyph reads as a "close"
+    // affordance and users tap it expecting to dismiss the toast — but
+    // it's just decorative. The warning triangle reads as a plain error.
+    iconElement: <TriangleAlert className="h-4 w-4" />,
   },
   success: {
     container:

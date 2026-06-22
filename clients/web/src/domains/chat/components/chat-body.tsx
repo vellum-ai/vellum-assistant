@@ -1,6 +1,6 @@
 import { type DragEventHandler, type ReactNode } from "react";
 
-import { Eye, Paperclip, Square } from "lucide-react";
+import { Eye, Paperclip, Square, X } from "lucide-react";
 
 import { QuestionPromptSlot } from "@/domains/chat/components/question-prompt-slot";
 import { ChatScrollArea, type ChatScrollAreaProps } from "@/domains/chat/components/chat-scroll-area";
@@ -94,6 +94,14 @@ export interface ChatBodyProps {
 
   /** Generic chat error rendered above the composer, or `null` when none. */
   genericChatError: { message: string; actions?: ReactNode } | null;
+  /**
+   * Dismiss handler for {@link genericChatError}. Required when a
+   * `genericChatError` is passed — the banner renders a "Dismiss" button
+   * as the second action next to the existing actions (typically the
+   * "Go to Doctor" link), so the user has a clear way to close the
+   * banner without clicking the (decorative) error icon.
+   */
+  onDismissChatError?: () => void;
 
   /** When true, a read-only banner replaces the composer entirely. */
   isChannelReadonly: boolean;
@@ -184,6 +192,7 @@ export function ChatBody({
   onDismissRefreshFeedback,
   onRetryRefresh,
   genericChatError,
+  onDismissChatError,
   isChannelReadonly,
   canStopGenerating,
   bannerSlot,
@@ -259,7 +268,32 @@ export function ChatBody({
         <div className="mx-auto max-w-[var(--chat-max-width)]">
           {genericChatError && (
             <div className="mb-2">
-              <Notice tone="error" actions={genericChatError.actions}>{genericChatError.message}</Notice>
+              <Notice
+                tone="error"
+                actions={
+                  <>
+                    {genericChatError.actions}
+                    {onDismissChatError ? (
+                      <Button
+                        variant="outlined"
+                        size="compact"
+                        leftIcon={
+                          <X
+                            className="h-3.5 w-3.5"
+                            strokeWidth={2}
+                            aria-hidden="true"
+                          />
+                        }
+                        onClick={onDismissChatError}
+                      >
+                        Dismiss
+                      </Button>
+                    ) : null}
+                  </>
+                }
+              >
+                {genericChatError.message}
+              </Notice>
             </div>
           )}
           {queuedDrawerSlot}
