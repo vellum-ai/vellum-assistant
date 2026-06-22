@@ -126,7 +126,13 @@ export function ResearchOnboardingRoute() {
       // First message: the picked suggestion if we're entering from one,
       // otherwise the research kickoff prompt.
       initialMessage:
-        entryPrompt ?? buildResearchPrompt({ firstName, lastName, role, hobbies }),
+        entryPrompt ??
+        buildResearchPrompt({
+          firstName,
+          lastName,
+          occupation: role,
+          hobby: hobbies.join(", "),
+        }),
       // Friendly title for the behind-the-scenes research conversation.
       ...(entryPrompt
         ? {}
