@@ -29,6 +29,7 @@ import type {
   NotificationSignal,
   NotificationSourceEventName,
 } from "./signal.js";
+import { parseTrustedContactDecisionPayload } from "./trusted-contact-payloads.js";
 import type { NotificationChannel, RenderedChannelCopy } from "./types.js";
 
 type CopyTemplate = (payload: Record<string, unknown>) => RenderedChannelCopy;
@@ -50,6 +51,35 @@ export function deriveTitle(body: string): string {
   return candidate.length > 60
     ? candidate.slice(0, 60).trim() + "\u2026"
     : candidate.trim();
+}
+
+/**
+ * Build a display label for a trusted-contact actor (requester or decider),
+ * preferring the display name, then a Slack `<@id>` mention for raw Slack user
+ * IDs, then the raw id, then a generic fallback. The result is sanitized for
+ * safe inclusion in notification copy.
+ */
+function formatTrustedContactActor(
+  displayName: string | null | undefined,
+  externalUserId: string | null | undefined,
+  sourceChannel: string | null | undefined,
+  fallback: string,
+): string {
+  const name =
+    typeof displayName === "string" && displayName.length > 0
+      ? displayName
+      : undefined;
+  const slackMention =
+    sourceChannel === "slack" &&
+    typeof externalUserId === "string" &&
+    /^U[A-Z0-9]+$/i.test(externalUserId)
+      ? `<@${externalUserId}>`
+      : undefined;
+  const rawId =
+    typeof externalUserId === "string" && externalUserId.length > 0
+      ? externalUserId
+      : undefined;
+  return sanitizeIdentityField(name ?? slackMention ?? rawId ?? fallback);
 }
 
 // Templates keyed by dot-separated sourceEventName strings matching producers.
@@ -168,53 +198,20 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
   },
 
   "ingress.trusted_contact.guardian_decision": (payload) => {
-    const decision = str(payload.decision, "decided on");
-    const sourceChannel =
-      typeof payload.sourceChannel === "string"
-        ? payload.sourceChannel
-        : undefined;
-
-    const requesterDisplayName =
-      typeof payload.requesterDisplayName === "string" &&
-      payload.requesterDisplayName.length > 0
-        ? payload.requesterDisplayName
-        : undefined;
-    const requesterExternalUserId =
-      typeof payload.requesterExternalUserId === "string" &&
-      payload.requesterExternalUserId.length > 0
-        ? payload.requesterExternalUserId
-        : undefined;
-    const requesterLabel = sanitizeIdentityField(
-      requesterDisplayName ??
-        (sourceChannel === "slack" &&
-        requesterExternalUserId &&
-        /^U[A-Z0-9]+$/i.test(requesterExternalUserId)
-          ? `<@${requesterExternalUserId}>`
-          : requesterExternalUserId) ??
-        "Someone",
+    const parsed = parseTrustedContactDecisionPayload(payload);
+    const requesterLabel = formatTrustedContactActor(
+      parsed?.requesterDisplayName,
+      parsed?.requesterExternalUserId,
+      parsed?.sourceChannel,
+      "Someone",
     );
-
-    const decidedByDisplayName =
-      typeof payload.decidedByDisplayName === "string" &&
-      payload.decidedByDisplayName.length > 0
-        ? payload.decidedByDisplayName
-        : undefined;
-    const decidedByExternalUserId =
-      typeof payload.decidedByExternalUserId === "string" &&
-      payload.decidedByExternalUserId.length > 0
-        ? payload.decidedByExternalUserId
-        : undefined;
-    const decidedByLabel = sanitizeIdentityField(
-      decidedByDisplayName ??
-        (sourceChannel === "slack" &&
-        decidedByExternalUserId &&
-        /^U[A-Z0-9]+$/i.test(decidedByExternalUserId)
-          ? `<@${decidedByExternalUserId}>`
-          : decidedByExternalUserId) ??
-        "a guardian",
+    const decidedByLabel = formatTrustedContactActor(
+      parsed?.decidedByDisplayName,
+      parsed?.decidedByExternalUserId,
+      parsed?.sourceChannel,
+      "a guardian",
     );
-
-    const verb = decision === "approved" ? "approved" : "denied";
+    const verb = parsed?.decision === "approved" ? "approved" : "denied";
     return {
       title: "Trusted Contact Decision",
       body: `${requesterLabel}'s access request has been ${verb} by ${decidedByLabel}.`,
@@ -222,29 +219,12 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
   },
 
   "ingress.trusted_contact.denied": (payload) => {
-    const sourceChannel =
-      typeof payload.sourceChannel === "string"
-        ? payload.sourceChannel
-        : undefined;
-
-    const requesterDisplayName =
-      typeof payload.requesterDisplayName === "string" &&
-      payload.requesterDisplayName.length > 0
-        ? payload.requesterDisplayName
-        : undefined;
-    const requesterExternalUserId =
-      typeof payload.requesterExternalUserId === "string" &&
-      payload.requesterExternalUserId.length > 0
-        ? payload.requesterExternalUserId
-        : undefined;
-    const requesterLabel = sanitizeIdentityField(
-      requesterDisplayName ??
-        (sourceChannel === "slack" &&
-        requesterExternalUserId &&
-        /^U[A-Z0-9]+$/i.test(requesterExternalUserId)
-          ? `<@${requesterExternalUserId}>`
-          : requesterExternalUserId) ??
-        "Someone",
+    const parsed = parseTrustedContactDecisionPayload(payload);
+    const requesterLabel = formatTrustedContactActor(
+      parsed?.requesterDisplayName,
+      parsed?.requesterExternalUserId,
+      parsed?.sourceChannel,
+      "Someone",
     );
 
     return {
