@@ -437,11 +437,14 @@ export function seedInferenceProfiles(
 
   // Advisor profile: default to the strongest managed profile when unset, so
   // the advisor consults `frontier` (Anthropic Opus) out of the box, falling
-  // back to `quality-optimized` if `frontier` is unavailable. Guarded on
-  // existence so it never names a missing profile (superRefine rejects that);
-  // off-platform/BYOK installs can repoint it at one of their own profiles.
+  // back to `quality-optimized` if `frontier` is unavailable. The `frontier`
+  // arm requires managed ownership: the seed loop above leaves a user-owned
+  // profile named `frontier` in place, and pointing the advisor at that would
+  // consult an arbitrary user model. Guarded on existence so it never names a
+  // missing profile (superRefine rejects that); off-platform/BYOK installs can
+  // repoint it at one of their own profiles.
   if (readString(llm.advisorProfile) === undefined) {
-    if (readObject(profiles["frontier"]) !== null) {
+    if (readObject(profiles["frontier"])?.source === "managed") {
       llm.advisorProfile = "frontier";
     } else if (readObject(profiles["quality-optimized"]) !== null) {
       llm.advisorProfile = "quality-optimized";

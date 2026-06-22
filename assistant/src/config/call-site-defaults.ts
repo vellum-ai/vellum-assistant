@@ -69,9 +69,12 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   meetConsentMonitor: { profile: "cost-optimized" },
   meetChatOpportunity: { profile: "cost-optimized" },
   inference: { profile: "cost-optimized" },
-  // The advisor consults the strongest managed profile by default; a workspace
-  // overrides this via `llm.advisorProfile` (which floats above this).
-  advisor: { profile: "frontier" },
+  // The advisor consults the strongest managed profile (`frontier`, Opus),
+  // which seeding writes into `llm.advisorProfile` on boot and floats above this
+  // layer. This static fallback — used only when no `advisorProfile` resolves —
+  // stays on the always-reserved `quality-optimized` so it can never resolve to
+  // a user-owned profile that happens to be named `frontier`.
+  advisor: { profile: "quality-optimized" },
   // Vision captioning for the image-fallback plugin. No pinned profile — the
   // plugin resolves a vision-capable profile itself via `doesSupportVision` and
   // passes it as an `overrideProfile`, so the call-site default is a fallback

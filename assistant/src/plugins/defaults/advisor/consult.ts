@@ -21,9 +21,9 @@ import { ADVISOR_CONFIG } from "./config.js";
 import { advisorRequestText, buildAdvisorSystem } from "./steering.js";
 import { toAdvisorMessages } from "./transcript.js";
 
-// Dedicated advisor call site. Its default profile (`frontier`) lives in
-// CALL_SITE_DEFAULTS; a workspace overrides which profile the advisor runs on
-// via `llm.advisorProfile`, which we float above the call-site layers.
+// Dedicated advisor call site. Its default profile (`quality-optimized`) lives
+// in CALL_SITE_DEFAULTS; a workspace overrides which profile the advisor runs
+// on via `llm.advisorProfile`, which we float above the call-site layers.
 const ADVISOR_CALL_SITE: LLMCallSite = "advisor";
 
 /**

@@ -729,6 +729,19 @@ describe("loadConfig startup behavior", () => {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
     expect(raw.llm.profiles.frontier).toEqual(userFrontier);
+    // The advisor default must not route to the user-owned `frontier`; it falls
+    // back to the always-managed Quality profile.
+    expect(raw.llm.advisorProfile).toBe("quality-optimized");
+  });
+
+  test("seeds the managed Frontier profile as the default advisor profile", () => {
+    writeConfig({ llm: { default: { provider: "anthropic" } } });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.advisorProfile).toBe("frontier");
+    expect(raw.llm.profiles.frontier.source).toBe("managed");
   });
 
   test("on-platform managed profiles reconcile to the code template on every boot", () => {

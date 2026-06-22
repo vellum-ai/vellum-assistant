@@ -193,7 +193,10 @@ function disableProfile(
     typeof llm.advisorProfile === "string" &&
     removed.has(llm.advisorProfile)
   ) {
-    if (readObject(profiles["frontier"]) !== null) {
+    // Prefer the managed Frontier profile; a user-owned `frontier` is not ours
+    // to route the advisor to (see seedInferenceProfiles). Fall back to the
+    // always-managed Quality profile, else clear the pointer.
+    if (readObject(profiles["frontier"])?.source === "managed") {
       llm.advisorProfile = "frontier";
     } else if (readObject(profiles["quality-optimized"]) !== null) {
       llm.advisorProfile = "quality-optimized";
