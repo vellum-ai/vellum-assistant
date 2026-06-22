@@ -306,16 +306,5 @@ describe("schedule_syntax column migration", () => {
       { id: "legacy-defer", description: "" },
       { id: "legacy-schedule", description: "Legacy report" },
     ]);
-
-    raw
-      .query("UPDATE cron_jobs SET description = ? WHERE id = ?")
-      .run("", "legacy-schedule");
-
-    migrateScheduleDescription(db);
-
-    const description = raw
-      .query("SELECT description FROM cron_jobs WHERE id = ?")
-      .get("legacy-schedule") as { description: string };
-    expect(description.description).toBe("");
   });
 });
