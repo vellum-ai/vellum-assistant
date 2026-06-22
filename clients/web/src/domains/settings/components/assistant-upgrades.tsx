@@ -37,6 +37,11 @@ function releaseLabel(
   return parts.join(" ");
 }
 
+function isLocalBuildVersion(version: string | null | undefined): boolean {
+  const parsed = version ? parseSemver(version) : null;
+  return parsed?.pre?.split(".")[0] === "local";
+}
+
 const POLL_INTERVAL_MS = 3000;
 
 function getVisibleReleaseChannel(
@@ -381,8 +386,12 @@ export function LocalAssistantUpgrades({
     }),
   );
 
+  const runtimeReleases = useMemo(
+    () => releases?.filter((r) => !isLocalBuildVersion(r.version)) ?? [],
+    [releases],
+  );
   const latestRelease =
-    releases?.find((r) => r.is_stable !== false) ?? releases?.[0];
+    runtimeReleases.find((r) => r.is_stable !== false) ?? runtimeReleases[0];
   const targetVersion = latestRelease?.version;
   const upgradeAvailable = useMemo(() => {
     if (!targetVersion) return false;
@@ -501,7 +510,7 @@ export function LocalAssistantUpgrades({
         open={showConfirmation}
         title="Update assistant"
         message={`Update to version ${targetVersion ?? "latest"}? The assistant will be briefly unavailable during the update.`}
-        confirmLabel={targetVersion ? `Update to ${targetVersion}` : "Update"}
+        confirmLabel="Update"
         onConfirm={handleUpgrade}
         onCancel={() => setShowConfirmation(false)}
       />

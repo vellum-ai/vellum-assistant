@@ -744,14 +744,12 @@ export async function targetVersionFromCli(
   cliVersion = cliPkg.version,
   resolveLatestStable: () => Promise<string> = resolveLatestStableTag,
 ): Promise<string> {
-  if (version) return version;
-  if (!cliVersion) return "latest";
-  const displayCliVersion = `v${cliVersion}`;
-  if (!isLocalBuildVersion(cliVersion)) return displayCliVersion;
+  const targetVersion = version ?? (cliVersion ? `v${cliVersion}` : "latest");
+  if (!isLocalBuildVersion(targetVersion)) return targetVersion;
 
   const latestTag = await resolveLatestStable();
   console.log(
-    `   Local build version ${displayCliVersion} is not published; using latest stable ${latestTag}.\n`,
+    `   Local build version ${targetVersion} is not published; using latest stable ${latestTag}.\n`,
   );
   return latestTag;
 }

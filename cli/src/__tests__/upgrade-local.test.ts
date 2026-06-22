@@ -273,6 +273,19 @@ describe("vellum upgrade local", () => {
     expect(resolveLatest).not.toHaveBeenCalled();
   });
 
+  test("resolves explicit local build targets to the latest stable runtime", async () => {
+    const resolveLatest = mock(async () => "v0.9.9");
+
+    await expect(
+      targetVersionFromCli(
+        "0.10.0-local.20260622155324.21c18fa3b3",
+        "0.10.0",
+        resolveLatest,
+      ),
+    ).resolves.toBe("v0.9.9");
+    expect(resolveLatest).toHaveBeenCalledTimes(1);
+  });
+
   test("defaults published CLI builds to the CLI version", async () => {
     const resolveLatest = mock(async () => "v0.9.9");
 
