@@ -6,6 +6,10 @@
  * assistant DB proxy (raw SQL), so the gateway owns the write path.
  */
 
+import {
+  GetContactIpcParamsSchema,
+  ListContactsIpcParamsSchema,
+} from "@vellumai/gateway-client/gateway-ipc-contracts";
 import { z } from "zod";
 
 import { assistantDbQuery, assistantDbRun } from "../db/assistant-db-proxy.js";
@@ -56,6 +60,36 @@ export const contactRoutes: IpcRoute[] = [
     handler: (params?: Record<string, unknown>) => {
       const contactId = params?.contactId as string;
       return getStore().getContact(contactId) ?? null;
+    },
+  },
+  // Rich reads expose the shared ContactRead shape (gateway ACL + assistant
+  // info) for the daemon's list/get relay. Additive — the lean list_contacts /
+  // get_contact methods above stay for gateway-internal callers.
+  {
+    method: "contacts_list_rich",
+    schema: ListContactsIpcParamsSchema,
+    handler: async (params?: Record<string, unknown>) => {
+      const parsed = ListContactsIpcParamsSchema.parse(params);
+      const contacts = await getStore().listContactsRich(parsed);
+      return { ok: true, contacts };
+    },
+  },
+  {
+    method: "contacts_get_rich",
+    schema: GetContactIpcParamsSchema,
+    handler: async (params?: Record<string, unknown>) => {
+      const { contactId } = GetContactIpcParamsSchema.parse(params);
+      const result = await getStore().getContactRich(contactId);
+      // Return null on miss (mirrors get_contact); the daemon relay maps a
+      // null/not-found result to a 404.
+      if (!result) return null;
+      return {
+        ok: true,
+        contact: result.contact,
+        ...(result.assistantMetadata
+          ? { assistantMetadata: result.assistantMetadata }
+          : {}),
+      };
     },
   },
   {
