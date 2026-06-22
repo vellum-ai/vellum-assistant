@@ -458,7 +458,7 @@ td .row-link { display: block; }
 .conversation-tab-label { display: inline-block; padding: 6px 16px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--muted); transition: all .12s ease; user-select: none; }
 .conversation-radio:checked + .conversation-tab-label { color: var(--text); border-color: rgba(34,211,238,.5); background: rgba(34,211,238,.08); }
 .conversation-panel { display: none; }
-.conversation-radio:checked + .conversation-tab-label + .conversation-panel { display: flex; flex-direction: column; gap: 12px; position: absolute; top: 100%; left: 0; right: 0; padding-top: 12px; }
+.conversation-radio:checked + .conversation-tab-label + .conversation-panel { display: flex; flex-direction: column; gap: 12px; padding-top: 12px; }
 .turn { padding: 14px 16px; border-radius: 18px; border: 1px solid var(--border); background: rgba(255,255,255,.045); }
 .turn.assistant { border-color: rgba(34,211,238,.22); }
 .turn.simulator { border-color: rgba(139,92,246,.24); }
@@ -2007,7 +2007,13 @@ function PhaseTiming({ run }: { run: ReportRunDetail }) {
 
   const setupMs = span(setupStart, setupEnd);
   const totalSendMs = span(sendStart, sendEnd);
-  const metricsMs = span(metricsStart, sendEnd);
+  // Grading spans from metrics:start to run completion — NOT sendEnd,
+  // which fires before metrics even starts (send:done is the hypothesis
+  // capture, metrics:start is the judge call after it).
+  const metricsEnd =
+    run.progressEvents.find((e) => e.step === "metrics" && e.status === "done")
+      ?.emittedAt ?? run.completedAt;
+  const metricsMs = span(metricsStart, metricsEnd);
 
   // Ingest vs question split from the event streams.
   const ingestFirst = run.ingestAssistantEvents.find(
@@ -2047,8 +2053,13 @@ function PhaseTiming({ run }: { run: ReportRunDetail }) {
     { label: "Question", ms: questionMs },
     { label: "Grading", ms: metricsMs },
   ];
+  // Total wall-clock from run start to completion — includes setup,
+  // ingest, question, AND grading. Falls back to summing the phase
+  // durations when run timestamps are unavailable.
   const totalMs =
-    totalSendMs ?? ((ingestMs ?? 0) + (questionMs ?? 0) || undefined);
+    span(run.startedAt, run.completedAt) ??
+    ((setupMs ?? 0) + (ingestMs ?? 0) + (questionMs ?? 0) + (metricsMs ?? 0) ||
+      undefined);
 
   return (
     <div className="phase-timing">

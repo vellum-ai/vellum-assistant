@@ -42,14 +42,13 @@ import {
   appendAssistantEvents,
   ensureRunArtifacts,
   type MetricResult,
+  readTranscript,
   updateRunMetadata,
   writeIngestAssistantEvents,
   writeRunMetadata,
-  writeTranscript,
   writeUsage,
 } from "../../../src/lib/metrics";
 import type { Profile } from "../../../src/lib/profile";
-import type { TranscriptTurn } from "../../../src/lib/transcript";
 import {
   DEFAULT_QUESTION_MAX_MS,
   IngestAskError,
@@ -322,51 +321,10 @@ export async function runLongMemEvalV2Unit(
       detail: `${ingestAskResult.hypothesis.length} chars`,
     });
 
-    // Build a three-turn transcript: ingest prompt → question prompt →
-    // assistant hypothesis. Use real per-turn timestamps from the event
-    // streams so the report UI can order turns chronologically (all three
-    // sharing a single end-of-run stamp made the assistant response sort
-    // before the simulator prompts). Each turn is tagged with its
-    // conversationKey so the report UI can split them into separate
-    // conversation panes via a dropdown.
-    const firstEventTime = (events: AgentEvent[]): string | undefined =>
-      events.find((e) => e.emittedAt)?.emittedAt;
-    const lastEventTime = (events: AgentEvent[]): string | undefined => {
-      for (let i = events.length - 1; i >= 0; i--) {
-        if (events[i].emittedAt) return events[i].emittedAt;
-      }
-      return undefined;
-    };
-
-    const ingestStamp =
-      firstEventTime(ingestAskResult.ingestEvents) ?? new Date().toISOString();
-    const questionStamp =
-      firstEventTime(ingestAskResult.questionEvents) ??
-      new Date().toISOString();
-    const answerStamp =
-      lastEventTime(ingestAskResult.questionEvents) ?? questionStamp;
-
-    const transcript: TranscriptTurn[] = [
-      {
-        role: "simulator",
-        content: ingestMessage,
-        emittedAt: ingestStamp,
-        conversationKey: ingestAskResult.ingestConversationKey,
-      },
-      {
-        role: "simulator",
-        content: questionMessage,
-        emittedAt: questionStamp,
-        conversationKey: ingestAskResult.questionConversationKey,
-      },
-      {
-        role: "assistant",
-        content: ingestAskResult.hypothesis,
-        emittedAt: answerStamp,
-        conversationKey: ingestAskResult.questionConversationKey,
-      },
-    ];
-    await writeTranscript(input.runId, transcript);
+    // The transcript is written by `runIngestAsk` itself — it appends
+    // simulator + assistant turns to `transcript.json` as each
+    // conversation progresses, tagged with the real conversation keys.
+    // The benchmark runner no longer constructs the transcript manually.
 
     // Persist the question-turn events as the run's `assistant-events.json`
     // (what the agent said in response to the question), and the ingest-turn
@@ -456,6 +414,11 @@ export async function runLongMemEvalV2Unit(
           }
         : undefined,
     );
+
+    // Read back the transcript that `runIngestAsk` wrote incrementally
+    // as each conversation progressed — the benchmark runner no longer
+    // constructs it manually.
+    const transcript = await readTranscript(input.runId);
 
     return {
       runId: input.runId,
