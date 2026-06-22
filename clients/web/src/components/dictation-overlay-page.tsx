@@ -1,4 +1,4 @@
-import { Check, Loader2, Square, TriangleAlert } from "lucide-react";
+import { Check, Loader2, StopCircle, TriangleAlert } from "lucide-react";
 import {
   useEffect,
   useRef,
@@ -159,7 +159,7 @@ function RecordingActions({
         onBlur={() => onInteractiveChange(false)}
         onClick={onStop}
       >
-        <Square className="size-2.5 fill-current" strokeWidth={2} aria-hidden />
+        <StopCircle className="size-4" strokeWidth={2} aria-hidden />
       </button>
     </div>
   );
