@@ -1,5 +1,5 @@
 /**
- * Tests for the daemon's contact read relay (PR 3).
+ * Tests for the daemon's contact read relay.
  *
  * handleListContacts (non-search) and handleGetContact relay to the gateway
  * via `ipcCallPersistent`. On the happy path they serve gateway-sourced data
@@ -146,6 +146,8 @@ function gatewayContact(overrides: Record<string, unknown> = {}) {
     contactType: "human",
     interactionCount: 2,
     lastInteraction: 100,
+    createdAt: 1699000000,
+    updatedAt: 1700000000,
     channels: [
       {
         id: "ch-1",
@@ -336,6 +338,12 @@ describe("handleGetContact relay", () => {
     expect(localCalls).toEqual([]);
     expect(result.contact.id).toBe("gw-1");
     expect(result.assistantMetadata).toBeUndefined();
+    // Relayed reads must carry contact-level timestamps — the CLI's detail
+    // formatter calls new Date(createdAt/updatedAt) unconditionally, so dropping
+    // them surfaces as a RangeError ("Invalid time value").
+    const contact = result.contact as { createdAt?: number; updatedAt?: number };
+    expect(contact.createdAt).toBe(1699000000);
+    expect(contact.updatedAt).toBe(1700000000);
   });
 
   test("applies guardian display-name override", async () => {

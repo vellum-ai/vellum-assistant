@@ -160,6 +160,8 @@ const contactSchema = z.object({
   contactType: z.string().nullable().optional(),
   lastInteraction: z.number().nullable().optional(),
   interactionCount: z.number(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
   channels: z.array(contactChannelSchema),
 });
 
@@ -218,10 +220,10 @@ export async function handleListContacts(queryParams: Record<string, string>) {
     ? (contactTypeParam as ContactType)
     : undefined;
 
-  // True search stays daemon-native pending gateway-native search (Tier 3 / PR 6).
+  // True search stays daemon-native: gateway-native search is design-blocked.
   if (query || channelAddress || channelType) {
     log.debug(
-      "handleListContacts: search served daemon-native (gateway-native search is design-blocked, Tier 3 / PR 6)",
+      "handleListContacts: search served daemon-native (gateway-native search is design-blocked)",
     );
     const contacts = searchContacts({
       query,
@@ -705,9 +707,9 @@ export const ROUTES: RouteDefinition[] = [
         return contacts;
       }
 
-      // True search stays daemon-native pending gateway-native search (Tier 3 / PR 6).
+      // True search stays daemon-native: gateway-native search is design-blocked.
       log.debug(
-        "search_contacts: search served daemon-native (gateway-native search is design-blocked, Tier 3 / PR 6)",
+        "search_contacts: search served daemon-native (gateway-native search is design-blocked)",
       );
       return searchContacts(parsed).map(prepareContactResponse);
     },

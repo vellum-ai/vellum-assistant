@@ -114,6 +114,8 @@ export const ContactReadSchema = z.object({
   contactType: z.string().nullable().optional(),
   lastInteraction: z.number().nullable().optional(),
   interactionCount: z.number(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
   channels: z.array(ContactReadChannelSchema),
 });
 

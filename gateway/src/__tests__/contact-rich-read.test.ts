@@ -213,6 +213,9 @@ describe("ContactStore.listContactsRich", () => {
     for (const c of result) expect(ContactReadSchema.parse(c)).toEqual(c);
 
     const c1 = result[0];
+    // Contact-level timestamps projected from the gateway DB.
+    expect(c1.createdAt).toBe(100);
+    expect(c1.updatedAt).toBe(100);
     // Info fields from assistant DB.
     expect(c1.notes).toBe("a friend");
     expect(c1.contactType).toBe("human");
@@ -324,7 +327,7 @@ describe("ContactStore.getContactRich", () => {
   });
 
   test("returns merged ContactRead validating against the response contract", async () => {
-    seedGatewayContact({ id: "c1", role: "guardian" });
+    seedGatewayContact({ id: "c1", role: "guardian", updatedAt: 321 });
     seedGatewayChannel({
       id: "ch1",
       contactId: "c1",
@@ -339,6 +342,8 @@ describe("ContactStore.getContactRich", () => {
     expect(result!.contact.role).toBe("guardian");
     expect(result!.contact.notes).toBe("my guardian");
     expect(result!.contact.interactionCount).toBe(7);
+    expect(result!.contact.createdAt).toBe(321);
+    expect(result!.contact.updatedAt).toBe(321);
     expect(result!.assistantMetadata).toBeUndefined();
 
     // Validate against the get-contact IPC response contract.

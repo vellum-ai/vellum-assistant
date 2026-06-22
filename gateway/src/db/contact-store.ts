@@ -197,8 +197,8 @@ export class ContactStore {
   // a failed or missing read degrades to gateway-DB-only values + a warning.
   //
   // Guardian display-name override is intentionally NOT applied here — the
-  // daemon relay handler (PR 3) re-applies prepareContactResponse on the
-  // relayed payload, keeping prompt logic on the daemon side.
+  // daemon relay handler re-applies prepareContactResponse on the relayed
+  // payload, keeping prompt logic on the daemon side.
 
   /**
    * List contacts in the shared ContactRead shape: gateway-DB identity + ACL
@@ -272,6 +272,8 @@ export class ContactStore {
       contactType: c.contactType,
       interactionCount: c.interactionCount,
       lastInteraction: c.lastInteraction,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
       channels: c.channels.map((ch) => ({
         id: ch.id,
         contactId: ch.contactId,

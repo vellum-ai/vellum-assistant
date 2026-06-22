@@ -20,6 +20,8 @@ describe("contact read contracts", () => {
       contactType: "human",
       lastInteraction: 1700000000,
       interactionCount: 12,
+      createdAt: 1699000000,
+      updatedAt: 1700000000,
       channels: [
         {
           id: "ch1",
@@ -41,7 +43,20 @@ describe("contact read contracts", () => {
       ],
     };
 
-    expect(() => ContactReadSchema.parse(contact)).not.toThrow();
+    const parsed = ContactReadSchema.parse(contact);
+    expect(parsed.createdAt).toBe(1699000000);
+    expect(parsed.updatedAt).toBe(1700000000);
+  });
+
+  test("ContactReadSchema requires createdAt/updatedAt", () => {
+    const withoutTimestamps = {
+      id: "c1",
+      displayName: "Example User",
+      role: "contact",
+      interactionCount: 0,
+      channels: [],
+    };
+    expect(() => ContactReadSchema.parse(withoutTimestamps)).toThrow();
   });
 
   test("ListContactsIpcParamsSchema defaults to {} when given undefined", () => {
