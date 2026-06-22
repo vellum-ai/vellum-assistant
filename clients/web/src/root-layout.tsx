@@ -202,7 +202,7 @@ export function RootLayout() {
       }
     },
     chooseAssistant: () => {
-      void navigate(`${routes.selectAssistant}?fromSettings=1`);
+      void navigate(`${routes.selectAssistant}?noAutoSkip=1`);
     },
     createAssistant: () => {
       setCreateOpen(true);
