@@ -57,6 +57,7 @@ import {
 } from "../lib/upgrade-lifecycle.js";
 import {
   compareVersions,
+  parseVersion,
   stripVersionPrefix,
   versionsEqual,
 } from "../lib/version-compat.js";
@@ -733,8 +734,26 @@ async function upgradeDocker(
   }
 }
 
-function targetVersionFromCli(version: string | null): string {
-  return version ?? (cliPkg.version ? `v${cliPkg.version}` : "latest");
+function isLocalBuildVersion(version: string): boolean {
+  const parsed = parseVersion(version);
+  return parsed?.pre?.split(".")[0] === "local";
+}
+
+export async function targetVersionFromCli(
+  version: string | null,
+  cliVersion = cliPkg.version,
+  resolveLatestStable: () => Promise<string> = resolveLatestStableTag,
+): Promise<string> {
+  if (version) return version;
+  if (!cliVersion) return "latest";
+  const displayCliVersion = `v${cliVersion}`;
+  if (!isLocalBuildVersion(cliVersion)) return displayCliVersion;
+
+  const latestTag = await resolveLatestStable();
+  console.log(
+    `   Local build version ${displayCliVersion} is not published; using latest stable ${latestTag}.\n`,
+  );
+  return latestTag;
 }
 
 function localAdminUrl(entry: AssistantEntry): string {
@@ -787,7 +806,7 @@ async function upgradeLocal(
     process.exit(1);
   }
 
-  const targetVersion = targetVersionFromCli(version);
+  const targetVersion = await targetVersionFromCli(version);
   const adminUrl = localAdminUrl(entry);
   const { currentVersion, preMigrationState } = await fetchLocalUpgradeState(
     entry,

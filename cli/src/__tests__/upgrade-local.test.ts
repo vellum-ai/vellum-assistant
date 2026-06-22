@@ -140,7 +140,8 @@ mock.module("../lib/upgrade-lifecycle.js", () => ({
   waitForReady: waitForReadyMock,
 }));
 
-const { upgrade } = await import("../commands/upgrade.js");
+const { targetVersionFromCli, upgrade } =
+  await import("../commands/upgrade.js");
 
 let tempDir: string;
 let originalArgv: string[];
@@ -259,6 +260,41 @@ afterAll(() => {
 });
 
 describe("vellum upgrade local", () => {
+  test("uses explicit target versions as-is", async () => {
+    const resolveLatest = mock(async () => "v0.9.9");
+
+    await expect(
+      targetVersionFromCli(
+        "v0.8.12",
+        "0.10.0-local.20260622155324.21c18fa3b3",
+        resolveLatest,
+      ),
+    ).resolves.toBe("v0.8.12");
+    expect(resolveLatest).not.toHaveBeenCalled();
+  });
+
+  test("defaults published CLI builds to the CLI version", async () => {
+    const resolveLatest = mock(async () => "v0.9.9");
+
+    await expect(
+      targetVersionFromCli(null, "0.10.0", resolveLatest),
+    ).resolves.toBe("v0.10.0");
+    expect(resolveLatest).not.toHaveBeenCalled();
+  });
+
+  test("defaults local CLI builds to the latest stable runtime", async () => {
+    const resolveLatest = mock(async () => "v0.9.9");
+
+    await expect(
+      targetVersionFromCli(
+        null,
+        "0.10.0-local.20260622155324.21c18fa3b3",
+        resolveLatest,
+      ),
+    ).resolves.toBe("v0.9.9");
+    expect(resolveLatest).toHaveBeenCalledTimes(1);
+  });
+
   test("restarts local assistant processes and records upgrade lifecycle", async () => {
     await upgrade();
 
