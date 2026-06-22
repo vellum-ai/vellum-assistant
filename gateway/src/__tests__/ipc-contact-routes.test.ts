@@ -697,23 +697,33 @@ describe("IPC contact routes", () => {
         sql.includes("WHERE cc.type = ?")
       ) {
         return [
-          {
-            contactId: assistantContactId,
-            id: assistantChannelId,
-            displayName: "Existing Person",
-            type: "email",
-            address: "existing-person@example.com",
-            isPrimary: 0,
-            externalChatId: null,
-            status: "active",
-            policy: "escalate",
-            verifiedAt: 1700000000000,
-            verifiedVia: "manual",
-            inviteId: null,
-            revokedReason: null,
-            blockedReason: null,
-          },
+          { contactId: assistantContactId, displayName: "Existing Person" },
         ];
+      }
+      // Adoption ACL fetch: ALL of the adopted contact's channels by contact id.
+      if (
+        sql.includes("FROM contact_channels cc") &&
+        sql.includes("WHERE cc.contact_id = ?")
+      ) {
+        if (bind?.[0] === assistantContactId) {
+          return [
+            {
+              id: assistantChannelId,
+              type: "email",
+              address: "existing-person@example.com",
+              isPrimary: 0,
+              externalChatId: null,
+              status: "active",
+              policy: "escalate",
+              verifiedAt: 1700000000000,
+              verifiedVia: "manual",
+              inviteId: null,
+              revokedReason: null,
+              blockedReason: null,
+            },
+          ];
+        }
+        return [];
       }
       // existingCh lookup keyed on the adopted (assistant) contact id.
       if (
@@ -822,6 +832,152 @@ describe("IPC contact routes", () => {
     expect(withInfo!.notes).toBe("knows the family");
     expect(withInfo!.userFile).toBe("existing-person.md");
     expect(withInfo!.contactType).toBe("human");
+  });
+
+  test("multi-channel heal adopts id+ACL for EVERY matched channel, not just the first", async () => {
+    // HTTP POST /v1/contacts heals an assistant-only contact that owns TWO
+    // existing channels, both active/verified with a non-default policy. The
+    // gateway INSERT must carry each channel's assistant id + ACL — a prior
+    // bug adopted only the first match and inserted the rest as fresh
+    // unverified/allow rows, downgrading trust and splitting channel ids.
+    const assistantContactId = "multi-c1";
+
+    assistantDbQueryMock = mock(async (sql: string, bind?: unknown[]) => {
+      if (
+        sql.includes("FROM contact_channels cc") &&
+        sql.includes("WHERE cc.type = ?")
+      ) {
+        return [{ contactId: assistantContactId, displayName: "Two Channels" }];
+      }
+      if (
+        sql.includes("FROM contact_channels cc") &&
+        sql.includes("WHERE cc.contact_id = ?")
+      ) {
+        if (bind?.[0] !== assistantContactId) return [];
+        return [
+          {
+            id: "ach-email",
+            type: "email",
+            address: "person@example.com",
+            isPrimary: 1,
+            externalChatId: null,
+            status: "active",
+            policy: "escalate",
+            verifiedAt: 1700000000000,
+            verifiedVia: "manual",
+            inviteId: null,
+            revokedReason: null,
+            blockedReason: null,
+          },
+          {
+            id: "ach-tg",
+            type: "telegram",
+            address: "555123",
+            isPrimary: 0,
+            externalChatId: "chat-99",
+            status: "active",
+            policy: "escalate",
+            verifiedAt: 1700000001000,
+            verifiedVia: "challenge",
+            inviteId: null,
+            revokedReason: null,
+            blockedReason: null,
+          },
+        ];
+      }
+      return [];
+    });
+    assistantDbRunMock = mock(async () => ({
+      changes: 1,
+      lastInsertRowid: 0,
+    }));
+
+    const store = new ContactStore(getGatewayDb());
+    const { contact } = await store.upsertContact({
+      channels: [
+        { type: "email", address: "person@example.com" },
+        { type: "telegram", address: "555123" },
+      ],
+    });
+
+    expect(contact.id).toBe(assistantContactId);
+    const gwChannels = store
+      .getChannelsForContact(assistantContactId)
+      .sort((a, b) => a.type.localeCompare(b.type));
+    expect(gwChannels).toHaveLength(2);
+
+    const email = gwChannels.find((c) => c.type === "email")!;
+    expect(email.id).toBe("ach-email");
+    expect(email.status).toBe("active");
+    expect(email.policy).toBe("escalate");
+    expect(email.verifiedVia).toBe("manual");
+
+    const tg = gwChannels.find((c) => c.type === "telegram")!;
+    expect(tg.id).toBe("ach-tg");
+    expect(tg.status).toBe("active");
+    expect(tg.policy).toBe("escalate");
+    expect(tg.verifiedVia).toBe("challenge");
+  });
+
+  test("mixed heal: matched channel adopts id+ACL, genuinely-new channel stays unverified/allow", async () => {
+    const assistantContactId = "mixed-c1";
+
+    assistantDbQueryMock = mock(async (sql: string, bind?: unknown[]) => {
+      if (
+        sql.includes("FROM contact_channels cc") &&
+        sql.includes("WHERE cc.type = ?")
+      ) {
+        return [{ contactId: assistantContactId, displayName: "Mixed" }];
+      }
+      if (
+        sql.includes("FROM contact_channels cc") &&
+        sql.includes("WHERE cc.contact_id = ?")
+      ) {
+        if (bind?.[0] !== assistantContactId) return [];
+        return [
+          {
+            id: "ach-known",
+            type: "email",
+            address: "known@example.com",
+            isPrimary: 1,
+            externalChatId: null,
+            status: "active",
+            policy: "escalate",
+            verifiedAt: 1700000000000,
+            verifiedVia: "manual",
+            inviteId: null,
+            revokedReason: null,
+            blockedReason: null,
+          },
+        ];
+      }
+      return [];
+    });
+    assistantDbRunMock = mock(async () => ({
+      changes: 1,
+      lastInsertRowid: 0,
+    }));
+
+    const store = new ContactStore(getGatewayDb());
+    await store.upsertContact({
+      channels: [
+        { type: "email", address: "known@example.com" },
+        { type: "email", address: "brand-new@example.com" },
+      ],
+    });
+
+    const gwChannels = store.getChannelsForContact(assistantContactId);
+    expect(gwChannels).toHaveLength(2);
+
+    const known = gwChannels.find((c) => c.address === "known@example.com")!;
+    expect(known.id).toBe("ach-known");
+    expect(known.status).toBe("active");
+    expect(known.policy).toBe("escalate");
+
+    const fresh = gwChannels.find((c) => c.address === "brand-new@example.com")!;
+    expect(fresh.id).not.toBe("ach-known");
+    expect(fresh.status).toBe("unverified");
+    expect(fresh.policy).toBe("allow");
   });
 
   test("upsertContact with an explicit id does NOT retarget another contact's metadata", async () => {

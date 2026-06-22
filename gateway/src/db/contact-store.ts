@@ -42,6 +42,12 @@ type AdoptedChannelAcl = {
   blockedReason: string | null;
 };
 
+/** Canonical (type,address) key for matching adopted channels, COLLATE
+ * NOCASE-equivalent — same logical key the gateway uses to dedupe channels. */
+function adoptedChannelKey(type: string, address: string): string {
+  return `${type}\n${address.toLowerCase()}`;
+}
+
 export class ContactStore {
   private injectedDb?: GatewayDb;
 
@@ -1082,11 +1088,11 @@ export class ContactStore {
     // it, so a "healed" assistant-only contact's info reads back via the
     // join-by-id read path. Soft-fails to a minted id if the lookup throws
     // (daemon down / tests) — the assistant-mirror best-effort invariant.
-    let adoptedChannelAcl: AdoptedChannelAcl | undefined;
+    let adoptedChannelAcls: Map<string, AdoptedChannelAcl> | undefined;
     if (!contactId) {
       const adopted = await this.adoptAssistantContactId(canonicalChannels);
       contactId = adopted?.contactId ?? crypto.randomUUID();
-      adoptedChannelAcl = adopted?.channelAcl;
+      adoptedChannelAcls = adopted?.channelAcls;
       // An adopted id may already exist as a gateway row (different channels);
       // preserve it (name omit-to-preserve) instead of a conflicting INSERT.
       const existing = adopted
@@ -1124,8 +1130,8 @@ export class ContactStore {
     // ── 4. Sync channels (gateway DB) ─────────────────────────────────
     // Carry the adopted assistant channel's ACL state into the heal INSERT so
     // an active/verified contact isn't downgraded to unverified/allow.
-    const channelsToSync = adoptedChannelAcl
-      ? this.mergeAdoptedChannelAcl(canonicalChannels, adoptedChannelAcl)
+    const channelsToSync = adoptedChannelAcls?.size
+      ? this.mergeAdoptedChannelAcl(canonicalChannels, adoptedChannelAcls)
       : canonicalChannels;
     if (channelsToSync?.length) {
       this.syncChannels(contactId, channelsToSync, now);
@@ -1515,22 +1521,21 @@ export class ContactStore {
   }
 
   /**
-   * Merge an adopted assistant channel's ACL fields into the matching
-   * (type,address) channel of a create-heal upsert, omit-to-preserve so any
-   * field the caller explicitly supplied still wins. The enriched channel
+   * Merge adopted assistant channels' ACL fields into the matching
+   * (type,address) channels of a create-heal upsert, omit-to-preserve so any
+   * field the caller explicitly supplied still wins. Each enriched channel
    * carries the assistant row's real status/policy/verification into
    * syncChannels' INSERT — without this, the heal would default an active
-   * channel to unverified/allow and downgrade a trusted contact.
+   * channel to unverified/allow and downgrade a trusted contact. Requested
+   * channels with no assistant match stay genuinely-new (fresh id later).
    */
   private mergeAdoptedChannelAcl(
     channels: Parameters<ContactStore["upsertContact"]>[0]["channels"],
-    acl: AdoptedChannelAcl,
+    acls: Map<string, AdoptedChannelAcl>,
   ): Parameters<ContactStore["upsertContact"]>[0]["channels"] {
     return channels?.map((ch) => {
-      const sameAddress =
-        ch.type === acl.type &&
-        ch.address.toLowerCase() === acl.address.toLowerCase();
-      if (!sameAddress) return ch;
+      const acl = acls.get(adoptedChannelKey(ch.type, ch.address));
+      if (!acl) return ch;
       return {
         ...ch,
         // Adopt the assistant channel id so syncChannels' INSERT shares it.
@@ -1745,10 +1750,12 @@ export class ContactStore {
    * Returns null when there's no match or the lookup soft-fails (daemon down /
    * tests), so the caller falls back to a freshly minted id.
    *
-   * The matched channel's ACL fields (status/policy/verification) ride along so
-   * the create path can carry them into syncChannels' INSERT — without them the
-   * new gateway row would default to unverified/allow, DOWNGRADING an already
-   * active/trusted assistant channel below the trusted_contacts admission floor.
+   * Every adopted channel's ACL fields (status/policy/verification) ride along
+   * keyed by canonical (type,address) so the create path can carry them into
+   * syncChannels' INSERT — without them the new gateway rows would default to
+   * unverified/allow, DOWNGRADING already active/trusted assistant channels
+   * below the trusted_contacts admission floor. Multi-channel heals must adopt
+   * EVERY matched channel, not just the first one the contact id resolved on.
    *
    * Never called on the explicit-id update path — an edit must not retarget
    * another contact (the gateway syncChannels skips cross-contact channels).
@@ -1758,13 +1765,29 @@ export class ContactStore {
   ): Promise<{
     contactId: string;
     displayName: string | null;
-    channelAcl?: AdoptedChannelAcl;
+    channelAcls: Map<string, AdoptedChannelAcl>;
   } | null> {
     try {
       for (const ch of channels ?? []) {
         const rows = await assistantDbQuery<{
           contactId: string;
           displayName: string | null;
+        }>(
+          `SELECT cc.contact_id  AS contactId,
+                  c.display_name AS displayName
+             FROM contact_channels cc
+             JOIN contacts c ON c.id = cc.contact_id
+            WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
+            LIMIT 1`,
+          [ch.type, ch.address],
+        );
+        if (!rows.length) continue;
+
+        // Contact id resolved on the first match. Now fetch ALL of that
+        // contact's channels in one query so a multi-channel heal adopts each
+        // requested channel's id + ACL, not just the one that matched first.
+        const { contactId, displayName } = rows[0];
+        const aclRows = await assistantDbQuery<{
           id: string;
           type: string;
           address: string;
@@ -1778,9 +1801,7 @@ export class ContactStore {
           revokedReason: string | null;
           blockedReason: string | null;
         }>(
-          `SELECT cc.contact_id      AS contactId,
-                  c.display_name     AS displayName,
-                  cc.id,
+          `SELECT cc.id,
                   cc.type,
                   cc.address,
                   cc.is_primary      AS isPrimary,
@@ -1793,32 +1814,28 @@ export class ContactStore {
                   cc.revoked_reason  AS revokedReason,
                   cc.blocked_reason  AS blockedReason
              FROM contact_channels cc
-             JOIN contacts c ON c.id = cc.contact_id
-            WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
-            LIMIT 1`,
-          [ch.type, ch.address],
+            WHERE cc.contact_id = ?`,
+          [contactId],
         );
-        if (rows.length) {
-          const r = rows[0];
-          return {
-            contactId: r.contactId,
-            displayName: r.displayName,
-            channelAcl: {
-              id: r.id,
-              type: r.type,
-              address: r.address,
-              isPrimary: Boolean(r.isPrimary),
-              externalChatId: r.externalChatId,
-              status: r.status,
-              policy: r.policy,
-              verifiedAt: r.verifiedAt,
-              verifiedVia: r.verifiedVia,
-              inviteId: r.inviteId,
-              revokedReason: r.revokedReason,
-              blockedReason: r.blockedReason,
-            },
-          };
+
+        const channelAcls = new Map<string, AdoptedChannelAcl>();
+        for (const r of aclRows) {
+          channelAcls.set(adoptedChannelKey(r.type, r.address), {
+            id: r.id,
+            type: r.type,
+            address: r.address,
+            isPrimary: Boolean(r.isPrimary),
+            externalChatId: r.externalChatId,
+            status: r.status,
+            policy: r.policy,
+            verifiedAt: r.verifiedAt,
+            verifiedVia: r.verifiedVia,
+            inviteId: r.inviteId,
+            revokedReason: r.revokedReason,
+            blockedReason: r.blockedReason,
+          });
         }
+        return { contactId, displayName, channelAcls };
       }
     } catch (err) {
       log.warn(
