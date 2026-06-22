@@ -161,7 +161,9 @@ Channel approval flows use `requestId` (not `runId`) as the primary identifier:
 
 Verification SESSION state (pending sessions, codes, resend, rate-limit) is assistant-owned (`channel-verification-routes.ts`, `channel-verification-service.ts`). The channel-verified OUTCOME (status / verifiedAt / verifiedVia) is gateway-owned.
 
-The `channel_verification_sessions_*` daemon handlers are thin relays for the outcome write, following the trust-rules relay precedent. The gateway IPC methods `mark_channel_verified` / `mark_channel_revoked` (`ContactStore.markChannelVerified` / `markChannelRevoked`) are the single outcome write path for all callers: HTTP routes, inbound code-match completion (`gateway/src/verification/text-verification.ts`), and CLI/IPC.
+The verified outcome is written in-process by the gateway: the HTTP guardian-attest handler calls `ContactStore.markChannelVerified` directly (verifiedVia "manual"), and the inbound code-match path (`gateway/src/verification/text-verification.ts`) writes via `upsertVerifiedContactChannel` / `createGuardianBinding` (verifiedVia "challenge"). The revoke/downgrade outcome is relayed from the daemon via `ipcCallPersistent("mark_channel_revoked", …)` to `ContactStore.markChannelRevoked`.
+
+The `mark_channel_verified` IPC method exists as the daemon/CLI relay surface (symmetric with `mark_channel_revoked`) but has no caller: the trusted-contact CLI path sends codes only, and the outcome arrives via the inbound code-match path.
 
 ## Rate Limiting & Diagnostics
 

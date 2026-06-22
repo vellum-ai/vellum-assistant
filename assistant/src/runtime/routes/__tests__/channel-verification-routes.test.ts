@@ -2,20 +2,10 @@
  * Tests for the trusted-contact branch of the channel-verification create
  * route.
  *
- * Investigation finding (PR 4 of contacts-gw-native-verification): the
- * daemon/CLI trusted-contact path (`verifyTrustedContact` →
- * `handleCreateVerificationSession`) has NO direct assistant-side activation
- * write. Every branch only creates an outbound session, records delivery, and
- * sends a code; the channel is flipped to `active` exclusively by the inbound
- * code-match completion, which already runs through the gateway
- * (`gateway/src/verification/text-verification.ts` →
- * `applyTrustedContactSideEffects`). The `already_verified` check on this path
- * is a read-only short-circuit that returns a 409, not a write.
- *
- * There is therefore no daemon-side outcome write to relay. These tests pin
- * that invariant: the trusted-contact create path must NOT write the
- * activation outcome assistant-side (no `updateChannelStatus`), so the outcome
- * is never double-written against the inbound gateway path.
+ * Pins the invariant that the trusted-contact create path performs no
+ * assistant-side activation write (no `updateChannelStatus`): it only creates an
+ * outbound session and sends a code. The verified outcome flows exclusively
+ * through the inbound gateway code-match path, so it is never double-written.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
