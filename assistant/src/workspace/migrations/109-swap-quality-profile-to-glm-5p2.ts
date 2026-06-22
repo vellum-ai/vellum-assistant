@@ -3,29 +3,30 @@ import { join } from "node:path";
 
 import type { WorkspaceMigration } from "./types.js";
 
-// Swap the managed quality-optimized profile from Anthropic Opus 4.8 to GLM 5.2
-// (Fireworks), and repoint the default advisor at the new `frontier` profile.
+// Bring an existing workspace's managed inference config in line with the
+// current code templates: the managed `quality-optimized` profile runs GLM 5.2
+// (Fireworks), and the default advisor points at the managed `frontier` (Opus)
+// profile.
 //
-// The managed quality-optimized intent now pins GLM 5.2, while the new managed
-// `frontier` profile carries the Opus 4.8 config the quality profile used to
-// have. The seeder reconciles managed-profile content from the code templates
-// on every boot — but it only consults those templates when it actually
-// reseeds a profile: off-platform installs reseed on every boot, while a
-// platform workspace keeps the profile it was hatched with (the seeder skips
-// overlay-supplied profiles, and the overlay is consumed once). A platform
-// workspace holding an Opus 4.8 quality-optimized profile therefore keeps it
-// until this migration rewrites it.
+// A migration is needed even though the seeder reconciles managed-profile
+// content from the templates on every boot, because the seeder only consults a
+// template when it reseeds that profile. Off-platform installs reseed every
+// boot, but a platform workspace keeps the profile it was hatched with (the
+// seeder skips overlay-supplied profiles, and the overlay is consumed once). A
+// platform workspace whose `quality-optimized` profile resolves to Opus
+// therefore relies on this migration to move it to GLM 5.2.
 //
-// Only the managed quality-optimized profile is touched — the user-owned
-// custom-quality-optimized copy is theirs to manage. Within it, only a profile
-// still on Opus 4.8 is rewritten (matching by model value also covers the
-// OpenRouter-prefixed id). A profile whose model the user changed to anything
-// else is left untouched.
+// Scope: only the managed `quality-optimized` profile is rewritten — the
+// user-owned `custom-quality-optimized` copy is theirs to manage, and an
+// explicitly user-owned `quality-optimized` is left alone. A profile matches
+// only when its model is an Opus id (the OpenRouter-prefixed id included);
+// absent `source` on this canonical name means legacy managed (migration 052
+// seeds it source-less), so it counts as ours.
 //
-// The `frontier` profile itself is materialized by the boot seeder (it is a new
-// managed template, added to every workspace on the next boot), so this
-// migration only needs to relabel the default advisor pointer from
-// `quality-optimized` to `frontier` when the workspace still uses the default.
+// The managed `frontier` profile is materialized by the boot seeder (it is a
+// managed template), so this migration only points the default advisor at it,
+// and only when the workspace still carries the seeded `quality-optimized`
+// default and no user-owned `frontier` profile exists.
 
 const OPUS_48_MODEL_IDS = new Set([
   "claude-opus-4-8",
@@ -37,7 +38,7 @@ const GLM_52_MODEL = "accounts/fireworks/models/glm-5p2";
 export const swapQualityProfileToGlm52Migration: WorkspaceMigration = {
   id: "109-swap-quality-profile-to-glm-5p2",
   description:
-    "Swap the managed quality-optimized profile from Opus 4.8 to GLM 5.2 and repoint the advisor at frontier",
+    "Set the managed quality-optimized profile to GLM 5.2 and point the default advisor at frontier",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
     if (!existsSync(configPath)) return;
