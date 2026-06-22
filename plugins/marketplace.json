@@ -88,6 +88,18 @@
       "category": "developer",
       "homepage": "https://github.com/marinatrajk/ai-hero-engineer-kit",
       "license": "MIT"
+    },
+    {
+      "name": "admin-copilot",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/admin-copilot",
+        "ref": "287276f2dd36608f660851858cea14c85e1785d1"
+      },
+      "description": "Proactive chief-of-staff: a morning digest, propose-then-confirm inbox triage, calendar prep, and a weekly competitor brief.",
+      "category": "productivity",
+      "homepage": "https://github.com/vellum-ai/admin-copilot",
+      "license": "MIT"
     }
   ]
 }
