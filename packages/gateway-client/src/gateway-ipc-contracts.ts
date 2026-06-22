@@ -85,3 +85,32 @@ export const TrustRulesListIpcResponseSchema = z.object({
 export type TrustRulesListIpcResponse = z.infer<
   typeof TrustRulesListIpcResponseSchema
 >;
+
+export const MarkChannelVerifiedIpcParamsSchema = z.object({
+  contactChannelId: z.string().min(1),
+  // Audit source for the verification. CLI/session-driven verifications
+  // pass "challenge"; manual guardian attest uses "manual" (HTTP path).
+  verifiedVia: z.enum(["challenge", "manual"]).default("challenge"),
+});
+
+export type MarkChannelVerifiedIpcParams = z.infer<
+  typeof MarkChannelVerifiedIpcParamsSchema
+>;
+
+export const MarkChannelVerifiedIpcResponseSchema = z.object({
+  ok: z.boolean(),
+  didWrite: z.boolean(),
+  channel: z.object({
+    id: z.string(),
+    contactId: z.string(),
+    type: z.string(),
+    address: z.string(),
+    status: z.string(),
+    verifiedAt: z.number().nullable(),
+    verifiedVia: z.string().nullable(),
+  }),
+});
+
+export type MarkChannelVerifiedIpcResponse = z.infer<
+  typeof MarkChannelVerifiedIpcResponseSchema
+>;
