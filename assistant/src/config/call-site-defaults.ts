@@ -71,7 +71,7 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   inference: { profile: "cost-optimized" },
   // The advisor consults the strongest managed profile by default; a workspace
   // overrides this via `llm.advisorProfile` (which floats above this).
-  advisor: { profile: "quality-optimized" },
+  advisor: { profile: "frontier" },
   // Vision captioning for the image-fallback plugin. No pinned profile — the
   // plugin resolves a vision-capable profile itself via `doesSupportVision` and
   // passes it as an `overrideProfile`, so the call-site default is a fallback

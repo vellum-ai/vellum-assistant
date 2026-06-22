@@ -671,7 +671,14 @@ describe("loadConfig startup behavior", () => {
       "fireworks-managed",
     );
     expect(raw.llm.profiles.balanced.source).toBe("managed");
-    expect(raw.llm.profiles["quality-optimized"].provider).toBe("anthropic");
+    // Quality is now GLM 5.2 on Fireworks; Frontier carries the Anthropic Opus
+    // config Quality used to have.
+    expect(raw.llm.profiles["quality-optimized"].provider).toBe("fireworks");
+    expect(raw.llm.profiles["quality-optimized"].model).toBe(
+      "accounts/fireworks/models/glm-5p2",
+    );
+    expect(raw.llm.profiles.frontier.provider).toBe("anthropic");
+    expect(raw.llm.profiles.frontier.model).toBe("claude-opus-4-8");
     expect(raw.llm.profiles["cost-optimized"].provider).toBe("anthropic");
   });
 

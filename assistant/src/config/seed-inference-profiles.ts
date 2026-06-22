@@ -56,12 +56,28 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
     topP: 0.95,
   },
+  // Served by GLM 5.2 on Fireworks via managed platform inference: a leading
+  // open model. `model` is pinned explicitly rather than resolved via the
+  // `quality-optimized` intent (which still maps to Anthropic Opus for the
+  // `frontier` profile below).
   "quality-optimized": {
+    model: "accounts/fireworks/models/glm-5p2",
+    provider: "fireworks",
+    connectionName: "fireworks-managed",
+    source: "managed",
+    label: "Quality",
+    description: "High-quality results with a leading open model (GLM 5.2)",
+    maxTokens: 32000,
+    effort: "high",
+    thinking: { enabled: true, streamThinking: true },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+  },
+  frontier: {
     intent: "quality-optimized",
     provider: "anthropic",
     connectionName: "anthropic-managed",
     source: "managed",
-    label: "Quality",
+    label: "Frontier",
     description: "Best results with the most capable model",
     maxTokens: 32000,
     effort: "high",
@@ -414,14 +430,16 @@ export function seedInferenceProfiles(
   }
 
   // Advisor profile: default to the strongest managed profile when unset, so
-  // the advisor consults `quality-optimized` out of the box. Guarded on
+  // the advisor consults `frontier` (Anthropic Opus) out of the box, falling
+  // back to `quality-optimized` if `frontier` is unavailable. Guarded on
   // existence so it never names a missing profile (superRefine rejects that);
   // off-platform/BYOK installs can repoint it at one of their own profiles.
-  if (
-    readString(llm.advisorProfile) === undefined &&
-    readObject(profiles["quality-optimized"]) !== null
-  ) {
-    llm.advisorProfile = "quality-optimized";
+  if (readString(llm.advisorProfile) === undefined) {
+    if (readObject(profiles["frontier"]) !== null) {
+      llm.advisorProfile = "frontier";
+    } else if (readObject(profiles["quality-optimized"]) !== null) {
+      llm.advisorProfile = "quality-optimized";
+    }
   }
 
   // Profile ordering — ensure all seeded profiles appear in the order array.

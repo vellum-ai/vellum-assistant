@@ -193,7 +193,9 @@ function disableProfile(
     typeof llm.advisorProfile === "string" &&
     removed.has(llm.advisorProfile)
   ) {
-    if (readObject(profiles["quality-optimized"]) !== null) {
+    if (readObject(profiles["frontier"]) !== null) {
+      llm.advisorProfile = "frontier";
+    } else if (readObject(profiles["quality-optimized"]) !== null) {
       llm.advisorProfile = "quality-optimized";
     } else {
       delete llm.advisorProfile;
