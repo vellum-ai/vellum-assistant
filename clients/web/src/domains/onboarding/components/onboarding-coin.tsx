@@ -117,7 +117,7 @@ function CoinFace({ idSuffix }: { idSuffix: string }) {
 
 export function OnboardingCoin({
   size,
-  depthRatio = 0.34,
+  depthRatio = 0.22,
   tiltX = 8,
   tiltY = -22,
   shadow = true,
