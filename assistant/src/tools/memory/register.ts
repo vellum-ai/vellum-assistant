@@ -100,7 +100,7 @@ export const deleteMemoryTool = {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    if (isUntrustedTrustClass(context.trustClass)) {
+    if (!resolveCapabilities(context.trustClass).canAccessMemory) {
       return {
         content:
           "delete_memory is only available to the guardian — it modifies long-term memory.",
@@ -131,7 +131,7 @@ export const updateMemoryTool = {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    if (isUntrustedTrustClass(context.trustClass)) {
+    if (!resolveCapabilities(context.trustClass).canAccessMemory) {
       return {
         content:
           "update_memory is only available to the guardian — it modifies long-term memory.",
