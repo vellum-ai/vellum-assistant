@@ -1,17 +1,10 @@
 /**
- * Regression test for VELLUM-ASSISTANT-MACOS-1QV.
+ * A failing contact mutation (e.g. a gateway 404) must surface as a toast
+ * and must not escalate to an unhandled promise rejection.
  *
- * A failing contact mutation — e.g. a 404 from the gateway when a contact
- * row is missing — must surface as a toast and must NOT escalate to an
- * unhandled promise rejection. Before the fix the detail-view Save/Delete
- * buttons fired `updateMutation.mutateAsync(...)` /
- * `deleteMutation.mutateAsync(...)` fire-and-forget with no `onError`, so
- * the rejection bubbled to `window.onunhandledrejection` and Sentry logged
- * it as a crash.
- *
- * The test drives the real `ContactsPage` (real `@tanstack/react-query`)
- * so it exercises the actual mutation wiring; only the gateway, the
- * generated query layer, and `toast` are mocked. The mocking style mirrors
+ * Drives the real `ContactsPage` (real `@tanstack/react-query`) so the
+ * actual mutation wiring is exercised; only the gateway, the generated
+ * query layer, and `toast` are mocked. Mirrors the mocking style in
  * `domains/settings/ai/provider-create-form.test.tsx`.
  */
 
@@ -37,7 +30,7 @@ const unhandledRejections: unknown[] = [];
 const GUARDIAN = {
   id: "c-guardian",
   role: "guardian",
-  displayName: "Ada Lovelace",
+  displayName: "Example User",
   notes: "",
   channels: [],
   interactionCount: 0,
@@ -178,7 +171,7 @@ describe("ContactsPage mutation error handling", () => {
     const nameInput = await waitFor(() => getInputByPlaceholder("Your name"));
 
     // Dirty the form so Save enables, then submit.
-    fireEvent.change(nameInput, { target: { value: "Ada L." } });
+    fireEvent.change(nameInput, { target: { value: "Example Guardian" } });
     fireEvent.click(getButton("Save"));
 
     // The gateway 404 is surfaced to the user as a toast carrying the
@@ -187,8 +180,8 @@ describe("ContactsPage mutation error handling", () => {
       expect(toastErrorCalls).toEqual(["Not found"]);
     });
 
-    // ...and the rejection never escaped to window.onunhandledrejection
-    // (the Sentry crash symptom). `.mutate()` keeps it internal.
+    // ...and the rejection never escaped to window.onunhandledrejection.
+    // `.mutate()` keeps it internal to React Query.
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(unhandledRejections).toEqual([]);
   });
