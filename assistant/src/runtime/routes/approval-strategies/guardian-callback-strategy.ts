@@ -3,6 +3,8 @@
  * guardian sender who has pending guardian approval requests. Routes through
  * callback buttons or the conversational engine.
  */
+import type { KnownBlock } from "@slack/types";
+
 import { applyGuardianDecision } from "../../../approvals/guardian-decision-primitive.js";
 import type { ChannelId } from "../../../channels/types.js";
 import { findContactChannel } from "../../../contacts/contact-store.js";
@@ -707,7 +709,7 @@ function editSlackApprovalMessage(params: {
   // a section with the status text and a context line with the decision.
   // This replaces the original approval prompt's action buttons with a
   // read-only status display.
-  const blocks = [
+  const blocks: KnownBlock[] = [
     {
       type: "section",
       text: { type: "mrkdwn", text: statusText },
