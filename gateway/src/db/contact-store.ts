@@ -1104,10 +1104,12 @@ export class ContactStore {
     // join-by-id read path. Soft-fails to a minted id if the lookup throws
     // (daemon down / tests) — the assistant-mirror best-effort invariant.
     let adoptedChannelAcls: Map<string, AdoptedChannelAcl> | undefined;
+    let crossOwnedKeys: Set<string> | undefined;
     if (!contactId) {
       const adopted = await this.adoptAssistantContactId(canonicalChannels);
       contactId = adopted?.contactId ?? crypto.randomUUID();
       adoptedChannelAcls = adopted?.channelAcls;
+      crossOwnedKeys = adopted?.crossOwnedKeys;
       // An adopted id may already exist as a gateway row (different channels);
       // preserve it (name omit-to-preserve) instead of a conflicting INSERT.
       const existing = adopted
@@ -1143,11 +1145,29 @@ export class ContactStore {
     }
 
     // ── 4. Sync channels (gateway DB) ─────────────────────────────────
+    // Drop any requested channel owned by a DIFFERENT assistant contact: the
+    // gateway must not insert it under the adopted contact, because the
+    // assistant mirror skips it as a cross-contact conflict — claiming it
+    // gateway-side would diverge ACL ownership and risk routing the wrong
+    // contact. Genuinely-unowned channels stay and insert as new.
+    const healChannels = crossOwnedKeys?.size
+      ? canonicalChannels?.filter((ch) => {
+          const owned = crossOwnedKeys!.has(adoptedChannelKey(ch.type, ch.address));
+          if (owned) {
+            log.warn(
+              { contactId, type: ch.type, address: ch.address },
+              "upsertContact: skipping create-heal channel owned by another assistant contact (keeping gateway/assistant ownership in sync)",
+            );
+          }
+          return !owned;
+        })
+      : canonicalChannels;
+
     // Carry the adopted assistant channel's ACL state into the heal INSERT so
     // an active/verified contact isn't downgraded to unverified/allow.
     const channelsToSync = adoptedChannelAcls?.size
-      ? this.mergeAdoptedChannelAcl(canonicalChannels, adoptedChannelAcls)
-      : canonicalChannels;
+      ? this.mergeAdoptedChannelAcl(healChannels, adoptedChannelAcls)
+      : healChannels;
     if (channelsToSync?.length) {
       this.syncChannels(contactId, channelsToSync, now);
     }
@@ -1781,6 +1801,11 @@ export class ContactStore {
     contactId: string;
     displayName: string | null;
     channelAcls: Map<string, AdoptedChannelAcl>;
+    // (type,address) keys of requested channels owned by a DIFFERENT assistant
+    // contact than the adopted one. The gateway must not insert these under the
+    // adopted contact — the assistant mirror skips them as cross-contact
+    // conflicts, so claiming them gateway-side diverges ownership.
+    crossOwnedKeys: Set<string>;
   } | null> {
     try {
       for (const ch of channels ?? []) {
@@ -1850,7 +1875,26 @@ export class ContactStore {
             blockedReason: r.blockedReason,
           });
         }
-        return { contactId, displayName, channelAcls };
+
+        // For requested channels NOT owned by the adopted contact, flag any
+        // already owned by a DIFFERENT assistant contact so the create-heal
+        // path skips inserting them under the adopted gateway contact (the
+        // assistant mirror skips them too — keep ownership symmetric).
+        const crossOwnedKeys = new Set<string>();
+        for (const reqCh of channels ?? []) {
+          const key = adoptedChannelKey(reqCh.type, reqCh.address);
+          if (channelAcls.has(key)) continue;
+          const owner = await assistantDbQuery<{ contactId: string }>(
+            `SELECT contact_id AS contactId FROM contact_channels
+              WHERE type = ? AND address = ? COLLATE NOCASE LIMIT 1`,
+            [reqCh.type, reqCh.address],
+          );
+          if (owner.length && owner[0].contactId !== contactId) {
+            crossOwnedKeys.add(key);
+          }
+        }
+
+        return { contactId, displayName, channelAcls, crossOwnedKeys };
       }
     } catch (err) {
       log.warn(

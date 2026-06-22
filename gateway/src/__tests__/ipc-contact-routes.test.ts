@@ -980,6 +980,80 @@ describe("IPC contact routes", () => {
     expect(fresh.policy).toBe("allow");
   });
 
+  test("multi-channel heal SKIPS a channel owned by a DIFFERENT assistant contact (gateway/assistant ownership stays in sync)", async () => {
+    // Channel A matches the adopted assistant-only contact; channel B is owned
+    // by ANOTHER assistant contact. B must NOT be inserted under the adopted
+    // gateway contact — the assistant mirror skips it as a cross-contact
+    // conflict, so claiming it gateway-side would diverge ACL ownership.
+    const adoptedId = "skip-c1";
+    const otherId = "skip-other";
+
+    assistantDbQueryMock = mock(async (sql: string, bind?: unknown[]) => {
+      // Adoption resolves the contact id from channel A.
+      if (
+        sql.includes("FROM contact_channels cc") &&
+        sql.includes("WHERE cc.type = ?")
+      ) {
+        return [{ contactId: adoptedId, displayName: "Adopted" }];
+      }
+      // Adopted contact owns only channel A.
+      if (
+        sql.includes("FROM contact_channels cc") &&
+        sql.includes("WHERE cc.contact_id = ?")
+      ) {
+        if (bind?.[0] !== adoptedId) return [];
+        return [
+          {
+            id: "ach-a",
+            type: "email",
+            address: "a@example.com",
+            isPrimary: 1,
+            externalChatId: null,
+            status: "active",
+            policy: "escalate",
+            verifiedAt: 1700000000000,
+            verifiedVia: "manual",
+            inviteId: null,
+            revokedReason: null,
+            blockedReason: null,
+          },
+        ];
+      }
+      // Cross-owner lookup (no `cc.` alias): channel B belongs to otherId.
+      if (
+        sql.includes("FROM contact_channels") &&
+        !sql.includes("cc") &&
+        sql.includes("WHERE type = ?")
+      ) {
+        if (bind?.[1] === "b@example.com") return [{ contactId: otherId }];
+        return [];
+      }
+      return [];
+    });
+    assistantDbRunMock = mock(async () => ({
+      changes: 1,
+      lastInsertRowid: 0,
+    }));
+
+    const store = new ContactStore(getGatewayDb());
+    const { contact } = await store.upsertContact({
+      channels: [
+        { type: "email", address: "a@example.com" },
+        { type: "email", address: "b@example.com" },
+      ],
+    });
+
+    expect(contact.id).toBe(adoptedId);
+    const gwChannels = store.getChannelsForContact(adoptedId);
+    // Only channel A is written under the adopted contact; B is skipped.
+    expect(gwChannels).toHaveLength(1);
+    expect(gwChannels[0].address).toBe("a@example.com");
+    expect(gwChannels[0].id).toBe("ach-a");
+    expect(
+      gwChannels.some((c) => c.address === "b@example.com"),
+    ).toBe(false);
+  });
+
   test("upsertContact with an explicit id does NOT retarget another contact's metadata", async () => {
     // Update path (Problem 2): an edit carries a channel whose (type,address)
     // is owned by a DIFFERENT assistant contact. The assistant mirror must
