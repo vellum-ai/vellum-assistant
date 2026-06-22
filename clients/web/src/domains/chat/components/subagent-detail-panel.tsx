@@ -74,6 +74,16 @@ export function SubagentDetailPanel({
   // `toolCallId`-keyed map of nested tool-detail payloads, used to swap the
   // panel body to a tool's input/output when its timeline pill is clicked —
   // without ever touching the global viewer-store / main view.
+  //
+  // Availability is live-only by design: streaming subagent events carry a
+  // `toolUseId` plus raw `input`/`result`, so `buildSubagentToolDetails`
+  // produces a payload and the pill becomes clickable. Reloaded/history
+  // subagents are hydrated via `onRequestDetail` from the daemon's
+  // `GET /subagents/:id` route, which currently omits the tool id / raw
+  // input / result (see assistant `subagents-routes.ts` + `mapDetailEvents`),
+  // so those tool steps have no entry here and render as non-clickable pills —
+  // a graceful fallback, not an error. Surfacing detail for history subagents
+  // requires the daemon route to carry those fields (tracked as a follow-up).
   const toolDetails = useMemo(() => buildSubagentToolDetails(entry), [entry]);
 
   // Which tool call's detail (if any) is shown nested inside this panel. `null`
