@@ -89,6 +89,9 @@ export function ResearchOnboardingRoute() {
   const [talkStyle, setTalkStyle] = useState<TalkStyle | null>(null);
   // Bumped by the integration step's coin to jolt the bottom eyes.
   const [eyesBump, setEyesBump] = useState(0);
+  // Extra edge characters revealed so far — grows as the looking-you-up
+  // carousel advances, then stays for the results/suggestions steps.
+  const [edgeAvatars, setEdgeAvatars] = useState(0);
 
   // Landing on the form means a fresh run — clear any stale focus state left
   // behind by an abandoned previous attempt so the form itself never renders
@@ -177,20 +180,16 @@ export function ResearchOnboardingRoute() {
     "suggestions",
   ];
   if (tonedSteps.includes(step) && formValues) {
-    // After the calendar, the background blends to black, the giant bottom eyes
-    // collapse into the small avatar beside the text, and extra edge characters
-    // build up per step.
+    // After the calendar, the background blends to black and the giant bottom
+    // eyes collapse into the small avatar beside the text. Extra edge
+    // characters are revealed by the looking-you-up carousel (see edgeAvatars).
     const postCalendar = ["meeting", "looking", "results", "suggestions"].includes(step);
-    const extraPeekLevel =
-      { meeting: 0, looking: 1, results: 2, suggestions: 3 }[
-        step as "meeting" | "looking" | "results" | "suggestions"
-      ] ?? 0;
     return (
       <div data-theme="dark" className="relative h-full overflow-hidden">
         <OnboardingTonedBackdrop
           talkStyle={talkStyle}
           eyesBumpNonce={eyesBump}
-          extraPeekLevel={extraPeekLevel}
+          extraPeekLevel={edgeAvatars}
           darkBg={postCalendar}
           showBottomEyes={!postCalendar}
         />
@@ -227,6 +226,7 @@ export function ResearchOnboardingRoute() {
           <LookingYouUpStep
             onDone={() => setStep("results")}
             onBack={() => setStep("letschat")}
+            onAdvance={(i) => setEdgeAvatars(Math.min(i + 1, 4))}
           />
         )}
         {step === "results" && (

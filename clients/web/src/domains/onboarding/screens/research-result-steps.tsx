@@ -167,31 +167,35 @@ const LOOKING_MESSAGES = [
 export function LookingYouUpStep({
   onDone,
   onBack,
+  onAdvance,
 }: {
   onDone: () => void;
   onBack: () => void;
+  /** Reports the current message index — used to pop an edge avatar per line. */
+  onAdvance?: (index: number) => void;
 }) {
   const tone = useOnboardingTone();
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
+    onAdvance?.(index);
     if (index >= LOOKING_MESSAGES.length - 1) {
       const done = setTimeout(onDone, 1500);
       return () => clearTimeout(done);
     }
     const next = setTimeout(() => setIndex((i) => i + 1), 1500);
     return () => clearTimeout(next);
-  }, [index, onDone]);
+  }, [index, onDone, onAdvance]);
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
       <OnboardingTopBar current={4} total={5} label="Quick setup" onBack={onBack} />
-      <div className="absolute left-1/2 top-[26%] flex max-w-xl -translate-x-1/2 items-center gap-4">
+      <div className="absolute left-1/2 top-[26%] flex w-full max-w-xl -translate-x-1/2 items-center gap-3 px-6">
         <MiniAssistant />
         <AnimatePresence mode="wait">
           <motion.p
             key={index}
-            className="whitespace-nowrap text-[1.6rem]"
+            className="text-[1.6rem]"
             style={{ fontFamily: "var(--font-serif)" }}
             initial={{ y: 12, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
