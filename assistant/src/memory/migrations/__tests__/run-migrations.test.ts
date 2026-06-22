@@ -346,23 +346,13 @@ describe("runMigrationSteps — checkpointing", () => {
     expect(result.skipped).toEqual([]);
   });
 
-  test("writes 'started' marker for async steps before awaiting", async () => {
-    /**
-     * For async steps, the runner writes a 'started' marker before
-     * awaiting the promise, so a crash between the write and promise
-     * resolution leaves a detectable checkpoint. Sync steps don't get
-     * a 'started' marker because they complete before the event loop
-     * can process the write (a crash during a sync step loses it too).
-     */
-
+  test("writes 'started' marker before running each step", async () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);
 
     const seen: { marker: string | null } = { marker: null };
     const steps: MigrationStep[] = [
       async function asyncWithInspection() {
-        // Read the checkpoint while the step is "in flight" — the
-        // 'started' marker should already be written.
         const row = raw
           .query<{ value: string }, []>(
             `SELECT value FROM memory_checkpoints WHERE key = 'step:asyncWithInspection'`,
@@ -378,7 +368,6 @@ describe("runMigrationSteps — checkpointing", () => {
     // The 'started' marker was visible during the async step's execution
     expect(seen.marker).toBe("started");
 
-    // After completion, the checkpoint is '1'
     const final = raw
       .query<{ value: string }, []>(
         `SELECT value FROM memory_checkpoints WHERE key = 'step:asyncWithInspection'`,
