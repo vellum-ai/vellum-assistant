@@ -7,8 +7,7 @@
  * matches both a request's source conversation and any conversation its card
  * was delivered to. These tests lock that wiring — in particular that a
  * request delivered to a conversation different from its synthetic source is
- * still counted for the conversation that shows the card (the case the retired
- * legacy-table query missed).
+ * still counted for the conversation that shows the card.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -124,7 +123,7 @@ describe("buildConversationCandidates guardian enrichment", () => {
     });
 
     // (2) pending request with a synthetic source id whose card was DELIVERED
-    // to the candidate conversation — the case the legacy query missed.
+    // to the candidate conversation (a different conversation than its source).
     const delivered = createCanonicalGuardianRequest({
       kind: "access_request",
       sourceType: "channel",
