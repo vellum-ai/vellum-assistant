@@ -3,11 +3,15 @@
  *
  * SPIKE — research-onboarding flow.
  *
- * Built from a front face, a back face, and a thick stack of edge slices between
- * them — a solid cylinder with genuine thickness when tilted. Rich gradients,
- * specular highlights, a recessed center vignette, and a soft cast shadow give
- * it a shiny, premium look. It's `preserve-3d`, so the caller can spin it.
+ * Built from a front face, a back face, and a stack of edge slices between them
+ * — a solid cylinder with genuine thickness when tilted. The coin owns its
+ * whole 3D context (one `perspective` → `preserve-3d` element carrying both the
+ * resting tilt and the spin), so the front face and its embossed $ stay
+ * coplanar with the coin. Pass `spinning` to make it tumble (e.g. on claim);
+ * the caller can still wrap it in a plain 2D motion element for a flight path.
  */
+
+import { motion } from "motion/react";
 
 interface OnboardingCoinProps {
   size: number;
@@ -18,12 +22,14 @@ interface OnboardingCoinProps {
   tiltY?: number;
   /** Draw a soft cast shadow beneath the coin. */
   shadow?: boolean;
+  /** Tumble through a few full turns (e.g. while claiming). */
+  spinning?: boolean;
   className?: string;
 }
 
 const EDGE_SLICES = 24;
 
-/** One coin face — raised rim, recessed center, specular shine, embossed $. */
+/** One coin face — raised rim, even gold center, specular shine, embossed $. */
 function CoinFace({ idSuffix }: { idSuffix: string }) {
   const face = `cf-${idSuffix}`;
   const rim = `cr-${idSuffix}`;
@@ -43,23 +49,19 @@ function CoinFace({ idSuffix }: { idSuffix: string }) {
           <stop offset="50%" stopColor="#F4C231" />
           <stop offset="100%" stopColor="#D29B1A" />
         </linearGradient>
-        {/* Bright, fairly even gold face — minimal darkening at the edge. */}
         <radialGradient id={face} cx="42%" cy="36%" r="82%">
           <stop offset="0%" stopColor="#FFF6CE" />
           <stop offset="55%" stopColor="#F8CB3E" />
           <stop offset="100%" stopColor="#EEB52C" />
         </radialGradient>
-        {/* Very soft recess at the very rim only. */}
         <radialGradient id={vignette} cx="50%" cy="50%" r="50%">
           <stop offset="82%" stopColor="#000000" stopOpacity="0" />
           <stop offset="100%" stopColor="#9A6E0E" stopOpacity="0.22" />
         </radialGradient>
-        {/* Broad soft gloss. */}
         <radialGradient id={gloss} cx="36%" cy="24%" r="44%">
           <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.85" />
           <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
         </radialGradient>
-        {/* Tight specular hot-spot. */}
         <radialGradient id={spec} cx="50%" cy="50%" r="50%">
           <stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
           <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
@@ -121,6 +123,7 @@ export function OnboardingCoin({
   tiltX = 8,
   tiltY = -22,
   shadow = true,
+  spinning = false,
   className,
 }: OnboardingCoinProps) {
   const depth = size * depthRatio;
@@ -145,58 +148,72 @@ export function OnboardingCoin({
           }}
         />
       )}
-      <div
-        className={className}
-        style={{
-          width: size,
-          height: size,
-          position: "relative",
-          transformStyle: "preserve-3d",
-          transform: `rotateX(${tiltX}deg) rotateY(${tiltY}deg)`,
-        }}
-      >
-        {/* Edge slices form the coin's thickness; brighter toward the middle of
-            the stack so the rim reads as a rounded, specular edge. */}
-        {Array.from({ length: EDGE_SLICES }, (_, i) => {
-          const t = i / (EDGE_SLICES - 1);
-          const mid = 1 - Math.abs(t - 0.5) * 2; // 0 at faces, 1 at middle
-          const lightness = 44 + mid * 22; // brighter, less dark edge
-          return (
-            <div
-              key={i}
-              style={{
-                position: "absolute",
-                inset: 0,
-                borderRadius: "50%",
-                background: `linear-gradient(to bottom, hsl(45 92% ${Math.min(lightness + 10, 82)}%), hsl(42 90% ${lightness - 8}%))`,
-                transform: `translateZ(${-depth / 2 + i * step}px)`,
-              }}
-            />
-          );
-        })}
+      {/* Single perspective for the whole coin so the face + $ stay coplanar. */}
+      <div style={{ width: size, height: size, perspective: size * 10 }}>
+        <motion.div
+          className={className}
+          style={{
+            width: size,
+            height: size,
+            position: "relative",
+            transformStyle: "preserve-3d",
+          }}
+          initial={false}
+          animate={{
+            rotateX: tiltX,
+            rotateY: spinning
+              ? [tiltY, tiltY + 360, tiltY + 760, tiltY + 1180]
+              : tiltY,
+          }}
+          transition={
+            spinning
+              ? { duration: 0.95, times: [0, 0.32, 0.62, 1], ease: "easeInOut" }
+              : { duration: 0 }
+          }
+        >
+          {/* Edge slices form the coin's thickness; brighter toward the middle
+              of the stack so the rim reads as a rounded, specular edge. */}
+          {Array.from({ length: EDGE_SLICES }, (_, i) => {
+            const t = i / (EDGE_SLICES - 1);
+            const mid = 1 - Math.abs(t - 0.5) * 2; // 0 at faces, 1 at middle
+            const lightness = 44 + mid * 22;
+            return (
+              <div
+                key={i}
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  borderRadius: "50%",
+                  background: `linear-gradient(to bottom, hsl(45 92% ${Math.min(lightness + 10, 82)}%), hsl(42 90% ${lightness - 8}%))`,
+                  transform: `translateZ(${-depth / 2 + i * step}px)`,
+                }}
+              />
+            );
+          })}
 
-        {/* Front face */}
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            backfaceVisibility: "hidden",
-            transform: `translateZ(${depth / 2}px)`,
-          }}
-        >
-          <CoinFace idSuffix="front" />
-        </div>
-        {/* Back face (rotated so its $ reads correctly facing the viewer) */}
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            backfaceVisibility: "hidden",
-            transform: `translateZ(${-depth / 2}px) rotateY(180deg)`,
-          }}
-        >
-          <CoinFace idSuffix="back" />
-        </div>
+          {/* Front face */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              backfaceVisibility: "hidden",
+              transform: `translateZ(${depth / 2}px)`,
+            }}
+          >
+            <CoinFace idSuffix="front" />
+          </div>
+          {/* Back face (rotated so its $ reads correctly facing the viewer) */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              backfaceVisibility: "hidden",
+              transform: `translateZ(${-depth / 2}px) rotateY(180deg)`,
+            }}
+          >
+            <CoinFace idSuffix="back" />
+          </div>
+        </motion.div>
       </div>
     </div>
   );

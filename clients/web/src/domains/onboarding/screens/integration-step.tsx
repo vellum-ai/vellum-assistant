@@ -75,37 +75,32 @@ export function IntegrationStep({
           Here&rsquo;s 10 free credits to get you started.
         </p>
 
-        {/* Coin — drops to the eyes, gets bumped up, then falls away while
-            spinning in 3D and shrinking + fading. */}
+        {/* Coin — drops to the eyes, gets bumped up, then falls away (2D flight
+            here) while the coin spins in its own 3D context (`spinning`). */}
         <div className="mt-8 flex flex-col items-center gap-4">
-          <div style={{ perspective: 800 }}>
-            <motion.div
-              style={{ transformStyle: "preserve-3d" }}
-              animate={
-                claiming && !reduce
-                  ? {
-                      y: [0, dropY, apexY, fallY],
-                      scale: [1, 1, 1, 0.2],
-                      opacity: [1, 1, 1, 0],
-                      // ~3 full tumbles, faster on the way down.
-                      rotateY: [0, 360, 760, 1180],
-                    }
-                  : {}
-              }
-              transition={{
-                duration: TOTAL,
-                // Fall into the eyes, get bumped up (decelerating like gravity),
-                // then accelerate back down — a quick parabolic arc.
-                times: [0, DROP / TOTAL, 0.62, 1],
-                ease: ["easeIn", "easeOut", "easeIn"],
-              }}
-              onAnimationComplete={() => {
-                if (claiming) onClaim();
-              }}
-            >
-              <OnboardingCoin size={88} />
-            </motion.div>
-          </div>
+          <motion.div
+            animate={
+              claiming && !reduce
+                ? {
+                    y: [0, dropY, apexY, fallY],
+                    scale: [1, 1, 1, 0.2],
+                    opacity: [1, 1, 1, 0],
+                  }
+                : {}
+            }
+            transition={{
+              duration: TOTAL,
+              // Fall into the eyes, get bumped up (decelerating like gravity),
+              // then accelerate back down — a quick parabolic arc.
+              times: [0, DROP / TOTAL, 0.62, 1],
+              ease: ["easeIn", "easeOut", "easeIn"],
+            }}
+            onAnimationComplete={() => {
+              if (claiming) onClaim();
+            }}
+          >
+            <OnboardingCoin size={88} spinning={claiming && !reduce} />
+          </motion.div>
           <p className="text-[20px] font-medium" style={{ color: tone.fg }}>10 cr.</p>
         </div>
 
