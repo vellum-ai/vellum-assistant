@@ -8,7 +8,9 @@
 
 import {
   MarkChannelRevokedIpcParamsSchema,
+  MarkChannelRevokedIpcResponseSchema,
   MarkChannelVerifiedIpcParamsSchema,
+  MarkChannelVerifiedIpcResponseSchema,
 } from "@vellumai/gateway-client/gateway-ipc-contracts";
 import { z } from "zod";
 
@@ -172,7 +174,7 @@ export const contactRoutes: IpcRoute[] = [
         throw new Error(`Channel "${contactChannelId}" not found`);
       }
       const { channel, didWrite } = result;
-      return {
+      return MarkChannelVerifiedIpcResponseSchema.parse({
         ok: true,
         didWrite,
         channel: {
@@ -184,7 +186,7 @@ export const contactRoutes: IpcRoute[] = [
           verifiedAt: channel.verifiedAt,
           verifiedVia: channel.verifiedVia,
         },
-      };
+      });
     },
   },
   {
@@ -201,7 +203,7 @@ export const contactRoutes: IpcRoute[] = [
         throw new Error(`Channel "${contactChannelId}" not found`);
       }
       const { channel, didWrite } = result;
-      return {
+      return MarkChannelRevokedIpcResponseSchema.parse({
         ok: true,
         didWrite,
         channel: {
@@ -212,7 +214,7 @@ export const contactRoutes: IpcRoute[] = [
           status: channel.status,
           revokedReason: channel.revokedReason,
         },
-      };
+      });
     },
   },
 ];

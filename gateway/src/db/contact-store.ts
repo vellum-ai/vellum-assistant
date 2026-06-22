@@ -353,39 +353,7 @@ export class ContactStore {
       reason?: string | null;
     },
   ): Promise<ContactChannel | null> {
-    let gwChannel = this.db
-      .select()
-      .from(contactChannels)
-      .where(eq(contactChannels.id, channelId))
-      .get();
-
-    // If not found in the gateway DB, resolve from the assistant DB by
-    // logical key (contactId, type, address) and find the matching gateway row.
-    if (!gwChannel) {
-      const assistantChannel = await assistantDbQuery<{
-        contactId: string;
-        type: string;
-        address: string;
-      }>(
-        "SELECT contact_id AS contactId, type, address FROM contact_channels WHERE id = ?",
-        [channelId],
-      );
-      if (assistantChannel.length > 0) {
-        const { contactId, type, address } = assistantChannel[0];
-        gwChannel = this.db
-          .select()
-          .from(contactChannels)
-          .where(
-            and(
-              eq(contactChannels.contactId, contactId),
-              eq(contactChannels.type, type),
-              sql`${contactChannels.address} = ${address} COLLATE NOCASE`,
-            ),
-          )
-          .get();
-      }
-    }
-
+    const gwChannel = await this.resolveGatewayChannel(channelId);
     if (!gwChannel) return null;
 
     // Guard: cannot revoke a blocked channel.
@@ -640,6 +608,46 @@ export class ContactStore {
   }
 
   /**
+   * Resolve a gateway channel row by id, falling back to its logical key
+   * (contactId, type, address) when the id-based lookup misses. Legacy
+   * channels can live under a different gateway UUID than the assistant id,
+   * so the id passed by callers may not be the gateway row's id.
+   */
+  private async resolveGatewayChannel(
+    channelId: string,
+  ): Promise<ContactChannel | undefined> {
+    const byId = this.db
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, channelId))
+      .get();
+    if (byId) return byId;
+
+    const assistantChannel = await assistantDbQuery<{
+      contact_id: string;
+      type: string;
+      address: string;
+    }>(
+      "SELECT contact_id, type, address FROM contact_channels WHERE id = ?",
+      [channelId],
+    );
+    if (assistantChannel.length === 0) return undefined;
+
+    const { contact_id: contactId, type, address } = assistantChannel[0];
+    return this.db
+      .select()
+      .from(contactChannels)
+      .where(
+        and(
+          eq(contactChannels.contactId, contactId),
+          eq(contactChannels.type, type),
+          sql`${contactChannels.address} = ${address} COLLATE NOCASE`,
+        ),
+      )
+      .get();
+  }
+
+  /**
    * Mark a channel as verified. Sets `status="active"`, stamps
    * `verifiedAt=now`, and records `verifiedVia` (default `"manual"` for the
    * guardian-attestation path; `"challenge"` for the code-exchange path) on
@@ -673,6 +681,12 @@ export class ContactStore {
     const mirrored = await this.mirrorChannelFromAssistantIfMissing(channelId);
     if (!mirrored) return null;
 
+    // Legacy channels may live under a different gateway id than the assistant
+    // channel id passed in; resolve the gateway row before keying writes on it.
+    const gwChannel = await this.resolveGatewayChannel(channelId);
+    if (!gwChannel) return null;
+    const gwChannelId = gwChannel.id;
+
     const now = Date.now();
     const raw = (this.db as unknown as { $client: Database }).$client;
     const result = raw
@@ -682,12 +696,12 @@ export class ContactStore {
          WHERE id = ?
            AND (status != ? OR verified_via != ? OR verified_via IS NULL)`,
       )
-      .run("active", now, verifiedVia, now, channelId, "active", verifiedVia);
+      .run("active", now, verifiedVia, now, gwChannelId, "active", verifiedVia);
 
     const after = this.db
       .select()
       .from(contactChannels)
-      .where(eq(contactChannels.id, channelId))
+      .where(eq(contactChannels.id, gwChannelId))
       .get();
 
     if (!after) return null;
@@ -738,12 +752,11 @@ export class ContactStore {
     const mirrored = await this.mirrorChannelFromAssistantIfMissing(channelId);
     if (!mirrored) return null;
 
-    const channel = this.db
-      .select()
-      .from(contactChannels)
-      .where(eq(contactChannels.id, channelId))
-      .get();
+    // Legacy channels may live under a different gateway id than the assistant
+    // channel id passed in; resolve the gateway row before keying writes on it.
+    const channel = await this.resolveGatewayChannel(channelId);
     if (!channel) return null;
+    const gwChannelId = channel.id;
 
     const contact = this.getContact(channel.contactId);
     if (
@@ -782,18 +795,18 @@ export class ContactStore {
         blockedReason: null,
         updatedAt: Date.now(),
       })
-      .where(eq(contactChannels.id, channelId))
+      .where(eq(contactChannels.id, gwChannelId))
       .run();
 
     const after = this.db
       .select()
       .from(contactChannels)
-      .where(eq(contactChannels.id, channelId))
+      .where(eq(contactChannels.id, gwChannelId))
       .get();
     if (!after) return null;
 
     try {
-      await this.dualWriteChannelStatusToAssistantDb(channelId, {
+      await this.dualWriteChannelStatusToAssistantDb(gwChannelId, {
         status: "revoked",
         revokedReason: reason ?? null,
         blockedReason: null,
