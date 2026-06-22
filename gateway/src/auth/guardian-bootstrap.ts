@@ -354,7 +354,10 @@ export async function createGuardianBinding(
       // Heal a divergent (type,address) row (m0006): adopt it by its own id
       // rather than insert and throw on idx_contact_channels_type_address_unique.
       const existingGw = tx
-        .select({ id: gwContactChannels.id })
+        .select({
+          id: gwContactChannels.id,
+          status: gwContactChannels.status,
+        })
         .from(gwContactChannels)
         .where(
           and(
@@ -365,10 +368,14 @@ export async function createGuardianBinding(
         .get();
 
       if (existingGw) {
-        tx.update(gwContactChannels)
-          .set(channelSet)
-          .where(eq(gwContactChannels.id, existingGw.id))
-          .run();
+        // Never reactivate a blocked gateway row by code-match — leave it
+        // intact (mirrors text-verification / contact-helpers guards).
+        if (existingGw.status !== "blocked") {
+          tx.update(gwContactChannels)
+            .set(channelSet)
+            .where(eq(gwContactChannels.id, existingGw.id))
+            .run();
+        }
       } else {
         tx.insert(gwContactChannels)
           .values({

@@ -64,6 +64,9 @@ function seedGwChannel(opts: {
   type: string;
   address: string;
   principalId: string;
+  status?: string;
+  policy?: string;
+  blockedReason?: string;
 }): void {
   const now = Date.now();
   getGatewayDb()
@@ -85,8 +88,9 @@ function seedGwChannel(opts: {
       type: opts.type,
       address: opts.address,
       isPrimary: true,
-      status: "active",
-      policy: "allow",
+      status: opts.status ?? "active",
+      policy: opts.policy ?? "allow",
+      blockedReason: opts.blockedReason ?? null,
       verifiedAt: now,
       interactionCount: 0,
       createdAt: now,
@@ -179,6 +183,42 @@ describe("createGuardianBinding gateway dual-write", () => {
     expect(row.policy).toBe("allow");
     expect(row.contactId).toBe(result.contactId);
     expect(row.verifiedVia).toBe("challenge");
+  });
+
+  test("never reactivates a blocked divergent (type,address) gateway row", async () => {
+    seedGwChannel({
+      contactId: "blocked-contact",
+      channelId: "blocked-channel",
+      type: "slack",
+      address: "U_OWNER",
+      principalId: "blocked-principal",
+      status: "blocked",
+      policy: "deny",
+      blockedReason: "spam",
+    });
+
+    await createGuardianBinding({
+      channel: "slack",
+      externalUserId: "U_OWNER",
+      deliveryChatId: "D_OWNER",
+      guardianPrincipalId: "guardian-principal",
+      displayName: "Example User",
+      verifiedVia: "challenge",
+    });
+
+    const rows = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.type, "slack"))
+      .all();
+
+    expect(rows).toHaveLength(1);
+    const row = rows[0]!;
+    // Blocked row left intact — not reactivated by the guardian binding.
+    expect(row.id).toBe("blocked-channel");
+    expect(row.status).toBe("blocked");
+    expect(row.policy).toBe("deny");
+    expect(row.blockedReason).toBe("spam");
   });
 
   test("inserts a brand-new (type,address) gateway row when none exists", async () => {
