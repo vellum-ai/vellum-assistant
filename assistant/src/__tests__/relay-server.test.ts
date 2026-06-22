@@ -26,10 +26,6 @@ import {
   test,
 } from "bun:test";
 
-import { ADMISSION_FLOOR } from "@vellumai/gateway-client";
-
-import { TRUST_CLASS_RANK } from "../runtime/actor-trust-resolver.js";
-
 // ── Platform + logger mocks (must come before any source imports) ────
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -164,42 +160,6 @@ mock.module("../calls/channel-admission-reader.js", () => ({
     }
     if (mockAdmissionGate) await mockAdmissionGate;
     return mockAdmissionPolicy;
-  },
-}));
-
-// Real floor semantics, mirroring relay-setup-router.test.ts. The
-// enforceAdmissionPolicy mock omits the exempt-channel short-circuit so the
-// deny path can be exercised end-to-end regardless of channel.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const realAdmissionPolicyModule = require("../runtime/routes/inbound-stages/admission-policy.js");
-mock.module("../runtime/routes/inbound-stages/admission-policy.js", () => ({
-  ...realAdmissionPolicyModule,
-  enforceAdmissionPolicy: (input: {
-    trustClass: string;
-    memberStatus: string | undefined;
-    policy: import("@vellumai/gateway-client").AdmissionPolicy;
-  }) => {
-    if (input.memberStatus === "blocked" || input.memberStatus === "revoked") {
-      return {
-        admitted: false,
-        reason:
-          input.memberStatus === "blocked"
-            ? "member_blocked"
-            : "member_revoked",
-        shouldChallenge: false,
-        effectivePolicy: input.policy,
-      };
-    }
-    const rank =
-      (TRUST_CLASS_RANK as Record<string, number>)[input.trustClass] ?? 0;
-    const floor = ADMISSION_FLOOR[input.policy];
-    if (rank >= floor) return { admitted: true };
-    return {
-      admitted: false,
-      reason: `admission_policy_${input.policy}`,
-      shouldChallenge: false,
-      effectivePolicy: input.policy,
-    };
   },
 }));
 
