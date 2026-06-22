@@ -37,8 +37,9 @@ export function LocalRuntimeUpgradeBanner({
       ? s.assistants.find((assistant) => assistant.id === assistantId)
       : null,
   );
-  const isActiveLocalAssistant =
-    assistantState.kind === "active" && assistantState.isLocal;
+  const isLocalRuntimeState =
+    assistantState.kind === "self_hosted" ||
+    (assistantState.kind === "active" && assistantState.isLocal);
   const isUpgrading =
     (assistantState.kind === "active" ||
       assistantState.kind === "self_hosted") &&
@@ -47,7 +48,7 @@ export function LocalRuntimeUpgradeBanner({
     !!assistantId &&
     !!currentVersion &&
     !!activeAssistant?.isLocal &&
-    isActiveLocalAssistant &&
+    isLocalRuntimeState &&
     isLocalModeHostAvailable();
 
   const { data: releases, refetch: refetchReleases } = useQuery({
