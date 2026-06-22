@@ -165,7 +165,7 @@ function SubagentPhaseRow({
           aria-hidden
           className="flex h-[14px] w-[14px] shrink-0 items-center justify-center"
         >
-          <span className="h-[5px] w-[5px] rounded-full bg-[var(--content-disabled)]" />
+          <span className="h-2 w-2 rounded-full bg-[var(--content-disabled)]" />
         </span>
 
         <TimelineNode status={status} isThinking={isThinking} />
