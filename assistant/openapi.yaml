@@ -5241,18 +5241,9 @@ paths:
                 expiresInMs:
                   type: number
                   description: Expiry duration in ms
-                contactName:
-                  type: string
-                  description: Contact display name
                 expectedExternalUserId:
                   type: string
                   description: Expected user ID (E.164 for phone)
-                friendName:
-                  type: string
-                  description: Friend name for the invite
-                guardianName:
-                  type: string
-                  description: Guardian name
               required:
                 - contactId
       responses:
