@@ -8,7 +8,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { getGatewayDb } from "../db/connection.js";
 import {
@@ -90,11 +90,6 @@ export function getExternalAssistantId(): string {
 // Contact operations (via IPC proxy to assistant's DB)
 // ---------------------------------------------------------------------------
 
-interface GuardianLookupRow {
-  contact_id: string;
-  principal_id: string | null;
-}
-
 interface ExistingChannelRow {
   id: string;
   contactId: string;
@@ -107,20 +102,25 @@ interface ExistingChannelRow {
 export async function findVellumGuardian(): Promise<{
   principalId: string;
 } | null> {
-  const rows = await assistantDbQuery<GuardianLookupRow>(
-    `SELECT c.id AS contact_id, c.principal_id
-     FROM contacts c
-     INNER JOIN contact_channels cc ON cc.contact_id = c.id
-     WHERE c.role = 'guardian'
-       AND cc.type = 'vellum'
-       AND cc.status = 'active'
-     ORDER BY cc.verified_at DESC
-     LIMIT 1`,
-  );
+  const row = getGatewayDb()
+    .select({ principalId: gwContacts.principalId })
+    .from(gwContacts)
+    .innerJoin(
+      gwContactChannels,
+      eq(gwContactChannels.contactId, gwContacts.id),
+    )
+    .where(
+      and(
+        eq(gwContacts.role, "guardian"),
+        eq(gwContactChannels.type, "vellum"),
+        eq(gwContactChannels.status, "active"),
+      ),
+    )
+    .orderBy(desc(gwContactChannels.verifiedAt))
+    .limit(1)
+    .get();
 
-  const row = rows[0];
-  if (!row?.principal_id) return null;
-  return { principalId: row.principal_id };
+  return row?.principalId ? { principalId: row.principalId } : null;
 }
 
 /**
@@ -138,21 +138,25 @@ export async function findGuardianForChannelActor(
 ): Promise<{ principalId: string } | null> {
   if (!channelType || !externalUserId) return null;
 
-  const rows = await assistantDbQuery<GuardianLookupRow>(
-    `SELECT c.id AS contact_id, c.principal_id
-     FROM contacts c
-     INNER JOIN contact_channels cc ON cc.contact_id = c.id
-     WHERE c.role = 'guardian'
-       AND cc.type = ?
-       AND cc.address = ? COLLATE NOCASE
-       AND cc.status = 'active'
-     LIMIT 1`,
-    [channelType, externalUserId],
-  );
+  const row = getGatewayDb()
+    .select({ principalId: gwContacts.principalId })
+    .from(gwContacts)
+    .innerJoin(
+      gwContactChannels,
+      eq(gwContactChannels.contactId, gwContacts.id),
+    )
+    .where(
+      and(
+        eq(gwContacts.role, "guardian"),
+        eq(gwContactChannels.type, channelType),
+        eq(gwContactChannels.status, "active"),
+        sql`${gwContactChannels.address} = ${externalUserId} COLLATE NOCASE`,
+      ),
+    )
+    .limit(1)
+    .get();
 
-  const row = rows[0];
-  if (!row?.principal_id) return null;
-  return { principalId: row.principal_id };
+  return row?.principalId ? { principalId: row.principalId } : null;
 }
 
 // ---------------------------------------------------------------------------
