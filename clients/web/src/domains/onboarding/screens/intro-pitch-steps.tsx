@@ -75,11 +75,11 @@ export function PitchDifferentStep({
   useEffect(() => {
     if (reduce) {
       if (!streamDone) return;
-      const t = setTimeout(onDone, 3600);
+      const t = setTimeout(onDone, 2000);
       return () => clearTimeout(t);
     }
     if (!punchLanded) return;
-    const t = setTimeout(onDone, 3200);
+    const t = setTimeout(onDone, 1400);
     return () => clearTimeout(t);
   }, [reduce, streamDone, punchLanded, onDone]);
 
@@ -112,7 +112,7 @@ export function PitchDifferentStep({
             transition={
               reduce
                 ? { duration: 0 }
-                : { type: "spring", stiffness: 320, damping: 17, delay: 0.2 }
+                : { type: "spring", stiffness: 320, damping: 17, delay: 1.3 }
             }
             onAnimationComplete={() => setPunchLanded(true)}
           >
