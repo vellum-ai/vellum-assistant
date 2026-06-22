@@ -189,4 +189,34 @@ describe("parseLockfile", () => {
     });
     expect(assistant?.resources).toBeUndefined();
   });
+
+  test("resolves cloud from legacy remote markers when the field is absent", () => {
+    // Pre-`cloud` remote entries encode topology in `project` (gcp) / `sshUser`
+    // (custom). The parser resolves these so a cloudless remote entry is never
+    // mistaken for a local one downstream; a cloudless entry with no markers
+    // stays cloudless (local). The raw markers are not carried through.
+    const raw = {
+      assistants: [
+        { assistantId: "gcp_1", project: "my-proj", runtimeUrl: "https://a" },
+        { assistantId: "ssh_1", sshUser: "deploy", runtimeUrl: "https://b" },
+        { assistantId: "local_1", runtimeUrl: "http://localhost:7830" },
+      ],
+      activeAssistant: null,
+    };
+    expect(parseLockfile(raw).assistants).toEqual([
+      { assistantId: "gcp_1", cloud: "gcp", runtimeUrl: "https://a" },
+      { assistantId: "ssh_1", cloud: "custom", runtimeUrl: "https://b" },
+      { assistantId: "local_1", runtimeUrl: "http://localhost:7830" },
+    ]);
+  });
+
+  test("prefers an explicit cloud over legacy remote markers", () => {
+    const raw = {
+      assistants: [{ assistantId: "a", cloud: "local", project: "stale-proj" }],
+      activeAssistant: null,
+    };
+    expect(parseLockfile(raw).assistants).toEqual([
+      { assistantId: "a", cloud: "local" },
+    ]);
+  });
 });
