@@ -9,7 +9,7 @@
  * for 1); and contiguous same-phase collapsing into a single row.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
@@ -193,6 +193,81 @@ describe("SubagentPhaseTimeline — single-step expandability", () => {
     // Clicking the disabled header reveals nothing — no empty body.
     fireEvent.click(header);
     expect(queryByTestId("phase-step-pill")).toBeNull();
+  });
+});
+
+describe("SubagentPhaseTimeline — clickable tool steps", () => {
+  test("tool steps render as clickable buttons and call back with toolCallId", () => {
+    const onToolStepClick = mock((_id: string) => {});
+    const steps: ToolCallCardStep[] = [
+      bash("ls", "completed", "1s", "tc-a"),
+      bash("pwd", "completed", "2s", "tc-b"),
+    ];
+    const { getByTestId, getAllByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} onToolStepClick={onToolStepClick} />,
+    );
+
+    fireEvent.click(getByTestId("subagent-phase-header"));
+
+    const pills = getAllByTestId("tool-step-pill");
+    expect(pills.length).toBe(2);
+    pills.forEach((pill) => expect(pill.tagName).toBe("BUTTON"));
+
+    fireEvent.click(pills[0]!);
+    expect(onToolStepClick).toHaveBeenCalledTimes(1);
+    expect(onToolStepClick).toHaveBeenLastCalledWith("tc-a");
+
+    fireEvent.click(pills[1]!);
+    expect(onToolStepClick).toHaveBeenLastCalledWith("tc-b");
+  });
+
+  test("a thinking step does NOT render as a clickable tool pill", () => {
+    const onToolStepClick = mock((_id: string) => {});
+    const steps: ToolCallCardStep[] = [thinking("Considering options")];
+    const { getByTestId, queryByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} onToolStepClick={onToolStepClick} />,
+    );
+
+    fireEvent.click(getByTestId("subagent-phase-header"));
+    expect(queryByTestId("tool-step-pill")).toBeNull();
+  });
+
+  test("a tool_error step does NOT render as a clickable tool pill", () => {
+    const onToolStepClick = mock((_id: string) => {});
+    const steps: ToolCallCardStep[] = [toolError("context window exceeded")];
+    const { getByTestId, queryByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} onToolStepClick={onToolStepClick} />,
+    );
+
+    fireEvent.click(getByTestId("subagent-phase-header"));
+    expect(queryByTestId("tool-step-pill")).toBeNull();
+  });
+
+  test("tool steps with an empty toolCallId stay non-clickable", () => {
+    const onToolStepClick = mock((_id: string) => {});
+    const steps: ToolCallCardStep[] = [
+      bash("ls", "completed", "1s", ""),
+      bash("pwd", "completed", "2s", ""),
+    ];
+    const { getByTestId, queryByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} onToolStepClick={onToolStepClick} />,
+    );
+
+    fireEvent.click(getByTestId("subagent-phase-header"));
+    expect(queryByTestId("tool-step-pill")).toBeNull();
+  });
+
+  test("without the callback, tool steps remain non-clickable", () => {
+    const steps: ToolCallCardStep[] = [
+      bash("ls", "completed", "1s", "tc-a"),
+      bash("pwd", "completed", "2s", "tc-b"),
+    ];
+    const { getByTestId, queryByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} />,
+    );
+
+    fireEvent.click(getByTestId("subagent-phase-header"));
+    expect(queryByTestId("tool-step-pill")).toBeNull();
   });
 });
 
