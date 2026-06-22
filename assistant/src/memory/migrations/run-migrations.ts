@@ -34,7 +34,7 @@ export interface MigrationRunResult {
  * `drop_*`) and is deliberately chosen so `validateMigrationState` does not
  * mistake a step record for an unknown registry migration.
  */
-const STEP_CHECKPOINT_PREFIX = "step:";
+export const STEP_CHECKPOINT_PREFIX = "step:";
 
 /**
  * Create the migration bookkeeping table if it is missing.

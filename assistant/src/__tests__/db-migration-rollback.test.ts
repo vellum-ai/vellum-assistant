@@ -77,7 +77,6 @@ import { runMigrationSteps } from "../memory/migrations/run-migrations.js";
 import {
   rollbackMemoryMigration,
   validateMigrationState,
-  withCrashRecovery,
 } from "../memory/migrations/validate-migration-state.js";
 import * as schema from "../memory/schema.js";
 
@@ -537,11 +536,11 @@ describe("schema-drift recovery: migration handles unexpected schema state", () 
 
     // Insert a "started" checkpoint — simulates mid-migration crash.
     raw.exec(
-      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('migration_job_deferrals', 'started', ${now})`,
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:migrateJobDeferrals', 'started', ${now})`,
     );
     // A completed checkpoint should not be flagged.
     raw.exec(
-      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('migration_memory_entity_relations_dedup_v1', '1', ${now})`,
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:migrateMemoryEntityRelationDedup', '1', ${now})`,
     );
 
     // validateMigrationState logs warnings for crashed migrations and returns
@@ -549,9 +548,9 @@ describe("schema-drift recovery: migration handles unexpected schema state", () 
     // than re-deriving the crashed list from the raw DB — this verifies the
     // function itself detects the crash, not just that the data is present.
     const result: MigrationValidationResult = validateMigrationState(db);
-    expect(result.crashed).toContain("migration_job_deferrals");
+    expect(result.crashed).toContain("step:migrateJobDeferrals");
     expect(result.crashed).not.toContain(
-      "migration_memory_entity_relations_dedup_v1",
+      "step:migrateMemoryEntityRelationDedup",
     );
   });
 
@@ -566,11 +565,12 @@ describe("schema-drift recovery: migration handles unexpected schema state", () 
 
     const now = Date.now();
 
-    // Write the child migration (salted fingerprints) but NOT its parent
-    // (fingerprint_scope_unique). This violates the declared dependsOn.
+    // Write the child migration (salted fingerprints) step checkpoint but NOT
+    // its parent (fingerprint_scope_unique). This violates the declared
+    // dependsOn — the runner records `step:<stepName>` for completed steps.
     raw.exec(`
       INSERT INTO memory_checkpoints (key, value, updated_at)
-      VALUES ('migration_memory_items_scope_salted_fingerprints_v1', '1', ${now})
+      VALUES ('step:migrateMemoryItemsScopeSaltedFingerprints', '1', ${now})
     `);
 
     // validateMigrationState throws an IntegrityError on dependency violations
@@ -971,6 +971,7 @@ describe("rollbackMemoryMigration", () => {
     const testEntries: MigrationRegistryEntry[] = [
       {
         key: "test_rollback_v1000",
+        stepName: "test_rollback_v1000",
         version: 1000,
         description: "test migration v1000",
         down: () => {
@@ -979,6 +980,7 @@ describe("rollbackMemoryMigration", () => {
       },
       {
         key: "test_rollback_v1001",
+        stepName: "test_rollback_v1001",
         version: 1001,
         description: "test migration v1001",
         down: () => {
@@ -987,6 +989,7 @@ describe("rollbackMemoryMigration", () => {
       },
       {
         key: "test_rollback_v1002",
+        stepName: "test_rollback_v1002",
         version: 1002,
         description: "test migration v1002",
         down: () => {
@@ -997,10 +1000,10 @@ describe("rollbackMemoryMigration", () => {
 
     MIGRATION_REGISTRY.push(...testEntries);
 
-    // Simulate all three migrations as completed.
+    // Simulate all three migrations as completed via their step checkpoints.
     for (const entry of testEntries) {
       raw.exec(
-        `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('${entry.key}', '1', ${now})`,
+        `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:${entry.stepName}', '1', ${now})`,
       );
     }
 
@@ -1016,14 +1019,14 @@ describe("rollbackMemoryMigration", () => {
     // Checkpoints for rolled-back migrations should be deleted.
     const cp1001 = raw
       .query(
-        `SELECT 1 FROM memory_checkpoints WHERE key = 'test_rollback_v1001'`,
+        `SELECT 1 FROM memory_checkpoints WHERE key = 'step:test_rollback_v1001'`,
       )
       .get();
     expect(cp1001).toBeNull();
 
     const cp1002 = raw
       .query(
-        `SELECT 1 FROM memory_checkpoints WHERE key = 'test_rollback_v1002'`,
+        `SELECT 1 FROM memory_checkpoints WHERE key = 'step:test_rollback_v1002'`,
       )
       .get();
     expect(cp1002).toBeNull();
@@ -1031,7 +1034,7 @@ describe("rollbackMemoryMigration", () => {
     // Checkpoint for the migration at target version should still exist.
     const cp1000 = raw
       .query(
-        `SELECT value FROM memory_checkpoints WHERE key = 'test_rollback_v1000'`,
+        `SELECT value FROM memory_checkpoints WHERE key = 'step:test_rollback_v1000'`,
       )
       .get() as { value: string } | null;
     expect(cp1000).toBeTruthy();
@@ -1041,8 +1044,7 @@ describe("rollbackMemoryMigration", () => {
   test("clears forward-step checkpoints so a re-upgrade re-applies a rolled-back registry-backed step", async () => {
     /**
      * A registry-backed migration that is also a named forward step is tracked
-     * in both the registry checkpoint (via withCrashRecovery) and the runner's
-     * `step:` checkpoint in the same memory_checkpoints ledger. Rolling it back
+     * by the runner's `step:` checkpoint in memory_checkpoints. Rolling it back
      * must clear the step checkpoint too, otherwise the next upgrade skips the
      * step and never restores the rolled-back schema.
      */
@@ -1060,19 +1062,19 @@ describe("rollbackMemoryMigration", () => {
         .get() !== null;
 
     // GIVEN a registry-backed migration whose forward body is a named step that
-    // creates a table, guarded by withCrashRecovery.
-    const checkpointKey = "test_step_rollback_v4000";
+    // creates a table. The step runner records `step:<functionName>` after a
+    // successful run; the registry entry's stepName maps to that key so rollback
+    // can find and clear it.
     function migrateTestStepRollback(database: DrizzleDb): void {
-      withCrashRecovery(database, checkpointKey, () => {
-        getSqliteFrom(database).exec(
-          `CREATE TABLE IF NOT EXISTS test_step_rollback_data (id TEXT PRIMARY KEY)`,
-        );
-      });
+      getSqliteFrom(database).exec(
+        `CREATE TABLE IF NOT EXISTS test_step_rollback_data (id TEXT PRIMARY KEY)`,
+      );
     }
 
     // AND the migration is registered with a down() that drops that table.
     MIGRATION_REGISTRY.push({
-      key: checkpointKey,
+      key: "test_step_rollback_v4000",
+      stepName: "migrateTestStepRollback",
       version: 4000,
       description: "test step rollback",
       down: (database) => {
@@ -1082,7 +1084,7 @@ describe("rollbackMemoryMigration", () => {
       },
     });
 
-    // AND the step has run once through the runner, recording both checkpoints.
+    // AND the step has run once through the runner, recording the step checkpoint.
     await runMigrationSteps(db, [migrateTestStepRollback]);
     expect(hasTable()).toBe(true);
     expect(
@@ -1128,6 +1130,7 @@ describe("rollbackMemoryMigration", () => {
     // but a trigger will force the modification to fail.
     MIGRATION_REGISTRY.push({
       key: "test_fail_down_v3000",
+      stepName: "test_fail_down_v3000",
       version: 3000,
       description: "test migration with failing down()",
       down: (database) => {
@@ -1139,9 +1142,9 @@ describe("rollbackMemoryMigration", () => {
       },
     });
 
-    // Mark as completed.
+    // Mark as completed (via step checkpoint).
     raw.exec(
-      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('test_fail_down_v3000', '1', ${now})`,
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:test_fail_down_v3000', '1', ${now})`,
     );
 
     // Install a trigger to force the down() function to fail.
@@ -1169,7 +1172,7 @@ describe("rollbackMemoryMigration", () => {
     // written before down() was called and is preserved.
     const cp = raw
       .query(
-        `SELECT value FROM memory_checkpoints WHERE key = 'test_fail_down_v3000'`,
+        `SELECT value FROM memory_checkpoints WHERE key = 'step:test_fail_down_v3000'`,
       )
       .get() as { value: string } | null;
     expect(cp).toBeTruthy();
@@ -1208,6 +1211,7 @@ describe("rollbackMemoryMigration", () => {
     // wrapped every down() call in BEGIN/COMMIT.
     MIGRATION_REGISTRY.push({
       key: "test_self_txn_down_v3500",
+      stepName: "test_self_txn_down_v3500",
       version: 3500,
       description: "test migration with self-transactional down()",
       down: (database) => {
@@ -1220,9 +1224,9 @@ describe("rollbackMemoryMigration", () => {
       },
     });
 
-    // Mark as completed.
+    // Mark as completed (via step checkpoint).
     raw.exec(
-      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('test_self_txn_down_v3500', '1', ${now})`,
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:test_self_txn_down_v3500', '1', ${now})`,
     );
 
     // This should succeed — no nested transaction error.
@@ -1240,7 +1244,7 @@ describe("rollbackMemoryMigration", () => {
     // Checkpoint should be deleted.
     const cp = raw
       .query(
-        `SELECT 1 FROM memory_checkpoints WHERE key = 'test_self_txn_down_v3500'`,
+        `SELECT 1 FROM memory_checkpoints WHERE key = 'step:test_self_txn_down_v3500'`,
       )
       .get();
     expect(cp).toBeNull();
@@ -1261,6 +1265,7 @@ describe("rollbackMemoryMigration", () => {
     MIGRATION_REGISTRY.push(
       {
         key: "test_noop_v4000",
+        stepName: "test_noop_v4000",
         version: 4000,
         description: "test noop v4000",
         down: () => {
@@ -1269,6 +1274,7 @@ describe("rollbackMemoryMigration", () => {
       },
       {
         key: "test_noop_v4001",
+        stepName: "test_noop_v4001",
         version: 4001,
         description: "test noop v4001",
         down: () => {
@@ -1277,12 +1283,12 @@ describe("rollbackMemoryMigration", () => {
       },
     );
 
-    // Mark both as completed.
+    // Mark both as completed (via step checkpoints).
     raw.exec(
-      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('test_noop_v4000', '1', ${now})`,
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:test_noop_v4000', '1', ${now})`,
     );
     raw.exec(
-      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('test_noop_v4001', '1', ${now})`,
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:test_noop_v4001', '1', ${now})`,
     );
 
     // Roll back to version >= latest applied migration — should be a no-op.
@@ -1294,12 +1300,12 @@ describe("rollbackMemoryMigration", () => {
     // Both checkpoints should remain.
     const cp4000 = raw
       .query(
-        `SELECT value FROM memory_checkpoints WHERE key = 'test_noop_v4000'`,
+        `SELECT value FROM memory_checkpoints WHERE key = 'step:test_noop_v4000'`,
       )
       .get() as { value: string } | null;
     const cp4001 = raw
       .query(
-        `SELECT value FROM memory_checkpoints WHERE key = 'test_noop_v4001'`,
+        `SELECT value FROM memory_checkpoints WHERE key = 'step:test_noop_v4001'`,
       )
       .get() as { value: string } | null;
     expect(cp4000!.value).toBe("1");
@@ -1329,6 +1335,7 @@ describe("rollbackMemoryMigration", () => {
     MIGRATION_REGISTRY.push(
       {
         key: "test_parent_v5000",
+        stepName: "test_parent_v5000",
         version: 5000,
         description: "test parent migration",
         down: () => {
@@ -1337,6 +1344,7 @@ describe("rollbackMemoryMigration", () => {
       },
       {
         key: "test_child_v5001",
+        stepName: "test_child_v5001",
         version: 5001,
         dependsOn: ["test_parent_v5000"],
         description: "test child migration depending on parent",
@@ -1346,12 +1354,12 @@ describe("rollbackMemoryMigration", () => {
       },
     );
 
-    // Both are completed.
+    // Both are completed (via step checkpoints).
     raw.exec(
-      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('test_parent_v5000', '1', ${now})`,
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:test_parent_v5000', '1', ${now})`,
     );
     raw.exec(
-      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('test_child_v5001', '1', ${now})`,
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:test_child_v5001', '1', ${now})`,
     );
 
     // Roll back to version 4999 — both should be rolled back, child first.
@@ -1364,10 +1372,14 @@ describe("rollbackMemoryMigration", () => {
 
     // Both checkpoints should be deleted.
     const cpParent = raw
-      .query(`SELECT 1 FROM memory_checkpoints WHERE key = 'test_parent_v5000'`)
+      .query(
+        `SELECT 1 FROM memory_checkpoints WHERE key = 'step:test_parent_v5000'`,
+      )
       .get();
     const cpChild = raw
-      .query(`SELECT 1 FROM memory_checkpoints WHERE key = 'test_child_v5001'`)
+      .query(
+        `SELECT 1 FROM memory_checkpoints WHERE key = 'step:test_child_v5001'`,
+      )
       .get();
     expect(cpParent).toBeNull();
     expect(cpChild).toBeNull();
