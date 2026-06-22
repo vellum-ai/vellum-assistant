@@ -17,6 +17,7 @@ const MANAGED_PROVIDERS = [
   "openai",
   "gemini",
   "fireworks",
+  "together",
 ] as const;
 
 let platformBaseUrlOverride: string | undefined;
