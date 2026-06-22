@@ -44,7 +44,7 @@ export function MeetingCreatedStep({
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
       <OnboardingTopBar current={4} total={5} label="Quick setup" onBack={onBack} />
       <motion.h1
-        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-center text-[2.6rem] leading-none"
+        className="absolute left-1/2 top-[26%] w-full max-w-xl -translate-x-1/2 px-6 text-center text-[2.6rem] leading-none"
         style={{ fontFamily: "var(--font-serif)" }}
         initial={reduce ? false : { scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
@@ -89,7 +89,7 @@ export function LookingYouUpStep({
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
       <OnboardingTopBar current={4} total={5} label="Quick setup" onBack={onBack} />
-      <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
+      <div className="absolute left-1/2 top-[26%] w-full max-w-xl -translate-x-1/2 px-6 text-center">
         <AnimatePresence mode="wait">
           <motion.p
             key={index}
@@ -143,7 +143,7 @@ export function ResearchResultsStep({
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
       <OnboardingTopBar current={4} total={5} label="Almost there" onBack={onBack} />
 
-      <div className="absolute left-1/2 top-[24%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6">
+      <div className="absolute left-1/2 top-[26%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6">
         <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
           Alright, this is what I got:
         </h1>
@@ -225,7 +225,7 @@ export function SuggestionsStep({
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
       <OnboardingTopBar current={4} total={5} label="Almost there" onBack={onBack} />
 
-      <div className="absolute left-1/2 top-[24%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6">
+      <div className="absolute left-1/2 top-[26%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6">
         <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
           Here&rsquo;s what we could do first
         </h1>
