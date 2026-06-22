@@ -29,6 +29,7 @@ import {
   TimelineNode,
   type PhaseSection,
 } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
+import { ToolStepPill } from "@/domains/chat/components/tool-progress-card/tool-step-pill";
 import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 import { cn } from "@/utils/misc";
 
@@ -60,8 +61,15 @@ function runningActivity(section: PhaseSection): string {
 
 export function SubagentPhaseTimeline({
   steps,
+  onToolStepClick,
 }: {
   steps: ToolCallCardStep[];
+  /**
+   * When supplied, expanded tool steps render as clickable `ToolStepPill`
+   * buttons; clicking one calls back with the step's `toolCallId`. Optional so
+   * this component is deploy-safe without a consumer wired up.
+   */
+  onToolStepClick?: (toolCallId: string) => void;
 }) {
   // Expanded section keys. Default collapsed; the toggler is memoized so
   // already-rendered rows stay referentially stable across toggles.
@@ -90,6 +98,7 @@ export function SubagentPhaseTimeline({
             expanded={expanded.has(key)}
             sectionKeyValue={key}
             onToggle={toggle}
+            onToolStepClick={onToolStepClick}
           />
         );
       })}
@@ -103,12 +112,14 @@ function SubagentPhaseRow({
   expanded,
   sectionKeyValue,
   onToggle,
+  onToolStepClick,
 }: {
   section: PhaseSection;
   isLast: boolean;
   expanded: boolean;
   sectionKeyValue: string;
   onToggle: (key: string) => void;
+  onToolStepClick?: (toolCallId: string) => void;
 }) {
   const status = phaseHeaderStatus(section.steps);
   const isThinking = section.steps[0]?.kind === "thinking";
@@ -250,9 +261,30 @@ function SubagentPhaseRow({
           from the next group rather than 12px (pb-3) + 16px. */}
       {isExpandable && expanded && (
         <div className="flex flex-col items-start gap-1 pl-[22px]">
-          {section.steps.map((step, stepIdx) => (
-            <DefaultStepPill key={stepKey(step, stepIdx)} step={step} />
-          ))}
+          {section.steps.map((step, stepIdx) => {
+            // Clickable only for tool steps with a real `toolCallId` AND a
+            // consumer wired up; everything else keeps the non-interactive
+            // `DefaultStepPill` (thinking detail is intentionally out of scope).
+            if (step.kind === "tool" && step.toolCallId && onToolStepClick) {
+              return (
+                <ToolStepPill
+                  key={stepKey(step, stepIdx)}
+                  variant="tool"
+                  iconName={step.iconName}
+                  label={step.activity || step.info || step.title}
+                  riskLevel={step.riskLevel}
+                  tone={
+                    step.status === "error" || step.status === "denied"
+                      ? "error"
+                      : "default"
+                  }
+                  ariaLabel="View tool details"
+                  onClick={() => onToolStepClick(step.toolCallId)}
+                />
+              );
+            }
+            return <DefaultStepPill key={stepKey(step, stepIdx)} step={step} />;
+          })}
         </div>
       )}
     </div>
