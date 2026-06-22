@@ -70,6 +70,12 @@ import {
   stopLocalProcesses,
 } from "../lib/local.js";
 import { maybeStartNgrokTunnel } from "../lib/ngrok.js";
+import {
+  leaseGuardianToken,
+  loadGuardianToken,
+  resetGuardianBootstrap,
+  seedGuardianTokenFromSiblingEnv,
+} from "../lib/guardian-token.js";
 
 interface UpgradeArgs {
   name: string | null;
@@ -758,6 +764,45 @@ function localAdminUrl(entry: AssistantEntry): string {
   return entry.localUrl ?? entry.runtimeUrl;
 }
 
+function guardianTokenRefreshExpired(entry: AssistantEntry): boolean {
+  const token = loadGuardianToken(entry.assistantId);
+  if (!token) return true;
+
+  const refreshExpiry = new Date(token.refreshTokenExpiresAt).getTime();
+  return !Number.isFinite(refreshExpiry) || refreshExpiry <= Date.now();
+}
+
+async function ensureGuardianTokenAfterLocalUpgrade(
+  entry: AssistantEntry,
+  gatewayPort: number,
+  bootstrapSecret?: string,
+): Promise<void> {
+  if (seedGuardianTokenFromSiblingEnv(entry.assistantId)) {
+    console.log("   Seeded guardian token from sibling environment.");
+  }
+
+  if (!guardianTokenRefreshExpired(entry)) return;
+
+  const loopbackUrl = `http://127.0.0.1:${gatewayPort}`;
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await resetGuardianBootstrap(loopbackUrl, bootstrapSecret);
+      await leaseGuardianToken(loopbackUrl, entry.assistantId, bootstrapSecret);
+      console.log("   Re-provisioned guardian token.");
+      return;
+    } catch (err) {
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 2000 * 2 ** (attempt - 1)));
+      } else {
+        console.warn(
+          `   Guardian token re-provision failed after ${maxAttempts} attempts: ${err}`,
+        );
+      }
+    }
+  }
+}
+
 async function fetchLocalUpgradeState(
   entry: AssistantEntry,
   adminUrl: string,
@@ -951,6 +996,11 @@ async function upgradeLocal(
       process.env.APP_VERSION = previousAppVersion;
     }
   }
+  await ensureGuardianTokenAfterLocalUpgrade(
+    entry,
+    entry.resources.gatewayPort,
+    bootstrapSecret,
+  );
   console.log("✅ Local assistant processes started\n");
 
   const workspaceDir = join(

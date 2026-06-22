@@ -16,6 +16,8 @@ import cliPkg from "../../package.json";
 import type { AssistantEntry } from "../lib/assistant-config.js";
 import * as assistantConfig from "../lib/assistant-config.js";
 import * as backupOps from "../lib/backup-ops.js";
+import type { GuardianTokenData } from "../lib/guardian-token.js";
+import * as guardianToken from "../lib/guardian-token.js";
 import * as local from "../lib/local.js";
 import * as loopbackFetch from "../lib/loopback-fetch.js";
 import * as ngrok from "../lib/ngrok.js";
@@ -23,6 +25,7 @@ import * as upgradeLifecycle from "../lib/upgrade-lifecycle.js";
 
 const realAssistantConfig = { ...assistantConfig };
 const realBackupOps = { ...backupOps };
+const realGuardianToken = { ...guardianToken };
 const realLocal = { ...local };
 const realLoopbackFetch = { ...loopbackFetch };
 const realNgrok = { ...ngrok };
@@ -65,6 +68,45 @@ mock.module("../lib/backup-ops.js", () => ({
   createBackup: createBackupMock,
   pruneOldBackups: pruneOldBackupsMock,
   restoreBackup: restoreBackupMock,
+}));
+
+function makeGuardianToken(
+  overrides: Partial<GuardianTokenData> = {},
+): GuardianTokenData {
+  const now = Date.now();
+  return {
+    guardianPrincipalId: "guardian-principal",
+    accessToken: "access-token",
+    accessTokenExpiresAt: new Date(now + 60_000).toISOString(),
+    refreshToken: "refresh-token",
+    refreshTokenExpiresAt: new Date(now + 3_600_000).toISOString(),
+    refreshAfter: new Date(now + 30_000).toISOString(),
+    isNew: false,
+    deviceId: "device-id",
+    leasedAt: new Date(now).toISOString(),
+    ...overrides,
+  };
+}
+
+const loadGuardianTokenMock = mock<typeof guardianToken.loadGuardianToken>(() =>
+  makeGuardianToken(),
+);
+const leaseGuardianTokenMock = mock<typeof guardianToken.leaseGuardianToken>(
+  async () => makeGuardianToken({ isNew: true }),
+);
+const resetGuardianBootstrapMock = mock<
+  typeof guardianToken.resetGuardianBootstrap
+>(async () => {});
+const seedGuardianTokenFromSiblingEnvMock = mock<
+  typeof guardianToken.seedGuardianTokenFromSiblingEnv
+>(() => false);
+
+mock.module("../lib/guardian-token.js", () => ({
+  ...realGuardianToken,
+  leaseGuardianToken: leaseGuardianTokenMock,
+  loadGuardianToken: loadGuardianTokenMock,
+  resetGuardianBootstrap: resetGuardianBootstrapMock,
+  seedGuardianTokenFromSiblingEnv: seedGuardianTokenFromSiblingEnvMock,
 }));
 
 const generateLocalSigningKeyMock = mock<typeof local.generateLocalSigningKey>(
@@ -205,6 +247,14 @@ beforeEach(() => {
   pruneOldBackupsMock.mockReturnValue(undefined);
   restoreBackupMock.mockReset();
   restoreBackupMock.mockResolvedValue(true);
+  loadGuardianTokenMock.mockReset();
+  loadGuardianTokenMock.mockReturnValue(makeGuardianToken());
+  leaseGuardianTokenMock.mockReset();
+  leaseGuardianTokenMock.mockResolvedValue(makeGuardianToken({ isNew: true }));
+  resetGuardianBootstrapMock.mockReset();
+  resetGuardianBootstrapMock.mockResolvedValue(undefined);
+  seedGuardianTokenFromSiblingEnvMock.mockReset();
+  seedGuardianTokenFromSiblingEnvMock.mockReturnValue(false);
   generateLocalSigningKeyMock.mockReset();
   generateLocalSigningKeyMock.mockReturnValue("generated-local-secret");
   ensureLocalRuntimeMock.mockReset();
@@ -253,6 +303,7 @@ afterEach(() => {
 afterAll(() => {
   mock.module("../lib/assistant-config", () => realAssistantConfig);
   mock.module("../lib/backup-ops.js", () => realBackupOps);
+  mock.module("../lib/guardian-token.js", () => realGuardianToken);
   mock.module("../lib/local.js", () => realLocal);
   mock.module("../lib/loopback-fetch.js", () => realLoopbackFetch);
   mock.module("../lib/ngrok.js", () => realNgrok);
@@ -360,6 +411,11 @@ describe("vellum upgrade local", () => {
         bootstrapSecret: "existing-bootstrap-secret",
       },
     );
+    expect(seedGuardianTokenFromSiblingEnvMock).toHaveBeenCalledWith(
+      "local-assistant",
+    );
+    expect(resetGuardianBootstrapMock).not.toHaveBeenCalled();
+    expect(leaseGuardianTokenMock).not.toHaveBeenCalled();
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7830,
       join(tempDir, ".vellum", "workspace"),
@@ -371,6 +427,42 @@ describe("vellum upgrade local", () => {
       expect.stringContaining("topology: local"),
     );
     expect(consoleLogSpy.mock.calls.flat().join("\n")).toContain("upgraded to");
+  });
+
+  test("re-provisions guardian token when the local token is missing after restart", async () => {
+    loadGuardianTokenMock.mockReturnValue(null);
+
+    await upgrade();
+
+    expect(resetGuardianBootstrapMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:7830",
+      "existing-bootstrap-secret",
+    );
+    expect(leaseGuardianTokenMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:7830",
+      "local-assistant",
+      "existing-bootstrap-secret",
+    );
+  });
+
+  test("re-provisions guardian token when the local refresh token is expired after restart", async () => {
+    loadGuardianTokenMock.mockReturnValue(
+      makeGuardianToken({
+        refreshTokenExpiresAt: new Date(Date.now() - 1_000).toISOString(),
+      }),
+    );
+
+    await upgrade();
+
+    expect(resetGuardianBootstrapMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:7830",
+      "existing-bootstrap-secret",
+    );
+    expect(leaseGuardianTokenMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:7830",
+      "local-assistant",
+      "existing-bootstrap-secret",
+    );
   });
 
   test("skips restart when the local assistant is already on the target version", async () => {

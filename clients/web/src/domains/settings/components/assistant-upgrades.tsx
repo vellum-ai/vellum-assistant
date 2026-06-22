@@ -16,6 +16,7 @@ import type {
   ReleaseListItem,
 } from "@/generated/api/types.gen";
 import { lifecycleService } from "@/assistant/lifecycle-service";
+import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { upgradeLocalAssistantHost } from "@/runtime/local-mode-host";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -430,6 +431,7 @@ export function LocalAssistantUpgrades({
           : `Successfully updated to version ${targetVersion ?? "latest"}.`,
       );
       toast.success("Update complete — assistant is healthy.");
+      clearGatewayToken();
       await lifecycleService.checkAssistant(assistantId);
       onUpgradeComplete?.();
     } catch (err) {
