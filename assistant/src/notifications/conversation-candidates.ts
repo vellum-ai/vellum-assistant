@@ -14,7 +14,7 @@ import { and, count, desc, eq, inArray, isNotNull } from "drizzle-orm";
 
 import { getDb } from "../memory/db-connection.js";
 import {
-  channelGuardianApprovalRequests,
+  canonicalGuardianRequests,
   conversations,
   notificationDecisions,
   notificationDeliveries,
@@ -205,24 +205,21 @@ function batchCountPendingByConversation(
 
     const rows = db
       .select({
-        conversationId: channelGuardianApprovalRequests.conversationId,
+        conversationId: canonicalGuardianRequests.conversationId,
         count: count(),
       })
-      .from(channelGuardianApprovalRequests)
+      .from(canonicalGuardianRequests)
       .where(
         and(
-          inArray(
-            channelGuardianApprovalRequests.conversationId,
-            conversationIds,
-          ),
-          eq(channelGuardianApprovalRequests.status, "pending"),
+          inArray(canonicalGuardianRequests.conversationId, conversationIds),
+          eq(canonicalGuardianRequests.status, "pending"),
         ),
       )
-      .groupBy(channelGuardianApprovalRequests.conversationId)
+      .groupBy(canonicalGuardianRequests.conversationId)
       .all();
 
     for (const row of rows) {
-      if (row.count > 0) {
+      if (row.conversationId && row.count > 0) {
         result.set(row.conversationId, row.count);
       }
     }

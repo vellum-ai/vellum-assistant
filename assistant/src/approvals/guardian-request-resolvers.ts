@@ -459,15 +459,11 @@ const pendingQuestionResolver: GuardianRequestResolver = {
  * Instead, they create identity-bound verification sessions so the requester
  * can prove their identity.
  *
- * This resolver directly mints the verification session on approve rather
- * than going through handleAccessRequestDecision -> resolveApprovalRequest,
- * because canonical requests have no legacy channel_guardian_approval_requests
- * row, making the resolveApprovalRequest step a no-op that returns 'stale'.
+ * On approve, the resolver mints the verification session directly.
  *
  * When a `channelDeliveryContext` is provided (channel path), the resolver
  * also delivers the verification code to the guardian, notifies the requester,
- * and emits lifecycle notification signals — mirroring the legacy
- * handleAccessRequestApproval side effects.
+ * and emits lifecycle notification signals.
  *
  * For deny: notifies the requester and emits denial lifecycle signals when
  * channelDeliveryContext is available.
