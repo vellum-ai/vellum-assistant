@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createRef } from "react";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
-import type { ChatAttachment } from "@/domains/chat/composer-store";
+import { type ChatAttachment, useComposerStore } from "@/domains/chat/composer-store";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
 import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
 
@@ -400,13 +400,22 @@ describe("computeGhostSuffix", () => {
 // ---------------------------------------------------------------------------
 
 afterEach(cleanup);
-beforeEach(resetLiveVoiceMocks);
+beforeEach(() => {
+  resetLiveVoiceMocks();
+  // The composer reads its draft from the store; clear it between tests so a
+  // seeded value can't leak across cases.
+  useComposerStore.setState({ input: "" });
+});
 
-function renderComposer(props: Partial<Parameters<typeof ChatComposer>[0]> = {}) {
+function renderComposer(
+  props: Partial<Parameters<typeof ChatComposer>[0]> & { input?: string } = {},
+) {
+  // The composer self-sources its draft from the store, so seed it there
+  // rather than passing it as a prop.
+  const { input = "", ...rest } = props;
+  useComposerStore.setState({ input });
   const { container } = render(
     <ChatComposer
-      input=""
-      setInput={() => {}}
       placeholder="Custom placeholder"
       onSubmit={() => {}}
       inputRef={createRef<HTMLTextAreaElement>()}
@@ -420,7 +429,7 @@ function renderComposer(props: Partial<Parameters<typeof ChatComposer>[0]> = {})
       onStopGenerating={() => {}}
       canStopGenerating={false}
       assistantId="asst_test"
-      {...props}
+      {...rest}
     />,
   );
   return container.innerHTML;
@@ -642,12 +651,12 @@ describe("Slash popup — SSR rendering", () => {
 
 /** Render the composer with the dictation voice props supplied. */
 function renderVoiceComposer(
-  props: Partial<Parameters<typeof ChatComposer>[0]> = {},
+  props: Partial<Parameters<typeof ChatComposer>[0]> & { input?: string } = {},
 ) {
+  const { input = "", ...rest } = props;
+  useComposerStore.setState({ input });
   return render(
     <ChatComposer
-      input=""
-      setInput={() => {}}
       onSubmit={() => {}}
       inputRef={createRef<HTMLTextAreaElement>()}
       typingDisabled={false}
@@ -663,7 +672,7 @@ function renderVoiceComposer(
       conversationId="conv_test"
       voiceInputRef={createRef<VoiceInputButtonHandle>()}
       onVoiceTranscript={() => {}}
-      {...props}
+      {...rest}
     />,
   );
 }

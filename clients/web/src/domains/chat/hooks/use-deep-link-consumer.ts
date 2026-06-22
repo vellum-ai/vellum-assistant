@@ -22,15 +22,15 @@ import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
  * - If non-empty, drop with a Sentry breadcrumb — refusing to
  *   overwrite the user's in-progress typing is the conservative
  *   call until we have telemetry to justify a "queue or prompt" UX.
- * - Runs on every render where `pendingComposerMessage` is non-null,
- *   so a deep link arriving WHILE `ChatPage` is already mounted is
- *   picked up on the next render. The Zustand selector re-renders
- *   the component when the slice changes.
+ * - Fires when `pendingComposerMessage` becomes non-null — the Zustand
+ *   atomic selector re-renders this hook's host when that slice changes, so a
+ *   deep link arriving WHILE `ChatPage` is already mounted is still picked up.
+ *   It deliberately does NOT subscribe to the composer draft (that would
+ *   re-render the host on every keystroke); the empty-check reads `getState()`.
  */
 
 export function useDeepLinkConsumer(): void {
   const pending = usePendingDeepLinkStore.use.pendingComposerMessage();
-  const input = useComposerStore.use.input();
 
   useEffect(() => {
     if (pending === null) return;
@@ -38,7 +38,10 @@ export function useDeepLinkConsumer(): void {
       .getState()
       .consumePendingComposerMessage();
     if (consumed === null) return;
-    if (input.trim().length > 0) {
+    // Read the draft imperatively — this is a one-shot decision when a link
+    // arrives, not something to re-run on every keystroke, so we must NOT
+    // subscribe to `input` (that would re-render this hook's host per keypress).
+    if (useComposerStore.getState().input.trim().length > 0) {
       Sentry.addBreadcrumb({
         category: "deeplink",
         level: "info",
@@ -48,5 +51,5 @@ export function useDeepLinkConsumer(): void {
       return;
     }
     useComposerStore.getState().setInput(consumed);
-  }, [pending, input]);
+  }, [pending]);
 }

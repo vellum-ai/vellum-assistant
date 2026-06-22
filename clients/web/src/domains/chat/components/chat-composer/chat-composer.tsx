@@ -1,10 +1,8 @@
 import { ArrowUp, Square } from "lucide-react";
 import {
-    type Dispatch,
     type FormEvent,
     type ReactNode,
     type RefObject,
-    type SetStateAction,
     useCallback,
     useEffect,
     useLayoutEffect,
@@ -18,7 +16,7 @@ import {
     AttachFileButton,
     ChatAttachmentsStrip,
 } from "@/domains/chat/components/chat-attachments/chat-attachments";
-import { type ChatAttachment } from "@/domains/chat/composer-store";
+import { type ChatAttachment, useComposerStore } from "@/domains/chat/composer-store";
 import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
 import { LiveVoiceButton } from "@/domains/chat/components/live-voice-button";
 import {
@@ -56,9 +54,14 @@ import { SlashCommandPopup } from "@/domains/chat/components/chat-composer/slash
 import { useTextPopup } from "@/domains/chat/components/chat-composer/use-text-popup";
 
 /**
- * Controlled composer used at the bottom of the chat (main variant) and inside
- * the app-editing split layout. The two call sites previously inlined the
- * composer JSX; this component is the consolidated version.
+ * Composer used at the bottom of the chat (main variant) and inside the
+ * app-editing split layout.
+ *
+ * The draft text is the only high-frequency state here, so the composer
+ * subscribes to it directly from `composer-store` via atomic selectors (per
+ * `docs/STATE_MANAGEMENT.md`) rather than receiving it as a prop. That keeps a
+ * keystroke from re-rendering the orchestrator and the transcript above it —
+ * only this component re-renders as you type.
  *
  * The optional slots/voice props exist because the app-editing variant does
  * NOT render a voice button, threshold picker, context-window indicator, or
@@ -66,15 +69,6 @@ import { useTextPopup } from "@/domains/chat/components/chat-composer/use-text-p
  * those as `undefined` keeps the app-editing layout byte-identical.
  */
 export interface ChatComposerProps {
-  // text + form
-  input: string;
-  /**
-   * Accepts both a plain setter (`setInput("foo")`) and the React-state
-   * updater form (`setInput((current) => …)`). The voice transcript handler
-   * relies on the updater form; the rest of the composer only writes plain
-   * strings.
-   */
-  setInput: Dispatch<SetStateAction<string>>;
   placeholder?: string;
   onSubmit: (event: FormEvent) => void;
   inputRef: RefObject<HTMLTextAreaElement | null>;
@@ -150,8 +144,6 @@ export interface ChatComposerProps {
 }
 
 export function ChatComposer({
-  input,
-  setInput,
   placeholder = "What would you like to do?",
   onSubmit,
   inputRef,
@@ -182,6 +174,12 @@ export function ChatComposer({
   onRecallLastMessage,
   onCancelEdit,
 }: ChatComposerProps) {
+  // Draft text is owned by the composer store; subscribing here (rather than
+  // receiving it as a prop) means a keystroke re-renders only this component,
+  // not the orchestrator or the transcript above it.
+  const input = useComposerStore.use.input();
+  const setInput = useComposerStore.use.setInput();
+
   const voicePhase = useVoiceRecordingStore.use.phase();
   const isVoiceActive = voicePhase === "recording" || voicePhase === "processing";
   // Holds the MediaStream opened by VoiceInputButton so we can reuse it for

@@ -183,8 +183,11 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Store reads — composer
   // -------------------------------------------------------------------------
-  const input = useComposerStore.use.input();
-  const setInput = useComposerStore.use.setInput();
+  // Draft text is subscribed by `ChatComposer` itself (atomic selector) so a
+  // keystroke doesn't re-render this orchestrator or the transcript. The only
+  // thing this component needs from the draft is whether it's non-empty, which
+  // flips at most once per typing session — read it as its own narrow slice.
+  const composerHasText = useComposerStore((s) => s.input.trim().length > 0);
   const restoredDraftConversationId = useComposerStore.use.restoredDraftConversationId();
   const chatAttachments = useComposerStore.use.attachments();
   const attachmentLastError = useComposerStore.use.attachmentLastError();
@@ -243,7 +246,7 @@ export function ChatMainPanel({
     handlePrimerCancel,
     handleRetryMicPermission,
     handleOpenMicSettings,
-  } = useVoiceInput({ assistantId, inputRef, setInput });
+  } = useVoiceInput({ assistantId, inputRef });
 
 
 
@@ -361,13 +364,13 @@ export function ChatMainPanel({
 
   const handleRecallLastMessage = useCallback(() => {
     const content = startEditing();
-    if (content !== null) setInput(content);
-  }, [startEditing, setInput]);
+    if (content !== null) useComposerStore.getState().setInput(content);
+  }, [startEditing]);
 
   const handleCancelEdit = useCallback(() => {
     cancelEditing();
-    setInput("");
-  }, [cancelEditing, setInput]);
+    useComposerStore.getState().setInput("");
+  }, [cancelEditing]);
 
   // -------------------------------------------------------------------------
   // Nudges + ghost text
@@ -456,7 +459,7 @@ export function ChatMainPanel({
         message={error.message}
         onClose={() => {
           if (typeof error.restoreContent === "string") {
-            setInput(error.restoreContent);
+            useComposerStore.getState().setInput(error.restoreContent);
           }
           useChatSessionStore.getState().setError(null);
         }}
@@ -496,7 +499,7 @@ export function ChatMainPanel({
 
   const showUploadBlockedNotice =
     attachmentsUploadingCount > 0 &&
-    (input.trim().length > 0 || attachmentUploadedIds.length > 0);
+    (composerHasText || attachmentUploadedIds.length > 0);
 
   const showRestoredDraftNotice =
     restoredDraftConversationId !== null &&
@@ -614,9 +617,9 @@ export function ChatMainPanel({
   });
 
   const handleSelectStarter = useCallback((starter: { prompt: string }) => {
-    setInput(starter.prompt);
+    useComposerStore.getState().setInput(starter.prompt);
     void submitMessage(starter.prompt);
-  }, [setInput, submitMessage]);
+  }, [submitMessage]);
 
   // -------------------------------------------------------------------------
   // Rule editor bridge (viewer-store seq → rule editor open)
@@ -756,8 +759,6 @@ export function ChatMainPanel({
   const cmdEnterMode = cmdEnterToSend.useValue();
 
   const chatBodyComposerProps = {
-    input,
-    setInput,
     cmdEnterMode,
     placeholder: isEmptyConversation
       ? emptyStatePlaceholder
