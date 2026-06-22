@@ -294,6 +294,110 @@ describe("resolveOAuthConnection", () => {
   });
 });
 
+describe("resolveOAuthConnection scope-awareness", () => {
+  const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+  const CALENDAR_ONLY = [
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/userinfo.email",
+  ];
+  const FULL_BUNDLE = [GMAIL_SCOPE, ...CALENDAR_ONLY];
+
+  function clientReturning(results: unknown[]) {
+    return {
+      ...makeMockClient(),
+      fetch: mock(
+        async () => new Response(JSON.stringify({ results }), { status: 200 }),
+      ),
+    };
+  }
+
+  beforeEach(() => {
+    setupDefaults();
+    mockProvider!.managedServiceConfigKey = "google-oauth";
+  });
+
+  test("managed: rejects a Calendar-only connection when Gmail scope is required", async () => {
+    mockPlatformClient = clientReturning([
+      { id: "cal-only", account_label: null, scopes_granted: CALENDAR_ONLY },
+    ]);
+
+    await expect(
+      resolveOAuthConnection("google", { requiredScopes: [GMAIL_SCOPE] }),
+    ).rejects.toThrow(/missing required access.*gmail\.readonly/s);
+  });
+
+  test("managed: resolves when a connection carries the required Gmail scope", async () => {
+    mockPlatformClient = clientReturning([
+      { id: "full", account_label: null, scopes_granted: FULL_BUNDLE },
+    ]);
+
+    const result = await resolveOAuthConnection("google", {
+      requiredScopes: [GMAIL_SCOPE],
+    });
+    expect(result).toBeInstanceOf(PlatformOAuthConnection);
+  });
+
+  test("managed: unknown scope data never blocks (back-compat)", async () => {
+    // Older connections report no scopes_granted — must not be rejected.
+    mockPlatformClient = clientReturning([
+      { id: "legacy", account_label: null },
+    ]);
+
+    const result = await resolveOAuthConnection("google", {
+      requiredScopes: [GMAIL_SCOPE],
+    });
+    expect(result).toBeInstanceOf(PlatformOAuthConnection);
+  });
+
+  test("managed: prefers a scope-satisfying connection over a narrow one", async () => {
+    const fullClient = clientReturning([
+      { id: "cal-only", account_label: null, scopes_granted: CALENDAR_ONLY },
+      { id: "full", account_label: null, scopes_granted: FULL_BUNDLE },
+    ]);
+    mockPlatformClient = fullClient;
+
+    const result = await resolveOAuthConnection("google", {
+      requiredScopes: [GMAIL_SCOPE],
+    });
+    expect(result).toBeInstanceOf(PlatformOAuthConnection);
+    // PlatformOAuthConnection is keyed by provider, so assert resolution
+    // succeeded (it would have thrown if only the narrow connection matched).
+    expect(result.provider).toBe("google");
+  });
+
+  test("managed: no requiredScopes preserves prior behavior", async () => {
+    mockPlatformClient = clientReturning([
+      { id: "cal-only", account_label: null, scopes_granted: CALENDAR_ONLY },
+    ]);
+
+    const result = await resolveOAuthConnection("google");
+    expect(result).toBeInstanceOf(PlatformOAuthConnection);
+  });
+
+  test("BYO: rejects when granted scopes are known and missing the requirement", async () => {
+    (mockConfig.services as Record<string, unknown>)["google-oauth"] = {
+      mode: "your-own",
+    };
+    mockConnection!.grantedScopes = JSON.stringify(CALENDAR_ONLY);
+
+    await expect(
+      resolveOAuthConnection("google", { requiredScopes: [GMAIL_SCOPE] }),
+    ).rejects.toThrow(/missing required access/);
+  });
+
+  test("BYO: unknown granted scopes never block", async () => {
+    (mockConfig.services as Record<string, unknown>)["google-oauth"] = {
+      mode: "your-own",
+    };
+    mockConnection!.grantedScopes = JSON.stringify([]);
+
+    const result = await resolveOAuthConnection("google", {
+      requiredScopes: [GMAIL_SCOPE],
+    });
+    expect(result).toBeInstanceOf(BYOOAuthConnection);
+  });
+});
+
 describe("resolveEffectiveBaseUrl", () => {
   const fallback = "https://login.salesforce.com";
 

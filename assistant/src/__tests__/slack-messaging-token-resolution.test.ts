@@ -244,8 +244,12 @@ describe("Slack messaging token resolution", () => {
 
       const result = await getProviderConnection(gmailMessagingProvider);
       expect(result).toBe(oauthConn);
+      // Gmail forwards its requiredScopes so a narrowly-scoped (e.g.
+      // Calendar-only) Google connection is rejected at resolution time
+      // instead of 403-ing on the first Gmail API call.
       expect(resolveOAuthConnectionMock).toHaveBeenCalledWith("google", {
         account: undefined,
+        requiredScopes: gmailMessagingProvider.requiredScopes,
       });
     });
   });

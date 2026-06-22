@@ -12,6 +12,7 @@ import { getConnectionAccessTokenResult } from "./credential-token-resolver.js";
 import { syncManualTokenConnection } from "./manual-token-connection.js";
 import { getActiveConnection, getProvider } from "./oauth-store.js";
 import { PlatformOAuthConnection } from "./platform-connection.js";
+import { scopeDifference } from "./scope-utils.js";
 
 const log = getLogger("connection-resolver");
 
@@ -23,6 +24,17 @@ export interface ResolveOAuthConnectionOptions {
    *  accounts are connected for the same provider. Best-effort: not guaranteed
    *  to be present on all connections. */
   account?: string;
+  /**
+   * Scopes the caller needs the connection to actually carry. A single provider
+   * key can bundle several products behind one OAuth app (notably Google: Gmail
+   * + Calendar + Drive), and a connection may have been granted only a subset.
+   * When set, resolution prefers a connection whose granted scopes cover these,
+   * and fails with an actionable "reconnect to grant X" error — instead of
+   * returning a token that 403s downstream — when the only active connection(s)
+   * positively lack a required scope. Scope data that is simply unknown never
+   * blocks (see {@link selectConnectionByScopes}).
+   */
+  requiredScopes?: string[];
 }
 
 /**
@@ -46,7 +58,7 @@ export async function resolveOAuthConnection(
   provider: string,
   options?: ResolveOAuthConnectionOptions,
 ): Promise<OAuthConnection> {
-  const { clientId, account } = options ?? {};
+  const { clientId, account, requiredScopes } = options ?? {};
   const providerRow = getProvider(provider);
   const managedKey = providerRow?.managedServiceConfigKey;
 
@@ -68,6 +80,7 @@ export async function resolveOAuthConnection(
         client,
         provider,
         account,
+        requiredScopes,
       });
 
       return new PlatformOAuthConnection({
@@ -99,6 +112,20 @@ export async function resolveOAuthConnection(
     throw new Error(
       `No active OAuth connection found for "${provider}"${qualifier}. The ${provider} service needs to be connected before it can be used.`,
     );
+  }
+
+  // Scope guard: if the caller needs specific scopes and this connection
+  // positively lacks them (its granted-scope set is known and missing one),
+  // fail with an actionable error rather than returning a token that 403s
+  // downstream. Unknown scope data (empty set) never blocks.
+  if (requiredScopes?.length) {
+    const granted = parseGrantedScopes(conn.grantedScopes);
+    if (granted.length > 0) {
+      const missing = scopeDifference(requiredScopes, granted);
+      if (missing.length > 0) {
+        throw new Error(missingScopesMessage(provider, missing));
+      }
+    }
   }
 
   const tokenResult = await getConnectionAccessTokenResult({
@@ -188,11 +215,15 @@ interface ResolvePlatformConnectionIdOptions {
   client: VellumPlatformClient;
   provider: string;
   account?: string;
+  requiredScopes?: string[];
 }
 
 interface PlatformConnectionEntry {
   id: string;
   account_label?: string | null;
+  /** Scopes the platform actually granted this connection. May be absent for
+   *  older connections or providers that don't report scopes. */
+  scopes_granted?: string[] | null;
 }
 
 /**
@@ -241,7 +272,7 @@ async function fetchPlatformConnections(options: {
 async function resolvePlatformConnectionId(
   options: ResolvePlatformConnectionIdOptions,
 ): Promise<string> {
-  const { client, provider, account } = options;
+  const { client, provider, account, requiredScopes } = options;
 
   let connections = await fetchPlatformConnections({
     client,
@@ -268,15 +299,32 @@ async function resolvePlatformConnectionId(
     );
   }
 
-  if (connections.length > 1 && !account) {
-    const allAccounts = connections
-      .map((c) => c.account_label ?? c.id)
-      .join(", ");
+  // Narrow to connections that actually carry the scopes the caller needs.
+  // This is what keeps a narrowly-scoped Google connection (e.g. Calendar-only,
+  // created by the onboarding check-in flow) from being resolved as a full
+  // Gmail connection and 403-ing on the first Gmail API call.
+  const selection = selectConnectionByScopes(connections, requiredScopes ?? []);
+  if (selection.kind === "missing-scopes") {
     log.warn(
       {
         provider,
         count: connections.length,
-        selectedId: connections[0].id,
+        requiredScopes,
+        missingScopes: selection.missingScopes,
+      },
+      "Active platform connection(s) found but none carry the required scopes",
+    );
+    throw new Error(missingScopesMessage(provider, selection.missingScopes));
+  }
+
+  const eligible = selection.connections;
+  if (eligible.length > 1 && !account) {
+    const allAccounts = eligible.map((c) => c.account_label ?? c.id).join(", ");
+    log.warn(
+      {
+        provider,
+        count: eligible.length,
+        selectedId: eligible[0].id,
         allAccounts,
       },
       "Multiple active platform connections found; using the most recently created. " +
@@ -284,5 +332,84 @@ async function resolvePlatformConnectionId(
     );
   }
 
-  return connections[0].id;
+  return eligible[0].id;
+}
+
+type ScopeSelection =
+  | { kind: "ok"; connections: PlatformConnectionEntry[] }
+  | { kind: "missing-scopes"; missingScopes: string[] };
+
+/**
+ * Choose the connections eligible to serve a request needing `requiredScopes`.
+ *
+ * Scope data from the platform can be absent (older connections, providers that
+ * don't report granted scopes). We only ever REJECT a connection when we can
+ * positively see its granted-scope set AND that set is missing a required
+ * scope — never when scope data is simply unknown. This keeps the check from
+ * breaking existing working connections while still catching the real failure
+ * mode: a narrowly-scoped connection masquerading as a fully-capable one.
+ *
+ * Eligible connections are returned scope-satisfying first, then scope-unknown,
+ * preserving the platform's most-recent-first ordering within each group.
+ */
+function selectConnectionByScopes(
+  connections: PlatformConnectionEntry[],
+  requiredScopes: string[],
+): ScopeSelection {
+  if (requiredScopes.length === 0) {
+    return { kind: "ok", connections };
+  }
+
+  const satisfying: PlatformConnectionEntry[] = [];
+  const scopeUnknown: PlatformConnectionEntry[] = [];
+  const missingPerConnection: string[][] = [];
+
+  for (const conn of connections) {
+    const granted = conn.scopes_granted ?? [];
+    if (granted.length === 0) {
+      // Unknown scope coverage — don't block on it.
+      scopeUnknown.push(conn);
+      continue;
+    }
+    const missing = scopeDifference(requiredScopes, granted);
+    if (missing.length === 0) {
+      satisfying.push(conn);
+    } else {
+      missingPerConnection.push(missing);
+    }
+  }
+
+  const eligible = [...satisfying, ...scopeUnknown];
+  if (eligible.length > 0) {
+    return { kind: "ok", connections: eligible };
+  }
+
+  // Every active connection positively lacks a required scope.
+  const missingScopes = Array.from(new Set(missingPerConnection.flat()));
+  return { kind: "missing-scopes", missingScopes };
+}
+
+/** Best-effort parse of a connection row's JSON-encoded granted-scopes column. */
+function parseGrantedScopes(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((s): s is string => typeof s === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Actionable error shown when a connection is missing required scopes. */
+function missingScopesMessage(
+  provider: string,
+  missingScopes: string[],
+): string {
+  return (
+    `Your ${provider} account is connected but is missing required access ` +
+    `(${missingScopes.join(", ")}). Reconnect ${provider} and grant the ` +
+    `missing permission to continue.`
+  );
 }
