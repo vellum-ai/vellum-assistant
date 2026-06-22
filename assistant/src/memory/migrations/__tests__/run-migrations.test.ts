@@ -375,8 +375,10 @@ describe("runMigrationSteps — checkpointing", () => {
 
     await runMigrationSteps(db, steps);
 
-    // The 'started' marker was visible during the async step's execution
-    expect(markerSeenDuringAwait).toBe("started");
+    // The 'started' marker was visible during the async step's execution.
+    // Cast to undo TS control-flow narrowing — the closure mutates this
+    // during runMigrationSteps, but TS can't see that.
+    expect(markerSeenDuringAwait as string | null).toBe("started");
 
     // After completion, the checkpoint is '1'
     const final = raw
