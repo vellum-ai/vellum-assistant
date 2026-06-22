@@ -11,7 +11,7 @@
  * proxy-signed request before the handler runs.
  */
 
-import { eq } from "drizzle-orm";
+import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { createGuardianBinding } from "../../auth/guardian-bootstrap.js";
@@ -54,7 +54,12 @@ export async function findGuardian(): Promise<
     getGatewayDb()
       .select({ id: gwContacts.id, principalId: gwContacts.principalId })
       .from(gwContacts)
-      .where(eq(gwContacts.role, "guardian"))
+      // Skip principal-less guardian stubs (e.g. created by the gateway-first
+      // contact-prompt path before bootstrap); pick the oldest real guardian.
+      .where(
+        and(eq(gwContacts.role, "guardian"), isNotNull(gwContacts.principalId)),
+      )
+      .orderBy(asc(gwContacts.createdAt))
       .limit(1)
       .get() ?? null;
 
