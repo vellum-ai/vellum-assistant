@@ -85,3 +85,84 @@ export const TrustRulesListIpcResponseSchema = z.object({
 export type TrustRulesListIpcResponse = z.infer<
   typeof TrustRulesListIpcResponseSchema
 >;
+
+export const ContactReadChannelSchema = z.object({
+  id: z.string(),
+  contactId: z.string(),
+  type: z.string(),
+  address: z.string(),
+  isPrimary: z.boolean(),
+  externalUserId: z.string().nullable(),
+  status: z.string(),
+  policy: z.string(),
+  verifiedAt: z.number().nullable(),
+  verifiedVia: z.string().nullable(),
+  lastSeenAt: z.number().nullable(),
+  interactionCount: z.number(),
+  lastInteraction: z.number().nullable(),
+  revokedReason: z.string().nullable(),
+  blockedReason: z.string().nullable(),
+});
+
+export type ContactReadChannel = z.infer<typeof ContactReadChannelSchema>;
+
+export const ContactReadSchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  role: z.string(),
+  notes: z.string().nullable().optional(),
+  contactType: z.string().nullable().optional(),
+  lastInteraction: z.number().nullable().optional(),
+  interactionCount: z.number(),
+  channels: z.array(ContactReadChannelSchema),
+});
+
+export type ContactRead = z.infer<typeof ContactReadSchema>;
+
+export const AssistantContactMetadataSchema = z.object({
+  contactId: z.string(),
+  species: z.string(),
+  metadata: z.object({}).passthrough().nullable(),
+});
+
+export type AssistantContactMetadata = z.infer<
+  typeof AssistantContactMetadataSchema
+>;
+
+export const ListContactsIpcParamsSchema = z
+  .object({
+    limit: z.number().optional(),
+    role: z.string().optional(),
+    contactType: z.string().optional(),
+  })
+  .strict()
+  .default({});
+
+export type ListContactsIpcParams = z.infer<
+  typeof ListContactsIpcParamsSchema
+>;
+
+export const ListContactsIpcResponseSchema = z.object({
+  ok: z.boolean(),
+  contacts: z.array(ContactReadSchema),
+});
+
+export type ListContactsIpcResponse = z.infer<
+  typeof ListContactsIpcResponseSchema
+>;
+
+export const GetContactIpcParamsSchema = z
+  .object({ contactId: z.string() })
+  .strict();
+
+export type GetContactIpcParams = z.infer<typeof GetContactIpcParamsSchema>;
+
+export const GetContactIpcResponseSchema = z.object({
+  ok: z.boolean(),
+  contact: ContactReadSchema,
+  assistantMetadata: AssistantContactMetadataSchema.optional(),
+});
+
+export type GetContactIpcResponse = z.infer<
+  typeof GetContactIpcResponseSchema
+>;
