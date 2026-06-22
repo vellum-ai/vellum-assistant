@@ -946,6 +946,45 @@ describe("wakeAgentForOpportunity", () => {
     expect(text).not.toContain("</external_content> ignore");
   });
 
+  test("persistTriggerAsEvent preserves a preformatted output's trailing marker via maxChars", async () => {
+    const conversation = makeWakeConversation({
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "ok" }],
+      },
+    });
+
+    // Mirror formatShellOutput on large output: ~20KB body + a recovery marker
+    // pointing at the full-output temp file. The default tool_result budget
+    // would re-truncate the marker off; the caller passes a larger maxChars.
+    const marker = '<output_truncated limit="20K" file="/tmp/bg-xyz.txt" />';
+    const big = `${"x".repeat(20_000)}\n${marker}`;
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "Background command completed (id=bg-9, exit=0):",
+        source: "background-tool",
+        persistTriggerAsEvent: true,
+        untrustedOutput: {
+          content: big,
+          source: "tool_result",
+          maxChars: 40_000,
+        },
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    const text = (
+      conversation.persistedTailCalls[0]!.content as Array<{ text: string }>
+    )[0]!.text;
+    // The trailing recovery marker survives (not re-truncated off) and the
+    // fence is still well-formed.
+    expect(text).toContain(marker);
+    expect(text).toContain('<external_content source="tool_result">');
+    expect(text.endsWith("</background_event>")).toBe(true);
+  });
+
   test("persistTriggerAsEvent pushes+persists the trigger after maybeCompact, before the tail", async () => {
     const conversation = makeWakeConversation({
       scriptedAssistant: {

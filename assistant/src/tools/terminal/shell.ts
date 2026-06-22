@@ -24,7 +24,10 @@ import {
   getSessionEnv,
 } from "../network/script-proxy/index.js";
 import { registerTool } from "../registry.js";
-import { formatShellOutput } from "../shared/shell-output.js";
+import {
+  formatShellOutput,
+  MAX_OUTPUT_LENGTH,
+} from "../shared/shell-output.js";
 import type {
   ProxyEnvVars,
   ToolContext,
@@ -415,6 +418,9 @@ export const shellTool = {
           untrustedOutput: {
             content: fmtResult.content,
             source: "tool_result",
+            // Already bounded + recovery-marked by formatShellOutput; a larger
+            // budget keeps wrapUntrustedContent from re-truncating the marker.
+            maxChars: MAX_OUTPUT_LENGTH * 2,
           },
         });
       });

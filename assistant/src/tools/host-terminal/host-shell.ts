@@ -35,7 +35,10 @@ import {
   registerBackgroundTool,
   removeBackgroundTool,
 } from "../background-tool-registry.js";
-import { formatShellOutput } from "../shared/shell-output.js";
+import {
+  formatShellOutput,
+  MAX_OUTPUT_LENGTH,
+} from "../shared/shell-output.js";
 import { buildSanitizedEnv } from "../terminal/safe-env.js";
 import type {
   ToolContext,
@@ -307,6 +310,8 @@ export const hostShellTool = {
               untrustedOutput: {
                 content: result.content || "(no output)",
                 source: "tool_result",
+                // Preserve formatShellOutput's recovery marker (see shell.ts).
+                maxChars: MAX_OUTPUT_LENGTH * 2,
               },
             });
           })
@@ -457,6 +462,8 @@ export const hostShellTool = {
           untrustedOutput: {
             content: result.content || "(no output)",
             source: "tool_result",
+            // Preserve formatShellOutput's recovery marker (see shell.ts).
+            maxChars: MAX_OUTPUT_LENGTH * 2,
           },
         });
         removeBackgroundTool(bgId);

@@ -120,6 +120,19 @@ function sanitizeEventAttr(value: string): string {
 }
 
 /**
+ * Untrusted third-party output to fence inside a persisted wake trigger via
+ * {@link wrapUntrustedContent}. `maxChars` overrides the per-source character
+ * budget — used for preformatted shell output that `formatShellOutput` already
+ * bounded (to `MAX_OUTPUT_LENGTH`) and appended an `<output_truncated file=…/>`
+ * recovery marker to, so the wrapper does not re-truncate that marker off.
+ */
+interface WakeUntrustedOutput {
+  content: string;
+  source: UntrustedContentSource;
+  maxChars?: number;
+}
+
+/**
  * Build the text for a persisted wake-trigger message: a `<background_event>`
  * wrapper carrying the trusted framing, with any untrusted command output
  * fenced in an `<external_content>` block the model is instructed never to
@@ -130,11 +143,12 @@ function sanitizeEventAttr(value: string): string {
 function buildBackgroundEventText(
   source: string,
   framing: string,
-  untrustedOutput?: { content: string; source: UntrustedContentSource },
+  untrustedOutput?: WakeUntrustedOutput,
 ): string {
   const body = untrustedOutput
     ? `${framing}\n${wrapUntrustedContent(untrustedOutput.content, {
         source: untrustedOutput.source,
+        maxChars: untrustedOutput.maxChars,
       })}`
     : framing;
   return `<background_event source="${sanitizeEventAttr(source)}">\n${body}\n</background_event>`;
@@ -302,7 +316,7 @@ export interface WakeOptions {
    * consulted when `persistTriggerAsEvent` is set; `hint` stays the trusted
    * framing outside the fence.
    */
-  untrustedOutput?: { content: string; source: UntrustedContentSource };
+  untrustedOutput?: WakeUntrustedOutput;
 }
 
 /**

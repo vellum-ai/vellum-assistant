@@ -254,6 +254,7 @@ describe("host_bash background mode — proxy path", () => {
     expect(wakeCall.untrustedOutput).toEqual({
       content: "proxy success output",
       source: "tool_result",
+      maxChars: 40_000,
     });
     expect(wakeCall.source).toBe("background-tool");
   });
@@ -282,6 +283,7 @@ describe("host_bash background mode — proxy path", () => {
     expect(wakeCall.untrustedOutput).toEqual({
       content: "command not found",
       source: "tool_result",
+      maxChars: 40_000,
     });
   });
 
