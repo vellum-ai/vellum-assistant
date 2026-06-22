@@ -619,6 +619,78 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles["custom-balanced"].provider).toBe("openai");
   });
 
+  test("hatch overlay active profile must be dispatchable to be preserved", () => {
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: { provider: "anthropic", model: "claude-opus-4-7" },
+            profiles: {
+              placeholder: { label: "Placeholder" },
+            },
+            profileOrder: ["placeholder"],
+            activeProfile: "placeholder",
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles.placeholder).toBeUndefined();
+    expect(raw.llm.profileOrder).not.toContain("placeholder");
+    expect(raw.llm.activeProfile).toBe("custom-balanced");
+  });
+
+  test("boot removes non-dispatchable profile references", () => {
+    writeConfig({
+      llm: {
+        default: { provider: "anthropic", model: "claude-opus-4-7" },
+        profiles: {
+          placeholder: { label: "Placeholder" },
+          pinned: {
+            provider: "anthropic",
+            model: "claude-opus-4-7",
+          },
+          blend: {
+            mix: [
+              { profile: "placeholder", weight: 1 },
+              { profile: "pinned", weight: 1 },
+            ],
+          },
+        },
+        profileOrder: ["placeholder", "blend", "pinned"],
+        activeProfile: "blend",
+        advisorProfile: "placeholder",
+        callSites: {
+          commitMessage: {
+            profile: "placeholder",
+            maxTokens: 256,
+          },
+        },
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles.placeholder).toBeUndefined();
+    expect(raw.llm.profiles.blend).toBeUndefined();
+    expect(raw.llm.profiles.pinned.provider).toBe("anthropic");
+    expect(raw.llm.profileOrder).not.toContain("placeholder");
+    expect(raw.llm.profileOrder).not.toContain("blend");
+    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.advisorProfile).toBe("frontier");
+    expect(raw.llm.callSites.commitMessage.profile).toBeUndefined();
+    expect(raw.llm.callSites.commitMessage.maxTokens).toBe(256);
+  });
+
   test("preserves user-supplied non-catalog model on every restart (ollama custom model)", () => {
     // Models the ollama case: catalog lists only `llama3.2` but the user has
     // pulled `codellama`. The seeder must NOT silently overwrite their pick.

@@ -11,6 +11,7 @@ import type { ModelIntent } from "../providers/types.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getLogger } from "../util/logger.js";
 import { loadRawConfig, saveRawConfig } from "./loader.js";
+import { isDispatchableProfile } from "./profile-dispatchability.js";
 import {
   DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
   type ProfileEntry,
@@ -189,6 +190,7 @@ export const MANAGED_PROFILE_NAMES = new Set([
 // predate ownership metadata — migration 052 seeded them source-less — so they
 // are NOT listed here and always reseed, even when source is absent.
 const NEWLY_RESERVED_MANAGED_NAMES = new Set(["frontier"]);
+const MIX_MIN_ARMS = 2;
 
 export type SeedInferenceProfilesOptions = {
   /**
@@ -407,6 +409,8 @@ export function seedInferenceProfiles(
     }
   }
 
+  pruneNonDispatchableProfiles(llm, profiles);
+
   // Active profile resolution.
   const requestedActiveProfile = readString(llm.activeProfile);
   const requestedActiveEntry =
@@ -501,6 +505,77 @@ export function readObject(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function pruneNonDispatchableProfiles(
+  llm: Record<string, unknown>,
+  profiles: Record<string, Record<string, unknown>>,
+): void {
+  const removed = new Set<string>();
+  for (const [name, profile] of Object.entries(profiles)) {
+    if (!isDispatchableProfile(profile)) {
+      delete profiles[name];
+      removed.add(name);
+    }
+  }
+  pruneRemovedProfileReferences(llm, profiles, removed);
+}
+
+function pruneRemovedProfileReferences(
+  llm: Record<string, unknown>,
+  profiles: Record<string, Record<string, unknown>>,
+  removed: Set<string>,
+): void {
+  if (removed.size === 0) return;
+
+  let cascading = true;
+  while (cascading) {
+    cascading = false;
+    for (const [name, profile] of Object.entries(profiles)) {
+      if (removed.has(name)) continue;
+      if (!Array.isArray(profile.mix)) continue;
+      const arms = profile.mix as unknown[];
+      const kept = arms.filter((arm) => {
+        const armProfile = readObject(arm)?.profile;
+        return typeof armProfile !== "string" || !removed.has(armProfile);
+      });
+      if (kept.length === arms.length) continue;
+      if (kept.length >= MIX_MIN_ARMS) {
+        profile.mix = kept;
+      } else {
+        delete profiles[name];
+        removed.add(name);
+      }
+      cascading = true;
+    }
+  }
+
+  if (Array.isArray(llm.profileOrder)) {
+    llm.profileOrder = (llm.profileOrder as unknown[]).filter(
+      (name) => typeof name !== "string" || !removed.has(name),
+    );
+  }
+
+  if (
+    typeof llm.advisorProfile === "string" &&
+    removed.has(llm.advisorProfile)
+  ) {
+    delete llm.advisorProfile;
+  }
+
+  const callSites = readObject(llm.callSites);
+  if (callSites) {
+    for (const entry of Object.values(callSites)) {
+      const site = readObject(entry);
+      if (
+        site &&
+        typeof site.profile === "string" &&
+        removed.has(site.profile)
+      ) {
+        delete site.profile;
+      }
+    }
+  }
 }
 
 function readString(value: unknown): string | undefined {

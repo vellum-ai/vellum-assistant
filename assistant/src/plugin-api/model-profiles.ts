@@ -1,4 +1,5 @@
 import { getConfig } from "../config/loader.js";
+import { isDispatchableProfile } from "../config/profile-dispatchability.js";
 import { orderProfileKeys } from "../config/profile-order.js";
 import type { ModelProfileInfo } from "./types.js";
 
@@ -33,12 +34,4 @@ export function getModelProfiles(): ModelProfileInfo[] {
     });
   }
   return result;
-}
-
-function isDispatchableProfile(entry: {
-  provider?: unknown;
-  model?: unknown;
-  mix?: unknown;
-}): boolean {
-  return entry.provider != null || entry.model != null || entry.mix != null;
 }
