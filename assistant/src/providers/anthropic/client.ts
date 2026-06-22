@@ -1022,15 +1022,23 @@ export class AnthropicProvider implements Provider {
       }
 
       // Advancing tail: place a short-lived 5m cache breakpoint on the last
-      // block of the last message when it falls after the turn-starting user
-      // message (i.e. tool-use loop content). This caches the growing tail
-      // cheaply without conflicting with the 1h breakpoints above.
-      // Skip thinking/redacted_thinking blocks — Anthropic doesn't allow
+      // block of the last message. This caches the growing tail cheaply
+      // without conflicting with the 1h breakpoints above. It fires during
+      // tool-use loops (the tail falls after the turn-starting user message)
+      // and also on a first-of-turn request whose volatile turn-start anchor
+      // was skipped while a previous-turn anchor exists: there the latest
+      // message would otherwise carry no breakpoint, so the next request's
+      // anchor can land far ahead of the previous-turn anchor and Anthropic's
+      // ~20-block cache lookback can't bridge the gap — forcing a full
+      // re-creation of the prefix. The 5m breakpoint gives the next call an
+      // exact, reachable boundary; cross-turn it expires harmlessly. Skip
+      // thinking/redacted_thinking blocks — Anthropic doesn't allow
       // cache_control on those types.
       if (
         !disableCache &&
         turnStartIdx >= 0 &&
-        turnStartIdx < sentMessages.length - 1
+        (turnStartIdx < sentMessages.length - 1 ||
+          (skipVolatileTurnStartAnchor && turnStartIdx > 0))
       ) {
         const lastMsg = sentMessages[sentMessages.length - 1];
         if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
@@ -1057,11 +1065,13 @@ export class AnthropicProvider implements Provider {
       }
 
       // Cache-breakpoint accounting: system(≤2) + tools(1, only when the
-      // system is a single block or absent) + turn-start(1) +
-      // (tail OR prev-turn-anchor)(1) ≤ 4 — Anthropic's per-request cap.
-      // Tail and prev-turn-anchor are mutually exclusive (the latter only
-      // fires when turn-start is the last message, which suppresses the
-      // tail), so the total can't drift past 4.
+      // system is a single block or absent) + at most two message anchors
+      // ≤ 4 — Anthropic's per-request cap. The two message anchors are
+      // turn-start + prev-turn-anchor (first-of-turn), turn-start + tail
+      // (tool-use loop), or prev-turn-anchor + tail (first-of-turn with the
+      // volatile turn-start anchor skipped — the freed turn-start slot covers
+      // the tail). At most two message-level breakpoints are placed, so the
+      // total can't drift past 4.
 
       // Strip orphaned UTF-16 surrogates so the Anthropic JSON parser never
       // sees invalid strings produced by upstream surrogate-splitting `.slice()` calls.
