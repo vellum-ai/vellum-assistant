@@ -321,4 +321,43 @@ describe("SubagentDetailPanel — objective", () => {
       restore();
     }
   });
+
+  test("re-measures overflow when switching to a different subagent with identical objective text", () => {
+    // The render-phase reset forces `objectiveOverflows` to `false` on every
+    // subagent switch. If the measurement effect only depended on the
+    // objective text + expanded flag, switching from subagent A to a DIFFERENT
+    // subagent B with byte-identical (still overflowing) objective text would
+    // change neither dep, the effect would skip, and the toggle would vanish.
+    // Depending on `entry.subagentId` forces a re-measure so "Show more"
+    // survives the switch.
+    const longObjective = "x ".repeat(400).trim();
+    const restore = installOverflow(longObjective);
+    try {
+      const { rerender } = render(
+        <SubagentDetailPanel
+          entry={makeEntry({ subagentId: "sub-1", objective: longObjective })}
+          onClose={noop}
+        />,
+      );
+
+      // Subagent A: overflowing objective offers the toggle.
+      expect(screen.getByText("Show more")).toBeDefined();
+
+      // Switch to a DIFFERENT subagent with an IDENTICAL objective string.
+      rerender(
+        <SubagentDetailPanel
+          entry={makeEntry({ subagentId: "sub-2", objective: longObjective })}
+          onClose={noop}
+        />,
+      );
+
+      // Re-measured despite identical text: the toggle is still present.
+      expect(screen.getByText("Show more")).toBeDefined();
+      expect(screen.getByText(longObjective).className).toContain(
+        "line-clamp-3",
+      );
+    } finally {
+      restore();
+    }
+  });
 });

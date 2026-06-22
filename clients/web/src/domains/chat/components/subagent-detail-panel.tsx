@@ -92,6 +92,13 @@ export function SubagentDetailPanel({
   // body is taller than the visible 3 lines. Skip measuring while expanded
   // (the clamp is removed, which would otherwise report no overflow) so the
   // "Show less" affordance stays visible.
+  //
+  // Depend on `entry.subagentId` too: the render-phase reset above forces
+  // `objectiveOverflows` to `false` on a subagent switch, so the effect must
+  // re-run to recompute it. Without the id in the deps a switch between two
+  // subagents whose objective text is byte-identical changes neither
+  // `entry.objective` nor `objectiveExpanded`, the effect skips, and the
+  // toggle would stay incorrectly hidden for an overflowing objective.
   useLayoutEffect(() => {
     if (objectiveExpanded) {
       return;
@@ -101,7 +108,7 @@ export function SubagentDetailPanel({
       return;
     }
     setObjectiveOverflows(node.scrollHeight > node.clientHeight);
-  }, [entry.objective, objectiveExpanded]);
+  }, [entry.subagentId, entry.objective, objectiveExpanded]);
 
   useEffect(() => {
     if (onRequestDetail && entry.conversationId && entry.events.length === 0) {
