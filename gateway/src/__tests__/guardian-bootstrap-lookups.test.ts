@@ -1,11 +1,19 @@
 /**
  * Tests for guardian-bootstrap pure guardian lookups
  * (findVellumGuardian + findGuardianForChannelActor) after they were
- * repointed to read the gateway DB directly.
+ * repointed to read the gateway DB directly, plus the adopt-before-mint
+ * path in resolveOrCreateVellumGuardian (via ensureVellumGuardianBinding /
+ * bootstrapGuardian).
  *
- * Guardian rows are seeded ONLY in the gateway DB. The assistant DB proxy is
- * mocked to throw, proving the lookups no longer depend on the assistant mirror.
+ * Guardian rows are seeded ONLY in the gateway DB. By default the assistant
+ * DB proxy is swapped for a backend that throws, proving the pure lookups no
+ * longer depend on the assistant mirror; adopt/mint tests install a real
+ * in-memory assistant store instead.
  */
+
+import { Database } from "bun:sqlite";
+
+import { and, eq } from "drizzle-orm";
 
 import {
   describe,
@@ -19,25 +27,112 @@ import {
 
 import "./test-preload.js";
 
-// Assistant DB proxy throws — the gateway reads must not touch it.
-mock.module("../db/assistant-db-proxy.js", () => ({
-  assistantDbQuery: mock(async () => {
+// Swappable assistant-DB backend. Default: throw (the pure gateway reads must
+// not touch the assistant mirror). Adopt/mint tests install an in-memory DB.
+type AssistantBackend = {
+  query: (sql: string, params?: unknown[]) => unknown[];
+  run: (sql: string, params?: unknown[]) => { changes: number };
+  exec: (sql: string) => void;
+};
+
+const throwingBackend: AssistantBackend = {
+  query: () => {
     throw new Error("assistant DB must not be read by guardian lookups");
-  }),
-  assistantDbRun: mock(async () => ({ changes: 0, lastInsertRowid: 0 })),
-  assistantDbExec: mock(async () => undefined),
+  },
+  run: () => {
+    throw new Error("assistant DB must not be written by guardian lookups");
+  },
+  exec: () => {
+    throw new Error("assistant DB must not be touched by guardian lookups");
+  },
+};
+
+let assistantBackend: AssistantBackend = throwingBackend;
+
+mock.module("../db/assistant-db-proxy.js", () => ({
+  assistantDbQuery: mock(async (sql: string, params?: unknown[]) =>
+    assistantBackend.query(sql, params),
+  ),
+  assistantDbRun: mock(async (sql: string, params?: unknown[]) =>
+    assistantBackend.run(sql, params),
+  ),
+  assistantDbExec: mock(async (sql: string) => assistantBackend.exec(sql)),
 }));
 
 import {
   findVellumGuardian,
   findGuardianForChannelActor,
+  ensureVellumGuardianBinding,
+  bootstrapGuardian,
 } from "../auth/guardian-bootstrap.js";
+import { initSigningKey } from "../auth/token-service.js";
 import {
   initGatewayDb,
   getGatewayDb,
   resetGatewayDb,
 } from "../db/connection.js";
 import { contacts, contactChannels } from "../db/schema.js";
+
+// Initialize signing key so bootstrapGuardian's JWT minting works.
+initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long"));
+
+/** Minimal in-memory assistant DB mirroring the contacts/contact_channels schema. */
+function makeAssistantBackend(): AssistantBackend {
+  const db = new Database(":memory:");
+  db.exec(`
+    CREATE TABLE contacts (
+      id TEXT PRIMARY KEY, display_name TEXT, role TEXT, principal_id TEXT,
+      notes TEXT, created_at INTEGER, updated_at INTEGER
+    );
+    CREATE TABLE contact_channels (
+      id TEXT PRIMARY KEY, contact_id TEXT, type TEXT, address TEXT,
+      external_chat_id TEXT, is_primary INTEGER, status TEXT, policy TEXT,
+      verified_at INTEGER, verified_via TEXT, revoked_reason TEXT,
+      blocked_reason TEXT, interaction_count INTEGER, created_at INTEGER,
+      updated_at INTEGER
+    );
+  `);
+  return {
+    query: (sql, params = []) => db.query(sql).all(...(params as never[])),
+    run: (sql, params = []) => {
+      const r = db.query(sql).run(...(params as never[]));
+      return { changes: Number(r.changes) };
+    },
+    exec: (sql) => db.exec(sql),
+  };
+}
+
+function seedAssistantGuardian(
+  backend: AssistantBackend,
+  opts: {
+    principalId: string;
+    address: string;
+    deliveryChatId?: string;
+    displayName?: string;
+    verifiedAt?: number;
+  },
+): void {
+  const now = opts.verifiedAt ?? Date.now();
+  backend.run(
+    `INSERT INTO contacts (id, display_name, role, principal_id, created_at, updated_at)
+     VALUES (?, ?, 'guardian', ?, ?, ?)`,
+    ["asst-contact", opts.displayName ?? null, opts.principalId, now, now],
+  );
+  backend.run(
+    `INSERT INTO contact_channels
+       (id, contact_id, type, address, external_chat_id, is_primary, status,
+        policy, verified_at, interaction_count, created_at, updated_at)
+     VALUES (?, 'asst-contact', 'vellum', ?, ?, 1, 'active', 'allow', ?, 0, ?, ?)`,
+    [
+      "asst-channel",
+      opts.address,
+      opts.deliveryChatId ?? "local",
+      now,
+      now,
+      now,
+    ],
+  );
+}
 
 function seedGuardianChannel(opts: {
   type: string;
@@ -89,6 +184,7 @@ beforeEach(() => {
   const db = getGatewayDb();
   db.delete(contactChannels).run();
   db.delete(contacts).run();
+  assistantBackend = throwingBackend;
 });
 
 afterAll(() => {
@@ -194,5 +290,105 @@ describe("findGuardianForChannelActor (gateway DB)", () => {
   test("returns null for empty inputs without reading any DB", async () => {
     expect(await findGuardianForChannelActor("", "U_OWNER")).toBeNull();
     expect(await findGuardianForChannelActor("slack", "")).toBeNull();
+  });
+});
+
+describe("adopt-before-mint (resolveOrCreateVellumGuardian)", () => {
+  function gatewayVellumGuardians() {
+    return getGatewayDb()
+      .select({
+        principalId: contacts.principalId,
+        address: contactChannels.address,
+        status: contactChannels.status,
+      })
+      .from(contacts)
+      .innerJoin(contactChannels, eq(contactChannels.contactId, contacts.id))
+      .where(
+        and(eq(contacts.role, "guardian"), eq(contactChannels.type, "vellum")),
+      )
+      .all();
+  }
+
+  test("adopts the assistant guardian when the gateway DB lacks it", async () => {
+    const backend = makeAssistantBackend();
+    seedAssistantGuardian(backend, {
+      principalId: "principal-existing",
+      address: "vellum-principal-existing",
+      deliveryChatId: "local",
+      displayName: "Owner",
+    });
+    assistantBackend = backend;
+
+    const principalId = await ensureVellumGuardianBinding();
+
+    // Existing principal returned — no fresh vellum-principal-<uuid> minted.
+    expect(principalId).toBe("principal-existing");
+
+    // Gateway mirror is repaired under the existing principal.
+    const gwRows = gatewayVellumGuardians();
+    expect(gwRows).toHaveLength(1);
+    expect(gwRows[0]).toMatchObject({
+      principalId: "principal-existing",
+      address: "vellum-principal-existing",
+      status: "active",
+    });
+  });
+
+  test("second call hits the gateway fast path (idempotent)", async () => {
+    const backend = makeAssistantBackend();
+    seedAssistantGuardian(backend, {
+      principalId: "principal-existing",
+      address: "vellum-principal-existing",
+    });
+    assistantBackend = backend;
+
+    expect(await ensureVellumGuardianBinding()).toBe("principal-existing");
+
+    // Gateway now has the row; the assistant DB must not be read again.
+    assistantBackend = throwingBackend;
+    expect(await ensureVellumGuardianBinding()).toBe("principal-existing");
+    expect(gatewayVellumGuardians()).toHaveLength(1);
+  });
+
+  test("mints a fresh principal when neither DB has a guardian", async () => {
+    assistantBackend = makeAssistantBackend();
+
+    const principalId = await ensureVellumGuardianBinding();
+
+    expect(principalId).toMatch(/^vellum-principal-/);
+    const gwRows = gatewayVellumGuardians();
+    expect(gwRows).toHaveLength(1);
+    expect(gwRows[0]?.principalId).toBe(principalId);
+  });
+
+  test("bootstrapGuardian adopts the assistant guardian (isNew=false)", async () => {
+    const backend = makeAssistantBackend();
+    seedAssistantGuardian(backend, {
+      principalId: "principal-existing",
+      address: "vellum-principal-existing",
+    });
+    assistantBackend = backend;
+
+    const result = await bootstrapGuardian({
+      platform: "macos",
+      deviceId: "device-1",
+    });
+
+    expect(result.guardianPrincipalId).toBe("principal-existing");
+    expect(result.isNew).toBe(false);
+    expect(result.accessToken).toBeTruthy();
+    expect(result.refreshToken).toBeTruthy();
+  });
+
+  test("bootstrapGuardian mints a fresh principal when neither DB has one (isNew=true)", async () => {
+    assistantBackend = makeAssistantBackend();
+
+    const result = await bootstrapGuardian({
+      platform: "macos",
+      deviceId: "device-1",
+    });
+
+    expect(result.guardianPrincipalId).toMatch(/^vellum-principal-/);
+    expect(result.isNew).toBe(true);
   });
 });

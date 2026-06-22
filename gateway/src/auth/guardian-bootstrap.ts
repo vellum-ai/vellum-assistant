@@ -124,6 +124,43 @@ export async function findVellumGuardian(): Promise<{
 }
 
 /**
+ * Pre-repoint assistant-DB lookup for an active vellum guardian. Used to
+ * adopt an existing guardian whose row never reached the gateway mirror
+ * (skipped m0006 or a dropped dual-write), so we repair instead of minting
+ * a duplicate principal. Returns null when no row or no principalId.
+ */
+export async function findVellumGuardianFromAssistant(): Promise<{
+  principalId: string;
+  address: string;
+  deliveryChatId: string | null;
+  displayName: string | null;
+} | null> {
+  const rows = await assistantDbQuery<{
+    principalId: string | null;
+    address: string;
+    deliveryChatId: string | null;
+    displayName: string | null;
+  }>(
+    `SELECT c.principal_id AS principalId, cc.address AS address,
+            cc.external_chat_id AS deliveryChatId, c.display_name AS displayName
+     FROM contacts c
+     INNER JOIN contact_channels cc ON cc.contact_id = c.id
+     WHERE c.role = 'guardian' AND cc.type = 'vellum' AND cc.status = 'active'
+     ORDER BY cc.verified_at DESC
+     LIMIT 1`,
+  );
+
+  const row = rows[0];
+  if (!row?.principalId) return null;
+  return {
+    principalId: row.principalId,
+    address: row.address,
+    deliveryChatId: row.deliveryChatId,
+    displayName: row.displayName,
+  };
+}
+
+/**
  * Look up the guardian binding for a given external user on a specific
  * channel type (e.g. `"slack"`, `"telegram"`, `"whatsapp"`). Returns the
  * guardian's principal ID when the actor is bound as a guardian on an
@@ -697,22 +734,46 @@ async function fetchPlatformOwnerDisplayName(): Promise<string | null> {
 }
 
 /**
- * Ensure a vellum guardian binding exists. If one already exists, returns
- * its principalId. Otherwise creates a new binding with a fresh principal
- * and dual-writes to both the assistant and gateway DBs.
+ * Resolve the vellum guardian principal, in order: (a) gateway fast path,
+ * (b) adopt an assistant guardian the gateway is missing — repairs the
+ * gateway row under its EXISTING principal via the logical-key dual-write,
+ * (c) mint a fresh principal when neither DB has a guardian.
  *
- * Called during gateway startup to backfill existing installations.
+ * Shared by ensureVellumGuardianBinding + bootstrapGuardian. `isNew` is true
+ * only on the mint path.
  */
-export async function ensureVellumGuardianBinding(): Promise<string> {
-  const existing = await findVellumGuardian();
-  if (existing) {
+async function resolveOrCreateVellumGuardian(): Promise<{
+  guardianPrincipalId: string;
+  isNew: boolean;
+}> {
+  const gw = await findVellumGuardian();
+  if (gw) {
     log.debug(
-      { guardianPrincipalId: existing.principalId },
+      { guardianPrincipalId: gw.principalId },
       "Vellum guardian binding already exists",
     );
-    return existing.principalId;
+    return { guardianPrincipalId: gw.principalId, isNew: false };
   }
 
+  // Adopt an assistant guardian the gateway mirror is missing.
+  const asst = await findVellumGuardianFromAssistant();
+  if (asst) {
+    log.info(
+      { guardianPrincipalId: asst.principalId },
+      "Adopting assistant guardian — repairing gateway mirror",
+    );
+    await createGuardianBinding({
+      channel: "vellum",
+      externalUserId: asst.address,
+      deliveryChatId: asst.deliveryChatId ?? "local",
+      guardianPrincipalId: asst.principalId,
+      verifiedVia: "bootstrap",
+      ...(asst.displayName ? { displayName: asst.displayName } : {}),
+    });
+    return { guardianPrincipalId: asst.principalId, isNew: false };
+  }
+
+  // Neither DB has a guardian — mint a fresh principal.
   const displayName = await fetchPlatformOwnerDisplayName();
   const guardianPrincipalId = `vellum-principal-${uuid()}`;
   await createGuardianBinding({
@@ -723,6 +784,18 @@ export async function ensureVellumGuardianBinding(): Promise<string> {
     verifiedVia: "bootstrap",
     ...(displayName ? { displayName } : {}),
   });
+  return { guardianPrincipalId, isNew: true };
+}
+
+/**
+ * Ensure a vellum guardian binding exists, returning its principalId.
+ * Adopts an existing assistant guardian before minting (see
+ * resolveOrCreateVellumGuardian).
+ *
+ * Called during gateway startup to backfill existing installations.
+ */
+export async function ensureVellumGuardianBinding(): Promise<string> {
+  const { guardianPrincipalId } = await resolveOrCreateVellumGuardian();
   return guardianPrincipalId;
 }
 
@@ -737,24 +810,8 @@ export async function bootstrapGuardian(params: {
   platform: string;
   deviceId: string;
 }): Promise<GuardianBootstrapResult> {
-  // 1. Ensure guardian principal
-  let isNew = false;
-  let guardianPrincipalId: string;
-
-  const existing = await findVellumGuardian();
-  if (existing) {
-    guardianPrincipalId = existing.principalId;
-  } else {
-    guardianPrincipalId = `vellum-principal-${uuid()}`;
-    await createGuardianBinding({
-      channel: "vellum",
-      externalUserId: guardianPrincipalId,
-      deliveryChatId: "local",
-      guardianPrincipalId,
-      verifiedVia: "bootstrap",
-    });
-    isNew = true;
-  }
+  // 1. Resolve (or adopt/mint) the guardian principal.
+  const { guardianPrincipalId, isNew } = await resolveOrCreateVellumGuardian();
 
   // 2. Revoke existing credentials for this device and mint a fresh pair.
   const pair = mintAndRecordDeviceBoundTokenPair({
