@@ -476,6 +476,115 @@ describe("IPC contact routes", () => {
     expect(channels[0].verifiedVia).toBe("manual");
   });
 
+  test("create_contact retry preserves existing displayName + external_chat_id when omitted", async () => {
+    // A retry / re-add for an existing contact that already has a custom
+    // displayName and a set external_chat_id, called WITHOUT a displayName,
+    // must not overwrite the name with the bare address nor clear the chat id.
+    const db = getGatewayDb();
+    const now = Date.now();
+    db.insert(contacts)
+      .values({
+        id: "named-c1",
+        displayName: "Alice In Wonderland",
+        role: "contact",
+        principalId: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(contactChannels)
+      .values({
+        id: "named-ch1",
+        contactId: "named-c1",
+        type: "telegram",
+        address: "tg-alice-001",
+        isPrimary: true,
+        externalChatId: "chat-alice-001",
+        status: "active",
+        policy: "allow",
+        interactionCount: 2,
+        createdAt: now,
+      })
+      .run();
+
+    await startServerAndConnect();
+    const res = await sendRequest(client, "create_contact", {
+      channelType: "telegram",
+      address: "tg-alice-001",
+    });
+
+    expect(res.error).toBeUndefined();
+    const { contactId, channelId } = res.result as {
+      contactId: string;
+      channelId: string;
+    };
+    expect(contactId).toBe("named-c1");
+    expect(channelId).toBe("named-ch1");
+
+    const store = new ContactStore(db);
+    // displayName preserved — NOT overwritten with the bare address.
+    expect(store.getContact("named-c1")!.displayName).toBe(
+      "Alice In Wonderland",
+    );
+    const channels = store.getChannelsForContact("named-c1");
+    expect(channels).toHaveLength(1);
+    // external_chat_id preserved — sparse upsert must not clear it.
+    expect(channels[0].externalChatId).toBe("chat-alice-001");
+  });
+
+  test("create_contact retry honors an explicitly supplied displayName", async () => {
+    const db = getGatewayDb();
+    const now = Date.now();
+    db.insert(contacts)
+      .values({
+        id: "rename-c1",
+        displayName: "Old Name",
+        role: "contact",
+        principalId: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(contactChannels)
+      .values({
+        id: "rename-ch1",
+        contactId: "rename-c1",
+        type: "email",
+        address: "rename@example.com",
+        isPrimary: true,
+        status: "active",
+        policy: "allow",
+        interactionCount: 0,
+        createdAt: now,
+      })
+      .run();
+
+    await startServerAndConnect();
+    const res = await sendRequest(client, "create_contact", {
+      channelType: "email",
+      address: "rename@example.com",
+      displayName: "New Name",
+    });
+
+    expect(res.error).toBeUndefined();
+    const store = new ContactStore(db);
+    expect(store.getContact("rename-c1")!.displayName).toBe("New Name");
+  });
+
+  test("create_contact defaults a brand-new contact's displayName to the canonical address", async () => {
+    await startServerAndConnect();
+    const res = await sendRequest(client, "create_contact", {
+      channelType: "email",
+      address: "noname@example.com",
+    });
+
+    expect(res.error).toBeUndefined();
+    const { contactId } = res.result as { contactId: string };
+
+    const store = new ContactStore(getGatewayDb());
+    expect(store.getContact(contactId)!.displayName).toBe("noname@example.com");
+  });
+
   test("create_contact applies default unverified/allow to a brand-new channel", async () => {
     await startServerAndConnect();
     const res = await sendRequest(client, "create_contact", {

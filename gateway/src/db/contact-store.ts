@@ -1487,8 +1487,15 @@ export class ContactStore {
 
       if (existingCh.length) {
         const isBlocked = existingCh[0].status === "blocked";
-        const setParts: string[] = ["external_chat_id = ?", "updated_at = ?"];
-        const setParams: SqliteValue[] = [ch.externalChatId ?? null, now];
+        // Omit-to-preserve: only overwrite external_chat_id when the caller
+        // supplied one, mirroring syncChannels (gateway DB). A sparse upsert
+        // (no externalChatId) must not clear an existing delivery chat id.
+        const setParts: string[] = ["updated_at = ?"];
+        const setParams: SqliteValue[] = [now];
+        if (ch.externalChatId !== undefined) {
+          setParts.push("external_chat_id = ?");
+          setParams.push(ch.externalChatId);
+        }
         if (!isBlocked) {
           if (ch.status !== undefined) {
             setParts.push("status = ?");
