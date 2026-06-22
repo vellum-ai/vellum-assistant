@@ -146,8 +146,8 @@ function SubagentPhaseRow({
       className={cn("relative flex flex-col gap-2", !isLast && "pb-4")}
     >
       {/* No connector trails below the final row. The dot centre sits 11px from
-          the row top (label line-height 18px dominates the 22px row; the 14px
-          bullet box centres there), dot radius 2.5px. For a uniform 4px gap at
+          the row top (the header is pinned to `h-[22px]`; the 14px bullet box
+          centres there), dot radius 2.5px. For a uniform 4px gap at
           BOTH ends we start the line 4px below this dot (11 + 2.5 + 4 = 17.5px)
           and end it 4px above the next dot. The next dot is always 11px into the
           following row, which begins at this container's bottom edge, so the
@@ -164,8 +164,15 @@ function SubagentPhaseRow({
         data-testid="subagent-phase-header"
         disabled={!isExpandable}
         onClick={isExpandable ? () => onToggle(sectionKeyValue) : undefined}
+        // Fixed 22px height (not py-based) so the bullet's centre is ALWAYS 11px
+        // from the row top regardless of trailing content. A row with a duration
+        // / running activity renders the `|` separator, whose inherited ~16px
+        // font + ~1.4 line-height would otherwise grow the row to ~27px and drop
+        // the dot ~5px — fusing it with the connector (which is pinned to an
+        // 11px dot centre). Pinning the height keeps every row uniform so the
+        // connector's 4px end-gaps hold on every row, including the first.
         className={cn(
-          "flex w-full items-center gap-2 py-[2px] text-left",
+          "flex h-[22px] w-full items-center gap-2 text-left",
           isExpandable && "cursor-pointer",
         )}
       >
@@ -190,7 +197,10 @@ function SubagentPhaseRow({
         {hasTrailingDetail && (
           <span
             aria-hidden
-            className="shrink-0 text-[var(--content-tertiary)] opacity-10"
+            // `leading-none` caps the bare glyph's line-box: without it the span
+            // inherits a ~1.4 line-height that the fixed-height row would have to
+            // clip. Belt-and-suspenders with the row's `h-[22px]`.
+            className="shrink-0 leading-none text-[var(--content-tertiary)] opacity-10"
           >
             |
           </span>
