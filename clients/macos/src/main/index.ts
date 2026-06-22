@@ -494,15 +494,17 @@ app.on("web-contents-created", (_event, contents) => {
   });
 
   contents.setWindowOpenHandler(({ url, disposition }) => {
-    // Programmatic popups (`window.open(url, name, features)` with size
-    // hints) come through as `new-window` disposition. The web app's OAuth /
-    // connect flows open a blank popup synchronously during the click handler
-    // (`window.open("", "_blank", "width=500,height=600")`), then navigate it
-    // to the OAuth URL after the API call resolves. Chromium resolves the
-    // empty string to `about:blank`, which must be allowed here so the popup
-    // handle is returned to the renderer for the subsequent postMessage
-    // callback chain.
-    if (disposition === "new-window" && url === "about:blank") {
+    // Programmatic popups (`window.open(url, name, features)` with window
+    // feature hints) arrive as `new-window` disposition. The OAuth connect
+    // flow opens a blank popup synchronously during the click handler, then
+    // navigates it to the provider URL after the API call resolves. Allow
+    // all programmatic popups — the URL may be `about:blank`, an empty
+    // string, or the current page depending on how Chromium resolves the
+    // opener's argument under the active scheme (`app://` in packaged
+    // builds, `http://` in dev). Child popups inherit the hardened baseline
+    // with `preload: undefined` so third-party OAuth pages never receive
+    // the Vellum bridge.
+    if (disposition === "new-window") {
       return {
         action: "allow",
         overrideBrowserWindowOptions: {
@@ -511,8 +513,8 @@ app.on("web-contents-created", (_event, contents) => {
       };
     }
 
-    // Only http(s) is ever opened — file:, javascript:, custom schemes are
-    // denied with no fallback.
+    // Only http(s) is ever opened externally — file:, javascript:, and
+    // custom schemes are denied with no fallback.
     let parsed: URL;
     try {
       parsed = new URL(url);
@@ -521,20 +523,6 @@ app.on("web-contents-created", (_event, contents) => {
     }
     if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
       return { action: "deny" };
-    }
-
-    // Programmatic popups with a real URL also come through as `new-window`
-    // disposition and are allowed as in-app child windows.
-    if (disposition === "new-window") {
-      // Child popups inherit the same hardened baseline as every window.
-      // `preload: undefined` explicitly clears the parent's preload so
-      // third-party OAuth pages don't get the Vellum bridge.
-      return {
-        action: "allow",
-        overrideBrowserWindowOptions: {
-          webPreferences: { ...hardenedWebPreferences(), preload: undefined },
-        },
-      };
     }
 
     // Plain target=_blank link clicks → system browser.
