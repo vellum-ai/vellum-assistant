@@ -226,9 +226,11 @@ function SubagentPhaseRow({
 
       {/* Expanded body: the section's steps as default pills, indented to clear
           the bullet rail and align under the status icon (bullet 14px + the
-          row's 8px gap → 22px). */}
+          row's 8px gap → 22px). No own bottom padding — the container's `pb-4`
+          (non-last rows) is the only bottom spacing, so the last pill sits 16px
+          from the next group rather than 12px (pb-3) + 16px. */}
       {isExpandable && expanded && (
-        <div className="flex flex-col items-start gap-1 pb-3 pl-[22px]">
+        <div className="flex flex-col items-start gap-1 pl-[22px]">
           {section.steps.map((step, stepIdx) => (
             <DefaultStepPill key={stepKey(step, stepIdx)} step={step} />
           ))}
