@@ -7,9 +7,11 @@
  * and best-effort mirrors to the assistant DB.
  */
 
+import { UpdateContactChannelIpcParamsSchema } from "@vellumai/gateway-client/gateway-ipc-contracts";
 import { z } from "zod";
 
 import { ContactStore } from "../db/contact-store.js";
+import { updateContactChannelCore } from "../http/routes/contacts-control-plane-proxy.js";
 import { getLogger } from "../logger.js";
 import { canonicalizeInboundIdentity } from "../verification/identity.js";
 import type { IpcRoute } from "./server.js";
@@ -137,6 +139,17 @@ export const contactRoutes: IpcRoute[] = [
       );
 
       return { contactId, channelId };
+    },
+  },
+  {
+    method: "update_contact_channel",
+    schema: UpdateContactChannelIpcParamsSchema,
+    handler: (params?: Record<string, unknown>) => {
+      const parsed = UpdateContactChannelIpcParamsSchema.parse(params);
+      // Thrown ContactChannelNativeError carries statusCode/code, which the IPC
+      // server's buildErrorResponse mirrors into the wire envelope; unexpected
+      // errors propagate as a generic IPC error (no fallback).
+      return updateContactChannelCore(parsed);
     },
   },
 ];
