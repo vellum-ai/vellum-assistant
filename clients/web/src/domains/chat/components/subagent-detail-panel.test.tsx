@@ -21,8 +21,8 @@ mock.module("@/domains/chat/components/subagent-status-badge", () => ({
   ),
 }));
 
-mock.module("@/domains/chat/components/subagent-timeline", () => ({
-  SubagentTimeline: () => <div data-testid="timeline" />,
+mock.module("@/domains/chat/components/subagent-phase-timeline", () => ({
+  SubagentPhaseTimeline: () => <div data-testid="timeline" />,
 }));
 
 import { SubagentDetailPanel } from "@/domains/chat/components/subagent-detail-panel";
