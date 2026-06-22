@@ -22,6 +22,14 @@ mock.module("@/utils/local-settings", () => ({
   setLocalSetting: (key: string, value: string) => {
     localSettingsStore.set(key, value);
   },
+  removeLocalSetting: (key: string) => {
+    localSettingsStore.delete(key);
+  },
+  getLocalBool: () => false,
+  setLocalBool: () => {},
+  getLocalNumber: (_key: string, fallback: number) => fallback,
+  setLocalNumber: () => {},
+  watchSetting: () => () => {},
 }));
 mock.module("@/domains/chat/api/messages", () => ({
   uploadChatAttachment: mock(async () => ({ ok: true, id: "mock-id" })),
@@ -94,6 +102,31 @@ describe("cold-load restore", () => {
     renderHook(() => useDraftPersistence());
 
     expect(useComposerStore.getState().input).toBe("deep-link prefill");
+  });
+
+  /**
+   * Regression: restoreDraftIfEmpty must not fire on navigation switches —
+   * only on the initial mount. When it fired on every activeConversationId
+   * change it raced with handleConversationSwitch, polluting other
+   * conversations' draft entries (LUM-2523).
+   */
+  test("does not restore drafts on subsequent conversation switches", () => {
+    // GIVEN conversation B has a saved draft
+    useComposerStore.getState().loadAssistantDrafts("assistant-1");
+    useComposerStore.getState().saveDraft("conv-B", "draft for B");
+
+    // AND the hook mounts with conv-A active (cold load)
+    act(() => useComposerStore.setState({ input: "" }));
+    setActiveConversation("conv-A");
+    renderHook(() => useDraftPersistence());
+
+    // WHEN the user navigates to conv-B (simulating a conversation switch)
+    act(() => useComposerStore.setState({ input: "" }));
+    setActiveConversation("conv-B");
+
+    // THEN restoreDraftIfEmpty should NOT have run (mount-only), so the
+    // composer stays empty — handleConversationSwitch owns navigation restore.
+    expect(useComposerStore.getState().input).toBe("");
   });
 });
 
