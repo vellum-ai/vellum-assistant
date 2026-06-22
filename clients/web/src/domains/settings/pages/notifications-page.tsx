@@ -533,20 +533,22 @@ export function NotificationsPage() {
 
   const handleAck = (id: string, acknowledged: boolean) => {
     setAckingIds((prev) => new Set(prev).add(id));
-    ackMutation.mutate(
-      { path: { id }, body: { acknowledged } },
-      {
-        onSuccess: () => invalidateLists(),
-        onError: toastOnError("Failed to update notification"),
-        onSettled: () => {
-          setAckingIds((prev) => {
-            const next = new Set(prev);
-            next.delete(id);
-            return next;
-          });
-        },
-      },
-    );
+    // `ackMutation` is a single observer shared by every row, and TanStack
+    // only runs per-`mutate` callbacks for the latest call — so overlapping
+    // acks would leave earlier ids stuck in `ackingIds`. Drive each ack with
+    // its own promise chain instead; the `.catch` keeps a failed request from
+    // escaping as an unhandled rejection.
+    void ackMutation
+      .mutateAsync({ path: { id }, body: { acknowledged } })
+      .then(() => invalidateLists())
+      .catch(toastOnError("Failed to update notification"))
+      .finally(() => {
+        setAckingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      });
   };
 
   const handleMarkAllRead = async () => {
