@@ -2,12 +2,13 @@
 import {
     ArrowDownToLine,
     ArrowUpFromLine,
+    ChevronDown,
     DollarSign,
     Square,
     X,
 } from "lucide-react";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
 import {
@@ -65,6 +66,28 @@ export function SubagentDetailPanel({
   // chat-content-layout.tsx, so memoizing on `entry` keeps the steps fresh.
   const cardData = useMemo(() => computeSubagentCardData(entry), [entry]);
 
+  // Objective collapse/expand. The toggle only appears when the clamped body
+  // actually overflows, so short objectives show no affordance.
+  const [objectiveExpanded, setObjectiveExpanded] = useState(false);
+  const [objectiveOverflows, setObjectiveOverflows] = useState(false);
+  const objectiveBodyRef = useRef<HTMLParagraphElement>(null);
+
+  // Measure overflow against the collapsed clamp. While collapsed the clamp is
+  // the source of truth, so `scrollHeight` exceeds `clientHeight` only when the
+  // body is taller than the visible 3 lines. Skip measuring while expanded
+  // (the clamp is removed, which would otherwise report no overflow) so the
+  // "Show less" affordance stays visible.
+  useLayoutEffect(() => {
+    if (objectiveExpanded) {
+      return;
+    }
+    const node = objectiveBodyRef.current;
+    if (!node) {
+      return;
+    }
+    setObjectiveOverflows(node.scrollHeight > node.clientHeight);
+  }, [entry.objective, objectiveExpanded]);
+
   useEffect(() => {
     if (onRequestDetail && entry.conversationId && entry.events.length === 0) {
       onRequestDetail(entry.subagentId);
@@ -100,21 +123,19 @@ export function SubagentDetailPanel({
             type="button"
             aria-label="Stop subagent"
             onClick={() => onStop(entry.subagentId)}
-            className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-[var(--system-negative-strong)] px-3 py-1.5 text-white transition-colors hover:bg-[color-mix(in_srgb,var(--system-negative-strong)_85%,black)]"
+            className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--system-negative-strong)] bg-transparent px-2.5 py-1.5 text-[var(--system-negative-strong)] transition-colors hover:bg-[var(--system-negative-weak)]"
           >
             <Square className="h-3 w-3" fill="currentColor" />
-            <Typography variant="label-small-default" className="text-white">
-              Stop
-            </Typography>
+            <Typography variant="label-small-default">Stop</Typography>
           </button>
         )}
         <Button
-          variant="ghost"
+          variant="outlined"
           iconOnly={<X />}
           onClick={onClose}
           aria-label="Close subagent detail"
           tooltip="Close"
-          className="shrink-0"
+          className="shrink-0 rounded-lg"
         />
       </div>
 
@@ -144,7 +165,7 @@ export function SubagentDetailPanel({
 
         {/* Objective section */}
         {entry.objective && (
-          <div className="mb-5 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] px-4 py-3">
+          <div className="mb-5">
             <Typography
               variant="body-medium-default"
               as="h3"
@@ -153,12 +174,33 @@ export function SubagentDetailPanel({
               Objective
             </Typography>
             <Typography
+              ref={objectiveBodyRef}
               variant="body-medium-lighter"
               as="p"
-              className="whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)]"
+              className={`whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)] ${
+                objectiveExpanded ? "" : "line-clamp-3"
+              }`}
             >
               {entry.objective}
             </Typography>
+            {objectiveOverflows && (
+              <button
+                type="button"
+                onClick={() => setObjectiveExpanded((prev) => !prev)}
+                className="mt-1.5 flex cursor-pointer items-center gap-1 text-[var(--content-secondary)] transition-colors hover:text-[var(--content-default)]"
+              >
+                <Typography variant="label-small-default">
+                  {objectiveExpanded ? "Show less" : "Show more"}
+                </Typography>
+                <ChevronDown
+                  className={`h-3.5 w-3.5 transition-transform ${
+                    objectiveExpanded ? "rotate-180" : ""
+                  }`}
+                  aria-hidden
+                />
+              </button>
+            )}
+            <div className="mt-5 h-px w-full bg-[var(--border-hover)]" />
           </div>
         )}
 
