@@ -48,8 +48,9 @@ export function buildDeeperDivePrompt(removed: RemovedClaim[] = []): string {
     "",
     'Reply with ONLY the same JSON object as before ({ "claims": [...],',
     '"suggestions": [...] }), updated and overwritten with what you now know.',
-    "Same rules: at most 5 short claims with confidence + sources, exactly 4",
-    "short verb-first suggestions, no prose, no code fence.",
+    "Follow exactly the same claim and suggestion rules as my original research",
+    "request above — same shape, same confidence tiers, the same 4 suggestion",
+    "slots in the same order, no prose, no code fence.",
   );
   return lines.join("\n");
 }
