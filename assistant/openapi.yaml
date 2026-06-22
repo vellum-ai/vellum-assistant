@@ -1491,19 +1491,19 @@ paths:
                 properties:
                   id:
                     type: string
-                  original_filename:
+                  filename:
                     type: string
-                  mime_type:
+                  mimeType:
                     type: string
-                  size_bytes:
+                  sizeBytes:
                     type: number
                   kind:
                     type: string
                 required:
                   - id
-                  - original_filename
-                  - mime_type
-                  - size_bytes
+                  - filename
+                  - mimeType
+                  - sizeBytes
                   - kind
                 additionalProperties: false
   /v1/attachments/{id}:
