@@ -140,7 +140,9 @@ export interface ChatSessionActions {
    * handler — the live-turn mutation entry. `setMessages` stays the bulk
    * server-snapshot path (history / reconcile).
    */
-  updateMessages: (updater: (entities: MessageEntityState) => MessageEntityState) => void;
+  updateMessages: (
+    updater: (entities: MessageEntityState) => MessageEntityState,
+  ) => MessageEntityState;
   /** Patch a single row by `rowKey` — the streaming hot path (O(1)). */
   patchMessage: (rowKey: string, transform: (row: DisplayMessage) => DisplayMessage) => void;
   setError: (updater: ChatError | null | ((prev: ChatError | null) => ChatError | null)) => void;
@@ -277,12 +279,12 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       return { entities: rebuildFromArray(messages), messages };
     }),
 
-  updateMessages: (updater) =>
-    set((s) => {
-      const entities = updater(s.entities);
-      if (entities === s.entities) return s;
-      return { entities, messages: toArray(entities) };
-    }),
+  updateMessages: (updater) => {
+    const prev = get().entities;
+    const entities = updater(prev);
+    if (entities !== prev) set({ entities, messages: toArray(entities) });
+    return entities;
+  },
 
   patchMessage: (rowKey, transform) =>
     set((s) => {

@@ -219,6 +219,8 @@ export function useStreamEventHandler(
         streamContext: streamState.streamContext,
         assistantId: useResolvedAssistantsStore.getState().activeAssistantId,
         setMessages: store.setMessages,
+        updateMessages: store.updateMessages,
+        patchMessage: store.patchMessage,
         messages: store.messages,
         turnActions: useTurnStore.getState(),
         getTurnState: () => useTurnStore.getState(),

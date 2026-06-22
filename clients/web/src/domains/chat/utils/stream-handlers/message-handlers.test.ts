@@ -58,7 +58,7 @@ describe("handleAssistantTextDelta", () => {
     );
     expect(ctx.cancelReconciliation).toHaveBeenCalled();
     expect(ctx.turnActions.onTextDelta).toHaveBeenCalled();
-    expect(ctx.setMessages).toHaveBeenCalled();
+    expect(ctx.updateMessages).toHaveBeenCalled();
   });
 
   it("flips the cached conversation's isProcessing to true when the start event was missed", () => {
@@ -86,13 +86,10 @@ describe("handleAssistantTextDelta", () => {
     // Empty messages → no assistant tail, so the delta opens a new bubble.
     const ctx = makeCtx();
     handleAssistantTextDelta({ type: "assistant_text_delta", text: "Hi" }, ctx);
-    expect(ctx.setMessages).toHaveBeenCalled();
-    // Apply the updater to an empty array to confirm a new bubble emerges.
-    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>)
-      .mock.calls[0][0] as (prev: never[]) => unknown[];
-    const next = updater([]);
-    expect(next).toHaveLength(1);
-    expect(next[0]).toMatchObject({
+    expect(ctx.updateMessages).toHaveBeenCalled();
+    // A new assistant bubble emerges in the entity-backed transcript.
+    expect(ctx.messages).toHaveLength(1);
+    expect(ctx.messages[0]).toMatchObject({
       role: "assistant",
       ...textBody("Hi"),
     });
@@ -113,19 +110,17 @@ describe("handleAssistantThinkingDelta", () => {
 
     // THEN a pending reconcile is cancelled and the row updater runs
     expect(ctx.cancelReconciliation).toHaveBeenCalled();
-    expect(ctx.setMessages).toHaveBeenCalled();
+    expect(ctx.updateMessages).toHaveBeenCalled();
 
-    // AND applying the updater opens an assistant bubble carrying the
-    // reasoning as a thinking block, stamping the current-assistant ref
-    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>)
-      .mock.calls[0][0] as (prev: never[]) => unknown[];
-    const next = updater([]);
-    expect(next).toHaveLength(1);
-    expect(next[0]).toMatchObject({
+    // AND an assistant bubble opens carrying the reasoning as a thinking
+    // block, with the current-assistant ref stamped to the live row.
+    expect(ctx.messages).toHaveLength(1);
+    expect(ctx.messages[0]).toMatchObject({
       role: "assistant",
       thinkingSegments: ["reasoning"],
       contentOrder: [{ type: "thinking", id: "0" }],
     });
+    expect(ctx.currentAssistantMessageIdRef.current).toBeDefined();
   });
 });
 

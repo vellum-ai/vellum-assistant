@@ -1,11 +1,14 @@
 import { recordDiagnostic } from "@/lib/diagnostics";
 import {
-  appendTextDelta,
-  appendThinkingDelta,
   applyUserMessageEcho,
   finalizeMessageComplete,
   finalizeOnIdle,
 } from "@/domains/chat/utils/stream-updaters/message-updaters";
+import {
+  applyTextDelta,
+  applyThinkingDelta,
+} from "@/domains/chat/utils/stream-updaters/entity-updaters";
+import type { MessageEntityState } from "@/domains/chat/utils/message-entities";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import {
   findConversation,
@@ -38,6 +41,24 @@ function resolveConversationId(
   ctx: StreamHandlerContext,
 ): string | undefined {
   return event.conversationId ?? ctx.streamContext?.conversationId;
+}
+
+/**
+ * Stamp `currentAssistantMessageIdRef` from the store's live assistant row.
+ * Subagent handlers read this ref to attribute nested notifications to the
+ * right parent bubble; the normalized store updates `liveAssistantRowKey`
+ * synchronously inside `applyTextDelta` / `applyThinkingDelta`, so the ref
+ * tracks the live row without waiting for a React commit.
+ */
+function stampLiveAssistantRef(
+  ctx: StreamHandlerContext,
+  entities: MessageEntityState,
+): void {
+  const key = entities.liveAssistantRowKey;
+  const row = key !== null ? entities.byId[key] : undefined;
+  if (row?.role === "assistant") {
+    ctx.currentAssistantMessageIdRef.current = row.id;
+  }
 }
 
 /**
@@ -120,17 +141,12 @@ export function handleAssistantTextDelta(
     markConversationProcessingFromStream(ctx, convId);
   }
 
-  ctx.setMessages((prev) => {
-    const next = appendTextDelta(prev, event.text, event.messageId);
-    const tail = next[next.length - 1];
-    // Stamp the current-assistant ref to the assistant tail. Subagent
-    // handlers read this to attribute nested notifications to the right
-    // parent bubble.
-    if (tail?.role === "assistant") {
-      ctx.currentAssistantMessageIdRef.current = tail.id;
-    }
-    return next;
-  });
+  const entities = ctx.updateMessages((s) =>
+    applyTextDelta(s, event.text, event.messageId),
+  );
+  // Stamp the current-assistant ref to the live assistant row so subagent
+  // handlers attribute nested notifications to the right parent bubble.
+  stampLiveAssistantRef(ctx, entities);
 }
 
 /**
@@ -151,14 +167,10 @@ export function handleAssistantThinkingDelta(
 ): void {
   ctx.cancelReconciliation();
 
-  ctx.setMessages((prev) => {
-    const next = appendThinkingDelta(prev, event.thinking, event.messageId);
-    const tail = next[next.length - 1];
-    if (tail?.role === "assistant") {
-      ctx.currentAssistantMessageIdRef.current = tail.id;
-    }
-    return next;
-  });
+  const entities = ctx.updateMessages((s) =>
+    applyThinkingDelta(s, event.thinking, event.messageId),
+  );
+  stampLiveAssistantRef(ctx, entities);
 }
 
 export function handleAssistantActivityState(

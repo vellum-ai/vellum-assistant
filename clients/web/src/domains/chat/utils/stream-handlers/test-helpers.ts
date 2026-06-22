@@ -5,6 +5,13 @@ import { QueryClient } from "@tanstack/react-query";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type { TurnActions, TurnState } from "@/domains/chat/turn-store";
 import { INITIAL_TURN_STATE } from "@/domains/chat/turn-store";
+import type { DisplayMessage } from "@/domains/chat/types/types";
+import {
+  type MessageEntityState,
+  patch as patchEntity,
+  rebuildFromArray,
+  toArray,
+} from "@/domains/chat/utils/message-entities";
 
 interface MakeCtxOptions {
   pendingQueuedMessageIds?: string[];
@@ -32,16 +39,52 @@ export function makeCtx(
     requestIdToMessageId: _rm,
     pendingLocalDeletions: _pd,
     dismissedSurfaceIds: _ds,
+    messages: messagesSeed,
     ...restOverrides
   } = overrides;
+
+  // Entity-backed message state so setMessages / updateMessages / patchMessage
+  // maintain a real transcript the tests read back via `messages`.
+  const messageState: { entities: MessageEntityState } = {
+    entities: rebuildFromArray(messagesSeed ?? []),
+  };
 
   return {
     router: { push: mock(() => {}) },
     isNative: false,
     streamContext: { assistantId: "ast-1", conversationId: "conv-1" },
     assistantId: "ast-1",
-    setMessages: mock(() => {}),
-    messages: [],
+    setMessages: mock(
+      (
+        updater:
+          | DisplayMessage[]
+          | ((prev: DisplayMessage[]) => DisplayMessage[]),
+      ) => {
+        const next =
+          typeof updater === "function"
+            ? updater(toArray(messageState.entities))
+            : updater;
+        messageState.entities = rebuildFromArray(next);
+      },
+    ),
+    updateMessages: mock(
+      (updater: (entities: MessageEntityState) => MessageEntityState) => {
+        messageState.entities = updater(messageState.entities);
+        return messageState.entities;
+      },
+    ),
+    patchMessage: mock(
+      (rowKey: string, transform: (row: DisplayMessage) => DisplayMessage) => {
+        messageState.entities = patchEntity(
+          messageState.entities,
+          rowKey,
+          transform,
+        );
+      },
+    ),
+    get messages() {
+      return toArray(messageState.entities);
+    },
     turnActions: {
       requestSend: mock(() => {}),
       acceptSend: mock(() => {}),

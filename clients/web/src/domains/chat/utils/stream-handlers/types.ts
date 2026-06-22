@@ -6,6 +6,7 @@ import type {
 import type { QueryClient } from "@tanstack/react-query";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import type { MessageEntityState } from "@/domains/chat/utils/message-entities";
 import type { TurnActions, TurnState } from "@/domains/chat/turn-store";
 import type { EndTurnArgs } from "@/domains/chat/turn-coordinator";
 import type { ChatError } from "@/domains/chat/types";
@@ -35,6 +36,16 @@ export interface StreamHandlerContext {
 
   // --- Messages ---
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
+  /**
+   * Apply an entity-level updater (routing + row transform) — live-turn writes.
+   * Returns the resulting entity state so callers can read the live pointer
+   * synchronously without a separate store read.
+   */
+  updateMessages: (
+    updater: (entities: MessageEntityState) => MessageEntityState,
+  ) => MessageEntityState;
+  /** Patch a single row by `rowKey`. */
+  patchMessage: (rowKey: string, transform: (row: DisplayMessage) => DisplayMessage) => void;
   /** Current messages snapshot — read from store via `getState().messages`. */
   messages: DisplayMessage[];
 
