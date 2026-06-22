@@ -22,7 +22,13 @@ const log = getLogger("graph-tool-handlers");
 // ---------------------------------------------------------------------------
 
 export interface RememberInput {
-  content: string;
+  /**
+   * The fact(s) to remember. A single string records one fact; an array
+   * records several independent facts in one call (each becomes its own
+   * timestamped entry), so a single turn can batch unrelated facts instead of
+   * calling `remember` once per fact.
+   */
+  content: string | string[];
   finish_turn?: boolean;
 }
 
@@ -31,13 +37,33 @@ export interface RememberResult {
   message: string;
 }
 
+/**
+ * Normalize the `remember` content input to a list of non-empty facts.
+ * Accepts the single-string form or the batch array form, trims each fact, and
+ * drops blanks so an empty or whitespace-only input yields no facts.
+ */
+function normalizeFacts(content: string | string[]): string[] {
+  const raw = Array.isArray(content) ? content : [content];
+  return raw
+    .filter((fact): fact is string => typeof fact === "string")
+    .map((fact) => fact.trim())
+    .filter((fact) => fact.length > 0);
+}
+
+function rememberSuccessMessage(count: number): string {
+  return count === 1
+    ? "Saved to knowledge base."
+    : `Saved ${count} facts to knowledge base.`;
+}
+
 export function handleRemember(
   input: RememberInput,
   _conversationId: string,
   _scopeId: string,
   config: AssistantConfig,
 ): RememberResult {
-  if (!input.content || input.content.trim().length === 0) {
+  const facts = normalizeFacts(input.content);
+  if (facts.length === 0) {
     return { success: false, message: "content is required" };
   }
   if (config.memory.enabled === false) {
@@ -46,7 +72,10 @@ export function handleRemember(
 
   const workspaceDir = getWorkspaceDir();
   const now = new Date();
-  const entry = formatRememberEntry(input.content.trim(), now);
+  // Each fact becomes its own timestamped bullet; a batched call writes them
+  // all in a single append so one turn can record several independent facts.
+  const entry = facts.map((fact) => formatRememberEntry(fact, now)).join("");
+  const message = rememberSuccessMessage(facts.length);
 
   if (config.memory.v2.enabled) {
     appendBufferAndArchive({
@@ -57,7 +86,7 @@ export function handleRemember(
     // v2 path skips the PKB re-index queue — embedding for memory v2 happens
     // via the dedicated `embed_concept_page` job after consolidation, not on
     // every remember() write.
-    return { success: true, message: "Saved to knowledge base." };
+    return { success: true, message };
   }
 
   const pkbDir = join(workspaceDir, "pkb");
@@ -69,7 +98,7 @@ export function handleRemember(
   enqueuePkbReindex(pkbDir, bufferPath);
   enqueuePkbReindex(pkbDir, archivePath);
 
-  return { success: true, message: "Saved to knowledge base." };
+  return { success: true, message };
 }
 
 /**

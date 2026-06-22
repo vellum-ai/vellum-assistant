@@ -536,4 +536,82 @@ describe("plugin bootstrap", () => {
     // that snapshot, so its `onShutdown` must never fire.
     expect(shutdownFired).toBe(false);
   });
+
+  // ── .disabled sentinel gating ──────────────────────────────────────────
+  //
+  // A plugin is disabled when a `.disabled` file exists at
+  // <workspace>/plugins/<manifest-name>/.disabled. The bootstrap must
+  // skip the plugin entirely — no init, no tools, no routes, no shutdown
+  // hook — and remove it from the registry, mirroring the requiresFlag
+  // gate.
+
+  test(".disabled sentinel: init does not fire and plugin is unregistered", async () => {
+    let initFired = false;
+    const plugin = buildPlugin("sentinel-off", {
+      async init() {
+        initFired = true;
+      },
+    });
+    registerPlugin(plugin);
+
+    // Create the .disabled sentinel in the workspace plugins dir.
+    const sentinelDir = join(
+      TEST_WORKSPACE_DIR,
+      "plugins",
+      "sentinel-off",
+    );
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    await mkdir(sentinelDir, { recursive: true });
+    await writeFile(join(sentinelDir, ".disabled"), "");
+
+    await bootstrapPlugins();
+
+    expect(initFired).toBe(false);
+    const names = getRegisteredPlugins().map((p) => p.manifest.name);
+    expect(names).not.toContain("sentinel-off");
+
+    await rm(sentinelDir, { recursive: true, force: true });
+  });
+
+  test(".disabled sentinel absent: plugin inits normally", async () => {
+    let initFired = false;
+    const plugin = buildPlugin("sentinel-ok", {
+      async init() {
+        initFired = true;
+      },
+    });
+    registerPlugin(plugin);
+
+    // No .disabled sentinel created — plugin should init normally.
+    await bootstrapPlugins();
+
+    expect(initFired).toBe(true);
+  });
+
+  test(".disabled sentinel: no shutdown hook entry for the skipped plugin", async () => {
+    let shutdownFired = false;
+    const plugin = buildPlugin("sentinel-shutdown", {
+      async init() {},
+      async onShutdown() {
+        shutdownFired = true;
+      },
+    });
+    registerPlugin(plugin);
+
+    const sentinelDir = join(
+      TEST_WORKSPACE_DIR,
+      "plugins",
+      "sentinel-shutdown",
+    );
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    await mkdir(sentinelDir, { recursive: true });
+    await writeFile(join(sentinelDir, ".disabled"), "");
+
+    await bootstrapPlugins();
+    await runShutdownHooks("test-shutdown");
+
+    expect(shutdownFired).toBe(false);
+
+    await rm(sentinelDir, { recursive: true, force: true });
+  });
 });

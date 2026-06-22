@@ -25,6 +25,7 @@ import {
   formatScheduleRunCount,
   formatTimestamp,
   getOpenableScheduleRunConversationId,
+  hasRunText,
   type ScheduleRowUsage,
 } from "@/domains/settings/utils/schedule-formatters";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -120,12 +121,26 @@ function StatCards({ usage }: { usage: ScheduleRowUsage }) {
 
 function RunRow({
   run,
+  index,
+  isExpanded,
   onOpenConversation,
+  onToggleDetails,
 }: {
   run: ScheduleRun;
+  index: number;
+  isExpanded: boolean;
   onOpenConversation: (conversationId: string) => void;
+  onToggleDetails: (runId: string) => void;
 }) {
   const conversationId = getOpenableScheduleRunConversationId(run);
+  // Script runs have no conversation to open; instead their captured
+  // stdout/stderr is shown inline by expanding the row.
+  const hasOutput = hasRunText(run.output);
+  const hasError = hasRunText(run.error);
+  const hasLocalDetails = !conversationId && (hasOutput || hasError);
+  const detailsId = `schedule-run-details-${index}`;
+  const isInteractive = !!conversationId || hasLocalDetails;
+
   const body = (
     <>
       <StatusDot status={run.status} />
@@ -144,22 +159,75 @@ function RunRow({
           </div>
         ) : null}
       </div>
-      {conversationId ? (
-        <ChevronRight className="h-4 w-4 shrink-0 text-[var(--content-tertiary)]" />
+      {isInteractive ? (
+        <ChevronRight
+          className={cn(
+            "h-4 w-4 shrink-0 text-[var(--content-tertiary)] transition-transform",
+            hasLocalDetails && isExpanded ? "rotate-90" : "",
+          )}
+        />
       ) : null}
     </>
   );
 
+  const details =
+    hasLocalDetails && isExpanded ? (
+      <div id={detailsId} className="px-2 pb-3">
+        <div className="space-y-3 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3">
+          {hasOutput ? (
+            <div>
+              <div className="mb-1 text-body-small-default text-[var(--content-secondary)]">
+                Output
+              </div>
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-body-small-default font-mono text-[var(--content-default)]">
+                {run.output}
+              </pre>
+            </div>
+          ) : null}
+          {hasError ? (
+            <div>
+              <div className="mb-1 text-body-small-default text-[var(--content-secondary)]">
+                Error
+              </div>
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-body-small-default font-mono text-[var(--system-negative-strong)]">
+                {run.error}
+              </pre>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    ) : null;
+
   if (conversationId) {
     return (
-      <button
-        type="button"
-        onClick={() => onOpenConversation(conversationId)}
-        aria-label={`Open conversation for run at ${formatTimestamp(run.startedAt)}`}
-        className="flex w-full cursor-pointer items-center gap-3 px-2 py-3 text-left shadow-none transition-colors hover:bg-[var(--surface-hover)] focus:outline-none"
-      >
-        {body}
-      </button>
+      <div>
+        <button
+          type="button"
+          onClick={() => onOpenConversation(conversationId)}
+          aria-label={`Open conversation for run at ${formatTimestamp(run.startedAt)}`}
+          className="flex w-full cursor-pointer items-center gap-3 px-2 py-3 text-left shadow-none transition-colors hover:bg-[var(--surface-hover)] focus:outline-none"
+        >
+          {body}
+        </button>
+      </div>
+    );
+  }
+
+  if (hasLocalDetails) {
+    return (
+      <div>
+        <button
+          type="button"
+          onClick={() => onToggleDetails(run.id)}
+          aria-label={`Toggle output for run at ${formatTimestamp(run.startedAt)}`}
+          aria-expanded={isExpanded}
+          aria-controls={detailsId}
+          className="flex w-full cursor-pointer items-center gap-3 px-2 py-3 text-left shadow-none transition-colors hover:bg-[var(--surface-hover)] focus:outline-none"
+        >
+          {body}
+        </button>
+        {details}
+      </div>
     );
   }
 
@@ -175,6 +243,8 @@ function RecentRuns({
   isLoading: boolean;
   onOpenConversation: (conversationId: string) => void;
 }) {
+  const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-6">
@@ -191,8 +261,17 @@ function RecentRuns({
   }
   return (
     <div className="divide-y divide-[var(--border-base)]">
-      {runs.map((run) => (
-        <RunRow key={run.id} run={run} onOpenConversation={onOpenConversation} />
+      {runs.map((run, index) => (
+        <RunRow
+          key={run.id}
+          run={run}
+          index={index}
+          isExpanded={expandedRunId === run.id}
+          onOpenConversation={onOpenConversation}
+          onToggleDetails={(runId) =>
+            setExpandedRunId((current) => (current === runId ? null : runId))
+          }
+        />
       ))}
     </div>
   );

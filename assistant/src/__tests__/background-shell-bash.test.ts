@@ -183,8 +183,11 @@ describe("bash tool background mode", () => {
       .calls[0]![0] as WakeOptions;
     expect(wakeCall.conversationId).toBe("conv-bg-test");
     expect(wakeCall.source).toBe("background-tool");
-    expect(wakeCall.hint).toContain("bg_output_12345");
     expect(wakeCall.hint).toContain("bg-test1234");
+    expect(wakeCall.persistTriggerAsEvent).toBe(true);
+    // Command stdout is fenced as untrusted output, not inlined in the hint.
+    expect(wakeCall.untrustedOutput?.content).toContain("bg_output_12345");
+    expect(wakeCall.untrustedOutput?.source).toBe("tool_result");
   });
 
   test("failing background process delivers an error hint via wake", async () => {
