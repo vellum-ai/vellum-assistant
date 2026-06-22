@@ -25,7 +25,7 @@ import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
-import type { ResearchFact } from "@/utils/research-facts";
+import type { ResearchFact, ResearchSuggestion } from "@/utils/research-facts";
 
 function useViewportSize() {
   const [size, setSize] = useState(() => ({
@@ -317,12 +317,26 @@ export function ResearchResultsStep({
 /**
  * Generic fallbacks shown only if the research turn produced no suggestions
  * (failure / sparse subject) so the step is never empty once it's done loading.
+ * Each pairs the assistant-voiced card text with the user-voiced prompt sent on
+ * click.
  */
-const FALLBACK_SUGGESTIONS = [
-  "Build a live dashboard to track what matters to me",
-  "Set up a weekly briefing on news in my space",
-  "Help me get on top of my week",
-  "Draft something from a few rough notes",
+const FALLBACK_SUGGESTIONS: ResearchSuggestion[] = [
+  {
+    suggestion: "I'll build you a live dashboard to track what matters to you",
+    prompt: "Build me a live dashboard to track what matters to me.",
+  },
+  {
+    suggestion: "I'll send a weekly briefing on news in your space",
+    prompt: "Set up a weekly briefing on news in my space.",
+  },
+  {
+    suggestion: "I'll help you get on top of your week",
+    prompt: "Help me get on top of my week.",
+  },
+  {
+    suggestion: "I'll draft something from a few rough notes",
+    prompt: "Draft something from a few rough notes I'll give you.",
+  },
 ];
 
 export function SuggestionsStep({
@@ -333,9 +347,10 @@ export function SuggestionsStep({
   onForward,
 }: {
   /** Parsed research suggestions (streams in; may be empty while running). */
-  suggestions: string[];
+  suggestions: ResearchSuggestion[];
   /** True while the research turn is still streaming. */
   loading: boolean;
+  /** Sends the user-voiced prompt for the clicked suggestion. */
   onSuggestionClick: (prompt: string) => void;
   onBack: () => void;
   /** Redo into the next step — only set when the user has stepped back. */
@@ -372,9 +387,9 @@ export function SuggestionsStep({
         <div className="flex flex-col gap-3">
           {items.map((s, i) => (
             <motion.button
-              key={s}
+              key={`${i}-${s.suggestion}`}
               type="button"
-              onClick={() => onSuggestionClick(s)}
+              onClick={() => onSuggestionClick(s.prompt)}
               initial={reduce ? false : { opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={reduce ? { duration: 0 } : { duration: 0.3, delay: i * 0.06 }}
@@ -386,7 +401,7 @@ export function SuggestionsStep({
               }}
             >
               <Sparkles className="h-4 w-4 shrink-0" style={{ color: tone.fgMuted }} />
-              <span>{s}</span>
+              <span>{s.suggestion}</span>
             </motion.button>
           ))}
         </div>

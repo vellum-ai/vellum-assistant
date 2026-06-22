@@ -19,7 +19,10 @@ import {
   type ResearchFactItem,
 } from "@/domains/chat/onboarding-research/research-facts-card";
 import { ResearchSuggestions } from "@/domains/chat/onboarding-research/research-suggestions";
-import type { RemovalReason } from "@/domains/chat/onboarding-research/research-facts";
+import type {
+  RemovalReason,
+  ResearchSuggestion,
+} from "@/domains/chat/onboarding-research/research-facts";
 
 export interface ResearchResultsViewProps {
   mode: "loading" | "results" | "empty";
@@ -27,7 +30,7 @@ export interface ResearchResultsViewProps {
   loadingContent: ReactNode;
   items: ResearchFactItem[];
   removals: ReadonlyMap<number, RemovalReason | null>;
-  suggestions: string[];
+  suggestions: ResearchSuggestion[];
   resultsTitle: string;
   showSuggestions: boolean;
   canContinue: boolean;
@@ -35,7 +38,7 @@ export interface ResearchResultsViewProps {
   onRemove: (index: number) => void;
   onSetReason: (index: number, reason: RemovalReason) => void;
   onRestore: (index: number) => void;
-  onSuggestionClick: (suggestion: string) => void;
+  onSuggestionClick: (prompt: string) => void;
   onContinue: () => void;
 }
 

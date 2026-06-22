@@ -25,6 +25,7 @@ import { ResearchResultsView } from "@/domains/chat/onboarding-research/research
 import type {
   RemovalReason,
   ResearchFact,
+  ResearchSuggestion,
 } from "@/domains/chat/onboarding-research/research-facts";
 
 // Fictional fixture — no real names/handles/identifying data (root AGENTS.md);
@@ -60,11 +61,23 @@ const MOCK_CLAIMS: ResearchFact[] = [
   },
 ];
 
-const MOCK_SUGGESTIONS = [
-  "Summarize this week's AI model releases for me",
-  "Draft a technical blog post from your latest notes",
-  "Build a tracker for competitor product launches",
-  "Analyze a CSV of metrics and surface the trends",
+const MOCK_SUGGESTIONS: ResearchSuggestion[] = [
+  {
+    suggestion: "I'll summarize this week's AI model releases for you",
+    prompt: "Summarize this week's AI model releases for me.",
+  },
+  {
+    suggestion: "I'll draft a technical blog post from your latest notes",
+    prompt: "Draft a technical blog post from my latest notes.",
+  },
+  {
+    suggestion: "I'll build you a tracker for competitor product launches",
+    prompt: "Build me a tracker for competitor product launches.",
+  },
+  {
+    suggestion: "I'll analyze a CSV of metrics and surface the trends",
+    prompt: "Analyze a CSV of metrics for me and surface the trends.",
+  },
 ];
 
 function faviconService(domain: string): string {

@@ -163,15 +163,15 @@ export function ResearchResultsOverlay() {
     if (removed.length > 0) requestFollowup(buildRemovalNote(removed));
   };
 
-  // Clicking a suggestion starts a fresh conversation with that message sent on
-  // the user's behalf, then drops them out of the focused flow into it. The
-  // removal correction is intentionally skipped here — it belongs to the
-  // conversation being left behind, not the new one.
-  const handleSuggestionClick = (suggestion: string) => {
+  // Clicking a suggestion starts a fresh conversation with the user-voiced
+  // prompt sent on the user's behalf, then drops them out of the focused flow
+  // into it. The removal correction is intentionally skipped here — it belongs
+  // to the conversation being left behind, not the new one.
+  const handleSuggestionClick = (prompt: string) => {
     const draftId = createDraftConversationId();
     useConversationStore.getState().setActiveConversationId(draftId);
     void navigate(
-      `${routes.conversation(draftId)}?prompt=${encodeURIComponent(suggestion)}`,
+      `${routes.conversation(draftId)}?prompt=${encodeURIComponent(prompt)}`,
     );
     exitFocus();
   };

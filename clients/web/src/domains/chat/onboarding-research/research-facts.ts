@@ -24,6 +24,7 @@ export type {
   ResearchConfidence,
   ResearchFact,
   ResearchResult,
+  ResearchSuggestion,
 } from "@/utils/research-facts";
 
 /** Flatten a transcript message to its plain text (text blocks, then legacy segments). */

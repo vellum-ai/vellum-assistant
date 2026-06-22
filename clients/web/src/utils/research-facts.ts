@@ -37,6 +37,22 @@ export interface ResearchFact {
   sources: string[];
 }
 
+export interface ResearchSuggestion {
+  /**
+   * The offer as the assistant would speak it — first-person, in the
+   * assistant's voice ("I'll build you a training plan…"). This is what the
+   * suggestion card renders.
+   */
+  suggestion: string;
+  /**
+   * The message actually sent when the user clicks, written from the USER's
+   * perspective ("Build me a training plan for my climbing trip"). Keeps the
+   * opened conversation reading as the user's own request, not the assistant
+   * talking to itself.
+   */
+  prompt: string;
+}
+
 /** Bare registrable domain from a URL (www stripped), or null if unparseable. */
 export function domainFromUrl(url: string): string | null {
   try {
@@ -118,39 +134,18 @@ function toFact(entry: unknown): ResearchFact | null {
   };
 }
 
-/**
- * Extract every complete top-level quoted string from an array body, tolerating
- * a missing closing `]` and a half-written trailing string. Used for the flat
- * `suggestions` string array.
- */
-function extractCompleteStrings(body: string): string[] {
-  const out: string[] = [];
-  let i = 0;
-  while (i < body.length) {
-    const c = body[i];
-    if (c === "]") break; // end of the array
-    if (c === '"') {
-      let j = i + 1;
-      let escaped = false;
-      for (; j < body.length; j++) {
-        const d = body[j];
-        if (escaped) escaped = false;
-        else if (d === "\\") escaped = true;
-        else if (d === '"') break;
-      }
-      if (j >= body.length) break; // incomplete trailing string — stop
-      try {
-        const value = JSON.parse(body.slice(i, j + 1));
-        if (typeof value === "string" && value.trim()) out.push(value);
-      } catch {
-        // Defensive — a balanced slice should parse.
-      }
-      i = j + 1;
-      continue;
-    }
-    i++;
-  }
-  return out;
+function toSuggestion(entry: unknown): ResearchSuggestion | null {
+  if (!entry || typeof entry !== "object") return null;
+  const suggestion = (entry as { suggestion?: unknown }).suggestion;
+  if (typeof suggestion !== "string" || !suggestion.trim()) return null;
+  const rawPrompt = (entry as { prompt?: unknown }).prompt;
+  // Fall back to the assistant-voiced text if the model omits the user-voiced
+  // prompt — better to send something reasonable than to drop the suggestion.
+  const prompt =
+    typeof rawPrompt === "string" && rawPrompt.trim()
+      ? rawPrompt.trim()
+      : suggestion.trim();
+  return { suggestion: suggestion.trim(), prompt };
 }
 
 /** Body after a `"key": [` opening, or null if that array isn't present yet. */
@@ -163,8 +158,12 @@ function arrayScopeFor(body: string, key: string): string | null {
 
 export interface ResearchResult {
   claims: ResearchFact[];
-  /** Concrete actions the assistant proposes it could do for the user. */
-  suggestions: string[];
+  /**
+   * Concrete actions the assistant proposes it could do for the user. Each is
+   * a `{ suggestion, prompt }` pair: the assistant-voiced offer shown on the
+   * card and the user-voiced message sent when it's clicked.
+   */
+  suggestions: ResearchSuggestion[];
 }
 
 /**
@@ -193,7 +192,11 @@ export function parseResearchResultStreaming(text: string): ResearchResult {
 
   const suggestionsScope = arrayScopeFor(body, "suggestions");
   const suggestions =
-    suggestionsScope === null ? [] : extractCompleteStrings(suggestionsScope);
+    suggestionsScope === null
+      ? []
+      : extractCompleteObjects(suggestionsScope)
+          .map(toSuggestion)
+          .filter((s): s is ResearchSuggestion => s !== null);
 
   return { claims, suggestions };
 }

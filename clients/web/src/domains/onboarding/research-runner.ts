@@ -38,6 +38,7 @@ import {
 import {
   parseResearchResultStreaming,
   type ResearchFact,
+  type ResearchSuggestion,
 } from "@/utils/research-facts";
 
 /** Poll cadence + ceiling for reading the streaming research reply. */
@@ -55,7 +56,7 @@ export type ResearchStatus = "idle" | "running" | "done" | "error";
 export interface ResearchRunnerState {
   status: ResearchStatus;
   claims: ResearchFact[];
-  suggestions: string[];
+  suggestions: ResearchSuggestion[];
 }
 
 export interface StartResearchOptions {
