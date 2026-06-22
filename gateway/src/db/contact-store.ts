@@ -371,24 +371,24 @@ export class ContactStore {
     // If not found in the gateway DB, resolve from the assistant DB by id.
     if (!gwChannel) {
       const assistantChannel = await assistantDbQuery<{
-        contactId: string;
         type: string;
         address: string;
-      }>(
-        "SELECT contact_id AS contactId, type, address FROM contact_channels WHERE id = ?",
-        [channelId],
-      ).catch(() => []);
+      }>("SELECT type, address FROM contact_channels WHERE id = ?", [
+        channelId,
+      ]).catch(() => []);
 
       if (assistantChannel.length > 0) {
-        const { contactId, type, address } = assistantChannel[0];
+        const { type, address } = assistantChannel[0];
         // A gateway row may already exist under a DIFFERENT id (same logical
-        // channel) — resolve by logical key first.
+        // channel). `(type, address)` is globally UNIQUE, so resolve it
+        // globally — a split-brain row living under a different contact id is
+        // the existing gateway ACL we must update, not a row to re-mirror
+        // (which would hit the unique constraint and 404).
         gwChannel = this.db
           .select()
           .from(contactChannels)
           .where(
             and(
-              eq(contactChannels.contactId, contactId),
               eq(contactChannels.type, type),
               sql`${contactChannels.address} = ${address} COLLATE NOCASE`,
             ),
@@ -771,16 +771,18 @@ export class ContactStore {
     if (params.contactId !== undefined)
       conditions.push(eq(ingressInvites.contactId, params.contactId));
 
-    return this.db
-      .select()
-      .from(ingressInvites)
-      .where(conditions.length ? and(...conditions) : undefined)
-      // Secondary sort on id keeps ordering (and offset pagination) stable when
-      // multiple invites share a createdAt millisecond.
-      .orderBy(desc(ingressInvites.createdAt), desc(ingressInvites.id))
-      .limit(params.limit ?? 100)
-      .offset(params.offset ?? 0)
-      .all();
+    return (
+      this.db
+        .select()
+        .from(ingressInvites)
+        .where(conditions.length ? and(...conditions) : undefined)
+        // Secondary sort on id keeps ordering (and offset pagination) stable when
+        // multiple invites share a createdAt millisecond.
+        .orderBy(desc(ingressInvites.createdAt), desc(ingressInvites.id))
+        .limit(params.limit ?? 100)
+        .offset(params.offset ?? 0)
+        .all()
+    );
   }
 
   createInvite(params: {
@@ -973,11 +975,7 @@ export class ContactStore {
       if (params.displayName !== undefined) {
         updateSet.displayName = params.displayName;
       }
-      this.db
-        .update(contacts)
-        .set(updateSet)
-        .where(eq(contacts.id, id))
-        .run();
+      this.db.update(contacts).set(updateSet).where(eq(contacts.id, id)).run();
     };
 
     // ── 1. Look up by id ──────────────────────────────────────────────
