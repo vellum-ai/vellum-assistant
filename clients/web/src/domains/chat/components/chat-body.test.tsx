@@ -63,8 +63,17 @@ mock.module("@vellumai/design-library", () => ({
   } & ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button {...props}>{iconOnly ?? children}</button>
   ),
-  Notice: ({ children }: { children: string }) => (
-    <div data-testid="notice">{children}</div>
+  Notice: ({
+    children,
+    actions,
+  }: {
+    children?: ReactNode;
+    actions?: ReactNode;
+  }) => (
+    <div data-testid="notice">
+      {children}
+      {actions ? <div data-testid="notice-actions">{actions}</div> : null}
+    </div>
   ),
   ResizablePanel: () => <div data-testid="resizable-panel" />,
   Typography: ({ children }: { children?: ReactNode }) => (
@@ -269,5 +278,51 @@ describe("ChatBody — channel footer slot", () => {
     expect(html.indexOf("CHANNEL_FOOTER")).toBeLessThan(
       html.indexOf("COMPOSER"),
     );
+  });
+});
+
+describe("ChatBody — generic chat error Notice (dismiss UX)", () => {
+  // The Notice is rendered as an inline error banner above the composer.
+  // The banner has a "Go to Doctor" action and a "Dismiss" button as a
+  // second action (so the user has a real way to close the banner).
+
+  test("renders a Dismiss button when genericChatError + onDismissChatError are both provided", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          genericChatError: {
+            message: "Model doesn't support image input.",
+            actions: (
+              <a href="/assistant/settings/debug?tab=doctor">Go to Doctor</a>
+            ),
+          },
+          onDismissChatError: () => {},
+        })}
+      />,
+    );
+
+    expect(html).toContain("Go to Doctor");
+    expect(html).toContain("Dismiss");
+  });
+
+  test("does NOT render the Dismiss button when onDismissChatError is omitted", () => {
+    // Defensive: don't silently show a Dismiss button that does nothing.
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          genericChatError: { message: "Something went wrong." },
+        })}
+      />,
+    );
+
+    expect(html).not.toContain("Dismiss");
+  });
+
+  test("does not render the error banner at all when genericChatError is null", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody {...baseProps({ genericChatError: null })} />,
+    );
+
+    expect(html).not.toContain(">Dismiss<");
   });
 });
