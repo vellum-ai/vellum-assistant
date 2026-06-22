@@ -157,6 +157,12 @@ Channel approval flows use `requestId` (not `runId`) as the primary identifier:
 - Guardian approval records in `channelGuardianApprovalRequests` link via `requestId`.
 - The conversational approval engine classifies user intent and resolves via `conversation.handleConfirmationResponse(requestId, decision)`.
 
+### Channel verification source-of-truth split
+
+Verification SESSION state (pending sessions, codes, resend, rate-limit) is assistant-owned (`channel-verification-routes.ts`, `channel-verification-service.ts`). The channel-verified OUTCOME (status / verifiedAt / verifiedVia) is gateway-owned.
+
+The `channel_verification_sessions_*` daemon handlers are thin relays for the outcome write, following the trust-rules relay precedent. The gateway IPC methods `mark_channel_verified` / `mark_channel_revoked` (`ContactStore.markChannelVerified` / `markChannelRevoked`) are the single outcome write path for all callers: HTTP routes, inbound code-match completion (`gateway/src/verification/text-verification.ts`), and CLI/IPC.
+
 ## Rate Limiting & Diagnostics
 
 All `/v1/*` endpoints share a per-client-IP sliding-window rate limiter (`middleware/rate-limiter.ts`):
