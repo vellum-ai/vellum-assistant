@@ -367,6 +367,306 @@ describe("IPC contact routes", () => {
     expect(res.error).toContain("Invalid params");
   });
 
+  // -------------------------------------------------------------------------
+  // create_contact (gateway DB source of truth via ContactStore.upsertContact)
+  // -------------------------------------------------------------------------
+  //
+  // No assistant daemon runs in these tests, so the best-effort assistant-DB
+  // dual-write inside upsertContact soft-fails. The gateway write still
+  // succeeds and { contactId, channelId } is returned regardless.
+
+  test("create_contact writes the gateway DB contacts + contact_channels rows", async () => {
+    await startServerAndConnect();
+    const res = await sendRequest(client, "create_contact", {
+      channelType: "email",
+      address: "new@example.com",
+      displayName: "New Person",
+    });
+
+    expect(res.error).toBeUndefined();
+    const { contactId, channelId } = res.result as {
+      contactId: string;
+      channelId: string;
+    };
+    expect(contactId).toBeTruthy();
+    expect(channelId).toBeTruthy();
+
+    // The gateway DB (source of truth) holds both the contact and channel rows.
+    const store = new ContactStore(getGatewayDb());
+    const contact = store.getContact(contactId);
+    expect(contact).toBeDefined();
+    expect(contact!.displayName).toBe("New Person");
+    // role is always "contact" — guardian binding is not settable here.
+    expect(contact!.role).toBe("contact");
+
+    const channels = store.getChannelsForContact(contactId);
+    expect(channels).toHaveLength(1);
+    expect(channels[0].id).toBe(channelId);
+    expect(channels[0].type).toBe("email");
+    expect(channels[0].address).toBe("new@example.com");
+    expect(channels[0].isPrimary).toBe(true);
+  });
+
+  test("create_contact returns { contactId, channelId } both present and non-empty", async () => {
+    await startServerAndConnect();
+    const res = await sendRequest(client, "create_contact", {
+      channelType: "email",
+      address: "shape@example.com",
+    });
+
+    expect(res.error).toBeUndefined();
+    const result = res.result as { contactId: string; channelId: string };
+    expect(typeof result.contactId).toBe("string");
+    expect(typeof result.channelId).toBe("string");
+    expect(result.contactId.length).toBeGreaterThan(0);
+    expect(result.channelId.length).toBeGreaterThan(0);
+  });
+
+  test("create_contact ignores the role param (guardian binding not settable here)", async () => {
+    await startServerAndConnect();
+    const res = await sendRequest(client, "create_contact", {
+      channelType: "email",
+      address: "wannabe-guardian@example.com",
+      role: "guardian",
+    });
+
+    expect(res.error).toBeUndefined();
+    const { contactId } = res.result as { contactId: string };
+
+    const store = new ContactStore(getGatewayDb());
+    expect(store.getContact(contactId)!.role).toBe("contact");
+  });
+
+  test("create_contact is idempotent for the same (channelType, address)", async () => {
+    await startServerAndConnect();
+    const first = await sendRequest(client, "create_contact", {
+      channelType: "email",
+      address: "dup@example.com",
+    });
+    const second = await sendRequest(client, "create_contact", {
+      channelType: "email",
+      address: "dup@example.com",
+    });
+
+    expect(first.error).toBeUndefined();
+    expect(second.error).toBeUndefined();
+    const a = first.result as { contactId: string; channelId: string };
+    const b = second.result as { contactId: string; channelId: string };
+    expect(b.contactId).toBe(a.contactId);
+    expect(b.channelId).toBe(a.channelId);
+
+    // No duplicate rows.
+    const store = new ContactStore(getGatewayDb());
+    expect(store.listContacts()).toHaveLength(1);
+    expect(store.getChannelsForContact(a.contactId)).toHaveLength(1);
+  });
+
+  test("create_contact retry does not demote an existing active/verified channel", async () => {
+    // An already-trusted channel (active + non-allow policy) must survive a
+    // retry untouched — passing hard-coded unverified/allow would drop it below
+    // the trusted_contacts admission floor.
+    const db = getGatewayDb();
+    const now = Date.now();
+    db.insert(contacts)
+      .values({
+        id: "trusted-c1",
+        displayName: "Trusted Person",
+        role: "contact",
+        principalId: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(contactChannels)
+      .values({
+        id: "trusted-ch1",
+        contactId: "trusted-c1",
+        type: "email",
+        address: "trusted@example.com",
+        isPrimary: true,
+        status: "active",
+        policy: "escalate",
+        verifiedAt: now,
+        verifiedVia: "manual",
+        interactionCount: 3,
+        createdAt: now,
+      })
+      .run();
+
+    await startServerAndConnect();
+    const res = await sendRequest(client, "create_contact", {
+      channelType: "email",
+      address: "trusted@example.com",
+    });
+
+    expect(res.error).toBeUndefined();
+    const { contactId, channelId } = res.result as {
+      contactId: string;
+      channelId: string;
+    };
+    expect(contactId).toBe("trusted-c1");
+    expect(channelId).toBe("trusted-ch1");
+
+    const store = new ContactStore(db);
+    const channels = store.getChannelsForContact("trusted-c1");
+    expect(channels).toHaveLength(1);
+    // Status/policy/verification preserved — NOT overwritten to unverified/allow.
+    expect(channels[0].status).toBe("active");
+    expect(channels[0].policy).toBe("escalate");
+    expect(channels[0].verifiedAt).toBe(now);
+    expect(channels[0].verifiedVia).toBe("manual");
+  });
+
+  test("create_contact retry preserves existing displayName + external_chat_id when omitted", async () => {
+    // A retry / re-add for an existing contact that already has a custom
+    // displayName and a set external_chat_id, called WITHOUT a displayName,
+    // must not overwrite the name with the bare address nor clear the chat id.
+    const db = getGatewayDb();
+    const now = Date.now();
+    db.insert(contacts)
+      .values({
+        id: "named-c1",
+        displayName: "Alice In Wonderland",
+        role: "contact",
+        principalId: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(contactChannels)
+      .values({
+        id: "named-ch1",
+        contactId: "named-c1",
+        type: "telegram",
+        address: "tg-alice-001",
+        isPrimary: true,
+        externalChatId: "chat-alice-001",
+        status: "active",
+        policy: "allow",
+        interactionCount: 2,
+        createdAt: now,
+      })
+      .run();
+
+    await startServerAndConnect();
+    const res = await sendRequest(client, "create_contact", {
+      channelType: "telegram",
+      address: "tg-alice-001",
+    });
+
+    expect(res.error).toBeUndefined();
+    const { contactId, channelId } = res.result as {
+      contactId: string;
+      channelId: string;
+    };
+    expect(contactId).toBe("named-c1");
+    expect(channelId).toBe("named-ch1");
+
+    const store = new ContactStore(db);
+    // displayName preserved — NOT overwritten with the bare address.
+    expect(store.getContact("named-c1")!.displayName).toBe(
+      "Alice In Wonderland",
+    );
+    const channels = store.getChannelsForContact("named-c1");
+    expect(channels).toHaveLength(1);
+    // external_chat_id preserved — sparse upsert must not clear it.
+    expect(channels[0].externalChatId).toBe("chat-alice-001");
+  });
+
+  test("create_contact retry honors an explicitly supplied displayName", async () => {
+    const db = getGatewayDb();
+    const now = Date.now();
+    db.insert(contacts)
+      .values({
+        id: "rename-c1",
+        displayName: "Old Name",
+        role: "contact",
+        principalId: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(contactChannels)
+      .values({
+        id: "rename-ch1",
+        contactId: "rename-c1",
+        type: "email",
+        address: "rename@example.com",
+        isPrimary: true,
+        status: "active",
+        policy: "allow",
+        interactionCount: 0,
+        createdAt: now,
+      })
+      .run();
+
+    await startServerAndConnect();
+    const res = await sendRequest(client, "create_contact", {
+      channelType: "email",
+      address: "rename@example.com",
+      displayName: "New Name",
+    });
+
+    expect(res.error).toBeUndefined();
+    const store = new ContactStore(db);
+    expect(store.getContact("rename-c1")!.displayName).toBe("New Name");
+  });
+
+  test("create_contact defaults a brand-new contact's displayName to the canonical address", async () => {
+    await startServerAndConnect();
+    const res = await sendRequest(client, "create_contact", {
+      channelType: "email",
+      address: "noname@example.com",
+    });
+
+    expect(res.error).toBeUndefined();
+    const { contactId } = res.result as { contactId: string };
+
+    const store = new ContactStore(getGatewayDb());
+    expect(store.getContact(contactId)!.displayName).toBe("noname@example.com");
+  });
+
+  test("create_contact applies default unverified/allow to a brand-new channel", async () => {
+    await startServerAndConnect();
+    const res = await sendRequest(client, "create_contact", {
+      channelType: "email",
+      address: "fresh@example.com",
+    });
+
+    expect(res.error).toBeUndefined();
+    const { contactId } = res.result as { contactId: string };
+
+    const store = new ContactStore(getGatewayDb());
+    const channels = store.getChannelsForContact(contactId);
+    expect(channels).toHaveLength(1);
+    expect(channels[0].status).toBe("unverified");
+    expect(channels[0].policy).toBe("allow");
+  });
+
+  test("create_contact canonicalizes the address so a non-canonical variant matches", async () => {
+    await startServerAndConnect();
+    // Phone numbers canonicalize to E.164; a variant with spacing/punctuation
+    // must resolve to the same channel on the second call.
+    const first = await sendRequest(client, "create_contact", {
+      channelType: "phone",
+      address: "+1 (555) 010-1234",
+    });
+    const second = await sendRequest(client, "create_contact", {
+      channelType: "phone",
+      address: "+15550101234",
+    });
+
+    expect(first.error).toBeUndefined();
+    expect(second.error).toBeUndefined();
+    const a = first.result as { contactId: string; channelId: string };
+    const b = second.result as { contactId: string; channelId: string };
+    expect(b.contactId).toBe(a.contactId);
+    expect(b.channelId).toBe(a.channelId);
+
+    const store = new ContactStore(getGatewayDb());
+    expect(store.getChannelsForContact(a.contactId)).toHaveLength(1);
+  });
+
   // ── update_contact_channel (gateway-native write) ──────────────────────
   describe("update_contact_channel", () => {
     /** Insert a blocked channel so revoke-of-blocked can be exercised. */

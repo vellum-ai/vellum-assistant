@@ -2,14 +2,14 @@
  * IPC route definitions for contact reads and writes.
  *
  * Read methods expose gateway-owned contact data to the assistant daemon.
- * The `create_contact` write method upserts a contact+channel via the
- * assistant DB proxy (raw SQL), so the gateway owns the write path.
+ * The `create_contact` write method upserts a contact+channel via
+ * `ContactStore.upsertContact`, which writes the gateway DB (source of truth)
+ * and best-effort mirrors to the assistant DB.
  */
 
 import { UpdateContactChannelIpcParamsSchema } from "@vellumai/gateway-client/gateway-ipc-contracts";
 import { z } from "zod";
 
-import { assistantDbQuery, assistantDbRun } from "../db/assistant-db-proxy.js";
 import { ContactStore } from "../db/contact-store.js";
 import { updateContactChannelCore } from "../http/routes/contacts-control-plane-proxy.js";
 import { getLogger } from "../logger.js";
@@ -83,74 +83,59 @@ export const contactRoutes: IpcRoute[] = [
     method: "create_contact",
     schema: CreateContactParamsSchema,
     handler: async (params?: Record<string, unknown>) => {
-      const { channelType, address, role, displayName } =
+      const { channelType, address, displayName } =
         CreateContactParamsSchema.parse(params);
 
-      const normalizedAddress =
+      // Canonicalize once here; upsertContact canonicalizes internally too, so
+      // passing the canonical form keeps a single source of truth.
+      // NOTE: `role` is intentionally not honored. Guardian binding is owned by
+      // guardian-bootstrap (see ContactStore.upsertContact SECURITY note); a
+      // contact created here always gets role="contact".
+      const canonicalAddress =
         canonicalizeInboundIdentity(channelType, address) ?? address.trim();
-      const effectiveDisplayName = displayName ?? normalizedAddress;
-      // Map prompt roles to valid ContactRole values ("guardian" | "contact").
-      const effectiveRole: string =
-        role === "guardian" ? "guardian" : "contact";
-      const now = Date.now();
 
-      // Check if a channel with this (type, address) already exists.
-      const existing = await assistantDbQuery<{
-        channelId: string;
-        contactId: string;
-      }>(
-        `SELECT cc.id AS channelId, cc.contact_id AS contactId
-         FROM contact_channels cc
-         WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
-         LIMIT 1`,
-        [channelType, normalizedAddress],
-      );
+      const store = getStore();
+      // Preserve an existing contact's displayName on retry: only the caller's
+      // explicit displayName overrides it. Falling back to the existing name
+      // (or the canonical address for a brand-new contact) avoids clobbering a
+      // custom name with the bare address, since upsertContact always writes
+      // displayName.
+      const existing = store.getContactByChannel(channelType, canonicalAddress);
+      const effectiveDisplayName =
+        displayName ?? existing?.displayName ?? canonicalAddress;
 
-      if (existing.length > 0) {
-        const { channelId, contactId } = existing[0];
-        log.info(
-          { channelType, address: normalizedAddress, contactId, channelId },
-          "create_contact: channel already exists, returning existing record",
+      // Omit status/policy/externalChatId: syncChannels and the assistant-DB
+      // mirror default a new channel but preserve an existing channel's values
+      // on retry. Passing them here would demote a trusted channel below the
+      // trusted_contacts admission floor (mirrors verification/contact-helpers)
+      // or clear a delivery chat id.
+      const { contact } = await store.upsertContact({
+        displayName: effectiveDisplayName,
+        channels: [
+          {
+            type: channelType,
+            address: canonicalAddress,
+            isPrimary: true,
+          },
+        ],
+      });
+
+      const contactId = contact.id;
+      // Resolve the channel id from the gateway DB (source of truth). The
+      // upsertContact result's channels can be empty when the assistant-DB
+      // read-back is unavailable (best-effort), so don't rely on it here.
+      const channel = store
+        .getChannelsForContact(contactId)
+        .find(
+          (ch) =>
+            ch.type === channelType &&
+            ch.address.toLowerCase() === canonicalAddress.toLowerCase(),
         );
-        return { contactId, channelId };
-      }
-
-      // Create a new contact + channel.
-      // Two separate INSERTs — use a compensating DELETE on channel failure.
-      const contactId = crypto.randomUUID();
-      const channelId = crypto.randomUUID();
-
-      await assistantDbRun(
-        `INSERT INTO contacts (id, display_name, role, contact_type, created_at, updated_at)
-         VALUES (?, ?, ?, 'human', ?, ?)`,
-        [contactId, effectiveDisplayName, effectiveRole, now, now],
-      );
-
-      try {
-        await assistantDbRun(
-          `INSERT INTO contact_channels (id, contact_id, type, address, is_primary, status, policy, interaction_count, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 1, 'unverified', 'allow', 0, ?, ?)`,
-          [channelId, contactId, channelType, normalizedAddress, now, now],
-        );
-      } catch (channelErr) {
-        // Compensating delete — remove the orphaned contact row.
-        log.error(
-          { channelErr, contactId, channelType, address: normalizedAddress },
-          "create_contact: channel INSERT failed, rolling back contact row",
-        );
-        await assistantDbRun("DELETE FROM contacts WHERE id = ?", [contactId]);
-        throw channelErr;
-      }
+      const channelId = channel?.id ?? "";
 
       log.info(
-        {
-          channelType,
-          address: normalizedAddress,
-          contactId,
-          channelId,
-          role: effectiveRole,
-        },
-        "create_contact: created new contact + channel",
+        { channelType, address: canonicalAddress, contactId, channelId },
+        "create_contact: upserted contact + channel via ContactStore",
       );
 
       return { contactId, channelId };
