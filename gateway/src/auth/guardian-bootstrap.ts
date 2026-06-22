@@ -337,38 +337,53 @@ export async function createGuardianBinding(
         })
         .run();
 
-      tx.insert(gwContactChannels)
-        .values({
-          id: channelId,
-          contactId,
-          type: params.channel,
-          address: params.externalUserId,
-          externalChatId: params.deliveryChatId,
-          isPrimary: true,
-          status: "active",
-          policy: "allow",
-          verifiedAt: now,
-          verifiedVia,
-          interactionCount: 0,
-          createdAt: now,
-        })
-        .onConflictDoUpdate({
-          target: gwContactChannels.id,
-          set: {
-            contactId,
-            address: params.externalUserId,
-            externalChatId: params.deliveryChatId,
-            isPrimary: true,
-            status: "active",
-            policy: "allow",
-            verifiedAt: now,
-            verifiedVia,
-            revokedReason: null,
-            blockedReason: null,
-            updatedAt: now,
-          },
-        })
-        .run();
+      const channelSet = {
+        contactId,
+        address: params.externalUserId,
+        externalChatId: params.deliveryChatId,
+        isPrimary: true,
+        status: "active",
+        policy: "allow",
+        verifiedAt: now,
+        verifiedVia,
+        revokedReason: null,
+        blockedReason: null,
+        updatedAt: now,
+      };
+
+      // Heal a divergent (type,address) row (m0006): adopt it by its own id
+      // rather than insert and throw on idx_contact_channels_type_address_unique.
+      const existingGw = tx
+        .select({ id: gwContactChannels.id })
+        .from(gwContactChannels)
+        .where(
+          and(
+            eq(gwContactChannels.type, params.channel),
+            sql`${gwContactChannels.address} = ${params.externalUserId} COLLATE NOCASE`,
+          ),
+        )
+        .get();
+
+      if (existingGw) {
+        tx.update(gwContactChannels)
+          .set(channelSet)
+          .where(eq(gwContactChannels.id, existingGw.id))
+          .run();
+      } else {
+        tx.insert(gwContactChannels)
+          .values({
+            id: channelId,
+            type: params.channel,
+            interactionCount: 0,
+            createdAt: now,
+            ...channelSet,
+          })
+          .onConflictDoUpdate({
+            target: gwContactChannels.id,
+            set: channelSet,
+          })
+          .run();
+      }
     });
   } catch (gwErr) {
     log.warn(
