@@ -604,6 +604,157 @@ describe("handleContactPromptSubmit", () => {
     expect(ipcCall.body.channelId).toBe("chan-reuse");
   });
 
+  test("guardian reuse — mirror-heal upsert throwing is non-fatal (still accepted, reuses channel)", async () => {
+    const now = Date.now();
+    seedGuardian();
+    // Gateway channel already bound to the guardian — reuse precondition.
+    getGatewayDb()
+      .insert(gwContactChannels)
+      .values({
+        id: "chan-reuse-fail",
+        contactId: "guardian-1",
+        type: "phone",
+        address: "+15558887777",
+        isPrimary: true,
+        status: "active",
+        policy: "allow",
+        interactionCount: 0,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    // The reuse-branch mirror-heal upsertContact throws (e.g. transient
+    // gateway SQLITE_BUSY). The reuse path must stay success-guaranteed.
+    const spy = spyOn(
+      ContactStore.prototype,
+      "upsertContact",
+    ).mockImplementation(async () => {
+      throw new Error("SQLITE_BUSY: database is locked");
+    });
+
+    let res: Response;
+    try {
+      res = await handleContactPromptSubmit(
+        makeRequest({
+          requestId: "req-reuse-fail",
+          address: "+15558887777",
+          channelType: "phone",
+          role: "guardian",
+        }),
+      );
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.accepted).toBe(true);
+
+    // Existing gateway channel reused — no new row, no reassignment.
+    const gwChannels = getGatewayDb()
+      .select()
+      .from(gwContactChannels)
+      .where(eq(gwContactChannels.address, "+15558887777"))
+      .all();
+    expect(gwChannels).toHaveLength(1);
+    expect(gwChannels[0].id).toBe("chan-reuse-fail");
+    expect(gwChannels[0].contactId).toBe("guardian-1");
+
+    // Daemon resolved with the existing channel id (success, not error).
+    const ipcCall = (ipcMock.mock.calls as any[][])[0][1] as {
+      body: Record<string, unknown>;
+    };
+    expect(ipcCall.body.channelId).toBe("chan-reuse-fail");
+    expect(ipcCall.body.error).toBeUndefined();
+  });
+
+  test("guardian bootstrap-create — assistant mirror keeps role='guardian' even if create-mirror INSERT fails", async () => {
+    // No guardian seeded: handler mints one gateway-first. Make the
+    // bootstrap-create assistant mirror INSERT (role='guardian') fail, so the
+    // assistant DB has no guardian row when Phase-2 upsertContact runs. Without
+    // the role re-assert, that upsert would INSERT the id with role='contact',
+    // downgrading the guardian in the mirror.
+    const realDb = testAssistantDb!;
+    let failNextGuardianInsert = true;
+    testAssistantDb = {
+      prepare(sql: string) {
+        if (
+          failNextGuardianInsert &&
+          /INSERT INTO contacts/i.test(sql) &&
+          /'guardian'/.test(sql)
+        ) {
+          failNextGuardianInsert = false;
+          throw new Error("assistant DB guardian INSERT unavailable");
+        }
+        return realDb.prepare(sql);
+      },
+    } as unknown as Database;
+
+    let res: Response;
+    try {
+      res = await handleContactPromptSubmit(
+        makeRequest({
+          requestId: "req-boot-downgrade",
+          address: "+15552223333",
+          channelType: "phone",
+          role: "guardian",
+          displayName: "Mirror Guardian",
+        }),
+      );
+    } finally {
+      testAssistantDb = realDb;
+    }
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.accepted).toBe(true);
+
+    // Gateway DB: guardian minted with role=guardian (authoritative).
+    const gwGuardians = getGatewayDb()
+      .select()
+      .from(gwContacts)
+      .where(eq(gwContacts.role, "guardian"))
+      .all();
+    expect(gwGuardians).toHaveLength(1);
+
+    // Assistant mirror: the role re-assert healed any Phase-2 downgrade — the
+    // row exists and is role='guardian', NOT 'contact'.
+    const asContacts = testAssistantDb!
+      .prepare(`SELECT role FROM contacts WHERE id = ?`)
+      .all(gwGuardians[0].id) as { role: string }[];
+    expect(asContacts).toHaveLength(1);
+    expect(asContacts[0].role).toBe("guardian");
+  });
+
+  test("guardian bootstrap-create — assistant mirror row is role='guardian'", async () => {
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-boot-role",
+        address: "+15554445555",
+        channelType: "phone",
+        role: "guardian",
+        displayName: "Role Guardian",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as Record<string, unknown>).accepted).toBe(true);
+
+    const gwGuardians = getGatewayDb()
+      .select()
+      .from(gwContacts)
+      .where(eq(gwContacts.role, "guardian"))
+      .all();
+    expect(gwGuardians).toHaveLength(1);
+
+    const asContacts = testAssistantDb!
+      .prepare(`SELECT role FROM contacts WHERE id = ?`)
+      .all(gwGuardians[0].id) as { role: string }[];
+    expect(asContacts).toHaveLength(1);
+    expect(asContacts[0].role).toBe("guardian");
+  });
+
   test("non-guardian prompt — 500 + daemon error when channel can't be resolved (no empty channelId)", async () => {
     // Force resolveChannelId to miss by making getChannelsForContact return [].
     const spy = spyOn(
