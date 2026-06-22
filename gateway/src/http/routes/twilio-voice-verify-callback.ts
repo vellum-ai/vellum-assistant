@@ -192,16 +192,24 @@ export function createTwilioVoiceVerifyCallbackHandler(
       }
     } else if (result.verificationType === "trusted_contact") {
       try {
-        await upsertVerifiedContactChannel({
+        const { verified } = await upsertVerifiedContactChannel({
           sourceChannel: "phone",
           externalUserId: fromNumber,
           externalChatId: fromNumber,
         });
 
-        log.info(
-          { callSid, fromNumber },
-          "Trusted contact phone channel activated by gateway",
-        );
+        if (verified) {
+          log.info(
+            { callSid, fromNumber },
+            "Trusted contact phone channel activated by gateway",
+          );
+        } else {
+          // Authoritative gateway row is blocked/revoked — activation skipped.
+          log.warn(
+            { callSid, fromNumber },
+            "Trusted contact activation skipped (channel blocked/revoked)",
+          );
+        }
       } catch (err) {
         log.error(
           { err, callSid, fromNumber },

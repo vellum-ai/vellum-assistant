@@ -78,6 +78,9 @@ export async function findContactChannelByAddress(
  * insert-mirror. The gateway has a unique index on (type,address), so a
  * legacy/unmirrored channel may carry a different gateway id than the
  * assistant id, and a blind id-keyed update would silently affect 0 rows.
+ *
+ * Returns true if a gateway row was updated or inserted; false if the only
+ * matching row is blocked/revoked (so nothing was written).
  */
 function writeVerifiedGatewayChannel(params: {
   assistantChannelId: string;
@@ -87,7 +90,7 @@ function writeVerifiedGatewayChannel(params: {
   externalChatId: string;
   verifiedVia: string;
   now: number;
-}): void {
+}): boolean {
   const {
     assistantChannelId,
     contactId,
@@ -121,7 +124,7 @@ function writeVerifiedGatewayChannel(params: {
     .where(and(eq(gwContactChannels.id, assistantChannelId), notBlockedOrRevoked))
     .returning({ id: gwContactChannels.id })
     .all();
-  if (byId.length > 0) return;
+  if (byId.length > 0) return true;
 
   // Resolve by the gateway's logical key (type,address unique index).
   const byKey = gwDb
@@ -136,7 +139,7 @@ function writeVerifiedGatewayChannel(params: {
     )
     .returning({ id: gwContactChannels.id })
     .all();
-  if (byKey.length > 0) return;
+  if (byKey.length > 0) return true;
 
   // No gateway row exists, or the only match is blocked/revoked — mirror the
   // verified channel. onConflictDoNothing preserves an existing blocked/revoked
@@ -153,7 +156,7 @@ function writeVerifiedGatewayChannel(params: {
     })
     .onConflictDoNothing()
     .run();
-  gwDb
+  const inserted = gwDb
     .insert(gwContactChannels)
     .values({
       id: assistantChannelId,
@@ -165,7 +168,30 @@ function writeVerifiedGatewayChannel(params: {
       ...verifiedSet,
     })
     .onConflictDoNothing()
-    .run();
+    .returning({ id: gwContactChannels.id })
+    .all();
+  // An empty result means the (type,address) unique index conflicted with a
+  // blocked/revoked row, so nothing was written.
+  return inserted.length > 0;
+}
+
+/**
+ * Read the authoritative gateway row status for an actor by the logical key
+ * (type, address) COLLATE NOCASE. The gateway is the source of truth; the
+ * assistant mirror can lag behind a block/revoke landed gateway-side.
+ */
+function gatewayChannelStatus(type: string, address: string): string | null {
+  const row = getGatewayDb()
+    .select({ status: gwContactChannels.status })
+    .from(gwContactChannels)
+    .where(
+      and(
+        eq(gwContactChannels.type, type),
+        sql`${gwContactChannels.address} = ${address} COLLATE NOCASE`,
+      ),
+    )
+    .get();
+  return row?.status ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,6 +207,11 @@ function writeVerifiedGatewayChannel(params: {
  * This is intentionally simpler than the assistant's full upsertContact —
  * it handles the verification-specific case only (single channel, no
  * reassignment, no invite binding).
+ *
+ * Returns `{ verified: false }` when the verification is rejected because the
+ * authoritative gateway row (or the assistant mirror) is blocked/revoked, so
+ * the caller can suppress the success reply. Returns `{ verified: true }` on
+ * the normal activate/insert paths.
  */
 export async function upsertVerifiedContactChannel(params: {
   sourceChannel: string;
@@ -189,7 +220,7 @@ export async function upsertVerifiedContactChannel(params: {
   displayName?: string;
   username?: string;
   verifiedVia?: string;
-}): Promise<void> {
+}): Promise<{ verified: boolean }> {
   const now = Date.now();
   const { sourceChannel, externalChatId, displayName, username } = params;
   const verifiedVia = params.verifiedVia ?? "challenge";
@@ -222,13 +253,26 @@ export async function upsertVerifiedContactChannel(params: {
   if (existing.length > 0) {
     const row = existing[0];
 
-    // Don't overwrite blocked or revoked channels.
+    // Don't overwrite blocked or revoked channels (assistant mirror guard).
     if (row.channelStatus === "blocked" || row.channelStatus === "revoked") {
       log.warn(
         { sourceChannel, address, status: row.channelStatus },
         "Skipping upsert: channel is blocked or revoked",
       );
-      return;
+      return { verified: false };
+    }
+
+    // The gateway is the source of truth: a blocked/revoked gateway row rejects
+    // the verification even when the assistant mirror is still claimable. Don't
+    // activate the assistant mirror and signal the caller to suppress success.
+    // A missing gateway row is the legitimate happy path (legacy/unmirrored).
+    const gwStatus = gatewayChannelStatus(sourceChannel, address);
+    if (gwStatus === "blocked" || gwStatus === "revoked") {
+      log.warn(
+        { sourceChannel, address, status: gwStatus },
+        "Skipping upsert: authoritative gateway channel is blocked or revoked",
+      );
+      return { verified: false };
     }
 
     // Update existing channel
@@ -249,7 +293,7 @@ export async function upsertVerifiedContactChannel(params: {
     // channel id may not exist in the gateway DB (legacy/unmirrored channel)
     // or may live under a different gateway UUID, so resolve by logical key.
     try {
-      writeVerifiedGatewayChannel({
+      const wrote = writeVerifiedGatewayChannel({
         assistantChannelId: row.channelId,
         contactId: row.contactId,
         type: sourceChannel,
@@ -258,6 +302,16 @@ export async function upsertVerifiedContactChannel(params: {
         verifiedVia,
         now,
       });
+      // The gateway pre-check passed, so a write is expected. A false here means
+      // a blocked/revoked row appeared between the pre-check and the write —
+      // treat it as a rejection so the caller suppresses the success reply.
+      if (!wrote) {
+        log.warn(
+          { sourceChannel, address },
+          "Gateway write ignored after pre-check: channel became blocked/revoked",
+        );
+        return { verified: false };
+      }
     } catch (gwErr) {
       log.warn(
         { err: gwErr },
@@ -265,7 +319,7 @@ export async function upsertVerifiedContactChannel(params: {
       );
     }
 
-    return;
+    return { verified: true };
   }
 
   // Create new contact + channel. Both use OR IGNORE for idempotency under
@@ -337,6 +391,8 @@ export async function upsertVerifiedContactChannel(params: {
   } catch (gwErr) {
     log.warn({ err: gwErr }, "Gateway DB contact create dual-write failed");
   }
+
+  return { verified: true };
 }
 
 // ---------------------------------------------------------------------------
