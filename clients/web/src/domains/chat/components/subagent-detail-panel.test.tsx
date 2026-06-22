@@ -21,8 +21,27 @@ mock.module("@/domains/chat/components/subagent-status-badge", () => ({
   ),
 }));
 
+// The real timeline is exercised in its own test; here we stub it so the panel
+// tests stay focused on the panel's own behavior. The stub renders a button
+// that forwards a fixed tool-call id to the panel's `onToolStepClick`, letting
+// us drive the nested tool-detail swap without depending on the timeline's
+// expand/pill internals.
 mock.module("@/domains/chat/components/subagent-phase-timeline", () => ({
-  SubagentPhaseTimeline: () => <div data-testid="timeline" />,
+  SubagentPhaseTimeline: ({
+    onToolStepClick,
+  }: {
+    onToolStepClick?: (toolCallId: string) => void;
+  }) => (
+    <div data-testid="timeline">
+      <button
+        type="button"
+        data-testid="timeline-pill"
+        onClick={() => onToolStepClick?.("tool-1")}
+      >
+        pill
+      </button>
+    </div>
+  ),
 }));
 
 import { SubagentDetailPanel } from "@/domains/chat/components/subagent-detail-panel";
@@ -359,5 +378,105 @@ describe("SubagentDetailPanel — objective", () => {
     } finally {
       restore();
     }
+  });
+});
+
+/**
+ * A `tool_call`/`tool_result` pair whose `toolUseId` matches the id the stubbed
+ * timeline forwards (`tool-1`), so `buildSubagentToolDetails(entry)` produces a
+ * payload the panel can swap into. `completed` overrides whether the call has a
+ * result (closed) or is still in flight (running output state).
+ */
+function entryWithTool(completed: boolean): SubagentEntry {
+  const now = Date.now();
+  return makeEntry({
+    events: [
+      {
+        id: "te-call",
+        type: "tool_call",
+        content: "ls -la",
+        toolName: "bash",
+        toolUseId: "tool-1",
+        input: { command: "ls -la" },
+        timestamp: now,
+      },
+      ...(completed
+        ? [
+            {
+              id: "te-result",
+              type: "tool_result" as const,
+              content: "file-listing-output",
+              result: "file-listing-output",
+              toolName: "bash",
+              toolUseId: "tool-1",
+              timestamp: now + 1000,
+            },
+          ]
+        : []),
+    ],
+  });
+}
+
+describe("SubagentDetailPanel — nested tool detail", () => {
+  test("clicking a timeline tool pill swaps the body to the tool detail while keeping the header", () => {
+    render(<SubagentDetailPanel entry={entryWithTool(true)} onClose={noop} />);
+
+    // Timeline view first.
+    expect(screen.getByTestId("timeline")).toBeDefined();
+    expect(screen.queryByText("Technical details")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("timeline-pill"));
+
+    // Detail body is shown: Technical details + Input + Output sections.
+    expect(screen.getByText("Technical details")).toBeDefined();
+    expect(screen.getByText("Output")).toBeDefined();
+    expect(screen.getByText("file-listing-output")).toBeDefined();
+    // Timeline is no longer rendered (body swapped, not stacked).
+    expect(screen.queryByTestId("timeline")).toBeNull();
+    // The subagent header stays mounted in the detail view.
+    expect(screen.getByText("Research agent")).toBeDefined();
+    expect(screen.getByLabelText("Close subagent detail")).toBeDefined();
+  });
+
+  test("'Back to timeline' restores the timeline view", () => {
+    render(<SubagentDetailPanel entry={entryWithTool(true)} onClose={noop} />);
+
+    fireEvent.click(screen.getByTestId("timeline-pill"));
+    expect(screen.getByText("Technical details")).toBeDefined();
+
+    fireEvent.click(screen.getByText("Back to timeline"));
+    expect(screen.getByTestId("timeline")).toBeDefined();
+    expect(screen.queryByText("Technical details")).toBeNull();
+  });
+
+  test("selecting a still-running tool shows the 'Running…' output state", () => {
+    render(<SubagentDetailPanel entry={entryWithTool(false)} onClose={noop} />);
+
+    fireEvent.click(screen.getByTestId("timeline-pill"));
+    expect(screen.getByText("Technical details")).toBeDefined();
+    expect(screen.getByText("Running…")).toBeDefined();
+  });
+
+  test("switching to a different subagent resets the nested view to the timeline", () => {
+    // The desktop parent reuses this instance across subagent switches (no
+    // React `key`), so an open nested detail must not leak onto the next
+    // subagent.
+    const { rerender } = render(
+      <SubagentDetailPanel entry={entryWithTool(true)} onClose={noop} />,
+    );
+
+    fireEvent.click(screen.getByTestId("timeline-pill"));
+    expect(screen.getByText("Technical details")).toBeDefined();
+
+    rerender(
+      <SubagentDetailPanel
+        entry={{ ...entryWithTool(true), subagentId: "sub-2" }}
+        onClose={noop}
+      />,
+    );
+
+    // Reset to the timeline for the new subagent.
+    expect(screen.getByTestId("timeline")).toBeDefined();
+    expect(screen.queryByText("Technical details")).toBeNull();
   });
 });

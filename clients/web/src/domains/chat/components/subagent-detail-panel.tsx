@@ -3,6 +3,7 @@ import {
     ArrowDownToLine,
     ArrowUpFromLine,
     ChevronDown,
+    ChevronLeft,
     DollarSign,
     Square,
     X,
@@ -23,7 +24,11 @@ import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-component
 import { Button, Typography } from "@vellumai/design-library";
 
 import { SubagentPhaseTimeline } from "@/domains/chat/components/subagent-phase-timeline";
-import { computeSubagentCardData } from "@/domains/chat/hooks/use-subagent-card-data";
+import { ToolDetailBody } from "@/domains/chat/components/tool-detail-panel";
+import {
+    buildSubagentToolDetails,
+    computeSubagentCardData,
+} from "@/domains/chat/hooks/use-subagent-card-data";
 
 /** Format a cost value (e.g. 0.68 -> "0.68"). */
 function formatCost(cost: number): string {
@@ -66,6 +71,18 @@ export function SubagentDetailPanel({
   // chat-content-layout.tsx, so memoizing on `entry` keeps the steps fresh.
   const cardData = useMemo(() => computeSubagentCardData(entry), [entry]);
 
+  // `toolCallId`-keyed map of nested tool-detail payloads, used to swap the
+  // panel body to a tool's input/output when its timeline pill is clicked —
+  // without ever touching the global viewer-store / main view.
+  const toolDetails = useMemo(() => buildSubagentToolDetails(entry), [entry]);
+
+  // Which tool call's detail (if any) is shown nested inside this panel. `null`
+  // shows the timeline. Reset on subagent switch via the render-phase block
+  // below so a detail opened for one subagent doesn't leak onto the next.
+  const [selectedToolCallId, setSelectedToolCallId] = useState<string | null>(
+    null,
+  );
+
   // Objective collapse/expand. The toggle only appears when the clamped body
   // actually overflows, so short objectives show no affordance.
   const [objectiveExpanded, setObjectiveExpanded] = useState(false);
@@ -85,6 +102,8 @@ export function SubagentDetailPanel({
     setPrevSubagentId(entry.subagentId);
     setObjectiveExpanded(false);
     setObjectiveOverflows(false);
+    // Switching subagents returns the panel to the timeline view.
+    setSelectedToolCallId(null);
   }
 
   // Measure overflow against the collapsed clamp. While collapsed the clamp is
@@ -115,6 +134,12 @@ export function SubagentDetailPanel({
       onRequestDetail(entry.subagentId);
     }
   }, [entry.subagentId, entry.conversationId, entry.events.length, onRequestDetail]);
+
+  // The selected tool's nested payload, or `undefined` when nothing is selected
+  // or the id has no payload (defensive — fall back to the timeline view).
+  const activeDetail = selectedToolCallId
+    ? toolDetails.get(selectedToolCallId)
+    : undefined;
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
@@ -161,112 +186,134 @@ export function SubagentDetailPanel({
         />
       </div>
 
-      {/* Scrollable body */}
+      {/* Scrollable body — swaps to a tool's nested detail when one is selected,
+          keeping the header above mounted in both views. */}
       <div className="flex-1 overflow-y-auto px-5 py-5">
-        {/* Metrics row */}
-        <div className="mb-5 grid grid-cols-3 gap-3">
-          <AnimatedMetricCard
-            icon={<ArrowDownToLine className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
-            target={entry.inputTokens}
-            format={(n) => formatNumber(Math.round(n))}
-            label="Input"
-          />
-          <AnimatedMetricCard
-            icon={<ArrowUpFromLine className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
-            target={entry.outputTokens}
-            format={(n) => formatNumber(Math.round(n))}
-            label="Output"
-          />
-          <AnimatedMetricCard
-            icon={<DollarSign className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
-            target={entry.totalCost}
-            format={formatCost}
-            label="Cost"
-          />
-        </div>
+        {activeDetail ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setSelectedToolCallId(null)}
+              className="mb-4 flex cursor-pointer items-center gap-1 text-[var(--content-secondary)] transition-colors hover:text-[var(--content-default)]"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
+              <Typography variant="label-small-default">
+                Back to timeline
+              </Typography>
+            </button>
+            <ToolDetailBody detail={activeDetail} />
+          </>
+        ) : (
+          <>
+            {/* Metrics row */}
+            <div className="mb-5 grid grid-cols-3 gap-3">
+              <AnimatedMetricCard
+                icon={<ArrowDownToLine className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
+                target={entry.inputTokens}
+                format={(n) => formatNumber(Math.round(n))}
+                label="Input"
+              />
+              <AnimatedMetricCard
+                icon={<ArrowUpFromLine className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
+                target={entry.outputTokens}
+                format={(n) => formatNumber(Math.round(n))}
+                label="Output"
+              />
+              <AnimatedMetricCard
+                icon={<DollarSign className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
+                target={entry.totalCost}
+                format={formatCost}
+                label="Cost"
+              />
+            </div>
 
-        {/* Objective section */}
-        {entry.objective && (
-          <div className="mb-5">
-            <Typography
-              variant="body-medium-default"
-              as="h3"
-              className="mb-2 text-[var(--content-emphasised)]"
-            >
-              Objective
-            </Typography>
-            <Typography
-              ref={objectiveBodyRef}
-              variant="body-medium-lighter"
-              as="p"
-              className={`whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)] ${
-                objectiveExpanded ? "" : "line-clamp-3"
-              }`}
-            >
-              {entry.objective}
-            </Typography>
-            {objectiveOverflows && (
-              <button
-                type="button"
-                onClick={() => setObjectiveExpanded((prev) => !prev)}
-                className="mt-1.5 flex cursor-pointer items-center gap-1 text-[var(--content-secondary)] transition-colors hover:text-[var(--content-default)]"
-              >
-                <Typography variant="label-small-default">
-                  {objectiveExpanded ? "Show less" : "Show more"}
+            {/* Objective section */}
+            {entry.objective && (
+              <div className="mb-5">
+                <Typography
+                  variant="body-medium-default"
+                  as="h3"
+                  className="mb-2 text-[var(--content-emphasised)]"
+                >
+                  Objective
                 </Typography>
-                <ChevronDown
-                  className={`h-3.5 w-3.5 transition-transform ${
-                    objectiveExpanded ? "rotate-180" : ""
+                <Typography
+                  ref={objectiveBodyRef}
+                  variant="body-medium-lighter"
+                  as="p"
+                  className={`whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)] ${
+                    objectiveExpanded ? "" : "line-clamp-3"
                   }`}
-                  aria-hidden
-                />
-              </button>
+                >
+                  {entry.objective}
+                </Typography>
+                {objectiveOverflows && (
+                  <button
+                    type="button"
+                    onClick={() => setObjectiveExpanded((prev) => !prev)}
+                    className="mt-1.5 flex cursor-pointer items-center gap-1 text-[var(--content-secondary)] transition-colors hover:text-[var(--content-default)]"
+                  >
+                    <Typography variant="label-small-default">
+                      {objectiveExpanded ? "Show less" : "Show more"}
+                    </Typography>
+                    <ChevronDown
+                      className={`h-3.5 w-3.5 transition-transform ${
+                        objectiveExpanded ? "rotate-180" : ""
+                      }`}
+                      aria-hidden
+                    />
+                  </button>
+                )}
+                <div className="mt-5 h-px w-full bg-[var(--border-hover)]" />
+              </div>
             )}
-            <div className="mt-5 h-px w-full bg-[var(--border-hover)]" />
-          </div>
-        )}
 
-        {/* Timeline section */}
-        <div>
-          <Typography
-            variant="title-medium"
-            as="h3"
-            className="mb-4 text-[var(--content-emphasised)]"
-          >
-            Timeline
-          </Typography>
-          {/*
-           * Key by subagent id so the timeline remounts on subagent switch,
-           * resetting the expand/collapse state it holds. The drawer keeps this
-           * component mounted across switches, so without a per-subagent reset
-           * an expanded phase would leak its expanded state onto the next
-           * subagent's same-positioned phase.
-           */}
-          {/*
-           * Gate the empty state on the RAW `entry.events`, not on
-           * `cardData.steps`. `computeSubagentCardData` can intentionally
-           * DROP events (e.g. a `tool_result` with no preceding in-flight
-           * `tool_call`), so `entry.events` can be non-empty while
-           * `cardData.steps` is empty. Gating on steps would show a false
-           * "No events yet" AND — because `entry.events.length !== 0` — the
-           * detail-refetch effect above wouldn't fire to recover. When the
-           * store has events we render the timeline (which returns null for
-           * zero steps, an acceptable no-op).
-           */}
-          {entry.events.length > 0 ? (
-            <SubagentPhaseTimeline
-              key={entry.subagentId}
-              steps={cardData.steps}
-            />
-          ) : (
-            <Typography
-              variant="body-small-default"
-              className="py-4 text-center text-[var(--content-tertiary)]"
-            >
-              No events yet
-            </Typography>
-          )}
-        </div>
+            {/* Timeline section */}
+            <div>
+              <Typography
+                variant="title-medium"
+                as="h3"
+                className="mb-4 text-[var(--content-emphasised)]"
+              >
+                Timeline
+              </Typography>
+              {/*
+               * Key by subagent id so the timeline remounts on subagent switch,
+               * resetting the expand/collapse state it holds. The drawer keeps this
+               * component mounted across switches, so without a per-subagent reset
+               * an expanded phase would leak its expanded state onto the next
+               * subagent's same-positioned phase.
+               */}
+              {/*
+               * Gate the empty state on the RAW `entry.events`, not on
+               * `cardData.steps`. `computeSubagentCardData` can intentionally
+               * DROP events (e.g. a `tool_result` with no preceding in-flight
+               * `tool_call`), so `entry.events` can be non-empty while
+               * `cardData.steps` is empty. Gating on steps would show a false
+               * "No events yet" AND — because `entry.events.length !== 0` — the
+               * detail-refetch effect above wouldn't fire to recover. When the
+               * store has events we render the timeline (which returns null for
+               * zero steps, an acceptable no-op).
+               */}
+              {entry.events.length > 0 ? (
+                <SubagentPhaseTimeline
+                  key={entry.subagentId}
+                  steps={cardData.steps}
+                  onToolStepClick={(id) => {
+                    if (toolDetails.has(id)) setSelectedToolCallId(id);
+                  }}
+                />
+              ) : (
+                <Typography
+                  variant="body-small-default"
+                  className="py-4 text-center text-[var(--content-tertiary)]"
+                >
+                  No events yet
+                </Typography>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
