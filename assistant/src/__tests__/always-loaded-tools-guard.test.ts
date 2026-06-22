@@ -28,7 +28,7 @@ afterAll(() => {
 });
 
 describe("always-loaded tool count", () => {
-  test("should be exactly 11 with recall occupying the existing slot", async () => {
+  test("should be exactly 10 with recall occupying the existing slot", async () => {
     await initializeTools();
     const allDefs = getAllToolDefinitions();
 
@@ -52,7 +52,6 @@ describe("always-loaded tool count", () => {
     // path would allow unchecked host command execution.
     const expectedNames = [
       "bash",
-      "credential_store",
       "file_edit",
       "file_read",
       "file_write",
@@ -66,6 +65,6 @@ describe("always-loaded tool count", () => {
 
     expect(activeNames).toEqual(expectedNames);
     expect(activeNames.filter((name) => name === "recall")).toHaveLength(1);
-    expect(activeTools.length).toBe(11);
+    expect(activeTools.length).toBe(10);
   });
 });
