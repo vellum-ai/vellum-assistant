@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { listInstalledPlugins } from "../list-installed-plugins.js";
+import { listAllPlugins, listInstalledPlugins } from "../list-installed-plugins.js";
 
 let pluginsDir: string;
 
@@ -150,5 +150,81 @@ describe("listInstalledPlugins", () => {
 
     const result = listInstalledPlugins({ workspacePluginsDir: pluginsDir });
     expect(result.map((p) => p.name)).toEqual(["valid"]);
+  });
+});
+
+describe("listAllPlugins", () => {
+  test("includes default plugins with source=default", () => {
+    const result = listAllPlugins({ workspacePluginsDir: pluginsDir });
+    const defaults = result.filter((p) => p.source === "default");
+    // All 15 default plugins should be present.
+    expect(defaults.length).toBe(15);
+    // Names should all start with "default-".
+    expect(defaults.every((p) => p.name.startsWith("default-"))).toBe(true);
+    // None should be disabled by default in a fresh temp dir.
+    expect(defaults.every((p) => !p.disabled)).toBe(true);
+  });
+
+  test("includes user plugins with source=user", () => {
+    mkdirSync(join(pluginsDir, "my-plugin"));
+    writeFileSync(
+      join(pluginsDir, "my-plugin", "package.json"),
+      JSON.stringify({ name: "my-plugin", version: "1.0.0" }),
+    );
+
+    const result = listAllPlugins({ workspacePluginsDir: pluginsDir });
+    const user = result.filter((p) => p.source === "user");
+    expect(user).toHaveLength(1);
+    expect(user[0]!.name).toBe("my-plugin");
+    expect(user[0]!.disabled).toBe(false);
+  });
+
+  test("user plugins appear before default plugins", () => {
+    mkdirSync(join(pluginsDir, "zzz-user"));
+    writeFileSync(
+      join(pluginsDir, "zzz-user", "package.json"),
+      JSON.stringify({ name: "zzz-user", version: "1.0.0" }),
+    );
+
+    const result = listAllPlugins({ workspacePluginsDir: pluginsDir });
+    const firstDefaultIdx = result.findIndex((p) => p.source === "default");
+    const lastUserIdx = result
+      .map((p, i) => (p.source === "user" ? i : -1))
+      .filter((i) => i >= 0)
+      .pop();
+
+    expect(lastUserIdx).toBeDefined();
+    expect(firstDefaultIdx).toBeGreaterThan(lastUserIdx!);
+  });
+
+  test("detects disabled state for user plugins", () => {
+    mkdirSync(join(pluginsDir, "my-plugin"));
+    writeFileSync(
+      join(pluginsDir, "my-plugin", "package.json"),
+      JSON.stringify({ name: "my-plugin", version: "1.0.0" }),
+    );
+    writeFileSync(join(pluginsDir, "my-plugin", ".disabled"), "");
+
+    const result = listAllPlugins({ workspacePluginsDir: pluginsDir });
+    const entry = result.find((p) => p.name === "my-plugin");
+    expect(entry).toBeDefined();
+    expect(entry!.disabled).toBe(true);
+  });
+
+  test("detects disabled state for default plugins via stub directory", () => {
+    mkdirSync(join(pluginsDir, "default-advisor"), { recursive: true });
+    writeFileSync(join(pluginsDir, "default-advisor", ".disabled"), "");
+
+    const result = listAllPlugins({ workspacePluginsDir: pluginsDir });
+    const advisor = result.find((p) => p.name === "default-advisor");
+    expect(advisor).toBeDefined();
+    expect(advisor!.disabled).toBe(true);
+  });
+
+  test("default plugins have version from their manifest", () => {
+    const result = listAllPlugins({ workspacePluginsDir: pluginsDir });
+    const advisor = result.find((p) => p.name === "default-advisor");
+    expect(advisor).toBeDefined();
+    expect(advisor!.packageJson?.version).toBeTruthy();
   });
 });

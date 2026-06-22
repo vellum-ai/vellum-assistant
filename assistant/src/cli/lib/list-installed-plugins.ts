@@ -15,6 +15,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+import { getDefaultPluginManifests } from "../../plugins/defaults/index.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 
 /** Minimal manifest fields surfaced to the CLI. */
@@ -38,6 +39,20 @@ export interface InstalledPluginInfo {
    * JSON, unexpected type, etc.). Empty when the entry parses cleanly.
    */
   readonly issues: readonly string[];
+}
+
+/** Where the plugin comes from. */
+export type PluginSource = "user" | "default";
+
+/**
+ * Extended plugin entry that includes source (`user` vs `default`) and
+ * disabled status. Used by {@link listAllPlugins}.
+ */
+export interface AllPluginInfo extends InstalledPluginInfo {
+  /** Whether this is a user-installed or first-party default plugin. */
+  readonly source: PluginSource;
+  /** Whether the plugin is disabled via a `.disabled` sentinel file. */
+  readonly disabled: boolean;
 }
 
 /** Options accepted by {@link listInstalledPlugins}. */
@@ -145,4 +160,57 @@ function readPluginEntry(
   };
 
   return { name, target, packageJson, issues };
+}
+
+/**
+ * List all plugins — both user-installed (from `<workspace>/plugins/`) and
+ * first-party defaults (from the source tree). Each entry is annotated with
+ * its `source` (`"user"` or `"default"`) and `disabled` status (whether a
+ * `.disabled` sentinel file exists in the plugin's workspace directory).
+ *
+ * For user plugins, the `.disabled` file lives in the plugin's own install
+ * directory. For default plugins, it lives in a stub directory at
+ * `<workspace>/plugins/<manifest-name>/` (created by `plugins disable`).
+ *
+ * Results are sorted alphabetically by name, with default plugins appearing
+ * after user plugins (sorted within their group).
+ */
+export function listAllPlugins(
+  opts: ListInstalledPluginsOptions = {},
+): AllPluginInfo[] {
+  const pluginsDir = opts.workspacePluginsDir ?? getWorkspacePluginsDir();
+
+  // ── User plugins ───────────────────────────────────────────────────────
+  const userPlugins = listInstalledPlugins(opts).map((entry) => ({
+    ...entry,
+    source: "user" as const,
+    disabled: existsSync(join(entry.target, ".disabled")),
+  }));
+
+  // ── Default plugins ────────────────────────────────────────────────────
+  // Default plugins live in the source tree, not the workspace. Their
+  // manifest metadata comes from getDefaultPluginManifests(). The .disabled
+  // sentinel lives in a stub directory at <workspace>/plugins/<name>/.
+  const defaultManifests = getDefaultPluginManifests();
+  const defaultPlugins: AllPluginInfo[] = defaultManifests.map((manifest) => {
+    const target = join(pluginsDir, manifest.name);
+    const disabled = existsSync(join(target, ".disabled"));
+    return {
+      name: manifest.name,
+      target,
+      packageJson: {
+        name: manifest.name,
+        version: manifest.version,
+      },
+      issues: [],
+      source: "default" as const,
+      disabled,
+    };
+  });
+
+  // Sort each group alphabetically, user plugins first.
+  userPlugins.sort((a, b) => a.name.localeCompare(b.name));
+  defaultPlugins.sort((a, b) => a.name.localeCompare(b.name));
+
+  return [...userPlugins, ...defaultPlugins];
 }

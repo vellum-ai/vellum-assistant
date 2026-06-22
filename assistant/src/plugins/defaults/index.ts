@@ -26,7 +26,7 @@
 
 import { finalizeTool } from "../../tools/tool-defaults.js";
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
-import { type Plugin, PluginExecutionError } from "../types.js";
+import { type Plugin, PluginExecutionError,type PluginManifest } from "../types.js";
 import { resetAdvisorStateForTests } from "./advisor/advisor-state-store.js";
 import advisorPostModelCall from "./advisor/hooks/post-model-call.js";
 import advisorPreModelCall from "./advisor/hooks/pre-model-call.js";
@@ -375,6 +375,16 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     // (memory injections, history repair) that the executor actually sees.
     defaultAdvisorPlugin,
   ];
+}
+
+/**
+ * Return the manifest metadata (name + version) for every first-party default
+ * plugin, in registration order. Exported so the CLI (`assistant plugins list
+ * --all`) can surface default plugins alongside user-installed ones without
+ * pulling in hook or tool implementations.
+ */
+export function getDefaultPluginManifests(): readonly PluginManifest[] {
+  return getAllDefaultPlugins().map((p) => p.manifest);
 }
 
 /**
