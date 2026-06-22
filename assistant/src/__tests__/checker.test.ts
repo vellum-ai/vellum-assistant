@@ -428,21 +428,15 @@ describe("Permission Checker", () => {
       expect(result.decision).toBe("allow");
     });
 
-    test("file_read of workspace UPDATES.md is auto-allowed", async () => {
-      const updatesPath = join(checkerTestDir, "UPDATES.md");
-      const result = await check("file_read", { path: updatesPath }, "/tmp");
+    test("file_read of workspace BOOTSTRAP.md is auto-allowed", async () => {
+      const bootstrapPath = join(checkerTestDir, "BOOTSTRAP.md");
+      const result = await check("file_read", { path: bootstrapPath }, "/tmp");
       expect(result.decision).toBe("allow");
     });
 
-    test("file_write of workspace UPDATES.md is auto-allowed", async () => {
-      const updatesPath = join(checkerTestDir, "UPDATES.md");
-      const result = await check("file_write", { path: updatesPath }, "/tmp");
-      expect(result.decision).toBe("allow");
-    });
-
-    test("file_edit of workspace UPDATES.md is auto-allowed", async () => {
-      const updatesPath = join(checkerTestDir, "UPDATES.md");
-      const result = await check("file_edit", { path: updatesPath }, "/tmp");
+    test("file_edit of workspace BOOTSTRAP.md is auto-allowed", async () => {
+      const bootstrapPath = join(checkerTestDir, "BOOTSTRAP.md");
+      const result = await check("file_edit", { path: bootstrapPath }, "/tmp");
       expect(result.decision).toBe("allow");
     });
 
@@ -796,9 +790,6 @@ describe("Permission Checker", () => {
       const workingDir = join(homedir(), "projects", "myapp");
       expect(generateScopeOptions(workingDir, "web_fetch")).toHaveLength(0);
       expect(generateScopeOptions(workingDir, "skill_load")).toHaveLength(0);
-      expect(generateScopeOptions(workingDir, "credential_store")).toHaveLength(
-        0,
-      );
       expect(
         generateScopeOptions(workingDir, "computer_use_click"),
       ).toHaveLength(0);

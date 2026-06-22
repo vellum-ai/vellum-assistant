@@ -1,0 +1,14 @@
+{
+  "name": "default-memory-v3-shadow",
+  "version": "1.0.0",
+  "description": "First-party default plugin housing the memory-v3 shadow/live orchestration engine and its injector.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.12.0"
+  },
+  "peerDependencies": {
+    "@vellumai/plugin-api": "^0.8.0"
+  }
+}

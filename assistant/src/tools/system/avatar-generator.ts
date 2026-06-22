@@ -1,34 +1,30 @@
-import { randomUUID } from "node:crypto";
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
-
 import { generateAvatar } from "../../media/avatar-router.js";
 import { getLogger } from "../../util/logger.js";
-import { getAvatarImagePath } from "../../util/platform.js";
 
 const log = getLogger("avatar-generator");
 
-/** Canonical path where the custom avatar PNG is stored. */
-function getAvatarPath(): string {
-  return getAvatarImagePath();
-}
-
 export interface AvatarGenerationResult {
+  /** On success, the generated PNG bytes. Null on error. */
+  pngBuffer: Buffer | null;
+  /** User-facing message describing success or the failure reason. */
   content: string;
   isError: boolean;
 }
 
 /**
- * Generate a custom avatar image from a text description and save it
- * as the assistant's avatar PNG.
+ * Generate a custom avatar image from a text description and return the PNG
+ * bytes. Persistence is the caller's responsibility — the route handler routes
+ * the bytes through the avatar store (`setImage`) so the manifest and artifacts
+ * stay consistent.
  *
  * Used by the HTTP route handler at POST /v1/settings/avatar/generate.
  */
-export async function generateAndSaveAvatar(
+export async function generateAvatarImage(
   description: string,
 ): Promise<AvatarGenerationResult> {
   if (typeof description !== "string" || description.trim() === "") {
     return {
+      pngBuffer: null,
       content: "Error: description is required and must be a non-empty string.",
       isError: true,
     };
@@ -47,23 +43,17 @@ export async function generateAndSaveAvatar(
     const result = await generateAvatar(prompt);
     if (!result.imageBase64) {
       return {
+        pngBuffer: null,
         content: "Error: No image data returned. Please try again.",
         isError: true,
       };
     }
     const pngBuffer = Buffer.from(result.imageBase64, "base64");
 
-    const avatarPath = getAvatarPath();
-    const avatarDir = dirname(avatarPath);
-
-    const tmpPath = `${avatarPath}.${randomUUID()}.tmp`;
-    mkdirSync(avatarDir, { recursive: true });
-    writeFileSync(tmpPath, pngBuffer);
-    renameSync(tmpPath, avatarPath);
-
-    log.info({ avatarPath }, "Avatar saved successfully");
+    log.info("Avatar generated successfully");
 
     return {
+      pngBuffer,
       content: "Avatar updated! Your new avatar will appear shortly.",
       isError: false,
     };
@@ -76,6 +66,7 @@ export async function generateAndSaveAvatar(
         : "An unexpected error occurred during image generation.";
     log.error({ error: message }, "Avatar generation failed");
     return {
+      pngBuffer: null,
       content: `Avatar generation failed: ${message}`,
       isError: true,
     };

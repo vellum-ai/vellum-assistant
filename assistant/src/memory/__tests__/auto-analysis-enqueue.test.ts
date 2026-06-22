@@ -13,6 +13,7 @@ mock.module("../../util/logger.js", () => ({
 
 let flagEnabled = true;
 let isAuto = false;
+let isRetrospective = false;
 let configValue: { analysis?: { idleTimeoutMs?: number } } = {
   analysis: { idleTimeoutMs: 600_000 },
 };
@@ -46,6 +47,11 @@ mock.module("../auto-analysis-guard.js", () => ({
   isAutoAnalysisConversation: (_conversationId: string) => isAuto,
 }));
 
+mock.module("../memory-retrospective-enqueue.js", () => ({
+  isMemoryRetrospectiveConversation: (_conversationId: string) =>
+    isRetrospective,
+}));
+
 mock.module("../jobs-store.js", () => ({
   enqueueMemoryJob: (
     type: string,
@@ -70,17 +76,6 @@ mock.module("../jobs-store.js", () => ({
   },
 }));
 
-// Mirror production semantics from `isUntrustedTrustClass` in
-// actor-trust-resolver.ts: anything that isn't `guardian` is untrusted.
-// Keeping these in sync guards the compaction trust boundary — a drifting
-// mock would let regressions pass as false positives.
-mock.module("../../runtime/actor-trust-resolver.js", () => ({
-  isUntrustedTrustClass: (trustClass: string | undefined) =>
-    trustClass === "trusted_contact" ||
-    trustClass === "unknown" ||
-    trustClass === undefined,
-}));
-
 import {
   enqueueAutoAnalysisIfEnabled,
   enqueueAutoAnalysisOnCompaction,
@@ -90,6 +85,7 @@ describe("enqueueAutoAnalysisIfEnabled", () => {
   beforeEach(() => {
     flagEnabled = true;
     isAuto = false;
+    isRetrospective = false;
     getConfigThrows = false;
     configValue = { analysis: { idleTimeoutMs: 600_000 } };
     enqueueCalls.length = 0;
@@ -191,6 +187,27 @@ describe("enqueueAutoAnalysisIfEnabled", () => {
     expect(debouncedCalls).toHaveLength(0);
   });
 
+  test("flag on, source is a memory-retrospective conversation — no job is enqueued", () => {
+    // Fork-kind retrospective conversations carry a full copy of the source
+    // conversation's history; auto-analyzing one would re-process the entire
+    // source conversation and double-write memory.
+    isRetrospective = true;
+
+    enqueueAutoAnalysisIfEnabled({ conversationId: "c1", trigger: "batch" });
+    enqueueAutoAnalysisIfEnabled({ conversationId: "c1", trigger: "idle" });
+    enqueueAutoAnalysisIfEnabled({
+      conversationId: "c1",
+      trigger: "lifecycle",
+    });
+    enqueueAutoAnalysisIfEnabled({
+      conversationId: "c1",
+      trigger: "compaction",
+    });
+
+    expect(enqueueCalls).toHaveLength(0);
+    expect(debouncedCalls).toHaveLength(0);
+  });
+
   test("getConfig throws — skips silently without enqueueing", () => {
     getConfigThrows = true;
 
@@ -262,6 +279,7 @@ describe("enqueueAutoAnalysisOnCompaction", () => {
   beforeEach(() => {
     flagEnabled = true;
     isAuto = false;
+    isRetrospective = false;
     getConfigThrows = false;
     configValue = { analysis: { idleTimeoutMs: 600_000 } };
     enqueueCalls.length = 0;
@@ -286,9 +304,9 @@ describe("enqueueAutoAnalysisOnCompaction", () => {
   });
 
   test("undefined trust class — skips (fail-closed when trust is unresolved)", () => {
-    // `isUntrustedTrustClass(undefined)` is true in production, so
-    // compaction-triggered analysis must NOT fire when the caller cannot
-    // establish a trust class.
+    // `resolveCapabilities(undefined).canAccessMemory` is false in
+    // production, so compaction-triggered analysis must NOT fire when the
+    // caller cannot establish a trust class.
     enqueueAutoAnalysisOnCompaction("c1", undefined);
 
     expect(enqueueCalls).toHaveLength(0);
@@ -303,8 +321,8 @@ describe("enqueueAutoAnalysisOnCompaction", () => {
   });
 
   test("trusted_contact trust class — skips (only guardian is trusted)", () => {
-    // trusted_contact is in the untrusted set per production
-    // `isUntrustedTrustClass`, so compaction-triggered analysis must NOT
+    // trusted_contact lacks `canAccessMemory` per production
+    // `resolveCapabilities`, so compaction-triggered analysis must NOT
     // fire. Only `guardian` passes the gate.
     enqueueAutoAnalysisOnCompaction("c1", "trusted_contact");
 
@@ -323,6 +341,15 @@ describe("enqueueAutoAnalysisOnCompaction", () => {
 
   test("guardian trust but source is auto-analysis — helper skips via recursion guard", () => {
     isAuto = true;
+
+    enqueueAutoAnalysisOnCompaction("c1", "guardian");
+
+    expect(enqueueCalls).toHaveLength(0);
+    expect(debouncedCalls).toHaveLength(0);
+  });
+
+  test("guardian trust but source is a memory-retrospective conversation — helper skips", () => {
+    isRetrospective = true;
 
     enqueueAutoAnalysisOnCompaction("c1", "guardian");
 

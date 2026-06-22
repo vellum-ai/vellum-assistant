@@ -12,8 +12,8 @@ const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 let currentConfig: Record<string, unknown> = {};
 
-const DECLARED_SKILL_ID = "email-channel";
-const DECLARED_FLAG_KEY = "email-channel";
+const DECLARED_SKILL_ID = "a2a-channel";
+const DECLARED_FLAG_KEY = "a2a-channel";
 
 const noopLogger = new Proxy({} as Record<string, unknown>, {
   get: (_target, prop) => (prop === "child" ? () => noopLogger : () => {}),
@@ -99,8 +99,8 @@ describe("skill_load feature flag enforcement", () => {
   test("returns deterministic error for flag OFF skill", async () => {
     writeSkill(
       DECLARED_SKILL_ID,
-      "Email Channel",
-      "Toggle email channel behavior",
+      "A2A Channel",
+      "Toggle A2A channel behavior",
       "Use the feature.",
     );
 
@@ -116,8 +116,8 @@ describe("skill_load feature flag enforcement", () => {
   test("loads skill normally when flag is ON", async () => {
     writeSkill(
       DECLARED_SKILL_ID,
-      "Email Channel",
-      "Toggle email channel behavior",
+      "A2A Channel",
+      "Toggle A2A channel behavior",
       "Use the feature.",
     );
 
@@ -126,14 +126,14 @@ describe("skill_load feature flag enforcement", () => {
     const result = await executeSkillLoad({ skill: DECLARED_SKILL_ID });
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("Skill: Email Channel");
+    expect(result.content).toContain("Skill: A2A Channel");
   });
 
   test("returns error when flag key is absent (registry defaults to disabled)", async () => {
     writeSkill(
       DECLARED_SKILL_ID,
-      "Email Channel",
-      "Toggle email channel behavior",
+      "A2A Channel",
+      "Toggle A2A channel behavior",
       "Use the feature.",
     );
 
@@ -141,7 +141,7 @@ describe("skill_load feature flag enforcement", () => {
 
     const result = await executeSkillLoad({ skill: DECLARED_SKILL_ID });
 
-    // email-channel is declared in the registry with defaultEnabled: false
+    // a2a-channel is declared in the registry with defaultEnabled: false
     expect(result.isError).toBe(true);
     expect(result.content).toContain("disabled by feature flag");
   });

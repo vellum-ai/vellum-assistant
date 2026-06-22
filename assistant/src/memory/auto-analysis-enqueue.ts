@@ -1,12 +1,11 @@
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
-import {
-  isUntrustedTrustClass,
-  type TrustClass,
-} from "../runtime/actor-trust-resolver.js";
+import { type TrustClass } from "../runtime/actor-trust-resolver.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
 import { getLogger } from "../util/logger.js";
 import { isAutoAnalysisConversation } from "./auto-analysis-guard.js";
 import { isMemoryEnabled, upsertAutoAnalysisJob } from "./jobs-store.js";
+import { isMemoryRetrospectiveConversation } from "./memory-retrospective-enqueue.js";
 
 const log = getLogger("auto-analysis-enqueue");
 
@@ -31,7 +30,11 @@ export type AutoAnalysisTrigger = "batch" | "idle" | "lifecycle" | "compaction";
  * conversation. Skips silently when:
  *   - the `auto-analyze` feature flag is disabled, OR
  *   - the source conversation is itself an auto-analysis conversation
- *     (recursion guard — we never analyze our own analysis output).
+ *     (recursion guard — we never analyze our own analysis output), OR
+ *   - the source conversation is a memory-retrospective conversation.
+ *     Fork-kind retrospectives carry a full copy of the source
+ *     conversation's history, so auto-analyzing one would re-process the
+ *     entire source conversation and double-write memory.
  *
  * Immediate triggers (`"batch"`, `"compaction"`) and debounced triggers
  * (`"idle"`, `"lifecycle"`) are written to separate rows keyed by a
@@ -73,6 +76,14 @@ export function enqueueAutoAnalysisIfEnabled(args: {
     return;
   }
 
+  if (isMemoryRetrospectiveConversation(conversationId)) {
+    log.debug(
+      { conversationId, trigger },
+      "Skipping auto-analysis enqueue: source is a memory-retrospective conversation",
+    );
+    return;
+  }
+
   const idleTimeoutMs = config.analysis?.idleTimeoutMs ?? 600_000;
   const runImmediately = trigger === "batch" || trigger === "compaction";
   const triggerGroup: "immediate" | "debounced" = runImmediately
@@ -105,7 +116,7 @@ export function enqueueAutoAnalysisOnCompaction(
   conversationId: string,
   trustClass: TrustClass | undefined,
 ): void {
-  if (isUntrustedTrustClass(trustClass)) {
+  if (!resolveCapabilities(trustClass).canAccessMemory) {
     return;
   }
   try {

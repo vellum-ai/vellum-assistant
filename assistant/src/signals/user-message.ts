@@ -134,14 +134,11 @@ async function dispatchUserMessage(params: {
     return { accepted: !result.rejected };
   }
 
-  await processMessageInBackground(
-    conversationId,
-    params.content,
-    attachmentIds.length > 0 ? attachmentIds : undefined,
-    undefined,
-    params.sourceChannel,
-    params.sourceInterface,
-  );
+  await processMessageInBackground(conversationId, params.content, {
+    attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
+    sourceChannel: params.sourceChannel,
+    sourceInterface: params.sourceInterface,
+  });
   return { accepted: true };
 }
 

@@ -69,8 +69,7 @@ function makeFakeConversation(
     ...overrides,
   };
   const sent: ServerMessage[] = [];
-  const fake = {
-    conversationId: "conv-abc",
+  const compactionCircuit = {
     get consecutiveCompactionFailures(): number {
       return state.consecutiveCompactionFailures;
     },
@@ -83,6 +82,10 @@ function makeFakeConversation(
     set compactionCircuitOpenUntil(value: number | null) {
       state.compactionCircuitOpenUntil = value;
     },
+  };
+  const fake = {
+    conversationId: "conv-abc",
+    agentLoop: { compactionCircuit },
     get contextCompactedMessageCount(): number {
       return state.contextCompactedMessageCount;
     },

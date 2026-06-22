@@ -1,11 +1,13 @@
 import { v4 as uuid } from "uuid";
 
+import { isActivationSession } from "../memory/activation-session-store.js";
 import {
   addAppConversationId,
   getApp,
   getAppDirPath,
   getAppPreview,
   isMultifileApp,
+  listAppsByConversation,
   resolveAppDir,
   resolveEffectiveAppHtml,
   updateApp,
@@ -14,15 +16,27 @@ import {
   getMessages,
   updateMessageContent,
 } from "../memory/conversation-crud.js";
+import { recordActivationEvent } from "../memory/onboarding-events-store.js";
 import {
   assistantEventHub,
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
-import { enforceSameActorOrErrorResult } from "../runtime/auth/same-actor.js";
+import {
+  ambiguousSameUserError,
+  enforceSameActorOrErrorResult,
+  pickSameUserAutoResolve,
+} from "../runtime/auth/same-actor.js";
+import type { AuthContext } from "../runtime/auth/types.js";
 import type {
   InteractiveUiRequest,
   InteractiveUiResult,
 } from "../runtime/interactive-ui-types.js";
+import {
+  activationMomentEmitsAtShow,
+  type ActivationMomentParam,
+  activationStepNameForMomentParam,
+  isActivationMomentParam,
+} from "../telemetry/activation-funnel.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
@@ -34,10 +48,13 @@ import type { HostAppControlProxy } from "./host-app-control-proxy.js";
 import type { HostCuProxy } from "./host-cu-proxy.js";
 import type {
   CardSurfaceData,
+  ChoiceSurfaceData,
   ConfirmationSurfaceData,
+  CopyBlockSurfaceData,
   DynamicPageSurfaceData,
   FormSurfaceData,
   ListSurfaceData,
+  OAuthConnectSurfaceData,
   ServerMessage,
   SurfaceData,
   SurfaceType,
@@ -164,6 +181,18 @@ export function flushSurfaceDataPersist(surfaceId: string): void {
 }
 
 /**
+ * Discard (without writing) any pending debounced persist for `surfaceId`.
+ * Called on dismissal so an in-flight `ui_update` snapshot cannot land after
+ * the surface block has been removed.
+ */
+export function cancelSurfaceDataPersist(surfaceId: string): void {
+  const pending = pendingSurfacePersists.get(surfaceId);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingSurfacePersists.delete(surfaceId);
+}
+
+/**
  * Cancel all pending debounced persists. Called on conversation
  * teardown to avoid timers firing against torn-down state.
  *
@@ -261,7 +290,158 @@ export function markSurfaceCompleted(
     log.warn({ err, surfaceId }, "Failed to persist surface completion to DB");
   }
 }
+
+/**
+ * Complete a `ui_surface` card and notify live clients, addressed only by
+ * conversation + surface id.
+ *
+ * Unlike {@link completeSurfaceFromAction}, this needs no live `Conversation`
+ * instance, so it can run from flows that don't own one — projecting a
+ * terminal guardian-request status onto its in-app approval card when the
+ * request was resolved on another surface (or by the expiry sweep). Persists
+ * the completion (reload-safe) and broadcasts `ui_surface_complete` so every
+ * connected client of this guardian converges. No-ops when the surface block
+ * isn't found in the conversation.
+ */
+export function completeSurfaceAndNotify(
+  conversationId: string,
+  surfaceId: string,
+  summary: string,
+): void {
+  markSurfaceCompleted({ conversationId }, surfaceId, summary);
+  broadcastMessage({
+    type: "ui_surface_complete",
+    conversationId,
+    surfaceId,
+    summary,
+  });
+}
+
+/**
+ * Remove a `ui_surface` content block from history so a passively dismissed
+ * surface does not survive a reload. The live client drops a dismissed surface
+ * entirely; this converges persisted state with that behaviour. Cancels any
+ * pending debounced data persist first so a late `ui_update` snapshot cannot
+ * re-add the block, then strips the block from in-memory messages and the DB.
+ */
+export function removeSurfaceBlock(
+  ctx: { conversationId: string; messages?: Array<{ content: unknown }> },
+  surfaceId: string,
+): void {
+  cancelSurfaceDataPersist(surfaceId);
+
+  if (ctx.messages) {
+    for (let i = ctx.messages.length - 1; i >= 0; i--) {
+      const msg = ctx.messages[i];
+      if (!Array.isArray(msg.content)) continue;
+      const idx = msg.content.findIndex((block) => {
+        const b = block as Record<string, unknown>;
+        return b.type === "ui_surface" && b.surfaceId === surfaceId;
+      });
+      if (idx !== -1) {
+        msg.content.splice(idx, 1);
+        break;
+      }
+    }
+  }
+
+  try {
+    const rows = getMessages(ctx.conversationId);
+    for (let r = rows.length - 1; r >= 0; r--) {
+      let parsed: unknown[];
+      try {
+        const result = JSON.parse(rows[r].content);
+        if (!Array.isArray(result)) continue;
+        parsed = result;
+      } catch {
+        continue;
+      }
+      const idx = parsed.findIndex((pb) => {
+        const rb = pb as Record<string, unknown>;
+        return rb.type === "ui_surface" && rb.surfaceId === surfaceId;
+      });
+      if (idx !== -1) {
+        parsed.splice(idx, 1);
+        updateMessageContent(rows[r].id, JSON.stringify(parsed));
+        return;
+      }
+    }
+  } catch (err) {
+    log.warn({ err, surfaceId }, "Failed to remove dismissed surface from DB");
+  }
+}
 const TASK_PROGRESS_TEMPLATE_FIELDS = ["title", "status", "steps"] as const;
+
+const TASK_PROGRESS_CARD_STATUSES = new Set([
+  "in_progress",
+  "completed",
+  "failed",
+]);
+const TASK_PROGRESS_STEP_STATUSES = new Set([
+  "pending",
+  "in_progress",
+  "completed",
+  "failed",
+]);
+
+/**
+ * Coerce a model-supplied `steps` value into a renderable array. Drops
+ * non-object and label-less entries, accepts `title` as a `label` alias, and
+ * defaults a missing/invalid per-step status to "pending". Returns `[]` for a
+ * missing or non-array input so an indeterminate card still renders.
+ */
+function normalizeTaskProgressSteps(
+  value: unknown,
+): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((step): step is Record<string, unknown> => isPlainObject(step))
+    .map((step) => {
+      const label =
+        typeof step.label === "string"
+          ? step.label
+          : typeof step.title === "string"
+            ? step.title
+            : "";
+      const status =
+        typeof step.status === "string" &&
+        TASK_PROGRESS_STEP_STATUSES.has(step.status)
+          ? step.status
+          : "pending";
+      return { ...step, label, status };
+    })
+    .filter((step) => (step.label as string).trim().length > 0);
+}
+
+/**
+ * Guarantee a task_progress card reaches the client with a well-formed
+ * `templateData` object so a coarse or indeterminate attempt (missing steps,
+ * missing status) renders instead of being silently dropped. Fills only
+ * missing fields — a fully-specified card is left intact.
+ */
+function ensureTaskProgressTemplateData(
+  normalized: Record<string, unknown>,
+): void {
+  const templateData: Record<string, unknown> = isPlainObject(
+    normalized.templateData,
+  )
+    ? { ...normalized.templateData }
+    : {};
+  if (
+    typeof templateData.title !== "string" &&
+    typeof normalized.title === "string"
+  ) {
+    templateData.title = normalized.title;
+  }
+  if (
+    typeof templateData.status !== "string" ||
+    !TASK_PROGRESS_CARD_STATUSES.has(templateData.status)
+  ) {
+    templateData.status = "in_progress";
+  }
+  templateData.steps = normalizeTaskProgressSteps(templateData.steps);
+  normalized.templateData = templateData;
+}
 
 /**
  * Migrate dynamic_page fields from the top-level tool input into `data`.
@@ -349,6 +529,10 @@ function normalizeCardShowData(
     normalized.body = "";
   }
 
+  if (normalized.template === "task_progress") {
+    ensureTaskProgressTemplateData(normalized);
+  }
+
   return normalized as unknown as CardSurfaceData;
 }
 
@@ -389,6 +573,107 @@ function normalizeTaskProgressCardPatch(
   }
 
   return normalizedPatch;
+}
+
+function normalizeChoiceShowData(
+  rawData: Record<string, unknown>,
+): ChoiceSurfaceData {
+  const options = Array.isArray(rawData.options)
+    ? rawData.options
+        .filter((option): option is Record<string, unknown> =>
+          isPlainObject(option),
+        )
+        .map((option) => {
+          const id = typeof option.id === "string" ? option.id.trim() : "";
+          const title =
+            typeof option.title === "string"
+              ? option.title.trim()
+              : typeof option.label === "string"
+                ? option.label.trim()
+                : "";
+          if (!id || !title) return null;
+          return {
+            id,
+            title,
+            ...(typeof option.description === "string"
+              ? { description: option.description }
+              : {}),
+            ...(option.recommended === true ? { recommended: true } : {}),
+            ...(isPlainObject(option.data)
+              ? { data: option.data as Record<string, unknown> }
+              : {}),
+          };
+        })
+        .filter(
+          (option): option is NonNullable<typeof option> => option !== null,
+        )
+    : [];
+
+  return {
+    ...(typeof rawData.description === "string"
+      ? { description: rawData.description }
+      : {}),
+    options,
+    selectionMode: rawData.selectionMode === "multiple" ? "multiple" : "single",
+    ...(typeof rawData.submitLabel === "string"
+      ? { submitLabel: rawData.submitLabel }
+      : {}),
+    ...(typeof rawData.commitOnSelect === "boolean"
+      ? { commitOnSelect: rawData.commitOnSelect }
+      : {}),
+  };
+}
+
+function normalizeCopyBlockShowData(
+  rawData: Record<string, unknown>,
+): CopyBlockSurfaceData {
+  return {
+    text: typeof rawData.text === "string" ? rawData.text : "",
+    ...(typeof rawData.label === "string" ? { label: rawData.label } : {}),
+    ...(typeof rawData.language === "string"
+      ? { language: rawData.language }
+      : {}),
+  };
+}
+
+function normalizeOAuthConnectShowData(
+  rawData: Record<string, unknown>,
+): OAuthConnectSurfaceData {
+  return {
+    providerKey:
+      typeof rawData.providerKey === "string" ? rawData.providerKey.trim() : "",
+    ...(typeof rawData.displayName === "string"
+      ? { displayName: rawData.displayName }
+      : {}),
+    ...(typeof rawData.description === "string"
+      ? { description: rawData.description }
+      : {}),
+    ...(typeof rawData.logoUrl === "string" || rawData.logoUrl === null
+      ? { logoUrl: rawData.logoUrl }
+      : {}),
+  };
+}
+
+function buildChoiceActions(data: ChoiceSurfaceData): Array<{
+  id: string;
+  label: string;
+  style?: string;
+  data?: Record<string, unknown>;
+}> {
+  return data.options.map((option) => ({
+    id: option.id,
+    label: option.title,
+    style: option.recommended ? "primary" : "secondary",
+    data: {
+      choiceId: option.id,
+      choiceTitle: option.title,
+      selectedIds: [option.id],
+      selectedTitles: [option.title],
+      ...(option.description ? { choiceDescription: option.description } : {}),
+      ...(option.recommended ? { recommended: true } : {}),
+      ...(option.data ?? {}),
+    },
+  }));
 }
 
 function isTaskProgressCardData(data: SurfaceData | Record<string, unknown>) {
@@ -436,6 +721,12 @@ export interface SurfaceConversationContext {
   readonly assistantId?: string;
   /** Inherited to spawned conversations in the `launch_conversation` action path. */
   readonly trustContext?: TrustContext;
+  /** Verified requester auth context for the active turn. */
+  readonly authContext?: AuthContext;
+  /** Per-turn auth snapshot, preferred for tool dispatch authorization. */
+  readonly currentTurnAuthContext?: AuthContext;
+  /** JWT-verified requester principal for the active turn. */
+  readonly currentTurnSourceActorPrincipalId?: string;
   readonly channelCapabilities?: {
     channel: string;
     supportsDynamicUi: boolean;
@@ -461,6 +752,14 @@ export interface SurfaceConversationContext {
         style?: string;
         data?: Record<string, unknown>;
       }>;
+      /**
+       * Activation-rail telemetry tag (daemon-only). When the model tags a
+       * `ui_show` surface as an activation funnel moment, the token is captured
+       * here so the milestone can be recorded deterministically when the user
+       * commits the surface (`handleSurfaceAction`). Never forwarded to the
+       * client.
+       */
+      activationMoment?: ActivationMomentParam;
     }
   >;
   surfaceUndoStacks: Map<string, string[]>;
@@ -504,6 +803,13 @@ export interface SurfaceConversationContext {
     }>;
     display?: string;
     persistent?: boolean;
+    toolCallId?: string;
+    /**
+     * Commit-timing activation-rail tag (daemon-only). Carried through to the
+     * persisted `ui_surface` history block so it survives a reload — never sent
+     * to the client.
+     */
+    activationMoment?: ActivationMomentParam;
   }>;
   /** Optional proxy for delegating computer-use actions to a connected desktop client. */
   hostCuProxy?: HostCuProxy;
@@ -1141,6 +1447,60 @@ function getRequestedSurfaceCompletionSummary(
   return summary || "Completed";
 }
 
+/**
+ * Best-effort recorder for a single activation-funnel moment. Gated on the
+ * conversation being a marked activation-rail session. Fire-and-forget: never
+ * throws, never blocks or alters the surface-action flow (a failure is logged
+ * and swallowed). Shared by the show-time path (`first_wow_executed`, recorded
+ * when the surface renders) and the commit-time path (the other moments,
+ * recorded when the user commits the surface).
+ */
+function recordActivationMoment(
+  ctx: SurfaceConversationContext,
+  moment: ActivationMomentParam,
+): void {
+  try {
+    if (!isActivationSession(ctx.conversationId)) return;
+    recordActivationEvent({
+      stepName: activationStepNameForMomentParam(moment),
+      sessionId: ctx.conversationId,
+    });
+  } catch (err) {
+    log.warn(
+      { err, conversationId: ctx.conversationId, moment },
+      "Failed to record activation moment",
+    );
+  }
+}
+
+/**
+ * Best-effort activation-funnel emission on a user surface commit.
+ *
+ * When the committed surface carries a commit-timing `activationMoment` tag,
+ * record the corresponding funnel milestone. Show-timing moments
+ * (`first_wow_executed`) are recorded at render time in `surfaceProxyResolver`
+ * and are NOT stored on `surfaceState`, so they never reach this path. The tag
+ * is cleared after the first record so re-entrant or repeated commits on the
+ * same surface do not double-emit (and the deterministic `daemon_event_id`
+ * collapses any cross-surface duplicate downstream anyway).
+ *
+ * Must be called only from terminal-commit paths (user clicked an action /
+ * submitted / selected-and-committed), NOT from intermediate non-terminal
+ * events (`selection_changed` / `content_changed` / `state_update`).
+ */
+function maybeEmitActivationMoment(
+  ctx: SurfaceConversationContext,
+  surfaceId: string,
+): void {
+  const stored = ctx.surfaceState.get(surfaceId);
+  const moment = stored?.activationMoment;
+  if (!moment) return;
+  // Clear the tag first so this can fire at most once per surface even if the
+  // commit path is re-entered.
+  stored.activationMoment = undefined;
+  recordActivationMoment(ctx, moment);
+}
+
 function completeSurfaceFromAction(
   ctx: SurfaceConversationContext,
   surfaceId: string,
@@ -1207,6 +1567,13 @@ export async function handleSurfaceAction(
       submittedData: data,
     });
     markSurfaceCompleted(ctx, surfaceId, summary);
+
+    // Terminal user commit on a standalone surface (submit, not cancel/dismiss)
+    // — record an activation milestone if tagged. Must run before
+    // `cleanupStandaloneSurface` clears the surface state.
+    if (!isCancellation) {
+      maybeEmitActivationMoment(ctx, surfaceId);
+    }
 
     // Cleanup and resolve — order matters: cleanup clears the timer
     // before resolve() unblocks the caller.
@@ -1294,6 +1661,10 @@ export async function handleSurfaceAction(
       { originConversationId: ctx.conversationId, conversationId, surfaceId },
       "launch_conversation dispatched inline from surface action",
     );
+    // Launching a child conversation is a terminal user commit — record an
+    // activation milestone if tagged. The helper clears the tag after firing,
+    // so the other commit-path call sites below can't double-emit.
+    maybeEmitActivationMoment(ctx, surfaceId);
     return { accepted: true, conversationId };
   }
 
@@ -1447,6 +1818,12 @@ export async function handleSurfaceAction(
       ctx.surfaceActionRequestIds.delete(requestId);
       return;
     }
+
+    // Terminal user commit accepted — record the activation milestone if this
+    // surface was tagged (best-effort, no-op otherwise). Deferred until after
+    // the rejection check so a queue-full click doesn't over-report a moment
+    // (and the one-shot tag stays intact for the user's retry).
+    maybeEmitActivationMoment(ctx, surfaceId);
 
     const requestedCompletionSummary =
       getRequestedSurfaceCompletionSummary(mergedData);
@@ -1687,6 +2064,12 @@ export async function handleSurfaceAction(
     return;
   }
 
+  // Terminal user commit accepted — record the activation milestone if this
+  // surface was tagged (best-effort, no-op otherwise). Deferred until after the
+  // rejection check so a queue-full click doesn't over-report a moment (and the
+  // one-shot tag stays intact for the user's retry).
+  maybeEmitActivationMoment(ctx, surfaceId);
+
   const requestedCompletionSummary =
     getRequestedSurfaceCompletionSummary(mergedData);
 
@@ -1694,6 +2077,8 @@ export async function handleSurfaceAction(
   // been accepted. Deferred until after rejection check so the surface stays
   // active and retryable if the queue was full.
   const ONE_SHOT_SURFACE_TYPES = [
+    "choice",
+    "oauth_connect",
     "form",
     "confirmation",
     "file_upload",
@@ -1849,12 +2234,27 @@ export function refreshSurfacesForApp(
   return refreshed;
 }
 
+/**
+ * Strip a leading "Connect "/"Connected " verb from an OAuth provider label so
+ * a supplied displayName like "Connect Gmail" doesn't double the verb when
+ * prefixed (e.g. avoids "Connected Connect Gmail").
+ */
+function stripConnectVerb(label: string): string {
+  return label.replace(/^connect(?:ed)?\s+/i, "");
+}
+
 export function buildCompletionSummary(
   surfaceType: string | undefined,
   actionId: string,
   data?: Record<string, unknown>,
   surfaceData?: Record<string, unknown>,
 ): string {
+  const selectedTitles = Array.isArray(data?.selectedTitles)
+    ? data.selectedTitles.filter(
+        (title): title is string => typeof title === "string",
+      )
+    : [];
+
   if (surfaceType === "confirmation") {
     if (actionId === "cancel") {
       const cancelLabel =
@@ -1887,6 +2287,47 @@ export function buildCompletionSummary(
   if (surfaceType === "form") {
     return "Submitted";
   }
+  if (surfaceType === "choice" && data) {
+    const choiceTitle =
+      typeof data.choiceTitle === "string" ? data.choiceTitle : undefined;
+    if (choiceTitle) return `User chose: "${choiceTitle}"`;
+    if (selectedTitles.length === 1)
+      return `User chose: "${selectedTitles[0]}"`;
+    if (selectedTitles.length > 1) {
+      return `User chose ${selectedTitles.length} options: ${selectedTitles
+        .map((title) => `"${title}"`)
+        .join(", ")}`;
+    }
+    return `User chose: ${actionId}`;
+  }
+  if (surfaceType === "oauth_connect") {
+    const providerLabel =
+      typeof data?.providerLabel === "string"
+        ? data.providerLabel
+        : typeof data?.displayName === "string"
+          ? data.displayName
+          : typeof data?.providerKey === "string"
+            ? data.providerKey
+            : "OAuth";
+    // Strip the verb once so every branch (connected/cancelled/failed/
+    // fallback) is normalized — a displayName like "Connect Gmail" must not
+    // produce "Cancelled Connect Gmail connection".
+    const label = stripConnectVerb(providerLabel);
+    const accountLabel =
+      typeof data?.accountLabel === "string" ? data.accountLabel : undefined;
+    if (actionId === "connect" || data?.status === "connected") {
+      return accountLabel
+        ? `Connected ${label}: ${accountLabel}`
+        : `Connected ${label}`;
+    }
+    if (actionId === "cancel" || data?.status === "cancelled") {
+      return `Cancelled ${label} connection`;
+    }
+    if (data?.status === "error") {
+      return `${label} connection failed`;
+    }
+    return `${label} connection ${actionId}`;
+  }
   if (surfaceType === "list" && data) {
     const selectedIds = data.selectedIds as string[] | undefined;
     const actionSuffix = actionId ? ` (action: ${actionId})` : "";
@@ -1917,6 +2358,11 @@ function buildUserFacingLabel(
   surfaceData?: Record<string, unknown>,
 ): string {
   const count = (data?.selectedIds as string[] | undefined)?.length;
+  const selectedTitles = Array.isArray(data?.selectedTitles)
+    ? data.selectedTitles.filter(
+        (title): title is string => typeof title === "string",
+      )
+    : [];
 
   if (surfaceType === "confirmation") {
     if (actionId === "cancel") {
@@ -1943,6 +2389,42 @@ function buildUserFacingLabel(
     return `Selected: ${actionId}`;
   }
   if (surfaceType === "form") return "Submitted";
+  if (surfaceType === "choice") {
+    const choiceTitle =
+      typeof data?.choiceTitle === "string" ? data.choiceTitle : undefined;
+    if (choiceTitle) return choiceTitle;
+    if (selectedTitles.length === 1) return selectedTitles[0];
+    if (selectedTitles.length > 1)
+      return `Selected ${selectedTitles.length} options`;
+    return "Selected";
+  }
+  if (surfaceType === "oauth_connect") {
+    const providerLabel =
+      typeof data?.providerLabel === "string"
+        ? data.providerLabel
+        : typeof data?.displayName === "string"
+          ? data.displayName
+          : typeof data?.providerKey === "string"
+            ? data.providerKey
+            : "OAuth";
+    // Strip the verb once so every branch is normalized (e.g. a displayName
+    // like "Connect Gmail" must not produce "Connect Gmail connection failed").
+    const label = stripConnectVerb(providerLabel);
+    const accountLabel =
+      typeof data?.accountLabel === "string" ? data.accountLabel : undefined;
+    if (actionId === "connect" || data?.status === "connected") {
+      return accountLabel
+        ? `Connected ${label}: ${accountLabel}`
+        : `Connected ${label}`;
+    }
+    if (actionId === "cancel" || data?.status === "cancelled") {
+      return "Cancelled";
+    }
+    if (data?.status === "error") {
+      return `${label} connection failed`;
+    }
+    return `Selected: ${actionId}`;
+  }
 
   // Table / list selection actions
   if (count) {
@@ -1966,6 +2448,7 @@ export async function surfaceProxyResolver(
   toolName: string,
   input: Record<string, unknown>,
   signal?: AbortSignal,
+  toolUseId?: string,
 ): Promise<ToolExecutionResult> {
   // Route CU proxy tools (all computer_use_* action tools)
   if (toolName.startsWith("computer_use_")) {
@@ -2006,7 +2489,10 @@ export async function surfaceProxyResolver(
     // validate at the tool-resolution layer for the same reason. The proxy
     // re-checks same-user (single authoritative gate); using the shared
     // helper keeps log payload and error wording identical at both layers.
-    const sourceActorPrincipalId = ctx.trustContext?.guardianPrincipalId;
+    const sourceActorPrincipalId =
+      ctx.currentTurnSourceActorPrincipalId ??
+      ctx.currentTurnAuthContext?.actorPrincipalId ??
+      ctx.authContext?.actorPrincipalId;
     if (targetClientId != null) {
       const client = assistantEventHub.getClientById(targetClientId);
       if (!client) {
@@ -2030,43 +2516,28 @@ export async function surfaceProxyResolver(
       if (rejection) return rejection;
     }
 
-    // Guard: require explicit targeting when multiple same-user CU-capable
-    // clients are connected. The tool schemas document target_client_id as
-    // "required when multiple clients support host_cu" but nothing enforced
-    // it at runtime until now. Without this guard, the request would
-    // broadcast to all capable clients simultaneously, causing the same CU
-    // action to execute on multiple machines. The filter mirrors
-    // HostFileProxy's auto-resolve: only same-user clients participate, so
-    // a cross-user client connected to the same daemon does not falsely
-    // trigger this ambiguity error.
-    //
-    // Asymmetry with host_bash / host_file (host-shell.ts): the bash/file
-    // guard additionally checks `transportInterface != null &&
-    // !supportsHostProxy(transportInterface)` and so only fires for non-host-
-    // proxy transports (web, Slack). For CU that check would be a no-op:
-    // every host_cu-capable client is host-proxy-capable by definition
-    // (host_cu only ships on macOS and the Chrome extension), so there is no
-    // host_cu-capable transport for which auto-routing-to-self would be
-    // appropriate. We therefore fire whenever there is genuine ambiguity.
+    // Untargeted CU must resolve to exactly one same-user capable client
+    // before dispatch. Otherwise the proxy would broadcast without a target
+    // actor binding, which is unsafe in shared runtimes.
     if (targetClientId == null) {
-      const allCuClients = assistantEventHub.listClientsByCapability("host_cu");
-      const sameUserCuClients = allCuClients.filter(
-        (c) => c.actorPrincipalId === sourceActorPrincipalId,
-      );
-      if (sameUserCuClients.length > 1) {
+      const resolved = pickSameUserAutoResolve({
+        hub: assistantEventHub,
+        capability: "host_cu",
+        sourceActorPrincipalId,
+      });
+      if (resolved.kind === "ambiguous") {
+        return ambiguousSameUserError("host_cu");
+      }
+      if (resolved.kind === "match") {
+        targetClientId = resolved.clientId;
+      } else if (
+        assistantEventHub.listClientsByCapability("host_cu").length > 0
+      ) {
         return {
-          content: `Error: multiple clients support host_cu. Specify which client to target with \`target_client_id\`. Run \`assistant clients list --capability host_cu\` to see client IDs and labels.`,
+          content:
+            "Computer use is not available for the current actor. Connect a host_cu-capable client as the same user.",
           isError: true,
         };
-      }
-      // When cross-user host_cu clients are connected, we MUST auto-resolve
-      // to the unique same-user client (or fail explicitly) — otherwise the
-      // proxy would broadcast untargeted and the CU action would reach the
-      // cross-user client too. Setting targetClientId here forces the proxy
-      // to deliver only to that client, with the same-user check below as
-      // belt-and-suspenders.
-      if (sameUserCuClients.length === 1 && allCuClients.length > 1) {
-        targetClientId = sameUserCuClients[0].clientId;
       }
     }
 
@@ -2127,7 +2598,10 @@ export async function surfaceProxyResolver(
         ? input.target_client_id
         : undefined;
 
-    const sourceActorPrincipalId = ctx.trustContext?.guardianPrincipalId;
+    const sourceActorPrincipalId =
+      ctx.currentTurnSourceActorPrincipalId ??
+      ctx.currentTurnAuthContext?.actorPrincipalId ??
+      ctx.authContext?.actorPrincipalId;
     if (targetClientId != null) {
       const client = assistantEventHub.getClientById(targetClientId);
       if (!client) {
@@ -2152,23 +2626,24 @@ export async function surfaceProxyResolver(
     }
 
     if (targetClientId == null) {
-      const allAcClients =
-        assistantEventHub.listClientsByCapability("host_app_control");
-      const sameUserAcClients = allAcClients.filter(
-        (c) => c.actorPrincipalId === sourceActorPrincipalId,
-      );
-      if (sameUserAcClients.length > 1) {
+      const resolved = pickSameUserAutoResolve({
+        hub: assistantEventHub,
+        capability: "host_app_control",
+        sourceActorPrincipalId,
+      });
+      if (resolved.kind === "ambiguous") {
+        return ambiguousSameUserError("host_app_control");
+      }
+      if (resolved.kind === "match") {
+        targetClientId = resolved.clientId;
+      } else if (
+        assistantEventHub.listClientsByCapability("host_app_control").length > 0
+      ) {
         return {
-          content: `Error: multiple clients support host_app_control. Specify which client to target with \`target_client_id\`. Run \`assistant clients list --capability host_app_control\` to see client IDs and labels.`,
+          content:
+            "App control is not available for the current actor. Connect a host_app_control-capable client as the same user.",
           isError: true,
         };
-      }
-      // When cross-user host_app_control clients are connected, auto-
-      // resolve to the unique same-user client. Otherwise the proxy would
-      // dispatch untargeted and the action could reach a cross-user
-      // client. Belt-and-suspenders: the proxy re-checks same-user.
-      if (sameUserAcClients.length === 1 && allAcClients.length > 1) {
-        targetClientId = sameUserAcClients[0].clientId;
       }
     }
 
@@ -2221,11 +2696,17 @@ export async function surfaceProxyResolver(
     const data = (
       surfaceType === "card"
         ? normalizeCardShowData(input, rawData)
-        : surfaceType === "dynamic_page"
-          ? normalizeDynamicPageShowData(input, rawData)
-          : rawData
+        : surfaceType === "choice"
+          ? normalizeChoiceShowData(rawData)
+          : surfaceType === "copy_block"
+            ? normalizeCopyBlockShowData(rawData)
+            : surfaceType === "oauth_connect"
+              ? normalizeOAuthConnectShowData(rawData)
+              : surfaceType === "dynamic_page"
+                ? normalizeDynamicPageShowData(input, rawData)
+                : rawData
     ) as SurfaceData;
-    const actions = input.actions as
+    const inputActions = input.actions as
       | Array<{
           id: string;
           label: string;
@@ -2233,8 +2714,33 @@ export async function surfaceProxyResolver(
           data?: Record<string, unknown>;
         }>
       | undefined;
+    const actions =
+      surfaceType === "choice"
+        ? buildChoiceActions(data as ChoiceSurfaceData)
+        : inputActions;
     // Interactive surfaces default to awaiting user action.
     const hasActions = Array.isArray(actions) && actions.length > 0;
+    if (surfaceType === "choice" && !hasActions) {
+      return {
+        content:
+          "choice surfaces require at least one option with both id and title.",
+        isError: true,
+      };
+    }
+    const oauthProviderKey =
+      surfaceType === "oauth_connect"
+        ? (data as unknown as Record<string, unknown>).providerKey
+        : undefined;
+    if (
+      surfaceType === "oauth_connect" &&
+      (typeof oauthProviderKey !== "string" ||
+        oauthProviderKey.trim().length === 0)
+    ) {
+      return {
+        content: "oauth_connect surfaces require data.providerKey.",
+        isError: true,
+      };
+    }
     const isInteractive =
       surfaceType === "card"
         ? hasActions
@@ -2278,6 +2784,24 @@ export async function surfaceProxyResolver(
       ...(a.data ? { data: a.data } : {}),
     }));
 
+    // Optional activation-rail telemetry tag. Daemon-only metadata: validated
+    // and ignored if invalid; never forwarded to the client.
+    const activationMoment =
+      typeof input.activation_moment === "string" &&
+      isActivationMomentParam(input.activation_moment)
+        ? input.activation_moment
+        : undefined;
+
+    // Show-timing moments (`first_wow_executed`) record the instant the surface
+    // renders — a display-only result/`work_result` card may never be committed,
+    // so a commit-time emit would never fire. We record now and do NOT store the
+    // tag, so the commit path won't double-emit. Commit-timing moments are
+    // stored and recorded when the user commits the surface (see
+    // `handleSurfaceAction` → `maybeEmitActivationMoment`).
+    const storeTagForCommit =
+      activationMoment !== undefined &&
+      !activationMomentEmitsAtShow(activationMoment);
+
     // Track surface state for ui_update merging (includes actions so we can
     // look up per-action data payloads when the client sends an action back).
     ctx.surfaceState.set(surfaceId, {
@@ -2285,7 +2809,12 @@ export async function surfaceProxyResolver(
       data,
       title,
       actions: mappedActions,
+      ...(storeTagForCommit ? { activationMoment } : {}),
     });
+
+    if (activationMoment !== undefined && !storeTagForCommit) {
+      recordActivationMoment(ctx, activationMoment);
+    }
 
     log.info(
       {
@@ -2311,9 +2840,12 @@ export async function surfaceProxyResolver(
       actions: mappedActions,
       display,
       ...(persistent ? { persistent: true } : {}),
+      ...(toolUseId ? { toolCallId: toolUseId } : {}),
     } as unknown as UiSurfaceShow);
 
-    // Track surface for persistence with the message
+    // Track surface for persistence with the message. The commit-timing
+    // activation tag rides along (daemon-only) so it survives history restore;
+    // show-timing moments aren't stored here (already recorded at render).
     ctx.currentTurnSurfaces.push({
       surfaceId,
       surfaceType,
@@ -2322,6 +2854,8 @@ export async function surfaceProxyResolver(
       actions: mappedActions,
       display,
       ...(persistent ? { persistent: true } : {}),
+      ...(toolUseId ? { toolCallId: toolUseId } : {}),
+      ...(storeTagForCommit ? { activationMoment } : {}),
     });
 
     if (awaitAction) {
@@ -2417,6 +2951,15 @@ export async function surfaceProxyResolver(
         conversationId: ctx.conversationId,
         surfaceId,
       });
+      // The live client drops a dismissed surface entirely. Mirror that in
+      // persisted state: pull it from the pending turn snapshot (appended to
+      // the message at turn completion) and strip any already-persisted block,
+      // so a reload does not resurrect a half-finished progress card.
+      const turnIdx = ctx.currentTurnSurfaces.findIndex(
+        (s) => s.surfaceId === surfaceId,
+      );
+      if (turnIdx !== -1) ctx.currentTurnSurfaces.splice(turnIdx, 1);
+      removeSurfaceBlock(ctx, surfaceId);
     }
     ctx.pendingSurfaceActions.delete(surfaceId);
     ctx.surfaceState.delete(surfaceId);
@@ -2430,11 +2973,24 @@ export async function surfaceProxyResolver(
   }
 
   if (toolName === "app_open") {
-    const appId = input.app_id as string;
+    // Weaker models routinely omit app_id even though the active app is in
+    // context. Fall back to the conversation's most-recently-updated app
+    // rather than failing with "Invalid ID: undefined".
+    let appId = input.app_id as string;
+    if (typeof appId !== "string" || appId.trim().length === 0) {
+      appId = listAppsByConversation(ctx.conversationId)[0]?.id ?? "";
+    }
     const preview = input.preview as DynamicPageSurfaceData["preview"];
     const openMode = input.open_mode as string | undefined;
-    const app = getApp(appId);
-    if (!app) return { content: `App not found: ${appId}`, isError: true };
+    const app = appId ? getApp(appId) : null;
+    if (!app) {
+      return {
+        content: appId
+          ? `App not found: ${appId}`
+          : "app_id is required and no active app exists in this conversation. Call app_create first, or pass app_id explicitly.",
+        isError: true,
+      };
+    }
 
     // Track conversation association (best-effort — failures must not break open flow).
     try {
@@ -2495,6 +3051,7 @@ export async function surfaceProxyResolver(
         title: app.name,
         data: surfaceData,
         display: "inline",
+        ...(toolUseId ? { toolCallId: toolUseId } : {}),
       } as UiSurfaceShow);
 
       // Track for message persistence so the inline card survives history reload.
@@ -2504,6 +3061,7 @@ export async function surfaceProxyResolver(
         title: app.name,
         data: surfaceData,
         display: "inline",
+        ...(toolUseId ? { toolCallId: toolUseId } : {}),
       });
 
       return { content: JSON.stringify({ surfaceId, appId }), isError: false };
@@ -2522,6 +3080,7 @@ export async function surfaceProxyResolver(
       surfaceType: "dynamic_page",
       title: app.name,
       data: surfaceData,
+      ...(toolUseId ? { toolCallId: toolUseId } : {}),
     } as UiSurfaceShow);
 
     // Track surface for persistence
@@ -2530,6 +3089,7 @@ export async function surfaceProxyResolver(
       surfaceType: "dynamic_page",
       title: app.name,
       data: surfaceData,
+      ...(toolUseId ? { toolCallId: toolUseId } : {}),
     });
 
     ctx.pendingSurfaceActions.set(surfaceId, { surfaceType: "dynamic_page" });

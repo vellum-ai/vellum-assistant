@@ -1,22 +1,32 @@
 import { v4 as uuid } from "uuid";
 
+import { peekAcpSessionManager } from "../../acp/index.js";
 import { clearAll, getConversation } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
-import * as pendingInteractions from "../../runtime/pending-interactions.js";
+import { resolveCapabilities } from "../../runtime/capabilities.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { createAbortReason } from "../../util/abort-reasons.js";
+import { UserError } from "../../util/errors.js";
 import { truncate } from "../../util/truncate.js";
 import { regenerate } from "../conversation-history.js";
 import {
-  clearAllActiveConversations,
+  buildSlashContext,
+  formatCleanResult,
+} from "../conversation-process.js";
+import {
   conversationEntries,
   findConversation,
+} from "../conversation-registry.js";
+import { resolveSlash } from "../conversation-slash.js";
+import {
+  clearAllActiveConversations,
   getOrCreateConversation,
   touchConversation,
 } from "../conversation-store.js";
 import type { ConfirmationResponse } from "../message-protocol.js";
 import { normalizeConversationType } from "../message-protocol.js";
+import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../trust-context.js";
 import { log } from "./shared.js";
 
 export function handleConfirmationResponse(msg: ConfirmationResponse): void {
@@ -28,23 +38,11 @@ export function handleConfirmationResponse(msg: ConfirmationResponse): void {
   for (const [conversationId, conversation] of conversationEntries()) {
     if (conversation.hasPendingConfirmation(msg.requestId)) {
       touchConversation(conversationId);
-      conversation.handleConfirmationResponse(
-        msg.requestId,
-        decision,
-        msg.selectedPattern,
-        msg.selectedScope,
-        undefined,
-        { source: "button" },
-      );
-      // Idempotent cleanup: the prompter's `resolveConfirmation` already
-      // resolved the interaction with the correct approved/rejected state
-      // before we reach here, so the entry is typically gone. This call is
-      // a safety net for paths where the prompter no-ops; map decision to
-      // state to keep the emitted event accurate when it does fire.
-      pendingInteractions.resolve(
-        msg.requestId,
-        decision === "allow" ? "approved" : "rejected",
-      );
+      conversation.handleConfirmationResponse(msg.requestId, decision, {
+        selectedPattern: msg.selectedPattern,
+        selectedScope: msg.selectedScope,
+        emissionContext: { source: "button" },
+      });
       return;
     }
   }
@@ -109,6 +107,18 @@ export function cancelGeneration(conversationId: string): boolean {
   // being cancelled, so enqueuing synthetic messages would trigger
   // unwanted model activity after the user pressed stop.
   getSubagentManager().abortAllForParent(conversationId);
+  // Cancel any in-flight ACP agent sessions this conversation spawned, for the
+  // same reason: a backgrounded ACP prompt would otherwise keep running (and
+  // holding a child process) past the stop and, on completion, enqueue a
+  // follow-up message back into the conversation the user just cancelled. Peek
+  // the singleton so a conversation that never used ACP doesn't spin one up.
+  peekAcpSessionManager()?.cancelForParent(conversationId);
+  // The processing flag is cleared by the in-flight turn's `finally`, not here.
+  // Abort propagates into the provider call and tool execution (and is backed
+  // by the agent loop's abort watchdog), so the turn reaches its `finally`
+  // within a bounded time and tears down its own state there — which publishes
+  // the metadata sync invalidation that drives clients to the authoritative
+  // idle state.
   return true;
 }
 
@@ -129,6 +139,99 @@ export async function undoLastMessage(
   const removedCount = conversation.undo();
   return { removedCount };
 }
+
+export interface MetaSlashCommandResult {
+  kind: "clean" | "info";
+  /** User-facing text to render (clean stats card or info listing). */
+  text: string;
+  /** Present for `/clean`: the post-strip context-window usage. */
+  contextUsage?: {
+    tokens: number;
+    maxTokens: number | null;
+    fillRatio: number | null;
+  };
+}
+
+/**
+ * Resolve a local meta slash command (`/clean`, `/status`, `/commands`,
+ * `/models`) for a conversation without running a turn: no user/assistant
+ * messages are persisted and no streaming/turn events are emitted. `/clean`
+ * additionally strips runtime injections via `forceClean`.
+ *
+ * Returns null if the conversation cannot be resolved. Throws `UserError` for
+ * commands that are not local meta commands (`/compact`, passthrough) — those
+ * must be sent as a normal message so they run a real turn.
+ */
+export async function resolveMetaSlashCommand(
+  conversationId: string,
+  command: string,
+): Promise<MetaSlashCommandResult | null> {
+  const resolvedId = resolveConversationId(conversationId);
+  if (!resolvedId) {
+    return null;
+  }
+  const conversation = await getOrCreateConversation(resolvedId);
+  touchConversation(resolvedId);
+
+  // Meta commands reload (and, for `/clean`, strip) the in-memory history
+  // array. Running that against an in-flight turn would corrupt the messages
+  // the active agent loop is iterating over, and mutating trustContext would
+  // elevate that turn's actor trust to guardian for subsequent tool calls.
+  if (conversation.isProcessing()) {
+    throw new UserError(
+      `\`${command.trim()}\` cannot run while the assistant is responding.`,
+    );
+  }
+
+  // Owner self-maintenance operates on the full (guardian) history. Without a
+  // trusted context, `loadFromDb` filters to non-guardian provenance — so a
+  // guardian-authored conversation would report 0 preserved / 0 messages.
+  // Temporarily apply the guardian context for hydration and restore it
+  // afterward so the elevated class never leaks into a later turn's snapshot.
+  const priorTrustContext = conversation.trustContext;
+  if (!resolveCapabilities(priorTrustContext?.trustClass).canAccessMemory) {
+    conversation.setTrustContext(INTERNAL_GUARDIAN_TRUST_CONTEXT);
+  }
+  try {
+    await conversation.ensureActorScopedHistory();
+
+    const slashResult = await resolveSlash(
+      command,
+      buildSlashContext(command, conversation),
+    );
+
+    if (slashResult.kind === "clean") {
+      const result = await conversation.forceClean();
+      return {
+        kind: "clean",
+        text: formatCleanResult(result),
+        contextUsage: {
+          tokens: result.estimatedInputTokens,
+          maxTokens: result.maxInputTokens,
+          fillRatio:
+            result.maxInputTokens > 0
+              ? result.estimatedInputTokens / result.maxInputTokens
+              : null,
+        },
+      };
+    }
+
+    if (slashResult.kind === "unknown") {
+      return { kind: "info", text: slashResult.message };
+    }
+
+    // `compact` / `passthrough` are real turns, not local meta commands.
+    throw new UserError(`\`${command.trim()}\` is not a local meta command.`);
+  } finally {
+    // Only undo the temporary guardian context this handler installed. If a
+    // new turn started at an `await` boundary and legitimately updated
+    // trustContext, the reference will differ and we leave it alone.
+    if (conversation.trustContext === INTERNAL_GUARDIAN_TRUST_CONTEXT) {
+      conversation.setTrustContext(priorTrustContext ?? null);
+    }
+  }
+}
+
 /**
  * Regenerate the last assistant response for a conversation. The caller provides
  * a `sendEvent` callback for delivering streaming events via HTTP/SSE.
@@ -225,10 +328,7 @@ export function steerToMessage(
   | { steered: true }
   | {
       steered: false;
-      reason:
-        | "conversation_not_found"
-        | "message_not_found"
-        | "not_processing";
+      reason: "conversation_not_found" | "message_not_found" | "not_processing";
     } {
   const conversation = findConversation(conversationId);
   if (!conversation) {

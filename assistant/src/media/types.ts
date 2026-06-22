@@ -44,3 +44,37 @@ export function providerForImageModelPrefix(model: string): ImageGenProvider {
   }
   return "gemini";
 }
+
+/**
+ * Message fragments that indicate a provider billing / insufficient-credits
+ * failure. Used by the per-provider error mappers to detect a non-retryable
+ * out-of-credits condition that no number of retries will resolve.
+ */
+const BILLING_MESSAGE_PATTERNS: readonly RegExp[] = [
+  /credit balance is too low/i,
+  /insufficient[\s_-]*credits?/i,
+  /insufficient_quota/i,
+  /exceeded your current quota/i,
+  /out of credits/i,
+  /requires more credits/i,
+  /billing/i,
+  /request failed \(402\)/i,
+];
+
+/**
+ * Detect a provider billing / insufficient-credits failure from an HTTP status
+ * and/or error message. A 402 status is billing by definition; otherwise the
+ * message is matched against known billing phrasings (OpenAI's
+ * `insufficient_quota` is reported as a 429, so status alone is insufficient).
+ *
+ * Billing failures are non-retryable: the user must add funds or update the API
+ * key. Callers surface a distinct message instead of a generic "try again".
+ */
+export function isImageProviderBillingError(args: {
+  status?: number;
+  message?: string;
+}): boolean {
+  if (args.status === 402) return true;
+  const message = args.message ?? "";
+  return BILLING_MESSAGE_PATTERNS.some((pattern) => pattern.test(message));
+}

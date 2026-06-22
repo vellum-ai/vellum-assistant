@@ -55,7 +55,7 @@ function TabsTrigger({ className, ref, ...rest }: TabsTriggerProps) {
         "relative -mb-px inline-flex cursor-pointer items-center gap-1.5 border-b-2 border-transparent bg-transparent px-2.5 py-[7px]",
         "text-body-medium-default whitespace-nowrap",
         "text-[var(--content-tertiary)] transition-colors",
-        "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-0",
+        "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:ring-offset-0",
         "hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
         "data-[state=active]:border-[var(--primary-base)] data-[state=active]:text-[var(--content-default)]",
         "data-[state=active]:hover:bg-transparent",
@@ -80,7 +80,7 @@ function TabsPanel({ className, ref, ...rest }: TabsPanelProps) {
       ref={ref}
       data-slot="tabs-panel"
       className={cn(
-        "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-0",
+        "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:ring-offset-0",
         className,
       )}
       {...rest}

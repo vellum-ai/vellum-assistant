@@ -80,6 +80,7 @@ export interface SchedulesListResponse {
     lastRunAt: number | null;
     lastStatus: string | null;
     description: string;
+    cadenceDescription: string;
     mode: string;
     status: string;
     routingIntent: string;

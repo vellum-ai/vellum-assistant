@@ -25,7 +25,7 @@ import { createWorkItem } from "../../work-items/work-item-store.js";
 import { ForbiddenError } from "./errors.js";
 import { preflightWorkItem, ROUTES } from "./work-items-routes.js";
 
-initializeDb();
+await initializeDb();
 
 describe("empty required_tools snapshot bypass", () => {
   test("falls back to task required tools when snapshot requiredTools is empty", async () => {

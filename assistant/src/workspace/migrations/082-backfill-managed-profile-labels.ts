@@ -47,7 +47,9 @@ import { join } from "node:path";
 import { getLogger } from "../../util/logger.js";
 import type { WorkspaceMigration } from "./types.js";
 
-const log = getLogger("workspace-migration-082-backfill-managed-profile-labels");
+const log = getLogger(
+  "workspace-migration-082-backfill-managed-profile-labels",
+);
 
 /**
  * Bare template labels for the canonical managed profile triplet. Kept in
@@ -123,7 +125,11 @@ export const backfillManagedProfileLabelsMigration: WorkspaceMigration = {
     if (!modified) return;
 
     try {
-      writeFileSync(configPath, JSON.stringify(parsed, null, 2) + "\n", "utf-8");
+      writeFileSync(
+        configPath,
+        JSON.stringify(parsed, null, 2) + "\n",
+        "utf-8",
+      );
       log.info(
         { path: configPath },
         "Backfilled missing labels on canonical managed inference profiles",

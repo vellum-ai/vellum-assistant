@@ -105,7 +105,10 @@ mock.module("openai", () => ({
 import { FireworksProvider } from "../providers/fireworks/client.js";
 import { MinimaxProvider } from "../providers/minimax/client.js";
 import { OllamaProvider } from "../providers/ollama/client.js";
-import { OpenAIChatCompletionsProvider } from "../providers/openai/chat-completions-provider.js";
+import {
+  EMPTY_ASSISTANT_TURN_PLACEHOLDER,
+  OpenAIChatCompletionsProvider,
+} from "../providers/openai/chat-completions-provider.js";
 import { OpenAIProvider } from "../providers/openai/client.js";
 import { OpenRouterProvider } from "../providers/openrouter/client.js";
 
@@ -1361,6 +1364,40 @@ describe("custom baseURL initialization", () => {
       timeout: DEFAULT_SDK_TIMEOUT_MS,
     });
   });
+
+  test("MinimaxProvider sends reasoning_split so reasoning never leaks into content as <think> tags", async () => {
+    fakeChunks = [textChunk("hello", "stop"), usageChunk(10, 5)];
+    const provider = new MinimaxProvider("mm-user-key", "MiniMax-M3");
+
+    await provider.sendMessage([userMsg("hi")]);
+
+    expect(lastCreateParams!.reasoning_split).toBe(true);
+  });
+
+  test("MinimaxProvider replays prior assistant thinking via reasoning_content", async () => {
+    fakeChunks = [textChunk("done", "stop"), usageChunk(10, 5)];
+    const provider = new MinimaxProvider("mm-user-key", "MiniMax-M3");
+
+    await provider.sendMessage([
+      userMsg("question"),
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "prior reasoning", signature: "" },
+          { type: "text", text: "prior answer" },
+        ],
+      },
+      userMsg("follow-up"),
+    ]);
+
+    const sent = lastCreateParams!.messages as Array<Record<string, unknown>>;
+    const assistantTurn = sent.find((m) => m.role === "assistant");
+    expect(assistantTurn).toEqual({
+      role: "assistant",
+      content: "prior answer",
+      reasoning_content: "prior reasoning",
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1582,6 +1619,33 @@ describe("OpenRouterProvider reasoning", () => {
     expect(lastCreateParams).not.toHaveProperty("X-OpenRouter-Title");
     expect(lastCreateParams).not.toHaveProperty("X-OpenRouter-Categories");
     expect(lastCreateParams).not.toHaveProperty("usageAttributionHeaders");
+  });
+
+  test("backfills placeholder content for a reasoning-only assistant turn", async () => {
+    const provider = new OpenRouterProvider("or-key", "deepseek/deepseek-chat");
+    await provider.sendMessage([
+      userMsg("question"),
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "truncated reasoning", signature: "" },
+        ],
+      },
+    ]);
+
+    const sent = lastCreateParams!.messages as Array<{
+      role: string;
+      content: string | null;
+      reasoning?: string;
+      tool_calls?: unknown;
+    }>;
+    const assistantMsg = sent.find((m) => m.role === "assistant")!;
+    // DeepSeek via OpenRouter rejects an assistant message with neither content
+    // nor tool_calls, so the reasoning-only turn is backfilled with the sentinel
+    // while the reasoning itself travels in the separate `reasoning` field.
+    expect(assistantMsg.content).toBe(EMPTY_ASSISTANT_TURN_PLACEHOLDER);
+    expect(assistantMsg.tool_calls).toBeUndefined();
+    expect(assistantMsg.reasoning).toBe("truncated reasoning");
   });
 
   test("RetryProvider + OpenRouterProvider enables thinking end-to-end", async () => {

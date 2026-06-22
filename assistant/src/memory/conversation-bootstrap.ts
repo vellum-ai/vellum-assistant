@@ -1,7 +1,7 @@
 import { createConversation } from "./conversation-crud.js";
 import {
-  GENERATING_TITLE,
-  queueGenerateConversationTitle,
+  AUTO_TITLE_DETERMINISTIC,
+  deriveDeterministicTitle,
   type TitleOrigin,
 } from "./conversation-title-service.js";
 
@@ -22,9 +22,23 @@ export interface BootstrapConversationOptions {
   forkParentConversationId?: string;
 }
 
+/**
+ * Create a system-initiated conversation with a deterministic title derived
+ * from `systemHint` — no LLM call. Background conversations (heartbeat runs,
+ * scheduled jobs, subagents, retrospectives) are created in bulk and rarely
+ * read by name, so an LLM-generated title is not worth the tokens. The title
+ * is persisted with `AUTO_TITLE_DETERMINISTIC`, which keeps it replaceable:
+ * if a user ever sends a message in the conversation, the title-generate
+ * hook upgrades it to an LLM title (see
+ * `plugins/defaults/title-generate/hooks/user-prompt-submit.ts`).
+ */
 export function bootstrapConversation(opts: BootstrapConversationOptions) {
-  const conversation = createConversation({
-    title: GENERATING_TITLE,
+  return createConversation({
+    title: deriveDeterministicTitle({
+      origin: opts.origin,
+      systemHint: opts.systemHint,
+    }),
+    isAutoTitle: AUTO_TITLE_DETERMINISTIC,
     ...(opts.conversationType && { conversationType: opts.conversationType }),
     ...(opts.source && { source: opts.source }),
     ...(opts.scheduleJobId && { scheduleJobId: opts.scheduleJobId }),
@@ -33,9 +47,4 @@ export function bootstrapConversation(opts: BootstrapConversationOptions) {
       forkParentConversationId: opts.forkParentConversationId,
     }),
   });
-  queueGenerateConversationTitle({
-    conversationId: conversation.id,
-    context: { origin: opts.origin, systemHint: opts.systemHint },
-  });
-  return conversation;
 }

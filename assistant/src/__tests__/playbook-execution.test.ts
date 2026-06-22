@@ -33,7 +33,7 @@ import { compilePlaybooks } from "../playbooks/playbook-compiler.js";
 import { parsePlaybookStatement } from "../playbooks/types.js";
 import type { ToolContext } from "../tools/types.js";
 
-initializeDb();
+await initializeDb();
 
 function getRawDb(): Database {
   return (getDb() as unknown as { $client: Database }).$client;

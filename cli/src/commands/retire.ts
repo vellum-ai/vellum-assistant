@@ -13,6 +13,10 @@ import {
   type AssistantEntry,
 } from "../lib/assistant-config.js";
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
+import {
+  canPromptForConfirmation,
+  confirmAction,
+} from "../lib/confirm-action.js";
 import { getConfigDir } from "../lib/environments/paths.js";
 import { getCurrentEnvironment } from "../lib/environments/resolve.js";
 import {
@@ -32,6 +36,7 @@ import {
   resetLogFile,
   writeToLogFile,
 } from "../lib/xdg-log.js";
+import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
 
 export { retireLocal };
 
@@ -92,7 +97,7 @@ async function retireVellum(
 
   const platformUrl = runtimeUrl || getPlatformUrl();
   const url = `${platformUrl}/v1/assistants/${encodeURIComponent(assistantId)}/retire/`;
-  const response = await fetch(url, {
+  const response = await loopbackSafeFetch(url, {
     method: "DELETE",
     headers: await authHeaders(token, runtimeUrl),
   });
@@ -150,51 +155,6 @@ function printRetireTarget(entry: AssistantEntry, cloud: string): void {
   console.log(`  Cloud: ${cloud}`);
   console.log(`  Runtime: ${formatRuntimeUrl(entry)}`);
   console.log("");
-}
-
-function canPromptForRetireConfirmation(): boolean {
-  return (
-    process.stdin.isTTY === true &&
-    process.stdout.isTTY === true &&
-    typeof process.stdin.setRawMode === "function"
-  );
-}
-
-async function confirmRetireInteractive(): Promise<boolean> {
-  const stdin = process.stdin;
-  const stdout = process.stdout;
-  const wasRaw = stdin.isRaw === true;
-  const wasPaused = stdin.isPaused();
-
-  stdout.write("Press Enter to retire, or Esc/q to cancel: ");
-  stdin.setRawMode(true);
-  stdin.resume();
-
-  return await new Promise<boolean>((resolve) => {
-    const cleanup = () => {
-      stdin.off("data", onData);
-      stdin.setRawMode(wasRaw);
-      if (wasPaused) {
-        stdin.pause();
-      }
-      stdout.write("\n");
-    };
-
-    const onData = (chunk: Buffer) => {
-      const byte = chunk[0];
-      if (byte === 13 || byte === 10) {
-        cleanup();
-        resolve(true);
-        return;
-      }
-      if (byte === 27 || byte === 3 || byte === 113 || byte === 81) {
-        cleanup();
-        resolve(false);
-      }
-    };
-
-    stdin.on("data", onData);
-  });
 }
 
 /** Patch console methods to also append output to the given log file descriptor. */
@@ -290,10 +250,22 @@ async function retireInner(): Promise<void> {
   const assistantId = entry.assistantId;
   const source = parsed.source;
   const cloud = resolveCloud(entry);
+
+  if (cloud === "paired") {
+    // A remote assistant paired from another machine. Retiring tears the
+    // assistant down — that can only happen on its host machine, never from a
+    // paired machine, which holds nothing but a pairing record. (Removing that
+    // local record is `vellum unpair`'s job, not retire's.)
+    console.error(
+      `Error: '${assistantId}' is a remote assistant paired from another machine — it can't be retired from here. Retiring tears down the assistant, which can only be done on its host machine. To remove the local pairing record on this machine, run \`vellum unpair ${assistantId}\`.`,
+    );
+    process.exit(1);
+  }
+
   printRetireTarget(entry, cloud);
 
   if (!parsed.yes) {
-    if (!canPromptForRetireConfirmation()) {
+    if (!canPromptForConfirmation()) {
       console.error(
         "Error: Refusing to retire without confirmation in a non-interactive terminal.",
       );
@@ -301,7 +273,9 @@ async function retireInner(): Promise<void> {
       process.exit(1);
     }
 
-    const confirmed = await confirmRetireInteractive();
+    const confirmed = await confirmAction(
+      "Press Enter to retire, or Esc/q to cancel: ",
+    );
     if (!confirmed) {
       console.log("Retire cancelled.");
       process.exit(1);
@@ -344,7 +318,7 @@ async function retireInner(): Promise<void> {
   console.log(`Removed ${formatAssistantReference(entry)} from config.`);
 
   // When no assistants remain, remove the dock-display-name sentinel so
-  // the next build.sh run falls back to "Vellum" instead of using the
+  // the dock label falls back to "Vellum" instead of using the
   // retired assistant's name.
   if (loadAllAssistants().length === 0) {
     const dockLabelFile = join(

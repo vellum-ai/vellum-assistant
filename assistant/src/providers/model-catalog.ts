@@ -41,6 +41,15 @@ export interface CatalogModel {
   longContextPricingThresholdTokens?: number;
   longContextMode?: LongContextMode;
   supportsThinking?: boolean;
+  /**
+   * When true, the model always reasons with adaptive (always-on) thinking and
+   * rejects an explicit `thinking: { type: "disabled" }` request (Anthropic
+   * 400s such calls). Clients hide the enable/disable thinking toggle for these
+   * models — effort stays adjustable — and the daemon drops a disabled thinking
+   * config (and any non-1 `temperature`, which adaptive mode also rejects)
+   * before dispatching. Implies `supportsThinking`.
+   */
+  adaptiveThinkingOnly?: boolean;
   supportsCaching?: boolean;
   supportsVision?: boolean;
   supportsToolUse?: boolean;
@@ -144,6 +153,24 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       linkLabel: "Open Anthropic Console",
     },
     models: [
+      {
+        id: "claude-fable-5",
+        displayName: "Claude Fable 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 10,
+          outputPer1mTokens: 50,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 1,
+        },
+      },
       {
         id: "claude-opus-4-8",
         displayName: "Claude Opus 4.8",
@@ -651,6 +678,23 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       {
+        id: "accounts/fireworks/models/glm-5p2",
+        displayName: "GLM 5.2",
+        // Fireworks serves GLM 5.2 with a 1,040K input window.
+        contextWindowTokens: 1040000,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: false,
+        supportsToolUse: true,
+        maxEffort: "max",
+        pricing: {
+          inputPer1mTokens: 1.4,
+          outputPer1mTokens: 4.4,
+          cacheReadPer1mTokens: 0.26,
+        },
+      },
+      {
         id: "accounts/fireworks/models/kimi-k2p5",
         displayName: "Kimi K2.5",
         contextWindowTokens: 256000,
@@ -662,6 +706,24 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: {
           inputPer1mTokens: 0.6,
           outputPer1mTokens: 2.5,
+        },
+      },
+      {
+        id: "accounts/fireworks/models/minimax-m3",
+        displayName: "MiniMax M3",
+        // The model supports 1M context, but Fireworks serves it with a
+        // 512K (524,288-token) window; advertise the served limit.
+        contextWindowTokens: 524288,
+        maxOutputTokens: 512000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        maxEffort: "high",
+        pricing: {
+          inputPer1mTokens: 0.3,
+          outputPer1mTokens: 1.2,
+          cacheReadPer1mTokens: 0.06,
         },
       },
       {
@@ -720,6 +782,24 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       // OpenRouter proxies anthropic/* through Anthropic's Messages API, so
       // prompt caching and cache TTL metadata pass through unchanged and
       // billing matches Anthropic's direct rates.
+      {
+        id: "anthropic/claude-fable-5",
+        displayName: "Claude Fable 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 10,
+          outputPer1mTokens: 50,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 1,
+        },
+      },
       {
         id: "anthropic/claude-opus-4.8",
         displayName: "Claude Opus 4.8",
@@ -996,6 +1076,19 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       },
       // MiniMax
       {
+        id: "minimax/minimax-m3",
+        displayName: "MiniMax M3",
+        // The model supports 1M context, but OpenRouter's only route
+        // (MiniMax) accepts 524,288 tokens; advertise the routed limit.
+        contextWindowTokens: 524288,
+        maxOutputTokens: 512000,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: { inputPer1mTokens: 0.3, outputPer1mTokens: 1.2 },
+      },
+      {
         id: "minimax/minimax-m2.7",
         displayName: "MiniMax M2.7",
         contextWindowTokens: 196608,
@@ -1071,6 +1164,18 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: false,
         pricing: { inputPer1mTokens: 0.2, outputPer1mTokens: 1.1 },
+      },
+      // Z.ai
+      {
+        id: "z-ai/glm-5.2",
+        displayName: "GLM-5.2",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: { inputPer1mTokens: 1.4, outputPer1mTokens: 4.4 },
       },
       // Mistral
       {
@@ -1167,7 +1272,6 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     setupHint:
       "Enter the base URL of your endpoint and at least one model identifier.",
     apiKeyPlaceholder: "Your provider's API key",
-    featureFlag: "openai-compatible-endpoints",
     models: [],
     defaultModel: "",
   },
@@ -1185,6 +1289,16 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     },
     models: [
       {
+        id: "MiniMax-M3",
+        displayName: "MiniMax M3",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 512000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+      },
+      {
         id: "MiniMax-M2.7",
         displayName: "MiniMax M2.7",
         contextWindowTokens: 200000,
@@ -1198,6 +1312,35 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     defaultModel: "MiniMax-M2.7",
     apiKeyUrl: "https://platform.minimax.io/",
     apiKeyPlaceholder: "sk-cp-...",
+  },
+  {
+    id: "atlascloud",
+    displayName: "Atlas Cloud",
+    subtitle:
+      "Atlas Cloud AI models (OpenAI-compatible). Requires an Atlas Cloud API key.",
+    setupMode: "api-key",
+    setupHint: "Enter your Atlas Cloud API key to enable Atlas Cloud models.",
+    envVar: "ATLASCLOUD_API_KEY",
+    credentialsGuide: {
+      description: "Sign in to the Atlas Cloud console and create an API key.",
+      url: "https://www.atlascloud.ai/console",
+      linkLabel: "Open Atlas Cloud Console",
+    },
+    models: [
+      {
+        id: "deepseek-ai/deepseek-v4-pro",
+        displayName: "DeepSeek V4 Pro",
+        contextWindowTokens: 128000,
+        maxOutputTokens: 8192,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+      },
+    ],
+    defaultModel: "deepseek-ai/deepseek-v4-pro",
+    apiKeyUrl: "https://www.atlascloud.ai/console",
+    apiKeyPlaceholder: "apikey-...",
   },
 ];
 
@@ -1226,4 +1369,16 @@ export function getCatalogProviderForModel(
     p.models.some((m) => m.id === modelId),
   );
   return matches.length === 1 ? matches[0]?.id : undefined;
+}
+
+/**
+ * Whether the given model only supports adaptive (always-on) thinking, driven
+ * by the `adaptiveThinkingOnly` capability in the catalog. Matches the model ID
+ * across every provider (a model carries the same id under each provider it is
+ * offered by, e.g. `claude-fable-5` and OpenRouter's `anthropic/claude-fable-5`).
+ */
+export function isAdaptiveThinkingOnlyModel(modelId: string): boolean {
+  return PROVIDER_CATALOG.some((p) =>
+    p.models.some((m) => m.id === modelId && m.adaptiveThinkingOnly === true),
+  );
 }

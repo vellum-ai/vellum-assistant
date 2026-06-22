@@ -1,0 +1,98 @@
+import { describe, expect, test } from "bun:test";
+
+import {
+  buildAccessRequestCardView,
+  parseAccessRequestPayload,
+} from "../notifications/access-request-copy.js";
+
+function view(raw: Record<string, unknown>) {
+  return buildAccessRequestCardView(parseAccessRequestPayload(raw));
+}
+
+const TAB = String.fromCharCode(9);
+
+describe("buildAccessRequestCardView", () => {
+  test("prefers actorDisplayName, falls back to senderIdentifier then 'Someone'", () => {
+    expect(
+      view({ actorDisplayName: "Alice", senderIdentifier: "U999" }).displayName,
+    ).toBe("Alice");
+    expect(view({ senderIdentifier: "U999" }).displayName).toBe("U999");
+    expect(view({}).displayName).toBe("Someone");
+  });
+
+  test("sanitizes identity fields (strips control characters)", () => {
+    const v = view({
+      actorDisplayName: `Al${TAB}ice`,
+      actorUsername: `a${TAB}lice`,
+      actorExternalId: `U9${TAB}99`,
+    });
+    expect(v.displayName).toBe("Al ice");
+    expect(v.username).toBe("a lice");
+    expect(v.externalId).toBe("U9 99");
+  });
+
+  test("username and externalId are undefined when absent", () => {
+    const v = view({ actorDisplayName: "Alice" });
+    expect(v.username).toBeUndefined();
+    expect(v.externalId).toBeUndefined();
+  });
+
+  test("detects Slack DM conversations", () => {
+    expect(
+      view({ sourceChannel: "slack", conversationExternalId: "D01XYZ" })
+        .isSlackDm,
+    ).toBe(true);
+    expect(
+      view({ sourceChannel: "slack", conversationExternalId: "C01ABC" })
+        .isSlackDm,
+    ).toBe(false);
+    expect(
+      view({ sourceChannel: "telegram", conversationExternalId: "D01XYZ" })
+        .isSlackDm,
+    ).toBe(false);
+  });
+
+  test("builds a Slack permalink only with slack source + conversation + ts", () => {
+    expect(
+      view({
+        sourceChannel: "slack",
+        conversationExternalId: "C01ABC",
+        messageTs: "1700000000.000100",
+      }).messagePermalink,
+    ).toBe("https://slack.com/archives/C01ABC/p1700000000000100");
+    expect(
+      view({ sourceChannel: "slack", conversationExternalId: "C01ABC" })
+        .messagePermalink,
+    ).toBeUndefined();
+    expect(
+      view({
+        sourceChannel: "telegram",
+        conversationExternalId: "C01ABC",
+        messageTs: "1.2",
+      }).messagePermalink,
+    ).toBeUndefined();
+  });
+
+  test("sanitizes message preview and yields undefined when blank after sanitizing", () => {
+    expect(view({ messagePreview: "  hello  " }).messagePreview).toBe("hello");
+    // Blank / control-character-only previews sanitize to empty → undefined
+    // (no empty quote block is rendered downstream).
+    expect(view({ messagePreview: "" }).messagePreview).toBeUndefined();
+    expect(view({ messagePreview: "   " }).messagePreview).toBeUndefined();
+    expect(view({}).messagePreview).toBeUndefined();
+  });
+
+  test("collects trust/security warnings", () => {
+    const v = view({
+      isStranger: true,
+      isRestricted: true,
+      previousMemberStatus: "revoked",
+    });
+    expect(v.warnings).toEqual([
+      "This user was previously revoked.",
+      "External Slack user (not in this workspace).",
+      "Guest / restricted account.",
+    ]);
+    expect(view({}).warnings).toEqual([]);
+  });
+});

@@ -1,26 +1,34 @@
 /**
  * Channel-agnostic approval flow types.
  *
- * These types model the approval prompt/decision lifecycle for tool-use
- * confirmations surfaced through external channels (Telegram, Slack, etc.).
- * They are intentionally decoupled from any specific channel so that the
- * same approval flow can be reused across transports.
+ * Wire-format types (`ApprovalUIMetadata`, `PermissionRequestDetails`,
+ * `ApprovalActionOption`) are defined as Zod schemas in
+ * `@vellumai/gateway-client/outbound-contract` and re-exported here for
+ * convenience. Daemon-internal types that do not cross a wire boundary
+ * are defined locally.
  */
+
+import type { ApprovalActionOption } from "@vellumai/gateway-client";
 
 import type { GuardianDecisionAction } from "./guardian-decision-types.js";
 
+export type {
+  ApprovalActionOption,
+  ApprovalUIMetadata,
+  PermissionRequestDetails,
+} from "@vellumai/gateway-client";
+// Re-export shared wire types + schemas so existing daemon imports keep working.
+export {
+  ApprovalUIMetadataSchema,
+  PermissionRequestDetailsSchema,
+} from "@vellumai/gateway-client";
+
 // ---------------------------------------------------------------------------
-// Approval actions
+// Approval actions (daemon-internal)
 // ---------------------------------------------------------------------------
 
 /** The set of actions a user can take on an approval prompt. */
 export type ApprovalAction = "approve_once" | "reject";
-
-/** An action presented to the user as a tappable button or text option. */
-export interface ApprovalActionOption {
-  id: ApprovalAction;
-  label: string;
-}
 
 /**
  * Map `GuardianDecisionAction[]` to `ApprovalActionOption[]` so channel
@@ -32,13 +40,13 @@ export function toApprovalActionOptions(
   actions: GuardianDecisionAction[],
 ): ApprovalActionOption[] {
   return actions.map((a) => ({
-    id: a.action as ApprovalAction,
+    id: a.action,
     label: a.label,
   }));
 }
 
 // ---------------------------------------------------------------------------
-// Approval prompt
+// Approval prompt (daemon-internal)
 // ---------------------------------------------------------------------------
 
 /** The approval prompt model sent to users via a channel. */
@@ -52,38 +60,7 @@ export interface ChannelApprovalPrompt {
 }
 
 // ---------------------------------------------------------------------------
-// Approval UI metadata (gateway callback payload)
-// ---------------------------------------------------------------------------
-
-/**
- * Tool-permission-specific details carried alongside the approval payload.
- * Channels that support rich UI (e.g. Slack Block Kit) use these fields
- * to render a detailed permission request card with risk indicators,
- * tool arguments, and requester identity.
- */
-export interface PermissionRequestDetails {
-  toolName: string;
-  riskLevel: string;
-  toolInput: Record<string, unknown>;
-  /** Present for guardian-escalated requests to identify who is asking. */
-  requesterIdentifier?: string;
-}
-
-/**
- * Metadata attached to gateway callback payloads so the channel adapter
- * can render approval UI and route the user's decision back to the
- * correct pending interaction.
- */
-export interface ApprovalUIMetadata {
-  requestId: string;
-  actions: ApprovalActionOption[];
-  plainTextFallback: string;
-  /** When present, the approval is a tool permission request with extra context. */
-  permissionDetails?: PermissionRequestDetails;
-}
-
-// ---------------------------------------------------------------------------
-// Decision result
+// Decision result (daemon-internal)
 // ---------------------------------------------------------------------------
 
 /** How the user communicated their decision. */
@@ -92,6 +69,7 @@ export type ApprovalDecisionSource =
   | "whatsapp_button"
   | "slack_button"
   | "slack_reaction"
+  | "vellum_surface"
   | "plain_text";
 
 /** The structured result of a user's approval decision. */

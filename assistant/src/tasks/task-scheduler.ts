@@ -13,6 +13,7 @@ export function scheduleTask(opts: {
 }): ReturnType<typeof createSchedule> {
   return createSchedule({
     name: opts.name,
+    description: `Run task: ${opts.name}`,
     cronExpression: opts.cronExpression,
     timezone: opts.timezone ?? null,
     message: `run_task:${opts.taskId}`,

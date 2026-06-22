@@ -8,7 +8,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { getGatewayDb } from "../db/connection.js";
 import {
@@ -144,7 +144,7 @@ export async function findGuardianForChannelActor(
      INNER JOIN contact_channels cc ON cc.contact_id = c.id
      WHERE c.role = 'guardian'
        AND cc.type = ?
-       AND cc.external_user_id = ?
+       AND cc.address = ? COLLATE NOCASE
        AND cc.status = 'active'
      LIMIT 1`,
     [channelType, externalUserId],
@@ -213,11 +213,9 @@ export async function createGuardianBinding(
        FROM contact_channels cc
        WHERE cc.type = ?
          AND cc.status != 'blocked'
-         AND (cc.address = ? OR cc.external_user_id = ?)
+         AND cc.address = ? COLLATE NOCASE
        ORDER BY
-         CASE WHEN cc.address = ? THEN 0 ELSE 1 END,
          CASE WHEN cc.contact_id = ? THEN 0 ELSE 1 END,
-         CASE WHEN cc.external_user_id = ? THEN 0 ELSE 1 END,
          CASE cc.status
            WHEN 'active' THEN 0
            WHEN 'unverified' THEN 1
@@ -225,14 +223,7 @@ export async function createGuardianBinding(
          END,
          cc.updated_at DESC
        LIMIT 1`,
-      [
-        params.channel,
-        params.externalUserId,
-        params.externalUserId,
-        params.externalUserId,
-        existingGuardianContactId ?? "",
-        params.externalUserId,
-      ],
+      [params.channel, params.externalUserId, existingGuardianContactId ?? ""],
     );
 
     contactId =
@@ -264,9 +255,16 @@ export async function createGuardianBinding(
     }
 
     if (claimableChannels[0] || existingChannels[0]) {
+      // Remove duplicate channels with the same address (defensive).
+      await assistantDbRun(
+        `DELETE FROM contact_channels
+         WHERE type = ? AND address = ? COLLATE NOCASE AND id != ? AND status != 'blocked'`,
+        [params.channel, params.externalUserId, channelId],
+      );
+
       await assistantDbRun(
         `UPDATE contact_channels
-         SET contact_id = ?, address = ?, external_user_id = ?, external_chat_id = ?,
+         SET contact_id = ?, address = ?, external_chat_id = ?,
              is_primary = 1,
              status = 'active', policy = 'allow', verified_at = ?,
              verified_via = ?, revoked_reason = NULL, blocked_reason = NULL,
@@ -274,7 +272,6 @@ export async function createGuardianBinding(
          WHERE id = ?`,
         [
           contactId,
-          params.externalUserId,
           params.externalUserId,
           params.deliveryChatId,
           now,
@@ -286,14 +283,13 @@ export async function createGuardianBinding(
     } else {
       await assistantDbRun(
         `INSERT INTO contact_channels
-           (id, contact_id, type, address, external_user_id, external_chat_id,
+           (id, contact_id, type, address, external_chat_id,
             is_primary, status, policy, verified_at, verified_via, interaction_count, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, 1, 'active', 'allow', ?, ?, 0, ?)`,
+         VALUES (?, ?, ?, ?, ?, 1, 'active', 'allow', ?, ?, 0, ?)`,
         [
           channelId,
           contactId,
           params.channel,
-          params.externalUserId,
           params.externalUserId,
           params.deliveryChatId,
           now,
@@ -343,7 +339,6 @@ export async function createGuardianBinding(
           contactId,
           type: params.channel,
           address: params.externalUserId,
-          externalUserId: params.externalUserId,
           externalChatId: params.deliveryChatId,
           isPrimary: true,
           status: "active",
@@ -358,7 +353,6 @@ export async function createGuardianBinding(
           set: {
             contactId,
             address: params.externalUserId,
-            externalUserId: params.externalUserId,
             externalChatId: params.deliveryChatId,
             isPrimary: true,
             status: "active",
@@ -401,10 +395,23 @@ export async function createGuardianBinding(
 // Token operations (against the gateway's own DB — no cross-container issue)
 // ---------------------------------------------------------------------------
 
+export interface RefreshableTokenPair {
+  accessToken: string;
+  accessTokenExpiresAt: number;
+  refreshToken: string;
+  refreshTokenExpiresAt: number;
+  refreshAfter: number;
+}
+
+/**
+ * A freshly minted, DB-recorded access + refresh token pair bound to a device.
+ */
+export type DeviceBoundTokenPair = RefreshableTokenPair;
+
 /**
  * Revoke active actor tokens for a device binding.
  */
-function revokeActorTokensByDevice(
+export function revokeActorTokensByDevice(
   guardianPrincipalId: string,
   hashedDeviceId: string,
 ): void {
@@ -416,7 +423,7 @@ function revokeActorTokensByDevice(
       and(
         eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId),
         eq(actorTokenRecords.hashedDeviceId, hashedDeviceId),
-        eq(actorTokenRecords.status, "active"),
+        inArray(actorTokenRecords.status, ["active", "derived"]),
       ),
     )
     .run();
@@ -425,7 +432,7 @@ function revokeActorTokensByDevice(
 /**
  * Revoke active refresh tokens for a device binding.
  */
-function revokeRefreshTokensByDevice(
+export function revokeRefreshTokensByDevice(
   guardianPrincipalId: string,
   hashedDeviceId: string,
 ): void {
@@ -450,6 +457,7 @@ function mintAccessToken(
   guardianPrincipalId: string,
   hashedDeviceId: string,
   platform: string,
+  ttlSeconds: number = ACCESS_TOKEN_TTL_SECONDS,
 ): { token: string; expiresAt: number } {
   const externalAssistantId = getExternalAssistantId();
   const sub = `actor:${externalAssistantId}:${guardianPrincipalId}`;
@@ -459,11 +467,11 @@ function mintAccessToken(
     sub,
     scope_profile: "actor_client_v1",
     policy_epoch: CURRENT_POLICY_EPOCH,
-    ttlSeconds: ACCESS_TOKEN_TTL_SECONDS,
+    ttlSeconds,
   });
 
   const now = Date.now();
-  const expiresAt = now + ACCESS_TOKEN_TTL_MS;
+  const expiresAt = now + ttlSeconds * 1000;
   const tokenHash = hashToken(token);
 
   getGatewayDb()
@@ -492,6 +500,7 @@ function mintRefreshToken(
   guardianPrincipalId: string,
   hashedDeviceId: string,
   platform: string,
+  options: { browserRefreshCookiePath?: string } = {},
 ): {
   refreshToken: string;
   refreshTokenExpiresAt: number;
@@ -518,6 +527,7 @@ function mintRefreshToken(
       absoluteExpiresAt,
       inactivityExpiresAt,
       lastUsedAt: null,
+      browserRefreshCookiePath: options.browserRefreshCookiePath,
       createdAt: now,
       updatedAt: now,
     })
@@ -528,6 +538,79 @@ function mintRefreshToken(
     refreshTokenExpiresAt: Math.min(absoluteExpiresAt, inactivityExpiresAt),
     refreshAfter:
       now + Math.floor(ACCESS_TOKEN_TTL_MS * REFRESH_AFTER_FRACTION),
+  };
+}
+
+/**
+ * Revoke any existing credentials for a (guardian, device) pair and mint a
+ * fresh, DB-recorded access + refresh token pair bound to that device.
+ *
+ * This is the shared core used by guardian bootstrap (and any other flow that
+ * needs a full refreshable credential). The device binding enforces one active
+ * token per (guardianPrincipalId, hashedDeviceId) via a unique index, so
+ * re-minting for the same device first revokes the prior tokens.
+ */
+export function mintAndRecordDeviceBoundTokenPair(params: {
+  guardianPrincipalId: string;
+  deviceId: string;
+  platform: string;
+}): DeviceBoundTokenPair {
+  const hashedDeviceId = hashToken(params.deviceId);
+
+  revokeActorTokensByDevice(params.guardianPrincipalId, hashedDeviceId);
+  revokeRefreshTokensByDevice(params.guardianPrincipalId, hashedDeviceId);
+
+  const access = mintAccessToken(
+    params.guardianPrincipalId,
+    hashedDeviceId,
+    params.platform,
+  );
+  const refresh = mintRefreshToken(
+    params.guardianPrincipalId,
+    hashedDeviceId,
+    params.platform,
+  );
+
+  return {
+    accessToken: access.token,
+    accessTokenExpiresAt: access.expiresAt,
+    refreshToken: refresh.refreshToken,
+    refreshTokenExpiresAt: refresh.refreshTokenExpiresAt,
+    refreshAfter: refresh.refreshAfter,
+  };
+}
+
+/**
+ * Mint a refreshable browser credential without requiring the browser to track a
+ * separate device id. The current token tables still require a binding column,
+ * so remote web uses an internal random binding that never leaves the gateway.
+ */
+export function mintAndRecordBrowserTokenPair(params: {
+  guardianPrincipalId: string;
+  platform: string;
+  browserRefreshCookiePath: string;
+}): RefreshableTokenPair {
+  const internalBinding = randomBytes(32).toString("base64url");
+  const hashedDeviceId = hashToken(internalBinding);
+
+  const access = mintAccessToken(
+    params.guardianPrincipalId,
+    hashedDeviceId,
+    params.platform,
+  );
+  const refresh = mintRefreshToken(
+    params.guardianPrincipalId,
+    hashedDeviceId,
+    params.platform,
+    { browserRefreshCookiePath: params.browserRefreshCookiePath },
+  );
+
+  return {
+    accessToken: access.token,
+    accessTokenExpiresAt: access.expiresAt,
+    refreshToken: refresh.refreshToken,
+    refreshTokenExpiresAt: refresh.refreshTokenExpiresAt,
+    refreshAfter: refresh.refreshAfter,
   };
 }
 
@@ -547,7 +630,7 @@ function mintRefreshToken(
 async function fetchPlatformOwnerDisplayName(): Promise<string | null> {
   if (!arePlatformFeaturesEnabled()) {
     log.debug(
-      "platform-features-in-local-mode is disabled — skipping platform owner display name fetch",
+      "Platform features disabled — skipping platform owner display name fetch",
     );
     return null;
   }
@@ -628,10 +711,6 @@ export async function bootstrapGuardian(params: {
   platform: string;
   deviceId: string;
 }): Promise<GuardianBootstrapResult> {
-  const hashedDeviceId = createHash("sha256")
-    .update(params.deviceId)
-    .digest("hex");
-
   // 1. Ensure guardian principal
   let isNew = false;
   let guardianPrincipalId: string;
@@ -651,21 +730,12 @@ export async function bootstrapGuardian(params: {
     isNew = true;
   }
 
-  // 2. Revoke existing credentials for this device
-  revokeActorTokensByDevice(guardianPrincipalId, hashedDeviceId);
-  revokeRefreshTokensByDevice(guardianPrincipalId, hashedDeviceId);
-
-  // 3. Mint new credentials
-  const access = mintAccessToken(
+  // 2. Revoke existing credentials for this device and mint a fresh pair.
+  const pair = mintAndRecordDeviceBoundTokenPair({
     guardianPrincipalId,
-    hashedDeviceId,
-    params.platform,
-  );
-  const refresh = mintRefreshToken(
-    guardianPrincipalId,
-    hashedDeviceId,
-    params.platform,
-  );
+    deviceId: params.deviceId,
+    platform: params.platform,
+  });
 
   log.info(
     { platform: params.platform, guardianPrincipalId, isNew },
@@ -674,11 +744,11 @@ export async function bootstrapGuardian(params: {
 
   return {
     guardianPrincipalId,
-    accessToken: access.token,
-    accessTokenExpiresAt: access.expiresAt,
-    refreshToken: refresh.refreshToken,
-    refreshTokenExpiresAt: refresh.refreshTokenExpiresAt,
-    refreshAfter: refresh.refreshAfter,
+    accessToken: pair.accessToken,
+    accessTokenExpiresAt: pair.accessTokenExpiresAt,
+    refreshToken: pair.refreshToken,
+    refreshTokenExpiresAt: pair.refreshTokenExpiresAt,
+    refreshAfter: pair.refreshAfter,
     isNew,
   };
 }

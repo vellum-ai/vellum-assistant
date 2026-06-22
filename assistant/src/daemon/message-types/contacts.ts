@@ -54,7 +54,6 @@ export interface ContactChannelPayload {
   type: string;
   address: string;
   isPrimary: boolean;
-  externalUserId?: string;
   status: string;
   policy: string;
   verifiedAt?: number;

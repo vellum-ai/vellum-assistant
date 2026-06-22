@@ -65,6 +65,14 @@ mock.module("../../../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
+// Stub the home-content revalidation coordinator: the GET handler fires
+// it fire-and-forget, and the real module would reach into the LLM
+// provider layer and checkpoint store.
+const revalidateSpy = mock<() => void>(() => {});
+mock.module("../../../home/home-content-refresh.js", () => ({
+  revalidateHomeContentInBackground: revalidateSpy,
+}));
+
 // Dynamic imports so module mocks are wired before evaluation.
 const {
   computeGreeting,
@@ -331,6 +339,15 @@ describe("handleGetHomeFeed", () => {
       new Request("http://localhost/v1/home/feed?timeAwaySeconds=3.14"),
     );
     expect(res.status).toBe(400);
+  });
+
+  test("triggers fire-and-forget home content revalidation", async () => {
+    revalidateSpy.mockClear();
+    const res = await handleGetHomeFeed(
+      new Request("http://localhost/v1/home/feed?timeAwaySeconds=0"),
+    );
+    expect(res.status).toBe(200);
+    expect(revalidateSpy).toHaveBeenCalledTimes(1);
   });
 
   test("empty feed returns empty items and zero newCount", async () => {

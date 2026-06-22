@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "schedule_create",
-      "description": "Create a scheduled automation. For recurring: provide expression (cron/RRULE). For one-time: provide fire_at (ISO 8601 timestamp). ONLY use this when the user explicitly wants something to run on a schedule (e.g. \"every day at 9am\", \"remind me tomorrow at 3pm\", \"weekly on Mondays\"). Do NOT use this for \"add to my tasks\" or \"add to my queue\" - use task_list_add for those requests instead.",
+      "description": "Create a scheduled automation. Always provide a concise description of what the schedule does and why. For recurring: provide expression (cron/RRULE). For one-time: provide fire_at (ISO 8601 timestamp). ONLY use this when the user explicitly wants something to run on a schedule (e.g. \"every day at 9am\", \"remind me tomorrow at 3pm\", \"weekly on Mondays\"). Do NOT use this for \"add to my tasks\" or \"add to my queue\" - use task_list_add for those requests instead.",
       "category": "schedule",
       "risk": "medium",
       "input_schema": {
@@ -12,6 +12,10 @@
           "name": {
             "type": "string",
             "description": "A human-readable name for the scheduled task"
+          },
+          "description": {
+            "type": "string",
+            "description": "Required concise authored description of what it does and why. Keep this distinct from the timing/cadence."
           },
           "syntax": {
             "type": "string",
@@ -44,8 +48,36 @@
           },
           "mode": {
             "type": "string",
-            "enum": ["notify", "execute", "script"],
-            "description": "Whether to notify the user, execute autonomously via LLM, or run a shell command directly. Defaults to \"execute\"."
+            "enum": ["notify", "execute", "script", "workflow"],
+            "description": "Whether to notify the user, execute autonomously via LLM, run a shell command directly (script), or run a saved workflow (workflow). Defaults to \"execute\"."
+          },
+          "workflow_name": {
+            "type": "string",
+            "description": "Name of a saved workflow to run when the schedule triggers. Required for workflow mode."
+          },
+          "workflow_args": {
+            "type": "object",
+            "description": "Arguments object passed to the saved workflow as `args`. Optional; only used in workflow mode."
+          },
+          "capabilities": {
+            "type": "object",
+            "description": "Workflow mode only. Per-run capability grant (the single consent point) persisted with the schedule and applied to each triggered run. Leaves get a read-only baseline by default. Declaring any side-effecting tool or host function requires a fresh approval at creation.",
+            "properties": {
+              "tools": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Side-effecting tool names granted to leaves on top of the read-only baseline."
+              },
+              "hostFunctions": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Host-function names the run may invoke."
+              },
+              "persona": {
+                "type": "boolean",
+                "description": "Grant leaves access to persona (identity + memory) context."
+              }
+            }
           },
           "routing_intent": {
             "type": "string",
@@ -75,9 +107,13 @@
           "timeout_ms": {
             "type": "integer",
             "description": "For script mode: maximum time in milliseconds the shell command may run before it is killed. Defaults to 60000 (60s). Allowed range: 1000 to 1800000."
+          },
+          "inference_profile": {
+            "type": "string",
+            "description": "Inference profile (a key from llm.profiles) the schedule's LLM-executed runs should use, e.g. to run a heavy task on a cheaper model. When omitted, runs use the default mainAgent model selection. Must name a configured profile."
           }
         },
-        "required": ["name"]
+        "required": ["name", "description"]
       },
       "executor": "tools/schedule-create.ts",
       "execution_target": "host"
@@ -106,7 +142,7 @@
     },
     {
       "name": "schedule_update",
-      "description": "Update an existing scheduled automation (expression, syntax, message, name, enabled state, mode, or routing)",
+      "description": "Update an existing scheduled automation (expression, syntax, message, name, description, enabled state, mode, or routing)",
       "category": "schedule",
       "risk": "medium",
       "input_schema": {
@@ -119,6 +155,10 @@
           "name": {
             "type": "string",
             "description": "New name for the job"
+          },
+          "description": {
+            "type": "string",
+            "description": "New concise authored description of what the schedule does and why. Keep this distinct from the timing/cadence."
           },
           "syntax": {
             "type": "string",
@@ -147,8 +187,16 @@
           },
           "mode": {
             "type": "string",
-            "enum": ["notify", "execute", "script"],
-            "description": "Whether to notify the user, execute autonomously via LLM, or run a shell command directly"
+            "enum": ["notify", "execute", "script", "workflow"],
+            "description": "Whether to notify the user, execute autonomously via LLM, run a shell command directly (script), or run a saved workflow (workflow)"
+          },
+          "workflow_name": {
+            "type": "string",
+            "description": "Name of a saved workflow to run when the schedule triggers. Required when the schedule's resulting mode is workflow."
+          },
+          "workflow_args": {
+            "type": "object",
+            "description": "Arguments object passed to the saved workflow as `args`. Only used in workflow mode."
           },
           "routing_intent": {
             "type": "string",
@@ -178,6 +226,10 @@
           "timeout_ms": {
             "type": ["integer", "null"],
             "description": "For script mode: maximum time in milliseconds the shell command may run before it is killed (default 60000, range 1000 to 1800000). Pass null to clear a custom timeout and revert to the default."
+          },
+          "inference_profile": {
+            "type": ["string", "null"],
+            "description": "Inference profile (a key from llm.profiles) the schedule's LLM-executed runs should use. Pass null to clear the override and revert to the default mainAgent model selection. Must name a configured profile."
           }
         },
         "required": ["job_id"]

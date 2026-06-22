@@ -32,6 +32,40 @@ const CONTAINER_WORKSPACE_PREFIX = "/workspace/";
 const CONTAINER_WORKSPACE_EXACT = "/workspace";
 
 // ---------------------------------------------------------------------------
+// Symlink resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve symlinks in an absolute path.
+ *
+ * For an existing path, returns its `realpathSync`. For a path that does not
+ * exist yet (e.g. a `file_write` target), walks up to the nearest existing
+ * ancestor, resolves that ancestor via `realpathSync`, then re-appends the
+ * trailing (non-existent) components — so a symlink anywhere in the existing
+ * prefix is still followed. Falls back to the lexical input when nothing on
+ * the path resolves (e.g. the path lives on a filesystem this process cannot
+ * see, as with host_file paths proxied to a remote client).
+ *
+ * Used both for sandbox-boundary enforcement and to canonicalize paths before
+ * security risk classification, so a symlink cannot mask the true target of a
+ * file operation.
+ */
+export function resolveRealPath(absolutePath: string): string {
+  let current = absolutePath;
+  const trailing: string[] = [];
+  while (current !== dirname(current)) {
+    try {
+      const real = realpathSync(current);
+      return trailing.length > 0 ? join(real, ...trailing) : real;
+    } catch {
+      trailing.unshift(basename(current));
+      current = dirname(current);
+    }
+  }
+  return absolutePath;
+}
+
+// ---------------------------------------------------------------------------
 // Sandbox policy
 // ---------------------------------------------------------------------------
 
@@ -82,18 +116,7 @@ export function sandboxPolicy(
       realResolved = resolved;
     }
   } else {
-    let current = resolved;
-    const trailing: string[] = [];
-    while (current !== dirname(current)) {
-      try {
-        const real = realpathSync(current);
-        realResolved = trailing.length > 0 ? join(real, ...trailing) : real;
-        break;
-      } catch {
-        trailing.unshift(basename(current));
-        current = dirname(current);
-      }
-    }
+    realResolved = resolveRealPath(resolved);
   }
 
   // Resolve the boundary directory's real path too (in case it's a symlink)
@@ -115,7 +138,10 @@ export function sandboxPolicy(
 
   // Check both the logical path and the symlink-resolved path so a symlink
   // with a non-denied name pointing at a denied file is still caught.
-  if (DENIED_BASENAMES.has(basename(resolved)) || DENIED_BASENAMES.has(basename(realResolved))) {
+  if (
+    DENIED_BASENAMES.has(basename(resolved)) ||
+    DENIED_BASENAMES.has(basename(realResolved))
+  ) {
     return {
       ok: false,
       reason: "denied",

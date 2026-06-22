@@ -2,6 +2,7 @@
  * Approval prompt delivery: rich UI (buttons) with plain-text fallback.
  */
 import type { ChannelId } from "../../channels/types.js";
+import { recordApprovalCardDelivery } from "../../notifications/canonical-delivery-recorder.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import type { ApprovalMessageContext } from "../approval-message-composer.js";
@@ -17,7 +18,6 @@ import {
 } from "../gateway-client.js";
 import { buildActionLegend } from "../guardian-decision-types.js";
 import type { ApprovalCopyGenerator } from "../http-types.js";
-import { trackApprovalPromptTs } from "./approval-prompt-ts-tracker.js";
 import { requiredDecisionKeywords } from "./channel-route-shared.js";
 
 const log = getLogger("runtime-http");
@@ -148,7 +148,13 @@ export async function deliverGeneratedApprovalPrompt(
         assistantId,
       );
       if (deliveryResult.ts) {
-        trackApprovalPromptTs(sourceChannel, chatId, deliveryResult.ts);
+        recordApprovalCardDelivery({
+          requestId: uiMetadata.requestId,
+          channel: sourceChannel,
+          chatId,
+          messageId: deliveryResult.ts,
+          status: "sent",
+        });
       }
       return true;
     } catch (err) {
@@ -175,7 +181,13 @@ export async function deliverGeneratedApprovalPrompt(
         assistantId,
       });
       if (fallbackResult.ts) {
-        trackApprovalPromptTs(sourceChannel, chatId, fallbackResult.ts);
+        recordApprovalCardDelivery({
+          requestId: uiMetadata.requestId,
+          channel: sourceChannel,
+          chatId,
+          messageId: fallbackResult.ts,
+          status: "sent",
+        });
       }
       return true;
     } catch (err) {
@@ -203,7 +215,13 @@ export async function deliverGeneratedApprovalPrompt(
       assistantId,
     });
     if (plainResult.ts) {
-      trackApprovalPromptTs(sourceChannel, chatId, plainResult.ts);
+      recordApprovalCardDelivery({
+        requestId: uiMetadata.requestId,
+        channel: sourceChannel,
+        chatId,
+        messageId: plainResult.ts,
+        status: "sent",
+      });
     }
     return true;
   } catch (err) {

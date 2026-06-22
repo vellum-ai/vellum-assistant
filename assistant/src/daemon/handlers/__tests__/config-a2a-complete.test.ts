@@ -29,7 +29,7 @@ import { initializeDb } from "../../../memory/db-init.js";
 import { findById } from "../../../memory/invite-store.js";
 import { completeA2AInvite, createA2AInvite } from "../config-a2a.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const sqlite = getSqlite();
@@ -121,7 +121,6 @@ describe("completeA2AInvite", () => {
     const invite = findById(created.inviteId!);
     const contact = getContact(invite!.contactId);
     expect(contact!.channels[0]!.address).toBe("upper-case-id-123");
-    expect(contact!.channels[0]!.externalUserId).toBe("UPPER-Case-ID-123");
   });
 
   test("assistantContactMetadata has correct assistantId and gatewayUrl", () => {

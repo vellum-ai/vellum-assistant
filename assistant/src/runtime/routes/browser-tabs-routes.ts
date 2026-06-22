@@ -7,7 +7,8 @@
 
 import { z } from "zod";
 
-import { findConversation } from "../../daemon/conversation-store.js";
+import { findConversation } from "../../daemon/conversation-registry.js";
+import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
 import { getCdpClient } from "../../tools/browser/cdp-client/factory.js";
 import {
   clearPinnedTab,
@@ -51,6 +52,14 @@ async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
 
   const cdpOptions = { mode: "extension" as const, targetClientId };
 
+  // Every tabs command pins extension mode. Absorb a brief extension SSE
+  // reconnect blip so a flapping connection doesn't surface as a hard
+  // "no Chrome Extension connected" error.
+  await HostBrowserProxy.instance.waitForExtensionClient(
+    context.sourceActorPrincipalId,
+    targetClientId,
+  );
+
   if (command === "list") {
     const cdp = getCdpClient(context, cdpOptions);
     try {
@@ -73,11 +82,7 @@ async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
           ? result.clientId
           : undefined;
       if (result?.tabId !== undefined) {
-        setPinnedTab(
-          resolvedConversationId,
-          String(result.tabId),
-          clientId,
-        );
+        setPinnedTab(resolvedConversationId, String(result.tabId), clientId);
       }
       return { ok: true, tab: result };
     } finally {
@@ -88,10 +93,10 @@ async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
   if (command === "new") {
     const cdp = getCdpClient(context, cdpOptions);
     try {
-      const result = await cdp.send<{ tabId?: number | string; clientId?: string }>(
-        "Vellum.createTab",
-        {},
-      );
+      const result = await cdp.send<{
+        tabId?: number | string;
+        clientId?: string;
+      }>("Vellum.createTab", {});
       // Normalise to string for internal use (setCdpSessionId / setPinnedTab)
       // and keep the numeric form for the API response.
       const newTabIdStr: string | undefined =
@@ -118,7 +123,7 @@ async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
         }
       } else if (targetClientId) {
         // Only scope-clear the targeted client's pin. With the per-(conversationId,
-        // clientId) pin store (#31361), passing no clientId to clearPinnedTab
+        // clientId) pin store, passing no clientId to clearPinnedTab
         // would wipe pins for *every* connected client on this conversation
         // and break their routing — so we skip the clear entirely when the
         // caller didn't explicitly target a client. The stale pin (if any)

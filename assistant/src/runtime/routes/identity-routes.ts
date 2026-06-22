@@ -24,10 +24,6 @@ import { WORKSPACE_MIGRATIONS } from "../../workspace/migrations/registry.js";
 import { getLastWorkspaceMigrationId } from "../../workspace/migrations/runner.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";
-import {
-  getCachedIntro,
-  readWorkspaceGreetings,
-} from "./identity-intro-cache.js";
 import type { RouteDefinition } from "./types.js";
 
 interface MemoryInfo {
@@ -346,6 +342,9 @@ function getDetailedHealth() {
     ces: {
       connected: cesClient?.isReady() ?? false,
     },
+    capabilities: {
+      memoryOptOut: true,
+    },
     ...(profiler ? { profiler } : {}),
   };
 }
@@ -395,40 +394,6 @@ function resolveIdentityCreatedAt(identityPath: string): string | undefined {
   return resolveHatchedAtReadOnly(identityPath);
 }
 
-const FALLBACK_GREETINGS = [
-  "What are we working on?",
-  "I'm here whenever you need me.",
-  "What's on your mind?",
-  "Ready when you are.",
-];
-
-function getIdentityIntro() {
-  // 1. User-defined greetings from SOUL.md `## Greetings`
-  const workspaceGreetings = readWorkspaceGreetings();
-  if (workspaceGreetings) {
-    return { greetings: workspaceGreetings, text: workspaceGreetings[0] };
-  }
-
-  // 2. Cached LLM-generated greetings
-  const cached = getCachedIntro();
-  if (cached) {
-    return { greetings: cached.greetings, text: cached.greetings[0] };
-  }
-
-  // 3. Fallback: name-based greeting + static defaults
-  const identityPath = getWorkspacePromptPath("IDENTITY.md");
-  if (existsSync(identityPath)) {
-    const content = readFileSync(identityPath, "utf-8");
-    const fields = parseIdentityFields(content);
-    if (fields.name) {
-      const greetings = [`Hi, I'm ${fields.name}!`, ...FALLBACK_GREETINGS];
-      return { greetings, text: greetings[0] };
-    }
-  }
-
-  return { greetings: FALLBACK_GREETINGS, text: FALLBACK_GREETINGS[0] };
-}
-
 // ---------------------------------------------------------------------------
 // Zod schemas for profiler health metadata
 // ---------------------------------------------------------------------------
@@ -464,15 +429,43 @@ const cesHealthSchema = z.object({
   connected: z.boolean(),
 });
 
+const healthCapabilitiesSchema = z.object({
+  memoryOptOut: z.boolean(),
+});
+
+const healthDiskSchema = z.object({
+  path: z.string(),
+  totalMb: z.number(),
+  usedMb: z.number(),
+  freeMb: z.number(),
+});
+
+const healthMemorySchema = z.object({
+  currentMb: z.number(),
+  maxMb: z.number(),
+});
+
+const healthCpuSchema = z.object({
+  currentPercent: z.number(),
+  maxCores: z.number(),
+});
+
+const healthMigrationsSchema = z.object({
+  dbVersion: z.number(),
+  lastWorkspaceMigrationId: z.string().nullable(),
+});
+
 const detailedHealthSchema = z.object({
   status: z.string(),
   timestamp: z.string(),
   version: z.string(),
-  disk: z.object({}).passthrough(),
-  memory: z.object({}).passthrough(),
-  cpu: z.object({}).passthrough(),
-  migrations: z.object({}).passthrough(),
+  // `getDiskUsageInfo()` returns null when usage can't be measured.
+  disk: healthDiskSchema.nullable(),
+  memory: healthMemorySchema,
+  cpu: healthCpuSchema,
+  migrations: healthMigrationsSchema,
   ces: cesHealthSchema,
+  capabilities: healthCapabilitiesSchema,
   profiler: profilerStatusSchema.optional(),
 });
 
@@ -531,24 +524,6 @@ export const ROUTES: RouteDefinition[] = [
       home: z.string(),
       version: z.string(),
       createdAt: z.string().optional(),
-    }),
-  },
-  {
-    operationId: "identity_intro",
-    endpoint: "identity/intro",
-    method: "GET",
-    policy: {
-      requiredScopes: ["settings.read"],
-      allowedPrincipalTypes: ACTOR_PRINCIPALS,
-    },
-    handler: getIdentityIntro,
-    summary: "Get identity greetings",
-    description:
-      "Returns an array of greetings sourced from SOUL.md, LLM cache, or static fallbacks.",
-    tags: ["identity"],
-    responseBody: z.object({
-      greetings: z.array(z.string()),
-      text: z.string(),
     }),
   },
 ];

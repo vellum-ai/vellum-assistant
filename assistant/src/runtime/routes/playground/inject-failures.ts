@@ -62,15 +62,16 @@ export const ROUTES: RouteDefinition[] = [
         throw new BadRequestError(parsed.error.message);
       }
       const { consecutiveFailures, circuitOpenForMs } = parsed.data;
+      const circuit = conversation.agentLoop.compactionCircuit;
 
       if (consecutiveFailures !== undefined) {
-        conversation.consecutiveCompactionFailures = consecutiveFailures;
+        circuit.consecutiveCompactionFailures = consecutiveFailures;
       }
 
       if (circuitOpenForMs !== undefined) {
         if (circuitOpenForMs === 0) {
-          if (conversation.compactionCircuitOpenUntil !== null) {
-            conversation.compactionCircuitOpenUntil = null;
+          if (circuit.compactionCircuitOpenUntil !== null) {
+            circuit.compactionCircuitOpenUntil = null;
             conversation.sendToClient({
               type: "compaction_circuit_closed",
               conversationId: conversation.conversationId,
@@ -78,7 +79,7 @@ export const ROUTES: RouteDefinition[] = [
           }
         } else {
           const openUntil = Date.now() + circuitOpenForMs;
-          conversation.compactionCircuitOpenUntil = openUntil;
+          circuit.compactionCircuitOpenUntil = openUntil;
           conversation.sendToClient({
             type: "compaction_circuit_open",
             conversationId: conversation.conversationId,
@@ -116,7 +117,10 @@ export interface CompactionStateResponse {
 function buildCompactionState(
   conversation: Conversation,
 ): CompactionStateResponse {
-  const ctxConfig = resolveCallSiteConfig("mainAgent", getConfig().llm).contextWindow;
+  const ctxConfig = resolveCallSiteConfig(
+    "mainAgent",
+    getConfig().llm,
+  ).contextWindow;
   const maxInputTokens = ctxConfig.maxInputTokens;
   const compactThresholdRatio = ctxConfig.compactThreshold;
   const isCompactionEnabled = ctxConfig.enabled;
@@ -124,7 +128,8 @@ function buildCompactionState(
 
   const messages = conversation.getMessages();
   const estimatedInputTokens = estimatePromptTokens(messages);
-  const circuitOpenUntil = conversation.compactionCircuitOpenUntil;
+  const circuit = conversation.agentLoop.compactionCircuit;
+  const circuitOpenUntil = circuit.compactionCircuitOpenUntil;
   const isCircuitOpen =
     circuitOpenUntil !== null && Date.now() < circuitOpenUntil;
 
@@ -136,7 +141,7 @@ function buildCompactionState(
     messageCount: messages.length,
     contextCompactedMessageCount: conversation.contextCompactedMessageCount,
     contextCompactedAt: conversation.contextCompactedAt,
-    consecutiveCompactionFailures: conversation.consecutiveCompactionFailures,
+    consecutiveCompactionFailures: circuit.consecutiveCompactionFailures,
     compactionCircuitOpenUntil: circuitOpenUntil,
     isCircuitOpen,
     isCompactionEnabled,

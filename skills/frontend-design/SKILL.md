@@ -1,12 +1,20 @@
 ---
 name: frontend-design
-description: Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics.
+description: Design-quality layer for frontend code — typography, color, motion, spatial composition, and avoiding generic "AI slop" aesthetics. Use this as a companion when you are already writing or styling frontend code and want it to look distinctive and production-grade. For building an app, dashboard, tracker, calculator, visualization, landing page, or slide deck the user wants inside the assistant, load `app-builder` instead — it loads this skill itself for the design pass.
 compatibility: "Designed for Vellum personal assistants"
 license: Complete terms in LICENSE.txt
 metadata:
+  icon: assets/icon.svg
   emoji: "🎨"
   vellum:
+    category: "development"
     display-name: "Frontend Design"
+    activation-hints:
+      - "You are already building or styling frontend code in a project folder and want the visual result to be distinctive, not generic"
+      - "Another skill (e.g. app-builder) loads this for its aesthetic/design pass"
+    avoid-when:
+      - "The user asks to build or visualize something for their own use inside the assistant (an app, dashboard, tracker, calculator, data visualization, landing page, or slide deck) — that is app-builder's job; it loads this skill itself"
+      - "The user asks for an artifact or visualization without an existing project folder — route to app-builder first"
 ---
 
 This skill guides creation of distinctive, production-grade frontend interfaces that avoid generic "AI slop" aesthetics. Implement real working code with exceptional attention to aesthetic details and creative choices.

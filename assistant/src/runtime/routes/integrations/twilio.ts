@@ -10,6 +10,8 @@
  * POST   /v1/integrations/twilio/numbers/release                     — release a phone number
  */
 
+import { z } from "zod";
+
 import {
   getTwilioCredentials,
   hasTwilioCredentials,
@@ -33,6 +35,41 @@ import {
 import { ACTOR_PRINCIPALS } from "../../auth/route-policy.js";
 import { BadRequestError, InternalError } from "../errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
+
+// ---------------------------------------------------------------------------
+// Response schemas
+// ---------------------------------------------------------------------------
+
+const TwilioPhoneNumberSchema = z.object({
+  phoneNumber: z.string(),
+  friendlyName: z.string(),
+  capabilities: z.object({ voice: z.boolean() }),
+});
+
+const TwilioConfigResultSchema = z.object({
+  success: z.boolean(),
+  hasCredentials: z.boolean(),
+  accountSid: z.string().optional(),
+  phoneNumber: z.string().optional(),
+});
+
+const TwilioCredentialsResultSchema = z.object({
+  success: z.boolean(),
+  hasCredentials: z.boolean(),
+});
+
+const TwilioNumbersResultSchema = z.object({
+  success: z.boolean(),
+  hasCredentials: z.boolean(),
+  numbers: z.array(TwilioPhoneNumberSchema),
+});
+
+const TwilioNumberMutationResultSchema = z.object({
+  success: z.boolean(),
+  hasCredentials: z.boolean(),
+  phoneNumber: z.string().optional(),
+  warning: z.string().optional(),
+});
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -360,6 +397,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Get Twilio config",
     description: "Return current Twilio configuration status.",
     tags: ["integrations"],
+    responseBody: TwilioConfigResultSchema,
     handler: () => handleGetTwilioConfig(),
   },
   {
@@ -374,6 +412,11 @@ export const ROUTES: RouteDefinition[] = [
     description: "Validate and store Twilio account SID and auth token.",
     tags: ["integrations"],
     handler: handleSetTwilioCredentials,
+    requestBody: z.object({
+      accountSid: z.string().describe("Twilio account SID"),
+      authToken: z.string().describe("Twilio auth token"),
+    }),
+    responseBody: TwilioCredentialsResultSchema,
   },
   {
     operationId: "integrations_twilio_credentials_delete",
@@ -386,6 +429,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Clear Twilio credentials",
     description: "Remove stored Twilio credentials.",
     tags: ["integrations"],
+    responseBody: TwilioCredentialsResultSchema,
     handler: () => handleClearTwilioCredentials(),
   },
   {
@@ -399,6 +443,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "List Twilio numbers",
     description: "List phone numbers on the Twilio account.",
     tags: ["integrations"],
+    responseBody: TwilioNumbersResultSchema,
     handler: () => handleListTwilioNumbers(),
   },
   {
@@ -412,6 +457,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Provision Twilio number",
     description: "Search for and provision a new phone number.",
     tags: ["integrations"],
+    responseBody: TwilioNumberMutationResultSchema,
     handler: handleProvisionTwilioNumber,
   },
   {
@@ -425,6 +471,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Assign Twilio number",
     description: "Assign an existing phone number to this assistant.",
     tags: ["integrations"],
+    responseBody: TwilioNumberMutationResultSchema,
     handler: handleAssignTwilioNumber,
   },
   {
@@ -438,6 +485,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Release Twilio number",
     description: "Release a phone number back to Twilio.",
     tags: ["integrations"],
+    responseBody: TwilioNumberMutationResultSchema,
     handler: handleReleaseTwilioNumber,
   },
 ];

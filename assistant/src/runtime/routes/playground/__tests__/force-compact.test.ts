@@ -18,8 +18,8 @@ mock.module("../helpers.js", () => ({
   addPlaygroundMessage: async () => ({ id: "msg-test" }),
 }));
 
-import type { ContextWindowResult } from "../../../../context/window-manager.js";
 import type { Conversation } from "../../../../daemon/conversation.js";
+import type { ContextWindowResult } from "../../../../plugins/defaults/compaction/window-manager.js";
 import type { Message } from "../../../../providers/types.js";
 import { RouteError } from "../../errors.js";
 import { ROUTES } from "../index.js";
@@ -65,8 +65,12 @@ function makeFakeConversation(
     ...options.result,
   };
 
+  let processing = options.processing ?? false;
   const fake = {
-    processing: options.processing ?? false,
+    isProcessing: () => processing,
+    setProcessing: (value: boolean) => {
+      processing = value;
+    },
     getMessages(): Message[] {
       if (!returnedAfter && calls === 0) return messagesBefore;
       return messagesAfter;
@@ -85,9 +89,7 @@ function makeFakeConversation(
 }
 
 function findRoute() {
-  const route = ROUTES.find(
-    (r) => r.operationId === "playgroundForceCompact",
-  );
+  const route = ROUTES.find((r) => r.operationId === "playgroundForceCompact");
   if (!route) throw new Error("force-compact route not registered");
   return route;
 }

@@ -56,11 +56,20 @@ interface TtsProviderCatalogCapabilities {
 }
 
 /**
+ * Link to a provider's API-key management page, shown in settings UI.
+ */
+interface TtsCredentialsGuide {
+  readonly description: string;
+  readonly url: string;
+  readonly linkLabel: string;
+}
+
+/**
  * A single entry in the TTS provider catalog.
  *
  * Captures everything the system needs to know about a provider at a
  * metadata level — identity, display name, telephony call mode,
- * capabilities, and secret requirements.
+ * capabilities, secret requirements, and client-facing display metadata.
  */
 interface TtsProviderCatalogEntry {
   /** Unique provider identifier matching {@link TtsProviderId}. */
@@ -68,6 +77,18 @@ interface TtsProviderCatalogEntry {
 
   /** Human-readable name for display in settings UI and logs. */
   readonly displayName: string;
+
+  /** Short description shown beneath the provider name in settings UI. */
+  readonly subtitle: string;
+
+  /** Whether the provider supports user-chosen voice IDs. */
+  readonly supportsVoiceSelection: boolean;
+
+  /** Placeholder text for the API-key input in settings UI. */
+  readonly apiKeyPlaceholder: string;
+
+  /** Link to the provider's API-key management page. */
+  readonly credentialsGuide: TtsCredentialsGuide;
 
   /** How this provider integrates with the telephony call path. */
   readonly callMode: TtsCallMode;
@@ -106,6 +127,16 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
   {
     id: "elevenlabs",
     displayName: "ElevenLabs",
+    subtitle:
+      "High-quality voice synthesis for conversations and read-aloud. Requires an ElevenLabs API key.",
+    supportsVoiceSelection: true,
+    apiKeyPlaceholder: "sk_…",
+    credentialsGuide: {
+      description:
+        "Sign in to ElevenLabs, go to your Profile, and copy your API key.",
+      url: "https://elevenlabs.io/app/settings/api-keys",
+      linkLabel: "Open ElevenLabs API Keys",
+    },
     callMode: "native-twilio",
     allowNativeFallback: true,
     capabilities: {
@@ -124,6 +155,16 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
   {
     id: "fish-audio",
     displayName: "Fish Audio",
+    subtitle:
+      "Natural-sounding voice synthesis with custom voice cloning. Requires a Fish Audio API key and voice reference ID.",
+    supportsVoiceSelection: true,
+    apiKeyPlaceholder: "Enter your Fish Audio API key",
+    credentialsGuide: {
+      description:
+        "Sign in to Fish Audio, navigate to API Keys in your dashboard, and create a new key.",
+      url: "https://fish.audio/app/api-keys/",
+      linkLabel: "Open Fish Audio API Keys",
+    },
     callMode: "synthesized-play",
     allowNativeFallback: true,
     capabilities: {
@@ -142,6 +183,16 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
   {
     id: "deepgram",
     displayName: "Deepgram",
+    subtitle:
+      "Fast, accurate text-to-speech synthesis. Uses the same API key as Deepgram speech-to-text.",
+    supportsVoiceSelection: false,
+    apiKeyPlaceholder: "Enter your Deepgram API key",
+    credentialsGuide: {
+      description:
+        "Sign in to Deepgram, navigate to your API Keys page, and create or copy an existing key. This is the same key used for speech-to-text.",
+      url: "https://console.deepgram.com/",
+      linkLabel: "Open Deepgram Console",
+    },
     callMode: "synthesized-play",
     allowNativeFallback: false,
     capabilities: {
@@ -159,6 +210,16 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
   {
     id: "xai",
     displayName: "xAI",
+    subtitle:
+      "Text-to-speech from xAI with expressive voices (eve, ara, rex, sal, leo). Requires an xAI API key.",
+    supportsVoiceSelection: false,
+    apiKeyPlaceholder: "Enter your xAI API key",
+    credentialsGuide: {
+      description:
+        "Sign in to the xAI console, navigate to API Keys, and create a new key.",
+      url: "https://console.x.ai/",
+      linkLabel: "Open xAI Console",
+    },
     callMode: "synthesized-play",
     allowNativeFallback: false,
     capabilities: {
@@ -197,6 +258,20 @@ export function listCatalogProviders(): readonly TtsProviderCatalogEntry[] {
  */
 export function listCatalogProviderIds(): TtsProviderId[] {
   return CATALOG.map((entry) => entry.id);
+}
+
+/**
+ * List all catalog providers projected to client-facing display fields only.
+ */
+export function listCatalogProvidersForDisplay() {
+  return CATALOG.map((e) => ({
+    id: e.id,
+    displayName: e.displayName,
+    subtitle: e.subtitle,
+    supportsVoiceSelection: e.supportsVoiceSelection,
+    apiKeyPlaceholder: e.apiKeyPlaceholder,
+    credentialsGuide: e.credentialsGuide,
+  }));
 }
 
 /**

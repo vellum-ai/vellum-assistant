@@ -244,4 +244,168 @@ describe("priceUsageRecord", () => {
     expect(result.costUsd).toBeCloseTo(0.0105, 6);
     expect(result.diagnostic).toBeUndefined();
   });
+
+  test("prices Anthropic cache read/write off the base input rate", () => {
+    /**
+     * Cache tokens must be billed using Anthropic's prompt-cache
+     * multipliers (read 0.1x, 5-minute write 1.25x), not dropped.
+     */
+    // GIVEN an Anthropic record whose tokens are entirely cache traffic
+    const record = {
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_input_tokens: 1_000,
+      cache_read_input_tokens: 10_000,
+    };
+
+    // WHEN it is priced
+    const result = priceUsageRecord(record);
+
+    // THEN cache write bills at 1.25x and cache read at 0.1x of the $3/1M
+    // base input rate: 1k * 3 * 1.25/1M + 10k * 3 * 0.1/1M
+    //                = 0.00375 + 0.003 = 0.00675
+    expect(result.costUsd).toBeCloseTo(0.00675, 6);
+    expect(result.diagnostic).toBeUndefined();
+  });
+
+  test("includes cache cost for a cache-heavy main-agent turn", () => {
+    /**
+     * Regression: a cached agentic turn reads a large context prefix, so
+     * `cache_read_input_tokens` dwarfs the uncached `input_tokens`.
+     * Pricing only input+output understates the real cost ~7x.
+     */
+    // GIVEN a sonnet turn observed in a real run (3 in / 69 out, 466
+    // cache-write, 15967 cache-read)
+    const record = {
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      input_tokens: 3,
+      output_tokens: 69,
+      cache_creation_input_tokens: 466,
+      cache_read_input_tokens: 15_967,
+    };
+
+    // WHEN it is priced
+    const result = priceUsageRecord(record);
+
+    // THEN the cache tokens dominate the cost rather than being dropped:
+    //   input  3     * 3/1M            = 0.000009
+    //   output 69    * 15/1M           = 0.001035
+    //   write  466   * 3 * 1.25/1M     = 0.00174750
+    //   read   15967 * 3 * 0.1/1M      = 0.00479010
+    //   total                          = 0.00758160
+    expect(result.costUsd).toBeCloseTo(0.0075816, 6);
+    // AND the input+output-only figure it replaces would have been ~7x lower
+    expect(result.costUsd!).toBeGreaterThan(0.001044 * 6);
+  });
+
+  test("prices Anthropic 5-minute and 1-hour cache writes at distinct rates", () => {
+    /**
+     * Anthropic charges 1.25x base input for a 5-minute ephemeral cache
+     * write and 2x for a 1-hour write. The recorder forwards the
+     * `cache_creation` split so the tiers must be priced separately, not
+     * collapsed into a single rate.
+     */
+    // GIVEN an Anthropic record whose cache write is split across both TTLs
+    const record = {
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_input_tokens: 500,
+      cache_read_input_tokens: 0,
+      cache_creation: {
+        ephemeral_5m_input_tokens: 300,
+        ephemeral_1h_input_tokens: 200,
+      },
+    };
+
+    // WHEN it is priced
+    const result = priceUsageRecord(record);
+
+    // THEN the 5m slice bills at 1.25x and the 1h slice at 2x of the
+    // $3/1M base input rate: 300 * 3 * 1.25/1M + 200 * 3 * 2/1M
+    //                      = 0.001125 + 0.0012 = 0.002325
+    expect(result.costUsd).toBeCloseTo(0.002325, 6);
+    expect(result.diagnostic).toBeUndefined();
+  });
+
+  test("does not double-bill cached input tokens for non-Anthropic providers", () => {
+    /**
+     * OpenAI folds the cached subset *into* `input_tokens`, so the cache
+     * tokens are already priced via the input rate. Re-adding them would
+     * double-bill the cached portion. The additive cache path is therefore
+     * Anthropic-only (whose `input_tokens` excludes cache).
+     */
+    // GIVEN an OpenAI record whose `input_tokens` already includes its
+    // cache-read subset (the convention the daemon's OpenAI provider uses)
+    const record = {
+      provider: "openai",
+      model: "gpt-4.1",
+      input_tokens: 1_000,
+      output_tokens: 0,
+      cache_read_input_tokens: 800,
+    };
+
+    // WHEN it is priced
+    const result = priceUsageRecord(record);
+
+    // THEN cost is just the input rate on the inclusive count, with the
+    // cached subset NOT added a second time: 1k * 2/1M = 0.002
+    expect(result.costUsd).toBeCloseTo(0.002, 6);
+    expect(result.diagnostic).toBeUndefined();
+  });
+
+  test("prices a Fireworks MiniMax-M3 record from its slash-prefixed model id", () => {
+    /**
+     * The `vellum-minimax` profile points the assistant at Fireworks'
+     * `accounts/fireworks/models/minimax-m3`. The recorder writes that full
+     * id, so the pricer must strip the `accounts/fireworks/models/` prefix
+     * down to the `minimax-m3` table key before looking up the rate.
+     */
+    // GIVEN a Fireworks record with the fully-qualified Fireworks model id
+    const record = {
+      provider: "fireworks",
+      model: "accounts/fireworks/models/minimax-m3",
+      input_tokens: 1_000_000,
+      output_tokens: 1_000_000,
+    };
+
+    // WHEN it is priced
+    const result = priceUsageRecord(record);
+
+    // THEN it bills at the catalog rate of $0.30 in + $1.20 out per 1M = 1.5
+    expect(result.costUsd).toBeCloseTo(1.5, 6);
+    expect(result.diagnostic).toBeUndefined();
+  });
+
+  test("prices Fireworks cached input tokens at the discounted cache-read rate", () => {
+    /**
+     * Fireworks is OpenAI-compatible, so its cached subset is folded into
+     * `prompt_tokens` (and thus `input_tokens`). The MiniMax-M3 catalog row
+     * bills cache reads at a discounted $0.06/1M, so the pricer must split
+     * the cached subset out of the inclusive input count and charge it at
+     * `cacheReadPer1M` rather than the full input rate — mirroring the
+     * daemon's non-Anthropic `calculateUsageCost` branch.
+     */
+    // GIVEN a Fireworks record whose `input_tokens` already includes an
+    // 800-token cache-read subset
+    const record = {
+      provider: "fireworks",
+      model: "accounts/fireworks/models/minimax-m3",
+      input_tokens: 1_000,
+      output_tokens: 0,
+      cache_read_input_tokens: 800,
+    };
+
+    // WHEN it is priced
+    const result = priceUsageRecord(record);
+
+    // THEN the 200 uncached tokens bill at $0.30/1M and the 800 cached
+    // tokens at $0.06/1M: 200 * 0.3/1M + 800 * 0.06/1M = 0.000108
+    expect(result.costUsd).toBeCloseTo(0.000108, 6);
+    expect(result.diagnostic).toBeUndefined();
+  });
 });

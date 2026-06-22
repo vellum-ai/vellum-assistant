@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import { ContextOverflowError } from "../providers/types.js";
-import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
+import {
+  looksLikeContextOverflowError,
+  parseActualTokensFromError,
+} from "./parse-actual-tokens-from-error.js";
 
 describe("parseActualTokensFromError", () => {
   test("returns null for null input", () => {
@@ -123,5 +126,63 @@ describe("parseActualTokensFromError", () => {
       { actualTokens: 0 },
     );
     expect(parseActualTokensFromError(err)).toBe(242201);
+  });
+});
+
+describe("looksLikeContextOverflowError", () => {
+  test("matches the typed ContextOverflowError even without a parseable message", () => {
+    const err = new ContextOverflowError("context window exceeded", "openai");
+    expect(looksLikeContextOverflowError(err)).toBe(true);
+  });
+
+  test("matches a REWRAPPED plain Error carrying an Anthropic-style message", () => {
+    // Managed-proxy/adapter paths rewrap overflow rejections into untyped
+    // errors — the heuristic must still recognize them.
+    const err = new Error(
+      "Provider API error (400): prompt is too long: 250000 tokens > 200000 maximum",
+    );
+    expect(looksLikeContextOverflowError(err)).toBe(true);
+  });
+
+  test("matches a rewrapped OpenAI-style message", () => {
+    expect(
+      looksLikeContextOverflowError(
+        new Error("too many input tokens: 150000 > 128000"),
+      ),
+    ).toBe(true);
+  });
+
+  test("matches context_length_exceeded / maximum-context-length phrasings", () => {
+    expect(
+      looksLikeContextOverflowError(new Error("context_length_exceeded")),
+    ).toBe(true);
+    expect(
+      looksLikeContextOverflowError(
+        new Error("This model's maximum context length is 128000 tokens"),
+      ),
+    ).toBe(true);
+  });
+
+  test("accepts a raw string message", () => {
+    expect(
+      looksLikeContextOverflowError(
+        "prompt is too long: 242201 tokens > 200000 maximum",
+      ),
+    ).toBe(true);
+  });
+
+  test("rejects unrelated errors, strings, and nullish input", () => {
+    expect(looksLikeContextOverflowError(new Error("socket hang up"))).toBe(
+      false,
+    );
+    expect(looksLikeContextOverflowError("something went wrong")).toBe(false);
+    expect(looksLikeContextOverflowError(null)).toBe(false);
+    expect(looksLikeContextOverflowError(undefined)).toBe(false);
+  });
+
+  test("does not misread arbitrary numeric comparisons as overflow", () => {
+    expect(
+      looksLikeContextOverflowError(new Error("retry budget: 5 > 3 attempts")),
+    ).toBe(false);
   });
 });

@@ -62,7 +62,6 @@ export interface ContactChannel {
   type: string; // 'email' | 'slack' | 'whatsapp' | 'phone' | etc.
   address: string;
   isPrimary: boolean;
-  externalUserId: string | null;
   externalChatId: string | null;
   status: ChannelStatus;
   policy: ChannelPolicy;

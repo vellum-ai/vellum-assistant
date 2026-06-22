@@ -5,16 +5,15 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { safeStatSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
 import {
   ensureDataDir,
+  getConfigQuarantineNoticePath,
   getWorkspaceConfigPath,
-  getWorkspaceDir,
 } from "../util/platform.js";
-import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import { AssistantConfigSchema } from "./schema.js";
 import type { AssistantConfig } from "./types.js";
 
@@ -202,10 +201,9 @@ function filesystemSafeTimestamp(date: Date = new Date()): string {
  * in `.json` so editors syntax-highlight the preserved content:
  *   `<path>.corrupt-<ISO-timestamp>.json`
  *
- * On a successful rename, also appends a bulletin to `<workspace>/UPDATES.md`
- * so the background update-bulletin job surfaces the event to the user
- * proactively on their next interaction (log-level errors alone are invisible
- * to users).
+ * On a successful rename, also writes a small JSON sentinel recording the
+ * event so the per-turn `config-quarantine-notice` injector can surface it to
+ * the agent (log-level errors alone are invisible to users).
  */
 function quarantineCorruptConfig(configPath: string, err: unknown): string {
   const quarantinePath = `${configPath}.corrupt-${filesystemSafeTimestamp()}.json`;
@@ -216,7 +214,7 @@ function quarantineCorruptConfig(configPath: string, err: unknown): string {
         `quarantined to ${quarantinePath} and loaded defaults. ` +
         `Inspect the quarantined file to recover any hand-edited settings.`,
     );
-    appendQuarantineBulletin(configPath, quarantinePath);
+    writeQuarantineNotice(configPath, quarantinePath);
   } catch (renameErr) {
     log.error(
       { renameErr },
@@ -228,66 +226,55 @@ function quarantineCorruptConfig(configPath: string, err: unknown): string {
 }
 
 /**
- * Append a config-quarantine bulletin to `<workspace>/UPDATES.md`. On the
- * next daemon boot the background update-bulletin job picks up UPDATES.md
- * and processes it inside a background-only conversation (not the user's
- * chat). The agent decides whether and when to surface the event — typical
- * cases are the user asking why their settings changed or noticing missing
- * API keys. The bulletin is agent-visible context, not a push notification.
+ * Write a small JSON sentinel recording that the config file was quarantined.
+ * The per-turn `config-quarantine-notice` injector reads this sentinel and, if
+ * it is recent, injects a system block so the agent can explain the reset when
+ * the user asks why their settings changed or notices missing API keys.
  *
- * Idempotency: the appended block embeds a marker keyed on the quarantine
- * filename's basename. If that marker is already present in UPDATES.md (a
- * prior append succeeded but the process crashed before control returned, or
- * the file was hand-edited), the function is a no-op. This mirrors the
- * pattern release-notes workspace migrations use — see the "Release Update
- * Hygiene" section in the root `AGENTS.md`.
+ * Writes with pure `node:fs` and a workspace-derived path
+ * ({@link getConfigQuarantineNoticePath}) deliberately: config load happens
+ * extremely early at daemon startup — before the SQLite DB is initialized and
+ * before `getConfig().dataDir` is available — so neither a DB checkpoint nor a
+ * config-dependent path can be used here without risking import-time DB init.
+ *
+ * Idempotent per quarantine event: each call overwrites the sentinel with the
+ * latest event, so a crash-then-retry re-records the same (or newer) event
+ * rather than accumulating duplicates.
  *
  * Best-effort: any write failure is logged at `warn` and swallowed. The
  * quarantine path must never block startup, and the error log from
  * `quarantineCorruptConfig` remains the authoritative record.
  *
- * Exported with an underscore-prefixed alias (`_appendQuarantineBulletin`) so
- * tests can exercise the idempotent-skip branch directly with a deterministic
- * quarantine basename. Non-test callers should never import the underscore
- * alias — the wiring into `quarantineCorruptConfig` is the production entry
- * point.
+ * Exported with an underscore-prefixed alias (`_writeQuarantineNotice`) so
+ * tests can exercise the write directly. Non-test callers should never import
+ * the underscore alias — the wiring into `quarantineCorruptConfig` is the
+ * production entry point.
  */
-function appendQuarantineBulletin(
+function writeQuarantineNotice(
   originalPath: string,
   quarantinePath: string,
 ): void {
   try {
-    const updatesPath = join(getWorkspaceDir(), "UPDATES.md");
-    const quarantineBasename = basename(quarantinePath);
-    const marker = `<!-- config-quarantine:${quarantineBasename} -->`;
-
-    const existing = existsSync(updatesPath)
-      ? readFileSync(updatesPath, "utf-8")
-      : "";
-    if (existing.includes(marker)) return;
-
-    const timestamp = new Date().toISOString();
-    const block =
-      `## Config was reset to defaults\n\n` +
-      `Your \`config.json\` was unreadable at ${timestamp} and couldn't be parsed ` +
-      `as JSON. The assistant preserved the original file at \`${quarantinePath}\` ` +
-      `and loaded defaults so the app stays working.\n\n` +
-      `If you had custom settings (API keys, model choices, voice preferences), ` +
-      `they are still in the quarantined file — \`cat ${quarantinePath}\` to ` +
-      `recover them, then re-enter through Settings or the CLI.\n\n` +
-      `${marker}\n`;
-
-    const toWrite = existing.length === 0 ? block : `${existing}\n${block}`;
-    writeFileSync(updatesPath, toWrite, "utf-8");
+    const noticePath = getConfigQuarantineNoticePath();
+    const dir = dirname(noticePath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const notice = {
+      quarantinedAt: new Date().toISOString(),
+      quarantinePath,
+      originalPath,
+    };
+    writeFileSync(noticePath, JSON.stringify(notice, null, 2) + "\n", "utf-8");
     log.info(
-      `Appended config-quarantine bulletin to ${updatesPath} for ${originalPath} ` +
-        `(quarantined as ${quarantineBasename}).`,
+      `Wrote config-quarantine notice to ${noticePath} for ${originalPath} ` +
+        `(quarantined as ${quarantinePath}).`,
     );
-  } catch (bulletinErr) {
+  } catch (noticeErr) {
     log.warn(
-      { bulletinErr },
-      `Failed to append config-quarantine bulletin to UPDATES.md; ` +
-        `the quarantine event is still recorded in the assistant logs.`,
+      { noticeErr },
+      `Failed to write config-quarantine notice; the quarantine event is ` +
+        `still recorded in the assistant logs.`,
     );
   }
 }
@@ -374,6 +361,10 @@ const DEPRECATED_FIELDS: Record<string, string> = {
     "memory.jobs.batchSize has been removed. The memory job worker now uses " +
     "per-lane concurrency caps (slowLlmConcurrency, fastConcurrency, " +
     "embedConcurrency) instead of a single batch size. " +
+    "The field will be removed from your config file.",
+  "daemon.reapOrphanedSubprocesses":
+    "daemon.reapOrphanedSubprocesses has been removed. The daemon now reaps " +
+    "orphaned subprocesses automatically whenever it runs as PID 1 on Linux. " +
     "The field will be removed from your config file.",
 };
 
@@ -661,7 +652,9 @@ export function loadConfig(): AssistantConfig {
           quarantineCorruptConfig(
             configPath,
             new Error(
-              `config.json must contain a JSON object at the top level; got ${describeJsonShape(parsed)}`,
+              `config.json must contain a JSON object at the top level; got ${describeJsonShape(
+                parsed,
+              )}`,
             ),
           );
           fileConfig = {};
@@ -692,16 +685,15 @@ export function loadConfig(): AssistantConfig {
 
     if (suppressConfigDiskWritesDepth === 0) {
       // Managed Gemini embedding defaults migration.
-      // When on a managed platform (IS_PLATFORM=true) with the feature flag
-      // enabled and no explicit embedding provider chosen (provider=auto),
-      // persist Gemini embedding defaults into the raw config file.
+      // When on a managed platform (IS_PLATFORM=true) and no explicit embedding
+      // provider chosen (provider=auto), persist Gemini embedding defaults into
+      // the raw config file.
       // Idempotent: once provider=gemini is written, subsequent loads skip this.
       if (config.memory.embeddings.provider === "auto") {
         try {
           if (
-            (process.env.IS_PLATFORM === "true" ||
-              process.env.IS_PLATFORM === "1") &&
-            isManagedGeminiFFEnabled(config)
+            process.env.IS_PLATFORM === "true" ||
+            process.env.IS_PLATFORM === "1"
           ) {
             setNestedValue(fileConfig, "memory.embeddings.provider", "gemini");
             setNestedValue(
@@ -794,21 +786,6 @@ export function loadConfig(): AssistantConfig {
     cachedFileSignature = null;
     loading = false;
     throw err;
-  }
-}
-
-/**
- * Check whether the managed-gemini-embeddings-enabled feature flag is on.
- * Wrapped in a try/catch so a flag-resolver failure never breaks config loading.
- */
-function isManagedGeminiFFEnabled(config: AssistantConfig): boolean {
-  try {
-    return isAssistantFeatureFlagEnabled(
-      "managed-gemini-embeddings-enabled",
-      config,
-    );
-  } catch {
-    return false;
   }
 }
 
@@ -906,7 +883,9 @@ export function loadRawConfig(): Record<string, unknown> {
     quarantineCorruptConfig(
       configPath,
       new Error(
-        `config.json must contain a JSON object at the top level; got ${describeJsonShape(parsed)}`,
+        `config.json must contain a JSON object at the top level; got ${describeJsonShape(
+          parsed,
+        )}`,
       ),
     );
     return {};
@@ -980,8 +959,9 @@ export function setNestedValue(
 }
 
 /**
- * Test-only alias for `appendQuarantineBulletin`. Exists so the crash-mid-
- * append idempotency branch can be exercised with a deterministic quarantine
- * basename without widening the runtime surface. Not for production use.
+ * Test-only alias for `writeQuarantineNotice`. Exists so the sentinel write
+ * (and its overwrite/idempotency semantics) can be exercised directly with a
+ * deterministic quarantine path without widening the runtime surface. Not for
+ * production use.
  */
-export const _appendQuarantineBulletin = appendQuarantineBulletin;
+export const _writeQuarantineNotice = writeQuarantineNotice;

@@ -29,7 +29,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import { handleSubscribeAssistantEvents } from "../runtime/routes/events-routes.js";
 
-initializeDb();
+await initializeDb();
 
 describe("AssistantEventHub — machineName", () => {
   test("subscribing with machineName returns it from listClients()", () => {
@@ -72,9 +72,7 @@ describe("AssistantEventHub — machineName", () => {
     );
 
     const clients = hub.listClients();
-    const entry = clients.find(
-      (c) => c.clientId === "client-without-name-001",
-    );
+    const entry = clients.find((c) => c.clientId === "client-without-name-001");
     expect(entry).toBeDefined();
     expect(entry?.machineName).toBeUndefined();
 

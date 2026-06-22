@@ -65,7 +65,7 @@ function rowToRecord(row: OAuthConnectionRow): OAuthConnectionRecord {
  * Create a read-only OAuth connection lookup backed by the assistant's
  * SQLite database.
  *
- * @param workspaceDir - The workspace directory (e.g. `~/.vellum/workspace`).
+ * @param workspaceDir - The workspace directory (e.g. `$VELLUM_WORKSPACE_DIR`).
  */
 export function createLocalOAuthLookup(
   workspaceDir: string,

@@ -9,8 +9,7 @@
  * for these knobs is silently ignored.
  *
  * Precedence (highest wins):
- *   1. Per-turn explicit (from `resolveSystemPrompt`'s
- *      `resolved.maxTokens` / `resolved.model`)
+ *   1. Per-run explicit (from `run()`'s `model` param)
  *   2. Call-site resolved values (from `resolveCallSiteConfig` via the
  *      normalizer)
  *   3. Conversation defaults (`this.config.*`, from `llm.default`)
@@ -33,7 +32,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => ({ llm: mockLlmConfig }),
 }));
 
-import type { ResolvedSystemPrompt } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import { LLMSchema } from "../config/schemas/llm.js";
 import { RetryProvider } from "../providers/retry.js";
@@ -100,9 +98,20 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     const { provider, lastConfig } = makePipeline("anthropic");
-    const loop = new AgentLoop(provider, "system", { maxTokens: 64000 });
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      config: { maxTokens: 64000 },
+    });
 
-    await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "mainAgent",
+    });
 
     expect(lastConfig()!.max_tokens).toBe(4096);
   });
@@ -118,12 +127,23 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     const { provider, lastConfig } = makePipeline("anthropic");
-    const loop = new AgentLoop(provider, "system", {
-      maxTokens: 64000,
-      effort: "high",
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      config: {
+        maxTokens: 64000,
+        effort: "high",
+      },
     });
 
-    await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "mainAgent",
+    });
 
     expect(lastConfig()!.effort).toBe("low");
   });
@@ -139,15 +159,26 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     const { provider, lastConfig } = makePipeline("anthropic");
-    const loop = new AgentLoop(provider, "system", {
-      maxTokens: 64000,
-      effort: "high",
-      // Conversation default is "fast" (which would normally be applied) —
-      // ensure the call-site value is the one that ends up on the wire.
-      speed: "fast",
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      config: {
+        maxTokens: 64000,
+        effort: "high",
+        // Conversation default is "fast" (which would normally be applied) —
+        // ensure the call-site value is the one that ends up on the wire.
+        speed: "fast",
+      },
     });
 
-    await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "mainAgent",
+    });
 
     expect(lastConfig()!.speed).toBe("fast");
   });
@@ -168,15 +199,26 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     const { provider, lastConfig } = makePipeline("anthropic");
-    const loop = new AgentLoop(provider, "system", {
-      maxTokens: 64000,
-      // Conversation default also has thinking on — without the fix, this
-      // would pre-set `thinking: { type: "adaptive" }` and mask the
-      // call-site override.
-      thinking: { enabled: true },
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      config: {
+        maxTokens: 64000,
+        // Conversation default also has thinking on — without the fix, this
+        // would pre-set `thinking: { type: "adaptive" }` and mask the
+        // call-site override.
+        thinking: { enabled: true },
+      },
     });
 
-    await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "mainAgent",
+    });
 
     // Call-site override resolves `thinking.enabled: false`, so the
     // RetryProvider normalizer must send Anthropic's explicit disabled shape.
@@ -194,9 +236,20 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     const { provider, lastConfig } = makePipeline("anthropic");
-    const loop = new AgentLoop(provider, "system", { maxTokens: 64000 });
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      config: { maxTokens: 64000 },
+    });
 
-    await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "mainAgent",
+    });
 
     // Must be wire-format `{ type: "adaptive" }` so the Anthropic SDK's
     // `ThinkingConfigParam` accepts it. The schema-shape `{ enabled,
@@ -217,14 +270,24 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     const { provider, lastConfig } = makePipeline("anthropic");
-    const loop = new AgentLoop(provider, "system", {
-      maxTokens: 64000,
-      effort: "high",
-      speed: "fast",
-      thinking: { enabled: true },
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      config: {
+        maxTokens: 64000,
+        effort: "high",
+        speed: "fast",
+        thinking: { enabled: true },
+      },
     });
 
-    await loop.run([userMessage], () => {});
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     const config = lastConfig()!;
     expect(config.max_tokens).toBe(64000);
@@ -232,38 +295,5 @@ describe("AgentLoop — call-site precedence", () => {
     expect(config.speed).toBe("fast");
     // No callSite → loop sets the wire-format thinking directly.
     expect(config.thinking).toEqual({ type: "adaptive" });
-  });
-
-  test("per-turn resolveSystemPrompt.maxTokens wins over both call-site and default", async () => {
-    setLlmConfig({
-      default: {
-        provider: "anthropic",
-        model: "claude-default",
-        maxTokens: 64000,
-      },
-      callSites: { mainAgent: { maxTokens: 4096 } },
-    });
-
-    const { provider, lastConfig } = makePipeline("anthropic");
-    const resolveSystemPrompt = (): ResolvedSystemPrompt => ({
-      systemPrompt: "per-turn system",
-      maxTokens: 8192,
-    });
-
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      { maxTokens: 64000 },
-      [],
-      undefined,
-      undefined,
-      resolveSystemPrompt,
-    );
-
-    await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
-
-    // Per-turn explicit value beats both the call-site (4096) and the
-    // default (64000).
-    expect(lastConfig()!.max_tokens).toBe(8192);
   });
 });

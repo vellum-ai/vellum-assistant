@@ -148,9 +148,9 @@ function makeConversation(): Conversation {
     "conv-app-control",
     provider,
     "system prompt",
-    4096,
     () => {},
     "/tmp",
+    { maxTokens: 4096 },
   );
   conv.setTrustContext({ trustClass: "guardian", sourceChannel: "vellum" });
   return conv;

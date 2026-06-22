@@ -98,6 +98,7 @@ function createCollectorDeps(): {
       userMessageInterface: "macos",
       assistantMessageInterface: "macos",
     } as EventHandlerDeps["turnInterfaceContext"],
+    applyCompaction: async () => {},
   } as EventHandlerDeps;
   return { deps, events };
 }

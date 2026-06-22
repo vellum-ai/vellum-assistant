@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   getPkbAutoInjectList,
   readAutoinjectList,
-} from "../daemon/conversation-runtime-assembly.js";
+} from "../memory/pkb/autoinject.js";
 
 const PKB_DEFAULT_FILES = [
   "INDEX.md",
@@ -80,10 +80,7 @@ describe("readAutoinjectList", () => {
       "INDEX.md\ncustom-topic.md\n",
       "utf-8",
     );
-    expect(readAutoinjectList(pkbDir)).toEqual([
-      "INDEX.md",
-      "custom-topic.md",
-    ]);
+    expect(readAutoinjectList(pkbDir)).toEqual(["INDEX.md", "custom-topic.md"]);
   });
 
   test("strips blank lines and whitespace", () => {

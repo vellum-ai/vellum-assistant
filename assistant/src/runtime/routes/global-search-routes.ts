@@ -31,49 +31,53 @@ const log = getLogger("global-search");
 // Types
 // ---------------------------------------------------------------------------
 
-interface GlobalSearchConversation {
-  id: string;
-  title: string | null;
-  updatedAt: number;
-  excerpt: string;
-  matchCount: number;
-}
+const globalSearchConversationSchema = z.object({
+  id: z.string(),
+  title: z.string().nullable(),
+  updatedAt: z.number(),
+  excerpt: z.string(),
+  matchCount: z.number().int(),
+});
 
-interface GlobalSearchMemory {
-  id: string;
-  kind: string;
-  text: string;
-  subject: string | null;
-  confidence: number;
-  updatedAt: number;
-  source: "lexical" | "semantic";
-}
+const globalSearchMemorySchema = z.object({
+  id: z.string(),
+  kind: z.string(),
+  text: z.string(),
+  subject: z.string().nullable(),
+  confidence: z.number(),
+  updatedAt: z.number(),
+  source: z.enum(["lexical", "semantic"]),
+});
 
-interface GlobalSearchSchedule {
-  id: string;
-  name: string;
-  expression: string | null;
-  message: string;
-  enabled: boolean;
-  nextRunAt: number | null;
-}
+const globalSearchScheduleSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  expression: z.string().nullable(),
+  message: z.string(),
+  enabled: z.boolean(),
+  nextRunAt: z.number().nullable(),
+});
 
-interface GlobalSearchContact {
-  id: string;
-  displayName: string;
-  notes: string | null;
-  lastInteraction: number | null;
-}
+const globalSearchContactSchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  notes: z.string().nullable(),
+  lastInteraction: z.number().nullable(),
+});
 
-export interface GlobalSearchResponse {
-  query: string;
-  results: {
-    conversations: GlobalSearchConversation[];
-    memories: GlobalSearchMemory[];
-    schedules: GlobalSearchSchedule[];
-    contacts: GlobalSearchContact[];
-  };
-}
+const globalSearchResponseSchema = z.object({
+  query: z.string(),
+  results: z.object({
+    conversations: z.array(globalSearchConversationSchema),
+    memories: z.array(globalSearchMemorySchema),
+    schedules: z.array(globalSearchScheduleSchema),
+    contacts: z.array(globalSearchContactSchema),
+  }),
+});
+
+type GlobalSearchMemory = z.infer<typeof globalSearchMemorySchema>;
+type GlobalSearchSchedule = z.infer<typeof globalSearchScheduleSchema>;
+export type GlobalSearchResponse = z.infer<typeof globalSearchResponseSchema>;
 
 // ---------------------------------------------------------------------------
 // Category search helpers
@@ -304,12 +308,6 @@ export const ROUTES: RouteDefinition[] = [
         description: "Enable semantic search for memories (true/false)",
       },
     ],
-    responseBody: z.object({
-      query: z.string(),
-      results: z
-        .object({})
-        .passthrough()
-        .describe("Results grouped by category"),
-    }),
+    responseBody: globalSearchResponseSchema,
   },
 ];

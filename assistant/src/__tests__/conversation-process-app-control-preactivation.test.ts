@@ -92,7 +92,7 @@ mock.module("../daemon/conversation-messaging.js", () => ({
 // ---------------------------------------------------------------------------
 
 import type { TurnInterfaceContext } from "../channels/types.js";
-import type { ProcessConversationContext } from "../daemon/conversation-process.js";
+import type { Conversation } from "../daemon/conversation.js";
 import { drainQueue } from "../daemon/conversation-process.js";
 import {
   MessageQueue,
@@ -102,7 +102,7 @@ import { TraceEmitter } from "../daemon/trace-emitter.js";
 
 // ---------------------------------------------------------------------------
 // Fake context — captures preactivation calls, satisfies the bare minimum
-// of `ProcessConversationContext`. `runAgentLoop` resolves immediately so
+// of `Conversation`. `runAgentLoop` resolves immediately so
 // the drain-chain does not recurse forever.
 // ---------------------------------------------------------------------------
 
@@ -113,13 +113,19 @@ interface FakeRecord {
 function makeFakeContext(opts: {
   queue: MessageQueue;
   turnInterfaceContext?: TurnInterfaceContext;
-}): ProcessConversationContext & FakeRecord {
+}): Conversation & FakeRecord {
   const calls: string[] = [];
   let preactivatedSkillIds: string[] | undefined = undefined;
   const ctx = {
     conversationId: "conv-app-control-preactivation",
     messages: [],
     processing: false,
+    isProcessing(this: { processing: boolean }) {
+      return this.processing;
+    },
+    setProcessing(this: { processing: boolean }, value: boolean) {
+      this.processing = value;
+    },
     abortController: null,
     queue: opts.queue,
     traceEmitter: new TraceEmitter("conv-app-control-preactivation", () => {}),
@@ -164,10 +170,14 @@ function makeFakeContext(opts: {
         compactedMessages: 0,
       } as never;
     },
+    trustContext: {
+      trustClass: "guardian" as const,
+      guardianPrincipalId: "user-1",
+    },
     setTransportHints() {},
     applyHostEnvFromTransport() {},
     ensureHostProxiesForTurn() {},
-  } as unknown as ProcessConversationContext & FakeRecord;
+  } as unknown as Conversation & FakeRecord;
   return ctx;
 }
 
@@ -175,6 +185,7 @@ function makeQueuedMessage(opts: {
   requestId: string;
   content?: string;
   turnInterfaceContext?: TurnInterfaceContext;
+  sourceActorPrincipalId?: string;
 }): QueuedMessage {
   return {
     content: opts.content ?? "follow up",
@@ -184,6 +195,10 @@ function makeQueuedMessage(opts: {
     metadata: {},
     sentAt: Date.now(),
     turnInterfaceContext: opts.turnInterfaceContext,
+    sourceActorPrincipalId: opts.sourceActorPrincipalId,
+    authContext: opts.sourceActorPrincipalId
+      ? ({ actorPrincipalId: opts.sourceActorPrincipalId } as never)
+      : undefined,
   };
 }
 
@@ -322,6 +337,7 @@ describe("drainQueue preactivation re-add for host-proxy interfaces", () => {
       makeQueuedMessage({
         requestId: "req-web-1",
         turnInterfaceContext: ifCtx,
+        sourceActorPrincipalId: "user-1",
       }),
     );
     const ctx = makeFakeContext({ queue, turnInterfaceContext: ifCtx });
@@ -334,6 +350,39 @@ describe("drainQueue preactivation re-add for host-proxy interfaces", () => {
     expect(ctx.preactivatedSkillIdCalls).toContain("app-control");
     expect(ctx.preactivatedSkillIds).toContain("app-control");
     expect(ctx.preactivatedSkillIdCalls).toContain("computer-use");
+  });
+
+  test("drainSingleMessage filters cross-client preactivation by the queued requester, not guardian owner", async () => {
+    mockCapabilityClients = [
+      { clientId: "owner-macos-client", actorPrincipalId: "owner-user" },
+    ];
+    const queue = new MessageQueue();
+    const ifCtx: TurnInterfaceContext = {
+      userMessageInterface: "web",
+      assistantMessageInterface: "web",
+    };
+    queue.push(
+      makeQueuedMessage({
+        requestId: "req-web-attacker",
+        turnInterfaceContext: ifCtx,
+        sourceActorPrincipalId: "trusted-contact-user",
+      }),
+    );
+    const ctx = makeFakeContext({ queue, turnInterfaceContext: ifCtx });
+    ctx.trustContext = {
+      trustClass: "trusted_contact",
+      guardianPrincipalId: "owner-user",
+      sourceChannel: "vellum",
+    };
+
+    await drainQueue(ctx);
+
+    expect(ctx.preactivatedSkillIdCalls).not.toContain("computer-use");
+    expect(ctx.preactivatedSkillIdCalls).not.toContain("app-control");
+    expect(ctx.currentTurnAuthContext?.actorPrincipalId).toBe(
+      "trusted-contact-user",
+    );
+    expect(ctx.currentTurnSourceActorPrincipalId).toBe("trusted-contact-user");
   });
 
   test("drainSingleMessage does NOT re-add 'app-control' for web-sourced message when no capable client is connected", async () => {
@@ -370,6 +419,7 @@ describe("drainQueue preactivation re-add for host-proxy interfaces", () => {
       makeQueuedMessage({
         requestId: "req-web-3",
         turnInterfaceContext: ifCtx,
+        sourceActorPrincipalId: "user-1",
       }),
     );
     const ctx = makeFakeContext({ queue, turnInterfaceContext: ifCtx });

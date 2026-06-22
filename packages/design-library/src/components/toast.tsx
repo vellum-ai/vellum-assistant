@@ -5,7 +5,7 @@ import {
   OctagonX,
   X,
 } from "lucide-react";
-import { type ReactNode } from "react";
+import { type ReactElement, type ReactNode } from "react";
 import { toast as sonnerToast, Toaster as SonnerToaster } from "sonner";
 
 import { cn } from "../utils/cn";
@@ -146,6 +146,12 @@ function showToast(
   );
 }
 
+interface CustomToastOptions {
+  id?: string | number;
+  duration?: number;
+  onDismiss?: (toast: unknown) => void;
+}
+
 const toast = Object.assign(
   (message: string, options?: ToastOptions) =>
     showToast(message, "default", options),
@@ -158,6 +164,11 @@ const toast = Object.assign(
       showToast(message, "error", options),
     success: (message: string, options?: ToastOptions) =>
       showToast(message, "success", options),
+    custom: (
+      render: (id: number | string) => ReactElement,
+      options?: CustomToastOptions,
+    ) => sonnerToast.custom(render, options),
+    dismiss: (id?: string | number) => sonnerToast.dismiss(id),
   },
 );
 

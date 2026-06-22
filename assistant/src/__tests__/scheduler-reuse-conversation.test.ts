@@ -92,7 +92,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { createSchedule, getScheduleRuns } from "../schedule/schedule-store.js";
 import { startScheduler } from "../schedule/scheduler.js";
 
-initializeDb();
+await initializeDb();
 
 /** Access the underlying bun:sqlite Database for raw parameterized queries. */
 function getRawDb(): import("bun:sqlite").Database {
@@ -210,10 +210,13 @@ describe("scheduler conversation reuse", () => {
     expect(runs2[0].conversationId).toBe(firstConversationId);
   });
 
-  test("recurring schedule defaults to reuseConversation=true", async () => {
+  test("recurring schedule defaults to reuseConversation=false", async () => {
     /**
      * When no explicit reuseConversation is provided, recurring schedules
-     * default to true — subsequent runs reuse the same conversation.
+     * default to false — each run gets a fresh conversation. This keeps a
+     * weak model's per-run context bounded instead of accumulating a long,
+     * self-similar transcript that primes it to repeat or drift; durable
+     * cross-run state belongs in workspace files and memory, not history.
      */
 
     // GIVEN a recurring schedule with no explicit reuseConversation
@@ -224,7 +227,7 @@ describe("scheduler conversation reuse", () => {
       message: "Default reuse message",
       syntax: "rrule",
       expression: rruleExpr,
-      // no explicit reuseConversation — should default to true for recurring
+      // no explicit reuseConversation — should default to false
     });
 
     // WHEN the schedule fires for the first time
@@ -250,9 +253,9 @@ describe("scheduler conversation reuse", () => {
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler2.stop();
 
-    // THEN the same conversation is reused
+    // THEN a fresh conversation is created instead of reusing the first
     expect(processedMessages).toHaveLength(1);
-    expect(processedMessages[0].conversationId).toBe(firstConversationId);
+    expect(processedMessages[0].conversationId).not.toBe(firstConversationId);
   });
 
   test("recurring schedule with reuseConversation=false creates new conversation each run", async () => {

@@ -247,8 +247,15 @@ describe("host_bash background mode — proxy path", () => {
     )[0]![0] as Record<string, unknown>;
     expect(wakeCall.conversationId).toBe("conv-xyz");
     expect(wakeCall.hint).toBe(
-      "Background host command completed (id=bg-test-0001):\nproxy success output",
+      "Background host command completed (id=bg-test-0001):",
     );
+    expect(wakeCall.persistTriggerAsEvent).toBe(true);
+    // Command output is fenced as untrusted output, not inlined in the hint.
+    expect(wakeCall.untrustedOutput).toEqual({
+      content: "proxy success output",
+      source: "tool_result",
+      maxChars: 40_000,
+    });
     expect(wakeCall.source).toBe("background-tool");
   });
 
@@ -273,7 +280,11 @@ describe("host_bash background mode — proxy path", () => {
       mockWakeAgentForOpportunity.mock.calls as unknown[][]
     )[0]![0] as Record<string, unknown>;
     expect(wakeCall.hint).toContain("Background host command failed");
-    expect(wakeCall.hint).toContain("command not found");
+    expect(wakeCall.untrustedOutput).toEqual({
+      content: "command not found",
+      source: "tool_result",
+      maxChars: 40_000,
+    });
   });
 
   test("calls wakeAgentForOpportunity on proxy rejection", async () => {
@@ -382,7 +393,10 @@ describe("host_bash background mode — direct execution path", () => {
     )[0]![0] as Record<string, unknown>;
     expect(wakeCall.conversationId).toBe("conv-xyz");
     expect(wakeCall.source).toBe("background-tool");
-    expect(wakeCall.hint).toContain("hello world");
+    expect(wakeCall.hint).toContain("Background host command completed");
+    expect((wakeCall.untrustedOutput as { content: string }).content).toContain(
+      "hello world",
+    );
   });
 
   test("calls wakeAgentForOpportunity with error hint on non-zero exit", async () => {

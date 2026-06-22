@@ -7,6 +7,8 @@
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+import { z } from "zod";
+
 import type { SlackChannelConfigResult } from "../../../../../daemon/handlers/config-slack-channel.js";
 
 // ---------------------------------------------------------------------------
@@ -26,9 +28,26 @@ let mockSetConfigResult: SlackChannelConfigResult = {
   hasAppToken: false,
   hasUserToken: false,
   connected: false,
+  threadMode: "mention_only",
 };
 
 mock.module("../../../../../daemon/handlers/config-slack-channel.js", () => ({
+  SlackChannelConfigResultSchema: z.object({
+    success: z.boolean(),
+    hasBotToken: z.boolean(),
+    hasAppToken: z.boolean(),
+    hasUserToken: z.boolean(),
+    connected: z.boolean(),
+    threadMode: z.enum(["mention_only", "mention_then_thread"]),
+    teamId: z.string().optional(),
+    teamName: z.string().optional(),
+    teamUrl: z.string().optional(),
+    botUserId: z.string().optional(),
+    botUsername: z.string().optional(),
+    error: z.string().optional(),
+    warning: z.string().optional(),
+  }),
+  SlackThreadMode: z.enum(["mention_only", "mention_then_thread"]),
   setSlackChannelConfig: async (
     botToken?: string,
     appToken?: string,
@@ -43,6 +62,7 @@ mock.module("../../../../../daemon/handlers/config-slack-channel.js", () => ({
     hasAppToken: false,
     hasUserToken: false,
     connected: false,
+    threadMode: "mention_only",
   }),
   clearSlackChannelConfig: async (): Promise<SlackChannelConfigResult> => ({
     success: true,
@@ -50,7 +70,9 @@ mock.module("../../../../../daemon/handlers/config-slack-channel.js", () => ({
     hasAppToken: false,
     hasUserToken: false,
     connected: false,
+    threadMode: "mention_only",
   }),
+  patchSlackChannelConfig: () => {},
 }));
 
 import { BadRequestError } from "../../../errors.js";
@@ -65,6 +87,7 @@ describe("POST /v1/integrations/slack/channel/config", () => {
       hasAppToken: false,
       hasUserToken: false,
       connected: false,
+      threadMode: "mention_only",
     };
   });
 
@@ -113,6 +136,7 @@ describe("POST /v1/integrations/slack/channel/config", () => {
       hasAppToken: false,
       hasUserToken: false,
       connected: false,
+      threadMode: "mention_only",
       error: 'Invalid user token: must start with "xoxp-"',
     };
 

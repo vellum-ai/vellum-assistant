@@ -1,9 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  stripAllMemoryInjections,
-  stripExistingMemoryInjections,
-} from "../memory/graph/conversation-graph-memory.js";
+import { stripSpotlightInjections } from "../context/strip-injections.js";
+import { stripExistingMemoryInjections } from "../memory/graph/conversation-graph-memory.js";
+import { wrapMemorySpotlightBlock } from "../memory/memory-marker.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -204,8 +203,8 @@ describe("stripExistingMemoryInjections", () => {
     expect(result[0].content).toEqual([textBlock("hello")]);
   });
 
-  // Regression guard: the v2 helper must remain last-message-only even after
-  // the shared per-message strip is extracted for stripAllMemoryInjections.
+  // Regression guard: the helper must remain last-message-only — memory-v3's
+  // frozen-card carry depends on historical `<memory>` blocks staying intact.
   test("strips ONLY the last user message, leaving earlier ones injected", () => {
     const messages = [
       userMsg(memoryTextBlock, textBlock("first")),
@@ -221,55 +220,50 @@ describe("stripExistingMemoryInjections", () => {
 });
 
 // ---------------------------------------------------------------------------
-// stripAllMemoryInjections — removes memory-injected blocks from EVERY user
-// message (memory-v3 live mode). Reuses the same per-message strip logic.
+// stripSpotlightInjections — the memory-v3 ephemeral spotlight is the ONLY
+// block strip-and-replaced across every user message each turn. Frozen
+// `<memory>` card blocks must never be touched by it (the cache contract);
+// the old whole-layer stripAllMemoryInjections replace is gone.
 // ---------------------------------------------------------------------------
 
-describe("stripAllMemoryInjections", () => {
-  test("strips memory blocks from multiple historical user messages", () => {
+const spotlightBlock = (inner: string): ContentBlock => ({
+  type: "text",
+  text: wrapMemorySpotlightBlock(inner),
+});
+
+describe("stripSpotlightInjections", () => {
+  test("strips spotlight blocks from every user message, leaving <memory> blocks intact", () => {
     const messages = [
-      userMsg(memoryTextBlock, textBlock("first")),
+      userMsg(memoryTextBlock, textBlock("first"), spotlightBlock("s1")),
       assistantMsg("ok"),
-      userMsg(
-        memoryImageMarker,
-        memoryImage,
-        memoryImageClose,
-        memoryTextBlock,
-        textBlock("second"),
-      ),
-      assistantMsg("sure"),
-      userMsg(memoryTextBlock, textBlock("third")),
+      userMsg(memoryTextBlock, textBlock("second"), spotlightBlock("s2")),
     ];
-    const result = stripAllMemoryInjections(messages);
-    expect(result[0].content).toEqual([textBlock("first")]);
+    const result = stripSpotlightInjections(messages);
+    expect(result[0].content).toEqual([memoryTextBlock, textBlock("first")]);
     expect(result[1]).toBe(messages[1]); // assistant message untouched
-    expect(result[2].content).toEqual([textBlock("second")]);
-    expect(result[3]).toBe(messages[3]);
-    expect(result[4].content).toEqual([textBlock("third")]);
+    expect(result[2].content).toEqual([memoryTextBlock, textBlock("second")]);
   });
 
-  test("preserves non-memory content and user-attached images", () => {
-    const messages = [
-      userMsg(memoryTextBlock, imageBlock, textBlock("what is this?")),
-      userMsg(textBlock("plain message")),
-    ];
-    const result = stripAllMemoryInjections(messages);
-    expect(result[0].content).toEqual([imageBlock, textBlock("what is this?")]);
-    expect(result[1].content).toEqual([textBlock("plain message")]);
+  test("requires the full wrapper: user text merely starting with the tag survives", () => {
+    const lookalike = textBlock("<memory_spotlight>\nnot really a block");
+    const messages = [userMsg(lookalike, textBlock("hello"))];
+    const result = stripSpotlightInjections(messages);
+    expect(result[0].content).toEqual([lookalike, textBlock("hello")]);
   });
 
-  test("no-op (same reference) when no user message carries a memory block", () => {
+  test("content no-op when no spotlight blocks exist", () => {
     const messages = [
-      userMsg(textBlock("hello")),
+      userMsg(memoryTextBlock, textBlock("hello")),
       assistantMsg("hi"),
       userMsg(imageBlock),
     ];
-    const result = stripAllMemoryInjections(messages);
-    expect(result).toBe(messages);
+    const result = stripSpotlightInjections(messages);
+    expect(result).toEqual(messages);
+    // Untouched messages keep their identity (cheap no-op detection upstream).
+    expect(result[0]).toBe(messages[0]);
   });
 
   test("no-op for empty messages array", () => {
-    const result = stripAllMemoryInjections([]);
-    expect(result).toEqual([]);
+    expect(stripSpotlightInjections([])).toEqual([]);
   });
 });

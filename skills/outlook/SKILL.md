@@ -3,8 +3,10 @@ name: outlook
 description: Manage Outlook email — drafting, sending, organizing, rules, vacation replies, and inbox analysis
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "📧"
   vellum:
+    category: "email"
     display-name: "Outlook"
     user-invocable: true
 ---
@@ -100,13 +102,6 @@ Do not offer the assistant's own email as an option unless the user specifically
 
 1. **Check connection health first.** Run `assistant oauth ping outlook`. This checks whether the user's Outlook/Microsoft account is connected and the token is valid.
 2. **If no connection is found or the ping fails:** Load the `vellum-oauth-integrations` skill. The skill will evaluate whether managed or your-own mode is appropriate and guide the user accordingly.
-
-## Communication Style
-
-- **Be action-oriented.** When the user asks to do something ("declutter", "check my email"), start doing it immediately. Don't ask for permission to read their inbox - that's obviously what they want.
-- **Keep it human.** Never mention OAuth, tokens, APIs, sandboxes, credential proxies, or other technical internals. If something isn't working, say "Outlook needs to be reconnected" - not "the OAuth2 access token for outlook has expired."
-- **Show progress.** When running a script that scans many emails, tell the user what you're doing: "Scanning your inbox for clutter..." Don't go silent.
-- **Be brief and warm.** One or two sentences per update is plenty. Don't over-explain what you're about to do - just do it and narrate lightly.
 
 ## Error Recovery
 

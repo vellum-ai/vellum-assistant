@@ -46,13 +46,13 @@ import { resetDbForTesting } from "./db-test-helpers.js";
 const TEST_KEY = Buffer.from("test-signing-key-32-bytes-long!!");
 
 // ---------------------------------------------------------------------------
-initializeDb();
+await initializeDb();
 
-beforeEach(() => {
+beforeEach(async () => {
   initAuthSigningKey(TEST_KEY);
   resetExternalAssistantIdCache();
   resetDbForTesting();
-  initializeDb();
+  await initializeDb();
 });
 
 // ---------------------------------------------------------------------------

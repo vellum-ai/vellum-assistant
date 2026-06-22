@@ -441,6 +441,7 @@ describe("regenerate with web_search_tool_result", () => {
 
     const events: Array<{ type: string; message?: string }> = [];
 
+    let processing = false;
     const session: HistoryConversationContext = {
       conversationId,
       traceEmitter: {
@@ -448,7 +449,10 @@ describe("regenerate with web_search_tool_result", () => {
       } as unknown as HistoryConversationContext["traceEmitter"],
       sendToClient: (msg) => events.push(msg),
       messages: [...inMemoryMessages],
-      processing: false,
+      isProcessing: () => processing,
+      setProcessing: (value: boolean) => {
+        processing = value;
+      },
       abortController: null,
       async runAgentLoop(content, userMessageId) {
         agentLoopCalled = true;
@@ -751,6 +755,7 @@ describe("web_search_tool_result structural guard", () => {
     // (array of web_search_result objects) and is not truncated this way.
     "context/tool-result-truncation.ts",
     "context/post-turn-tool-result-truncation.ts",
+    "context/tool-result-spool.ts",
 
     // Anthropic provider type guards define API-specific discriminants.
     // It has a separate isWebSearchToolResultBlock for the other type.
@@ -778,6 +783,26 @@ describe("web_search_tool_result structural guard", () => {
     // provider, not the local tool executor, so they never flow here.
     "agent/loop.ts",
 
+    // Counts consecutive errors for locally-executed tools to bound retry
+    // coaching. Server-side web search results (web_search_tool_result) carry
+    // no is_error flag and are not produced by the tool executor, so only
+    // tool_result is relevant. Same reasoning as agent/loop.ts above.
+    "plugins/defaults/tool-error/hooks/post-tool-use.ts",
+
+    // Counts unbroken runs of locally-executed exploration tools (bash,
+    // file_read, file_list) to detect inline drift. Server-side web search
+    // results (web_search_tool_result) are not produced by the tool executor;
+    // any non-exploration block simply bounds the trailing run, which is the
+    // conservative direction (fewer nudges). Same reasoning as agent/loop.ts.
+    "plugins/defaults/exploration-drift/hooks/post-tool-use.ts",
+
+    // Detects turn boundaries by checking whether a user message carries any
+    // tool_result block (internal continuation) vs. none (genuine user prompt).
+    // A web_search_tool_result-only message is also internal, but treating one
+    // as a boundary only bounds the round count early — the conservative
+    // direction (fewer nudges). Same reasoning as exploration-drift above.
+    "plugins/defaults/task-progress-nudge/hooks/post-tool-use.ts",
+
     // Reconciles synthesized cancellation tool_results for locally-executed
     // tools only. Same reasoning as agent/loop.ts above.
     "daemon/conversation-agent-loop.ts",
@@ -797,7 +822,12 @@ describe("web_search_tool_result structural guard", () => {
     // Media token counting iterates tool_result.contentBlocks for nested
     // image/file blocks. web_search_tool_result has opaque content with no
     // contentBlocks property, so it cannot contain nested media.
-    "daemon/context-overflow-reducer.ts",
+    "plugins/defaults/compaction/context-overflow-reducer.ts",
+
+    // Downgrades permanently-unsendable images nested in tool_result.contentBlocks
+    // (e.g. an oversized browser screenshot). web_search_tool_result has opaque
+    // content with no contentBlocks property, so it cannot hold such an image.
+    "plugins/defaults/image-recovery/recover.ts",
 
     // Final orphan-pair safety pass in the Slack transcript renderer.
     // Server-side block types (`server_tool_use`, `web_search_tool_result`)

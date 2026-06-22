@@ -158,6 +158,12 @@ declare -a SAFE_LINE_PATTERNS=(
     "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*\{[[:space:]]*$"
     # Inline JSON-schema property definition (e.g. `client_secret: { type: "string" },`).
     "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*\{[[:space:]]*type:"
+    # TS: Zod schema field whose entire value is a quote-free `z.` builder chain
+    # (e.g. `client_secret: z.string()`, `private_key: z.string().optional()`).
+    # Anchored to end-of-line and restricted to identifier/dot/paren/digit chars,
+    # so a line embedding a quoted literal (e.g. `z.string().default("sk_live…")`)
+    # is NOT whitelisted and still hits the high-entropy secret patterns.
+    "([Cc]lient[_-]?[Ss]ecret|[Pp]rivate[_-]?[Kk]ey)['\"]?:[[:space:]]*z[a-zA-Z0-9_.()[:space:]]*[,;]?[[:space:]]*$"
     # YAML schema property declaration with no value on the same line — the
     # nested type definition follows on subsequent lines (e.g. OpenAPI specs:
     # `clientSecret:\n  type: string`). A real secret value would be on the
@@ -221,6 +227,33 @@ declare -a SAFE_LINE_PATTERNS=(
     # crosses the 16-char threshold for some providers (e.g. salesforce-oauth).
     # The value is a routing identifier, not a credential.
     "managedServiceConfigKey['\"]?[[:space:]]*:[[:space:]]*['\"][a-z][a-z0-9-]*-oauth['\"]"
+    # Kubernetes / Docker stateful-set env spec entries declaring a secret
+    # resource reference (e.g. `{ kind: "secret", name: "TOKEN", secret: "keyName" }`).
+    # The `secret` field is the k8s secret object name, not an actual credential.
+    # Must match the full `kind: "secret" ... secret: "refName"` span so the
+    # strip-and-recheck pass doesn't leave a partial match.
+    "kind:[[:space:]]*['\"]secret['\"].*secret:[[:space:]]*['\"][a-zA-Z][a-zA-Z0-9]*['\"]"
+    # Documentation/example OAuth scripts that reference a secret indirectly: the
+    # value is a shell/env variable ($CLIENT_SECRET) or a SCREAMING_SNAKE
+    # placeholder identifier (CLIENT_SECRET), not a literal credential. Covers
+    # curl `-d "...&client_secret=$CLIENT_SECRET"`, Python `'client_secret':
+    # CLIENT_SECRET`, and similar. The value must be `[$]?` + an UPPER_SNAKE
+    # token with at least one underscore — real credentials are quoted
+    # mixed/lowercase high-entropy strings, so this never masks one (an
+    # unquoted lowercase value or a digit-only AWS-style key has no underscore
+    # group and is still flagged). Case-sensitive on the value to keep it tight.
+    # The value is anchored to a trailing delimiter (quote, whitespace, & , ; )
+    # } or end-of-line) so the placeholder must be the *whole* value. A real
+    # secret that merely begins with an UPPER_SNAKE prefix (e.g. the curl string
+    # `...&client_secret=PROD_KEYabc123"`) is therefore not prefix-matched, so
+    # the strip-and-recheck pass can't drop the `client_secret=` keyword and let
+    # the lowercase remainder through.
+    "['\"]?[A-Za-z0-9_]*[Ss][Ee][Cc][Rr][Ee][Tt]['\"]?[[:space:]]*[:=][[:space:]]*[$]?[A-Z][A-Z0-9]*(_[A-Z0-9]+)+(['\"&,;)}[:space:]]|\$)"
+    # Same intent for an assignment whose value is a *quoted* SCREAMING_SNAKE
+    # placeholder (e.g. `CLIENT_SECRET = 'YOUR_CLIENT_SECRET'`). The quoted value
+    # must be an UPPER_SNAKE token with an underscore group; a quoted real secret
+    # (lowercase/mixed) does not match and stays flagged.
+    "[A-Za-z0-9_]*[Ss][Ee][Cc][Rr][Ee][Tt][[:space:]]*=[[:space:]]*['\"][A-Z][A-Z0-9]*(_[A-Z0-9]+)+['\"]"
 )
 
 matches_safe_line_pattern() {
@@ -338,7 +371,7 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_SWIFT_DECL_LINE='public let clientSecret: String?'
     SAFE_DOC_PLACEHOLDER_LINE='  oauth2ClientSecret: "<optional>",'
     SAFE_DESC_PLACEHOLDER_LINE='client_secret: "<the extracted Client Secret>"'
-    SAFE_DESC_PLACEHOLDER_LINE2='  "authToken": "<value from credential_store for twilio/auth_token>"'
+    SAFE_DESC_PLACEHOLDER_LINE2='  "authToken": "<value from assistant credentials reveal for twilio/auth_token>"'
     UNSAFE_ANGLEBRACKET_SECRET='clientSecret: "<abcDEF1234567890>"'
     UNSAFE_PASSPHRASE_SECRET='client_secret: "<correct horse battery staple>"'
     # TS: clientSecret with union type annotation (false positive to whitelist)
@@ -348,6 +381,29 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_GHA_SECRETS_LINE='          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}'
     SAFE_GHA_SECRETS_COMMENT_LINE='          client_secret: ${{ secrets.CLIENT_SECRET }} # rotated monthly'
     UNSAFE_GHA_SECRETS_FALLBACK='          client_secret: ${{ secrets.CLIENT_SECRET || "SuperSecretFallback12345" }}'
+
+    # Documentation/example OAuth scripts that reference a secret via a shell/env
+    # variable or a SCREAMING_SNAKE placeholder (false positives to whitelist).
+    SAFE_ENV_VAR_SECRET='  -d "grant_type=refresh_token&client_id=$CLIENT_ID&client_secret=$CLIENT_SECRET"'
+    SAFE_PLACEHOLDER_VALUE_SECRET='  -d "grant_type=refresh_token&client_id=CLIENT_ID&client_secret=CLIENT_SECRET"'
+    SAFE_PY_DICT_VAR_SECRET="                    'client_secret': CLIENT_SECRET,"
+    SAFE_ASSIGN_PLACEHOLDER_SECRET="CLIENT_SECRET = 'YOUR_CLIENT_SECRET'"
+    # Same shapes carrying a real literal value — must NOT be whitelisted.
+    # (Bare unquoted identifier-shaped values like `=sk_live_abc` are already
+    # treated as variable references by an existing pattern; these use shapes
+    # that are not identifier-like — hyphenated, quoted lowercase, quoted
+    # mixed-case — to verify the new patterns don't mask a literal credential.)
+    UNSAFE_ENV_VAR_REAL_SECRET='client_secret=sk-live-1234567890abcdef'
+    UNSAFE_QUOTED_REAL_SECRET="client_secret = 'sk_live_1234567890abcdef'"
+    UNSAFE_QUOTED_MIXED_SECRET='client_secret: "Ab12Cd34Ef56Gh78Ij90"'
+    # Real secret embedded in a curl string whose value merely *begins* with an
+    # UPPER_SNAKE prefix and continues with lowercase/digit entropy. The trailing
+    # `"` keeps the existing variable-reference allowlist from matching, so this
+    # exercises the SCREAMING_SNAKE allowlist directly: without the value's
+    # trailing-delimiter anchor the prefix would match, the strip-and-recheck
+    # pass would drop the `client_secret=` keyword, and the remainder would slip
+    # through. Must stay flagged.
+    UNSAFE_SNAKE_PREFIX_SECRET='  -d "grant_type=client_credentials&client_secret=PROD_KEYa1b2c3d4e5f6g7h8"'
 
     # TS/JS: camelCase property identifiers (false positives to avoid)
     SAFE_TS_TYPEOF_LINE='    oauth2ClientSecret: typeof record.oauth2ClientSecret === '\''string'\'' ? record.oauth2ClientSecret : undefined,'
@@ -379,6 +435,11 @@ if [ "${1:-}" = "--self-test" ]; then
     UNSAFE_FUNC_CALL_SINGLE_QUOTE="const privateKey = loadPrivateKey('real_secret_key_value_12345')"
     # Type-annotated property (false positive to whitelist)
     SAFE_TYPED_PROP_SECRET='  requiresClientSecret: boolean;'
+    # Zod schema field whose value is a z. builder call (false positives to whitelist)
+    SAFE_ZOD_SCHEMA_SECRET='  client_secret: z.string().optional(),'
+    SAFE_ZOD_SCHEMA_PRIVATE_KEY='  private_key: z.string(),'
+    # Zod field name with a hardcoded string literal default — must NOT be whitelisted
+    UNSAFE_ZOD_SCHEMA_LITERAL='  client_secret: z.string().default("sk_live_12345678901234567890"),'
     # Variable-to-variable assignment (false positive to whitelist)
     SAFE_VAR_ASSIGN_SECRET='body.client_secret = clientSecret;'
     SAFE_VAR_NULLISH_SECRET='oauth2ClientSecret: clientSecret ?? undefined,'
@@ -559,7 +620,7 @@ if [ "${1:-}" = "--self-test" ]; then
         exit 1
     fi
     if matches_secret_pattern "$SAFE_DESC_PLACEHOLDER_LINE2" && ! matches_safe_line_pattern "$SAFE_DESC_PLACEHOLDER_LINE2"; then
-        echo -e "${RED}Self-test failed:${NC} descriptive doc placeholder '<value from credential_store ...>' false positive"
+        echo -e "${RED}Self-test failed:${NC} descriptive doc placeholder '<value from assistant credentials ...>' false positive"
         exit 1
     fi
     if matches_secret_pattern "$UNSAFE_ANGLEBRACKET_SECRET" && matches_safe_line_pattern "$UNSAFE_ANGLEBRACKET_SECRET"; then
@@ -620,6 +681,18 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$SAFE_FUNC_CALL_SECRET" && ! matches_safe_line_pattern "$SAFE_FUNC_CALL_SECRET"; then
         echo -e "${RED}Self-test failed:${NC} function-call clientSecret assignment false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_ZOD_SCHEMA_SECRET" && ! matches_safe_line_pattern "$SAFE_ZOD_SCHEMA_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} Zod client_secret schema field false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_ZOD_SCHEMA_PRIVATE_KEY" && ! matches_safe_line_pattern "$SAFE_ZOD_SCHEMA_PRIVATE_KEY"; then
+        echo -e "${RED}Self-test failed:${NC} Zod private_key schema field false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$UNSAFE_ZOD_SCHEMA_LITERAL" && matches_safe_line_pattern "$UNSAFE_ZOD_SCHEMA_LITERAL"; then
+        echo -e "${RED}Self-test failed:${NC} Zod schema field with hardcoded literal was incorrectly whitelisted"
         exit 1
     fi
     if matches_secret_pattern "$SAFE_FUNC_CALL_AWAIT" && ! matches_safe_line_pattern "$SAFE_FUNC_CALL_AWAIT"; then
@@ -760,6 +833,38 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_safe_line_pattern "$UNSAFE_SWIFT_CODING_KEY_CREDENTIAL"; then
         echo -e "${RED}Self-test failed:${NC} Swift CodingKeys enum case with sensitive name (credential) was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_ENV_VAR_SECRET" && ! matches_safe_line_pattern "$SAFE_ENV_VAR_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} OAuth example referencing client_secret via \$ENV var false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_PLACEHOLDER_VALUE_SECRET" && ! matches_safe_line_pattern "$SAFE_PLACEHOLDER_VALUE_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} OAuth example referencing client_secret via SCREAMING_SNAKE placeholder false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_PY_DICT_VAR_SECRET" && ! matches_safe_line_pattern "$SAFE_PY_DICT_VAR_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} Python dict client_secret bound to a placeholder variable false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_ASSIGN_PLACEHOLDER_SECRET" && ! matches_safe_line_pattern "$SAFE_ASSIGN_PLACEHOLDER_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} CLIENT_SECRET assigned a quoted SCREAMING_SNAKE placeholder false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$UNSAFE_ENV_VAR_REAL_SECRET" && matches_safe_line_pattern "$UNSAFE_ENV_VAR_REAL_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} unquoted lowercase real client_secret value was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_secret_pattern "$UNSAFE_QUOTED_REAL_SECRET" && matches_safe_line_pattern "$UNSAFE_QUOTED_REAL_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} quoted lowercase real client_secret value was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_secret_pattern "$UNSAFE_QUOTED_MIXED_SECRET" && matches_safe_line_pattern "$UNSAFE_QUOTED_MIXED_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} quoted mixed-case real client_secret value was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_secret_pattern "$UNSAFE_SNAKE_PREFIX_SECRET" && matches_safe_line_pattern "$UNSAFE_SNAKE_PREFIX_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} real client_secret value with an UPPER_SNAKE prefix was incorrectly whitelisted"
         exit 1
     fi
 
@@ -944,7 +1049,7 @@ fi
 # When files in these directories are staged, run prettier --check and eslint
 # on the staged files to catch formatting and lint issues before commit.
 DIRS_WITH_PRETTIER=("assistant" "cli" "gateway")
-DIRS_TO_CHECK=("${DIRS_WITH_PRETTIER[@]}" "apps/web")
+DIRS_TO_CHECK=("${DIRS_WITH_PRETTIER[@]}" "clients/web")
 
 # Detect bun location (reused by message contract check below)
 BUN="${BUN:-$(command -v bun 2>/dev/null || echo "$HOME/.bun/bin/bun")}"
@@ -1028,13 +1133,13 @@ for DIR in "${DIRS_TO_CHECK[@]}"; do
     fi
 done
 
-# --- TypeScript type-check for assistant/ and apps/web/ ---
+# --- TypeScript type-check for assistant/ and clients/web/ ---
 # Full-project tsc catches cross-file type errors that per-file lint misses.
 # assistant/ uses --incremental + --declaration false to keep warm runs at ~5s.
 # Without --declaration false, the tsconfig's declaration:true causes tsc to
 # mark all 1600+ files as "pending emit" on every --noEmit run, defeating
 # incremental caching and falling back to ~20s full rebuilds.
-# apps/web/ doesn't need that workaround (no declaration:true).
+# clients/web/ doesn't need that workaround (no declaration:true).
 
 # Shared worktree detection (skip tsc in worktrees — cold cache is slow).
 _GIT_DIR="$(git rev-parse --git-dir 2>/dev/null)"
@@ -1069,8 +1174,8 @@ if [ $ASSISTANT_TS_STAGED -eq 1 ]; then
     fi
 fi
 
-# Type-check apps/web/
-TYPECHECK_WEB_DIRS=("apps/web")
+# Type-check clients/web/
+TYPECHECK_WEB_DIRS=("clients/web")
 for WEB_DIR in "${TYPECHECK_WEB_DIRS[@]}"; do
     WEB_TS_STAGED=0
     while IFS= read -r -d '' FILE; do

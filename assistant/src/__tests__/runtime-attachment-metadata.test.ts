@@ -59,7 +59,7 @@ import { RuntimeHttpServer } from "../runtime/http-server.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
-initializeDb();
+await initializeDb();
 
 afterAll(() => {
   resetDbForTesting();
@@ -256,7 +256,6 @@ describe("WhatsApp channel ingress attachment resolution", () => {
         {
           type: "whatsapp",
           address: WHATSAPP_USER_ID,
-          externalUserId: WHATSAPP_USER_ID,
           status: "active",
           policy: "allow",
         },

@@ -105,6 +105,16 @@ export const SEARCH_PROVIDER_CATALOG: readonly SearchProviderCatalogEntry[] = [
     fallbackOrder: 3,
     privacyPolicyUrl: "https://tavily.com/privacy",
   },
+  {
+    id: "firecrawl",
+    displayName: "Firecrawl",
+    kind: "byok",
+    apiKeyPrefix: "fc-...",
+    envVar: "FIRECRAWL_API_KEY",
+    secretKey: "firecrawl",
+    fallbackOrder: 4,
+    privacyPolicyUrl: "https://www.firecrawl.dev/privacy-policy",
+  },
 ];
 
 /** Provider ids accepted by the web-search config schema. */

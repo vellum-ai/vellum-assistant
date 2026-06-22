@@ -25,6 +25,7 @@ import { getSqliteFrom } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { migrateLlmRequestLogProvider } from "../memory/migrations/184-llm-request-log-provider.js";
 import * as schema from "../memory/schema.js";
+import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getDbPath } from "../util/platform.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
@@ -62,11 +63,13 @@ describe("llm_request_logs provider migration", () => {
     process.env.BUN_TEST = "0";
     resetDbForTesting();
     removeTestDbFiles(getDbPath());
+    removeTestDbFiles(getLogsDbPath());
   });
 
   afterEach(() => {
     resetDbForTesting();
     removeTestDbFiles(getDbPath());
+    removeTestDbFiles(getLogsDbPath());
   });
 
   afterAll(() => {
@@ -77,12 +80,14 @@ describe("llm_request_logs provider migration", () => {
     }
     resetDbForTesting();
     removeTestDbFiles(getDbPath());
+    removeTestDbFiles(getLogsDbPath());
   });
 
-  test("fresh DB initialization includes llm_request_logs.provider", () => {
-    initializeDb();
+  test("fresh DB initialization includes llm_request_logs.provider", async () => {
+    await initializeDb();
 
-    const raw = new Database(getDbPath());
+    // llm_request_logs now lives in the attached logs database.
+    const raw = new Database(getLogsDbPath());
     const columns = getColumnInfo(raw);
 
     expect(columns.some((column) => column.name === "provider")).toBe(true);

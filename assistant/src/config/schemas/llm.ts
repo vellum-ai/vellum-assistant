@@ -13,15 +13,19 @@ import { z } from "zod";
 // Provider enum
 // ---------------------------------------------------------------------------
 
-const LLMProvider = z.enum([
-  "anthropic",
-  "openai",
-  "gemini",
-  "ollama",
-  "fireworks",
-  "openrouter",
-  "openai-compatible",
-]);
+export const LLMProvider = z
+  .enum([
+    "anthropic",
+    "openai",
+    "gemini",
+    "ollama",
+    "fireworks",
+    "openrouter",
+    "openai-compatible",
+    "minimax",
+    "atlascloud",
+  ])
+  .meta({ id: "LLMProvider" });
 type LLMProvider = z.infer<typeof LLMProvider>;
 
 // ---------------------------------------------------------------------------
@@ -49,7 +53,6 @@ export const LLMCallSiteEnum = z.enum([
   "memoryV2Migration",
   "memoryV2Sweep",
   "memoryRouter",
-  "memoryV3RouteL1",
   "memoryV3SelectL2",
   "memoryV2Consolidation",
   "memoryRetrospective",
@@ -75,11 +78,12 @@ export const LLMCallSiteEnum = z.enum([
   "meetConsentMonitor",
   "meetChatOpportunity",
   "inference",
+  "advisor",
+  "vision",
   "trustRuleSuggestion",
-  "proactiveArtifactDecision",
-  "proactiveArtifactBuild",
   "homeGreeting",
   "homeSuggestedPrompts",
+  "workflowLeaf",
 ]);
 export type LLMCallSite = z.infer<typeof LLMCallSiteEnum>;
 
@@ -125,6 +129,22 @@ const VerbosityEnum = z.enum(["low", "medium", "high"]);
 const ModelSchema = z.string().min(1);
 const MaxTokensSchema = z.number().int().positive();
 const TemperatureSchema = z.number().min(0).max(2).nullable();
+// `top_p` (nucleus sampling). Range 0–1; `null` = "no opinion — let the
+// provider pick its own default" (matches TemperatureSchema's null
+// semantics). `RetryProvider` renames `topP`→`top_p` and only forwards a
+// non-null value, so providers never receive `top_p: null`.
+const TopPSchema = z.number().min(0).max(1).nullable();
+// Named, code-resolved logit-bias preset a profile may opt into. The value is a
+// preset *name*, not an inline token→bias map, so the workspace config stays
+// small. This is profile-identity metadata, not inheritable config: the resolver
+// strips it from the deep-merge and re-attaches it from the winning profile (see
+// `profileConfigFragment` / `resolveCallSiteConfig`), and `RetryProvider`
+// resolves it to a `logit_bias` map at request time, forwarded only on the
+// Fireworks (OpenAI-compatible) path. Keep these literals in sync with the
+// presets handled by `resolveLogitBiasPreset` in
+// `providers/inference/logit-bias.ts` (kept separate to avoid a schema →
+// provider import cycle).
+const LogitBiasPresetSchema = z.enum(["suppress-cjk"]);
 
 // ---------------------------------------------------------------------------
 // Thinking & ContextWindow
@@ -314,9 +334,24 @@ export const LLMConfigBase = z.object({
   speed: SpeedEnum.default("standard"),
   verbosity: VerbosityEnum.default("medium"),
   temperature: TemperatureSchema.default(null),
+  topP: TopPSchema.default(null),
   thinking: ThinkingSchema.default(ThinkingSchema.parse({})),
   contextWindow: ContextWindowSchema.default(ContextWindowSchema.parse({})),
   openrouter: OpenRouterSchema.default(OpenRouterSchema.parse({})),
+  // Not deep-merged like the other fields: `resolveCallSiteConfig` sets this
+  // from the single highest-precedence profile that won resolution (see
+  // `profileConfigFragment`, which strips it from the merge), so a preset
+  // can't bleed from a lower-precedence profile into one that didn't opt in.
+  logitBias: LogitBiasPresetSchema.optional(),
+  /**
+   * Opt this config out of prompt caching. Providers send no cache
+   * breakpoints and strip caller-stamped `cache_control` markers. Intended
+   * for one-shot call sites whose prompts never repeat (or repeat slower
+   * than the cache TTL), where every breakpoint is a paid cache write with
+   * no future read. Optional (no schema default) so it only appears in
+   * resolved configs when a layer sets it.
+   */
+  disableCache: z.boolean().optional(),
 });
 export type LLMConfigBase = z.infer<typeof LLMConfigBase>;
 
@@ -326,21 +361,28 @@ export type LLMConfigBase = z.infer<typeof LLMConfigBase>;
  * objects so callers can override individual leaves (e.g. `{ thinking:
  * { enabled: false } }`).
  */
-const LLMConfigFragment = z.object({
-  provider: LLMProvider.optional(),
-  model: ModelSchema.optional(),
-  maxTokens: MaxTokensSchema.optional(),
-  effort: EffortEnum.optional(),
-  speed: SpeedEnum.optional(),
-  verbosity: VerbosityEnum.optional(),
-  temperature: TemperatureSchema.optional(),
-  thinking: ThinkingFragmentSchema.optional(),
-  contextWindow: ContextWindowDeepPartialSchema.optional(),
-  openrouter: OpenRouterDeepPartialSchema.optional(),
-});
-type LLMConfigFragment = z.infer<typeof LLMConfigFragment>;
+export const LLMConfigFragment = z
+  .object({
+    provider: LLMProvider.optional(),
+    model: ModelSchema.optional(),
+    maxTokens: MaxTokensSchema.optional(),
+    effort: EffortEnum.optional(),
+    speed: SpeedEnum.optional(),
+    verbosity: VerbosityEnum.optional(),
+    temperature: TemperatureSchema.optional(),
+    topP: TopPSchema.optional(),
+    thinking: ThinkingFragmentSchema.optional(),
+    contextWindow: ContextWindowDeepPartialSchema.optional(),
+    openrouter: OpenRouterDeepPartialSchema.optional(),
+    logitBias: LogitBiasPresetSchema.optional(),
+    disableCache: z.boolean().optional(),
+  })
+  .meta({ id: "LLMConfigFragment" });
+export type LLMConfigFragment = z.infer<typeof LLMConfigFragment>;
 
-export const ProfileStatusSchema = z.enum(["active", "disabled"]);
+export const ProfileStatusSchema = z
+  .enum(["active", "disabled"])
+  .meta({ id: "ProfileStatus" });
 export type ProfileStatus = z.infer<typeof ProfileStatusSchema>;
 
 // ---------------------------------------------------------------------------
@@ -400,6 +442,13 @@ export const ProfileEntry = LLMConfigFragment.extend({
    */
   status: ProfileStatusSchema.nullable().optional(),
   /**
+   * Whether the advisor is active while this profile is the chat profile.
+   * Absent/null means enabled (default on); only an explicit `false` disables
+   * it. `.nullable()` matches `status`/`label` so the PUT route's "send null
+   * to clear" sentinel resets it back to the default-on state.
+   */
+  advisorEnabled: z.boolean().nullable().optional(),
+  /**
    * When present, this profile is a "mix": it carries no model config and
    * instead references a weighted list of standard profiles. The resolver
    * expands a mix by a seeded weighted pick (see `resolveCallSiteConfig`).
@@ -442,6 +491,11 @@ export const LLMSchema = z
     // schema level, so `LLMSchema.parse({})` yields an empty map.
     callSites: z.partialRecord(LLMCallSiteEnum, LLMCallSiteConfig).default({}),
     activeProfile: z.string().min(1).optional(),
+    // The profile the advisor consults (chosen under Models & Services). It is
+    // excluded from the chat-profile pickers so it can't be selected as the
+    // assistant's chat model. Absent falls back to the `advisor` call-site
+    // default (`quality-optimized`).
+    advisorProfile: z.string().min(1).optional(),
     // TTL bounds for inference profile sessions. `defaultTtlSeconds` is read by
     // the CLI to apply when `--ttl` is omitted; the daemon handler itself only
     // reads `maxTtlSeconds` (to clamp caller-supplied values).
@@ -473,6 +527,16 @@ export const LLMSchema = z
         code: "custom",
         path: ["activeProfile"],
         message: `Profile "${config.activeProfile}" referenced by llm.activeProfile is not defined in llm.profiles`,
+      });
+    }
+    if (
+      config.advisorProfile != null &&
+      !profileNames.has(config.advisorProfile)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["advisorProfile"],
+        message: `Profile "${config.advisorProfile}" referenced by llm.advisorProfile is not defined in llm.profiles`,
       });
     }
 

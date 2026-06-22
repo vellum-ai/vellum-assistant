@@ -36,7 +36,7 @@ mock.module("../memory/conversation-crud.js", () => ({
  */
 const capturedMessages: string[] = [];
 
-mock.module("../daemon/conversation-store.js", () => ({
+mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (_id: string) => ({
     enqueueMessage: (options: { content: string }) => {
       capturedMessages.push(options.content);
@@ -45,8 +45,6 @@ mock.module("../daemon/conversation-store.js", () => ({
     persistUserMessage: async () => ({ id: "mock-msg", deduplicated: false }),
     runAgentLoop: async () => {},
   }),
-  addConversation: () => {},
-  removeConversation: () => {},
 }));
 
 mock.module("../runtime/assistant-event-hub.js", () => ({

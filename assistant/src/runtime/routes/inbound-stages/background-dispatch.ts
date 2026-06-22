@@ -14,16 +14,13 @@ import type { TrustContext } from "../../../daemon/trust-context.js";
 import {
   addSlackDmLiveDeliveredTextResponseIndex,
   getSlackDmLiveDeliveredTextResponseIndexes,
-  updateDeliveredSegmentCount,
 } from "../../../memory/delivery-channels.js";
 import {
   linkMessage,
   storeReplyMessageId,
 } from "../../../memory/delivery-crud.js";
 import {
-  markDeliveryDelivered,
   markProcessed,
-  recordDeliveryFailure,
   recordProcessingFailure,
 } from "../../../memory/delivery-status.js";
 import {
@@ -53,7 +50,7 @@ import {
   isSlackDeliveryCallbackUrl,
 } from "../../slack-dm-text-delivery.js";
 import { resolveRoutingState } from "../../trust-context-resolver.js";
-import { deliverReplyViaCallback } from "../channel-delivery-routes.js";
+import { finalizeEventDelivery } from "../channel-delivery-routes.js";
 import { deliverGeneratedApprovalPrompt } from "../guardian-approval-prompt.js";
 
 const log = getLogger("runtime-http");
@@ -265,29 +262,25 @@ export function processChannelMessageInBackground(
 
       let userMessageId: string | undefined;
       try {
-        const result = await processMessage(
-          conversationId,
-          content,
+        const result = await processMessage(conversationId, content, {
           attachmentIds,
-          {
-            transport: {
-              channelId: sourceChannel,
-              hints: metadataHints.length > 0 ? metadataHints : undefined,
-              uxBrief: metadataUxBrief,
-              chatType,
-              ...(clientTimezone ? { clientTimezone } : {}),
-            },
-            assistantId,
-            trustContext: trustCtx,
-            isInteractive: resolveRoutingState(trustCtx).promptWaitingAllowed,
-            ...(displayContent !== undefined ? { displayContent } : {}),
-            ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
-            ...(slackInbound ? { slackInbound } : {}),
-            onEvent: observeAgentEvent,
+          transport: {
+            channelId: sourceChannel,
+            hints: metadataHints.length > 0 ? metadataHints : undefined,
+            uxBrief: metadataUxBrief,
+            chatType,
+            ...(clientTimezone ? { clientTimezone } : {}),
           },
+          assistantId,
+          trustContext: trustCtx,
+          isInteractive: resolveRoutingState(trustCtx).promptWaitingAllowed,
+          ...(displayContent !== undefined ? { displayContent } : {}),
+          ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
+          ...(slackInbound ? { slackInbound } : {}),
+          onEvent: observeAgentEvent,
           sourceChannel,
           sourceInterface,
-        );
+        });
         userMessageId = result.messageId;
         linkMessage(eventId, userMessageId);
         markProcessed(eventId);
@@ -330,32 +323,21 @@ export function processChannelMessageInBackground(
 
       if (replyCallbackUrl) {
         try {
-          if (slackDmTextDelivery) {
-            await slackDmTextDelivery.waitForPendingDeliveries();
-          }
-          const liveDeliveryResumeOptions =
-            slackDmTextDelivery?.getFinalDeliveryResumeOptions(replyMessageId);
-
-          await deliverReplyViaCallback(
+          await finalizeEventDelivery({
+            eventId,
             conversationId,
             externalChatId,
             replyCallbackUrl,
             assistantId,
-            {
-              messageId: replyMessageId,
-              sinceMessageId: userMessageId,
-              ...liveDeliveryResumeOptions,
-              onSegmentDelivered: (count) =>
-                updateDeliveredSegmentCount(eventId, count),
-            },
-          );
-          markDeliveryDelivered(eventId);
+            replyMessageId,
+            userMessageId,
+            slackDmTextDelivery,
+          });
         } catch (err) {
           log.error(
             { err, conversationId },
             "Background channel reply delivery failed",
           );
-          recordDeliveryFailure(eventId, err);
         }
       }
     } finally {
@@ -595,7 +577,7 @@ function createSlackThinkingStatusController(params: {
 }
 
 const SLACK_THINKING_MAX_DURATION_MS = 120_000;
-const SLACK_GENERIC_LOADING_MESSAGES = ["Working on it..."] as const;
+const SLACK_GENERIC_LOADING_MESSAGES = ["Thinking…"] as const;
 const SLACK_THINKING_STATUSES = ["is on it", "is working hard"] as const;
 
 function getRandomSlackThinkingStatus(): string {
@@ -922,10 +904,12 @@ const globalNotifiedApprovalRequestIds = new Map<string, string>();
 
 /**
  * Start a poller that sends a one-shot "waiting for guardian approval" message
- * to the trusted contact when a confirmation_request enters guardian approval
- * wait. Deduplicates by requestId so each request only produces one message.
+ * to the trusted/unverified contact when a confirmation_request enters guardian
+ * approval wait. Deduplicates by requestId so each request only produces one
+ * message.
  *
- * Only activates for trusted-contact actors with a resolvable guardian route.
+ * Only activates for trusted_contact and unverified_contact actors with a
+ * resolvable guardian route.
  */
 function startTrustedContactApprovalNotifier(params: {
   conversationId: string;
@@ -946,8 +930,11 @@ function startTrustedContactApprovalNotifier(params: {
     assistantId,
   } = params;
 
-  // Only notify trusted contacts who have a resolvable guardian route.
-  if (trustClass !== "trusted_contact" || !guardianExternalUserId) {
+  // Only notify identity-known non-guardian contacts (trusted_contact and
+  // unverified_contact) who have a resolvable guardian route.
+  const isIdentityKnownNonGuardian =
+    trustClass === "trusted_contact" || trustClass === "unverified_contact";
+  if (!isIdentityKnownNonGuardian || !guardianExternalUserId) {
     return () => {};
   }
 

@@ -3,13 +3,19 @@
  *
  * GET    /v1/integrations/slack/channel/config        — get current config status
  * POST   /v1/integrations/slack/channel/config        — validate and store credentials
+ * PATCH  /v1/integrations/slack/channel/config        — update channel settings
  * DELETE /v1/integrations/slack/channel/config        — clear credentials
  */
+
+import { z } from "zod";
 
 import {
   clearSlackChannelConfig,
   getSlackChannelConfig,
+  patchSlackChannelConfig,
   setSlackChannelConfig,
+  SlackChannelConfigResultSchema,
+  SlackThreadMode,
 } from "../../../../daemon/handlers/config-slack-channel.js";
 import { ACTOR_PRINCIPALS } from "../../../auth/route-policy.js";
 import { BadRequestError } from "../../errors.js";
@@ -40,6 +46,20 @@ export async function handleSetSlackChannelConfig({
   return result;
 }
 
+async function handlePatchSlackChannelConfig({ body = {} }: RouteHandlerArgs) {
+  const { threadMode } = body as { threadMode?: string };
+  if (threadMode !== undefined) {
+    const parsed = SlackThreadMode.safeParse(threadMode);
+    if (!parsed.success) {
+      throw new BadRequestError(
+        "threadMode must be 'mention_only' or 'mention_then_thread'",
+      );
+    }
+    patchSlackChannelConfig(parsed.data);
+  }
+  return getSlackChannelConfig();
+}
+
 async function handleClearSlackChannelConfig() {
   return clearSlackChannelConfig();
 }
@@ -60,6 +80,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Get Slack channel config",
     description: "Check current Slack channel configuration status.",
     tags: ["integrations"],
+    responseBody: SlackChannelConfigResultSchema,
     handler: () => handleGetSlackChannelConfig(),
   },
   {
@@ -74,6 +95,30 @@ export const ROUTES: RouteDefinition[] = [
     description: "Validate and store Slack channel credentials.",
     tags: ["integrations"],
     handler: handleSetSlackChannelConfig,
+    requestBody: z.object({
+      botToken: z.string().describe("Slack bot token"),
+      appToken: z.string().describe("Slack app-level token"),
+    }),
+    responseBody: SlackChannelConfigResultSchema,
+  },
+  {
+    operationId: "integrations_slack_channel_config_patch",
+    endpoint: "integrations/slack/channel/config",
+    method: "PATCH",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Update Slack channel settings",
+    description: "Update Slack channel behavior settings (e.g. thread mode).",
+    tags: ["integrations"],
+    handler: handlePatchSlackChannelConfig,
+    requestBody: z.object({
+      threadMode: SlackThreadMode.describe(
+        "Controls whether the bot follows threads after an initial @mention",
+      ).optional(),
+    }),
+    responseBody: SlackChannelConfigResultSchema,
   },
   {
     operationId: "integrations_slack_channel_config_delete",
@@ -86,6 +131,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Clear Slack channel config",
     description: "Clear stored Slack channel credentials.",
     tags: ["integrations"],
+    responseBody: SlackChannelConfigResultSchema,
     handler: () => handleClearSlackChannelConfig(),
   },
 ];

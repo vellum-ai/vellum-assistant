@@ -17,11 +17,23 @@
  * Config edits take effect on the next request without an invalidation hook.
  */
 import { getConfig } from "../config/loader.js";
-import type { LogRow } from "./llm-request-log-store.js";
+import type {
+  CompactionAgentLogRow,
+  LogMetaRow,
+  LogRow,
+} from "./llm-request-log-store.js";
 
 export interface LlmRequestLogSource {
   /** Fetch a single log row by its primary key. Returns null if not found. */
   getRequestLogById(logId: string): Promise<LogRow | null>;
+
+  /**
+   * Fetch a single log row's metadata (no payloads) by its primary key.
+   * Prefer this when the caller only needs to locate or validate the row
+   * — request payloads can be entire context windows, so loading them for
+   * a conversation-scope check or a `createdAt` anchor is wasteful.
+   */
+  getRequestLogMetaById(logId: string): Promise<LogMetaRow | null>;
 
   /**
    * Fetch every LLM request log associated with the given message,
@@ -40,21 +52,38 @@ export interface LlmRequestLogSource {
   getRequestLogsByConversationId(conversationId: string): Promise<LogRow[]>;
 
   /**
+   * Return the `createdAt` of the most recent **non-`compactionAgent`**
+   * LLM call in the conversation that ran strictly before
+   * `beforeCreatedAt`, or `null` when the selected call is the first real
+   * call in the conversation.
+   *
+   * Drives the call-scoped floor for the Inspector's Compaction tab: a
+   * compaction is attributed to the next real call that ran after it, so
+   * the compactions for a given call are those that landed strictly
+   * between the previous real call and the selected call.
+   */
+  getPreviousNonCompactionCallCreatedAt(
+    conversationId: string,
+    beforeCreatedAt: number,
+  ): Promise<number | null>;
+
+  /**
    * Fetch every `callSite = "compactionAgent"` log row in the conversation
    * whose `createdAt` falls in the **open window**
    * `(afterCreatedAt, beforeCreatedAt)`, ordered chronologically.
    *
-   * Drives the Inspector's Compaction tab. The route handler computes
-   * the window from the turn the selected call belongs to via
-   * `getTurnTimeBounds` in `memory/conversation-crud.ts`; this source
-   * method is bound-agnostic. See `getCompactionLogsBetween` in
+   * The legacy fallback for the Inspector's Compaction tab, used when the
+   * ClickHouse compaction log is unavailable. The route handler resolves
+   * the floor from `getPreviousNonCompactionCallCreatedAt` and the ceiling
+   * from the selected call's `createdAt`; this source method is
+   * bound-agnostic. See `getCompactionLogsBetween` in
    * `llm-request-log-store.ts` for the SQL.
    */
   getCompactionLogsBetween(
     conversationId: string,
     afterCreatedAt: number | null,
     beforeCreatedAt: number,
-  ): Promise<LogRow[]>;
+  ): Promise<CompactionAgentLogRow[]>;
 }
 
 /**

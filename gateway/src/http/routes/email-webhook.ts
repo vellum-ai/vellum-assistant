@@ -199,12 +199,28 @@ export function createEmailWebhookHandler(
         sourceMetadata: {
           emailSubject: (payload.subject as string | undefined) ?? undefined,
           emailRecipient: recipientAddress,
-          ...(payload.inReplyTo ? { emailInReplyTo: payload.inReplyTo } : {}),
-          ...(payload.references
+          ...(typeof payload.inReplyTo === "string"
+            ? { emailInReplyTo: payload.inReplyTo }
+            : {}),
+          ...(typeof payload.references === "string"
             ? { emailReferences: payload.references }
             : {}),
         },
       });
+
+      // Verification reply — short-circuit before processInboundResult
+      if (result.verificationIntercepted && result.verificationReplyText) {
+        dedupCache.mark(eventId);
+        tlog.info(
+          { from: event.actor.actorExternalId, to: recipientAddress },
+          "Verification intercepted — returning reply text to platform",
+        );
+        return Response.json({
+          ok: true,
+          verificationIntercepted: true,
+          replyText: result.verificationReplyText,
+        });
+      }
 
       const processed = processInboundResult(
         result,
@@ -228,7 +244,9 @@ export function createEmailWebhookHandler(
 
       if (!result.rejected) {
         const denied = result.runtimeResponse?.denied ?? false;
-        const deniedReason = denied ? (result.runtimeResponse?.reason ?? "unknown") : undefined;
+        const deniedReason = denied
+          ? (result.runtimeResponse?.reason ?? "unknown")
+          : undefined;
         tlog.info(
           {
             status: denied ? "denied" : "forwarded",

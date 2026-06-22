@@ -5,6 +5,7 @@ compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "💓"
   vellum:
+    category: "system"
     display-name: "Heartbeat"
     activation-hints:
       - "Set up a heartbeat, periodic checklist, background health check, or recurring background task"
@@ -42,3 +43,10 @@ Then edit `HEARTBEAT.md` with the checklist items. The assistant will work throu
 - Toggling `heartbeat.enabled` requires an assistant restart to take effect.
 - Changes to `HEARTBEAT.md` take effect on the next heartbeat run (no restart needed).
 - The heartbeat runs in a separate background conversation, not the user's active chat.
+
+## Inference
+
+Heartbeat runs use the `heartbeatAgent` call site, which by default resolves to the
+`cost-optimized` profile so background checks stay cheap. Override via
+`llm.callSites.heartbeatAgent` in workspace config (profile, provider, model,
+effort, thinking — whatever the profile supports).

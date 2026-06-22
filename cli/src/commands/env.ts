@@ -1,4 +1,4 @@
-import { SEEDS } from "../lib/environments/seeds.js";
+import { SEEDS } from "@vellumai/environments";
 import {
   clearDefaultEnvironment,
   readDefaultEnvironment,

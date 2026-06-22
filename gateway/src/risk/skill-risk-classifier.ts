@@ -233,21 +233,35 @@ export class SkillLoadRiskClassifier implements RiskClassifier<SkillClassifierIn
       const isDynamic =
         resolvedMetadata?.isDynamic && resolvedMetadata?.hasInlineExpansions;
       const overrideTool = isDynamic ? "skill_load_dynamic" : toolName;
-      const overridePattern = resolvedMetadata?.skillId ?? skillSelector ?? "";
-      const override = ruleCache.findToolOverride(
-        overrideTool,
-        overridePattern,
-      );
-      if (
-        override &&
-        (override.userModified || override.origin === "user_defined")
-      ) {
-        return {
-          riskLevel: override.risk,
-          reason: override.description,
-          scopeOptions: [],
-          matchType: "user_rule",
-        };
+      const skillId = resolvedMetadata?.skillId ?? skillSelector ?? "";
+
+      // Probe the version-pinned candidate before the any-version bare id,
+      // mirroring the pinned allowlist options this classifier offers
+      // (`skill_load:<id>@<versionHash>`, `skill_load_dynamic:<id>@<transitiveHash>`).
+      // findToolOverride reconstructs the `<tool>:`-prefixed stored form, so a
+      // user who selected "this exact version" is honored, and the pinned rule
+      // (most specific) wins over an any-version rule.
+      const pinnedHash = isDynamic
+        ? resolvedMetadata?.transitiveHash
+        : resolvedMetadata?.versionHash;
+      const candidates = pinnedHash
+        ? [`${skillId}@${pinnedHash}`, skillId]
+        : [skillId];
+
+      for (const candidate of candidates) {
+        if (!candidate) continue;
+        const override = ruleCache.findToolOverride(overrideTool, candidate);
+        if (
+          override &&
+          (override.userModified || override.origin === "user_defined")
+        ) {
+          return {
+            riskLevel: override.risk,
+            reason: override.description,
+            scopeOptions: [],
+            matchType: "user_rule",
+          };
+        }
       }
     } catch {
       // Cache not initialized — no override

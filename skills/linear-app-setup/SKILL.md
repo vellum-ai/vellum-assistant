@@ -3,8 +3,10 @@ name: linear-app-setup
 description: Create and configure a Linear agent app so the assistant can manage issues, projects, and workflows under its own identity
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "🔷"
   vellum:
+    category: "development"
     display-name: "Linear App Setup"
     user-invocable: true
 ---
@@ -50,21 +52,14 @@ Direct the user:
 
 Prompt for the API key via secure UI:
 
-```
-credential_store:
-  action: "prompt"
-  service: linear
-  field: api_key
-  label: "Linear App API Key"
-  placeholder: "lin_api_xxxxxxxxxx"
-  description: "API key for your Linear app (used to authenticate API requests)"
-  allowed_domains: ["api.linear.app"]
-  allowed_tools: ["bash"]
-  injection_templates:
-    - hostPattern: "api.linear.app"
-      injectionType: header
-      headerName: Authorization
-      valuePrefix: "Bearer "
+```bash
+assistant credentials prompt --service linear --field api_key \
+  --label "Linear App API Key" \
+  --placeholder "lin_api_xxxxxxxxxx" \
+  --description "API key for your Linear app (used to authenticate API requests)" \
+  --allowed-domains "api.linear.app" \
+  --allowed-tools "bash" \
+  --injection-templates '[{"hostPattern":"api.linear.app","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]'
 ```
 
 ### Step 3: Verify

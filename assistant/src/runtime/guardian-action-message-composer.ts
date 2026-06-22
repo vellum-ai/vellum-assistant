@@ -8,10 +8,8 @@
  *
  * Follows the same pattern as approval-message-composer.ts.
  */
-import { getLogger } from "../util/logger.js";
 import type {
   ComposeGuardianActionMessageOptions,
-  GuardianActionCopyGenerator,
   GuardianActionMessageContext,
 } from "./message-composer-types.js";
 
@@ -20,21 +18,6 @@ export type {
   GuardianActionMessageContext,
   GuardianActionMessageScenario,
 } from "./message-composer-types.js";
-
-const log = getLogger("guardian-action-message-composer");
-
-// ---------------------------------------------------------------------------
-// Constants (exported for the daemon-injected generator implementation)
-// ---------------------------------------------------------------------------
-
-export const GUARDIAN_ACTION_COPY_TIMEOUT_MS = 4_000;
-export const GUARDIAN_ACTION_COPY_MAX_TOKENS = 200;
-export const GUARDIAN_ACTION_COPY_SYSTEM_PROMPT =
-  "You are an assistant writing one user-facing message about a guardian action in a voice call scenario. " +
-  "Keep it concise, natural, and conversational. Preserve factual details exactly. " +
-  "These messages are spoken aloud, so use a warm, human tone. " +
-  "Do not mention internal systems, scenario IDs, or technical details. " +
-  "Return plain text only.";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -51,7 +34,6 @@ export const GUARDIAN_ACTION_COPY_SYSTEM_PROMPT =
 export async function composeGuardianActionMessageGenerative(
   context: GuardianActionMessageContext,
   options: ComposeGuardianActionMessageOptions = {},
-  generator?: GuardianActionCopyGenerator,
 ): Promise<string> {
   const fallbackText =
     options.fallbackText?.trim() || getGuardianActionFallbackMessage(context);
@@ -60,43 +42,7 @@ export async function composeGuardianActionMessageGenerative(
     return fallbackText;
   }
 
-  if (generator) {
-    try {
-      const generated = await generator(context, options);
-      if (generated) return generated;
-    } catch (err) {
-      log.warn(
-        { err, scenario: context.scenario },
-        "Failed to generate guardian action copy, using fallback",
-      );
-    }
-  }
-
   return fallbackText;
-}
-
-/** @internal Exported for use by the daemon-injected generator implementation. */
-export function buildGuardianActionGenerationPrompt(
-  context: GuardianActionMessageContext,
-  fallbackText: string,
-  requiredKeywords: string[] | undefined,
-): string {
-  const keywordClause =
-    requiredKeywords && requiredKeywords.length > 0
-      ? `Required words to include (as standalone words): ${requiredKeywords.join(
-          ", ",
-        )}.\n`
-      : "";
-  return [
-    "Rewrite the following guardian action message as a natural, conversational reply.",
-    "These messages are for voice call scenarios and may be spoken aloud.",
-    "Keep the same concrete facts and next-step guidance.",
-    keywordClause,
-    `Context JSON: ${JSON.stringify(context)}`,
-    `Fallback message: ${fallbackText}`,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
 }
 
 /** @internal Exported for use by the daemon-injected generator implementation. */

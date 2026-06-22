@@ -95,7 +95,7 @@ function CollapsibleTrigger({
         className={cn(
           "flex min-w-0 flex-1 items-center",
           "cursor-pointer select-none",
-          "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
+          "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
           className,
         )}
         {...props}

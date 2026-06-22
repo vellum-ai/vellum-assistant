@@ -8,7 +8,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { basename } from "node:path";
 
-import { isPlaceholderSentinelText } from "../providers/anthropic/client.js";
+import { isPlaceholderSentinelText } from "../providers/placeholder-sentinels.js";
 import {
   hostPolicy,
   sandboxPolicy,

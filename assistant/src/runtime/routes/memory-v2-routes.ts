@@ -210,14 +210,20 @@ async function handleGetConceptPage({
 
 const MemoryV2ListConceptPagesParams = z.object({}).strict();
 
-export type MemoryV2ListConceptPagesResult = {
-  pages: Array<{
-    slug: string;
-    bodyBytes: number;
-    edgeCount: number;
-    updatedAtMs: number;
-  }>;
-};
+export const MemoryV2ListConceptPagesResultSchema = z.object({
+  pages: z.array(
+    z.object({
+      slug: z.string(),
+      bodyBytes: z.number(),
+      edgeCount: z.number(),
+      updatedAtMs: z.number(),
+    }),
+  ),
+});
+
+export type MemoryV2ListConceptPagesResult = z.infer<
+  typeof MemoryV2ListConceptPagesResultSchema
+>;
 
 async function handleListConceptPages({
   body = {},
@@ -397,37 +403,43 @@ const MemoryV2SimulateRouterParams = z
   })
   .strict();
 
-export interface MemoryV2SimulateRouterEffectiveConfig {
-  tier1_size: number | null;
-  tier2_size: number | null;
-  batch_size: number | null;
-  max_page_ids: number;
-}
-
-export interface MemoryV2SimulateRouterResult {
+export const MemoryV2SimulateRouterResultSchema = z.object({
   /** Slugs the router would select, in model-returned order. */
-  selectedSlugs: string[];
-  /** Per-slug provenance: `"tier1"`, `"tier2"`, or `"tier3:<bucket>"`. */
-  sourceBySlug: Record<string, RouterSource>;
+  selectedSlugs: z.array(z.string()),
+  /**
+   * Per-slug provenance keyed by slug. Each value is `"tier1"`, `"tier2"`,
+   * or `"tier3:<bucket>"` (see `RouterSource`); the wire shape is a plain
+   * string map so callers parse the tier prefix at the boundary.
+   */
+  sourceBySlug: z.record(z.string(), z.string()),
   /** EMA scores for the selected slugs (0 when the slug has no events). */
-  scores: Record<string, number>;
+  scores: z.record(z.string(), z.number()),
   /** `null` on success; otherwise one of the router failure reasons. */
-  failureReason: string | null;
+  failureReason: z.string().nullable(),
   /** The router config that actually ran (live merged with overrides). */
-  effectiveConfig: MemoryV2SimulateRouterEffectiveConfig;
+  effectiveConfig: z.object({
+    tier1_size: z.number().nullable(),
+    tier2_size: z.number().nullable(),
+    batch_size: z.number().nullable(),
+    max_page_ids: z.number(),
+  }),
   /** The overrides the caller submitted, for display. */
-  overrides: {
-    tier1_size?: number | null;
-    tier2_size?: number | null;
-    batch_size?: number | null;
-  };
+  overrides: z.object({
+    tier1_size: z.number().nullish(),
+    tier2_size: z.number().nullish(),
+    batch_size: z.number().nullish(),
+  }),
   /** Page index size the router was given (post-tier-carve, all batches). */
-  totalCandidatePages: number;
+  totalCandidatePages: z.number(),
   /** The profile name passed as a per-call override, if any. */
-  profileOverride: string | null;
+  profileOverride: z.string().nullable(),
   /** `true` when an inline `routerPromptOverride` was applied this call. */
-  routerPromptOverridden: boolean;
-}
+  routerPromptOverridden: z.boolean(),
+});
+
+export type MemoryV2SimulateRouterResult = z.infer<
+  typeof MemoryV2SimulateRouterResultSchema
+>;
 
 /**
  * Build the config the router will see by overlaying override values on top
@@ -583,10 +595,14 @@ export async function handleSimulateRouter({
 
 // ── Router prompt template (bundled default for the playground editor) ──
 
-export interface MemoryV2RouterPromptTemplateResult {
+export const MemoryV2RouterPromptTemplateResultSchema = z.object({
   /** The bundled router prompt body, placeholders intact. */
-  template: string;
-}
+  template: z.string(),
+});
+
+export type MemoryV2RouterPromptTemplateResult = z.infer<
+  typeof MemoryV2RouterPromptTemplateResultSchema
+>;
 
 async function handleGetRouterPromptTemplate(): Promise<MemoryV2RouterPromptTemplateResult> {
   requireMemoryV2Enabled();
@@ -595,10 +611,12 @@ async function handleGetRouterPromptTemplate(): Promise<MemoryV2RouterPromptTemp
 
 // ── Current `<now>` body (default value for the playground editor) ──────
 
-export interface MemoryV2NowTextResult {
+export const MemoryV2NowTextResultSchema = z.object({
   /** The current rendered NOW.md body (autoloaded essentials/threads/recent). */
-  nowText: string;
-}
+  nowText: z.string(),
+});
+
+export type MemoryV2NowTextResult = z.infer<typeof MemoryV2NowTextResultSchema>;
 
 async function handleGetNowText(): Promise<MemoryV2NowTextResult> {
   requireMemoryV2Enabled();
@@ -720,6 +738,7 @@ export const ROUTES: RouteDefinition[] = [
       "Returns slugs, body sizes, edge counts, and last-modified timestamps for every concept page on disk. Read-only; used by the desktop About → Memories surface to render a browse-able list.",
     tags: ["memory"],
     requestBody: MemoryV2ListConceptPagesParams,
+    responseBody: MemoryV2ListConceptPagesResultSchema,
   },
   {
     operationId: "memory_v2_reembed_skills",
@@ -780,6 +799,7 @@ export const ROUTES: RouteDefinition[] = [
       "Runs the memory router against the live page index + EMA scores with optional tier_size / batch_size overrides, without recording an injection event or writing an activation log. Returns the slugs that would have been selected, per-slug tier provenance, EMA scores, and the effective router config so operators can validate knob changes before flipping them in workspace config.",
     tags: ["memory"],
     requestBody: MemoryV2SimulateRouterParams,
+    responseBody: MemoryV2SimulateRouterResultSchema,
   },
   {
     operationId: "memory_v2_compare_retrievers",
@@ -810,6 +830,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Returns the bundled `ROUTER_PROMPT` body with placeholders intact (`{{ASSISTANT_NAME}}`, `{{USER_NAME}}`, `{{PAGE_INDEX}}`). Used by the memory router playground's 'Load default' affordance so users have a known-good starting point when authoring an inline prompt override.",
     tags: ["memory"],
+    responseBody: MemoryV2RouterPromptTemplateResultSchema,
   },
   {
     operationId: "memory_v2_now_text",
@@ -824,5 +845,6 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Returns the current NOW.md (autoloaded essentials/threads/recent). Used by the memory router playground to seed its `<now>` text area with a production-like default so callers can edit from a realistic baseline.",
     tags: ["memory"],
+    responseBody: MemoryV2NowTextResultSchema,
   },
 ];

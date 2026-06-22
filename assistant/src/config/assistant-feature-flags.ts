@@ -33,7 +33,7 @@ const log = getLogger("assistant-feature-flags");
 // ---------------------------------------------------------------------------
 
 export interface FeatureFlagDefault {
-  defaultEnabled: boolean;
+  defaultEnabled: boolean | string;
   description: string;
   label: string;
 }
@@ -103,7 +103,11 @@ function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
     const entry = flag as Record<string, unknown>;
     if (entry.scope !== "assistant" && entry.scope !== "both") continue;
     if (typeof entry.key !== "string") continue;
-    if (typeof entry.defaultEnabled !== "boolean") continue;
+    if (
+      typeof entry.defaultEnabled !== "boolean" &&
+      typeof entry.defaultEnabled !== "string"
+    )
+      continue;
 
     result[entry.key as string] = {
       defaultEnabled: entry.defaultEnabled,
@@ -133,7 +137,7 @@ function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
  */
 async function fetchOverridesFromGateway(
   timeoutMs?: number,
-): Promise<Record<string, boolean>> {
+): Promise<Record<string, boolean | string>> {
   try {
     return await ipcGetFeatureFlags(timeoutMs);
   } catch {
@@ -178,6 +182,12 @@ const DEFAULT_INIT_RETRY_BACKOFFS_MS: readonly number[] = [
  * tests preseed flag state via `setOverridesForTesting()` (in
  * `__tests__/feature-flag-test-helpers.ts`) without the gateway IPC call
  * clobbering their setup.
+ *
+ * Resolves `true` when the override cache is populated from the gateway and
+ * `false` when the cache is left unset (exhausted retries / unreachable
+ * gateway). Callers that mutate persisted state from flag values gate that
+ * work on a `true` result so a failed fetch never resolves a flag to its
+ * registry default and drops user state.
  */
 export async function initFeatureFlagOverrides(options?: {
   retryBackoffsMs?: readonly number[];
@@ -188,8 +198,8 @@ export async function initFeatureFlagOverrides(options?: {
    * instead of blocking startup.
    */
   callTimeoutMs?: number;
-}): Promise<void> {
-  if (isCachedFromGateway()) return;
+}): Promise<boolean> {
+  if (isCachedFromGateway()) return true;
 
   const backoffs = options?.retryBackoffsMs ?? DEFAULT_INIT_RETRY_BACKOFFS_MS;
   const callTimeoutMs = options?.callTimeoutMs;
@@ -205,7 +215,7 @@ export async function initFeatureFlagOverrides(options?: {
       // Re-check after the wait: a concurrent caller (e.g. a test using
       // `setOverridesForTesting`) may have populated the cache while we
       // were sleeping. Bail out so we don't clobber their setup.
-      if (isCachedFromGateway()) return;
+      if (isCachedFromGateway()) return true;
     }
 
     const gatewayOverrides = await fetchOverridesFromGateway(callTimeoutMs);
@@ -217,7 +227,7 @@ export async function initFeatureFlagOverrides(options?: {
           "Feature flag overrides loaded from gateway after retry",
         );
       }
-      return;
+      return true;
     }
   }
 
@@ -230,6 +240,7 @@ export async function initFeatureFlagOverrides(options?: {
       "Feature flag overrides empty after all retries; falling back to registry defaults and fail-closed undeclared flags",
     );
   }
+  return false;
 }
 
 /**
@@ -238,7 +249,7 @@ export async function initFeatureFlagOverrides(options?: {
  * Returns the gateway-populated cache if `initFeatureFlagOverrides()` was
  * called at startup, or an empty record otherwise.
  */
-function loadOverrides(): Record<string, boolean> {
+function loadOverrides(): Record<string, boolean | string> {
   return getCachedOverrides() ?? {};
 }
 
@@ -262,10 +273,14 @@ export function clearFeatureFlagOverridesCache(): void {
  * retries (the gateway is known to be up because it just pushed an event).
  * Called by the gateway flag listener when a `feature_flags_changed` event
  * arrives.
+ *
+ * Resolves `true` when the cache was repopulated from the gateway, `false`
+ * when the fetch came back empty/failed — callers gate persisted-state
+ * reconciliation on a `true` result.
  */
-export async function refreshOverridesFromGateway(): Promise<void> {
+export async function refreshOverridesFromGateway(): Promise<boolean> {
   clearFeatureFlagOverridesCache();
-  await initFeatureFlagOverrides({ retryBackoffsMs: [] });
+  return initFeatureFlagOverrides({ retryBackoffsMs: [] });
 }
 
 // ---------------------------------------------------------------------------
@@ -273,7 +288,7 @@ export async function refreshOverridesFromGateway(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve whether an assistant feature flag is enabled.
+ * Resolve the raw value for an assistant feature flag.
  *
  * Resolution order:
  *   1. Override from the gateway IPC fetch (includes platform-pushed remote
@@ -282,21 +297,32 @@ export async function refreshOverridesFromGateway(): Promise<void> {
  *   2. Registry `defaultEnabled` (for declared assistant-scope keys)
  *   3. `false` (for undeclared keys with no override)
  */
-export function isAssistantFeatureFlagEnabled(
+export function getAssistantFeatureFlagValue(
   key: string,
   _config: AssistantConfig,
-): boolean {
+): boolean | string {
   const defaults = loadDefaultsRegistry();
   const declared = defaults[key];
   const overrides = loadOverrides();
 
-  // 1. Check overrides from the gateway IPC cache.
   const explicit = overrides[key];
-  if (typeof explicit === "boolean") return explicit;
+  if (explicit !== undefined) return explicit;
 
-  // 2. For declared keys, use the registry default.
   if (declared) return declared.defaultEnabled;
 
-  // 3. Undeclared keys with no override fail closed.
   return false;
+}
+
+/**
+ * Resolve whether an assistant feature flag is enabled (boolean coercion).
+ *
+ * For boolean flags, returns the resolved value directly.
+ * For string flags, returns true if the value is non-empty.
+ * Undeclared keys return `false` (fail closed).
+ */
+export function isAssistantFeatureFlagEnabled(
+  key: string,
+  config: AssistantConfig,
+): boolean {
+  return !!getAssistantFeatureFlagValue(key, config);
 }

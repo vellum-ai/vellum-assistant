@@ -19,6 +19,7 @@
  */
 
 import type { InteractionResolutionState } from "../api/events/interaction-resolved.js";
+import type { QuestionEntry } from "../api/events/question-request.js";
 import type { UserDecision } from "../permissions/types.js";
 import { getLogger } from "../util/logger.js";
 import { broadcastMessage } from "./assistant-event-hub.js";
@@ -38,6 +39,7 @@ export interface ConfirmationDetails {
     pattern: string;
   }>;
   scopeOptions: Array<{ label: string; scope: string }>;
+  directoryScopeOptions?: Array<{ label: string; scope: string }>;
   persistentDecisionsAllowed?: boolean;
   /** ACP tool kind from the agent (e.g. "read", "edit", "execute"). */
   acpToolKind?: string;
@@ -49,8 +51,43 @@ export interface ConfirmationDetails {
   }>;
 }
 
+/**
+ * Full batched question payload carried on a pending `question` interaction, so
+ * a history-load render can stamp the outstanding prompt back onto its tool
+ * call and rehydrate the question card on a cold reconnect. Mirrors the
+ * `question_request` event's `questions[]` — `metadata` only retains the
+ * `orderedIds`/`optionsById` the response route needs to validate submissions,
+ * which is insufficient to reconstruct the card.
+ */
+export interface QuestionDetails {
+  entries: QuestionEntry[];
+}
+
+/**
+ * Public prompt metadata for a pending `secret` interaction, retained so a
+ * cold conversation load can rehydrate the secret prompt with its full
+ * descriptive context. SECURITY: never carries the secret value — only the
+ * public fields already broadcast on the `secret_request` event.
+ */
+export interface SecretDetails {
+  service: string;
+  field: string;
+  label: string;
+  description?: string;
+  placeholder?: string;
+  purpose?: string;
+  allowedTools?: string[];
+  allowedDomains?: string[];
+  allowOneTimeSend?: boolean;
+}
+
 export interface PendingInteraction {
-  conversationId: string;
+  /**
+   * Owning conversation, when the interaction was raised inside one. Absent
+   * for interactions raised outside any conversation (e.g. the CLI
+   * `credentials prompt` command), which resolve via {@link rpcResolve}.
+   */
+  conversationId?: string;
   kind:
     | "confirmation"
     | "secret"
@@ -63,6 +100,10 @@ export interface PendingInteraction {
     | "host_transfer"
     | "acp_confirmation";
   confirmationDetails?: ConfirmationDetails;
+  /** For a pending `question`: the full batched entries, so a history-load render can rehydrate the question card. */
+  questionDetails?: QuestionDetails;
+  /** For a pending `secret`: the public prompt metadata, so a cold load can rehydrate the secret prompt. */
+  secretDetails?: SecretDetails;
   /** For ACP permissions: resolves directly without a Conversation object. */
   directResolve?: (decision: UserDecision) => void;
   /** When set, the host_bash request should be routed to this specific client. */
@@ -139,6 +180,10 @@ function emitResolved(
     },
     "Pending interaction resolved",
   );
+  // interaction_resolved is conversation-scoped on the wire; a conversation-less
+  // interaction has no conversation for clients to route the event to, so skip
+  // the broadcast.
+  if (interaction.conversationId === undefined) return;
   broadcastMessage({
     type: "interaction_resolved",
     requestId,
@@ -203,6 +248,16 @@ export function removeByConversation(
     ) {
       // resolve() clears the stored timer and detaches abort listeners.
       resolve(requestId, state);
+      // Secret prompts have no abort-signal teardown (unlike questions) and
+      // are not pre-settled by denyAllPendingConfirmations (unlike
+      // confirmations), so removing the entry alone would leave the caller's
+      // Promise — the CLI `credentials prompt` command or the in-conversation
+      // SecretPrompter — hanging until its IPC client times out. Settle it
+      // with a cancelled result, matching the prompt timeout path. rpcResolve
+      // is idempotent, so any later resolveSecret/dispose call is a no-op.
+      if (interaction.kind === "secret") {
+        interaction.rpcResolve?.({ value: null, delivery: "store" });
+      }
     }
   }
 }

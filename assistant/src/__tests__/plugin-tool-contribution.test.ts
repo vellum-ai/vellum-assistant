@@ -39,11 +39,7 @@ mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: getSecureKeyAsyncMock,
 }));
 
-import type { AssistantConfig } from "../config/schema.js";
-import {
-  bootstrapPlugins,
-  type DaemonContext,
-} from "../daemon/external-plugins-bootstrap.js";
+import { bootstrapPlugins } from "../daemon/external-plugins-bootstrap.js";
 import { runShutdownHooks } from "../daemon/shutdown-registry.js";
 import { RiskLevel } from "../permissions/types.js";
 import {
@@ -61,11 +57,7 @@ import {
   registerPluginTools,
   unregisterPluginTools,
 } from "../tools/registry.js";
-import type {
-  Tool,
-  ToolContext,
-  ToolExecutionResult,
-} from "../tools/types.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 
 // Redirect plugin-storage-directory creation into a per-process temp tree so
 // the test doesn't touch the developer's real ~/.vellum. This matches the
@@ -76,16 +68,7 @@ const TEST_WORKSPACE_DIR = join(
 );
 process.env.VELLUM_WORKSPACE_DIR = TEST_WORKSPACE_DIR;
 
-const fakeConfig = {} as unknown as AssistantConfig;
-const fakeCtx: DaemonContext = {
-  config: fakeConfig,
-  assistantVersion: "9.9.9-test",
-};
-
-function makeFakeTool(
-  name: string,
-  extras: Partial<Tool> = {},
-): Tool {
+function makeFakeTool(name: string, extras: Partial<Tool> = {}): Tool {
   return {
     name,
     description: `Fake ${name}`,
@@ -164,7 +147,7 @@ describe("plugin tool contributions", () => {
     });
     registerPlugin(plugin);
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     const retrieved = getTool("plugin-contrib-tool");
     expect(retrieved).toBeDefined();
@@ -193,7 +176,7 @@ describe("plugin tool contributions", () => {
     });
     registerPlugin(plugin);
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
     expect(getTool("bravo-tool")).toBeDefined();
 
     await runShutdownHooks("test-shutdown");
@@ -206,14 +189,17 @@ describe("plugin tool contributions", () => {
     const plugin = buildPlugin("no-tools", { async init() {} });
     registerPlugin(plugin);
 
-    await bootstrapPlugins(fakeCtx);
-    // No tool should have been registered.
-    expect(getAllTools()).toHaveLength(0);
+    await bootstrapPlugins();
+    // `bootstrapPlugins` also registers the first-party defaults (the advisor
+    // default contributes the `advisor` tool), so the global tool set is not
+    // empty. What matters here is that the no-tools plugin contributed nothing
+    // of its own — its tool refcount stays at zero.
+    expect(getPluginRefCount("no-tools")).toBe(0);
 
     // Shutdown must also be safe — `unregisterPluginTools` is idempotent for
     // plugins that never contributed any tools.
     await runShutdownHooks("test-shutdown");
-    expect(getAllTools()).toHaveLength(0);
+    expect(getPluginRefCount("no-tools")).toBe(0);
   });
 
   test("tools declared before init() runs are only visible after bootstrap", async () => {
@@ -230,14 +216,12 @@ describe("plugin tool contributions", () => {
 
     expect(getTool("charlie-tool")).toBeUndefined();
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
     expect(getTool("charlie-tool")).toBeDefined();
   });
 
   test("tools are only registered after init() succeeds", async () => {
-    // A plugin whose init throws must not contribute tools — the bootstrap
-    // aborts with a PluginExecutionError, and nothing from this plugin
-    // should leak into the tool registry.
+    // GIVEN a plugin that declares a tool but throws during init()
     const plugin = buildPlugin("delta-broken", {
       async init() {
         throw new Error("boom");
@@ -246,7 +230,12 @@ describe("plugin tool contributions", () => {
     });
     registerPlugin(plugin);
 
-    await expect(bootstrapPlugins(fakeCtx)).rejects.toThrow(/delta-broken/);
+    // WHEN bootstrap runs
+    // THEN it does not throw — the init failure is contained to this plugin
+    await bootstrapPlugins();
+
+    // AND the failing plugin's tool is rolled back, never leaking into the
+    // registry
     expect(getTool("delta-tool")).toBeUndefined();
   });
 });

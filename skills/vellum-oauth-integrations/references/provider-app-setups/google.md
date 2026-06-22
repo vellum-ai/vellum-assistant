@@ -245,4 +245,4 @@ Key Google-specific differences for Path B:
 
 - Use **Web application** credentials (not Desktop app)
 - Add redirect URI under **Authorized redirect URIs**
-- Client Secret is collected via secure `credential_store prompt` (full value including `GOCSPX-` prefix)
+- Client Secret is collected via secure `assistant credentials prompt` (full value including `GOCSPX-` prefix)

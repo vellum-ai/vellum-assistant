@@ -9,6 +9,8 @@ import {
   isNull,
   lt,
   lte,
+  ne,
+  or,
   sql,
 } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
@@ -22,8 +24,22 @@ import {
   getTurnTimeBounds,
   messageMetadataSchema,
 } from "./conversation-crud.js";
-import { getDb } from "./db-connection.js";
+import { type DrizzleDb, getDb, getLogsDb } from "./db-connection.js";
 import { llmRequestLogs, messages } from "./schema.js";
+
+/**
+ * The logs connection (`assistant-logs.db`), where `llm_request_logs` lives.
+ * Throws if the file cannot be opened — the store has no fallback, and a
+ * missing logs DB is a genuine failure for these call sites (insert/read of
+ * request logs). Callers that must not fail on this already wrap in try/catch.
+ */
+function logsDb(): DrizzleDb {
+  const db = getLogsDb();
+  if (!db) {
+    throw new Error("logs database unavailable");
+  }
+  return db;
+}
 
 export type LogRow = {
   id: string;
@@ -46,6 +62,20 @@ export type LogRow = {
    * In practice values come from `LLMCallSite` (`config/schemas/llm.ts`).
    */
   callSite: string | null;
+};
+
+/** `LogRow` without the payload columns — for reads that only need metadata. */
+export type LogMetaRow = Omit<LogRow, "requestPayload" | "responsePayload">;
+
+/**
+ * Compaction-trail row: metadata plus the (small) summarizer response
+ * payload and a message count computed in SQL. The request payload — an
+ * entire near-limit context window per compaction — is deliberately never
+ * loaded; the trail only needs the count of messages it contained.
+ */
+export type CompactionAgentLogRow = LogMetaRow & {
+  responsePayload: string;
+  requestMessageCount: number | null;
 };
 
 /**
@@ -95,7 +125,7 @@ export function recordRequestLog(
   provider?: string,
   callSite?: LLMCallSite,
 ): string {
-  const db = getDb();
+  const db = logsDb();
   const id = uuid();
   db.insert(llmRequestLogs)
     .values({
@@ -162,7 +192,7 @@ export function recordSyntheticAgentErrorMessageLog(args: {
   preparedRequest: unknown | null;
   createdAt: number;
 }): string {
-  const db = getDb();
+  const db = logsDb();
   const id = uuid();
   const requestPayload = JSON.stringify({
     syntheticAgentErrorMessage: {
@@ -209,7 +239,7 @@ export function setAgentLoopExitReasonOnLatestLog(
   conversationId: string,
   reason: string,
 ): void {
-  const db = getDb();
+  const db = logsDb();
   const latest = db
     .select({ id: llmRequestLogs.id })
     .from(llmRequestLogs)
@@ -233,7 +263,7 @@ export function backfillMessageIdOnLogs(
   conversationId: string,
   messageId: string,
 ): void {
-  const db = getDb();
+  const db = logsDb();
   db.update(llmRequestLogs)
     .set({ messageId })
     .where(
@@ -256,7 +286,7 @@ export function relinkLlmRequestLogs(
   toMessageId: string,
 ): void {
   if (fromMessageIds.length === 0) return;
-  const db = getDb();
+  const db = logsDb();
   db.update(llmRequestLogs)
     .set({ messageId: toMessageId })
     .where(inArray(llmRequestLogs.messageId, fromMessageIds))
@@ -270,7 +300,7 @@ export function relinkLlmRequestLogs(
  */
 function selectLogsByMessageIds(messageIds: string[]): LogRow[] {
   if (messageIds.length === 0) return [];
-  const db = getDb();
+  const db = logsDb();
   return db
     .select({
       id: llmRequestLogs.id,
@@ -298,7 +328,7 @@ function selectLogsByMessageIds(messageIds: string[]): LogRow[] {
 export function getRequestLogsByConversationId(
   conversationId: string,
 ): LogRow[] {
-  const db = getDb();
+  const db = logsDb();
   return db
     .select({
       id: llmRequestLogs.id,
@@ -330,9 +360,13 @@ function selectOrphanedLogsInRange(
   endTime: number,
 ): LogRow[] {
   if (endTime <= startTime) return [];
-  const db = getDb();
-  // LEFT JOIN messages → filter where message row IS NULL (orphaned).
-  return db
+  // `llm_request_logs` and `messages` live in separate connections now, so the
+  // old LEFT JOIN can't span them. Resolve it in three steps:
+  //   (a) logs conn → candidate rows in [start,end] for the conversation with a
+  //       non-NULL message_id;
+  //   (b) main conn → which of those message_ids still exist in `messages`;
+  //   (c) filter to candidates whose message_id is NOT in the existing set.
+  const candidates = logsDb()
     .select({
       id: llmRequestLogs.id,
       conversationId: llmRequestLogs.conversationId,
@@ -345,18 +379,32 @@ function selectOrphanedLogsInRange(
       callSite: llmRequestLogs.callSite,
     })
     .from(llmRequestLogs)
-    .leftJoin(messages, eq(llmRequestLogs.messageId, messages.id))
     .where(
       and(
         eq(llmRequestLogs.conversationId, conversationId),
         gte(llmRequestLogs.createdAt, startTime),
         lte(llmRequestLogs.createdAt, endTime),
-        sql`${messages.id} IS NULL`,
         sql`${llmRequestLogs.messageId} IS NOT NULL`,
       ),
     )
     .orderBy(llmRequestLogs.createdAt)
     .all();
+  if (candidates.length === 0) return [];
+
+  const candidateMessageIds = [
+    ...new Set(candidates.map((c) => c.messageId as string)),
+  ];
+  const existing = new Set(
+    getDb()
+      .select({ id: messages.id })
+      .from(messages)
+      .where(inArray(messages.id, candidateMessageIds))
+      .all()
+      .map((r) => r.id),
+  );
+
+  // Orphaned = the referenced message no longer exists.
+  return candidates.filter((c) => !existing.has(c.messageId as string));
 }
 
 /**
@@ -373,7 +421,7 @@ function selectUnlinkedLogsInRange(
   endTime: number,
 ): LogRow[] {
   if (endTime <= startTime) return [];
-  const db = getDb();
+  const db = logsDb();
   return db
     .select({
       id: llmRequestLogs.id,
@@ -397,6 +445,43 @@ function selectUnlinkedLogsInRange(
     )
     .orderBy(llmRequestLogs.createdAt)
     .all();
+}
+
+/**
+ * Return the `createdAt` of the most recent **non-`compactionAgent`** LLM
+ * call in the conversation that ran strictly before `beforeCreatedAt`, or
+ * `null` when no such call exists (the selected call is the first real
+ * call in the conversation).
+ *
+ * Drives the call-scoped floor for the Inspector's Compaction tab. A
+ * compaction is attributed to the next real call that runs after it, so
+ * the trail for a given call is the set of compactions that landed
+ * strictly between the previous real call and the selected call. NULL
+ * `callSite` rows (pre-migration-264) are treated as real calls — only
+ * `compactionAgent` rows are excluded.
+ */
+export function getPreviousNonCompactionCallCreatedAt(
+  conversationId: string,
+  beforeCreatedAt: number,
+): number | null {
+  const db = logsDb();
+  const row = db
+    .select({ createdAt: llmRequestLogs.createdAt })
+    .from(llmRequestLogs)
+    .where(
+      and(
+        eq(llmRequestLogs.conversationId, conversationId),
+        lt(llmRequestLogs.createdAt, beforeCreatedAt),
+        or(
+          isNull(llmRequestLogs.callSite),
+          ne(llmRequestLogs.callSite, "compactionAgent"),
+        ),
+      ),
+    )
+    .orderBy(desc(llmRequestLogs.createdAt), desc(llmRequestLogs.id))
+    .limit(1)
+    .get();
+  return row?.createdAt ?? null;
 }
 
 /**
@@ -426,8 +511,8 @@ export function getCompactionLogsBetween(
   conversationId: string,
   afterCreatedAt: number | null,
   beforeCreatedAt: number,
-): LogRow[] {
-  const db = getDb();
+): CompactionAgentLogRow[] {
+  const db = logsDb();
   const predicates = [
     eq(llmRequestLogs.conversationId, conversationId),
     eq(llmRequestLogs.callSite, "compactionAgent"),
@@ -442,8 +527,18 @@ export function getCompactionLogsBetween(
       conversationId: llmRequestLogs.conversationId,
       messageId: llmRequestLogs.messageId,
       provider: llmRequestLogs.provider,
-      requestPayload: llmRequestLogs.requestPayload,
       responsePayload: llmRequestLogs.responsePayload,
+      // Count the request's messages in SQL instead of loading the payload:
+      // `messages` (Anthropic / OpenAI chat-completions), `contents`
+      // (Gemini), `input` (OpenAI Responses). NULL when the payload is
+      // malformed or none of the arrays exist.
+      requestMessageCount: sql<
+        number | null
+      >`CASE WHEN json_valid(${llmRequestLogs.requestPayload}) THEN coalesce(
+          json_array_length(${llmRequestLogs.requestPayload}, '$.messages'),
+          json_array_length(${llmRequestLogs.requestPayload}, '$.contents'),
+          json_array_length(${llmRequestLogs.requestPayload}, '$.input')
+        ) ELSE NULL END`,
       createdAt: llmRequestLogs.createdAt,
       agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
       callSite: llmRequestLogs.callSite,
@@ -454,8 +549,33 @@ export function getCompactionLogsBetween(
     .all();
 }
 
+/**
+ * Metadata-only lookup by primary key. Used where the caller needs to
+ * locate or validate a log (conversation scoping, `createdAt` anchoring)
+ * without paying to load its payloads — a single request payload can be a
+ * full context window.
+ */
+export function getRequestLogMetaById(logId: string): LogMetaRow | null {
+  const db = logsDb();
+  return (
+    db
+      .select({
+        id: llmRequestLogs.id,
+        conversationId: llmRequestLogs.conversationId,
+        messageId: llmRequestLogs.messageId,
+        provider: llmRequestLogs.provider,
+        createdAt: llmRequestLogs.createdAt,
+        agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
+        callSite: llmRequestLogs.callSite,
+      })
+      .from(llmRequestLogs)
+      .where(eq(llmRequestLogs.id, logId))
+      .get() ?? null
+  );
+}
+
 export function getRequestLogById(logId: string): LogRow | null {
-  const db = getDb();
+  const db = logsDb();
   return (
     db
       .select({
@@ -521,7 +641,7 @@ export function getRequestLogsByMessageId(messageId: string): LogRow[] {
         // authoritative caller (e.g. watch-notifier).
         if (unlinkedLogs.length > 0 && turnMessageIds.length > 0) {
           try {
-            const db = getDb();
+            const db = logsDb();
             const ids = unlinkedLogs.map((l) => l.id);
             const targetMessageId = turnMessageIds[turnMessageIds.length - 1]!;
             db.update(llmRequestLogs)

@@ -198,6 +198,7 @@ export function createClawhubProvider(): SkillFileProvider {
         kind: "catalog",
         status: "available",
         origin: "clawhub",
+        category: "integrations",
         slug: data.skill.slug,
         author: data.owner?.handle ?? "",
         stars: data.stats?.stars ?? 0,

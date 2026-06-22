@@ -12,6 +12,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import {
   hostPolicy,
+  resolveRealPath,
   sandboxPolicy,
 } from "../tools/shared/filesystem/path-policy.js";
 
@@ -235,6 +236,39 @@ describe("hostPolicy", () => {
     if (result.ok) {
       expect(result.resolved).toBe("/");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveRealPath
+// ---------------------------------------------------------------------------
+
+describe("resolveRealPath", () => {
+  test("resolves an existing file's symlink to its real target", () => {
+    const dir = makeTempDir();
+    const target = join(dir, "real.txt");
+    writeFileSync(target, "x");
+    const link = join(dir, "link.txt");
+    symlinkSync(target, link);
+
+    expect(resolveRealPath(link)).toBe(target);
+  });
+
+  test("follows a symlinked ancestor for a not-yet-existing path", () => {
+    const real = makeTempDir();
+    const linkParent = makeTempDir();
+    const link = join(linkParent, "link-dir");
+    symlinkSync(real, link);
+
+    // The leaf does not exist yet; the symlinked ancestor must still resolve.
+    expect(resolveRealPath(join(link, "new-file.txt"))).toBe(
+      join(real, "new-file.txt"),
+    );
+  });
+
+  test("falls back to the lexical path when nothing on it exists", () => {
+    const phantom = join(tmpdir(), "definitely-not-here-12345", "nope.txt");
+    expect(resolveRealPath(phantom)).toBe(phantom);
   });
 });
 

@@ -23,9 +23,7 @@ New flags require:
 
 ## Rollout Hygiene
 
-Do not ship user-facing release notes for default-disabled or rollout-only features. `UPDATES.md` processing does not check feature flags, so flagged copy can leak into user-facing prompts.
-
-When a feature later reaches GA, add a new append-only release-note migration. Do not mutate an old no-op migration into a release-note migration.
+There is no release-note surfacing mechanism — the workspace-bulletin feature was removed and the historical release-note migrations are frozen. Do not add new release-note migrations for any feature (flagged or GA). If a release needs user-facing notes, design an explicit on-demand surfacing mechanism first.
 
 ## Permission Controls V2
 

@@ -6,7 +6,7 @@ import { getWorkspaceSkillsDir } from "../util/platform.js";
 
 /**
  * Returns the managed skills root directory. Managed skills are user-installed
- * skills that live under ~/.vellum/workspace/skills.
+ * skills that live under $VELLUM_WORKSPACE_DIR/skills.
  */
 export function getManagedSkillsRoot(): string {
   return normalizeDirPath(getWorkspaceSkillsDir());

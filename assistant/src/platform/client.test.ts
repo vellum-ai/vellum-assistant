@@ -178,4 +178,123 @@ describe("VellumPlatformClient", () => {
       });
     });
   });
+
+  describe("getOwnerConsent()", () => {
+    test("maps snake_case body to camelCase on 200", async () => {
+      globalThis.fetch = mock(async (url: string | URL | Request) => {
+        expect(String(url)).toBe(
+          "https://platform.example.com/v1/assistants/asst-123/owner-consent/",
+        );
+        return new Response(
+          JSON.stringify({
+            share_analytics: true,
+            share_diagnostics: false,
+            share_diagnostics_accepted_version: "2026-06-18",
+          }),
+          { status: 200 },
+        );
+      }) as unknown as typeof globalThis.fetch;
+
+      const client = await VellumPlatformClient.create();
+      const consent = await client!.getOwnerConsent();
+      expect(consent).toEqual({
+        shareAnalytics: true,
+        shareDiagnostics: false,
+        shareDiagnosticsAcceptedVersion: "2026-06-18",
+      });
+    });
+
+    test("defaults shareDiagnosticsAcceptedVersion to '' when the platform omits it (back-compat)", async () => {
+      globalThis.fetch = mock(
+        async () =>
+          new Response(
+            JSON.stringify({ share_analytics: true, share_diagnostics: true }),
+            { status: 200 },
+          ),
+      ) as unknown as typeof globalThis.fetch;
+
+      const client = await VellumPlatformClient.create();
+      const consent = await client!.getOwnerConsent();
+      expect(consent).toEqual({
+        shareAnalytics: true,
+        shareDiagnostics: true,
+        shareDiagnosticsAcceptedVersion: "",
+      });
+    });
+
+    test("uses the authenticated Api-Key header", async () => {
+      globalThis.fetch = mock(
+        async (_url: string | URL | Request, init?: RequestInit) => {
+          const headers = new Headers(init?.headers);
+          expect(headers.get("Authorization")).toBe("Api-Key sk-test-key");
+          return new Response(
+            JSON.stringify({ share_analytics: true, share_diagnostics: true }),
+            { status: 200 },
+          );
+        },
+      ) as unknown as typeof globalThis.fetch;
+
+      const client = await VellumPlatformClient.create();
+      await client!.getOwnerConsent();
+    });
+
+    test("returns null on 404", async () => {
+      globalThis.fetch = mock(
+        async () => new Response("not found", { status: 404 }),
+      ) as unknown as typeof globalThis.fetch;
+
+      const client = await VellumPlatformClient.create();
+      expect(await client!.getOwnerConsent()).toBeNull();
+    });
+
+    test("returns null on 500", async () => {
+      globalThis.fetch = mock(
+        async () => new Response("error", { status: 500 }),
+      ) as unknown as typeof globalThis.fetch;
+
+      const client = await VellumPlatformClient.create();
+      expect(await client!.getOwnerConsent()).toBeNull();
+    });
+
+    test("returns null on network error", async () => {
+      globalThis.fetch = mock(async () => {
+        throw new Error("network down");
+      }) as unknown as typeof globalThis.fetch;
+
+      const client = await VellumPlatformClient.create();
+      expect(await client!.getOwnerConsent()).toBeNull();
+    });
+
+    test("returns null on malformed body (non-boolean fields)", async () => {
+      globalThis.fetch = mock(
+        async () =>
+          new Response(
+            JSON.stringify({ share_analytics: "yes", share_diagnostics: 1 }),
+            { status: 200 },
+          ),
+      ) as unknown as typeof globalThis.fetch;
+
+      const client = await VellumPlatformClient.create();
+      expect(await client!.getOwnerConsent()).toBeNull();
+    });
+
+    test("returns null without fetching when assistantId is empty", async () => {
+      mockAssistantId = "";
+      mockSecureKeys = {};
+
+      const fetchSpy = mock(
+        async () =>
+          new Response(
+            JSON.stringify({ share_analytics: true, share_diagnostics: true }),
+            { status: 200 },
+          ),
+      );
+      globalThis.fetch = fetchSpy as unknown as typeof globalThis.fetch;
+
+      const client = await VellumPlatformClient.create();
+      expect(client!.platformAssistantId).toBe("");
+      expect(await client!.getOwnerConsent()).toBeNull();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+  });
 });

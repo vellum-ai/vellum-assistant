@@ -41,7 +41,9 @@ If there are none, see [Configuring a New OAuth Application](CONFIGURING_APPLICA
 
 ## Choosing Scopes
 
-Before connecting, consider what the user is trying to accomplish and request only the scopes needed for that task. You can see what scopes are available for a provider with:
+For managed mode, do not choose or display scopes yourself. Managed providers use the platform's configured scopes, and the chat surface handles the connection affordance.
+
+For your-own mode, consider what the user is trying to accomplish and request only the scopes needed for that task. You can see what scopes are available for a provider with:
 
 ```bash
 assistant oauth providers get <provider-key>
@@ -49,11 +51,33 @@ assistant oauth providers get <provider-key>
 
 **Always request the bare minimum scopes needed for the task at hand.** For example, if the user only wants to read their calendar, don't also request write access. If they only need to view emails, don't request send permissions. This follows the principle of least privilege and builds trust with the user — they'll see exactly what they're granting on the provider's consent screen.
 
-If the user later needs additional scopes for a different task, you can disconnect and reconnect with updated scopes. See [Updating Scopes](UPDATING_SCOPES.md) for details.
+If the user later needs additional scopes for a different task in your-own mode, you can disconnect and reconnect with updated scopes. See [Updating Scopes](UPDATING_SCOPES.md) for details.
 
 ## Initiating the Connection
 
-To actually initiate a connection with the OAuth provider, run:
+### Managed mode: show the in-chat connect surface
+
+If the provider is in managed mode, use `ui_show` with `surface_type: "oauth_connect"`. This is the same managed connection path available through Settings, but presented in chat at the moment the task needs it.
+
+Use a short task-specific description, and let the client own the action label. Do not include scopes, raw OAuth URLs, or a custom connect button label in the surface.
+
+```json
+{
+  "surface_type": "oauth_connect",
+  "title": "Connect Google",
+  "data": {
+    "providerKey": "google",
+    "displayName": "Google",
+    "description": "Connect Gmail, Calendar, and Drive for this task."
+  }
+}
+```
+
+Wait for the user to complete or dismiss the surface before proceeding. If they connect, verify the connection before making requests. If they dismiss it, continue only if the task can proceed without that account.
+
+### Your-own mode: run the CLI connect command
+
+If the provider is in your-own mode, initiate the connection with the OAuth provider by running:
 
 ```bash
 assistant oauth connect <provider-key> --scopes <scope1> <scope2> ...

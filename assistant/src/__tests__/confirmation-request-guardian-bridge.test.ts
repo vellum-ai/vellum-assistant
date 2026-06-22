@@ -69,7 +69,6 @@ mock.module("../runtime/channel-verification-service.js", () => ({
   },
 }));
 
-
 import type { TrustContext } from "../daemon/trust-context.js";
 import {
   createCanonicalGuardianRequest,
@@ -80,7 +79,7 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();
@@ -178,7 +177,7 @@ describe("bridgeConfirmationRequestToGuardian", () => {
 
     expect("skipped" in result && result.skipped).toBe(true);
     if ("skipped" in result) {
-      expect(result.reason).toBe("not_trusted_contact");
+      expect(result.reason).toBe("not_bridgeable_trust_class");
     }
     expect(emittedSignals).toHaveLength(0);
   });
@@ -199,7 +198,7 @@ describe("bridgeConfirmationRequestToGuardian", () => {
 
     expect("skipped" in result && result.skipped).toBe(true);
     if ("skipped" in result) {
-      expect(result.reason).toBe("not_trusted_contact");
+      expect(result.reason).toBe("not_bridgeable_trust_class");
     }
     expect(emittedSignals).toHaveLength(0);
   });

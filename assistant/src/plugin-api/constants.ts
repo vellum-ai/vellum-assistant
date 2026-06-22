@@ -20,6 +20,16 @@ export const HOOKS = {
   SHUTDOWN: "shutdown",
   /** Fires once per user turn, immediately before the agent loop receives `runMessages`. */
   USER_PROMPT_SUBMIT: "user-prompt-submit",
+  /** Fires immediately before each provider call. A hook may edit the outbound request (e.g. the system prompt), route the call to a different inference profile, and opt the turn into deferred output streaming. */
+  PRE_MODEL_CALL: "pre-model-call",
+  /** Fires once per tool result, after the tool returns and before the result is sent to the provider. */
+  POST_TOOL_USE: "post-tool-use",
+  /** Fires once per run when the loop has committed to ending — the definitive terminal hook for teardown. Cannot continue the loop; reports how the turn ended via `exitReason`. */
+  STOP: "stop",
+  /** Fires at every model-call outcome (finalized reply or provider rejection), before the message is persisted/streamed-final. A hook may transform the content and owns the continue/retry decision. */
+  POST_MODEL_CALL: "post-model-call",
+  /** Fires after the loop successfully compacts a conversation mid-turn. */
+  POST_COMPACT: "post-compact",
 } as const;
 
 /** Union of every hook name declared in {@link HOOKS}. */

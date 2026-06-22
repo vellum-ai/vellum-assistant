@@ -6,6 +6,7 @@ metadata:
   emoji: "🖥️"
   vellum:
     display-name: "Computer Use"
+    category: "system"
     activation-hints:
       - "User asks the assistant to click, type, drag, or interact with the macOS GUI directly"
       - "User wants control of a desktop app with no CLI or API alternative (games, design tools, visual workflows)"

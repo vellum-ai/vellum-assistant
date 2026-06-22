@@ -34,9 +34,9 @@ Internet
 
 ### STT Route Proxying (Assistant-Scoped Rewrite)
 
-Native clients (macOS, iOS) send speech-to-text transcription requests through the gateway to the daemon's STT service. Clients POST to the assistant-scoped path `/v1/assistants/:assistantId/stt/transcribe`, which the gateway's runtime proxy rewrites to the flat daemon path `/v1/stt/transcribe`. This follows the same assistant-scoped rewrite pattern used by other client-facing endpoints (feature flags, privacy config, etc.).
+Clients send speech-to-text transcription requests through the gateway to the daemon's STT service. Clients POST to the assistant-scoped path `/v1/assistants/:assistantId/stt/transcribe`, which the gateway's runtime proxy rewrites to the flat daemon path `/v1/stt/transcribe`. This follows the same assistant-scoped rewrite pattern used by other client-facing endpoints (feature flags, privacy config, etc.).
 
-The request carries base64-encoded WAV audio and a MIME type. The daemon resolves the configured STT provider via `resolveBatchTranscriber()` and returns the transcribed text. Clients use the response to implement a service-first strategy: the service transcription takes precedence when available, with Apple-native `SFSpeechRecognizer` as fallback when the service returns 503 (not configured) or fails.
+The request carries base64-encoded WAV audio and a MIME type. The daemon resolves the configured STT provider via `resolveBatchTranscriber()` and returns the transcribed text. Clients use the response to implement a service-first strategy: the service transcription takes precedence when available, with a client-local fallback when the service returns 503 (not configured) or fails.
 
 | Client path (gateway)               | Daemon path (after rewrite) | Method |
 | ----------------------------------- | --------------------------- | ------ |
@@ -48,12 +48,11 @@ The request carries base64-encoded WAV audio and a MIME type. The daemon resolve
 | ------------------------------------------------ | ------------------------------------------------------------------------- |
 | `gateway/src/http/routes/runtime-proxy.ts`       | Assistant-scoped path rewriting (`/v1/assistants/:id/...` → `/v1/...`)    |
 | `assistant/src/runtime/routes/stt-routes.ts`     | Daemon HTTP endpoint: validates audio, resolves transcriber, returns text |
-| `clients/shared/Network/STTClient.swift`         | Shared client: POSTs audio to the gateway, returns typed `STTResult`      |
-| `clients/shared/Utilities/AudioWavEncoder.swift` | WAV encoding utility for PCM audio buffers                                |
+| `clients/web/src/domains/chat/voice/stt-api.ts`     | Web client: POSTs audio to the gateway, returns a typed result            |
 
 ### STT Streaming WebSocket Proxy
 
-Native clients (macOS, iOS) open WebSocket connections through the gateway to the daemon's real-time STT streaming endpoint for conversation chat message capture. The gateway authenticates the downstream client using an edge JWT (actor principal required), then opens an upstream WebSocket connection to the daemon's `/v1/stt/stream` endpoint with a short-lived gateway service token. This keeps the daemon's WebSocket endpoint unreachable from the public internet while allowing authenticated clients to stream audio for real-time transcription.
+Clients open WebSocket connections through the gateway to the daemon's real-time STT streaming endpoint for conversation chat message capture. The gateway authenticates the downstream client using an edge JWT (actor principal required), then opens an upstream WebSocket connection to the daemon's `/v1/stt/stream` endpoint with a short-lived gateway service token. This keeps the daemon's WebSocket endpoint unreachable from the public internet while allowing authenticated clients to stream audio for real-time transcription.
 
 **Config-authoritative model:** The runtime always resolves the streaming transcriber from `services.stt.provider` in the assistant config, regardless of any `provider` query parameter. The `provider` parameter is optional compatibility metadata — when supplied and it disagrees with the configured provider, the runtime logs a mismatch warning for operator visibility.
 
@@ -80,7 +79,7 @@ Native clients (macOS, iOS) open WebSocket connections through the gateway to th
 | `gateway/src/index.ts`                            | Route registration: wires upgrade handler to the gateway's Bun HTTP server                                         |
 | `assistant/src/runtime/http-server.ts`            | Daemon-side WebSocket upgrade at `/v1/stt/stream`, session creation and registry                                   |
 | `assistant/src/stt/stt-stream-session.ts`         | Runtime session orchestrator: drives the `StreamingTranscriber` from the WebSocket                                 |
-| `clients/shared/Network/STTStreamingClient.swift` | Swift client: builds the gateway WS URL via `GatewayHTTPClient.buildWebSocketRequest`                              |
+| `clients/web/src/domains/chat/voice/dictation-stream.ts` | Web client: opens the gateway WebSocket, parses transcript events, reports failures                            |
 
 ### Assistant Feature Flags API
 
@@ -667,7 +666,7 @@ In desktop deployments, Telegram bot tokens are stored in secure storage (CES HT
 Entry points:
 
   1. Skill-based setup (chat):
-     credential_store action: "prompt" → token stored in secure storage
+     assistant credentials prompt → token stored in secure storage
        → telegram_config HTTP (action: set) — daemon reads token from secure storage
 
   2. Desktop Settings UI (macOS):
@@ -1048,7 +1047,7 @@ When a guardian question is dispatched while the macOS app is backgrounded, the 
 
 ### SQLite Tables
 
-All five tables live in `~/.vellum/workspace/data/db/assistant.db` alongside existing tables:
+All five tables live in `$VELLUM_WORKSPACE_DIR/data/db/assistant.db` alongside existing tables:
 
 - **`call_sessions`** — One row per call (inbound or outbound). Tracks conversation association, provider info (Twilio CallSid), phone numbers, task description (null for inbound calls), status lifecycle (`initiated` -> `ringing` -> `in_progress` -> `waiting_on_user` -> `completed`/`failed`), and timestamps. For inbound calls, the session is keyed by CallSid via `createInboundVoiceSession()` with idempotent replay protection. Foreign key to `conversations(id)` with cascade delete.
 

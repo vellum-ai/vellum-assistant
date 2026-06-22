@@ -4,6 +4,9 @@
 
 export type SurfaceType =
   | "card"
+  | "choice"
+  | "copy_block"
+  | "oauth_connect"
   | "form"
   | "list"
   | "table"
@@ -11,9 +14,12 @@ export type SurfaceType =
   | "dynamic_page"
   | "file_upload"
   | "document_preview"
-  | "task_preferences";
+  | "task_preferences"
+  | "work_result";
 
 export const INTERACTIVE_SURFACE_TYPES: SurfaceType[] = [
+  "choice",
+  "oauth_connect",
   "form",
   "confirmation",
   "dynamic_page",
@@ -38,6 +44,45 @@ export interface CardSurfaceData {
   template?: string;
   /** Arbitrary data consumed by the template renderer. Shape depends on template. */
   templateData?: Record<string, unknown>;
+}
+
+export interface ChoiceOption {
+  id: string;
+  title: string;
+  description?: string;
+  /** Visually highlight this option as the assistant's recommendation. */
+  recommended?: boolean;
+  /** Optional structured payload returned with this choice. */
+  data?: Record<string, unknown>;
+}
+
+export interface ChoiceSurfaceData {
+  description?: string;
+  options: ChoiceOption[];
+  selectionMode?: "single" | "multiple";
+  /**
+   * When true, clicking an option submits it immediately. Defaults to true for
+   * single-select choice surfaces.
+   */
+  commitOnSelect?: boolean;
+  submitLabel?: string;
+}
+
+export interface CopyBlockSurfaceData {
+  text: string;
+  label?: string;
+  language?: string;
+}
+
+export interface OAuthConnectSurfaceData {
+  /** OAuth provider key from the managed provider catalog, e.g. "google". */
+  providerKey: string;
+  /** Optional display label. The client falls back to the provider catalog. */
+  displayName?: string;
+  /** Optional helper text. The client falls back to the provider catalog. */
+  description?: string;
+  /** Optional provider logo URL. The client falls back to the provider catalog. */
+  logoUrl?: string | null;
 }
 
 export interface FormField {
@@ -148,15 +193,79 @@ export interface DocumentPreviewSurfaceData {
   subtitle?: string;
 }
 
+export type WorkResultStatus =
+  | "completed"
+  | "partial"
+  | "failed"
+  | "in_progress";
+
+export type WorkResultTone = "neutral" | "positive" | "warning" | "negative";
+
+export type WorkResultSectionType =
+  | "items"
+  | "timeline"
+  | "diff"
+  | "artifacts"
+  | "warnings";
+
+export interface WorkResultMetric {
+  label: string;
+  value: string | number;
+  detail?: string;
+  tone?: WorkResultTone;
+}
+
+export interface WorkResultMetadata {
+  label: string;
+  value: string | number;
+}
+
+export interface WorkResultItem {
+  id?: string;
+  title: string;
+  description?: string;
+  status?: string;
+  tone?: WorkResultTone;
+  metadata?: WorkResultMetadata[];
+  href?: string;
+}
+
+export interface WorkResultDiff {
+  label?: string;
+  before?: string;
+  after?: string;
+}
+
+export interface WorkResultSection {
+  id?: string;
+  title: string;
+  description?: string;
+  type?: WorkResultSectionType;
+  items?: WorkResultItem[];
+  diffs?: WorkResultDiff[];
+}
+
+export interface WorkResultSurfaceData {
+  eyebrow?: string;
+  status?: WorkResultStatus;
+  summary?: string;
+  metrics?: WorkResultMetric[];
+  sections?: WorkResultSection[];
+}
+
 export type SurfaceData =
   | CardSurfaceData
+  | ChoiceSurfaceData
+  | CopyBlockSurfaceData
+  | OAuthConnectSurfaceData
   | FormSurfaceData
   | ListSurfaceData
   | TableSurfaceData
   | ConfirmationSurfaceData
   | DynamicPageSurfaceData
   | FileUploadSurfaceData
-  | DocumentPreviewSurfaceData;
+  | DocumentPreviewSurfaceData
+  | WorkResultSurfaceData;
 
 // === Client → Server ===
 
@@ -188,11 +297,28 @@ interface UiSurfaceShowBase {
   messageId?: string;
   /** When `true`, clicking an action does not dismiss the surface — the client keeps the card visible and only marks the clicked `actionId` as spent so siblings remain clickable. */
   persistent?: boolean;
+  /** Id of the tool call that produced this surface (the `ui_show` proxy tool). Lets the client gate app previews on the tool result's arrival rather than whole-turn streaming state. */
+  toolCallId?: string;
 }
 
 export interface UiSurfaceShowCard extends UiSurfaceShowBase {
   surfaceType: "card";
   data: CardSurfaceData;
+}
+
+export interface UiSurfaceShowChoice extends UiSurfaceShowBase {
+  surfaceType: "choice";
+  data: ChoiceSurfaceData;
+}
+
+export interface UiSurfaceShowCopyBlock extends UiSurfaceShowBase {
+  surfaceType: "copy_block";
+  data: CopyBlockSurfaceData;
+}
+
+export interface UiSurfaceShowOAuthConnect extends UiSurfaceShowBase {
+  surfaceType: "oauth_connect";
+  data: OAuthConnectSurfaceData;
 }
 
 export interface UiSurfaceShowForm extends UiSurfaceShowBase {
@@ -230,15 +356,24 @@ export interface UiSurfaceShowDocumentPreview extends UiSurfaceShowBase {
   data: DocumentPreviewSurfaceData;
 }
 
+export interface UiSurfaceShowWorkResult extends UiSurfaceShowBase {
+  surfaceType: "work_result";
+  data: WorkResultSurfaceData;
+}
+
 export type UiSurfaceShow =
   | UiSurfaceShowCard
+  | UiSurfaceShowChoice
+  | UiSurfaceShowCopyBlock
+  | UiSurfaceShowOAuthConnect
   | UiSurfaceShowForm
   | UiSurfaceShowList
   | UiSurfaceShowTable
   | UiSurfaceShowConfirmation
   | UiSurfaceShowDynamicPage
   | UiSurfaceShowFileUpload
-  | UiSurfaceShowDocumentPreview;
+  | UiSurfaceShowDocumentPreview
+  | UiSurfaceShowWorkResult;
 
 export interface UiSurfaceUpdate {
   type: "ui_surface_update";

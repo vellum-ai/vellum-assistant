@@ -165,6 +165,12 @@ function makeDisposeContext(
   const ctx = {
     conversationId: overrides.conversationId ?? "conv-1",
     processing: false,
+    isProcessing(this: { processing: boolean }) {
+      return this.processing;
+    },
+    setProcessing(this: { processing: boolean }, value: boolean) {
+      this.processing = value;
+    },
     abortController,
     prompter,
     secretPrompter,
@@ -230,8 +236,9 @@ describe("disposeConversation — auto-analysis enqueue", () => {
 
   test("untrusted conversation — enqueues neither graph_extract nor conversation_analyze", () => {
     // `unknown` is the trust class used for untrusted actors. The disposal
-    // code short-circuits on `isUntrustedTrustClass()` so neither enqueue
-    // path should fire. This preserves the memory trust boundary.
+    // code short-circuits when `resolveCapabilities(trustClass).canAccessMemory`
+    // is false, so neither enqueue path should fire. This preserves the
+    // memory trust boundary.
     const ctx = makeDisposeContext({
       conversationId: "conv-untrusted",
       trustClass: "unknown",

@@ -58,10 +58,27 @@ mock.module("../lib/docker.js", () => ({
 const seedGuardianTokenFromSiblingEnvMock = mock<
   typeof guardianToken.seedGuardianTokenFromSiblingEnv
 >(() => false);
+// Default: a token exists, so the re-provision recovery path is skipped. Tests
+// that exercise recovery override loadGuardianToken to return null.
+const loadGuardianTokenMock = mock<typeof guardianToken.loadGuardianToken>(
+  () => ({ accessToken: "existing" }) as ReturnType<
+    typeof guardianToken.loadGuardianToken
+  >,
+);
+const resetGuardianBootstrapMock = mock<
+  typeof guardianToken.resetGuardianBootstrap
+>(async () => {});
+const leaseGuardianTokenMock = mock<typeof guardianToken.leaseGuardianToken>(
+  async () =>
+    ({}) as Awaited<ReturnType<typeof guardianToken.leaseGuardianToken>>,
+);
 
 mock.module("../lib/guardian-token.js", () => ({
   ...realGuardianToken,
   seedGuardianTokenFromSiblingEnv: seedGuardianTokenFromSiblingEnvMock,
+  loadGuardianToken: loadGuardianTokenMock,
+  resetGuardianBootstrap: resetGuardianBootstrapMock,
+  leaseGuardianToken: leaseGuardianTokenMock,
 }));
 
 const resolveProcessStateMock = mock<typeof processLib.resolveProcessState>(
@@ -169,6 +186,16 @@ beforeEach(() => {
   startGatewayMock.mockResolvedValue("http://127.0.0.1:7830");
   seedGuardianTokenFromSiblingEnvMock.mockReset();
   seedGuardianTokenFromSiblingEnvMock.mockReturnValue(false);
+  loadGuardianTokenMock.mockReset();
+  loadGuardianTokenMock.mockReturnValue({ accessToken: "existing" } as ReturnType<
+    typeof guardianToken.loadGuardianToken
+  >);
+  resetGuardianBootstrapMock.mockReset();
+  resetGuardianBootstrapMock.mockResolvedValue(undefined);
+  leaseGuardianTokenMock.mockReset();
+  leaseGuardianTokenMock.mockResolvedValue(
+    {} as Awaited<ReturnType<typeof guardianToken.leaseGuardianToken>>,
+  );
   maybeStartNgrokTunnelMock.mockReset();
   maybeStartNgrokTunnelMock.mockResolvedValue(null);
 });
@@ -210,6 +237,58 @@ describe("vellum wake", () => {
         signingKey: "existing-signing-key",
         bootstrapSecret: "generated-bootstrap-secret",
       },
+    );
+  });
+
+  test("re-provisions the guardian token when missing and --repair-guardian is passed", async () => {
+    process.argv = ["bun", "vellum", "wake", "--repair-guardian", "local-assistant"];
+    loadGuardianTokenMock.mockReturnValue(null);
+
+    await wake();
+
+    // Resets the gateway's spent bootstrap state, then re-leases against the
+    // loopback gateway with the lockfile's bootstrap secret.
+    expect(resetGuardianBootstrapMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:7830",
+      "generated-bootstrap-secret",
+    );
+    expect(leaseGuardianTokenMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:7830",
+      "local-assistant",
+      "generated-bootstrap-secret",
+    );
+  });
+
+  test("does NOT re-provision without --repair-guardian, even when the token is missing", async () => {
+    // The automatic connect-repair path spawns `wake <id>` with no flags. A
+    // re-lease here would revoke other device-bound tokens (other tabs / local
+    // clients), so it must never run from auto-repair.
+    process.argv = ["bun", "vellum", "wake", "local-assistant"];
+    loadGuardianTokenMock.mockReturnValue(null);
+
+    await wake();
+
+    expect(resetGuardianBootstrapMock).not.toHaveBeenCalled();
+    expect(leaseGuardianTokenMock).not.toHaveBeenCalled();
+  });
+
+  test("re-provisions even when a guardian token already exists", async () => {
+    // A connect can 401 off a token whose local state looks healthy
+    // (revoked, mis-seeded, wrong principal). The user explicitly confirmed
+    // the destructive repair, so the flag forces a re-lease instead of
+    // guessing from local token state and recreating the no-op loop.
+    process.argv = ["bun", "vellum", "wake", "--repair-guardian", "local-assistant"];
+    // loadGuardianToken returns a healthy-looking token by default.
+    await wake();
+
+    expect(resetGuardianBootstrapMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:7830",
+      "generated-bootstrap-secret",
+    );
+    expect(leaseGuardianTokenMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:7830",
+      "local-assistant",
+      "generated-bootstrap-secret",
     );
   });
 });

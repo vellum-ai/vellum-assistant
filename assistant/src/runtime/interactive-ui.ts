@@ -30,7 +30,7 @@
  *     `"timed_out"`.
  */
 
-import { findConversation } from "../daemon/conversation-store.js";
+import { findConversation } from "../daemon/conversation-registry.js";
 import { showStandaloneSurface } from "../daemon/conversation-surfaces.js";
 import { getLogger } from "../util/logger.js";
 import { mintDecisionToken } from "./decision-token.js";

@@ -3,26 +3,37 @@ import type { Server } from "bun";
 /**
  * Check whether the TCP peer of a Bun HTTP request is a loopback address.
  *
- * When `trustProxy` is set, the first entry in `X-Forwarded-For` is used
- * instead of the raw socket IP.
+ * When `trustProxy` is set, `X-Forwarded-For` is consulted to recover the real
+ * client behind a trusted reverse proxy — but ONLY when the raw socket peer is
+ * itself loopback (i.e. the request actually arrived over the same-host proxy
+ * hop). A direct connection from a non-loopback peer is never treated as
+ * loopback, so a remote caller hitting a directly-exposed gateway port cannot
+ * spoof `X-Forwarded-For: 127.0.0.1` to pass a loopback gate. (This assumes the
+ * proxy overwrites client-supplied X-Forwarded-For, which is the documented
+ * requirement for enabling trustProxy.)
  */
 export function isLoopbackPeer(
   server: Server<unknown>,
   req: Request,
   opts?: { trustProxy?: boolean },
 ): boolean {
+  const peer = server.requestIP(req);
+  const peerIsLoopback = peer ? isLoopbackAddress(peer.address) : false;
+
   if (opts?.trustProxy) {
+    // Direct (non-proxied) connection — don't trust X-Forwarded-For at all.
+    if (!peerIsLoopback) return false;
     const forwarded = req.headers.get("x-forwarded-for");
     if (forwarded) {
       const first = forwarded.split(",")[0]?.trim();
       if (!first) return false;
       return isLoopbackAddress(first);
     }
+    // Loopback socket, no X-Forwarded-For → a genuinely local direct client.
+    return true;
   }
 
-  const peer = server.requestIP(req);
-  if (!peer) return false;
-  return isLoopbackAddress(peer.address);
+  return peerIsLoopback;
 }
 
 /**

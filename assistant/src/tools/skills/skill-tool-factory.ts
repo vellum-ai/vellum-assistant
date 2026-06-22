@@ -1,6 +1,9 @@
 import type { SkillToolEntry } from "../../config/skills.js";
 import { RiskLevel } from "../../permissions/types.js";
-import { validateInputAgainstSchema } from "../../skills/validate-input.js";
+import {
+  coerceStringBooleans,
+  validateInputAgainstSchema,
+} from "../../skills/validate-input.js";
 import type {
   ExecutionTarget,
   Tool,
@@ -42,10 +45,12 @@ export function createSkillTool(
       input: Record<string, unknown>,
       context: ToolContext,
     ): Promise<ToolExecutionResult> {
+      const schema = entry.input_schema as Record<string, unknown> | undefined;
+      const coercedInput = coerceStringBooleans(input, schema);
       const validation = validateInputAgainstSchema(
         entry.name,
-        input,
-        entry.input_schema as Record<string, unknown> | undefined,
+        coercedInput,
+        schema,
       );
       if (!validation.ok) {
         return {
@@ -54,11 +59,17 @@ export function createSkillTool(
         };
       }
 
-      return runSkillToolScript(skillDir, entry.executor, input, context, {
-        target: entry.execution_target,
-        expectedSkillVersionHash: versionHash,
-        bundled,
-      });
+      return runSkillToolScript(
+        skillDir,
+        entry.executor,
+        coercedInput,
+        context,
+        {
+          target: entry.execution_target,
+          expectedSkillVersionHash: versionHash,
+          bundled,
+        },
+      );
     },
   };
 }

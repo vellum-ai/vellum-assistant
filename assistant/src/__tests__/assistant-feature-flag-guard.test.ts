@@ -60,10 +60,7 @@ const CANONICAL_KEY_RE = /^[a-z0-9][a-z0-9-]*$/;
  * Keep this list minimal — only files that genuinely need to reference
  * the legacy format for backward compatibility.
  */
-const LEGACY_KEY_ALLOWLIST = new Set([
-  // macOS client: fallback reads from legacy config section
-  "clients/macos/vellum-assistant/Features/Settings/SettingsAccountTab.swift",
-]);
+const LEGACY_KEY_ALLOWLIST = new Set<string>([]);
 
 function isTestFile(filePath: string): boolean {
   return (

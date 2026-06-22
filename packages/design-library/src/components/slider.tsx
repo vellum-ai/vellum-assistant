@@ -82,7 +82,7 @@ export function Slider({
     "block h-4 w-4 rounded-full bg-[var(--aux-white)]",
     "border-2 border-[var(--system-positive-strong)]",
     "shadow-sm transition-colors",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-0",
+    "keyboard-focus:outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:ring-offset-0",
     disabled
       ? "cursor-not-allowed border-[var(--border-disabled)]"
       : "cursor-grab active:cursor-grabbing",

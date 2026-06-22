@@ -9,6 +9,7 @@
 import { z } from "zod";
 
 import { loadFeatureFlagDefaults } from "../feature-flag-defaults.js";
+import { readEnvFeatureFlagOverrides } from "../feature-flag-env-overrides.js";
 import { readRemoteFeatureFlags } from "../feature-flag-remote-store.js";
 import { readPersistedFeatureFlags } from "../feature-flag-store.js";
 import type { IpcRoute } from "./server.js";
@@ -19,14 +20,14 @@ const GetFeatureFlagParamsSchema = z.object({
 
 /**
  * Compute the merged feature flag state: defaults < remote < persisted.
- * Returns a `Record<string, boolean>` keyed by flag name.
+ * Returns a `Record<string, boolean | string>` keyed by flag name.
  */
-export function getMergedFeatureFlags(): Record<string, boolean> {
+export function getMergedFeatureFlags(): Record<string, boolean | string> {
   const defaults = loadFeatureFlagDefaults();
   const persisted = readPersistedFeatureFlags();
   const remote = readRemoteFeatureFlags();
 
-  const result: Record<string, boolean> = {};
+  const result: Record<string, boolean | string> = {};
   for (const [key, def] of Object.entries(defaults)) {
     const persistedValue = persisted[key];
     const remoteValue = remote[key];
@@ -37,6 +38,12 @@ export function getMergedFeatureFlags(): Record<string, boolean> {
           ? remoteValue
           : def.defaultEnabled;
   }
+
+  const envOverrides = readEnvFeatureFlagOverrides();
+  for (const [key, value] of Object.entries(envOverrides)) {
+    if (key in result) result[key] = value;
+  }
+
   return result;
 }
 
@@ -51,7 +58,7 @@ export const featureFlagRoutes: IpcRoute[] = [
   {
     method: "get_feature_flag",
     schema: GetFeatureFlagParamsSchema,
-    handler: (params?: Record<string, unknown>): boolean | null => {
+    handler: (params?: Record<string, unknown>): boolean | string | null => {
       const flag = params?.flag as string | undefined;
       if (!flag) return null;
 

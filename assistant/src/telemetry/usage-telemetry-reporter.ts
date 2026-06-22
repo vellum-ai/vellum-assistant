@@ -4,17 +4,16 @@
  * Periodically flushes LLM usage events and turn events (user messages) from
  * the local SQLite database and POSTs them to the platform telemetry endpoint.
  *
- * Two auth modes:
- * - Authenticated: Api-Key header via managed proxy context
- * - Anonymous: unauthenticated POST (telemetry endpoints are public)
+ * Authenticated-only: events are sent via the managed proxy context
+ * (Api-Key header). When no platform credentials are available, or when
+ * platform features are disabled (VELLUM_DISABLE_PLATFORM in local mode), the
+ * flush is skipped and retried next cycle.
  */
 
-import {
-  getPlatformBaseUrl,
-  getPlatformOrganizationId,
-  getPlatformUserId,
-} from "../config/env.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { getPlatformOrganizationId, getPlatformUserId } from "../config/env.js";
 import { getConfig } from "../config/loader.js";
+import { queryUnreportedAuthFallbackEvents } from "../memory/auth-fallback-events-store.js";
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
@@ -22,11 +21,29 @@ import {
 import { queryUnreportedLifecycleEvents } from "../memory/lifecycle-events-store.js";
 import { queryUnreportedUsageEvents } from "../memory/llm-usage-store.js";
 import { queryUnreportedOnboardingEvents } from "../memory/onboarding-events-store.js";
+import { queryUnreportedSkillLoadedEvents } from "../memory/skill-loaded-events-store.js";
+import { queryUnreportedToolExecutedEvents } from "../memory/tool-executed-events-store.js";
 import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
+import {
+  assembleBoundedTurnTrace,
+  isTurnSettled,
+} from "../memory/turn-trace-store.js";
 import { VellumPlatformClient } from "../platform/client.js";
+import {
+  getCachedShareAnalytics,
+  getCachedShareDiagnostics,
+  getCachedShareDiagnosticsVersion,
+} from "../platform/consent-cache.js";
+import { arePlatformFeaturesEnabled } from "../platform/feature-gate.js";
+import type { UsageAttributionProfileSource } from "../usage/types.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger } from "../util/logger.js";
 import { APP_VERSION } from "../version.js";
+import {
+  type ActivationStepName,
+  buildActivationDaemonEventId,
+} from "./activation-funnel.js";
+import { isDiagnosticsConsentVersionEligible } from "./trace-collection-policy.js";
 import type { TelemetryEvent, TurnTelemetryClientInfo } from "./types.js";
 
 const log = getLogger("usage-telemetry");
@@ -47,6 +64,43 @@ const CHECKPOINT_KEY_ONBOARDING_WATERMARK =
   "telemetry:onboarding:last_reported_at";
 const CHECKPOINT_KEY_ONBOARDING_WATERMARK_ID =
   "telemetry:onboarding:last_reported_id";
+const CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK =
+  "telemetry:auth_fallback:last_reported_at";
+const CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK_ID =
+  "telemetry:auth_fallback:last_reported_id";
+const CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK =
+  "telemetry:tool_executed:last_reported_at";
+const CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK_ID =
+  "telemetry:tool_executed:last_reported_id";
+const CHECKPOINT_KEY_SKILL_LOADED_WATERMARK =
+  "telemetry:skill_loaded:last_reported_at";
+const CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID =
+  "telemetry:skill_loaded:last_reported_id";
+// Written into the `*_id` watermark checkpoints by the opt-out flush branch.
+// Sorts lexicographically above every real row ID (all event stores generate
+// lowercase v4 UUIDs), so the compound cursor's same-millisecond arm
+// (`createdAt == watermark AND id > afterId`) can never match an opt-out row.
+const OPT_OUT_WATERMARK_ID_SENTINEL = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+// (timestamp, id) checkpoint-key pairs for every event type's compound
+// cursor — keep in sync when adding an event type.
+const WATERMARK_KEY_PAIRS: ReadonlyArray<readonly [string, string]> = [
+  [CHECKPOINT_KEY_WATERMARK, CHECKPOINT_KEY_WATERMARK_ID],
+  [CHECKPOINT_KEY_TURN_WATERMARK, CHECKPOINT_KEY_TURN_WATERMARK_ID],
+  [CHECKPOINT_KEY_LIFECYCLE_WATERMARK, CHECKPOINT_KEY_LIFECYCLE_WATERMARK_ID],
+  [CHECKPOINT_KEY_ONBOARDING_WATERMARK, CHECKPOINT_KEY_ONBOARDING_WATERMARK_ID],
+  [
+    CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK,
+    CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK_ID,
+  ],
+  [
+    CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK,
+    CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK_ID,
+  ],
+  [
+    CHECKPOINT_KEY_SKILL_LOADED_WATERMARK,
+    CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID,
+  ],
+];
 const REPORT_INTERVAL_MS = 5 * 60 * 1000;
 const INITIAL_FLUSH_DELAY_MS = 30_000; // Delay first flush to let CES handshake complete
 const BATCH_SIZE = 500;
@@ -78,11 +132,47 @@ export class UsageTelemetryReporter {
   private timer: ReturnType<typeof setInterval> | null = null;
   private activeFlush: Promise<void> | null = null;
 
+  constructor() {
+    // `tool_invocations` is an always-on audit table that predates this
+    // reporter shipping its rows: an absent watermark means no flush (opted
+    // in or out) has ever advanced it, so rows recorded before this build —
+    // including any opted-out period under older builds that gated the
+    // reporter on the usage-data opt-out — would otherwise ship retroactively.
+    // Initialize an absent watermark to "now" at construction. Construction
+    // happens during daemon startup before any tool runs, so no legitimate
+    // row falls behind the watermark — initializing at first FLUSH instead
+    // would drop tools used during the 30s+ flush delay. The checkpoint is
+    // persisted immediately so a crash before the first flush can't leave it
+    // absent and re-initialize later. An EXISTING watermark is never touched:
+    // opted-out sessions keep it advancing via the opt-out flush branch, and
+    // overwriting it here would drop a legitimate unshipped backlog.
+    // `skill_loaded` needs no init: recording is gated on share_analytics
+    // consent, so opt-out rows never exist and its standard 0 default is safe.
+    //
+    // Best-effort: DB init failures are tolerated at daemon startup (degraded
+    // mode), so this must never throw out of the constructor — matching
+    // flush(), which treats DB errors as non-fatal.
+    try {
+      if (getMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK) == null) {
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK,
+          String(Date.now()),
+        );
+      }
+    } catch (err) {
+      log.warn(
+        { err },
+        "tool_executed watermark init failed at construction — non-fatal; a later construction with a working DB re-runs the absent-checkpoint init",
+      );
+    }
+  }
+
   start(): void {
     // Delay the first flush to allow the credential infrastructure (CES
     // handshake) to complete. Without this delay, VellumPlatformClient.create()
     // returns null because the credential backend hasn't resolved yet, causing
-    // telemetry to fall back to anonymous mode permanently.
+    // the initial flush to be skipped (we send authenticated-only); the
+    // delay lets credentials resolve so the first flush can actually ship.
     this.initialFlushTimer = setTimeout(() => {
       this.initialFlushTimer = null;
       this.flush().catch((err) => {
@@ -125,20 +215,45 @@ export class UsageTelemetryReporter {
     try {
       if (batchCount >= MAX_CONSECUTIVE_BATCHES) return;
 
-      // Respect runtime opt-out: if the user has disabled usage data collection,
-      // skip the flush and advance watermarks so events recorded during the
-      // opt-out window are never sent retroactively.
-      if (!getConfig().collectUsageData) {
-        // Advance only the timestamp watermarks. Leave the ID watermarks
-        // untouched so the compound-cursor branch stays active — setting them
-        // to "" would make the truthy check fail, falling back to a
-        // timestamp-only `gt(createdAt, watermark)` query that silently drops
-        // events created in the same millisecond as the opt-out watermark.
+      // Skip when platform features are disabled (VELLUM_DISABLE_PLATFORM in
+      // local mode; the flag is ignored when IS_PLATFORM is set, matching
+      // VellumPlatformClient.create()). Watermarks are NOT advanced here: this
+      // is a deployment/local-mode toggle, not a privacy opt-out, so the unsent
+      // backlog ships once the flag is cleared.
+      if (!arePlatformFeaturesEnabled()) {
+        return;
+      }
+
+      // Respect opt-out: if the platform owner has not granted
+      // `share_analytics` consent, skip the flush and advance watermarks so
+      // events recorded during the opt-out window are never sent
+      // retroactively. The daemon runs the reporter even when opted out
+      // specifically so this branch keeps executing — every cycle plus the
+      // final flush in stop() — which is what lets a later opt-in (runtime or
+      // via restart) resume from a watermark that already covers the opt-out
+      // window. One caveat: a RUNTIME false→true flip can still ship up to one
+      // flush interval (≤5 min) of pre-toggle rows recorded since the last
+      // opted-out flush;
+      // the restart path is fully covered by the final flush in stop(). The
+      // caveat applies to the always-on tables without a write-time opt-out
+      // gate (llm_usage, turn events) and to tool_invocations rows recorded
+      // under builds predating the audit listener's write-time gate — new
+      // opted-out tool_invocations rows persist NULL telemetry columns and
+      // are unreportable by construction regardless of watermark timing.
+      if (!getCachedShareAnalytics()) {
+        // Advance the timestamp watermarks and pin the ID watermarks to a
+        // sentinel that sorts above any real UUID. The sentinel (rather than
+        // "") keeps the compound-cursor branch active — a falsy ID would
+        // downgrade the query to a timestamp-only `gt(createdAt, watermark)`
+        // — while making its same-millisecond arm unsatisfiable, so a row
+        // written in the same millisecond as this flush's Date.now() can
+        // never ship after a later opt-in. The next opted-in flush that
+        // ships events overwrites the sentinel with a real row ID.
         const now = String(Date.now());
-        setMemoryCheckpoint(CHECKPOINT_KEY_WATERMARK, now);
-        setMemoryCheckpoint(CHECKPOINT_KEY_TURN_WATERMARK, now);
-        setMemoryCheckpoint(CHECKPOINT_KEY_LIFECYCLE_WATERMARK, now);
-        setMemoryCheckpoint(CHECKPOINT_KEY_ONBOARDING_WATERMARK, now);
+        for (const [timestampKey, idKey] of WATERMARK_KEY_PAIRS) {
+          setMemoryCheckpoint(timestampKey, now);
+          setMemoryCheckpoint(idKey, OPT_OUT_WATERMARK_ID_SENTINEL);
+        }
         return;
       }
 
@@ -171,6 +286,35 @@ export class UsageTelemetryReporter {
         getMemoryCheckpoint(CHECKPOINT_KEY_ONBOARDING_WATERMARK_ID) ??
         undefined;
 
+      // Read auth-fallback watermark (compound cursor: createdAt + id)
+      const authFallbackWatermark = Number(
+        getMemoryCheckpoint(CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK) ?? "0",
+      );
+      const authFallbackWatermarkId =
+        getMemoryCheckpoint(CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK_ID) ??
+        undefined;
+
+      // Read tool-executed watermark (compound cursor: createdAt + id).
+      // An absent checkpoint was initialized to construction time (see the
+      // constructor), guarding opt-out windows; the 0 fallback here is a
+      // defensive default matching the other event types. Legacy rows are
+      // excluded at the query level (see queryUnreportedToolExecutedEvents).
+      const toolExecutedWatermark = Number(
+        getMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK) ?? "0",
+      );
+      const toolExecutedWatermarkId =
+        getMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK_ID) ??
+        undefined;
+
+      // Read skill-loaded watermark (compound cursor: createdAt + id).
+      // Brand-new table, so the standard 0 default is safe.
+      const skillLoadedWatermark = Number(
+        getMemoryCheckpoint(CHECKPOINT_KEY_SKILL_LOADED_WATERMARK) ?? "0",
+      );
+      const skillLoadedWatermarkId =
+        getMemoryCheckpoint(CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID) ??
+        undefined;
+
       // Query unreported events
       const events = queryUnreportedUsageEvents(
         watermark,
@@ -192,25 +336,112 @@ export class UsageTelemetryReporter {
         onboardingWatermarkId,
         BATCH_SIZE,
       );
+      const authFallbackEvents = queryUnreportedAuthFallbackEvents(
+        authFallbackWatermark,
+        authFallbackWatermarkId,
+        BATCH_SIZE,
+      );
+      const toolExecutedEvents = queryUnreportedToolExecutedEvents(
+        toolExecutedWatermark,
+        toolExecutedWatermarkId,
+        BATCH_SIZE,
+      );
+      const skillLoadedEvents = queryUnreportedSkillLoadedEvents(
+        skillLoadedWatermark,
+        skillLoadedWatermarkId,
+        BATCH_SIZE,
+      );
+
+      // Trace completeness barrier (trace-eligible owners only).
+      //
+      // When trace collection is on, a turn's trace must only be sent once that
+      // turn is COMPLETE — otherwise a flush that races an in-progress reply
+      // would capture a partial transcript and the watermark would advance past
+      // the turn, leaving it permanently partial. So we report only the leading
+      // run of complete turns and STOP at the first incomplete (in-flight) one:
+      // the turn watermark is a single monotonic `(createdAt, id)` cursor, so a
+      // later complete turn cannot be reported past an earlier deferred one
+      // without skipping it. The deferred turn (and everything after it) is
+      // picked up on a later flush once its response settles.
+      //
+      // When trace collection is OFF, no turn is deferred and reporting timing
+      // is unchanged for everyone else — `turn_raw` behavior is untouched.
+      //
+      // Trace eligibility is composed daemon-side to mirror the platform's
+      // authoritative owner-based ingest gate, so traces for ineligible owners
+      // never leave the device. Three parts, fail-closed (all must be true):
+      //   1. the `trace-collection` LaunchDarkly flag (delivered via the
+      //      assistant-tagged flag sync, already evaluated server-side for this
+      //      assistant's owner),
+      //   2. the owner's cached `share_diagnostics` consent, and
+      //   3. the owner's cached `share_diagnostics_accepted_version` being at or
+      //      past the disclosing version — the platform applies the identical
+      //      check, so an old consent never yields a trace here or there.
+      const traceEligible =
+        isAssistantFeatureFlagEnabled("trace-collection", getConfig()) &&
+        getCachedShareDiagnostics() &&
+        isDiagnosticsConsentVersionEligible(getCachedShareDiagnosticsVersion());
+      let reportableTurnEvents = turnEvents;
+      if (traceEligible && turnEvents.length > 0) {
+        let barrier = turnEvents.length;
+        for (let i = 0; i < turnEvents.length; i++) {
+          const t = turnEvents[i];
+          if (
+            !isTurnSettled({
+              conversationId: t.conversationId,
+              userMessageId: t.id,
+              userMessageCreatedAt: t.createdAt,
+            })
+          ) {
+            barrier = i;
+            break;
+          }
+        }
+        if (barrier < turnEvents.length) {
+          reportableTurnEvents = turnEvents.slice(0, barrier);
+          log.debug(
+            {
+              deferredTurnId: turnEvents[barrier].id,
+              deferredConversationId: turnEvents[barrier].conversationId,
+              reportedTurns: barrier,
+              deferredTurns: turnEvents.length - barrier,
+            },
+            "Deferring in-progress turn(s) from telemetry until complete",
+          );
+        }
+      }
 
       if (
         events.length === 0 &&
-        turnEvents.length === 0 &&
+        reportableTurnEvents.length === 0 &&
         lifecycleEvents.length === 0 &&
-        onboardingEvents.length === 0
+        onboardingEvents.length === 0 &&
+        authFallbackEvents.length === 0 &&
+        toolExecutedEvents.length === 0 &&
+        skillLoadedEvents.length === 0
       )
         return;
 
-      // Resolve auth context — authenticated path uses client, anonymous path
-      // sends unauthenticated (telemetry endpoints are public).
+      // Resolve auth context. We send authenticated-only: if no platform
+      // credentials are available yet, skip without advancing watermarks so the
+      // backlog ships on a later cycle once credentials resolve.
       const client = await VellumPlatformClient.create();
+      if (!client) {
+        log.debug(
+          { pendingEventCount: events.length + turnEvents.length },
+          "Telemetry flush: no platform credentials — skipping, will retry next cycle",
+        );
+        return;
+      }
       log.debug(
         {
-          authenticated: !!client,
           usageCount: events.length,
-          turnCount: turnEvents.length,
+          turnCount: reportableTurnEvents.length,
           lifecycleCount: lifecycleEvents.length,
           onboardingCount: onboardingEvents.length,
+          authFallbackCount: authFallbackEvents.length,
+          toolExecutedCount: toolExecutedEvents.length,
+          skillLoadedCount: skillLoadedEvents.length,
         },
         "Telemetry flush: resolved auth context",
       );
@@ -234,6 +465,7 @@ export class UsageTelemetryReporter {
             output_tokens: e.outputTokens,
             cache_creation_input_tokens: e.cacheCreationInputTokens ?? null,
             cache_read_input_tokens: e.cacheReadInputTokens ?? null,
+            llm_call_count: e.llmCallCount,
             raw_usage: e.rawUsage,
             actor: e.actor,
             llm_call_site: e.callSite,
@@ -250,7 +482,23 @@ export class UsageTelemetryReporter {
             assistant_version: e.assistantVersion ?? APP_VERSION,
           }),
         ),
-        ...turnEvents.map((e): TelemetryEvent => {
+        ...reportableTurnEvents.map((e): TelemetryEvent => {
+          // Per-turn trace collection gate. `traceEligible` (computed above)
+          // requires the `trace-collection` flag AND the owner's cached
+          // `share_diagnostics` consent AND an eligible accepted consent
+          // version. Fail-closed: when any is off the trace is omitted and the
+          // trace-free turn row flushes as before. The
+          // `share_analytics` gate above already passed, so this is an
+          // additional, independent gate specific to trace PII. Every turn
+          // reaching here is settled (the completeness barrier dropped any
+          // in-flight turns), so the trace is never a partial mid-turn snapshot.
+          const trace = traceEligible
+            ? assembleBoundedTurnTrace({
+                conversationId: e.conversationId,
+                userMessageId: e.id,
+                userMessageCreatedAt: e.createdAt,
+              })
+            : null;
           // `messages.metadata.client` is a nested JSON object extracted
           // via `json_extract`; sqlite returns it as a text representation.
           // Parse defensively — a corrupted blob in the JSON column should
@@ -285,6 +533,11 @@ export class UsageTelemetryReporter {
             interface_id: e.interfaceId,
             channel_id: e.channelId,
             client,
+            // Only attach `trace` when consent is on AND a bounded trace was
+            // assembled. Omitting the key entirely when there's no trace keeps
+            // the wire shape byte-identical to pre-trace turn events for the
+            // common (no-consent) path.
+            ...(trace ? { trace } : {}),
             // Turn events derive from `messages` + `conversations`
             // rather than a dedicated table. Adding `assistant_version`
             // to `messages` is a separate (larger) migration; until
@@ -316,7 +569,22 @@ export class UsageTelemetryReporter {
         ...onboardingEvents.map(
           (e): TelemetryEvent => ({
             type: "onboarding",
-            daemon_event_id: e.id,
+            // Wire-only override for activation rows: a deterministic id keyed
+            // on funnel_version/session/step lets dbt collapse a moment that
+            // fires more than once. Key on the ROW's stored `funnelVersion`
+            // (not the binary's current constant) so rows recorded under an
+            // older version — flushed offline or after an upgrade — keep a
+            // stable id and still collapse with already-ingested rows. The
+            // SQLite watermark cursor still uses `e.id`/`e.createdAt`, so this
+            // override is checkpoint-safe.
+            daemon_event_id:
+              e.sessionId && e.stepName && e.funnelVersion
+                ? buildActivationDaemonEventId(
+                    e.sessionId,
+                    e.stepName as ActivationStepName,
+                    e.funnelVersion,
+                  )
+                : e.id,
             recorded_at: e.createdAt,
             screen: e.screen,
             ...(e.toolsJson ? { tools: JSON.parse(e.toolsJson) } : {}),
@@ -329,11 +597,80 @@ export class UsageTelemetryReporter {
               ? { google_scopes: JSON.parse(e.googleScopesJson) }
               : {}),
             ...(e.abVariant ? { ab_variant: e.abVariant } : {}),
-            // Onboarding events fall back to the envelope `assistant_version`
-            // — same upload-time attribution risk as before this PR. Adding
-            // the record-time column to `onboarding_events` (#30733) is a
-            // separate follow-up that mirrors what this PR does for
-            // `llm_usage_events`.
+            // Activation funnel fields — only present on activation rows.
+            ...(e.sessionId ? { session_id: e.sessionId } : {}),
+            ...(e.stepName ? { step_name: e.stepName } : {}),
+            ...(e.stepIndex != null ? { step_index: e.stepIndex } : {}),
+            ...(e.completedAt ? { completed_at: e.completedAt } : {}),
+            ...(e.funnelVersion ? { funnel_version: e.funnelVersion } : {}),
+            // Onboarding events fall back to the envelope `assistant_version`,
+            // so events recorded under an older build are attributed to the
+            // version running at upload time. Adding a record-time column to
+            // `onboarding_events` (mirroring `llm_usage_events`) is a known
+            // follow-up.
+            assistant_version: APP_VERSION,
+          }),
+        ),
+        ...authFallbackEvents.map(
+          (e): TelemetryEvent => ({
+            type: "auth_fallback",
+            daemon_event_id: e.id,
+            recorded_at: e.createdAt,
+            guard: e.guard,
+            path: e.path,
+            failure_kind: e.failureKind,
+            count: e.count,
+            window_start: e.windowStart,
+            window_end: e.windowEnd,
+            // Aggregated counts forwarded by the gateway carry no record-time
+            // binary version; stamp the running binary's `APP_VERSION` so the
+            // wire value is concrete rather than an explicit null that would
+            // override the envelope under the platform's per-event-wins
+            // contract.
+            assistant_version: APP_VERSION,
+          }),
+        ),
+        ...toolExecutedEvents.map(
+          (e): TelemetryEvent => ({
+            type: "tool_executed",
+            daemon_event_id: e.id,
+            recorded_at: e.createdAt,
+            tool_name: e.toolName,
+            // The store filters out permission-denied rows, so the only
+            // non-success decision that reaches here is "error".
+            status: e.decision === "error" ? "errored" : "fulfilled",
+            duration_ms: e.durationMs,
+            arg_bytes: e.argBytes,
+            result_bytes: e.resultBytes,
+            conversation_id: e.conversationId,
+            provider: e.provider,
+            model: e.model,
+            inference_profile: e.inferenceProfile,
+            inference_profile_source:
+              e.inferenceProfileSource as UsageAttributionProfileSource | null,
+            // `tool_invocations` has no record-time version column — stamp
+            // the running binary's `APP_VERSION` so the wire value is
+            // concrete rather than an explicit null that would override the
+            // envelope under the platform's per-event-wins contract.
+            assistant_version: APP_VERSION,
+          }),
+        ),
+        ...skillLoadedEvents.map(
+          (e): TelemetryEvent => ({
+            type: "skill_loaded",
+            daemon_event_id: e.id,
+            recorded_at: e.createdAt,
+            skill_name: e.skillName,
+            skill_updated_at: e.skillUpdatedAt,
+            conversation_id: e.conversationId,
+            provider: e.provider,
+            model: e.model,
+            inference_profile: e.inferenceProfile,
+            inference_profile_source:
+              e.inferenceProfileSource as UsageAttributionProfileSource | null,
+            // `skill_loaded_events` has no record-time version column — same
+            // upload-time APP_VERSION stamping as the other non-llm_usage
+            // event types.
             assistant_version: APP_VERSION,
           }),
         ),
@@ -358,18 +695,12 @@ export class UsageTelemetryReporter {
         body: JSON.stringify(payload),
       };
 
-      let resp: Response;
-      if (client) {
-        resp = await client.fetch(TELEMETRY_PATH, fetchInit);
-      } else {
-        const url = `${getPlatformBaseUrl()}${TELEMETRY_PATH}`;
-        resp = await fetch(url, fetchInit);
-      }
+      const resp = await client.fetch(TELEMETRY_PATH, fetchInit);
 
       if (!resp.ok) {
         const body = await resp.text();
         log.warn(
-          { status: resp.status, authenticated: !!client, body },
+          { status: resp.status, body },
           "Usage telemetry POST failed — will retry next cycle",
         );
         return;
@@ -386,9 +717,11 @@ export class UsageTelemetryReporter {
         setMemoryCheckpoint(CHECKPOINT_KEY_WATERMARK_ID, lastEvent.id);
       }
 
-      // Advance turn watermark (compound cursor)
-      if (turnEvents.length > 0) {
-        const lastTurn = turnEvents[turnEvents.length - 1];
+      // Advance turn watermark (compound cursor) — only to the last REPORTED
+      // turn. Deferred (in-flight) turns sit beyond this cursor and are
+      // re-evaluated on a later flush, so the watermark never skips them.
+      if (reportableTurnEvents.length > 0) {
+        const lastTurn = reportableTurnEvents[reportableTurnEvents.length - 1];
         setMemoryCheckpoint(
           CHECKPOINT_KEY_TURN_WATERMARK,
           String(lastTurn.createdAt),
@@ -422,12 +755,60 @@ export class UsageTelemetryReporter {
         );
       }
 
-      // If we got a full batch of any type, there may be more — recurse
+      // Advance auth-fallback watermark (compound cursor)
+      if (authFallbackEvents.length > 0) {
+        const lastAuthFallback =
+          authFallbackEvents[authFallbackEvents.length - 1];
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK,
+          String(lastAuthFallback.createdAt),
+        );
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK_ID,
+          lastAuthFallback.id,
+        );
+      }
+
+      // Advance tool-executed watermark (compound cursor)
+      if (toolExecutedEvents.length > 0) {
+        const lastToolExecuted =
+          toolExecutedEvents[toolExecutedEvents.length - 1];
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK,
+          String(lastToolExecuted.createdAt),
+        );
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK_ID,
+          lastToolExecuted.id,
+        );
+      }
+
+      // Advance skill-loaded watermark (compound cursor)
+      if (skillLoadedEvents.length > 0) {
+        const lastSkillLoaded = skillLoadedEvents[skillLoadedEvents.length - 1];
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_SKILL_LOADED_WATERMARK,
+          String(lastSkillLoaded.createdAt),
+        );
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID,
+          lastSkillLoaded.id,
+        );
+      }
+
+      // If we got a full batch of any type, there may be more — recurse.
+      // Turns use the REPORTED count: when the completeness barrier truncates
+      // the batch, the deferred turns must wait for a later flush (by which
+      // point they've settled) rather than being re-queried and re-deferred in
+      // a tight recursion.
       if (
         events.length === BATCH_SIZE ||
-        turnEvents.length === BATCH_SIZE ||
+        reportableTurnEvents.length === BATCH_SIZE ||
         lifecycleEvents.length === BATCH_SIZE ||
-        onboardingEvents.length === BATCH_SIZE
+        onboardingEvents.length === BATCH_SIZE ||
+        authFallbackEvents.length === BATCH_SIZE ||
+        toolExecutedEvents.length === BATCH_SIZE ||
+        skillLoadedEvents.length === BATCH_SIZE
       ) {
         await this._doFlush(batchCount + 1);
       }

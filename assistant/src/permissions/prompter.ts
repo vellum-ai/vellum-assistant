@@ -104,27 +104,31 @@ export class PermissionPrompter {
       pendingInteractions.register(requestId, {
         conversationId: conversationId ?? "",
         kind: "confirmation",
-          confirmationDetails: {
-            toolName,
-            input: redactSensitiveFields(input),
-            riskLevel,
-            executionTarget,
-            allowlistOptions: allowlistOptions.map((o) => ({
-              label: o.label,
-              description: o.description,
-              pattern: o.pattern,
-            })),
-            scopeOptions: scopeOptions.map((o) => ({
-              label: o.label,
-              scope: o.scope,
-            })),
-            persistentDecisionsAllowed: persistentDecisionsAllowed ?? true,
-          },
-          rpcResolve: resolve as (value: unknown) => void,
-          rpcReject: reject,
-          timer,
-          toolUseId,
-        });
+        confirmationDetails: {
+          toolName,
+          input: redactSensitiveFields(input),
+          riskLevel,
+          executionTarget,
+          allowlistOptions: allowlistOptions.map((o) => ({
+            label: o.label,
+            description: o.description,
+            pattern: o.pattern,
+          })),
+          scopeOptions: scopeOptions.map((o) => ({
+            label: o.label,
+            scope: o.scope,
+          })),
+          directoryScopeOptions: directoryScopeOptions?.map((o) => ({
+            label: o.label,
+            scope: o.scope,
+          })),
+          persistentDecisionsAllowed: persistentDecisionsAllowed ?? true,
+        },
+        rpcResolve: resolve as (value: unknown) => void,
+        rpcReject: reject,
+        timer,
+        toolUseId,
+      });
       this.ownedIds.add(requestId);
 
       if (signal) {
@@ -156,7 +160,10 @@ export class PermissionPrompter {
           scope: o.scope,
         })),
         directoryScopeOptions: directoryScopeOptions
-          ? directoryScopeOptions.map((o) => ({ scope: o.scope, label: o.label }))
+          ? directoryScopeOptions.map((o) => ({
+              scope: o.scope,
+              label: o.label,
+            }))
           : undefined,
         diff,
         conversationId,
@@ -186,9 +193,11 @@ export class PermissionPrompter {
   resolveConfirmation(
     requestId: string,
     decision: UserDecision,
-    selectedPattern?: string,
-    selectedScope?: string,
-    decisionContext?: string,
+    options?: {
+      selectedPattern?: string;
+      selectedScope?: string;
+      decisionContext?: string;
+    },
   ): void {
     if (!this.ownedIds.has(requestId)) {
       log.warn({ requestId }, "No pending prompt for confirmation response");
@@ -201,9 +210,12 @@ export class PermissionPrompter {
       decision === "allow" ? "approved" : "rejected",
     );
     this.ownedIds.delete(requestId);
-    (interaction?.rpcResolve as ((v: ConfirmResult) => void) | undefined)?.(
-      { decision, selectedPattern, selectedScope, decisionContext },
-    );
+    (interaction?.rpcResolve as ((v: ConfirmResult) => void) | undefined)?.({
+      decision,
+      selectedPattern: options?.selectedPattern,
+      selectedScope: options?.selectedScope,
+      decisionContext: options?.decisionContext,
+    });
   }
 
   /**
@@ -215,14 +227,12 @@ export class PermissionPrompter {
     for (const requestId of [...this.ownedIds]) {
       const interaction = pendingInteractions.resolve(requestId, "superseded");
       this.ownedIds.delete(requestId);
-      (interaction?.rpcResolve as ((v: ConfirmResult) => void) | undefined)?.(
-        {
-          decision: "deny",
-          wasSystemCancel: true,
-          decisionContext:
-            "The user sent a new message instead of responding to this permission prompt. Stop what you are doing and respond to the user's new message. Do NOT retry this tool or request permission again until the user asks you to.",
-        },
-      );
+      (interaction?.rpcResolve as ((v: ConfirmResult) => void) | undefined)?.({
+        decision: "deny",
+        wasSystemCancel: true,
+        decisionContext:
+          "The user sent a new message instead of responding to this permission prompt. Stop what you are doing and respond to the user's new message. Do NOT retry this tool or request permission again until the user asks you to.",
+      });
     }
   }
 

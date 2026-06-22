@@ -105,6 +105,26 @@ mock.module("../../jobs-store.js", () => ({
   isMemoryEnabled: () => true,
 }));
 
+// ── v3 follow-up flag mock ──────────────────────────────────────────
+//
+// A v3 flag being on appends `memory_v3_maintain` to the post-consolidation
+// follow-up fan-out, and the LIVE flag (alone) selects the v3 article-shape
+// prompt. `v3FlagOn` toggles all flags at once for the existing tests;
+// `flagStates` overrides individual keys for the shadow-vs-live tests.
+let v3FlagOn = false;
+let flagStates: Record<string, boolean> = {};
+mock.module("../../../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: (key: string) => flagStates[key] ?? v3FlagOn,
+}));
+
+// The v3-live gate moved to config (`config.memory.v3.live`), read via
+// `isMemoryV3Live`. Mirror the flag mock so the shadow-vs-live tests keep
+// driving live through `flagStates["memory-v3-live"]` (and `v3FlagOn` toggles
+// it alongside shadow for the existing on/off tests).
+mock.module("../../../config/memory-v3-gate.js", () => ({
+  isMemoryV3Live: () => flagStates["memory-v3-live"] ?? v3FlagOn,
+}));
+
 // ── Workspace pin ───────────────────────────────────────────────────
 let tmpWorkspace: string;
 let previousWorkspaceEnv: string | undefined;
@@ -128,14 +148,44 @@ const { memoryV2ConsolidateJob } = await import("../consolidation-job.js");
 const { CUTOFF_PLACEHOLDER, CONSOLIDATION_PROMPT } =
   await import("../prompts/consolidation.js");
 
-// The resolver only reads `config.memory.v2.enabled` and
-// `config.memory.v2.consolidation_prompt_path`, so a minimal stand-in
-// covers both call sites without materializing the full default config.
+// The handler only reads `config.memory.enabled`, `config.memory.v2.enabled`,
+// `config.memory.v2.consolidation_prompt_path`, and
+// `config.memory.v2.consolidation_max_entries_per_run`, so a minimal
+// stand-in covers those call sites without materializing the full default
+// config.
 const CONFIG = {
-  memory: { v2: { enabled: true, consolidation_prompt_path: null } },
+  memory: {
+    enabled: true,
+    v2: { enabled: true, consolidation_prompt_path: null },
+  },
 } as Parameters<typeof memoryV2ConsolidateJob>[1];
+
+/** CONFIG plus a per-run entry cap for the chunked-cutoff tests. */
+function configWithMaxEntries(
+  maxEntries: number | null,
+): Parameters<typeof memoryV2ConsolidateJob>[1] {
+  return {
+    memory: {
+      enabled: true,
+      v2: {
+        enabled: true,
+        consolidation_prompt_path: null,
+        consolidation_max_entries_per_run: maxEntries,
+      },
+    },
+  } as Parameters<typeof memoryV2ConsolidateJob>[1];
+}
 const CONFIG_DISABLED = {
-  memory: { v2: { enabled: false, consolidation_prompt_path: null } },
+  memory: {
+    enabled: true,
+    v2: { enabled: false, consolidation_prompt_path: null },
+  },
+} as Parameters<typeof memoryV2ConsolidateJob>[1];
+const CONFIG_MEMORY_DISABLED = {
+  memory: {
+    enabled: false,
+    v2: { enabled: true, consolidation_prompt_path: null },
+  },
 } as Parameters<typeof memoryV2ConsolidateJob>[1];
 
 function makeJob(): Parameters<typeof memoryV2ConsolidateJob>[0] {
@@ -173,11 +223,194 @@ beforeEach(() => {
   emitCalls.length = 0;
   enqueuedJobs.length = 0;
   nextJobIdCounter = 0;
+
+  // v3 follow-up flag default: off.
+  v3FlagOn = false;
+  flagStates = {};
 });
 
 // ---------------------------------------------------------------------------
 
+describe("memoryV2ConsolidateJob — chunked cutoff (consolidation_max_entries_per_run)", () => {
+  const FIVE_ENTRIES = [
+    "- [Apr 27, 9:00 AM] Alice prefers VS Code.",
+    "- [Apr 27, 9:01 AM] Bob takes his coffee black.",
+    "- [Apr 27, 9:02 AM] Carol loves jazz.",
+    "- [Apr 27, 9:03 AM] Dave runs marathons.",
+    "- [Apr 27, 9:04 AM] Erin paints watercolors.",
+  ].join("\n");
+
+  test("buffer over the cap → cutoff is the first over-cap entry's timestamp; overflow deferred", async () => {
+    writeFileSync(bufferPath(), FIVE_ENTRIES + "\n");
+
+    const outcome = await memoryV2ConsolidateJob(
+      makeJob(),
+      configWithMaxEntries(3),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    if (outcome.kind !== "invoked") throw new Error("unreachable");
+    expect(outcome.cutoff).toBe("Apr 27, 9:03 AM");
+    expect(outcome.deferredEntries).toBe(2);
+    expect(runnerCalls).toBe(1);
+    expect(runnerLastArgs!.prompt as string).toContain("Apr 27, 9:03 AM");
+  });
+
+  test("buffer at or under the cap → full-buffer cutoff, nothing deferred", async () => {
+    writeFileSync(bufferPath(), FIVE_ENTRIES + "\n");
+
+    const outcome = await memoryV2ConsolidateJob(
+      makeJob(),
+      configWithMaxEntries(5),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    if (outcome.kind !== "invoked") throw new Error("unreachable");
+    expect(outcome.deferredEntries).toBe(0);
+    // Cutoff is the run-start timestamp, not any buffer entry's.
+    expect(outcome.cutoff).not.toBe("Apr 27, 9:03 AM");
+  });
+
+  test("null cap → full buffer processed regardless of size", async () => {
+    writeFileSync(bufferPath(), FIVE_ENTRIES + "\n");
+
+    const outcome = await memoryV2ConsolidateJob(
+      makeJob(),
+      configWithMaxEntries(null),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    if (outcome.kind !== "invoked") throw new Error("unreachable");
+    expect(outcome.deferredEntries).toBe(0);
+  });
+
+  test("cap absent from config (hand-crafted stand-in) → full buffer processed", async () => {
+    writeFileSync(bufferPath(), FIVE_ENTRIES + "\n");
+
+    const outcome = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(outcome.kind).toBe("invoked");
+    if (outcome.kind !== "invoked") throw new Error("unreachable");
+    expect(outcome.deferredEntries).toBe(0);
+  });
+
+  test("same-minute burst (every entry shares the over-cap timestamp) → full-buffer cutoff, no wedge", () => {
+    // A sweep that wrote >cap entries within one minute: a pulled-back
+    // cutoff would defer ALL of them ("timestamp >= cutoff stays") and the
+    // size trigger would requeue an identical no-op run forever.
+    writeFileSync(
+      bufferPath(),
+      [
+        "- [Apr 27, 9:00 AM] Alice prefers VS Code.",
+        "- [Apr 27, 9:00 AM] Bob takes his coffee black.",
+        "- [Apr 27, 9:00 AM] Carol loves jazz.",
+        "- [Apr 27, 9:00 AM] Dave runs marathons.",
+      ].join("\n") + "\n",
+    );
+
+    return memoryV2ConsolidateJob(makeJob(), configWithMaxEntries(2)).then(
+      (outcome) => {
+        expect(outcome.kind).toBe("invoked");
+        if (outcome.kind !== "invoked") throw new Error("unreachable");
+        expect(outcome.deferredEntries).toBe(0);
+        expect(outcome.cutoff).not.toBe("Apr 27, 9:00 AM");
+      },
+    );
+  });
+
+  test("continuation lines (multi-line entries) don't count as entries or break the cutoff", async () => {
+    // The second entry carries embedded newlines: its continuation lines
+    // belong to that entry, so the buffer holds 3 entries, not 5 lines.
+    // With a cap of 2, the cutoff is the THIRD entry's timestamp.
+    writeFileSync(
+      bufferPath(),
+      [
+        "- [Apr 27, 9:00 AM] Alice prefers VS Code.",
+        "- [Apr 27, 9:01 AM] Bob shared a snippet:",
+        "  line two of Bob's multi-line memory",
+        "  line three of Bob's multi-line memory",
+        "- [Apr 27, 9:03 AM] Dave runs marathons.",
+      ].join("\n") + "\n",
+    );
+
+    const outcome = await memoryV2ConsolidateJob(
+      makeJob(),
+      configWithMaxEntries(2),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    if (outcome.kind !== "invoked") throw new Error("unreachable");
+    expect(outcome.cutoff).toBe("Apr 27, 9:03 AM");
+    expect(outcome.deferredEntries).toBe(1);
+  });
+
+  test("bracketed continuation lines (checklists, wikilinks) are not counted as entries", async () => {
+    // Continuation lines that START with "- [" but don't carry the
+    // formatBufferTimestamp shape must not count toward the cap or become
+    // the cutoff — "- [ ] task" would otherwise yield a blank-string cutoff.
+    writeFileSync(
+      bufferPath(),
+      [
+        "- [Apr 27, 9:00 AM] Alice's project plan:",
+        "- [ ] follow up with Bob",
+        "- [[meeting-notes]] referenced doc",
+        "- [Apr 27, 9:01 AM] Carol loves jazz.",
+      ].join("\n") + "\n",
+    );
+
+    const outcome = await memoryV2ConsolidateJob(
+      makeJob(),
+      configWithMaxEntries(2),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    if (outcome.kind !== "invoked") throw new Error("unreachable");
+    // Two real entries, cap 2 → no chunking, full-buffer cutoff.
+    expect(outcome.deferredEntries).toBe(0);
+    expect(outcome.cutoff).not.toBe(" ");
+    expect(outcome.cutoff).not.toBe("[meeting-notes]");
+  });
+
+  test("multi-line entries under the cap → full-buffer cutoff even when raw line count exceeds it", async () => {
+    writeFileSync(
+      bufferPath(),
+      [
+        "- [Apr 27, 9:00 AM] Alice shared a snippet:",
+        "  continuation one",
+        "  continuation two",
+        "- [Apr 27, 9:01 AM] Bob takes his coffee black.",
+      ].join("\n") + "\n",
+    );
+
+    const outcome = await memoryV2ConsolidateJob(
+      makeJob(),
+      configWithMaxEntries(2),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    if (outcome.kind !== "invoked") throw new Error("unreachable");
+    expect(outcome.deferredEntries).toBe(0);
+    expect(outcome.cutoff).not.toBe("Apr 27, 9:01 AM");
+  });
+});
+
 describe("memoryV2ConsolidateJob — v2 disabled", () => {
+  test("returns disabled without invoking the runner when memory.enabled is false", async () => {
+    writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
+
+    const result = await memoryV2ConsolidateJob(
+      makeJob(),
+      CONFIG_MEMORY_DISABLED,
+    );
+
+    expect(result).toEqual({ kind: "disabled" });
+    expect(runnerCalls).toBe(0);
+    expect(enqueuedJobs).toHaveLength(0);
+    // Lock must NOT linger on the disabled path — the handler bailed before
+    // the lock was acquired.
+    expect(existsSync(lockPath())).toBe(false);
+  });
+
   test("returns disabled without invoking the runner when memory.v2.enabled is false", async () => {
     writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
 
@@ -237,7 +470,7 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     expect(runnerLastArgs).not.toBeNull();
     expect(runnerLastArgs?.jobName).toBe("memory.consolidate");
     expect(runnerLastArgs?.source).toBe("memory_v2_consolidation");
-    expect(runnerLastArgs?.callSite).toBe("mainAgent");
+    expect(runnerLastArgs?.callSite).toBe("memoryV2Consolidation");
     expect(runnerLastArgs?.origin).toBe("memory_consolidation");
     // The whole point of this PR: opt out of activity.failed notifications
     // because consolidation runs on tight intervals and transient failures
@@ -305,6 +538,39 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     expect(existsSync(lockPath())).toBe(false);
   });
 
+  test("enqueues memory_v3_maintain as a follow-up when a v3 flag is on", async () => {
+    v3FlagOn = true;
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    expect(enqueuedJobs.map((j) => j.type)).toEqual([
+      "memory_v2_reembed",
+      "memory_v3_maintain",
+    ]);
+  });
+
+  test("does not enqueue memory_v3_maintain when v3 flags are off", async () => {
+    v3FlagOn = false;
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v2_reembed"]);
+  });
+
+  test("includes the core-pages curation section in the prompt only when a v3 flag is on", async () => {
+    // v2-only installs must not be instructed to curate memory/core-pages.md
+    // — the file feeds the v3 core lane and is inert without it.
+    v3FlagOn = false;
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    expect(runnerLastArgs?.prompt as string).not.toContain("core-pages");
+
+    v3FlagOn = true;
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    expect(runnerLastArgs?.prompt as string).toContain(
+      "## 10. Review `memory/core-pages.md`",
+    );
+  });
+
   test("returns run_failed and skips follow-ups when the runner reports failure", async () => {
     runnerImpl = async () => ({
       conversationId: "conv-1",
@@ -354,22 +620,44 @@ describe("memoryV2ConsolidateJob — concurrent invocations", () => {
   });
 
   test("a live lock holder blocks a second concurrent invocation", async () => {
-    // Pre-seed a lock file with the current process's PID so the liveness
-    // probe sees a running holder and the second invocation correctly
-    // reports `locked` rather than taking over.
+    // GIVEN a lock seeded with the current process's PID and a fresh
+    // timestamp, so the liveness probe sees a running holder AND the lock is
+    // well within the staleness TTL (i.e. a genuinely in-flight run).
     mkdirSync(join(memoryDir(), ".v2-state"), { recursive: true });
-    writeFileSync(lockPath(), `${process.pid} 1700000000000\n`);
+    writeFileSync(lockPath(), `${process.pid} ${Date.now()}\n`);
 
+    // WHEN a second invocation tries to acquire the lock
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
+    // THEN it reports `locked` rather than taking over
     expect(result.kind).toBe("locked");
     if (result.kind === "locked") {
       expect(result.holder).toContain(`${process.pid}`);
     }
     expect(runnerCalls).toBe(0);
     expect(enqueuedJobs).toHaveLength(0);
-    // The live holder's lock must NOT be removed by a contender.
+    // AND the live holder's lock must NOT be removed by a contender.
     expect(existsSync(lockPath())).toBe(true);
+  });
+
+  test("a lock from a live PID but older than the TTL is taken over (container PID-1 collision)", async () => {
+    // GIVEN a lock held by a live PID (the current process stands in for the
+    // container's PID-1 daemon, which always probes as alive) whose timestamp
+    // is far older than the staleness TTL. This is the wedge from the
+    // incident: a restarted daemon reuses the dead holder's PID, so the
+    // liveness probe alone could never reclaim the abandoned lock.
+    mkdirSync(join(memoryDir(), ".v2-state"), { recursive: true });
+    const ancient = Date.now() - 365 * 24 * 60 * 60 * 1000;
+    writeFileSync(lockPath(), `${process.pid} ${ancient}\n`);
+
+    // WHEN consolidation runs
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    // THEN the expired lock is taken over and consolidation proceeds
+    expect(result.kind).toBe("invoked");
+    expect(runnerCalls).toBe(1);
+    // AND the lock is released in the finally block after a successful run.
+    expect(existsSync(lockPath())).toBe(false);
   });
 
   test("a stale lock from a non-running PID is taken over and consolidation proceeds", async () => {
@@ -418,5 +706,42 @@ describe("CONSOLIDATION_PROMPT", () => {
     expect(CONSOLIDATION_PROMPT).toContain("memory/threads.md");
     expect(CONSOLIDATION_PROMPT).toContain("memory/recent.md");
     expect(CONSOLIDATION_PROMPT).toContain("memory/buffer.md");
+  });
+});
+
+describe("article-shape selection — live flag only, never shadow", () => {
+  // The v3 article shape drops the `summary:` field that v2 injection
+  // depends on. Under SHADOW, live prompts are still served by v2, so
+  // consolidation must keep producing v2-shaped pages — only the LIVE flag
+  // may select the v3 template. Collapsing this distinction (e.g. keying the
+  // shape on shadow||live) would corrupt the corpus of every shadow install
+  // before its flip.
+  const V3_MARKER = "The lead IS the card";
+
+  test("shadow on, live off → v2 article shape", async () => {
+    writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
+    flagStates = { "memory-v3-shadow": true, "memory-v3-live": false };
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(runnerCalls).toBe(1);
+    const prompt = runnerLastArgs?.prompt as string;
+    expect(prompt).not.toContain(V3_MARKER);
+    expect(prompt).toContain("The `summary` field is required");
+    // §10 still rides the shadow flag.
+    expect(prompt).toContain("memory/core-pages.md");
+  });
+
+  test("live on → v3 article shape", async () => {
+    writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
+    flagStates = { "memory-v3-shadow": false, "memory-v3-live": true };
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(runnerCalls).toBe(1);
+    const prompt = runnerLastArgs?.prompt as string;
+    expect(prompt).toContain(V3_MARKER);
+    expect(prompt).not.toContain("The `summary` field is required");
+    expect(prompt).toContain("memory/core-pages.md");
   });
 });

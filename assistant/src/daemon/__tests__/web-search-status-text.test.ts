@@ -66,8 +66,8 @@ import type { ServerMessage } from "../message-protocol.js";
 interface ActivityStateCapture {
   phase: string;
   reason: string;
-  scope: string;
-  reqId: string;
+  anchor?: string;
+  requestId?: string;
   statusText?: string;
 }
 
@@ -85,11 +85,15 @@ function createCollectorDeps(): {
       emitActivityState: (
         phase: string,
         reason: string,
-        scope: string,
-        reqId: string,
-        statusText?: string,
+        options?: { anchor?: string; requestId?: string; statusText?: string },
       ) => {
-        activityStates.push({ phase, reason, scope, reqId, statusText });
+        activityStates.push({
+          phase,
+          reason,
+          anchor: options?.anchor,
+          requestId: options?.requestId,
+          statusText: options?.statusText,
+        });
       },
       markWorkspaceTopLevelDirty: () => {},
       currentTurnSurfaces: [],

@@ -19,6 +19,7 @@ import {
 import {
   findExecutionRunId,
   listReportSessions,
+  readProfileInSession,
   readReportRun,
   readReportSession,
   readTestInSession,
@@ -186,7 +187,10 @@ describe("report data", () => {
       emittedAt: "2026-05-15T12:00:00.000Z",
     });
     await appendAssistantEvents(runId, [
-      { message: { type: "assistant_text_delta", text: "March 14" } },
+      {
+        message: { type: "assistant_text_delta", text: "March 14" },
+        emittedAt: "2026-05-15T12:00:01.000Z",
+      },
     ]);
     await appendSimulatorMessage(runId, { content: "What did I say?" });
     await writeUsage(runId, {
@@ -204,7 +208,8 @@ describe("report data", () => {
       status: "completed",
       metricCount: 2,
       scoreTotal: 0.45,
-      transcriptTurns: 1,
+      assistantResponses: 1,
+      runtimeMs: 2000,
       assistantEventCount: 1,
       simulatorMessageCount: 1,
       totalInputTokens: 10,
@@ -215,6 +220,55 @@ describe("report data", () => {
       "memory",
       "cost",
     ]);
+  });
+
+  test("counts a single streamed answer as one assistant response, not one per delta", async () => {
+    // GIVEN a run whose one exchange is a single answer streamed as many
+    // `assistant_text_delta` events — the shape that made the report read
+    // "10 turns" for what a reader sees as one user↔assistant exchange
+    const runId = await freshRunId("responses");
+    const artifacts = runArtifacts(runId);
+    await writeRunMetadata(runId, {
+      runId,
+      sessionId: `session-${runId}`,
+      profileId: "p1",
+      testId: "t1",
+      status: "completed",
+      startedAt: "2026-05-15T12:00:00.000Z",
+      completedAt: "2026-05-15T12:03:53.000Z",
+      artifactDir: artifacts.runDir,
+    });
+    await appendTranscriptTurn(runId, {
+      role: "simulator",
+      content: "Which category did we spend the most on?",
+      emittedAt: "2026-05-15T12:00:00.000Z",
+    });
+    // AND nine streamed fragments of the one assistant reply
+    const deltas = [
+      "We ",
+      "spent ",
+      "the ",
+      "most ",
+      "on ",
+      "Labor ",
+      "at ",
+      "$48,069",
+      ".",
+    ];
+    await appendAssistantEvents(
+      runId,
+      deltas.map((text, index) => ({
+        message: { type: "assistant_text_delta", text },
+        emittedAt: `2026-05-15T12:00:0${index}.000Z`,
+      })),
+    );
+
+    // WHEN the run is summarized for the report
+    const detail = await readReportRun(runId);
+
+    // THEN the deltas fold into one response and runtime is wall-clock
+    expect(detail.assistantResponses).toBe(1);
+    expect(detail.runtimeMs).toBe(233000);
   });
 
   test("falls back for legacy artifact directories without run.json", async () => {
@@ -464,6 +518,68 @@ describe("report data", () => {
     const p2 = test?.profiles.find((p) => p.profileId === "p2");
     expect(p2?.scoreTotal).toBe(0.15);
     expect(p2?.metrics.map((m) => m.name)).toEqual(["acc", "cost"]);
+  });
+
+  test("readProfileInSession exposes every test score + manifest for one profile", async () => {
+    // GIVEN a session where profile p1 ran two tests and p2 ran one,
+    // and p1's run carries a manifest snapshot
+    const sessionTag = `session-profile-detail-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const runIdA = await freshRunId("profile-detail-a");
+    const runIdB = await freshRunId("profile-detail-b");
+    const runIdC = await freshRunId("profile-detail-c");
+
+    await Promise.all([
+      writeRunMetadata(runIdA, {
+        runId: runIdA,
+        sessionId: sessionTag,
+        profileId: "p1",
+        profileManifest: {
+          species: "vellum",
+          description: "bare baseline",
+        },
+        testId: "t1",
+        status: "completed",
+        artifactDir: runArtifacts(runIdA).runDir,
+      }),
+      writeRunMetadata(runIdB, {
+        runId: runIdB,
+        sessionId: sessionTag,
+        profileId: "p1",
+        testId: "t2",
+        status: "completed",
+        artifactDir: runArtifacts(runIdB).runDir,
+      }),
+      writeRunMetadata(runIdC, {
+        runId: runIdC,
+        sessionId: sessionTag,
+        profileId: "p2",
+        testId: "t1",
+        status: "completed",
+        artifactDir: runArtifacts(runIdC).runDir,
+      }),
+    ]);
+
+    await writeMetricResults(runIdA, [{ name: "acc", score: 1 }]);
+    await writeMetricResults(runIdB, [{ name: "acc", score: 0 }]);
+    await writeMetricResults(runIdC, [{ name: "acc", score: 0.5 }]);
+
+    // WHEN we read the profile drill-in for p1
+    const profile = await readProfileInSession(sessionTag, "p1");
+
+    // THEN it lists only p1's two tests, with its manifest and overall score
+    expect(profile).toBeDefined();
+    expect(profile?.info?.description).toBe("bare baseline");
+    expect(profile?.tests.map((t) => t.testId)).toEqual(["t1", "t2"]);
+    // AND the overall score is the equal-weighted mean of p1's runs (1, 0)
+    expect(profile?.scoreTotal).toBeCloseTo(0.5, 10);
+  });
+
+  test("readProfileInSession returns undefined for an unknown profile", async () => {
+    // GIVEN a session with no run for the requested profile
+    // WHEN/THEN reading a missing profile resolves to undefined
+    expect(
+      await readProfileInSession("no-such-session", "ghost"),
+    ).toBeUndefined();
   });
 
   test("findExecutionRunId resolves (sessionId, testId, profileId)", async () => {

@@ -1,18 +1,8 @@
+import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import type { GatewayConfig } from "../config.js";
 import type { CredentialCache } from "../credential-cache.js";
 import { getLogger } from "../logger.js";
-
-export type ApprovalAction = {
-  id: string;
-  label: string;
-};
-
-export type ApprovalPayload = {
-  requestId: string;
-  actions: ApprovalAction[];
-  plainTextFallback: string;
-};
 import {
   downloadAttachment,
   type RuntimeAttachmentMeta,
@@ -34,7 +24,7 @@ const IMAGE_MIME_PREFIXES = [
   "image/webp",
 ];
 
-export function buildInlineKeyboard(approval: ApprovalPayload): {
+export function buildInlineKeyboard(approval: ApprovalUIMetadata): {
   inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
 } {
   return {
@@ -59,7 +49,7 @@ export async function sendTelegramReply(
   config: GatewayConfig,
   chatId: string,
   text: string,
-  approval?: ApprovalPayload,
+  approval?: ApprovalUIMetadata,
   opts?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
 ): Promise<void> {
   const chunks = splitText(text, TELEGRAM_MAX_MESSAGE_LEN);

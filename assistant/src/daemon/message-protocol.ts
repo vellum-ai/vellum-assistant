@@ -16,7 +16,6 @@
 export * from "./message-types/acp.js";
 export * from "./message-types/apps.js";
 export * from "./message-types/bookmarks.js";
-export * from "./message-types/browser.js";
 export * from "./message-types/computer-use.js";
 export * from "./message-types/contacts.js";
 export * from "./message-types/conversations.js";
@@ -47,6 +46,7 @@ export * from "./message-types/sync.js";
 export * from "./message-types/upgrades.js";
 export * from "./message-types/web-activity.js";
 export * from "./message-types/work-items.js";
+export * from "./message-types/workflows.js";
 export * from "./message-types/workspace.js";
 
 // Import domain-level union aliases for composition
@@ -57,10 +57,6 @@ import type {
   _AppsServerMessages,
 } from "./message-types/apps.js";
 import type { _BookmarksServerMessages } from "./message-types/bookmarks.js";
-import type {
-  _BrowserClientMessages,
-  _BrowserServerMessages,
-} from "./message-types/browser.js";
 import type {
   _ComputerUseClientMessages,
   _ComputerUseServerMessages,
@@ -140,6 +136,7 @@ import type {
   _WorkItemsClientMessages,
   _WorkItemsServerMessages,
 } from "./message-types/work-items.js";
+import type { _WorkflowsServerMessages } from "./message-types/workflows.js";
 import type {
   _WorkspaceClientMessages,
   _WorkspaceServerMessages,
@@ -167,7 +164,6 @@ export type ClientMessage =
   | _ComputerUseClientMessages
   | _ContactsClientMessages
   | _WorkItemsClientMessages
-  | _BrowserClientMessages
   | _HostBrowserClientMessages
   | _SubagentsClientMessages
   | _DocumentsClientMessages
@@ -191,7 +187,6 @@ export type ServerMessage =
   | _ComputerUseServerMessages
   | _ContactsServerMessages
   | _WorkItemsServerMessages
-  | _BrowserServerMessages
   | _SubagentsServerMessages
   | _DocumentsServerMessages
   | _DocumentCommentsServerMessages
@@ -215,6 +210,7 @@ export type ServerMessage =
   | _UpgradesServerMessages
   | _AcpServerMessages
   | _BookmarksServerMessages
+  | _WorkflowsServerMessages
   | DiskPressureStatusChangedEvent
   | SubagentEvent;
 

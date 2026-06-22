@@ -497,6 +497,11 @@ Examples:
 
           const result = await cliIpcCall<{ cleared: number }>(
             "conversations_clear_cli",
+            {
+              headers: {
+                "x-confirm-destructive": "clear-all-conversations",
+              },
+            },
           );
 
           if (!result.ok) return exitFromIpcResult(result);

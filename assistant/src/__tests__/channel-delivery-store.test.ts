@@ -57,7 +57,7 @@ import {
 import { buildConversationDetailResponse } from "../runtime/services/conversation-serializer.js";
 import { handleDeleteConversation } from "./helpers/channel-test-adapter.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables() {
   const db = getDb();

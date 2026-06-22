@@ -136,5 +136,16 @@ export const SlackConfigSchema = z
       .string({ error: "slack.botUsername must be a string" })
       .default("")
       .describe("Slack bot display name"),
+    threadMode: z
+      .enum(["mention_only", "mention_then_thread"], {
+        error:
+          "slack.threadMode must be 'mention_only' or 'mention_then_thread'",
+      })
+      .default("mention_then_thread")
+      .describe(
+        "Controls whether the bot follows threads after an initial @mention. " +
+          "'mention_only' requires every message to @-mention the bot. " +
+          "'mention_then_thread' auto-follows the thread after the first mention.",
+      ),
   })
   .describe("Slack channel configuration");

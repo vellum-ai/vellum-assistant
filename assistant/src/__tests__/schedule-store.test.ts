@@ -40,7 +40,7 @@ import {
   updateSchedule,
 } from "../schedule/schedule-store.js";
 
-initializeDb();
+await initializeDb();
 
 /** Access the underlying bun:sqlite Database for raw parameterized queries. */
 function getRawDb(): import("bun:sqlite").Database {
@@ -160,6 +160,7 @@ describe("createSchedule (cron)", () => {
     expect(job.syntax).toBe("cron");
     expect(job.expression).toBe("0 9 * * *");
     expect(job.cronExpression).toBe("0 9 * * *");
+    expect(job.description).toBe("Morning ping");
     expect(job.nextRunAt).toBeGreaterThan(Date.now() - 1000);
     expect(job.enabled).toBe(true);
   });
@@ -167,6 +168,7 @@ describe("createSchedule (cron)", () => {
   test("persisted cron schedule is retrievable with new fields", () => {
     const job = createSchedule({
       name: "Hourly",
+      description: "Check the hourly status report",
       cronExpression: "0 * * * *",
       message: "hourly check",
       syntax: "cron",
@@ -177,6 +179,73 @@ describe("createSchedule (cron)", () => {
     expect(retrieved!.syntax).toBe("cron");
     expect(retrieved!.expression).toBe("0 * * * *");
     expect(retrieved!.cronExpression).toBe("0 * * * *");
+    expect(retrieved!.description).toBe("Check the hourly status report");
+  });
+
+  test("normalizes schedule descriptions on create and update", () => {
+    const job = createSchedule({
+      name: "Description normalization",
+      description: "  Daily executive summary  ",
+      cronExpression: "0 8 * * *",
+      message: "summarize the day",
+      syntax: "cron",
+    });
+
+    expect(job.description).toBe("Daily executive summary");
+
+    const raw = getRawDb()
+      .query("SELECT description FROM cron_jobs WHERE id = ?")
+      .get(job.id) as { description: string };
+    expect(raw.description).toBe("Daily executive summary");
+
+    const updated = updateSchedule(job.id, {
+      description: "  Updated summary prompt  ",
+    });
+    expect(updated).not.toBeNull();
+    expect(updated!.description).toBe("Updated summary prompt");
+    expect(getSchedule(job.id)!.description).toBe("Updated summary prompt");
+    expect(listSchedules()[0].description).toBe("Updated summary prompt");
+  });
+
+  test("defaults source conversation metadata to null", () => {
+    const job = createSchedule({
+      name: "No source conversation",
+      cronExpression: "0 9 * * *",
+      message: "daily check",
+      syntax: "cron",
+    });
+
+    expect(job.createdFromConversationId).toBeNull();
+    expect(getSchedule(job.id)!.createdFromConversationId).toBeNull();
+
+    const raw = getRawDb()
+      .query("SELECT created_from_conversation_id FROM cron_jobs WHERE id = ?")
+      .get(job.id) as { created_from_conversation_id: string | null };
+    expect(raw.created_from_conversation_id).toBeNull();
+  });
+
+  test("persists source conversation metadata through create, list, and update", () => {
+    const job = createSchedule({
+      name: "With source conversation",
+      cronExpression: "0 9 * * *",
+      message: "daily check",
+      syntax: "cron",
+      createdFromConversationId: "conv-source",
+    });
+
+    expect(job.createdFromConversationId).toBe("conv-source");
+    expect(getSchedule(job.id)!.createdFromConversationId).toBe("conv-source");
+    expect(listSchedules()[0].createdFromConversationId).toBe("conv-source");
+
+    const updated = updateSchedule(job.id, {
+      createdFromConversationId: "conv-updated",
+    });
+    expect(updated!.createdFromConversationId).toBe("conv-updated");
+
+    const cleared = updateSchedule(job.id, {
+      createdFromConversationId: null,
+    });
+    expect(cleared!.createdFromConversationId).toBeNull();
   });
 
   test("stores schedule_syntax in the DB row", () => {
@@ -1098,6 +1167,66 @@ describe("script timeout override", () => {
     // THEN it reverts to null
     expect(cleared!.timeoutMs).toBeNull();
     expect(getSchedule(job.id)!.timeoutMs).toBeNull();
+  });
+});
+
+// ── Capability manifest ─────────────────────────────────────────────
+
+describe("capability manifest", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+  });
+
+  const manifest = {
+    tools: ["file_write"],
+    hostFunctions: [],
+    persona: false,
+  };
+
+  test("persists a capability manifest through create/read", () => {
+    const job = createSchedule({
+      name: "Capable schedule",
+      cronExpression: "0 9 * * *",
+      message: "do scoped work",
+      syntax: "cron",
+      capabilities: manifest,
+    });
+
+    expect(job.capabilities).toEqual(manifest);
+    expect(getSchedule(job.id)!.capabilities).toEqual(manifest);
+  });
+
+  test("defaults capabilities to null when not provided", () => {
+    const job = createSchedule({
+      name: "No manifest",
+      cronExpression: "0 9 * * *",
+      message: "unconstrained",
+      syntax: "cron",
+    });
+
+    expect(job.capabilities).toBeNull();
+    expect(getSchedule(job.id)!.capabilities).toBeNull();
+  });
+
+  test("updateSchedule sets and clears the capability manifest", () => {
+    const job = createSchedule({
+      name: "Update manifest",
+      cronExpression: "0 9 * * *",
+      message: "update manifest",
+      syntax: "cron",
+    });
+
+    expect(job.capabilities).toBeNull();
+
+    const updated = updateSchedule(job.id, { capabilities: manifest });
+    expect(updated!.capabilities).toEqual(manifest);
+    expect(getSchedule(job.id)!.capabilities).toEqual(manifest);
+
+    const cleared = updateSchedule(job.id, { capabilities: null });
+    expect(cleared!.capabilities).toBeNull();
+    expect(getSchedule(job.id)!.capabilities).toBeNull();
   });
 });
 

@@ -1,11 +1,10 @@
 {
   "name": "default-memory-retrieval",
-  "version": "0.0.1",
-  "description": "First-party default plugin wrapping the assistant's built-in memory-retrieval pipeline with a passthrough implementation.",
+  "version": "1.0.0",
+  "description": "First-party default plugin running memory-graph retrieval and runtime injection at the front of the user-prompt-submit chain.",
   "private": true,
   "license": "MIT",
   "type": "module",
-  "main": "./register.ts",
   "engines": {
     "node": ">=20.12.0"
   },

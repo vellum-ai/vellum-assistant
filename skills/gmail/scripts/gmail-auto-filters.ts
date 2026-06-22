@@ -13,16 +13,8 @@
  *   preview   — show what filters would be created without creating them
  */
 
-import {
-  parseArgs,
-  printError,
-  ok,
-  optionalArg,
-} from "./lib/common.js";
-import {
-  gmailGet,
-  gmailPost,
-} from "./lib/gmail-client.js";
+import { parseArgs, printError, ok, optionalArg } from "./lib/common.js";
+import { gmailGet, gmailPost } from "./lib/gmail-client.js";
 import {
   readLog,
   generateRunId,
@@ -133,14 +125,25 @@ async function requestConfirmation(opts: {
  * Only extracts patterns that the SKILL.md explicitly marks as safe for
  * permanent auto-archiving. Patterns like generic phrases or name/company
  * subject patterns are intentionally excluded — they're too broad.
+ *
+ * Detection is primarily phase-based because the cleanup archive writer
+ * does not populate `from` or `subject` on staged entries — it only logs
+ * `phase`, `reason`, and `message_ids`. When `from` is available (e.g.
+ * enriched logs), it's used as a secondary signal for finer-grained filters.
  */
-function deriveFilterCandidates(entries: OpEntry[]): FilterCandidate[] {
+function deriveFilterCandidates(
+  entries: OpEntry[],
+  safelist: string[] = [],
+): FilterCandidate[] {
   const candidates: FilterCandidate[] = [];
 
-  const noReplySenders = new Set<string>();
+  let noReplyCount = 0;
   let calendarCount = 0;
-  const sketchyTldDomains = new Map<string, number>();
+  const sketchyTldCounts = new Map<string, number>();
+  let newsletterCount = 0;
   const newsletterSenders = new Map<string, number>();
+
+  const safelistLower = new Set(safelist.map((s) => s.toLowerCase()));
 
   for (const entry of entries) {
     if (entry.status !== "staged" || entry.op !== "archive") continue;
@@ -148,17 +151,18 @@ function deriveFilterCandidates(entries: OpEntry[]): FilterCandidate[] {
     const phase = entry.phase ?? "";
     const from = entry.from?.toLowerCase() ?? "";
 
-    // Track no-reply senders (Pass 4)
+    // Track no-reply senders (Pass 4) — phase is the primary signal since
+    // the cleanup archive writer doesn't populate `from`.
     if (
       phase.includes("no_reply") ||
       phase.includes("noreply") ||
-      /\bno[-_]?reply\b/i.test(from) ||
-      /\bdonotreply\b/i.test(from)
+      (from && /\bno[-_]?reply\b/i.test(from)) ||
+      (from && /\bdonotreply\b/i.test(from))
     ) {
-      noReplySenders.add(from);
+      noReplyCount++;
     }
 
-    // Track calendar noise (Pass 5)
+    // Track calendar noise (Pass 5) — phase-based; `subject` is rarely populated.
     if (
       phase.includes("calendar") ||
       /\b(accepted|declined|tentative):/i.test(entry.subject ?? "")
@@ -166,24 +170,31 @@ function deriveFilterCandidates(entries: OpEntry[]): FilterCandidate[] {
       calendarCount++;
     }
 
-    // Track sketchy TLDs (Pass 7)
+    // Track sketchy TLDs (Pass 7) — phase-based detection.
+    // When `from` is available, extract the domain for per-TLD filters.
+    // Otherwise, count by phase to still produce the aggregate filter.
     if (phase.includes("sketchy") || phase.includes("tld")) {
-      const domain = extractDomain(from);
+      const domain = from ? extractDomain(from) : undefined;
       if (domain && isSketchyTld(domain)) {
-        sketchyTldDomains.set(
-          domain,
-          (sketchyTldDomains.get(domain) ?? 0) + 1,
+        const tld = SKETCHY_TLDS_LIST.find((t) => domain.endsWith(t));
+        if (tld) {
+          sketchyTldCounts.set(tld, (sketchyTldCounts.get(tld) ?? 0) + 1);
+        }
+      } else {
+        // No domain info — count toward a generic sketchy-TLD bucket
+        sketchyTldCounts.set(
+          "_generic",
+          (sketchyTldCounts.get("_generic") ?? 0) + 1,
         );
       }
     }
 
-    // Track newsletters (Pass 4)
+    // Track newsletters (Pass 4) — phase-based detection.
+    // When `from` is available, track per-sender for finer filters.
     if (phase.includes("newsletter") || phase.includes("digest")) {
+      newsletterCount++;
       if (from) {
-        newsletterSenders.set(
-          from,
-          (newsletterSenders.get(from) ?? 0) + 1,
-        );
+        newsletterSenders.set(from, (newsletterSenders.get(from) ?? 0) + 1);
       }
     }
   }
@@ -191,12 +202,12 @@ function deriveFilterCandidates(entries: OpEntry[]): FilterCandidate[] {
   // --- Build candidates from collected patterns ---
 
   // 1. No-reply / do-not-reply senders
-  if (noReplySenders.size > 0) {
+  if (noReplyCount > 0) {
     candidates.push({
       category: "no-reply senders",
       labelName: "auto/no-reply",
       criteria: { from: "noreply OR no-reply OR donotreply" },
-      matchCount: noReplySenders.size,
+      matchCount: noReplyCount,
     });
   }
 
@@ -213,34 +224,49 @@ function deriveFilterCandidates(entries: OpEntry[]): FilterCandidate[] {
     });
   }
 
-  // 3. Sketchy TLD domains (one filter per TLD)
-  const sketchyTlds = [".shop", ".biz", ".xyz", ".info", ".club", ".online"];
-  for (const tld of sketchyTlds) {
-    const tldDomains = [...sketchyTldDomains.entries()].filter(([d]) =>
-      d.endsWith(tld),
-    );
-    const totalCount = tldDomains.reduce((sum, [, c]) => sum + c, 0);
-    if (totalCount > 0) {
+  // 3. Sketchy TLD domains (one filter per TLD when domain data is available)
+  const genericSketchyCount = sketchyTldCounts.get("_generic") ?? 0;
+  for (const tld of SKETCHY_TLDS_LIST) {
+    const count = sketchyTldCounts.get(tld) ?? 0;
+    if (count > 0) {
       candidates.push({
         category: `sketchy TLD (${tld})`,
         labelName: "auto/sketchy-tld",
         criteria: { from: `*${tld}` },
-        matchCount: totalCount,
+        matchCount: count,
+      });
+    }
+  }
+  // If we had phase-tagged sketchy entries but no domain info, produce
+  // per-TLD filters for all known sketchy TLDs as a catchall.
+  if (
+    genericSketchyCount > 0 &&
+    candidates.every((c) => c.labelName !== "auto/sketchy-tld")
+  ) {
+    for (const tld of SKETCHY_TLDS_LIST) {
+      candidates.push({
+        category: `sketchy TLD (${tld})`,
+        labelName: "auto/sketchy-tld",
+        criteria: { from: `*${tld}` },
+        matchCount: genericSketchyCount,
       });
     }
   }
 
-  // 4. Confirmed newsletter senders (only those with 2+ emails during cleanup)
+  // 4. Newsletter senders — per-sender when `from` is available and not safelisted,
+  //    otherwise a generic Unsubscribe-header filter.
   const confirmedNewsletters = [...newsletterSenders.entries()].filter(
-    ([, count]) => count >= 2,
+    ([sender, count]) => count >= 2 && !safelistLower.has(sender),
   );
-  for (const [sender] of confirmedNewsletters) {
-    candidates.push({
-      category: "newsletter",
-      labelName: "auto/newsletter",
-      criteria: { from: sender },
-      matchCount: newsletterSenders.get(sender) ?? 0,
-    });
+  if (confirmedNewsletters.length > 0) {
+    for (const [sender] of confirmedNewsletters) {
+      candidates.push({
+        category: "newsletter",
+        labelName: "auto/newsletter",
+        criteria: { from: sender },
+        matchCount: newsletterSenders.get(sender) ?? 0,
+      });
+    }
   }
 
   return candidates;
@@ -256,14 +282,15 @@ function extractDomain(email: string): string | undefined {
   return email.slice(atIndex + 1).toLowerCase();
 }
 
-const SKETCHY_TLDS = new Set([
+const SKETCHY_TLDS_LIST = [
   ".shop",
   ".biz",
   ".xyz",
   ".info",
   ".club",
   ".online",
-]);
+];
+const SKETCHY_TLDS = new Set(SKETCHY_TLDS_LIST);
 
 function isSketchyTld(domain: string): boolean {
   for (const tld of SKETCHY_TLDS) {
@@ -291,9 +318,7 @@ function isDuplicateFilter(
 
 /** Format filter candidates into a human-readable confirmation message. */
 function formatFilterPlan(candidates: FilterCandidate[]): string {
-  const lines: string[] = [
-    `${candidates.length} filter(s) will be created:\n`,
-  ];
+  const lines: string[] = [`${candidates.length} filter(s) will be created:\n`];
   for (const c of candidates) {
     const criteria = c.criteria.from
       ? `from: ${c.criteria.from}`
@@ -347,12 +372,27 @@ async function getOrCreateLabel(
 // Find latest completed cleanup run
 // ---------------------------------------------------------------------------
 
+/**
+ * Find the most recent completed cleanup run that contains archive ops.
+ *
+ * Skips filter-creation runs (produced by this script's `generate` command)
+ * so that auto-detection doesn't pick up its own output as input.
+ */
 function findLatestCleanupRun(): string | null {
   const runs = listRuns();
   for (const runId of runs) {
     const summary = summarizeRun(runId);
     if (!summary) continue;
-    if (summary.status === "completed" && summary.total_committed > 0) {
+    if (summary.status !== "completed" || summary.total_committed <= 0)
+      continue;
+
+    // A cleanup run must contain at least one staged archive op.
+    // Filter-creation runs only contain filter_create ops, so they're skipped.
+    const entries = readLog(runId);
+    const hasArchiveOps = entries.some(
+      (e) => e.status === "staged" && e.op === "archive",
+    );
+    if (hasArchiveOps) {
       return runId;
     }
   }
@@ -369,8 +409,7 @@ async function handleGenerate(
   const account = optionalArg(args, "account");
   const dryRun = args["dry-run"] === true;
   const skipConfirm = args["skip-confirm"] === true;
-  const sourceRunId =
-    optionalArg(args, "run-id") ?? findLatestCleanupRun();
+  const sourceRunId = optionalArg(args, "run-id") ?? findLatestCleanupRun();
 
   if (!sourceRunId) {
     printError(
@@ -384,8 +423,11 @@ async function handleGenerate(
     printError(`No op-log entries found for run ${sourceRunId}.`);
   }
 
-  // Derive safe filter candidates
-  const candidates = deriveFilterCandidates(entries);
+  // Load preferences for safelist cross-referencing
+  const prefs = loadPreferences();
+
+  // Derive safe filter candidates (safelist excludes user-protected senders)
+  const candidates = deriveFilterCandidates(entries, prefs.safelist);
   if (candidates.length === 0) {
     ok({
       message: "No safe filter candidates found in cleanup run.",
@@ -402,9 +444,7 @@ async function handleGenerate(
     account,
   );
   if (!existingRes.ok) {
-    printError(
-      `Failed to list existing filters (HTTP ${existingRes.status})`,
-    );
+    printError(`Failed to list existing filters (HTTP ${existingRes.status})`);
   }
   const existingFilters = existingRes.data.filter ?? [];
 

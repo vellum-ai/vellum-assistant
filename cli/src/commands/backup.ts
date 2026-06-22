@@ -16,24 +16,34 @@ import {
   platformRequestSignedUrl,
   readPlatformToken,
 } from "../lib/platform-client.js";
+import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
+
+// Default timeout for the runtime-direct export request. Overridable via
+// --export-timeout.
+const DEFAULT_EXPORT_TIMEOUT_MS = 300_000;
 
 export async function backup(): Promise<void> {
   const args = process.argv.slice(3);
 
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("Usage: vellum backup <name> [--output <path>]");
+    console.log(
+      "Usage: vellum backup <name> [--output <path>] [--export-timeout <seconds>]",
+    );
     console.log("");
     console.log(
       "Export a backup of a running assistant as a .vbundle archive.",
     );
     console.log("");
     console.log("Arguments:");
-    console.log("  <name>              Name of the assistant to back up");
+    console.log("  <name>                   Name of the assistant to back up");
     console.log("");
     console.log("Options:");
-    console.log("  --output <path>     Path to save the .vbundle file");
+    console.log("  --output <path>          Path to save the .vbundle file");
     console.log(
-      "                      (default: ~/.local/share/vellum/backups/<name>-<timestamp>.vbundle)",
+      "                           (default: ~/.local/share/vellum/backups/<name>-<timestamp>.vbundle)",
+    );
+    console.log(
+      `  --export-timeout <secs>  Export request timeout in seconds (default: ${DEFAULT_EXPORT_TIMEOUT_MS / 1000})`,
     );
     console.log("");
     console.log("Examples:");
@@ -41,21 +51,33 @@ export async function backup(): Promise<void> {
     console.log(
       "  vellum backup my-assistant --output ~/Desktop/backup.vbundle",
     );
+    console.log("  vellum backup my-assistant --export-timeout 600");
     process.exit(0);
   }
 
   const name = args[0];
   if (!name || name.startsWith("-")) {
-    console.error("Usage: vellum backup <name> [--output <path>]");
+    console.error(
+      "Usage: vellum backup <name> [--output <path>] [--export-timeout <seconds>]",
+    );
     process.exit(1);
   }
 
-  // Parse --output flag
+  // Parse flags
   let outputArg: string | undefined;
+  let exportTimeoutMs = DEFAULT_EXPORT_TIMEOUT_MS;
   for (let i = 1; i < args.length; i++) {
     if (args[i] === "--output" && args[i + 1]) {
       outputArg = args[i + 1];
-      break;
+    } else if (args[i] === "--export-timeout" && args[i + 1]) {
+      const seconds = Number(args[i + 1]);
+      if (!Number.isFinite(seconds) || seconds <= 0) {
+        console.error(
+          `Error: --export-timeout must be a positive number of seconds (got '${args[i + 1]}').`,
+        );
+        process.exit(1);
+      }
+      exportTimeoutMs = seconds * 1000;
     }
   }
 
@@ -112,14 +134,14 @@ export async function backup(): Promise<void> {
   // Call the export endpoint
   let response: Response;
   try {
-    response = await fetch(`${entry.runtimeUrl}/v1/migrations/export`, {
+    response = await loopbackSafeFetch(`${entry.runtimeUrl}/v1/migrations/export`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ description: "CLI backup" }),
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(exportTimeoutMs),
     });
 
     // Retry once with a fresh token on 401 — the cached token may be stale
@@ -138,20 +160,22 @@ export async function backup(): Promise<void> {
       }
       if (refreshedToken) {
         accessToken = refreshedToken;
-        response = await fetch(`${entry.runtimeUrl}/v1/migrations/export`, {
+        response = await loopbackSafeFetch(`${entry.runtimeUrl}/v1/migrations/export`, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ description: "CLI backup" }),
-          signal: AbortSignal.timeout(120_000),
+          signal: AbortSignal.timeout(exportTimeoutMs),
         });
       }
     }
   } catch (err) {
     if (err instanceof Error && err.name === "TimeoutError") {
-      console.error("Error: Export request timed out after 2 minutes.");
+      console.error(
+        `Error: Export request timed out after ${exportTimeoutMs / 1000} seconds.`,
+      );
       process.exit(1);
     }
     const msg = err instanceof Error ? err.message : String(err);

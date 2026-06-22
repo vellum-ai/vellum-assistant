@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import type {
   AgentEvent,
@@ -6,89 +6,27 @@ import type {
   CheckpointInfo,
 } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
+import type { StopContext } from "../plugin-api/types.js";
+import { REFUSAL_FALLBACK_TEXT } from "../plugins/defaults/empty-response/hooks/post-model-call.js";
+import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
+import { registerPlugin } from "../plugins/registry.js";
 import type {
   ContentBlock,
   Message,
   Provider,
   ProviderResponse,
-  SendMessageOptions,
   ToolDefinition,
 } from "../providers/types.js";
+import { ContextOverflowError } from "../providers/types.js";
+import {
+  createMockProvider,
+  textResponse,
+  toolUseResponse,
+} from "./helpers/mock-provider.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** A mock provider that returns pre-configured responses in sequence. */
-function createMockProvider(responses: ProviderResponse[]): {
-  provider: Provider;
-  calls: {
-    messages: Message[];
-    tools?: ToolDefinition[];
-    systemPrompt?: string;
-    options?: SendMessageOptions;
-  }[];
-} {
-  const calls: {
-    messages: Message[];
-    tools?: ToolDefinition[];
-    systemPrompt?: string;
-    options?: SendMessageOptions;
-  }[] = [];
-  let callIndex = 0;
-
-  const provider: Provider = {
-    name: "mock",
-    async sendMessage(
-      messages: Message[],
-      options?: SendMessageOptions,
-    ): Promise<ProviderResponse> {
-      calls.push({
-        messages: [...messages],
-        tools: options?.tools,
-        systemPrompt: options?.systemPrompt,
-        options,
-      });
-      const response = responses[callIndex] ?? responses[responses.length - 1];
-      callIndex++;
-
-      // Emit streaming events if the response has text blocks
-      if (options?.onEvent) {
-        for (const block of response.content) {
-          if (block.type === "text") {
-            options.onEvent({ type: "text_delta", text: block.text });
-          }
-        }
-      }
-
-      return response;
-    },
-  };
-
-  return { provider, calls };
-}
-
-function textResponse(text: string): ProviderResponse {
-  return {
-    content: [{ type: "text", text }],
-    model: "mock-model",
-    usage: { inputTokens: 10, outputTokens: 5 },
-    stopReason: "end_turn",
-  };
-}
-
-function toolUseResponse(
-  id: string,
-  name: string,
-  input: Record<string, unknown>,
-): ProviderResponse {
-  return {
-    content: [{ type: "tool_use", id, name, input }],
-    model: "mock-model",
-    usage: { inputTokens: 10, outputTokens: 5 },
-    stopReason: "tool_use",
-  };
-}
 
 const dummyTools: ToolDefinition[] = [
   {
@@ -112,13 +50,29 @@ function collectEvents(events: AgentEvent[]): (event: AgentEvent) => void {
 // ---------------------------------------------------------------------------
 
 describe("AgentLoop", () => {
+  // The agent loop fires the `post-tool-use` hook for tool-result
+  // truncation, which only runs when the default plugin is registered.
+  // Register the defaults so the loop behaves as it does in production.
+  beforeEach(() => {
+    resetPluginRegistryAndRegisterDefaults();
+  });
+
   // 1. Basic text response
   test("returns history with assistant message for simple text response", async () => {
     const { provider } = createMockProvider([textResponse("Hi there!")]);
-    const loop = new AgentLoop(provider, "system prompt");
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system prompt",
+      conversationId: "test-conversation",
+    });
 
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // History should contain original user message + assistant response
     expect(history).toHaveLength(2);
@@ -144,15 +98,20 @@ describe("AgentLoop", () => {
       return { content: "file data here", isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // Tool executor was called with correct args
     expect(toolCalls).toHaveLength(1);
@@ -196,15 +155,18 @@ describe("AgentLoop", () => {
       overrideProfile = "quality-optimized";
       return { content: "ok", isError: false };
     };
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
-    await loop.run([userMessage], collectEvents([]), {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents([]),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
       requestId: "req-1",
       callSite: "mainAgent",
       resolveOverrideProfile: () => overrideProfile,
@@ -228,15 +190,18 @@ describe("AgentLoop", () => {
       maxInputTokens = 10_000;
       return { content: toolOutput, isError: false };
     };
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
-    await loop.run([userMessage], collectEvents([]), {
+    await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents([]),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
       requestId: "req-1",
       callSite: "mainAgent",
       resolveContextWindow: () => ({
@@ -272,14 +237,19 @@ describe("AgentLoop", () => {
       };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
-    const { history } = await loop.run([userMessage], () => {});
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // Provider called 3 times (two tool rounds + final text)
     expect(calls).toHaveLength(3);
@@ -298,8 +268,18 @@ describe("AgentLoop", () => {
     ]);
 
     // No tool executor provided
-    const loop = new AgentLoop(provider, "system", {}, dummyTools);
-    const { history } = await loop.run([userMessage], () => {});
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+    });
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // Should stop after first response (no executor to handle tool use)
     expect(history).toHaveLength(2);
@@ -316,9 +296,18 @@ describe("AgentLoop", () => {
       },
     };
 
-    const loop = new AgentLoop(provider, "system");
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // Only the original message remains (no assistant message added on error)
     expect(history).toHaveLength(1);
@@ -331,14 +320,349 @@ describe("AgentLoop", () => {
     ).toBe("API rate limit exceeded");
   });
 
+  // 5b. Reactive context-overflow recovery
+  //
+  // When recovery is enabled the loop calibrates the estimator from the
+  // rejection, loops back, and the budget gate forwards the overflow signal
+  // into the compaction plugin's reduction ladder. That manager-owned path —
+  // single-rung recovery, multi-rung escalation, and the terminal
+  // `context_too_large` / `budget_yield_unrecovered` exit on exhaustion — is
+  // exercised end-to-end against a manager harness in
+  // `conversation-agent-loop-overflow.test.ts`. Loop-level coverage against a
+  // manager-store stub lands with the suite migration.
+  test.todo(
+    "drives the reduction ladder on a context-overflow rejection",
+    () => {},
+  );
+
+  test("surfaces a context-overflow error when recovery is unavailable", async () => {
+    /**
+     * Overflow recovery is gated on the budget gate being active. When it is
+     * disabled (e.g. agent wakes pass `overflowRecovery.enabled = false`, or no
+     * context window resolves) there is no ladder to drive, so a context
+     * overflow surfaces as an error on the first call rather than looping.
+     */
+
+    // GIVEN a provider that rejects every call as too large and a loop with no
+    // overflow-recovery budget gate
+    const { provider, calls } = createMockProvider([
+      new ContextOverflowError("prompt is too long", "mock", {
+        actualTokens: 250_000,
+      }),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    const events: AgentEvent[] = [];
+
+    // WHEN the loop runs
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN it surfaced the error on the first call without retrying
+    expect(calls).toHaveLength(1);
+    expect(events.filter((e) => e.type === "error")).toHaveLength(1);
+  });
+
+  // 5c. Reactive ordering-error recovery
+  //
+  // When the provider rejects a call because the history violates
+  // tool-use/tool-result pairing or role-alternation rules, the loop runs
+  // `deepRepairHistory` directly and re-issues the call. It is bounded to a
+  // single repair pass per provider call, so a second consecutive ordering
+  // rejection falls through to the error path instead of looping forever.
+  test("repairs the history and re-issues on a provider ordering rejection", async () => {
+    // GIVEN a provider that rejects the first call with an ordering error and
+    // succeeds on the retry
+    const { provider, calls } = createMockProvider([
+      new Error(
+        "tool_result blocks that are not immediately after a tool_use block",
+      ),
+      textResponse("recovered"),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    const events: AgentEvent[] = [];
+
+    // WHEN the loop runs
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      requestId: "test-request",
+    });
+
+    // THEN it re-issued the call after repairing, surfaced no error, and
+    // appended the recovered assistant response
+    expect(calls).toHaveLength(2);
+    expect(events.filter((e) => e.type === "error")).toHaveLength(0);
+    expect(history[history.length - 1]).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "recovered" }],
+    });
+  });
+
+  test("surfaces an ordering error after a single repair fails to recover", async () => {
+    // GIVEN a provider that rejects every call with an ordering error
+    const { provider, calls } = createMockProvider([
+      new Error("tool_use_id provided without a matching tool_result"),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    const events: AgentEvent[] = [];
+
+    // WHEN the loop runs
+    await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      requestId: "test-request",
+    });
+
+    // THEN it repaired once, re-issued once, then surfaced the error rather
+    // than retrying again
+    expect(calls).toHaveLength(2);
+    expect(events.filter((e) => e.type === "error")).toHaveLength(1);
+  });
+
+  test("reports only the retry's output as new messages when deep-repair shrinks the base", async () => {
+    // The wrapper reconstructs the persisted transcript from the loop's
+    // `newMessages` tail, so after `deepRepairHistory` removes a base message
+    // the new-message boundary must track the re-normalized history — otherwise
+    // the recovered assistant response is sliced off and lost.
+
+    // GIVEN an input whose leading assistant message deep-repair strips, a
+    // provider that rejects the first call on ordering grounds, then succeeds
+    const leadingAssistantMessage: Message = {
+      role: "assistant",
+      content: [{ type: "text", text: "stale leading turn" }],
+    };
+    const { provider } = createMockProvider([
+      new Error(
+        "tool_result blocks that are not immediately after a tool_use block",
+      ),
+      textResponse("recovered"),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs
+    const { history, newMessages } = await loop.run({
+      messages: [leadingAssistantMessage, userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      requestId: "test-request",
+    });
+
+    // THEN deep-repair dropped the leading assistant from the base, and
+    // `newMessages` is exactly the retry's appended response
+    expect(history).toEqual([
+      userMessage,
+      { role: "assistant", content: [{ type: "text", text: "recovered" }] },
+    ]);
+    expect(newMessages).toEqual([
+      { role: "assistant", content: [{ type: "text", text: "recovered" }] },
+    ]);
+  });
+
+  test("repairs a fresh ordering rejection on a later run after a prior run left the bound spent", async () => {
+    // The ordering-repair bound is owned by the history-repair plugin's
+    // per-conversation state. A run scopes that bound, so the loop clears it on
+    // entry — otherwise a direct `run` caller that bypasses the daemon
+    // orchestrator (e.g. an agent wake) inherits a spent bound from a prior run
+    // on the same conversation and surfaces a repairable rejection instead of
+    // repairing it.
+
+    // GIVEN a first run that rejects on ordering grounds, repairs once, then
+    // rejects again — ending with the bound spent and the error surfaced
+    const { provider: firstProvider, calls: firstCalls } = createMockProvider([
+      new Error("tool_use_id provided without a matching tool_result"),
+      new Error("tool_use_id provided without a matching tool_result"),
+    ]);
+    const conversationId = "ordering-bound-across-runs";
+    const firstLoop = new AgentLoop({
+      provider: firstProvider,
+      systemPrompt: "system",
+      conversationId,
+    });
+    const firstEvents: AgentEvent[] = [];
+    await firstLoop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(firstEvents),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      requestId: "test-request",
+    });
+    expect(firstCalls).toHaveLength(2);
+    expect(firstEvents.filter((e) => e.type === "error")).toHaveLength(1);
+
+    // AND a second run on the same conversation whose first call rejects on
+    // ordering grounds, then succeeds on the retry
+    const { provider: secondProvider, calls: secondCalls } = createMockProvider(
+      [
+        new Error(
+          "tool_result blocks that are not immediately after a tool_use block",
+        ),
+        textResponse("recovered"),
+      ],
+    );
+    const secondLoop = new AgentLoop({
+      provider: secondProvider,
+      systemPrompt: "system",
+      conversationId,
+    });
+    const secondEvents: AgentEvent[] = [];
+
+    // WHEN the second run executes
+    const { history } = await secondLoop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(secondEvents),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      requestId: "test-request",
+    });
+
+    // THEN it repaired and re-issued (the bound did not leak across runs),
+    // surfaced no error, and appended the recovered response
+    expect(secondCalls).toHaveLength(2);
+    expect(secondEvents.filter((e) => e.type === "error")).toHaveLength(0);
+    expect(history[history.length - 1]).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "recovered" }],
+    });
+  });
+
+  test("isolates a throwing stop hook on a successful stop and still emits the terminal exit", async () => {
+    // The `stop` chain is the loop's terminal teardown: a throwing teardown
+    // hook (e.g. a third-party plugin) is logged and contained, never escalated
+    // into a turn error. The turn's real outcome stands — a successful no-tool
+    // stop — and the terminal `agent_loop_exit` still fires so the run stays
+    // observable.
+
+    // GIVEN a registered stop hook that always throws, and a provider that
+    // returns a successful no-tool response (a successful stop)
+    registerPlugin({
+      manifest: { name: "throwing-stop", version: "0.0.1" },
+      hooks: {
+        stop: async () => {
+          throw new Error("stop hook boom");
+        },
+      },
+    });
+    const { provider, calls } = createMockProvider([textResponse("done")]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    const events: AgentEvent[] = [];
+
+    // WHEN the loop runs
+    let rejected = false;
+    await loop
+      .run({
+        messages: [userMessage],
+        onEvent: collectEvents(events),
+        trust: { sourceChannel: "vellum", trustClass: "unknown" },
+        requestId: "test-request",
+      })
+      .catch(() => {
+        rejected = true;
+      });
+
+    // THEN the loop did not reject, did not re-issue the call, surfaced no
+    // error event, and still emitted the terminal exit with the real reason
+    expect(rejected).toBe(false);
+    expect(calls).toHaveLength(1);
+    expect(events.filter((e) => e.type === "error")).toHaveLength(0);
+    const exitEvents = events.filter((e) => e.type === "agent_loop_exit");
+    expect(exitEvents).toHaveLength(1);
+    expect(exitEvents[0]).toMatchObject({ reason: "no_tool_calls" });
+  });
+
+  test("fires the stop teardown chain on a checkpoint handoff without emitting agent_loop_exit", async () => {
+    // A handoff pauses this run so the orchestrator can drain a queued message,
+    // then re-enters with a fresh run. It still ends *this* turn, so the
+    // terminal `stop` chain must fire — that is what runs per-turn teardown
+    // (e.g. clearing the recovery bounds the post-model-call hooks set) before
+    // the queued message is processed. But `agent_loop_exit` must NOT be
+    // emitted, because the handoff is a control transfer, not a terminal exit.
+
+    // GIVEN a stop hook recording every exit reason it observes, and a provider
+    // whose first reply requests a tool so the loop reaches a checkpoint
+    const stopReasons: string[] = [];
+    registerPlugin({
+      manifest: { name: "recording-stop", version: "0.0.1" },
+      hooks: {
+        stop: async (ctx: StopContext) => {
+          stopReasons.push(ctx.exitReason);
+        },
+      },
+    });
+    const { provider } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
+      textResponse("never reached"),
+    ]);
+    const toolExecutor = async () => ({ content: "ok", isError: false });
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor,
+    });
+    const events: AgentEvent[] = [];
+
+    // AND a checkpoint callback that hands off at the first opportunity
+    const onCheckpoint = (_info: CheckpointInfo): CheckpointDecision =>
+      "handoff";
+
+    // WHEN the loop runs and yields control at the checkpoint
+    const { exitReason } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      onCheckpoint,
+    });
+
+    // THEN the terminal stop chain fired exactly once with the handoff reason
+    // (teardown ran), the run reported the handoff, and no agent_loop_exit was
+    // emitted
+    expect(stopReasons).toEqual(["checkpoint_handoff"]);
+    expect(exitReason).toBe("handoff");
+    expect(events.filter((e) => e.type === "agent_loop_exit")).toHaveLength(0);
+  });
+
   // 6. Abort signal — verify the loop respects AbortSignal
   test("stops when abort signal is triggered before provider call", async () => {
     const controller = new AbortController();
     controller.abort(); // abort immediately
 
     const { provider } = createMockProvider([textResponse("Should not reach")]);
-    const loop = new AgentLoop(provider, "system");
-    const { history } = await loop.run([userMessage], () => {}, {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
       signal: controller.signal,
     });
 
@@ -365,14 +689,18 @@ describe("AgentLoop", () => {
       return { content: "data", isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
-    const { history } = await loop.run([userMessage], () => {}, {
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
       signal: controller.signal,
     });
 
@@ -414,15 +742,19 @@ describe("AgentLoop", () => {
       return { content: "should never return", isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const start = Date.now();
-    const { history } = await loop.run([userMessage], () => {}, {
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
       signal: controller.signal,
     });
     const elapsed = Date.now() - start;
@@ -461,10 +793,19 @@ describe("AgentLoop", () => {
   // 7. Events — verify text_delta and other events are emitted
   test("emits text_delta events during streaming", async () => {
     const { provider } = createMockProvider([textResponse("Hello world")]);
-    const loop = new AgentLoop(provider, "system");
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], collectEvents(events));
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     const textDeltas = events.filter((e) => e.type === "text_delta");
     expect(textDeltas).toHaveLength(1);
@@ -475,10 +816,19 @@ describe("AgentLoop", () => {
 
   test("emits usage events", async () => {
     const { provider } = createMockProvider([textResponse("Hi")]);
-    const loop = new AgentLoop(provider, "system");
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], collectEvents(events));
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     const usageEvents = events.filter((e) => e.type === "usage");
     expect(usageEvents).toHaveLength(1);
@@ -493,10 +843,19 @@ describe("AgentLoop", () => {
 
   test("emits message_complete events", async () => {
     const { provider } = createMockProvider([textResponse("Done")]);
-    const loop = new AgentLoop(provider, "system");
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], collectEvents(events));
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     const completeEvents = events.filter((e) => e.type === "message_complete");
     expect(completeEvents).toHaveLength(1);
@@ -513,16 +872,21 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "file data", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], collectEvents(events));
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     const toolUseEvents = events.filter((e) => e.type === "tool_use");
     expect(toolUseEvents).toHaveLength(1);
@@ -560,15 +924,20 @@ describe("AgentLoop", () => {
       content: "ENOENT: file not found",
       isError: true,
     });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
-    await loop.run([userMessage], () => {});
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     const secondCallMessages = calls[1].messages;
     const lastMsg = secondCallMessages[secondCallMessages.length - 1];
@@ -598,15 +967,20 @@ describe("AgentLoop", () => {
       return { content: "full output", isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], collectEvents(events));
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     const chunkEvents = events.filter((e) => e.type === "tool_output_chunk");
     expect(chunkEvents).toHaveLength(2);
@@ -623,9 +997,19 @@ describe("AgentLoop", () => {
   // 11. System prompt and tools are passed to provider
   test("passes system prompt and tools to provider", async () => {
     const { provider, calls } = createMockProvider([textResponse("Hi")]);
-    const loop = new AgentLoop(provider, "My system prompt", {}, dummyTools);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "My system prompt",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+    });
 
-    await loop.run([userMessage], () => {});
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     expect(calls[0].systemPrompt).toBe("My system prompt");
     expect(calls[0].tools).toEqual(dummyTools);
@@ -634,9 +1018,18 @@ describe("AgentLoop", () => {
   // 12. No tools configured — tools are not passed to provider
   test("does not pass tools to provider when none are configured", async () => {
     const { provider, calls } = createMockProvider([textResponse("Hi")]);
-    const loop = new AgentLoop(provider, "system");
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
 
-    await loop.run([userMessage], () => {});
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     expect(calls[0].tools).toBeUndefined();
   });
@@ -689,15 +1082,20 @@ describe("AgentLoop", () => {
       };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // All 3 tools should have been called
     expect(executionLog).toHaveLength(3);
@@ -786,15 +1184,19 @@ describe("AgentLoop", () => {
       return { content: "data", isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events), {
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
       signal: controller.signal,
     });
 
@@ -863,15 +1265,20 @@ describe("AgentLoop", () => {
       return { content: `contents of ${path}`, isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], collectEvents(events));
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // Collect tool_result events in order
     const toolResultEvents = events.filter(
@@ -898,13 +1305,13 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "file data", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     const checkpoints: CheckpointInfo[] = [];
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
@@ -912,7 +1319,13 @@ describe("AgentLoop", () => {
       return "continue";
     };
 
-    await loop.run([userMessage], () => {}, { onCheckpoint });
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      onCheckpoint,
+    });
 
     expect(checkpoints).toHaveLength(1);
     expect(checkpoints[0]).toMatchObject({
@@ -933,17 +1346,21 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     const onCheckpoint = (): CheckpointDecision => "continue";
 
-    const { history } = await loop.run([userMessage], () => {}, {
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
       onCheckpoint,
     });
 
@@ -963,17 +1380,21 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
-    const onCheckpoint = (): CheckpointDecision => "budget";
+    const onCheckpoint = (): CheckpointDecision => "handoff";
 
-    const { history } = await loop.run([userMessage], () => {}, {
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
       onCheckpoint,
     });
 
@@ -993,15 +1414,20 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
-    const { history } = await loop.run([userMessage], () => {});
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // Normal behavior: 2 provider calls, full history
     expect(calls).toHaveLength(2);
@@ -1019,13 +1445,13 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     const checkpoints: CheckpointInfo[] = [];
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
@@ -1033,7 +1459,13 @@ describe("AgentLoop", () => {
       return "continue";
     };
 
-    await loop.run([userMessage], () => {}, { onCheckpoint });
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      onCheckpoint,
+    });
 
     expect(checkpoints).toHaveLength(3);
     expect(checkpoints[0].turnIndex).toBe(0);
@@ -1046,7 +1478,12 @@ describe("AgentLoop", () => {
     const { provider } = createMockProvider([
       textResponse("Just a text response"),
     ]);
-    const loop = new AgentLoop(provider, "system", {}, dummyTools);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+    });
 
     const checkpoints: CheckpointInfo[] = [];
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
@@ -1054,7 +1491,11 @@ describe("AgentLoop", () => {
       return "continue";
     };
 
-    const { history } = await loop.run([userMessage], () => {}, {
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
       onCheckpoint,
     });
 
@@ -1099,13 +1540,13 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     const checkpoints: CheckpointInfo[] = [];
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
@@ -1113,7 +1554,13 @@ describe("AgentLoop", () => {
       return "continue";
     };
 
-    await loop.run([userMessage], () => {}, { onCheckpoint });
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      onCheckpoint,
+    });
 
     expect(checkpoints).toHaveLength(1);
     expect(checkpoints[0].toolCount).toBe(3);
@@ -1133,23 +1580,27 @@ describe("AgentLoop", () => {
 
     const { provider, calls } = createMockProvider(responses);
     const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     const checkpoints: CheckpointInfo[] = [];
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
       checkpoints.push(checkpoint);
       // Yield on turn 3 (0-indexed)
-      return checkpoint.turnIndex === 3 ? "budget" : "continue";
+      return checkpoint.turnIndex === 3 ? "handoff" : "continue";
     };
 
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events), {
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
       onCheckpoint,
     });
 
@@ -1205,20 +1656,24 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
       // Yield on the second turn (turnIndex 1)
-      return checkpoint.turnIndex === 1 ? "budget" : "continue";
+      return checkpoint.turnIndex === 1 ? "handoff" : "continue";
     };
 
-    const { history } = await loop.run([userMessage], () => {}, {
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
       onCheckpoint,
     });
 
@@ -1235,9 +1690,19 @@ describe("AgentLoop", () => {
   // 25. Without resolveTools, static tools are used
   test("without resolveTools, static tools are passed to provider", async () => {
     const { provider, calls } = createMockProvider([textResponse("Hi")]);
-    const loop = new AgentLoop(provider, "system", {}, dummyTools);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+    });
 
-    await loop.run([userMessage], () => {});
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     expect(calls[0].tools).toEqual(dummyTools);
   });
@@ -1268,15 +1733,19 @@ describe("AgentLoop", () => {
       return resolvedTools;
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      [],
-      toolExecutor,
-      resolveTools,
-    );
-    await loop.run([userMessage], () => {});
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      toolExecutor: toolExecutor,
+      resolveTools: resolveTools,
+    });
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // resolveTools should be called once per provider turn (2 turns total)
     expect(resolverCalls).toHaveLength(2);
@@ -1304,15 +1773,19 @@ describe("AgentLoop", () => {
     const resolveTools = (): ToolDefinition[] => dynamicTools;
 
     // Pass different static tools to verify they are overridden
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      undefined,
-      resolveTools,
-    );
-    await loop.run([userMessage], () => {});
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      resolveTools: resolveTools,
+    });
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // Provider should receive the dynamically resolved tools, not the static ones
     expect(calls[0].tools).toEqual(dynamicTools);
@@ -1365,15 +1838,19 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "ok", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      [],
-      toolExecutor,
-      resolveTools,
-    );
-    await loop.run([userMessage], () => {});
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      toolExecutor: toolExecutor,
+      resolveTools: resolveTools,
+    });
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // Provider should have been called 3 times
     expect(calls).toHaveLength(3);
@@ -1392,15 +1869,19 @@ describe("AgentLoop", () => {
       textResponse("No tools available"),
     ]);
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      undefined,
-      resolveTools,
-    );
-    await loop.run([userMessage], () => {});
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      resolveTools: resolveTools,
+    });
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // Empty array should result in undefined tools (same as no-tools behavior)
     expect(calls[0].tools).toBeUndefined();
@@ -1424,15 +1905,21 @@ describe("AgentLoop", () => {
       return { content: largeContent, isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      { maxInputTokens: 180_000 },
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      config: { maxInputTokens: 180_000 },
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // The tool result user message is at index 2 in history
     const toolResultMsg = history[2];
@@ -1475,15 +1962,21 @@ describe("AgentLoop", () => {
       return { content: smallContent, isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      { maxInputTokens: 180_000 },
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      config: { maxInputTokens: 180_000 },
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // The tool result user message is at index 2 in history
     const toolResultMsg = history[2];
@@ -1535,15 +2028,20 @@ describe("AgentLoop", () => {
       ],
     });
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // The final assistant message in HISTORY should retain placeholders
     // (so the model never sees real values on subsequent turns)
@@ -1604,15 +2102,20 @@ describe("AgentLoop", () => {
       ],
     });
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], collectEvents(events));
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // Collect all text_delta events from the final turn (after tool result)
     const textDeltas = events.filter(
@@ -1639,15 +2142,20 @@ describe("AgentLoop", () => {
       // No sensitiveBindings
     });
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     const lastAssistant = history[history.length - 1];
     const textBlock = lastAssistant.content.find(
@@ -1656,9 +2164,11 @@ describe("AgentLoop", () => {
     expect(textBlock!.text).toBe("Normal response with no placeholders.");
   });
 
-  // Tool error retry nudge — when a tool returns isError: true, the loop
-  // should inject a system_notice nudging the LLM to retry instead of ending.
-  test("injects retry nudge system_notice when tool returns an error", async () => {
+  // Tool error retry coaching — when a tool returns isError: true, the coaching
+  // notice is appended as a separate text block in the tool-result user message
+  // (not into the tool_result content), nudging the LLM to retry instead of
+  // ending the turn while keeping the tool's actual output clean.
+  test("appends retry coaching as a separate block when a tool returns an error", async () => {
     const { provider, calls } = createMockProvider([
       // First turn: LLM calls a tool that errors
       toolUseResponse("t1", "read_file", { path: "/missing.txt" }),
@@ -1684,19 +2194,25 @@ describe("AgentLoop", () => {
       return { content: "file contents", isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
-    await loop.run([userMessage], () => {});
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // Provider should have been called 3 times (error -> retry -> final text)
     expect(calls).toHaveLength(3);
 
-    // The second call's messages should contain the retry nudge system_notice
+    // The second call's messages should carry the retry coaching as a separate
+    // text block, with the tool_result's own content left untouched.
     const secondCallMessages = calls[1].messages;
     const toolResultMessage = secondCallMessages[secondCallMessages.length - 1];
     expect(toolResultMessage.role).toBe("user");
@@ -1707,7 +2223,14 @@ describe("AgentLoop", () => {
     );
     expect(retryNudge).toBeDefined();
 
-    // The third call should NOT have the retry nudge (successful tool result)
+    // The errored tool_result itself stays the tool's actual output.
+    const erroredToolResult = toolResultMessage.content.find(
+      (b): b is Extract<ContentBlock, { type: "tool_result" }> =>
+        b.type === "tool_result",
+    );
+    expect(erroredToolResult?.content).not.toContain("looks recoverable");
+
+    // The third call should NOT have the retry coaching (successful tool result)
     const thirdCallMessages = calls[2].messages;
     const thirdToolResultMessage =
       thirdCallMessages[thirdCallMessages.length - 1];
@@ -1718,8 +2241,9 @@ describe("AgentLoop", () => {
     expect(noRetryNudge).toBeUndefined();
   });
 
-  // Retry nudge stops after MAX_CONSECUTIVE_ERROR_NUDGES (3) consecutive errors
-  test("stops injecting retry nudge after 3 consecutive error turns", async () => {
+  // Retry coaching stops after a tool fails 3 times in a row — past that the
+  // error is likely unrecoverable and further coaching only burns tokens.
+  test("stops appending retry coaching after 3 consecutive failures of a tool", async () => {
     const { provider, calls } = createMockProvider([
       // 4 consecutive error turns, then final text
       toolUseResponse("t1", "read_file", { path: "/a" }),
@@ -1736,34 +2260,37 @@ describe("AgentLoop", () => {
       return { content: "service unavailable", isError: true };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
-    await loop.run([userMessage], () => {});
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     expect(calls).toHaveLength(5);
 
-    // Helper to check if a call's last user message has the retry nudge
+    // Helper to check if a call's last user message has the retry coaching
+    // (a separate text block, not part of the tool_result content).
     const hasRetryNudge = (callIndex: number): boolean => {
       const msgs = calls[callIndex].messages;
       const lastMsg = msgs[msgs.length - 1];
       return lastMsg.content.some(
-        (b) =>
-          b.type === "text" &&
-          "text" in b &&
-          (b as { text: string }).text.includes("looks recoverable"),
+        (b) => b.type === "text" && b.text.includes("looks recoverable"),
       );
     };
 
-    // Turns 1-3 should have the nudge
+    // Turns 1-3 should have the coaching
     expect(hasRetryNudge(1)).toBe(true);
     expect(hasRetryNudge(2)).toBe(true);
     expect(hasRetryNudge(3)).toBe(true);
-    // Turn 4 should NOT have the nudge (exceeded limit)
+    // Turn 4 should NOT have the coaching (exceeded limit)
     expect(hasRetryNudge(4)).toBe(false);
   });
 
@@ -1787,15 +2314,20 @@ describe("AgentLoop", () => {
       isError: false,
     });
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // Provider should be called 3 times: initial, empty response, retry
     expect(calls).toHaveLength(3);
@@ -1865,15 +2397,20 @@ describe("AgentLoop", () => {
       isError: false,
     });
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // Provider called exactly 2 times: initial [text+tool_use], then empty.
     // No third (retry) call because the prior turn had visible text.
@@ -1927,15 +2464,20 @@ describe("AgentLoop", () => {
       isError: false,
     });
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // Provider called 3 times: initial, empty, retry (also empty)
     expect(calls).toHaveLength(3);
@@ -1946,12 +2488,23 @@ describe("AgentLoop", () => {
     );
     expect(messageCompletes).toHaveLength(2);
 
-    // The last assistant message in history is the empty one
+    // An organic empty `end_turn` (not a refusal) is left as-is — the fallback
+    // is refusal-specific, so the exhausted empty turn stays empty.
     const lastAssistant = [...history]
       .reverse()
       .find((m) => m.role === "assistant");
     expect(lastAssistant).toBeDefined();
     expect(lastAssistant!.content).toEqual([]);
+
+    // AND no fallback text is streamed for a non-refusal empty turn.
+    const textDeltas = events.filter((e) => e.type === "text_delta");
+    expect(
+      textDeltas.some(
+        (e) =>
+          (e as { type: "text_delta"; text: string }).text ===
+          REFUSAL_FALLBACK_TEXT,
+      ),
+    ).toBe(false);
   });
 
   test("does not retry empty response on first turn (no prior tool use)", async () => {
@@ -1964,13 +2517,207 @@ describe("AgentLoop", () => {
 
     const { provider, calls } = createMockProvider([emptyResponse]);
 
-    const loop = new AgentLoop(provider, "system");
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
     const events: AgentEvent[] = [];
-    const { history } = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     // Should NOT retry — this is the first turn with no tool use history
     expect(calls).toHaveLength(1);
-    expect(history).toHaveLength(2); // user + empty assistant
+    // user + assistant; an organic empty `end_turn` is left as-is (the fallback
+    // is refusal-specific), so the empty turn stays empty.
+    expect(history).toHaveLength(2);
+    expect(history[1].content).toEqual([]);
+  });
+
+  // Refusal stop boundary — the provider zeroed the response with
+  // `stopReason: "refusal"`. The default `stop` hook rewrites the empty turn
+  // into a user-facing fallback (no retry — a safety-classifier refusal
+  // re-fires on a re-query), and the loop persists + streams it rather than the
+  // empty assistant bubble the user would otherwise see.
+  test("rewrites a refusal into a user-facing fallback without retrying", async () => {
+    // GIVEN a provider that refuses (empty content, stopReason "refusal").
+    const refusalResponse: ProviderResponse = {
+      content: [],
+      model: "mock-model",
+      usage: { inputTokens: 10, outputTokens: 0 },
+      stopReason: "refusal",
+    };
+    const { provider, calls } = createMockProvider([
+      refusalResponse,
+      refusalResponse,
+    ]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs.
+    const events: AgentEvent[] = [];
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the loop calls the provider once: the refusal is rewritten in place
+    // with no nudge-driven retry.
+    expect(calls).toHaveLength(1);
+
+    // AND the user-visible assistant turn is the fallback, not an empty bubble.
+    const lastAssistant = [...history]
+      .reverse()
+      .find((m) => m.role === "assistant");
+    expect(lastAssistant!.content).toEqual([
+      { type: "text", text: REFUSAL_FALLBACK_TEXT },
+    ]);
+
+    // AND the fallback is streamed so the client renders it.
+    const textDeltas = events.filter((e) => e.type === "text_delta");
+    expect(
+      textDeltas.some(
+        (e) =>
+          (e as { type: "text_delta"; text: string }).text ===
+          REFUSAL_FALLBACK_TEXT,
+      ),
+    ).toBe(true);
+  });
+
+  // The fallback must not pile a spurious apology beneath a real answer: when
+  // an earlier turn this run already produced visible text (text alongside a
+  // tool call), a refusal on the trailing turn after the tool result must not
+  // rewrite the turn even though a refusal would normally trigger it.
+  test("does not substitute a fallback when the run already produced visible text", async () => {
+    // GIVEN a first turn with text + a tool call, then a refusal after the
+    // tool result.
+    const textPlusToolUse: ProviderResponse = {
+      content: [
+        { type: "text", text: "Here is your answer." },
+        {
+          type: "tool_use",
+          id: "t1",
+          name: "read_file",
+          input: { path: "/a" },
+        },
+      ],
+      model: "mock-model",
+      usage: { inputTokens: 10, outputTokens: 5 },
+      stopReason: "tool_use",
+    };
+    const refusalResponse: ProviderResponse = {
+      content: [],
+      model: "mock-model",
+      usage: { inputTokens: 10, outputTokens: 0 },
+      stopReason: "refusal",
+    };
+    const { provider } = createMockProvider([textPlusToolUse, refusalResponse]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: async () => ({ content: "data", isError: false }),
+    });
+
+    // WHEN the loop runs.
+    const events: AgentEvent[] = [];
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN no fallback text is emitted or persisted — the real answer stands
+    // alone and the trailing empty turn stays empty.
+    const fallbackEmitted = events.some(
+      (e) =>
+        e.type === "text_delta" &&
+        (e as { type: "text_delta"; text: string }).text ===
+          REFUSAL_FALLBACK_TEXT,
+    );
+    expect(fallbackEmitted).toBe(false);
+    const fallbackInHistory = history.some(
+      (m) =>
+        m.role === "assistant" &&
+        m.content.some(
+          (b) =>
+            b.type === "text" &&
+            "text" in b &&
+            (b as { text: string }).text === REFUSAL_FALLBACK_TEXT,
+        ),
+    );
+    expect(fallbackInHistory).toBe(false);
+  });
+
+  // A native web-search turn lands at the stop boundary with no `tool_use` and
+  // no visible text, but with `stopReason: "end_turn"` (not a refusal) and
+  // `server_tool_use`/`web_search_tool_result` blocks that render the search
+  // card. Because the fallback is refusal-specific, it must not fire here and
+  // the server-tool blocks must persist untouched.
+  test("does not substitute a fallback for a server-tool turn with no text", async () => {
+    // GIVEN a turn carrying only native web-search blocks (no text, no
+    // client-side tool_use).
+    const serverToolBlocks: ContentBlock[] = [
+      {
+        type: "server_tool_use",
+        id: "srv1",
+        name: "web_search",
+        input: { query: "weather" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srv1",
+        content: [{ title: "result" }],
+      },
+    ];
+    const webSearchResponse: ProviderResponse = {
+      content: serverToolBlocks,
+      model: "mock-model",
+      usage: { inputTokens: 10, outputTokens: 5 },
+      stopReason: "end_turn",
+    };
+    const { provider, calls } = createMockProvider([webSearchResponse]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs.
+    const events: AgentEvent[] = [];
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the provider is called once (no nudge for a non-refusal turn) and
+    // the server-tool blocks are persisted untouched, with no fallback added.
+    expect(calls).toHaveLength(1);
+    const lastAssistant = [...history]
+      .reverse()
+      .find((m) => m.role === "assistant");
+    expect(lastAssistant!.content).toEqual(serverToolBlocks);
+
+    const fallbackEmitted = events.some(
+      (e) =>
+        e.type === "text_delta" &&
+        (e as { type: "text_delta"; text: string }).text ===
+          REFUSAL_FALLBACK_TEXT,
+    );
+    expect(fallbackEmitted).toBe(false);
   });
 
   // PR 6: callSite threading from AgentLoop.run() into provider config.
@@ -1979,8 +2726,18 @@ describe("AgentLoop", () => {
   test("threads callSite from AgentLoop.run() into per-call provider config", async () => {
     const { provider, calls } = createMockProvider([textResponse("ok")]);
 
-    const loop = new AgentLoop(provider, "system");
-    await loop.run([userMessage], () => {}, { callSite: "heartbeatAgent" });
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "heartbeatAgent",
+    });
 
     expect(calls).toHaveLength(1);
     expect(calls[0].options?.config?.callSite).toBe("heartbeatAgent");
@@ -1989,8 +2746,17 @@ describe("AgentLoop", () => {
   test("omits callSite from provider config when not supplied", async () => {
     const { provider, calls } = createMockProvider([textResponse("ok")]);
 
-    const loop = new AgentLoop(provider, "system");
-    await loop.run([userMessage], () => {});
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
 
     expect(calls).toHaveLength(1);
     expect(calls[0].options?.config?.callSite).toBeUndefined();

@@ -107,7 +107,6 @@ describe("pre-chat onboarding contract", () => {
       "USER.md",
       "BOOTSTRAP.md",
       "BOOTSTRAP-REFERENCE.md",
-      "UPDATES.md",
       "users",
       "channels",
     ]) {
@@ -297,6 +296,29 @@ describe("pre-chat onboarding contract", () => {
       expect(bootstrap).not.toContain("```json");
       const expectedJson = JSON.stringify(context, null, 2);
       expect(bootstrap).not.toContain(expectedJson);
+    });
+
+    test("renders prior assistants in first-run context", () => {
+      writeFileSync(
+        join(TEST_DIR, "BOOTSTRAP.md"),
+        "# Bootstrap\n\nOnboarding.",
+      );
+
+      const context: OnboardingContext = {
+        tools: [],
+        tasks: [],
+        tone: "warm",
+        userName: "Alex",
+        priorAssistants: ["chatgpt", "claude", "perplexity"],
+      };
+
+      const result = buildSystemPrompt({ onboardingContext: context });
+      const bootstrap = bootstrapBlock(result);
+
+      expect(bootstrap).toContain("## First-Run User Context");
+      expect(bootstrap).toContain(
+        "- Prior AI assistants used: ChatGPT, Claude, Perplexity",
+      );
     });
 
     test("empty tools/tasks arrays result in no Daily tools / Common work lines", () => {

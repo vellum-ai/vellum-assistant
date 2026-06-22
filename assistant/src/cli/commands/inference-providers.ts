@@ -16,8 +16,6 @@
 
 import type { Command } from "commander";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import { getConfig } from "../../config/loader.js";
 import { cliIpcCall } from "../../ipc/cli-client.js";
 import type { OAuth2Config } from "../../security/oauth2.js";
 import { startOAuth2Flow } from "../../security/oauth2.js";
@@ -343,12 +341,6 @@ function attachLoginChatgptSubcommand(providers: Command): void {
     .description("Authenticate with ChatGPT via browser OAuth flow")
     .option("--json", "Output as JSON")
     .action(async (opts: { json?: boolean }) => {
-      const config = getConfig();
-      if (!isAssistantFeatureFlagEnabled("chatgpt-subscription-auth", config)) {
-        writeCliError("This feature is not yet available", opts.json);
-        return;
-      }
-
       try {
         // Step 1: Run browser-based PKCE OAuth flow
         process.stdout.write("Opening browser for ChatGPT authentication...\n");

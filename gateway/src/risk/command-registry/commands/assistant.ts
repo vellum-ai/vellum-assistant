@@ -163,6 +163,10 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "memory v2 reembed-skills",
   "memory v2 activation",
   "memory v2 validate",
+  "memory v3",
+  "memory v3 rebuild-index",
+  "memory v3 backfill-sections",
+  "memory v3 eval",
   "notifications",
   "notifications send",
   "notifications list",
@@ -197,8 +201,11 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "routes inspect",
   "schedules",
   "schedules list",
+  "schedules get",
+  "schedules inspect",
   "schedules runs",
   "schedules create",
+  "schedules update",
   "schedules enable",
   "schedules disable",
   "schedules cancel",
@@ -224,19 +231,10 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "status",
   "stt",
   "stt transcribe",
-  "task",
-  "task save",
-  "task list",
-  "task run",
-  "task delete",
-  "task queue",
-  "task queue show",
-  "task queue add",
-  "task queue update",
-  "task queue remove",
-  "task queue run",
   "telemetry",
   "telemetry flush",
+  "tools",
+  "tools list",
   "trust",
   "trust list",
   "tts",
@@ -270,10 +268,13 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "email send",
   "email attachment",
   "plugins",
+  "plugins diff",
   "plugins install",
+  "plugins inspect",
   "plugins list",
   "plugins search",
   "plugins uninstall",
+  "plugins upgrade",
 ] as const;
 
 interface AssistantRiskOverride {
@@ -494,6 +495,24 @@ const riskOverrides: AssistantRiskOverride[] = [
     risk: "low",
     reason: "Read-only diagnostic walk over concept pages and edges",
   },
+  {
+    path: "memory v3 backfill-sections",
+    risk: "medium",
+    reason:
+      "Embeds every page's sections into the v3 dense store and advances the maintain checkpoint",
+  },
+  {
+    path: "memory v3 eval",
+    risk: "medium",
+    reason:
+      "Reads recent conversation turns and memory contents and writes them to eval packet/key files",
+  },
+  {
+    path: "memory v3 rebuild-index",
+    risk: "low",
+    reason:
+      "Invalidates the in-memory v3 section lanes so they rebuild on the next turn",
+  },
   { path: "notifications send", risk: "low" },
   {
     path: "oauth request",
@@ -522,6 +541,12 @@ const riskOverrides: AssistantRiskOverride[] = [
     risk: "medium",
     reason:
       "Creates a new recurring schedule that fires assistant-side messages",
+  },
+  {
+    path: "schedules update",
+    risk: "medium",
+    reason:
+      "Updates schedule fields (expression, message, mode, script) and mutates assistant schedule state",
   },
   {
     path: "schedules enable",
@@ -566,17 +591,15 @@ const riskOverrides: AssistantRiskOverride[] = [
     risk: "medium",
     reason: "Removes an installed plugin and all its files from the workspace",
   },
+  {
+    path: "plugins upgrade",
+    risk: "high",
+    reason: "Fetches and re-installs external plugin code from GitHub",
+  },
   { path: "skills install", risk: "high" },
   { path: "skills uninstall", risk: "medium" },
   { path: "skills add", risk: "high" },
   { path: "stt transcribe", risk: "medium" },
-  { path: "task save", risk: "medium" },
-  { path: "task run", risk: "medium" },
-  { path: "task delete", risk: "medium" },
-  { path: "task queue add", risk: "medium" },
-  { path: "task queue update", risk: "medium" },
-  { path: "task queue remove", risk: "medium" },
-  { path: "task queue run", risk: "medium" },
   { path: "tts synthesize", risk: "medium" },
   { path: "watchers create", risk: "medium" },
   { path: "watchers update", risk: "medium" },
@@ -626,5 +649,31 @@ const assistantBashArgRules: ArgRule[] = [
   },
 ];
 getExistingPath(spec, "bash").argRules = assistantBashArgRules;
+
+// `schedules update` is medium-risk as a state mutation, but updates that
+// install or switch to a script payload persist host shell execution for a
+// later schedule fire — classify those as high like `bash`.
+const scheduleUpdateArgRules: ArgRule[] = [
+  {
+    id: "assistant-schedules-update:script",
+    flags: ["--script"],
+    risk: "high",
+    reason:
+      "Persists an arbitrary shell command that the schedule executes on fire",
+  },
+  {
+    id: "assistant-schedules-update:mode-script",
+    flags: ["--mode"],
+    valuePattern: "^script$",
+    risk: "high",
+    reason:
+      "Switches the schedule to script mode (host shell execution on fire)",
+  },
+];
+const scheduleUpdateNode = getExistingPath(spec, "schedules update");
+scheduleUpdateNode.argRules = scheduleUpdateArgRules;
+// Both rule flags consume the next token as a value; declare them so the
+// arg parser pairs `--mode script` / `--script <cmd>` correctly.
+scheduleUpdateNode.argSchema = { valueFlags: ["--mode", "--script"] };
 
 export default spec;

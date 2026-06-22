@@ -50,6 +50,7 @@ import {
   recordCallEvent,
   updateCallSession,
 } from "./call-store.js";
+import { getChannelAdmissionPolicy } from "./channel-admission-reader.js";
 import { finalizeCall } from "./finalize-call.js";
 import { MediaStreamOutput } from "./media-stream-output.js";
 import { parseMediaStreamFrame } from "./media-stream-parser.js";
@@ -90,6 +91,18 @@ export class MediaStreamCallSession {
   private streamSid: string | null = null;
   private callSid: string | null = null;
   private disposed = false;
+  // True from the synchronous start of handleStart until setup routing
+  // completes. Resolving the admission floor yields the event loop, so
+  // transcripts/barge-in arriving in this window are ignored — a denied or
+  // not-yet-authorized caller's speech is never persisted before the floor
+  // and trust ACL are applied. The controller-existence checks below also
+  // gate persistence, but this guard makes the intent explicit and covers
+  // the brief async window before the controller is created.
+  private setupRouting = false;
+  // Resolves when the async setup routing kicked off by the `start` frame
+  // settles. Exposed via whenSetupSettled() for deterministic test awaiting,
+  // since handleStart now yields on the admission-policy read.
+  private setupSettled: Promise<void> = Promise.resolve();
 
   // ── Operational diagnostics counters ──────────────────────────────
   /** Number of barge-in attempts that were accepted (assistant was speaking). */
@@ -142,6 +155,14 @@ export class MediaStreamCallSession {
   }
 
   /**
+   * Resolves once the async setup routing started by the `start` frame has
+   * settled. Test-only convenience — production code does not await this.
+   */
+  whenSetupSettled(): Promise<void> {
+    return this.setupSettled;
+  }
+
+  /**
    * Feed a raw WebSocket message into the session.
    *
    * The message is parsed to intercept `start` events (for session
@@ -154,7 +175,16 @@ export class MediaStreamCallSession {
     // Intercept `start` to bootstrap the session before forwarding.
     const parseResult = parseMediaStreamFrame(raw);
     if (parseResult.ok && parseResult.event.event === "start") {
-      this.handleStart(parseResult.event);
+      // handleStart resolves the admission floor asynchronously; the
+      // setupRouting guard set synchronously at its top ensures inbound
+      // frames forwarded below are ignored until routing completes.
+      this.setupSettled = this.handleStart(parseResult.event).catch((err) => {
+        log.error(
+          { err, callSessionId: this.callSessionId },
+          "Media-stream setup routing failed",
+        );
+        this.setupRouting = false;
+      });
     }
 
     // Always forward to the STT session (it handles all event types).
@@ -296,7 +326,12 @@ export class MediaStreamCallSession {
 
   // ── Internal: media-stream event handlers ─────────────────────────
 
-  private handleStart(event: MediaStreamStartEvent): void {
+  private async handleStart(event: MediaStreamStartEvent): Promise<void> {
+    // Enter the setup-pending window synchronously, before any await. The
+    // admission-policy read below yields the event loop, so frames forwarded
+    // to the STT session can produce transcripts/barge-in before routing
+    // completes — those are dropped while setupRouting is true.
+    this.setupRouting = true;
     this.streamSid = event.streamSid;
     this.callSid = event.start.callSid;
 
@@ -337,12 +372,32 @@ export class MediaStreamCallSession {
     const from = session?.fromNumber ?? "";
     const to = session?.toNumber ?? "";
 
+    // Resolve the phone channel's inbound admission floor so the trust floor
+    // (e.g. guardian_only) is enforced on this transport too — not just the
+    // gateway webhook's no_one kill switch. The reader fails open to `null`
+    // by contract, so a transport hiccup admits the caller.
+    const admissionPolicy = await getChannelAdmissionPolicy("phone");
+
+    // The admission-policy read above yields the event loop; if Twilio closed
+    // the WebSocket meanwhile, the close handler will have called destroy().
+    // Abort setup so we don't create a controller or speak on a disposed
+    // session.
+    if (this.disposed) {
+      log.info(
+        { callSessionId: this.callSessionId },
+        "Media-stream session disposed during admission read — aborting setup",
+      );
+      this.setupRouting = false;
+      return;
+    }
+
     const { outcome, resolved } = routeSetup({
       callSessionId: this.callSessionId,
       session: session ?? null,
       from,
       to,
       customParameters: event.start.customParameters,
+      admissionPolicy,
     });
 
     log.info(
@@ -376,6 +431,10 @@ export class MediaStreamCallSession {
           },
         );
         registerCallController(this.callSessionId, this.controller);
+
+        // Routing/ACL cleared — leave the setup-pending window so subsequent
+        // transcripts and barge-in are handled normally.
+        this.setupRouting = false;
 
         // Fire the initial greeting.
         this.controller.startInitialGreeting().catch((err) => {
@@ -525,6 +584,18 @@ export class MediaStreamCallSession {
 
   private handleTranscriptFinal(text: string, _durationMs: number): void {
     if (!text.trim()) return;
+
+    // Drop transcripts arriving while setup routing is still pending so a
+    // not-yet-authorized / floor-denied caller's speech is never persisted
+    // before the admission floor and trust ACL are applied.
+    if (this.setupRouting) {
+      log.debug(
+        { callSessionId: this.callSessionId },
+        "Transcript received during setup routing — dropping",
+      );
+      return;
+    }
+
     this.transcriptFinalsProduced++;
 
     if (!this.controller) {
@@ -560,6 +631,17 @@ export class MediaStreamCallSession {
   }
 
   private handleDtmf(digit: string): void {
+    // Drop DTMF arriving while setup routing is still pending so a
+    // not-yet-authorized / floor-denied caller's digit is never persisted
+    // before the admission floor and trust ACL are applied.
+    if (this.setupRouting) {
+      log.debug(
+        { callSessionId: this.callSessionId, digit },
+        "DTMF received during setup routing — dropping",
+      );
+      return;
+    }
+
     log.info(
       { callSessionId: this.callSessionId, digit },
       "DTMF digit received on media-stream",

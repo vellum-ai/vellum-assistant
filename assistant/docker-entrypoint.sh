@@ -6,9 +6,11 @@ set -eu
 chmod 1777 /tmp 2>/dev/null || true
 
 KATA_APT_INIT_PID=""
-if [ "${VELLUM_SANDBOX_RUNTIME:-}" = "kata" ] && [ -x /app/assistant/docker-init-apt-root.sh ]; then
+. /app/assistant/docker-kata-runtime-family.sh
+
+if vellum_is_kata_family_runtime && [ -x /app/assistant/docker-init-apt-root.sh ]; then
   export VELLUM_APT_DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"
-  # Warm the chroot used by kata apt wrappers without blocking assistant readiness.
+  # Warm the chroot used by Kata-family apt wrappers without blocking assistant readiness.
   /app/assistant/docker-init-apt-root.sh &
   KATA_APT_INIT_PID="$!"
 fi
@@ -25,15 +27,17 @@ if [ "$(id -u)" = "0" ] && [ "${VELLUM_WORKSPACE_DIR:-}" = "/workspace" ] && [ -
   git config --global --add safe.directory '/workspace/*' >/dev/null 2>&1 || true
 fi
 
-# Source executable scripts from /workspace/.entrypoint.d/ in lexicographic
-# order so an assistant can extend the daemon environment from its own
-# workspace volume — PATH additions, credential helpers, tooling symlinks.
-# Scripts are sourced so env mutations propagate to the daemon. Errors are
-# logged but non-fatal.
+# Source workspace entrypoint hooks from /workspace/.entrypoint.d/ in
+# lexicographic order. Hooks must be regular files (symlinks are rejected)
+# and have the executable bit set. Scripts are sourced so env mutations
+# propagate to the daemon. Errors are logged but non-fatal.
 if [ -d /workspace/.entrypoint.d ]; then
   for hook in /workspace/.entrypoint.d/*.sh; do
-    [ -r "$hook" ] || continue
+    [ ! -L "$hook" ] || continue
+    [ -x "$hook" ] || continue
     wait_for_kata_apt_root
+    [ ! -L "$hook" ] || continue
+    [ -x "$hook" ] || continue
     . "$hook" || echo "Warning: workspace hook $hook exited $?" >&2
   done
 fi

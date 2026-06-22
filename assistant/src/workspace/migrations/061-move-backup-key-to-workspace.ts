@@ -2,7 +2,7 @@
  * Workspace migration 061: Move backup.key from protected/ to workspace.
  *
  * The backup encryption key previously lived at ~/.vellum/protected/backup.key.
- * This migration copies it to ~/.vellum/workspace/.backup.key so the daemon
+ * This migration copies it to $VELLUM_WORKSPACE_DIR/.backup.key so the daemon
  * no longer depends on the protected directory (owned by the gateway).
  *
  * The old file is removed after a successful copy. If the new file already

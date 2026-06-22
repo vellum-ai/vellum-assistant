@@ -919,6 +919,7 @@ export async function resolveOrHatchTarget(
       false,
       false,
       {},
+      {},
       {
         setupProviderCredentials: false,
       },
@@ -937,16 +938,12 @@ export async function resolveOrHatchTarget(
 
   if (targetEnv === "docker") {
     const beforeIds = new Set(loadAllAssistants().map((e) => e.assistantId));
-    await hatchDocker(
-      "vellum",
-      false,
-      targetName ?? null,
-      false,
-      {},
-      {
-        setupProviderCredentials: false,
-      },
-    );
+    await hatchDocker({
+      species: "vellum",
+      detached: false,
+      name: targetName ?? null,
+      setupProviderCredentials: false,
+    });
     const entry = targetName
       ? findAssistantByName(targetName)
       : (loadAllAssistants().find((e) => !beforeIds.has(e.assistantId)) ??

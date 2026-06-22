@@ -90,7 +90,7 @@ Access requests are stored in the `channel_guardian_approval_requests` table. Us
 ### Via SQLite CLI
 
 ```bash
-sqlite3 ~/.vellum/workspace/data/db/assistant.db \
+sqlite3 "$VELLUM_WORKSPACE_DIR"/data/db/assistant.db \
   "SELECT id, channel, requester_external_user_id, requester_chat_id, \
    guardian_external_user_id, status, tool_name, created_at, expires_at \
    FROM channel_guardian_approval_requests \
@@ -101,7 +101,7 @@ sqlite3 ~/.vellum/workspace/data/db/assistant.db \
 ### Check all access requests (including resolved)
 
 ```bash
-sqlite3 ~/.vellum/workspace/data/db/assistant.db \
+sqlite3 "$VELLUM_WORKSPACE_DIR"/data/db/assistant.db \
   "SELECT id, channel, requester_external_user_id, status, \
    decided_by_external_user_id, created_at \
    FROM channel_guardian_approval_requests \
@@ -114,7 +114,7 @@ sqlite3 ~/.vellum/workspace/data/db/assistant.db \
 Verification challenges are stored in `channel_verification_sessions`. Active sessions have `status = 'awaiting_response'` and `expires_at > now`.
 
 ```bash
-sqlite3 ~/.vellum/workspace/data/db/assistant.db \
+sqlite3 "$VELLUM_WORKSPACE_DIR"/data/db/assistant.db \
   "SELECT id, channel, status, identity_binding_status, \
    expected_external_user_id, expected_chat_id, expected_phone_e164, \
    expires_at, created_at \
@@ -158,7 +158,7 @@ curl -s -X PATCH "$BASE/v1/contact-channels/$CHANNEL_ID" \
 If the HTTP API is unavailable:
 
 ```bash
-sqlite3 ~/.vellum/workspace/data/db/assistant.db \
+sqlite3 "$VELLUM_WORKSPACE_DIR"/data/db/assistant.db \
   "UPDATE contact_channels \
    SET status = 'revoked', revoked_reason = 'Emergency operator revocation', \
    updated_at = $(date +%s)000 \
@@ -172,7 +172,7 @@ sqlite3 ~/.vellum/workspace/data/db/assistant.db \
 If a user is getting "invalid or expired code" errors, they may be rate-limited:
 
 ```bash
-sqlite3 ~/.vellum/workspace/data/db/assistant.db \
+sqlite3 "$VELLUM_WORKSPACE_DIR"/data/db/assistant.db \
   "SELECT * FROM channel_guardian_rate_limits \
    WHERE external_user_id = 'TARGET_USER_ID' \
    OR chat_id = 'TARGET_CHAT_ID' \
@@ -182,7 +182,7 @@ sqlite3 ~/.vellum/workspace/data/db/assistant.db \
 ### Reset rate limits for a user
 
 ```bash
-sqlite3 ~/.vellum/workspace/data/db/assistant.db \
+sqlite3 "$VELLUM_WORKSPACE_DIR"/data/db/assistant.db \
   "DELETE FROM channel_guardian_rate_limits \
    WHERE external_user_id = 'TARGET_USER_ID' AND channel = 'telegram';"
 ```
@@ -190,7 +190,7 @@ sqlite3 ~/.vellum/workspace/data/db/assistant.db \
 ### Check verification challenge state
 
 ```bash
-sqlite3 ~/.vellum/workspace/data/db/assistant.db \
+sqlite3 "$VELLUM_WORKSPACE_DIR"/data/db/assistant.db \
   "SELECT id, channel, status, identity_binding_status, \
    expected_external_user_id, expected_chat_id, expected_phone_e164, \
    expires_at, consumed_by_external_user_id \
@@ -215,7 +215,7 @@ sqlite3 ~/.vellum/workspace/data/db/assistant.db \
 ### Check if the access request notification was delivered
 
 ```bash
-sqlite3 ~/.vellum/workspace/data/db/assistant.db \
+sqlite3 "$VELLUM_WORKSPACE_DIR"/data/db/assistant.db \
   "SELECT ne.id, ne.source_event_name, ne.dedupe_key, ne.created_at, \
    nd.channel, nd.status, nd.confidence \
    FROM notification_events ne \
@@ -227,7 +227,7 @@ sqlite3 ~/.vellum/workspace/data/db/assistant.db \
 ### Check delivery records
 
 ```bash
-sqlite3 ~/.vellum/workspace/data/db/assistant.db \
+sqlite3 "$VELLUM_WORKSPACE_DIR"/data/db/assistant.db \
   "SELECT ndel.id, ndel.channel, ndel.status, ndel.error_message, \
    ndel.created_at, ne.source_event_name \
    FROM notification_deliveries ndel \
@@ -239,7 +239,7 @@ sqlite3 ~/.vellum/workspace/data/db/assistant.db \
 ### Check lifecycle signals
 
 ```bash
-sqlite3 ~/.vellum/workspace/data/db/assistant.db \
+sqlite3 "$VELLUM_WORKSPACE_DIR"/data/db/assistant.db \
   "SELECT source_event_name, source_channel, dedupe_key, created_at \
    FROM notification_events \
    WHERE source_event_name LIKE 'ingress.trusted_contact.%' \
@@ -295,7 +295,7 @@ curl -s -X POST "$BASE/v1/contacts" \
 Expired sessions are already invisible to the verification flow (filtered by `expires_at`), but you can clean them up:
 
 ```bash
-sqlite3 ~/.vellum/workspace/data/db/assistant.db \
+sqlite3 "$VELLUM_WORKSPACE_DIR"/data/db/assistant.db \
   "DELETE FROM channel_verification_sessions \
    WHERE expires_at < $(date +%s)000 \
    AND status IN ('awaiting_response', 'pending_bootstrap');"
@@ -306,7 +306,7 @@ sqlite3 ~/.vellum/workspace/data/db/assistant.db \
 The `sweepExpiredGuardianApprovals()` timer handles this automatically every 60 seconds, but manual cleanup:
 
 ```bash
-sqlite3 ~/.vellum/workspace/data/db/assistant.db \
+sqlite3 "$VELLUM_WORKSPACE_DIR"/data/db/assistant.db \
   "UPDATE channel_guardian_approval_requests \
    SET status = 'expired' \
    WHERE status = 'pending' AND expires_at < $(date +%s)000;"

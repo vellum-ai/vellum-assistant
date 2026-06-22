@@ -4,6 +4,8 @@ import {
   parseVersion,
   compareVersions,
   isVersionCompatible,
+  stripVersionPrefix,
+  versionsEqual,
 } from "../lib/version-compat.js";
 
 describe("parseVersion", () => {
@@ -202,5 +204,34 @@ describe("isVersionCompatible", () => {
 
   test("returns false for unparseable input", () => {
     expect(isVersionCompatible("bad", "1.0.0")).toBe(false);
+  });
+});
+
+describe("stripVersionPrefix", () => {
+  test("strips v prefix", () => {
+    expect(stripVersionPrefix("v0.7.0")).toBe("0.7.0");
+  });
+
+  test("strips V prefix", () => {
+    expect(stripVersionPrefix("V0.7.0")).toBe("0.7.0");
+  });
+
+  test("leaves unprefixed versions unchanged", () => {
+    expect(stripVersionPrefix("0.7.0")).toBe("0.7.0");
+  });
+});
+
+describe("versionsEqual", () => {
+  test("equal across v prefix", () => {
+    expect(versionsEqual("v0.7.0", "0.7.0")).toBe(true);
+  });
+
+  test("different versions are not equal", () => {
+    expect(versionsEqual("0.7.0", "0.7.1")).toBe(false);
+  });
+
+  test("unparseable falls back to prefix-stripped string equality", () => {
+    expect(versionsEqual("vweird-build", "weird-build")).toBe(true);
+    expect(versionsEqual("weird-build", "other-build")).toBe(false);
   });
 });

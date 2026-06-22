@@ -1,9 +1,11 @@
 import OpenAI from "openai";
 
+import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
+import { PLACEHOLDER_EMPTY_TURN } from "../placeholder-sentinels.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import type {
   ContentBlock,
@@ -16,6 +18,14 @@ import {
   ContextOverflowError,
   extractOverflowTokensFromMessage,
 } from "../types.js";
+import {
+  isUnparseableToolArgs,
+  wrapUnparseableToolArgs,
+} from "../unparseable-tool-args.js";
+import {
+  coerceObjectParamsToJsonString,
+  decodeCoercedObjectArgs,
+} from "./coerce-object-args.js";
 
 /**
  * Detect OpenAI-compatible context-overflow signals on an `OpenAI.APIError`.
@@ -100,6 +110,42 @@ export function extractApiErrorDetail(
  *  OpenRouter's `error.metadata.raw` strings, which are typically <1KB. */
 const MAX_API_ERROR_DETAIL_CHARS = 2000;
 
+const VISION_NOT_SUPPORTED_PATTERNS = [
+  /no endpoints found that support image input/i,
+  /does not support image/i,
+  /image input is not supported/i,
+  /this model does not support vision/i,
+  /vision is not supported/i,
+  /multi-?modal.*not.*support/i,
+];
+
+export function detectVisionNotSupported(
+  error: InstanceType<typeof OpenAI.APIError>,
+): boolean {
+  const haystack = `${error.message} ${JSON.stringify((error as { error?: unknown }).error ?? "")}`;
+  return VISION_NOT_SUPPORTED_PATTERNS.some((re) => re.test(haystack));
+}
+
+/**
+ * Fallback `content` for an assistant turn that has neither visible text nor
+ * tool calls (e.g. a reasoning-only turn truncated at the output-token limit).
+ *
+ * The OpenAI chat-completions schema requires an assistant message to carry
+ * `content` or `tool_calls`. OpenAI itself tolerates `content: null`/`""` here,
+ * but strict OpenAI-compatible backends do not: DeepSeek via OpenRouter rejects
+ * the request with `Invalid assistant message: content or tool_calls must be
+ * set`, and vLLM-style validators coerce empty-string content back to null and
+ * reject it the same way. The placeholder must therefore be a non-empty string.
+ *
+ * We reuse the shared empty-turn sentinel so that
+ * `isPlaceholderSentinelText`/`cleanAssistantContent` strip it from persisted
+ * and rendered history if a model ever echoes it back. The null-byte prefix is
+ * dropped because some OpenAI-compatible backends reject control characters in
+ * message content; the bare form is still recognized by
+ * `isPlaceholderSentinelText`.
+ */
+export const EMPTY_ASSISTANT_TURN_PLACEHOLDER = PLACEHOLDER_EMPTY_TURN.slice(1);
+
 /**
  * Read the first matching header from an SDK error's headers object,
  * tolerating both Map-like (`Headers.get()`) and plain-object shapes.
@@ -153,6 +199,19 @@ export interface OpenAIChatCompletionsProviderOptions {
    *  DeepSeek/Fireworks use `"reasoning_content"`; OpenRouter uses `"reasoning"`.
    *  When unset, thinking blocks are dropped from outbound assistant messages. */
   assistantReasoningField?: "reasoning" | "reasoning_content";
+  /** Backfill a non-empty placeholder for assistant turns that would otherwise
+   *  serialize with neither `content` nor `tool_calls` (e.g. reasoning-only
+   *  turns). Off by default; enabled for OpenRouter, whose downstream providers
+   *  (e.g. DeepSeek) reject such messages with `Invalid assistant message:
+   *  content or tool_calls must be set`. See {@link
+   *  EMPTY_ASSISTANT_TURN_PLACEHOLDER}. */
+  backfillEmptyAssistantContent?: boolean;
+  /** Present object-typed tool params to the model as JSON-string params and
+   *  decode them back to objects on the response. Works around models whose
+   *  function-call serialization collapses nested objects to `{}` (observed
+   *  with minimax-m3 on Fireworks). Off by default; scalars/arrays unaffected.
+   *  See {@link coerceObjectParamsToJsonString}. */
+  coerceObjectArgsToJsonString?: boolean;
 }
 
 /** Wire-level reasoning_effort values. The OpenAI SDK type doesn't include
@@ -193,6 +252,43 @@ export function clampReasoningEffort(
     : value;
 }
 
+/**
+ * Translate the neutral (Anthropic-shaped) `tool_choice` carried on the call
+ * config into the OpenAI chat-completions wire format. Callers express
+ * `tool_choice` once in the Anthropic union — `{ type: "auto" | "any" | "none"
+ * | "tool", name? }` — and each provider maps it to its own dialect (the
+ * Anthropic client forwards the union verbatim). For OpenAI-compatible APIs:
+ *   - `{ type: "auto" }`        -> `"auto"`
+ *   - `{ type: "any" }`         -> `"required"`
+ *   - `{ type: "none" }`        -> `"none"`
+ *   - `{ type: "tool", name }`  -> `{ type: "function", function: { name } }`
+ * Returns `undefined` for an absent or unrecognized value so the request omits
+ * `tool_choice` and falls back to the API default.
+ *
+ * See OpenAI's tool_choice spec:
+ * https://platform.openai.com/docs/api-reference/chat/create#chat-create-tool_choice
+ */
+export function mapNeutralToolChoice(
+  toolChoice: unknown,
+): OpenAI.Chat.Completions.ChatCompletionToolChoiceOption | undefined {
+  if (toolChoice == null || typeof toolChoice !== "object") return undefined;
+  const tc = toolChoice as { type?: unknown; name?: unknown };
+  switch (tc.type) {
+    case "auto":
+      return "auto";
+    case "any":
+      return "required";
+    case "none":
+      return "none";
+    case "tool":
+      return typeof tc.name === "string"
+        ? { type: "function", function: { name: tc.name } }
+        : undefined;
+    default:
+      return undefined;
+  }
+}
+
 const OPENAI_SUPPORTED_IMAGE_TYPES = new Set([
   "image/jpeg",
   "image/png",
@@ -228,6 +324,8 @@ export class OpenAIChatCompletionsProvider implements Provider {
     | "reasoning"
     | "reasoning_content"
     | undefined;
+  private backfillEmptyAssistantContent: boolean;
+  private coerceObjectArgsToJsonString: boolean;
 
   constructor(
     apiKey: string,
@@ -251,6 +349,10 @@ export class OpenAIChatCompletionsProvider implements Provider {
     this.requestHeaders = options.requestHeaders ?? {};
     this.parseThinkTags = options.parseThinkTags ?? false;
     this.assistantReasoningField = options.assistantReasoningField;
+    this.backfillEmptyAssistantContent =
+      options.backfillEmptyAssistantContent ?? false;
+    this.coerceObjectArgsToJsonString =
+      options.coerceObjectArgsToJsonString ?? false;
   }
 
   async sendMessage(
@@ -262,9 +364,18 @@ export class OpenAIChatCompletionsProvider implements Provider {
     const maxTokens = configObj?.max_tokens as number | undefined;
     const modelOverride = configObj?.model as string | undefined;
     const effort = configObj?.effort as string | undefined;
+    const logitBias = configObj?.logit_bias as
+      | Record<string, number>
+      | undefined;
+    const topP = configObj?.top_p as number | undefined;
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
       | Record<string, string>
       | undefined;
+
+    // Per-tool keys whose object schemas were rewritten to JSON strings for the
+    // wire, to be decoded back on the response. Empty unless
+    // `coerceObjectArgsToJsonString` is enabled.
+    const coercedObjectKeys = new Map<string, string[]>();
 
     try {
       const openaiMessages = this.toOpenAIMessages(messages, systemPrompt);
@@ -280,6 +391,18 @@ export class OpenAIChatCompletionsProvider implements Provider {
 
       if (maxTokens) {
         params.max_completion_tokens = maxTokens;
+      }
+
+      // Profile-scoped token biasing (e.g. the `suppress-cjk` preset). Resolved
+      // and gated to this provider family upstream in `RetryProvider`.
+      if (logitBias) {
+        params.logit_bias = logitBias;
+      }
+
+      // `top_p` (nucleus sampling). Forwarded explicitly because this client
+      // builds `params` field-by-field rather than spreading the config object.
+      if (typeof topP === "number") {
+        params.top_p = topP;
       }
 
       // Subclasses (OpenRouter) may already have nested effort under
@@ -303,14 +426,33 @@ export class OpenAIChatCompletionsProvider implements Provider {
       }
 
       if (tools && tools.length > 0) {
-        params.tools = tools.map((t) => ({
-          type: "function" as const,
-          function: {
-            name: t.name,
-            description: t.description,
-            parameters: t.input_schema as OpenAI.FunctionParameters,
-          },
-        }));
+        params.tools = tools.map((t) => {
+          let parameters = t.input_schema as OpenAI.FunctionParameters;
+          if (this.coerceObjectArgsToJsonString) {
+            const coerced = coerceObjectParamsToJsonString(t.input_schema);
+            parameters = coerced.parameters as OpenAI.FunctionParameters;
+            if (coerced.objectKeys.length > 0) {
+              coercedObjectKeys.set(t.name, coerced.objectKeys);
+            }
+          }
+          return {
+            type: "function" as const,
+            function: {
+              name: t.name,
+              description: t.description,
+              parameters,
+            },
+          };
+        });
+
+        // Honor a caller-supplied tool_choice (e.g. `{ type: "none" }` to force
+        // a text-only answer, or `{ type: "tool", name }` for a forced call).
+        // Only meaningful when tools are present — OpenAI rejects a named or
+        // "required" choice with no tools.
+        const toolChoice = mapNeutralToolChoice(configObj?.tool_choice);
+        if (toolChoice !== undefined) {
+          params.tool_choice = toolChoice;
+        }
       }
 
       const { signal: timeoutSignal, cleanup: cleanupTimeout } =
@@ -532,7 +674,14 @@ export class OpenAIChatCompletionsProvider implements Provider {
         try {
           input = JSON.parse(tc.args);
         } catch {
-          input = { _raw: tc.args };
+          input = wrapUnparseableToolArgs(tc.args);
+        }
+        const objectKeys = coercedObjectKeys.get(tc.name);
+        if (objectKeys && !isUnparseableToolArgs(input)) {
+          const decoded = decodeCoercedObjectArgs(input, objectKeys);
+          input = decoded.failedKey
+            ? wrapUnparseableToolArgs(tc.args)
+            : decoded.input;
         }
         content.push({
           type: "tool_use",
@@ -594,7 +743,16 @@ export class OpenAIChatCompletionsProvider implements Provider {
             : {}),
         },
         stopReason: finishReason,
-        rawRequest: params,
+        // `rawRequest` is persisted to the request-log DB and inspector on every
+        // call. A `logit_bias` preset (e.g. `suppress-cjk`) is ~5.3k deterministic
+        // entries (~68KB); summarize it here so logs don't balloon. The full map
+        // still went out on the wire above.
+        rawRequest: params.logit_bias
+          ? {
+              ...params,
+              logit_bias: `<${Object.keys(params.logit_bias).length} token biases omitted>`,
+            }
+          : params,
         rawResponse,
       };
     } catch (error) {
@@ -617,6 +775,15 @@ export class OpenAIChatCompletionsProvider implements Provider {
             statusCode: error.status,
             cause: error,
           });
+        }
+        if (detectVisionNotSupported(error)) {
+          const model = modelOverride ?? this.model;
+          throw new ProviderError(
+            `This model (${model}) doesn't support image input. Remove the image or switch to a vision-capable model.`,
+            this.name,
+            error.status,
+            abortReason ? { abortReason } : undefined,
+          );
         }
         const retryAfterMs = extractRetryAfterMs(error.headers);
         const errorOptions: {
@@ -677,7 +844,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     if (systemPrompt) {
       result.push({
         role: "system",
-        content: systemPrompt,
+        content: systemPrompt.replaceAll(SYSTEM_PROMPT_CACHE_BOUNDARY, "\n\n"),
       });
     }
 
@@ -792,6 +959,19 @@ export class OpenAIChatCompletionsProvider implements Provider {
 
     if (toolCalls.length > 0) {
       result.tool_calls = toolCalls;
+    }
+
+    // An assistant message must carry `content` or `tool_calls`. A turn with
+    // neither (e.g. reasoning-only) would serialize to null/empty content with
+    // no tool calls, which strict OpenAI-compatible backends reject. Reasoning
+    // lives in a separate field and does not satisfy this constraint. Scoped to
+    // providers that need it (OpenRouter) via `backfillEmptyAssistantContent`.
+    if (
+      this.backfillEmptyAssistantContent &&
+      !result.tool_calls &&
+      (result.content === null || result.content === "")
+    ) {
+      result.content = EMPTY_ASSISTANT_TURN_PLACEHOLDER;
     }
 
     return result;

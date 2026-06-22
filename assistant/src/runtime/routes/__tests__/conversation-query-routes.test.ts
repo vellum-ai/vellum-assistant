@@ -57,7 +57,7 @@ mock.module("../../../memory/embedding-backend.js", () => ({
 }));
 
 import type { ConversationCreateType } from "../../../memory/conversation-crud.js";
-import { getDb } from "../../../memory/db-connection.js";
+import { getDb, getLogsDb } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
 import {
   backfillMemoryV2ActivationMessageId,
@@ -84,7 +84,7 @@ const sampleConcepts: MemoryV2ConceptRowRecord[] = sharedSampleConcepts.slice(
   1,
 );
 
-initializeDb();
+await initializeDb();
 
 const llmContextRoute = ROUTES.find(
   (r) => r.method === "GET" && r.endpoint === "messages/:id/llm-context",
@@ -108,7 +108,7 @@ function dispatchConversationLlmContext(queryParams: Record<string, string>) {
 
 function clearTables(): void {
   const db = getDb();
-  db.delete(llmRequestLogs).run();
+  getLogsDb()!.delete(llmRequestLogs).run();
   db.delete(memoryV2ActivationLogs).run();
   db.delete(messages).run();
   db.delete(conversationKeys).run();
@@ -156,7 +156,7 @@ function seedRequestLog(
   id: string,
   options: { agentLoopExitReason?: string | null } = {},
 ): void {
-  getDb()
+  getLogsDb()!
     .insert(llmRequestLogs)
     .values({
       id,
@@ -175,7 +175,30 @@ function seedRequestLog(
     .run();
 }
 
-function seedConversationKey(conversationKey: string, conversationId: string): void {
+function seedRequestLogWithSections(messageId: string, id: string): void {
+  getLogsDb()!
+    .insert(llmRequestLogs)
+    .values({
+      id,
+      conversationId: "conv-1",
+      messageId,
+      provider: "openai",
+      requestPayload: JSON.stringify({
+        model: "gpt-4.1",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+      responsePayload: JSON.stringify({
+        choices: [{ message: { content: "hi" } }],
+      }),
+      createdAt: 1_700_000_000_000,
+    })
+    .run();
+}
+
+function seedConversationKey(
+  conversationKey: string,
+  conversationId: string,
+): void {
   getDb()
     .insert(conversationKeys)
     .values({
@@ -220,7 +243,7 @@ describe("GET /v1/conversations/llm-context", () => {
     seedConversationKey("conv-key", "conv-1");
     seedRequestLog("msg-2", "log-b");
     seedRequestLog("msg-1", "log-a");
-    getDb()
+    getLogsDb()!
       .insert(llmRequestLogs)
       .values({
         id: "log-other",
@@ -268,6 +291,118 @@ describe("GET /v1/conversations/llm-context", () => {
     expect(body.conversationId).toBeNull();
     expect(body.conversationKey).toBe("missing-key");
     expect(body.logs).toEqual([]);
+  });
+});
+
+describe("llm-context view=summary", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  function seedConversationWithLog(): void {
+    seedConversationAndMessage({
+      conversationId: "conv-1",
+      messageId: "msg-1",
+      source: "user",
+      conversationType: "standard",
+    });
+    seedConversationKey("conv-key", "conv-1");
+    seedRequestLogWithSections("msg-1", "log-a");
+  }
+
+  test("conversation endpoint omits sections in summary view but keeps summary fields", async () => {
+    seedConversationWithLog();
+
+    const body = (await dispatchConversationLlmContext({
+      conversationKey: "conv-key",
+      view: "summary",
+    })) as {
+      logs: Array<Record<string, unknown>>;
+    };
+
+    expect(body.logs).toHaveLength(1);
+    const log = body.logs[0]!;
+    expect(log.requestSections).toBeUndefined();
+    expect(log.responseSections).toBeUndefined();
+    expect(log.id).toBe("log-a");
+    expect(log.summary).toBeDefined();
+  });
+
+  test("conversation endpoint includes sections by default", async () => {
+    seedConversationWithLog();
+
+    const body = (await dispatchConversationLlmContext({
+      conversationKey: "conv-key",
+    })) as {
+      logs: Array<Record<string, unknown>>;
+    };
+
+    expect(Array.isArray(body.logs[0]!.requestSections)).toBe(true);
+    expect(Array.isArray(body.logs[0]!.responseSections)).toBe(true);
+  });
+
+  test("message endpoint omits sections in summary view", async () => {
+    seedConversationWithLog();
+
+    const body = (await llmContextRoute.handler({
+      pathParams: { id: "msg-1" },
+      queryParams: { view: "summary" },
+    })) as {
+      logs: Array<Record<string, unknown>>;
+    };
+
+    expect(body.logs).toHaveLength(1);
+    expect(body.logs[0]!.requestSections).toBeUndefined();
+    expect(body.logs[0]!.responseSections).toBeUndefined();
+    expect(body.logs[0]!.summary).toBeDefined();
+  });
+
+  test("rejects unknown view values", async () => {
+    seedConversationWithLog();
+
+    expect(
+      dispatchConversationLlmContext({
+        conversationKey: "conv-key",
+        view: "compact",
+      }),
+    ).rejects.toThrow("Invalid view parameter");
+  });
+});
+
+describe("GET /v1/llm-request-logs/:id/context", () => {
+  const logContextRoute = ROUTES.find(
+    (r) => r.operationId === "llm_request_logs_context_get",
+  )!;
+
+  beforeEach(() => {
+    clearTables();
+  });
+
+  test("returns the normalized entry with sections for a single log", async () => {
+    seedConversationAndMessage({
+      conversationId: "conv-1",
+      messageId: "msg-1",
+      source: "user",
+      conversationType: "standard",
+    });
+    seedRequestLogWithSections("msg-1", "log-detail");
+
+    const body = (await logContextRoute.handler({
+      pathParams: { id: "log-detail" },
+    })) as Record<string, unknown>;
+
+    expect(body.id).toBe("log-detail");
+    expect(body.requestPayload).toBeNull();
+    expect(body.responsePayload).toBeNull();
+    expect(body.summary).toBeDefined();
+    expect(Array.isArray(body.requestSections)).toBe(true);
+    expect(Array.isArray(body.responseSections)).toBe(true);
+  });
+
+  test("throws NotFound for a missing log id", async () => {
+    expect(
+      logContextRoute.handler({ pathParams: { id: "log-missing" } }),
+    ).rejects.toThrow("log not found");
   });
 });
 
@@ -495,7 +630,7 @@ describe("GET /v1/messages/:id/llm-context — synthetic call_site projection", 
     // loop was about to send; response = the notice text the user saw),
     // `call_site = "syntheticAgentErrorMessage"`, exit reason stamped at
     // insert time.
-    getDb()
+    getLogsDb()!
       .insert(llmRequestLogs)
       .values({
         id: "log-yield",
@@ -546,7 +681,7 @@ describe("GET /v1/messages/:id/llm-context — synthetic call_site projection", 
       source: "user",
       conversationType: "standard",
     });
-    getDb()
+    getLogsDb()!
       .insert(llmRequestLogs)
       .values({
         id: "log-regular",
@@ -774,6 +909,33 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       type: "api_key",
       credential: "credential/openrouter/api_key",
     });
+  });
+
+  test("saves a profile using the minimax provider (regression #32404)", async () => {
+    // minimax is exposed as a first-class provider in the catalog, so saving
+    // a profile bound to it must pass ProfileEntry validation rather than 400.
+    const result = await replaceProfileRoute.handler({
+      pathParams: { name: "custom" },
+      body: {
+        provider: "minimax",
+        model: "MiniMax-M2.7",
+      },
+    });
+
+    expect(result).toEqual({ ok: true });
+    const savedProfile = (
+      savedRawConfig?.llm as {
+        profiles: Record<string, Record<string, unknown>>;
+      }
+    ).profiles.custom;
+
+    expect(savedProfile.provider).toBe("minimax");
+    expect(savedProfile.model).toBe("MiniMax-M2.7");
+    expect(savedProfile.provider_connection).toBe("minimax-personal");
+
+    const conn = getConnection(getDb(), "minimax-personal");
+    expect(conn).not.toBeNull();
+    expect(conn!.provider).toBe("minimax");
   });
 
   describe("managed profile guard", () => {

@@ -16,9 +16,9 @@
  * Moving the fully typed discriminated union into this package would
  * require relocating `assistant/src/daemon/message-types/` and its
  * cross-file type dependencies (`channels/types.ts`,
- * `skills/skillssh-registry.ts`, `runtime/guardian-decision-types.ts`,
- * `gallery/gallery-manifest.ts`). That is out of scope for PR 3 of the
- * skill-isolation plan and is tracked for later iteration.
+ * `skills/skillssh-registry.ts`, `runtime/guardian-decision-types.ts`).
+ * That is out of scope for PR 3 of the skill-isolation plan and is
+ * tracked for later iteration.
  */
 
 /**

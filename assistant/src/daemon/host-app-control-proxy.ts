@@ -12,11 +12,12 @@
  * translation on top.
  *
  * **Session lock.** Only one conversation may hold an active app-control
- * session at a time, and that session is bound to a specific target app.
+ * session at a time, and that session is bound to a specific target app
+ * on a specific client.
  * The lock is module-level (`activeAppControlSession`) because the session
  * targets the user's actual desktop application, which is a host-wide
  * resource. It is acquired optimistically when `app_control_start` is
- * dispatched (storing `(conversationId, app)`) so that the synchronous
+ * dispatched (storing `(conversationId, app, targetClientId)`) so that the synchronous
  * guard and the asynchronous host round-trip cannot race. A separate
  * `confirmedAppControlSession` tracks the last session the host reported
  * `running`; the rollback path on a failed `start` restores from the
@@ -32,7 +33,7 @@
  * user's medium-risk approval at start time is the consent boundary. All
  * other tools (observe / press / combo / sequence / type / click / drag)
  * require the calling conversation to own an active session targeting the
- * same `app`; otherwise the call is rejected before any host dispatch.
+ * same `app` and client; otherwise the call is rejected before any host dispatch.
  * This prevents prompt-injected tool calls from sending raw input to
  * arbitrary apps without the user having approved control of that
  * specific app.
@@ -47,6 +48,11 @@
 import { createHash } from "node:crypto";
 
 import type { ContentBlock } from "../providers/types.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import {
+  enforceSameActorOrErrorResult,
+  pickSameUserAutoResolve,
+} from "../runtime/auth/same-actor.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { HostProxyBase, HostProxyRequestError } from "./host-proxy-base.js";
@@ -73,9 +79,9 @@ const STUCK_REPEAT_THRESHOLD = 4;
 // ---------------------------------------------------------------------------
 
 /**
- * Active app-control session: the conversation that owns the lock and the
- * `app` it was approved against. Set on a successful `app_control_start`;
- * cleared by the owning proxy's `dispose()`.
+ * Active app-control session: the conversation that owns the lock, the
+ * `app` and client it was approved against. Set on a successful
+ * `app_control_start`; cleared by the owning proxy's `dispose()`.
  */
 export interface ActiveAppControlSession {
   conversationId: string;
@@ -85,6 +91,11 @@ export interface ActiveAppControlSession {
    * the `app` of subsequent non-start tool calls.
    */
   app: string;
+  /**
+   * The client selected for `app_control_start`. Undefined when the start
+   * was untargeted; subsequent calls must match the same value.
+   */
+  targetClientId?: string;
   /**
    * Strictly monotonic counter assigned when the session is created (in
    * `request()` for a `start`). Used by {@link promoteStartIfCurrent} to
@@ -148,11 +159,13 @@ export function _resetActiveAppControlSession(): void {
 export function _setActiveAppControlSession(session: {
   conversationId: string;
   app: string;
+  targetClientId?: string;
   dispatchedAt?: number;
 }): void {
   const full: ActiveAppControlSession = {
     conversationId: session.conversationId,
     app: session.app,
+    targetClientId: session.targetClientId,
     dispatchedAt: session.dispatchedAt ?? nextDispatchedAt++,
   };
   activeAppControlSession = full;
@@ -172,6 +185,7 @@ export function _setActiveAppControlSession(session: {
 function checkNonStartAuthorization(
   input: HostAppControlInput,
   conversationId: string,
+  targetClientId: string | undefined,
 ): ToolExecutionResult | null {
   if (activeAppControlSession == null) {
     return {
@@ -211,6 +225,16 @@ function checkNonStartAuthorization(
         `Active app-control session targets ${activeAppControlSession.app}; ` +
         `cannot send actions to ${requestedApp}. Call app_control_stop and ` +
         `app_control_start to switch apps.`,
+      isError: true,
+    };
+  }
+  if (activeAppControlSession.targetClientId !== targetClientId) {
+    return {
+      content:
+        `Active app-control session targets client ` +
+        `${activeAppControlSession.targetClientId ?? "<default>"}; cannot ` +
+        `send actions to client ${targetClientId ?? "<default>"}. Call ` +
+        `app_control_stop and app_control_start to switch clients.`,
       isError: true,
     };
   }
@@ -279,11 +303,53 @@ export class HostAppControlProxy extends HostProxyBase<
       return { content: "Aborted", isError: true };
     }
 
+    // Resolve target client and enforce same-actor BEFORE acquiring the
+    // session lock. This way early-exit errors don't need rollback, and
+    // the resolved client id can be stored in the session.
+    let resolvedTargetClientId = targetClientId;
+    if (resolvedTargetClientId == null) {
+      const resolved = pickSameUserAutoResolve({
+        hub: assistantEventHub,
+        capability: "host_app_control",
+        sourceActorPrincipalId,
+      });
+      if (resolved.kind === "ambiguous") {
+        return {
+          content:
+            "Multiple host_app_control clients are connected for this user. Specify target_client_id to disambiguate.",
+          isError: true,
+        };
+      }
+      if (resolved.kind === "match") {
+        resolvedTargetClientId = resolved.clientId;
+      } else if (
+        assistantEventHub.listClientsByCapability("host_app_control").length > 0
+      ) {
+        return {
+          content:
+            "App control is not available for the current actor. Connect a host_app_control-capable client as the same user.",
+          isError: true,
+        };
+      }
+    }
+
+    if (resolvedTargetClientId != null) {
+      const rejection = enforceSameActorOrErrorResult({
+        hub: assistantEventHub,
+        sourceActorPrincipalId,
+        targetClientId: resolvedTargetClientId,
+        op: "host_app_control",
+      });
+      if (rejection) {
+        return rejection;
+      }
+    }
+
     // Authorization gate. `start` acquires the session lock (the user's
     // medium-risk approval is the consent boundary); all other tools must
-    // belong to the active session and target the same `app`. Without this
-    // gate, prompt-injected calls would bypass the start-time approval and
-    // send raw input to arbitrary apps.
+    // belong to the active session and target the same `app` and client.
+    // Without this gate, prompt-injected calls would bypass the start-time
+    // approval and send raw input to arbitrary apps or clients.
     let attemptedSession: ActiveAppControlSession | undefined;
     if (input.tool === "start") {
       if (
@@ -309,6 +375,7 @@ export class HostAppControlProxy extends HostProxyBase<
       attemptedSession = {
         conversationId: this.conversationId,
         app: input.app,
+        targetClientId: resolvedTargetClientId,
         dispatchedAt: nextDispatchedAt++,
       };
       activeAppControlSession = attemptedSession;
@@ -316,6 +383,7 @@ export class HostAppControlProxy extends HostProxyBase<
       const sessionError = checkNonStartAuthorization(
         input,
         this.conversationId,
+        resolvedTargetClientId,
       );
       if (sessionError != null) {
         return sessionError;
@@ -329,7 +397,7 @@ export class HostAppControlProxy extends HostProxyBase<
         conversationId,
         signal,
         undefined,
-        targetClientId,
+        resolvedTargetClientId,
       );
       if (input.tool === "start") {
         if (payload.state === "running") {

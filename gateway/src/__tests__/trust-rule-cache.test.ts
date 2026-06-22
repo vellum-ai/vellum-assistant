@@ -131,6 +131,102 @@ describe("findBaseRisk()", () => {
     expect(result!.risk).toBe("high");
   });
 
+  test("action: rule matches the bare resolved action key", () => {
+    // The rule editor persists generalized bash patterns with an `action:`
+    // prefix; the classifier resolves the command to the bare action key.
+    store.create({
+      tool: "cache_action_t1",
+      pattern: "action:cache-action-prog avatar set",
+      risk: "medium",
+      description: "assistant avatar set",
+    });
+
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
+
+    // Classifier resolves `... avatar set --image "..."` to this bare key.
+    const result = cache.findBaseRisk(
+      "cache_action_t1",
+      "cache-action-prog avatar set",
+    );
+    expect(result).not.toBeNull();
+    expect(result!.pattern).toBe("action:cache-action-prog avatar set");
+    expect(result!.risk).toBe("medium");
+  });
+
+  test("action: rule matches via subcommand fallback", () => {
+    store.create({
+      tool: "cache_action_t2",
+      pattern: "action:cache-action-sub",
+      risk: "high",
+      description: "Any cache-action-sub command",
+    });
+
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
+
+    // Deeper resolved key falls back to the broader `action:` rule.
+    const result = cache.findBaseRisk(
+      "cache_action_t2",
+      "cache-action-sub avatar set",
+    );
+    expect(result).not.toBeNull();
+    expect(result!.pattern).toBe("action:cache-action-sub");
+    expect(result!.risk).toBe("high");
+  });
+
+  test("literal rule takes precedence over action: rule at the same level", () => {
+    store.create({
+      tool: "cache_action_t3",
+      pattern: "cache-action-lit deploy",
+      risk: "low",
+      description: "Literal",
+    });
+    store.create({
+      tool: "cache_action_t3",
+      pattern: "action:cache-action-lit deploy",
+      risk: "high",
+      description: "Action",
+    });
+
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
+
+    const result = cache.findBaseRisk(
+      "cache_action_t3",
+      "cache-action-lit deploy",
+    );
+    expect(result).not.toBeNull();
+    expect(result!.pattern).toBe("cache-action-lit deploy");
+    expect(result!.risk).toBe("low");
+  });
+
+  test("longer action: prefix wins over shorter action: prefix", () => {
+    store.create({
+      tool: "cache_action_t4",
+      pattern: "action:cache-action-depth",
+      risk: "low",
+      description: "Broad",
+    });
+    store.create({
+      tool: "cache_action_t4",
+      pattern: "action:cache-action-depth avatar set",
+      risk: "medium",
+      description: "Specific",
+    });
+
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
+
+    const result = cache.findBaseRisk(
+      "cache_action_t4",
+      "cache-action-depth avatar set",
+    );
+    expect(result).not.toBeNull();
+    expect(result!.pattern).toBe("action:cache-action-depth avatar set");
+    expect(result!.risk).toBe("medium");
+  });
+
   test("returns null when no match found", () => {
     store.create({
       tool: "cache_t6",
@@ -165,6 +261,87 @@ describe("findBaseRisk()", () => {
       "tool-not-found-echo",
     );
     expect(result).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findBaseRisk() — user-rule vs seeded-default precedence
+// ---------------------------------------------------------------------------
+
+describe("findBaseRisk() precedence", () => {
+  test("user action: rule wins over a seeded literal at the same key", () => {
+    // Without same-key precedence the seeded literal `cmd sub` is found first
+    // and the user's `action:cmd sub` is silently ignored.
+    store.upsertDefault({
+      id: "default:cache_prec_t1:cmd-sub",
+      tool: "cache_prec_t1",
+      pattern: "cmd sub",
+      risk: "high",
+      description: "Seeded literal default",
+    });
+    store.create({
+      tool: "cache_prec_t1",
+      pattern: "action:cmd sub",
+      risk: "low",
+      description: "User-saved action rule",
+    });
+
+    initTrustRuleCache(store);
+
+    const result = getTrustRuleCache().findBaseRisk(
+      "cache_prec_t1",
+      "cmd sub extra",
+    );
+    expect(result).not.toBeNull();
+    expect(result!.pattern).toBe("action:cmd sub");
+    expect(result!.risk).toBe("low");
+  });
+
+  test("more specific seeded default is preserved over a broader user rule", () => {
+    // A broad `action:cmd` must NOT silently override a more specific seeded
+    // escalation (`cmd sub` = high). Specificity wins for seeded defaults.
+    store.upsertDefault({
+      id: "default:cache_prec_t2:cmd-sub",
+      tool: "cache_prec_t2",
+      pattern: "cmd sub",
+      risk: "high",
+      description: "Seeded specific default",
+    });
+    store.create({
+      tool: "cache_prec_t2",
+      pattern: "action:cmd",
+      risk: "low",
+      description: "Broad user rule",
+    });
+
+    initTrustRuleCache(store);
+
+    const result = getTrustRuleCache().findBaseRisk(
+      "cache_prec_t2",
+      "cmd sub extra",
+    );
+    expect(result).not.toBeNull();
+    expect(result!.pattern).toBe("cmd sub");
+    expect(result!.risk).toBe("high");
+  });
+
+  test("broader user rule applies to a subcommand without its own default", () => {
+    store.create({
+      tool: "cache_prec_t3",
+      pattern: "action:cmd",
+      risk: "low",
+      description: "Broad user rule",
+    });
+
+    initTrustRuleCache(store);
+
+    const result = getTrustRuleCache().findBaseRisk(
+      "cache_prec_t3",
+      "cmd other extra",
+    );
+    expect(result).not.toBeNull();
+    expect(result!.pattern).toBe("action:cmd");
+    expect(result!.risk).toBe("low");
   });
 });
 

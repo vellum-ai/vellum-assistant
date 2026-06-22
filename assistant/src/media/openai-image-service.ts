@@ -6,6 +6,7 @@ import {
   type ImageGenCredentials,
   type ImageGenerationRequest,
   type ImageGenerationResult,
+  isImageProviderBillingError,
   MAX_VARIANTS,
 } from "./types.js";
 
@@ -16,6 +17,10 @@ const ALLOWED_MODELS = new Set(["gpt-image-2"]);
 
 // --- Error mapping ---
 
+const OPENAI_BILLING_MESSAGE =
+  "Image generation is unavailable because the OpenAI account or API key is out of credits. " +
+  "Add funds with the provider or update the key in Settings — retrying won't help until credits are added.";
+
 /**
  * Map an error raised by the OpenAI Images API to a user-friendly string.
  * Mirrors the status-code branches of `mapGeminiError` in
@@ -24,6 +29,12 @@ const ALLOWED_MODELS = new Set(["gpt-image-2"]);
 export function mapOpenAIError(error: unknown): string {
   if (error instanceof OpenAI.APIError) {
     const status = error.status;
+    // Billing failures are non-retryable and can surface as a 402 or as a 429
+    // with an `insufficient_quota` body, so check them before the rate-limit
+    // branch to avoid telling the user to "wait and try again".
+    if (isImageProviderBillingError({ status, message: error.message })) {
+      return OPENAI_BILLING_MESSAGE;
+    }
     if (status === 400) {
       return "The image request was invalid. Please check your prompt and try again.";
     }
@@ -39,6 +50,9 @@ export function mapOpenAIError(error: unknown): string {
     return `OpenAI API error (status ${status}). Please try again.`;
   }
   if (error instanceof Error) {
+    if (isImageProviderBillingError({ message: error.message })) {
+      return OPENAI_BILLING_MESSAGE;
+    }
     return `Image generation failed: ${error.message}`;
   }
   return "An unexpected error occurred during image generation.";

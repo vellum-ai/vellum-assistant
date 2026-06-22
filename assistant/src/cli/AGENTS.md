@@ -14,6 +14,10 @@ For commands that manage the **lifecycle of assistant instances** (create, start
 
 Examples: `config`, `contacts`, `memory`, `autonomy`, `conversations` belong here. `hatch`, `wake`, `sleep`, `retire`, `ps`, `ssh` belong in `cli/`.
 
+## Full CRUD for Resource Namespaces
+
+Every namespace that manages a resource (schedules, contacts, tasks, …) must expose the full CRUD surface — create, get/list, update, delete — each wired to a daemon route. Intentional exceptions (e.g. create restricted to one mode) must be documented inline in the namespace help text so agents know the gap is deliberate. Partial surfaces are not a smaller scope, they are a hazard: when a CRUD verb is missing, the model bypasses the CLI and hand-writes SQLite rows instead.
+
 ## Conventions
 
 - Commands use [Commander.js](https://github.com/tj/commander.js) and follow the `registerXCommand(program: Command)` pattern.

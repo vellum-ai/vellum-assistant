@@ -1,0 +1,6 @@
+# SHA-256 checksums for bun release zips (bun v1.3.11).
+# When bumping the bun version in .tool-versions, update these checksums
+# from the SHASUMS256.txt in the corresponding GitHub release:
+# https://github.com/oven-sh/bun/releases/tag/bun-v<VERSION>
+6f5a3467ed9caec4795bf78cd476507d9f870c7d57b86c945fcb338126772ffc  bun-darwin-aarch64.zip
+c4fe2b9247218b0295f24e895aaec8fee62e74452679a9026b67eacbd611a286  bun-darwin-x64.zip

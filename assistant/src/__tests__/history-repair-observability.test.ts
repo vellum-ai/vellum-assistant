@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { repairHistory } from "../daemon/history-repair.js";
+import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import type { Message } from "../providers/types.js";
 
 describe("history-repair observability", () => {

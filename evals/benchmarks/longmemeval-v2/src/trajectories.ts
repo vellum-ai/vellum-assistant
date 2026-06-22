@@ -25,7 +25,10 @@
  *     longmemeval/trajectories/<trajectory_id>.json
  *
  * One JSON file per trajectory; agents see the directory plus the
- * `manifest.json` index listing the ordered ids and the question text.
+ * `manifest.json` index listing the ordered ids. The question text and
+ * its ability type are deliberately withheld from the manifest so the
+ * ingest turn stays question-blind — the agent must remember broadly
+ * from the haystack rather than retrieving against a known target.
  * The ingest message points at the directory rather than embedding
  * trajectory content — the on-disk format preserves V2's structured
  * `states[]` records (which carry action+observation pairs from web /
@@ -120,8 +123,6 @@ export async function materializeWorkspaceFiles(
 
   const manifest = {
     questionId: item.questionId,
-    ability: item.ability,
-    question: item.question,
     trajectoryDir,
     trajectoryIds: item.trajectoryIds,
     count: item.trajectoryIds.length,

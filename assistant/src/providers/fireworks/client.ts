@@ -35,6 +35,9 @@ export class FireworksProvider extends OpenAIChatCompletionsProvider {
       // {@link resolveMaxReasoningEffort}.
       maxReasoningEffort: "high",
       assistantReasoningField: "reasoning_content",
+      // minimax-m3's function-call serialization collapses object-typed tool
+      // args to `{}` on the wire; present them as JSON strings and decode back.
+      coerceObjectArgsToJsonString: /minimax/i.test(model),
     });
   }
 

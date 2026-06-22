@@ -5,6 +5,8 @@
  * the subdomain to local config so getAssistantDomain() can use it.
  */
 
+import { z } from "zod";
+
 import { getApexDomain } from "../../config/env.js";
 import {
   loadRawConfig,
@@ -19,18 +21,36 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("domain-routes");
 
-// ── Helpers ───────────────────────────────────────────────────────────
+// ── Schemas ───────────────────────────────────────────────────────────
 
-interface DomainListResponse {
-  next?: string | null;
-  results: {
-    id: string;
-    subdomain?: string;
-    domain?: string;
-    created_at?: string;
-    created?: string;
-  }[];
-}
+const DomainEntrySchema = z.object({
+  id: z.string(),
+  subdomain: z.string().optional(),
+  domain: z.string().optional(),
+  created_at: z.string().optional(),
+  created: z.string().optional(),
+});
+
+const DomainListResponseSchema = z.object({
+  count: z.number(),
+  next: z.string().nullable().optional(),
+  previous: z.string().nullable().optional(),
+  results: z.array(DomainEntrySchema),
+});
+type DomainListResponse = z.infer<typeof DomainListResponseSchema>;
+
+const DomainRegisterResponseSchema = DomainEntrySchema.extend({
+  email_error: z.object({ detail: z.string(), code: z.string() }).optional(),
+});
+type DomainRegisterResponse = z.infer<typeof DomainRegisterResponseSchema>;
+
+const DomainVerificationStatusResponseSchema = z.object({
+  domain: z.string(),
+  status: z.string(),
+  message: z.string(),
+});
+
+// ── Helpers ───────────────────────────────────────────────────────────
 
 async function requireClient(): Promise<VellumPlatformClient> {
   const client = await VellumPlatformClient.create();
@@ -113,20 +133,11 @@ async function handleDomainRegister({ body = {} }: RouteHandlerArgs) {
     throw new BadRequestError(String(detail));
   }
 
-  const data = (await response.json()) as {
-    id: string;
-    subdomain?: string;
-    domain?: string;
-    created_at?: string;
-    created?: string;
-    email_error?: { detail: string; code: string };
-  };
+  const data = (await response.json()) as DomainRegisterResponse;
 
   // Persist the subdomain to config so getAssistantDomain() can use it
   const registeredSubdomain =
-    data.subdomain ??
-    data.domain?.replace(`.${apexDomain}`, "") ??
-    subdomain;
+    data.subdomain ?? data.domain?.replace(`.${apexDomain}`, "") ?? subdomain;
   if (registeredSubdomain) {
     const raw = loadRawConfig();
     setNestedValue(raw, "platform.subdomain", registeredSubdomain);
@@ -146,12 +157,11 @@ async function handleDomainStatus(_args: RouteHandlerArgs) {
   // Sync subdomain to config if not already cached
   if (domains.length > 0) {
     const first = domains[0];
-    const sub =
-      first.subdomain ?? first.domain?.replace(`.${apexDomain}`, "");
+    const sub = first.subdomain ?? first.domain?.replace(`.${apexDomain}`, "");
     if (sub) {
       const raw = loadRawConfig();
-      const existing = (raw as Record<string, Record<string, unknown>>)
-        .platform?.subdomain;
+      const existing = (raw as Record<string, Record<string, unknown>>).platform
+        ?.subdomain;
       if (existing !== sub) {
         setNestedValue(raw, "platform.subdomain", sub);
         saveRawConfig(raw);
@@ -162,9 +172,7 @@ async function handleDomainStatus(_args: RouteHandlerArgs) {
   return data;
 }
 
-async function handleDomainVerificationStatus({
-  body = {},
-}: RouteHandlerArgs) {
+async function handleDomainVerificationStatus({ body = {} }: RouteHandlerArgs) {
   const { domain_id } = body as { domain_id?: string };
   if (!domain_id) {
     throw new BadRequestError("domain_id is required");
@@ -179,9 +187,7 @@ async function handleDomainVerificationStatus({
     );
   }
   if (!results?.some((d) => d.id === domain_id)) {
-    throw new BadRequestError(
-      "domain_id is not registered for this assistant",
-    );
+    throw new BadRequestError("domain_id is not registered for this assistant");
   }
 
   const response = await client.fetch(
@@ -201,11 +207,9 @@ async function handleDomainVerificationStatus({
     );
   }
 
-  return (await response.json()) as {
-    domain: string;
-    status: string;
-    message: string;
-  };
+  return (await response.json()) as z.infer<
+    typeof DomainVerificationStatusResponseSchema
+  >;
 }
 
 // ── Route definitions ─────────────────────────────────────────────────
@@ -222,6 +226,11 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleDomainRegister,
     summary: "Register a subdomain for this assistant",
     tags: ["domain"],
+    requestBody: z.object({
+      subdomain: z.string().optional(),
+      email_username: z.string().optional(),
+    }),
+    responseBody: DomainRegisterResponseSchema,
   },
   {
     operationId: "domain_status",
@@ -234,6 +243,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleDomainStatus,
     summary: "Show domain registration and health",
     tags: ["domain"],
+    responseBody: DomainListResponseSchema,
   },
   {
     operationId: "domain_verification_status",
@@ -246,5 +256,9 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleDomainVerificationStatus,
     summary: "Get live DNS verification status for a domain",
     tags: ["domain"],
+    requestBody: z.object({
+      domain_id: z.string(),
+    }),
+    responseBody: DomainVerificationStatusResponseSchema,
   },
 ];

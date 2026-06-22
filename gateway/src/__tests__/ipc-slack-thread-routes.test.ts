@@ -142,6 +142,12 @@ describe("IPC Slack thread routes", () => {
       threadTs: THREAD_TS,
     });
     expect(activeThreadRows()).toEqual([]);
+    // The row survives as an explicit-detach marker so the bot's own
+    // follow-up posts (e.g. a mute confirmation echo) cannot re-arm the
+    // thread, while no longer counting as actively tracked.
+    const store = new SlackStore(getGatewayDb());
+    expect(store.hasThread(THREAD_TS)).toBe(false);
+    expect(store.isThreadDetached(THREAD_TS)).toBe(true);
   });
 
   test("detach_slack_active_thread is idempotent for an unknown thread", async () => {
@@ -162,9 +168,14 @@ describe("IPC Slack thread routes", () => {
     expect(activeThreadRows()).toEqual([
       { threadTs: THREAD_TS, channelId: CHANNEL_ID },
     ]);
+    // Even a never-tracked thread gets a marker, so a confirmation the
+    // bot posts after an "already muted" acknowledgement cannot arm it.
+    expect(
+      new SlackStore(getGatewayDb()).isThreadDetached(OTHER_THREAD_TS),
+    ).toBe(true);
   });
 
-  test("detach_slack_active_thread removes a legacy active thread without channel", async () => {
+  test("detach_slack_active_thread detaches a legacy active thread without channel", async () => {
     trackLegacyThreadWithoutChannel();
 
     await startServerAndConnect();
@@ -179,7 +190,15 @@ describe("IPC Slack thread routes", () => {
       channelId: CHANNEL_ID,
       threadTs: THREAD_TS,
     });
-    expect(rawActiveThreadRows()).toEqual([]);
+    // The legacy row is converted into an explicit-detach marker (now
+    // carrying the caller's channel) instead of being deleted.
+    expect(activeThreadRows()).toEqual([]);
+    expect(rawActiveThreadRows()).toEqual([
+      { threadTs: THREAD_TS, channelId: CHANNEL_ID },
+    ]);
+    const store = new SlackStore(getGatewayDb());
+    expect(store.hasThread(THREAD_TS)).toBe(false);
+    expect(store.isThreadDetached(THREAD_TS)).toBe(true);
   });
 
   test("detach_slack_active_thread does not remove channel mismatches", async () => {

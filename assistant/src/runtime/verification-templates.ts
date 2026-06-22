@@ -1,5 +1,5 @@
 /**
- * Template-only copy for outbound guardian verification messages (Telegram, Slack, and voice).
+ * Template-only copy for outbound guardian verification messages (Telegram, Slack, email, and voice).
  *
  * All outbound verification messages are composed from these templates
  * to prevent free-form caller/user text injection. Only typed variables
@@ -26,6 +26,10 @@ export const GUARDIAN_VERIFY_TEMPLATE_KEYS = {
     "guardian_verify.slack.trusted_contact_challenge",
   /** Resend Slack DM verification for inbound trusted contact (includes the code). */
   SLACK_TRUSTED_CONTACT_RESEND: "guardian_verify.slack.trusted_contact_resend",
+  /** Initial outbound email verification prompt (includes the code). */
+  EMAIL_CHALLENGE_REQUEST: "guardian_verify.email.challenge_request",
+  /** Resend email verification prompt (includes the code). */
+  EMAIL_RESEND: "guardian_verify.email.resend",
   /** Outbound voice call intro prompt: asks guardian to enter verification code via keypad. */
   VOICE_CALL_INTRO: "guardian_verify.voice.call_intro",
   /** Voice retry prompt after an incorrect code entry. */
@@ -42,7 +46,7 @@ export const GUARDIAN_VERIFY_TEMPLATE_KEYS = {
   CHANNEL_BOOTSTRAP_BOUND: "guardian_verify.channel.bootstrap_bound",
 } as const;
 
-/** Template keys for Telegram/Slack text-based verification messages. */
+/** Template keys for Telegram/Slack/email text-based verification messages. */
 type TextVerifyTemplateKey =
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.ALREADY_VERIFIED
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST
@@ -50,7 +54,9 @@ type TextVerifyTemplateKey =
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_CHALLENGE_REQUEST
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_RESEND
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_TRUSTED_CONTACT_CHALLENGE
-  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_TRUSTED_CONTACT_RESEND;
+  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_TRUSTED_CONTACT_RESEND
+  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.EMAIL_CHALLENGE_REQUEST
+  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.EMAIL_RESEND;
 
 /** Template keys for deterministic channel verification reply messages. */
 type ChannelVerifyReplyTemplateKey =
@@ -115,6 +121,14 @@ const templates: Record<
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_TRUSTED_CONTACT_RESEND]: (vars) => {
     return `Vellum assistant verification: your code is ${vars.code}. Reply with this code to verify your identity. It expires in ${vars.expiresInMinutes} minutes. (resent)`;
   },
+
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.EMAIL_CHALLENGE_REQUEST]: (vars) => {
+    return `Vellum assistant guardian verification requested.\n\nYour verification code is: ${vars.code}\n\nReply to this email with only the 6-digit code above to complete verification. This code expires in ${vars.expiresInMinutes} minutes.`;
+  },
+
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.EMAIL_RESEND]: (vars) => {
+    return `Vellum assistant guardian verification requested.\n\nYour new verification code is: ${vars.code}\n\nReply to this email with only the 6-digit code above to complete verification. This code expires in ${vars.expiresInMinutes} minutes. (resent)`;
+  },
 };
 
 /**
@@ -122,6 +136,18 @@ const templates: Record<
  * Returns plain string content suitable for Slack delivery.
  */
 export function composeVerificationSlack(
+  templateKey: TextVerifyTemplateKey,
+  vars: GuardianVerifyTemplateVars,
+): string {
+  const composer = templates[templateKey];
+  return composer(vars);
+}
+
+/**
+ * Compose an outbound verification email from a template key and typed variables.
+ * Returns plain string content suitable for email delivery.
+ */
+export function composeVerificationEmail(
   templateKey: TextVerifyTemplateKey,
   vars: GuardianVerifyTemplateVars,
 ): string {

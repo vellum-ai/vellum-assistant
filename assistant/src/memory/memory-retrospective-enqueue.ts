@@ -6,6 +6,8 @@
 //   - Source conversation isn't a memory-retrospective conversation itself
 //     (recursion guard — we never run a retrospective over reflective
 //     musings from the retrospective agent's own writes).
+//   - Source isn't a `scheduled` thread or a memory-consolidation background
+//     (low yield — see `isLowYieldRetrospectiveSource`).
 //
 // All four trigger types funnel through `upsertMemoryRetrospectiveJob` which
 // coalesces rapid enqueues into a single pending row per conversation.
@@ -13,17 +15,13 @@
 // after the corresponding signal settles; `interval` and `message_count`
 // fire immediately.
 
-import {
-  isUntrustedTrustClass,
-  type TrustClass,
-} from "../runtime/actor-trust-resolver.js";
+import { type TrustClass } from "../runtime/actor-trust-resolver.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
 import { getLogger } from "../util/logger.js";
-import { getConversationSource } from "./conversation-crud.js";
-import {
-  isMemoryEnabled,
-  upsertMemoryRetrospectiveJob,
-} from "./jobs-store.js";
-import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
+import { getConversation, getConversationSource } from "./conversation-crud.js";
+import { isMemoryEnabled, upsertMemoryRetrospectiveJob } from "./jobs-store.js";
+import { isMemoryRetrospectiveSource } from "./memory-retrospective-constants.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./v2/constants.js";
 
 const log = getLogger("memory-retrospective-enqueue");
 
@@ -53,6 +51,14 @@ export function enqueueMemoryRetrospectiveIfEnabled(args: {
     return;
   }
 
+  if (isLowYieldRetrospectiveSource(conversationId)) {
+    log.debug(
+      { conversationId, trigger },
+      "Skipping memory-retrospective enqueue: scheduled or consolidation source",
+    );
+    return;
+  }
+
   const runAfter =
     trigger === "compaction" ? Date.now() + COMPACTION_DEBOUNCE_MS : Date.now();
 
@@ -75,7 +81,23 @@ export function isMemoryRetrospectiveConversation(
   conversationId: string,
 ): boolean {
   const source = getConversationSource(conversationId);
-  return source !== null && MEMORY_RETROSPECTIVE_SOURCES.includes(source);
+  return source !== null && isMemoryRetrospectiveSource(source);
+}
+
+/**
+ * Scheduled task threads (location/health pulses) rarely carry anything worth
+ * remembering, and memory-consolidation conversations already persist their
+ * output to the corpus — a retrospective over either burns an inference pass
+ * for no unique gain (and, for consolidation, re-stores already-captured
+ * content). Heartbeat (`background`) and standard conversations are unaffected.
+ */
+function isLowYieldRetrospectiveSource(conversationId: string): boolean {
+  const conversation = getConversation(conversationId);
+  if (!conversation) return false;
+  return (
+    conversation.conversationType === "scheduled" ||
+    conversation.source === MEMORY_V2_CONSOLIDATION_SOURCE
+  );
 }
 
 /**
@@ -89,7 +111,7 @@ export function enqueueMemoryRetrospectiveOnCompaction(
   conversationId: string,
   trustClass: TrustClass | undefined,
 ): void {
-  if (isUntrustedTrustClass(trustClass)) {
+  if (!resolveCapabilities(trustClass).canAccessMemory) {
     return;
   }
   try {

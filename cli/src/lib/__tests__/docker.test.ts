@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, test, expect } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import {
   ASSISTANT_INTERNAL_PORT,
   AVATAR_DEVICE_ENV_VAR,
+  collectWatchTargets,
   dockerResourceNames,
   resolveAvatarDevicePath,
   resolveDockerHatchMode,
@@ -275,5 +279,100 @@ describe("resolveDockerHatchMode", () => {
         fullSourceTreeAvailable: false,
       }),
     ).toEqual({ build: false, watcher: false, fellBackToPull: true });
+  });
+});
+
+describe("collectWatchTargets", () => {
+  let repoRoot: string;
+
+  beforeEach(() => {
+    repoRoot = mkdtempSync(join(tmpdir(), "vellum-watch-"));
+  });
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  function scaffold(
+    relDir: string,
+    { src = true, pkg = true, dockerfile = false } = {},
+  ): void {
+    mkdirSync(join(repoRoot, relDir), { recursive: true });
+    if (src) mkdirSync(join(repoRoot, relDir, "src"), { recursive: true });
+    if (pkg) writeFileSync(join(repoRoot, relDir, "package.json"), "{}");
+    if (dockerfile) writeFileSync(join(repoRoot, relDir, "Dockerfile"), "");
+  }
+
+  test("scopes watch targets to src/, package.json, and the Dockerfile", () => {
+    // GIVEN the three services (each with a Dockerfile) plus a couple of
+    // shared packages (libraries, no Dockerfile)
+    scaffold("assistant", { dockerfile: true });
+    scaffold("credential-executor", { dockerfile: true });
+    scaffold("gateway", { dockerfile: true });
+    scaffold("packages/service-contracts");
+    scaffold("packages/local-mode");
+
+    // WHEN we collect the watch targets
+    const { dirs, files } = collectWatchTargets(repoRoot);
+
+    // THEN only the src/ directories are watched recursively
+    expect(dirs.sort()).toEqual(
+      [
+        join(repoRoot, "assistant", "src"),
+        join(repoRoot, "credential-executor", "src"),
+        join(repoRoot, "gateway", "src"),
+        join(repoRoot, "packages", "local-mode", "src"),
+        join(repoRoot, "packages", "service-contracts", "src"),
+      ].sort(),
+    );
+
+    // AND the package.json manifests and service Dockerfiles are watched as
+    // individual files (packages have no Dockerfile, so none is emitted)
+    expect(files.sort()).toEqual(
+      [
+        join(repoRoot, "assistant", "package.json"),
+        join(repoRoot, "assistant", "Dockerfile"),
+        join(repoRoot, "credential-executor", "package.json"),
+        join(repoRoot, "credential-executor", "Dockerfile"),
+        join(repoRoot, "gateway", "package.json"),
+        join(repoRoot, "gateway", "Dockerfile"),
+        join(repoRoot, "packages", "local-mode", "package.json"),
+        join(repoRoot, "packages", "service-contracts", "package.json"),
+      ].sort(),
+    );
+  });
+
+  test("never watches .claude/ command symlinks that crash the watcher", () => {
+    // GIVEN an assistant service whose .claude/commands holds a dangling
+    // symlink (as it does in a fresh checkout)
+    scaffold("assistant");
+    mkdirSync(join(repoRoot, "assistant", ".claude", "commands"), {
+      recursive: true,
+    });
+    symlinkSync(
+      join(repoRoot, "does-not-exist", "do.md"),
+      join(repoRoot, "assistant", ".claude", "commands", "do.md"),
+    );
+
+    // WHEN we collect the watch targets
+    const { dirs, files } = collectWatchTargets(repoRoot);
+
+    // THEN no watched path reaches into the .claude/ tree
+    const all = [...dirs, ...files];
+    expect(all.some((p) => p.includes(".claude"))).toBe(false);
+    expect(dirs).toContain(join(repoRoot, "assistant", "src"));
+  });
+
+  test("skips roots missing a src/ directory or package.json", () => {
+    // GIVEN a service with only a manifest and a package with only a src/ dir
+    scaffold("gateway", { src: false, pkg: true });
+    scaffold("packages/contracts-only", { src: true, pkg: false });
+
+    // WHEN we collect the watch targets
+    const { dirs, files } = collectWatchTargets(repoRoot);
+
+    // THEN absent paths are not emitted
+    expect(dirs).toEqual([join(repoRoot, "packages", "contracts-only", "src")]);
+    expect(files).toEqual([join(repoRoot, "gateway", "package.json")]);
   });
 });

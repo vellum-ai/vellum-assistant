@@ -66,6 +66,12 @@ interface CommandResult {
   exitCode: number;
 }
 
+interface RawCommandResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+
 /**
  * Run a notifications subcommand and capture the JSON output.
  * Always passes --json to get compact, single-line JSON output and suppress log messages.
@@ -74,6 +80,17 @@ interface CommandResult {
  * reset to 0, capture, then reset back to 0 so bun test exits cleanly.
  */
 async function runCommand(args: string[]): Promise<CommandResult> {
+  const raw = await runRawCommand(["notifications", "--json", ...args]);
+
+  const firstLine = raw.stdout.trim().split("\n")[0];
+  const parsed = firstLine
+    ? (JSON.parse(firstLine) as Record<string, unknown>)
+    : {};
+
+  return { parsed, stderr: raw.stderr, exitCode: raw.exitCode };
+}
+
+async function runRawCommand(args: string[]): Promise<RawCommandResult> {
   const chunks: string[] = [];
   const stderrChunks: string[] = [];
   const originalWrite = process.stdout.write;
@@ -95,13 +112,7 @@ async function runCommand(args: string[]): Promise<CommandResult> {
     const program = new Command();
     program.exitOverride();
     registerNotificationsCommand(program);
-    await program.parseAsync([
-      "node",
-      "test",
-      "notifications",
-      "--json",
-      ...args,
-    ]);
+    await program.parseAsync(["node", "test", ...args]);
   } catch {
     // Commander throws on .exitOverride() for --help/errors; ignore
   } finally {
@@ -112,13 +123,11 @@ async function runCommand(args: string[]): Promise<CommandResult> {
   const exitCode = process.exitCode ?? 0;
   process.exitCode = 0;
 
-  const output = chunks.join("");
-  const firstLine = output.trim().split("\n")[0];
-  const parsed = firstLine
-    ? (JSON.parse(firstLine) as Record<string, unknown>)
-    : {};
-
-  return { parsed, stderr: stderrChunks.join(""), exitCode };
+  return {
+    stdout: chunks.join(""),
+    stderr: stderrChunks.join(""),
+    exitCode,
+  };
 }
 
 function lastSendBody(): Record<string, unknown> {
@@ -242,6 +251,41 @@ describe("notifications send", () => {
 
     // Urgency validation is local — no IPC call should have been made
     expect(ipcCalls).toHaveLength(0);
+  });
+
+  test("send rejects invalid source-channel", async () => {
+    const { parsed, exitCode } = await runCommand([
+      "send",
+      "--source-channel",
+      "water_reminder",
+      "--source-event-name",
+      "user.send_notification",
+      "--message",
+      "Hello",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(parsed).toEqual({
+      ok: false,
+      error:
+        'Invalid source-channel "water_reminder". Must be one of: assistant_tool, vellum, phone, telegram, slack, scheduler, watcher',
+    });
+    expect(ipcCalls).toHaveLength(0);
+  });
+
+  test("send help lists source-channel values", async () => {
+    const { stdout, exitCode } = await runRawCommand([
+      "notifications",
+      "send",
+      "--help",
+    ]);
+
+    expect(exitCode).toBe(0);
+    const normalizedHelp = stdout.replace(/\s+/g, " ");
+    expect(normalizedHelp).toContain(
+      "One of: assistant_tool, vellum, phone, telegram, slack, scheduler, watcher",
+    );
+    expect(normalizedHelp).toContain("(default: assistant_tool)");
   });
 
   test("send --conversation-id pins the vellum affinity hint", async () => {

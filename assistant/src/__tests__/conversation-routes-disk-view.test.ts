@@ -90,7 +90,7 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-initializeDb();
+await initializeDb();
 
 const conversationInstances = new Map<string, Conversation>();
 
@@ -152,6 +152,9 @@ function createFakeConversation(conversationId: string): Conversation {
     },
     isProcessing(this: { processing: boolean }) {
       return this.processing;
+    },
+    setProcessing(this: { processing: boolean }, value: boolean) {
+      this.processing = value;
     },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
@@ -255,8 +258,9 @@ function createFakeConversation(conversationId: string): Conversation {
       },
       _content: string,
       _userMessageId: string,
-      onEvent: (msg: Record<string, unknown>) => void,
+      options?: { onEvent?: (msg: Record<string, unknown>) => void },
     ): Promise<void> {
+      const onEvent = options?.onEvent ?? (() => {});
       const assistantText = "Synthetic assistant reply";
       const assistantMessage = createAssistantMessage(assistantText);
       const assistantMetadata = {

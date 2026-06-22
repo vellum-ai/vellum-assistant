@@ -17,6 +17,7 @@ import {
 } from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
 import { httpHealthCheck, waitForDaemonReady } from "./http-client.js";
+import { stopIngressNginx } from "./nginx-ingress.js";
 import {
   resolveProcessState,
   stopProcess,
@@ -230,8 +231,10 @@ function resolveAssistantIndexPath(): string | undefined {
   }
 
   try {
-    const vellumPkgPath = _require.resolve("vellum/package.json");
-    const resolved = join(dirname(vellumPkgPath), "src", "index.ts");
+    const assistantPkgPath = _require.resolve(
+      "@vellumai/assistant/package.json",
+    );
+    const resolved = join(dirname(assistantPkgPath), "src", "index.ts");
     if (existsSync(resolved)) {
       return resolved;
     }
@@ -416,13 +419,13 @@ async function startDaemonFromSource(
   writeFileSync(pidFile, "starting", "utf-8");
 
   const child = foreground
-    ? spawn("bun", ["run", daemonMainPath], {
+    ? spawn(process.execPath, ["run", daemonMainPath], {
         stdio: "inherit",
         env,
       })
     : (() => {
         const daemonLogFd = openLogFile("hatch.log");
-        const c = spawn("bun", ["run", daemonMainPath], {
+        const c = spawn(process.execPath, ["run", daemonMainPath], {
           detached: true,
           stdio: ["ignore", "pipe", "pipe"],
           env,
@@ -486,7 +489,7 @@ async function startDaemonWatchFromSource(
   writeFileSync(pidFile, "starting", "utf-8");
 
   const daemonLogFd = openLogFile("hatch.log");
-  const child = spawn("bun", ["--watch", "run", mainPath], {
+  const child = spawn(process.execPath, ["--watch", "run", mainPath], {
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
     env,
@@ -512,6 +515,18 @@ function resolveGatewayDir(): string {
   const sourceDir = join(import.meta.dir, "..", "..", "..", "gateway");
   if (isGatewaySourceDir(sourceDir)) {
     return sourceDir;
+  }
+
+  // npm-installed: @vellumai/cli and @vellumai/vellum-gateway are siblings
+  const npmGatewayDir = join(
+    import.meta.dir,
+    "..",
+    "..",
+    "..",
+    "vellum-gateway",
+  );
+  if (isGatewaySourceDir(npmGatewayDir)) {
+    return npmGatewayDir;
   }
 
   // Compiled binary: gateway/ bundled adjacent to the CLI executable.
@@ -947,6 +962,7 @@ export async function startLocalDaemon(
         "VELLUM_DEBUG",
         "VELLUM_DEV",
         "VELLUM_DESKTOP_APP",
+        "VELLUM_DISABLE_PLATFORM",
         "VELLUM_WORKSPACE_DIR",
       ]) {
         if (process.env[key]) {
@@ -1002,7 +1018,7 @@ export async function startLocalDaemon(
     let daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
 
     // Dev fallback: if the bundled daemon did not become ready in time,
-    // fall back to source daemon startup so local `./build.sh run` still works.
+    // fall back to source daemon startup so local source runs still work.
     if (!daemonReady) {
       const assistantIndex = resolveAssistantIndexPath();
       if (assistantIndex) {
@@ -1043,7 +1059,11 @@ export async function startLocalDaemon(
 export async function startGateway(
   watch: boolean = false,
   resources?: LocalInstanceResources,
-  options?: { signingKey?: string; bootstrapSecret?: string },
+  options?: {
+    signingKey?: string;
+    bootstrapSecret?: string;
+    envOverrides?: Record<string, string>;
+  },
 ): Promise<string> {
   const effectiveGatewayPort = resources?.gatewayPort ?? GATEWAY_PORT;
 
@@ -1069,6 +1089,7 @@ export async function startGateway(
 
   const gatewayEnv: Record<string, string> = {
     ...(process.env as Record<string, string>),
+    ...options?.envOverrides,
     RUNTIME_HTTP_PORT: String(effectiveDaemonPort),
     GATEWAY_PORT: String(effectiveGatewayPort),
     // Pass gateway operational settings via env vars so the CLI does not
@@ -1135,7 +1156,7 @@ export async function startGateway(
       ? ["--watch", "run", "src/index.ts", "--vellum-gateway"]
       : ["run", "src/index.ts", "--vellum-gateway"];
     const gwLogFd = openLogFile("hatch.log");
-    gateway = spawn("bun", bunArgs, {
+    gateway = spawn(process.execPath, bunArgs, {
       cwd: gatewayDir,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
@@ -1220,4 +1241,8 @@ export async function stopLocalProcesses(
       unlinkSync(ngrokPidFile);
     } catch {}
   }
+
+  // Stop the nginx ingress if one is fronting this gateway (it guards against
+  // PID reuse itself, mirroring the ngrok handling above).
+  await stopIngressNginx(join(vellumDir, "workspace"));
 }

@@ -221,7 +221,9 @@ export class ConfigWatcher {
           );
         }
       },
-      "SOUL.md": () => onConversationEvict(),
+      "SOUL.md": () => {
+        onConversationEvict();
+      },
       "IDENTITY.md": () => {
         onConversationEvict();
         onIdentityChanged?.();

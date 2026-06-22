@@ -99,7 +99,6 @@ describe("normalizeSlackAppMention", () => {
       event,
       "evt-005",
       config,
-      "U123BOT",
       undefined,
       { userLabels: { U123BOT: "vex" } },
     );
@@ -124,7 +123,6 @@ describe("normalizeSlackAppMention", () => {
       event,
       "evt-mention-label",
       config,
-      "UBOT",
       undefined,
       { userLabels: { UBOT: "vex", ULEO: "leo" } },
     );
@@ -140,7 +138,6 @@ describe("normalizeSlackAppMention", () => {
       event,
       "evt-unknown-mention",
       config,
-      "UBOT",
     );
 
     expect(result).not.toBeNull();
@@ -256,7 +253,6 @@ describe("Slack inbound mention rendering", () => {
       event,
       "evt-dm-render",
       config,
-      "UBOT",
       undefined,
       { userLabels: { UBOT: "assistant", ULEO: "leo" } },
     );
@@ -276,7 +272,6 @@ describe("Slack inbound mention rendering", () => {
       event,
       "evt-channel-render",
       config,
-      "UBOT",
       undefined,
       { userLabels: { UBOT: "vex", ULEO: "leo" } },
     );
@@ -297,7 +292,6 @@ describe("Slack inbound mention rendering", () => {
       "evt-channel-fallback-render",
       config,
       undefined,
-      undefined,
       { userLabels: { ULEO: "leo" } },
     );
 
@@ -314,13 +308,9 @@ describe("Slack inbound mention rendering", () => {
         ts: "1700000000.000100",
       },
     });
-    const result = normalizeSlackMessageEdit(
-      event,
-      "evt-edit-render",
-      config,
-      "UBOT",
-      { userLabels: { UBOT: "vex", ULEO: "leo" } },
-    );
+    const result = normalizeSlackMessageEdit(event, "evt-edit-render", config, {
+      userLabels: { UBOT: "vex", ULEO: "leo" },
+    });
 
     expect(result).not.toBeNull();
     expect(result!.event.message.content).toBe("@vex @leo edited");
@@ -382,7 +372,11 @@ describe("normalizeSlackMessageEdit", () => {
     expect(result).toBeNull();
   });
 
-  test("returns null when edit is from the bot itself", () => {
+  // Self-authored edits are now filtered upstream in processEventPayload,
+  // not by the normalizer. This test verifies the normalizer no longer
+  // performs that check — an edit from the bot's own user ID normalizes
+  // successfully. The pipeline filter is tested in socket-mode tests.
+  test("does not filter edits by bot user (handled upstream)", () => {
     const config = makeConfig();
     const event = makeMessageChangedEvent({
       message: {
@@ -391,9 +385,10 @@ describe("normalizeSlackMessageEdit", () => {
         ts: "1700000000.000100",
       },
     });
-    const result = normalizeSlackMessageEdit(event, "evt-103", config, "U_BOT");
+    const result = normalizeSlackMessageEdit(event, "evt-103", config);
 
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.event.actor.actorExternalId).toBe("U_BOT");
   });
 
   test("renders bot mention in edited text", () => {
@@ -405,15 +400,9 @@ describe("normalizeSlackMessageEdit", () => {
         ts: "1700000000.000100",
       },
     });
-    const result = normalizeSlackMessageEdit(
-      event,
-      "evt-104",
-      config,
-      "U123BOT",
-      {
-        userLabels: { U123BOT: "vex" },
-      },
-    );
+    const result = normalizeSlackMessageEdit(event, "evt-104", config, {
+      userLabels: { U123BOT: "vex" },
+    });
 
     expect(result).not.toBeNull();
     expect(result!.event.message.content).toBe("@vex edited content");

@@ -1,6 +1,8 @@
 import { Slot, Slottable } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import {
+  cloneElement,
+  isValidElement,
   type ButtonHTMLAttributes,
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
@@ -19,10 +21,15 @@ import { Tooltip } from "./tooltip";
  *
  * - Pass `variant` for chrome style and `size` for dimensions.
  * - Pass `leftIcon` / `rightIcon` for text+icon layouts.
- * - Pass `iconOnly` to render a square icon-only button (children are ignored
- *   and the icon is centered at the correct size for the chosen `size`).
+ * - Pass `iconOnly` to render a square icon-only button (the icon is centered
+ *   at the correct size for the chosen `size`). Without `asChild` the children
+ *   are ignored; with `asChild` the caller's element (e.g. a `Link`) becomes
+ *   the root and the icon is re-parented into it.
  * - Use `asChild` to render as a child element (e.g. a `Link`) while keeping
  *   button styling and accessibility semantics. Uses Radix's `Slot`.
+ * - Pass `expandOnMobile={false}` to opt an icon-only button out of the larger
+ *   circular tap target on touch-mobile devices — useful for compact inline
+ *   affordances like a chip's remove "×".
  * - Callers may always override styles via `className` / `style`.
  */
 const buttonVariants = cva(
@@ -30,7 +37,7 @@ const buttonVariants = cva(
     "relative inline-flex items-center justify-center gap-1.5 cursor-pointer",
     "select-none whitespace-nowrap transition-[background-color,color,border-color,transform,box-shadow]",
     "duration-150 ease-out outline-none border",
-    "focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-0",
+    "keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:ring-offset-0",
     "active:scale-[0.97]",
     "disabled:cursor-not-allowed disabled:active:scale-100",
     "aria-disabled:cursor-not-allowed aria-disabled:pointer-events-none aria-disabled:opacity-60 aria-disabled:active:scale-100",
@@ -111,17 +118,33 @@ const buttonVariants = cva(
         true: "",
         false: "",
       },
+      expandOnMobile: {
+        true: "",
+        false: "",
+      },
     },
     compoundVariants: [
       {
         iconOnly: true,
         size: "regular",
-        class: "h-8 w-8 max-md:h-10 max-md:w-10",
+        class: "h-8 w-8",
       },
       {
         iconOnly: true,
         size: "compact",
-        class: "h-6 w-6 max-md:h-10 max-md:w-10",
+        class: "h-6 w-6",
+      },
+      {
+        iconOnly: true,
+        size: "regular",
+        expandOnMobile: true,
+        class: "touch-mobile:h-10 touch-mobile:w-10",
+      },
+      {
+        iconOnly: true,
+        size: "compact",
+        expandOnMobile: true,
+        class: "touch-mobile:h-10 touch-mobile:w-10",
       },
       {
         variant: "ghost",
@@ -168,12 +191,13 @@ const buttonVariants = cva(
       {
         variant: "ghost",
         iconOnly: true,
+        expandOnMobile: true,
         class: [
-          "max-md:bg-[var(--surface-lift)]",
-          "max-md:rounded-full",
-          "max-md:[--vbtn-fg:var(--content-default)]",
-          "max-md:hover:bg-[var(--surface-active)]",
-          "max-md:active:bg-[var(--surface-active)]",
+          "touch-mobile:bg-[var(--surface-lift)]",
+          "touch-mobile:rounded-full",
+          "touch-mobile:[--vbtn-fg:var(--content-default)]",
+          "touch-mobile:hover:bg-[var(--surface-active)]",
+          "touch-mobile:active:bg-[var(--surface-active)]",
         ].join(" "),
       },
     ],
@@ -183,6 +207,7 @@ const buttonVariants = cva(
       iconOnly: false,
       fullWidth: false,
       active: false,
+      expandOnMobile: true,
     },
   },
 );
@@ -202,8 +227,17 @@ export interface ButtonProps
   iconOnly?: ReactNode;
   fullWidth?: boolean;
   active?: boolean;
+  /**
+   * When `true` (default), icon-only buttons grow to a larger circular tap
+   * target on touch-mobile devices (narrow viewport + coarse pointer). Set to
+   * `false` to keep the desktop sizing — useful for compact inline affordances
+   * (e.g. a chip's remove "×") where the enlarged circle is undesirable.
+   */
+  expandOnMobile?: boolean;
   tintColor?: string;
   tooltip?: string;
+  /** Side the tooltip is placed on. Defaults to Radix's "top". */
+  tooltipSide?: "top" | "right" | "bottom" | "left";
   asChild?: boolean;
   children?: ReactNode;
 }
@@ -223,8 +257,10 @@ export function Button({
   iconOnly,
   fullWidth = false,
   active = false,
+  expandOnMobile = true,
   tintColor,
   tooltip,
+  tooltipSide,
   asChild = false,
   className,
   style,
@@ -247,8 +283,16 @@ export function Button({
     alignItems: "center",
     justifyContent: "center",
   };
-  const iconOnlyClass =
-    "inline-flex items-center justify-center shrink-0 size-3.5 max-md:size-4 [&_svg]:size-full";
+  // Size the icon with an explicit dimension (`[&_svg]:size-3.5`) rather than
+  // `size-full`. `size-full` makes the SVG fill whatever element it lands in,
+  // which breaks when the `asChild`/Slot path (especially nested under a
+  // tooltip Slot) collapses the icon span and the button box onto one element:
+  // the SVG would then fill the 24px button box instead of the 14px icon box.
+  // A fixed size keeps the icon at the intended dimension regardless of nesting.
+  const iconOnlyClass = cn(
+    "inline-flex items-center justify-center shrink-0 size-3.5 [&_svg]:size-3.5",
+    expandOnMobile && "touch-mobile:size-4 touch-mobile:[&_svg]:size-4",
+  );
 
   const Comp = asChild ? Slot : "button";
   const composedStyle: CSSProperties = {
@@ -276,15 +320,29 @@ export function Button({
       onClick={isSlotDisabled ? handleBlockedClick : onClick}
       title={title}
       className={cn(
-        buttonVariants({ variant, size, iconOnly: isIconOnly, fullWidth, active }),
+        buttonVariants({ variant, size, iconOnly: isIconOnly, fullWidth, active, expandOnMobile }),
         className,
       )}
       style={composedStyle}
     >
       {isIconOnly ? (
-        <span aria-hidden="true" className={iconOnlyClass}>
-          {iconOnly}
-        </span>
+        asChild && isValidElement(children) ? (
+          // `asChild` + `iconOnly`: Slot merges the button props onto the
+          // caller's element (e.g. an `<a>`), so inject the icon as that
+          // element's child to keep the icon-only chrome while the link owns
+          // navigation semantics (href, modified-click open-in-new-tab).
+          cloneElement(
+            children,
+            undefined,
+            <span aria-hidden="true" className={iconOnlyClass}>
+              {iconOnly}
+            </span>,
+          )
+        ) : (
+          <span aria-hidden="true" className={iconOnlyClass}>
+            {iconOnly}
+          </span>
+        )
       ) : leftIcon == null && rightIcon == null ? (
         children
       ) : (
@@ -314,7 +372,11 @@ export function Button({
   );
 
   if (tooltip) {
-    return <Tooltip content={tooltip}>{buttonElement}</Tooltip>;
+    return (
+      <Tooltip content={tooltip} side={tooltipSide}>
+        {buttonElement}
+      </Tooltip>
+    );
   }
 
   return buttonElement;

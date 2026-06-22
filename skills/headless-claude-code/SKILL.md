@@ -5,6 +5,7 @@ compatibility: "Any environment running Claude Code headlessly"
 metadata:
   emoji: "🖥️"
   vellum:
+    category: "development"
     display-name: "Headless Claude Code"
 ---
 

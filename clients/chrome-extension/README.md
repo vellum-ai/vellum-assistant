@@ -111,6 +111,31 @@ Chrome assigns each extension a unique 32-character ID. Non-production builds in
 
 Each environment also gets its own icon set (under `icons/<env>/`), making it easy to distinguish side-by-side installs at a glance.
 
+## WorkOS redirect URIs (REQUIRED dashboard step)
+
+Cloud sign-in uses app-held PKCE against WorkOS User Management. The extension
+authorizes via `chrome.identity.launchWebAuthFlow` and WorkOS redirects back to
+a fixed `chromiumapp.org` URL — `https://<extension-id>.chromiumapp.org/cloud-auth`.
+
+**Each of these exact URLs MUST be registered as a redirect on the WorkOS User
+Management application for its environment.** Sign-in fails at the WorkOS
+authorize step (`redirect_uri` not allowed) until the URL is registered. The
+extension id is fixed per environment (deterministic `key` in
+[`extension-environments.json`](./extension-environments.json) for non-prod; the
+CWS signing key for production):
+
+| Environment | Extension ID | Redirect URI to register |
+|---|---|---|
+| production | `hphbdmpffeigpcdjkckleobjmhhokpne` | `https://hphbdmpffeigpcdjkckleobjmhhokpne.chromiumapp.org/cloud-auth` |
+| staging | `idpcnibfinmkdhlpenkglianflkbhfim` | `https://idpcnibfinmkdhlpenkglianflkbhfim.chromiumapp.org/cloud-auth` |
+| dev | `kajfcoaefacmjgdaloeafnpcfaeahcio` | `https://kajfcoaefacmjgdaloeafnpcfaeahcio.chromiumapp.org/cloud-auth` |
+| local | `gfcldmjjhcginboeldmknclbjilohcbn` | `https://gfcldmjjhcginboeldmknclbjilohcbn.chromiumapp.org/cloud-auth` |
+
+Register each redirect on the WorkOS UM app that backs the corresponding
+platform environment (production WorkOS app for `production`, etc.). The
+production extension id is assigned by the Chrome Web Store; if it ever changes,
+update the production row above and re-register.
+
 ## Troubleshooting
 
 | Error | Cause / Fix |

@@ -3,9 +3,12 @@ name: inbox-cleanup
 description: Run a high-recall, multi-pass email inbox cleanup. Pattern-based subject queries catch 25x more archivable email than sender scans alone. Includes urgency triage, classification signals, and post-cleanup filter setup.
 compatibility: "Designed for Vellum personal assistants"
 metadata:
+  icon: assets/icon.svg
   emoji: "📭"
   vellum:
+    category: "email"
     display-name: "Inbox Cleanup"
+    includes: ["gmail"]
     activation-hints:
       - "When the user asks to clean up, organize, or triage their email inbox"
       - "When the user wants to archive old or unwanted emails in bulk"
@@ -21,6 +24,8 @@ A playbook for large-scale email inbox cleanup. The core insight: sender-based s
 
 Works with any connected email provider. Adapt query syntax to whatever the provider supports — the strategy (what to search for, how to decide what to archive) is universal.
 
+> **Gmail is a required integration.** It's declared via `includes: ["gmail"]` in the frontmatter so it loads synchronously on activation, not lazily after the preferences form. Load/confirm the Gmail integration the moment this skill activates — before Phase 1 — so a missing or unauthorized connection surfaces up front rather than mid-cleanup.
+
 ---
 
 ## Phase 1: Preference Capture
@@ -28,12 +33,15 @@ Works with any connected email provider. Adapt query syntax to whatever the prov
 Do this before touching anything. Ask the user:
 
 **1. Aggressiveness level**
-- *Conservative* — newsletters with unsubscribe headers + obvious spam only
-- *Standard* — above + cold outreach heuristics (subject patterns, unknown senders)
-- *Aggressive* — above + anything from senders with no prior thread history
+
+- _Conservative_ — newsletters with unsubscribe headers + obvious spam only
+- _Standard_ — above + cold outreach heuristics (subject patterns, unknown senders)
+- _Aggressive_ — above + anything from senders with no prior thread history
 
 **2. Age threshold**
 Archive everything older than X days? Common choices: 30 / 60 / 90 days. Or no age filter.
+
+> **First-run scope:** On first invocation, scope to last 30 days or top 3 noise patterns, whichever surfaces faster. Show result, offer to expand. Prove the approach on a fast, visible slice before draining the whole backlog.
 
 **3. VIP senders to protect**
 Ask: "Are there any senders that might look like cold outreach but you actually care about? Think: specific individuals at investors, advisors, your lawyer, accountant, recruiters you're actively working with."
@@ -42,6 +50,7 @@ Build an explicit keep list. Do not archive anything matching it, ever, regardle
 
 **4. Categories to confirm before archiving**
 These need a sample + explicit approval before bulk action:
+
 - Financial/billing alerts
 - Legal/contracts
 - Account suspension notices
@@ -51,17 +60,17 @@ These need a sample + explicit approval before bulk action:
 
 ## Phase 2: Urgency Triage (do this before any archiving)
 
-Scan the inbox first for high-stakes items that should be *surfaced*, not archived. Look for:
+Scan the inbox first for high-stakes items that should be _surfaced_, not archived. Look for:
 
-| Signal | Why it matters |
-|--------|---------------|
-| "past due", "overdue", "final notice", "balance due" | Outstanding invoice — financial consequence |
-| "will be suspended", "account suspension", "service interruption" | Service shutoff — operational consequence |
-| "collections", "case #", "recovery" in sender domain | Collections agency — credit/legal consequence |
-| "signature required", "agreement", "DocuSign pending" | Legal action needed |
-| Government TLDs (.gov), "IRS", "state of", "department of" | Regulatory — can't be skipped |
+| Signal                                                            | Why it matters                                |
+| ----------------------------------------------------------------- | --------------------------------------------- |
+| "past due", "overdue", "final notice", "balance due"              | Outstanding invoice — financial consequence   |
+| "will be suspended", "account suspension", "service interruption" | Service shutoff — operational consequence     |
+| "collections", "case #", "recovery" in sender domain              | Collections agency — credit/legal consequence |
+| "signature required", "agreement", "DocuSign pending"             | Legal action needed                           |
+| Government TLDs (.gov), "IRS", "state of", "department of"        | Regulatory — can't be skipped                 |
 
-Surface these to the user *before* running the cleanup. They're easy to miss buried in a big inbox.
+Surface these to the user _before_ running the cleanup. They're easy to miss buried in a big inbox.
 
 ---
 
@@ -78,6 +87,7 @@ Search for all inbox messages older than the user's age threshold (e.g. 30 days)
 ### Pass 2: Personalized cold outreach (subject patterns)
 
 Ask the user for their first name and company name, then search for subject lines containing patterns like:
+
 - `[FirstName] -`, `[FirstName],`, `for [FirstName]`, `hi [FirstName]`, `hey [FirstName]`, `[FirstName] |`
 - `[CompanyName] -`, `[CompanyName]?`, `for [CompanyName]`, `re: [CompanyName]`, `[CompanyName] AI`
 
@@ -86,6 +96,7 @@ These are the highest-recall patterns for cold outreach and partnership spam. A 
 ### Pass 3: Generic cold outreach phrases
 
 Search for subject lines containing:
+
 - "quick question", "quick note", "checking in"
 - "following up", "just following up", "circling back"
 - "would love to connect", "15 minutes", "quick call"
@@ -95,12 +106,14 @@ Search for subject lines containing:
 ### Pass 4: No-reply & newsletters
 
 Search for:
+
 - Messages from noreply/no-reply/donotreply sender addresses
 - Subject lines containing "unsubscribe", "newsletter", "weekly digest", "monthly digest"
 
 ### Pass 5: Calendar noise
 
 Search for subject lines containing:
+
 - "accepted:", "declined:", "tentative:"
 - "has accepted", "has declined", "invitation:"
 
@@ -109,6 +122,7 @@ Calendar response confirmations are pure noise. Safe to bulk archive without rev
 ### Pass 6: Transactional/receipts
 
 Search for subject lines containing:
+
 - "your order", "order confirmation", "your receipt"
 - "shipment", "has shipped", "delivered"
 
@@ -141,15 +155,24 @@ For emails not caught by pattern queries, use LLM-based classification in Standa
 
 ## Dry-Run Defaults
 
-When the user's inbox management trust stage is 0 (flag-only), or when a batch exceeds 1,000 operations at stage 1, default to `--dry-run` mode:
+**Every bulk archive previews before it executes — regardless of batch size or trust stage.** Run the pipeline with `--dry-run` on all archive calls, then render a `ui_show` table preview the user commits or refines from. Never archive in bulk straight from a query.
 
-1. Run the pipeline with `--dry-run` on all archive calls
-2. At the end, show a summary: counts by phase with example subjects
-3. Ask the user to confirm before committing: "This would archive X,XXX emails across Y passes. Commit?"
-4. If confirmed, commit via `bun run scripts/gmail-commit.ts commit --run-id "<run-id>"`
-5. If rejected, cancel via `bun run scripts/gmail-commit.ts cancel --run-id "<run-id>"`
+The preview table must show:
 
-At stage 2 or for small batches at stage 1, archive directly (but still log for audit/reversal).
+1. **Total emails matching** — the full count this bulk archive would touch
+2. **Top-10 sender breakdown** — senders by volume, so the user spots anything they care about
+3. **10–20 sample subjects** — a representative spread, not just the first few
+4. **Categories flagged for confirm-before-archive** — the Phase 1 categories (financial/billing, legal/contracts, account suspension, government/regulatory) that matched, called out for explicit approval
+
+**Surface "things worth flagging before you confirm" inside the preview, not after.** If the dry-run catches claim documents, failed-payment notices, or any urgency-triage signal (Phase 2), call them out in the preview so the user sees them while deciding — never let a flag-worthy item get archived first and surfaced afterward.
+
+After rendering the preview:
+
+1. Ask the user to confirm or refine: "This would archive X,XXX emails across Y passes. Commit, or refine the scope?"
+2. If confirmed, commit via `bun run scripts/gmail-commit.ts commit --run-id "<run-id>"`
+3. If rejected, cancel via `bun run scripts/gmail-commit.ts cancel --run-id "<run-id>"`
+
+Larger batches (e.g. >1,000 operations) and lower trust stages (stage 0 flag-only) warrant extra scrutiny in the preview, but the preview itself is always required before any bulk archive — including small batches and high trust stages. Direct archives are still logged for audit/reversal.
 
 ---
 
@@ -187,16 +210,16 @@ After cleanup, propose Gmail filters so the same categories don't re-accumulate.
 
 One-time bulk archiving and permanent auto-archiving are different risk levels. The auto-filter script only derives candidates from patterns marked "Yes" below:
 
-| Pattern | Safe as permanent filter? | Notes |
-|---------|--------------------------|-------|
-| noreply / no-reply / donotreply senders | Yes | Automated senders, never personal |
-| Calendar responses (accepted/declined in subject) | Yes | Pure noise |
-| Specific spam domains identified during cleanup | Yes | Domain-level, not pattern-level |
-| Sketchy TLDs (.shop, .biz, .xyz, .info) | Yes | High spam signal, low false positive risk |
-| Known newsletter senders confirmed during cleanup | Yes | User just explicitly confirmed unwanted |
-| Generic phrases ("quick question", "checking in") | Risky | Real colleagues use these — don't filter |
-| Name/company subject patterns ("for [Name]", "[Company] -") | No | Too broad — will catch real emails |
-| Age-based | No | Not generally supported as a filter condition |
+| Pattern                                                     | Safe as permanent filter? | Notes                                         |
+| ----------------------------------------------------------- | ------------------------- | --------------------------------------------- |
+| noreply / no-reply / donotreply senders                     | Yes                       | Automated senders, never personal             |
+| Calendar responses (accepted/declined in subject)           | Yes                       | Pure noise                                    |
+| Specific spam domains identified during cleanup             | Yes                       | Domain-level, not pattern-level               |
+| Sketchy TLDs (.shop, .biz, .xyz, .info)                     | Yes                       | High spam signal, low false positive risk     |
+| Known newsletter senders confirmed during cleanup           | Yes                       | User just explicitly confirmed unwanted       |
+| Generic phrases ("quick question", "checking in")           | Risky                     | Real colleagues use these — don't filter      |
+| Name/company subject patterns ("for [Name]", "[Company] -") | No                        | Too broad — will catch real emails            |
+| Age-based                                                   | No                        | Not generally supported as a filter condition |
 
 ### Running auto-filter generation
 
@@ -213,6 +236,7 @@ bun run scripts/gmail-auto-filters.ts generate --run-id "<cleanup-run-id>"
 If `--run-id` is omitted, the script finds the most recent completed cleanup run automatically.
 
 The script:
+
 1. Reads the cleanup run's op-log to extract archived patterns
 2. Derives filter candidates from safe categories only
 3. Fetches existing Gmail filters and skips duplicates
@@ -227,6 +251,7 @@ Every auto-filter applies an `auto/*` label instead of silently archiving. This 
 ### After filter creation
 
 Tell the user:
+
 - How many filters were created and what each covers
 - How to find auto-archived emails (search by label, e.g. `label:auto/no-reply`)
 - How to remove a filter: `bun run scripts/gmail-manage.ts filters --action delete --filter-id "<id>"`
@@ -237,15 +262,15 @@ Tell the user:
 
 From a single cleanup session on a startup founder's inbox (April 2026):
 
-| Pass | Approx. catch |
-|------|--------------|
-| Older than 30 days | ~7,200 |
-| Name-personalized subject patterns | ~35,000 |
-| Company-name subject patterns | ~50,000 |
-| Sketchy TLDs (.shop/.biz/.xyz) | ~3,741 |
-| Newsletters/digests | ~1,014 |
-| Calendar responses | ~142 |
-| Generic cold outreach phrases | ~23 |
-| Completed DocuSigns | ~34 |
+| Pass                               | Approx. catch |
+| ---------------------------------- | ------------- |
+| Older than 30 days                 | ~7,200        |
+| Name-personalized subject patterns | ~35,000       |
+| Company-name subject patterns      | ~50,000       |
+| Sketchy TLDs (.shop/.biz/.xyz)     | ~3,741        |
+| Newsletters/digests                | ~1,014        |
+| Calendar responses                 | ~142          |
+| Generic cold outreach phrases      | ~23           |
+| Completed DocuSigns                | ~34           |
 
 **Total: ~90,000+ emails in one session.** The name/company pattern passes alone accounted for ~85k. This is why patterns dominate sender scans.

@@ -1,3 +1,5 @@
+import { resolveCapabilities } from "../../runtime/capabilities.js";
+import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import { validateRruleSetLines } from "../../schedule/recurrence-engine.js";
 import {
   detectScheduleSyntax,
@@ -17,7 +19,7 @@ import {
 } from "../../schedule/schedule-store.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
-const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script"];
+const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script", "workflow"];
 const VALID_ROUTING_INTENTS: RoutingIntent[] = [
   "single_channel",
   "multi_channel",
@@ -28,7 +30,7 @@ export async function executeScheduleUpdate(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  if (context.trustClass !== "guardian") {
+  if (!resolveCapabilities(context.trustClass).canManageSchedules) {
     return {
       content:
         "Error: schedule_update is restricted to guardian actors because schedules execute with elevated privileges.",
@@ -65,6 +67,16 @@ export async function executeScheduleUpdate(
 
   const updates: Record<string, unknown> = {};
   if (input.name !== undefined) updates.name = input.name;
+  if (input.description !== undefined) {
+    const description = input.description as string;
+    if (typeof description !== "string" || description.trim().length === 0) {
+      return {
+        content: "Error: description must be a non-empty string when provided",
+        isError: true,
+      };
+    }
+    updates.description = description;
+  }
   if (input.timezone !== undefined) updates.timezone = input.timezone;
   if (input.message !== undefined) updates.message = input.message;
   if (input.script !== undefined) updates.script = input.script;
@@ -80,6 +92,17 @@ export async function executeScheduleUpdate(
       };
     }
     updates.mode = mode;
+  }
+
+  // Workflow fields pass-through (validated against the resulting mode below)
+  if (input.workflow_name !== undefined) {
+    updates.workflowName =
+      typeof input.workflow_name === "string"
+        ? input.workflow_name.trim()
+        : null;
+  }
+  if (input.workflow_args !== undefined) {
+    updates.workflowArgs = input.workflow_args;
   }
 
   // Routing intent validation and pass-through
@@ -115,6 +138,27 @@ export async function executeScheduleUpdate(
   }
   if (input.retry_backoff_ms !== undefined) {
     updates.retryBackoffMs = input.retry_backoff_ms;
+  }
+
+  // Inference profile override (null clears it, reverting to the default
+  // main-agent model selection)
+  if (input.inference_profile !== undefined) {
+    if (input.inference_profile === null) {
+      updates.inferenceProfile = null;
+    } else {
+      const inferenceProfile = input.inference_profile;
+      if (typeof inferenceProfile !== "string") {
+        return {
+          content: "Error: inference_profile must be a string or null",
+          isError: true,
+        };
+      }
+      const profileError = validateScheduleInferenceProfile(inferenceProfile);
+      if (profileError) {
+        return { content: `Error: ${profileError}`, isError: true };
+      }
+      updates.inferenceProfile = inferenceProfile;
+    }
   }
 
   // Script execution timeout override (null clears it, reverting to default)
@@ -160,6 +204,33 @@ export async function executeScheduleUpdate(
     };
   }
 
+  // Mirror the HTTP route: a schedule whose RESULTING mode is `workflow` must
+  // carry a non-empty workflowName. Compute the post-update
+  // state (the update's value if present, else the persisted one) so both
+  // "switch to workflow without a name" and "clear the name on a workflow
+  // schedule" are rejected — otherwise the scheduler hits the `!job.workflowName`
+  // skip branch and a one-shot firing job wedges.
+  if (updates.mode !== undefined || updates.workflowName !== undefined) {
+    const existing = getSchedule(jobId);
+    if (existing) {
+      const resultingMode =
+        updates.mode !== undefined ? (updates.mode as string) : existing.mode;
+      if (resultingMode === "workflow") {
+        const resultingWorkflowName =
+          updates.workflowName !== undefined
+            ? ((updates.workflowName as string | null) ?? "")
+            : (existing.workflowName ?? "");
+        if (!resultingWorkflowName) {
+          return {
+            content:
+              "Error: workflow_name is required for workflow-mode schedules",
+            isError: true,
+          };
+        }
+      }
+    }
+  }
+
   // Set-aware pre-validation for RRULE expressions
   const effectiveSyntax = updates.syntax as string | undefined;
   const effectiveExpr =
@@ -184,6 +255,7 @@ export async function executeScheduleUpdate(
       jobId,
       updates as {
         name?: string;
+        description?: string;
         cronExpression?: string;
         timezone?: string | null;
         message?: string;
@@ -199,6 +271,9 @@ export async function executeScheduleUpdate(
         maxRetries?: number;
         retryBackoffMs?: number;
         timeoutMs?: number | null;
+        workflowName?: string | null;
+        workflowArgs?: unknown;
+        inferenceProfile?: string | null;
       },
     );
 
@@ -217,8 +292,10 @@ export async function executeScheduleUpdate(
       content: [
         `Schedule updated successfully.`,
         `  Name: ${job.name}`,
+        `  Description: ${job.description}`,
         `  Syntax: ${job.syntax}`,
         `  Mode: ${job.mode}`,
+        `  Inference profile: ${job.inferenceProfile ?? "default (mainAgent)"}`,
         `  Schedule: ${scheduleDescription}${job.timezone ? ` (${job.timezone})` : ""}`,
         `  Enabled: ${job.enabled}`,
         `  Next run: ${job.enabled ? formatLocalDate(job.nextRunAt) : "n/a (disabled)"}`,

@@ -14,7 +14,7 @@ mock.module("../prompts/user-reference.js", () => ({
   resolveUserReference: () => "Alice",
 }));
 
-import { getSqlite } from "../memory/db-connection.js";
+import { getMemorySqlite, getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
   CONVERSATION_STARTERS_STALE_TTL_MS,
@@ -23,7 +23,7 @@ import {
 } from "../runtime/routes/conversation-starter-routes.js";
 import { RouteError } from "../runtime/routes/errors.js";
 
-initializeDb();
+await initializeDb();
 
 /**
  * Dispatch a request to the ROUTES array by matching endpoint + method.
@@ -66,7 +66,7 @@ function dispatch(path: string, method = "GET"): unknown | Promise<unknown> {
 function clearTables() {
   getSqlite().run("DELETE FROM conversation_starters");
   getSqlite().run("DELETE FROM memory_graph_nodes");
-  getSqlite().run("DELETE FROM memory_jobs");
+  getMemorySqlite()!.run("DELETE FROM memory_jobs");
   getSqlite().run("DELETE FROM memory_checkpoints");
 }
 
@@ -129,7 +129,7 @@ function setCheckpoint(key: string, value: string, updatedAt = Date.now()) {
 
 function insertStarterJob(scopeId = "default", status = "pending") {
   const now = Date.now();
-  getSqlite().run(
+  getMemorySqlite()!.run(
     `INSERT INTO memory_jobs (
       id, type, payload, status, attempts, deferrals, run_after, last_error,
       started_at, created_at, updated_at
@@ -140,7 +140,7 @@ function insertStarterJob(scopeId = "default", status = "pending") {
 
 function countStarterJobs() {
   return (
-    getSqlite()
+    getMemorySqlite()!
       .prepare(
         `SELECT COUNT(*) AS c FROM memory_jobs WHERE type = 'generate_conversation_starters'`,
       )
@@ -339,8 +339,8 @@ describe("GET /v1/conversation-starters", () => {
 
   test("does not re-enqueue for invalid items when within cooldown period", async () => {
     const now = Date.now();
-    // Generation happened 30 seconds ago (within the 60s cooldown)
-    const recentGenAt = now - 30_000;
+    // Last attempt 30 seconds ago (within the 5-minute cooldown)
+    const recentAttemptAt = now - 30_000;
     insertStarter({
       label: "Let me check calendar",
       prompt: "Let me check what Alice has today.",
@@ -354,8 +354,12 @@ describe("GET /v1/conversation-starters", () => {
       createdAt: now - 1,
     });
     setCheckpoint(
+      "conversation_starters:last_attempt_at:default",
+      String(recentAttemptAt),
+    );
+    setCheckpoint(
       "conversation_starters:last_gen_at:default",
-      String(recentGenAt),
+      String(recentAttemptAt),
     );
     setCheckpoint("conversation_starters:item_count_at_last_gen:default", "1");
     insertMemoryItem();
@@ -375,8 +379,8 @@ describe("GET /v1/conversation-starters", () => {
 
   test("re-enqueues for invalid items after cooldown expires", async () => {
     const now = Date.now();
-    // Generation happened 90 seconds ago (past the 60s cooldown)
-    const oldGenAt = now - 90_000;
+    // Last attempt 6 minutes ago (past the 5-minute cooldown)
+    const oldAttemptAt = now - 6 * 60_000;
     insertStarter({
       label: "Let me check calendar",
       prompt: "Let me check what Alice has today.",
@@ -390,8 +394,12 @@ describe("GET /v1/conversation-starters", () => {
       createdAt: now - 1,
     });
     setCheckpoint(
+      "conversation_starters:last_attempt_at:default",
+      String(oldAttemptAt),
+    );
+    setCheckpoint(
       "conversation_starters:last_gen_at:default",
-      String(oldGenAt),
+      String(oldAttemptAt),
     );
     setCheckpoint("conversation_starters:item_count_at_last_gen:default", "1");
     insertMemoryItem();

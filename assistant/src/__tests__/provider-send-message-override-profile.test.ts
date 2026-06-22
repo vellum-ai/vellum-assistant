@@ -261,3 +261,79 @@ describe("SendMessageOptions.config.overrideProfile", () => {
     expect(captured?.overrideProfile).toBeUndefined();
   });
 });
+
+describe("SendMessageOptions.config.forceOverrideProfile", () => {
+  test("CallSiteConfiguredProvider forwards forceOverrideProfile into the send config", async () => {
+    let captured: SendMessageOptions | undefined;
+    const inner: Provider = {
+      name: "anthropic",
+      async sendMessage(
+        _messages: Message[],
+        options?: SendMessageOptions,
+      ): Promise<ProviderResponse> {
+        captured = options;
+        return makeResponse("anthropic");
+      },
+    };
+
+    const provider = new CallSiteConfiguredProvider(
+      inner,
+      "inference",
+      "strong",
+      true,
+    );
+    await provider.sendMessage(DUMMY_MESSAGES, {});
+
+    expect(captured?.config).toMatchObject({
+      callSite: "inference",
+      overrideProfile: "strong",
+      forceOverrideProfile: true,
+    });
+  });
+
+  test("forceOverrideProfile floats the override above a call-site profile pin", async () => {
+    // The advisor scenario in miniature: the `inference` call site is pinned to
+    // a cheap profile, but a caller forces a stronger profile for its own send.
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-opus-4-7" },
+      profiles: {
+        cheap: { provider: "anthropic", model: "claude-haiku-4-5-20251001" },
+        strong: { provider: "anthropic", model: "claude-opus-4-8" },
+      },
+      callSites: { inference: { profile: "cheap" } },
+    });
+
+    const send = async (force: boolean) => {
+      let captured: Record<string, unknown> | undefined;
+      const inner: Provider = {
+        name: "anthropic",
+        async sendMessage(
+          _messages: Message[],
+          options?: SendMessageOptions,
+        ): Promise<ProviderResponse> {
+          captured = options?.config as Record<string, unknown> | undefined;
+          return makeResponse("anthropic");
+        },
+      };
+      const provider = new RetryProvider(inner);
+      await provider.sendMessage(DUMMY_MESSAGES, {
+        config: {
+          callSite: "inference",
+          overrideProfile: "strong",
+          ...(force ? { forceOverrideProfile: true } : {}),
+        },
+      });
+      return captured;
+    };
+
+    // Without the flag, the call-site pin (`cheap`) outranks `overrideProfile`.
+    expect((await send(false))?.model).toBe("claude-haiku-4-5-20251001");
+
+    // With the flag, the forced `strong` profile wins over the call-site pin.
+    const forced = await send(true);
+    expect(forced?.model).toBe("claude-opus-4-8");
+    // The routing keys are stripped before the provider wire request.
+    expect(forced?.overrideProfile).toBeUndefined();
+    expect(forced?.forceOverrideProfile).toBeUndefined();
+  });
+});

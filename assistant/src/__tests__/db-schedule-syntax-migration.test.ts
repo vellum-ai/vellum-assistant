@@ -4,6 +4,8 @@ import { describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
+import { migrateScheduleDescription } from "../memory/migrations/270-schedule-description.js";
+import { migrateScheduleSourceConversation } from "../memory/migrations/270-schedule-source-conversation.js";
 import * as schema from "../memory/schema.js";
 import { scheduleJobs } from "../memory/schema.js";
 
@@ -38,6 +40,7 @@ describe("schedule_syntax column migration", () => {
         retry_count INTEGER NOT NULL DEFAULT 0,
         max_retries INTEGER NOT NULL DEFAULT 3,
         retry_backoff_ms INTEGER NOT NULL DEFAULT 60000,
+        created_from_conversation_id TEXT,
         created_by TEXT NOT NULL,
         mode TEXT NOT NULL DEFAULT 'execute',
         routing_intent TEXT NOT NULL DEFAULT 'all_channels',
@@ -47,7 +50,12 @@ describe("schedule_syntax column migration", () => {
         reuse_conversation INTEGER NOT NULL DEFAULT 0,
         script TEXT,
         wake_conversation_id TEXT,
+        workflow_name TEXT,
+        workflow_args_json TEXT,
         timeout_ms INTEGER,
+        inference_profile TEXT,
+        capabilities_json TEXT,
+        description TEXT NOT NULL DEFAULT '',
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )
@@ -134,6 +142,18 @@ describe("schedule_syntax column migration", () => {
     } catch {
       /* already exists */
     }
+    try {
+      raw.exec(`ALTER TABLE cron_jobs ADD COLUMN workflow_name TEXT`);
+    } catch {
+      /* already exists */
+    }
+    try {
+      raw.exec(`ALTER TABLE cron_jobs ADD COLUMN workflow_args_json TEXT`);
+    } catch {
+      /* already exists */
+    }
+    migrateScheduleSourceConversation(db);
+    migrateScheduleDescription(db);
 
     const row = db
       .select()
@@ -197,6 +217,20 @@ describe("schedule_syntax column migration", () => {
     } catch {
       /* ok */
     }
+    try {
+      raw.exec(`ALTER TABLE cron_jobs ADD COLUMN workflow_name TEXT`);
+    } catch {
+      /* ok */
+    }
+    try {
+      raw.exec(`ALTER TABLE cron_jobs ADD COLUMN workflow_args_json TEXT`);
+    } catch {
+      /* ok */
+    }
+    migrateScheduleSourceConversation(db);
+    migrateScheduleSourceConversation(db);
+    migrateScheduleDescription(db);
+    migrateScheduleDescription(db);
 
     const now = Date.now();
     raw.exec(
@@ -208,5 +242,80 @@ describe("schedule_syntax column migration", () => {
       .where(eq(scheduleJobs.id, "idem-1"))
       .get();
     expect(row!.scheduleSyntax).toBe("cron");
+  });
+
+  test("schedule description migration backfills non-defer rows once", () => {
+    const db = createTestDb();
+    const raw = getRawSqlite(db);
+
+    raw.exec(/*sql*/ `
+      CREATE TABLE IF NOT EXISTS cron_jobs (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        cron_expression TEXT,
+        schedule_syntax TEXT NOT NULL DEFAULT 'cron',
+        timezone TEXT,
+        message TEXT NOT NULL,
+        next_run_at INTEGER NOT NULL,
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+
+    const now = Date.now();
+    raw
+      .query(
+        `INSERT INTO cron_jobs (id, name, cron_expression, message, next_run_at, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "legacy-schedule",
+        "Legacy report",
+        "0 9 * * *",
+        "compile report",
+        now + 60_000,
+        "agent",
+        now,
+        now,
+      );
+    raw
+      .query(
+        `INSERT INTO cron_jobs (id, name, cron_expression, message, next_run_at, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "legacy-defer",
+        "Deferred wake",
+        null,
+        "resume later",
+        now + 60_000,
+        "defer",
+        now,
+        now,
+      );
+
+    migrateScheduleDescription(db);
+
+    const rows = raw
+      .query("SELECT id, description FROM cron_jobs ORDER BY id")
+      .all() as Array<{ id: string; description: string }>;
+    expect(rows).toEqual([
+      { id: "legacy-defer", description: "" },
+      { id: "legacy-schedule", description: "Legacy report" },
+    ]);
+
+    raw
+      .query("UPDATE cron_jobs SET description = ? WHERE id = ?")
+      .run("", "legacy-schedule");
+
+    migrateScheduleDescription(db);
+
+    const description = raw
+      .query("SELECT description FROM cron_jobs WHERE id = ?")
+      .get("legacy-schedule") as { description: string };
+    expect(description.description).toBe("");
   });
 });

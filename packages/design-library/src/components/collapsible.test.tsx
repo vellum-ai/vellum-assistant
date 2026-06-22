@@ -96,8 +96,8 @@ describe("Collapsible", () => {
     expect(html).toContain("collapsible-content");
   });
 
-  test("trigger has focus-visible ring styles", () => {
+  test("trigger has keyboard-focus ring styles", () => {
     const html = renderSection({ value: "a", triggerText: "Section A" });
-    expect(html).toContain("focus-visible:ring-2");
+    expect(html).toContain("keyboard-focus:ring-2");
   });
 });

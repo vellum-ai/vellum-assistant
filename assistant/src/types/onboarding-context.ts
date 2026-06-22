@@ -3,6 +3,8 @@ export interface OnboardingContext {
   tasks: string[];
   tone: string;
   userName?: string;
+  /** The user's role / occupation, e.g. "Software Engineer". */
+  occupation?: string;
   assistantName?: string;
   priorAssistants?: string[];
   googleConnected?: boolean;

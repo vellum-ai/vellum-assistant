@@ -1,0 +1,345 @@
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
+import {
+  AdmissionPolicyStore,
+  ADMISSION_POLICY_DEFAULT,
+} from "../db/admission-policy-store.js";
+import {
+  initAdmissionPolicyCache,
+  resetAdmissionPolicyCache,
+  getAdmissionPolicyCache,
+} from "../risk/admission-policy-cache.js";
+import {
+  createChannelAdmissionPolicyDeleteHandler,
+  createChannelAdmissionPolicyListHandler,
+  createChannelAdmissionPolicySetHandler,
+} from "../http/routes/channel-admission-policy.js";
+import { CHANNEL_IDS } from "../channels/types.js";
+import {
+  isAdmissionPolicyExemptChannel,
+  isAdmissionPolicyHiddenChannel,
+} from "@vellumai/gateway-client";
+import "./test-preload.js";
+
+// Channels the GET list is expected to return: neither exempt (no runtime
+// admission model) nor hidden (`vellum`/`whatsapp`, enforced but not shown).
+const VISIBLE_CHANNEL_IDS = CHANNEL_IDS.filter(
+  (channel) =>
+    !isAdmissionPolicyExemptChannel(channel) &&
+    !isAdmissionPolicyHiddenChannel(channel),
+);
+
+// ---------------------------------------------------------------------------
+// Setup / teardown
+// ---------------------------------------------------------------------------
+
+let store: AdmissionPolicyStore;
+
+beforeEach(async () => {
+  resetGatewayDb();
+  resetAdmissionPolicyCache();
+  await initGatewayDb();
+  initAdmissionPolicyCache();
+  store = new AdmissionPolicyStore();
+  for (const row of store.list()) {
+    store.remove(row.channelType);
+  }
+  // Cache may have been initialized before we cleaned; refresh it.
+  resetAdmissionPolicyCache();
+  initAdmissionPolicyCache();
+});
+
+afterEach(() => {
+  resetAdmissionPolicyCache();
+  resetGatewayDb();
+});
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function jsonRequest(url: string, method: string, body?: unknown): Request {
+  const init: RequestInit = { method };
+  if (body !== undefined) {
+    init.headers = { "Content-Type": "application/json" };
+    init.body = JSON.stringify(body);
+  }
+  return new Request(url, init);
+}
+
+// ---------------------------------------------------------------------------
+// GET /v1/channel-admission-policy
+// ---------------------------------------------------------------------------
+
+describe("GET /v1/channel-admission-policy", () => {
+  test("returns every visible channel id, with defaults for unconfigured channels", async () => {
+    const handler = createChannelAdmissionPolicyListHandler();
+    const res = await handler(
+      jsonRequest("http://localhost/v1/channel-admission-policy", "GET"),
+    );
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as {
+      policies: Array<{
+        channelType: string;
+        policy: string;
+        note: string | null;
+        updatedAt: number | null;
+      }>;
+    };
+    expect(body.policies).toHaveLength(VISIBLE_CHANNEL_IDS.length);
+    for (const p of body.policies) {
+      expect(p.policy).toBe(ADMISSION_POLICY_DEFAULT);
+      expect(p.note).toBeNull();
+      expect(p.updatedAt).toBeNull();
+    }
+    const seen = new Set(body.policies.map((p) => p.channelType));
+    for (const channel of VISIBLE_CHANNEL_IDS) {
+      expect(seen.has(channel)).toBe(true);
+    }
+  });
+
+  test("merges persisted rows with default rows for missing channels", async () => {
+    store.set("telegram", "no_one", "off");
+
+    const handler = createChannelAdmissionPolicyListHandler();
+    const res = await handler(
+      jsonRequest("http://localhost/v1/channel-admission-policy", "GET"),
+    );
+    const body = (await res.json()) as {
+      policies: Array<{
+        channelType: string;
+        policy: string;
+        note: string | null;
+        updatedAt: number | null;
+      }>;
+    };
+    expect(body.policies).toHaveLength(VISIBLE_CHANNEL_IDS.length);
+    const tg = body.policies.find((p) => p.channelType === "telegram");
+    expect(tg?.policy).toBe("no_one");
+    expect(tg?.note).toBe("off");
+    expect(tg?.updatedAt).toBeGreaterThan(0);
+
+    // phone is an enforced channel — it appears with its seeded default.
+    const phone = body.policies.find((p) => p.channelType === "phone");
+    expect(phone?.policy).toBe(ADMISSION_POLICY_DEFAULT);
+  });
+
+  test("omits exempt `a2a` and hidden `vellum`/`whatsapp` but includes enforced `phone`", async () => {
+    // a2a stays exempt (no runtime admission model). vellum/whatsapp are still
+    // enforced at runtime but hidden from the Channel Trust Floors UI, so they
+    // must not surface even when a row is persisted. phone is now enforced and
+    // visible, so it must surface.
+    store.set("a2a", "guardian_only");
+    store.set("vellum", "guardian_only");
+    store.set("whatsapp", "guardian_only");
+
+    const handler = createChannelAdmissionPolicyListHandler();
+    const res = await handler(
+      jsonRequest("http://localhost/v1/channel-admission-policy", "GET"),
+    );
+    const body = (await res.json()) as {
+      policies: Array<{ channelType: string }>;
+    };
+    const seen = new Set(body.policies.map((p) => p.channelType));
+    expect(seen.has("a2a")).toBe(false);
+    expect(seen.has("vellum")).toBe(false);
+    expect(seen.has("whatsapp")).toBe(false);
+    // phone is enforced + visible; other visible channels still surface.
+    expect(seen.has("phone")).toBe(true);
+    expect(seen.has("telegram")).toBe(true);
+    expect(seen.has("slack")).toBe(true);
+    expect(seen.has("email")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PUT /v1/channel-admission-policy/:channelType
+// ---------------------------------------------------------------------------
+
+describe("PUT /v1/channel-admission-policy/:channelType", () => {
+  test("upserts a valid policy and invalidates the cache", async () => {
+    const handler = createChannelAdmissionPolicySetHandler();
+    const res = await handler(
+      jsonRequest(
+        "http://localhost/v1/channel-admission-policy/slack",
+        "PUT",
+        { policy: "guardian_only", note: "tight" },
+      ),
+      "slack",
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      policy: { channelType: string; policy: string; note: string | null };
+    };
+    expect(body.policy.policy).toBe("guardian_only");
+    expect(body.policy.note).toBe("tight");
+
+    expect(store.get("slack")).toBe("guardian_only");
+    // Cache invalidation: the cache should reflect the new value without a
+    // restart. Mirrors trust-rule-cache invalidation semantics.
+    expect(getAdmissionPolicyCache().get("slack")).toBe("guardian_only");
+  });
+
+  test("rejects unknown channelType with 400", async () => {
+    const handler = createChannelAdmissionPolicySetHandler();
+    const res = await handler(
+      jsonRequest(
+        "http://localhost/v1/channel-admission-policy/not-a-channel",
+        "PUT",
+        { policy: "trusted_contacts" },
+      ),
+      "not-a-channel",
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("Unknown channelType");
+  });
+
+  test("rejects invalid policy with 400", async () => {
+    const handler = createChannelAdmissionPolicySetHandler();
+    const res = await handler(
+      jsonRequest(
+        "http://localhost/v1/channel-admission-policy/email",
+        "PUT",
+        { policy: "lets-everyone-in" },
+      ),
+      "email",
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/policy/);
+  });
+
+  test("rejects malformed JSON with 400", async () => {
+    const handler = createChannelAdmissionPolicySetHandler();
+    const req = new Request(
+      "http://localhost/v1/channel-admission-policy/email",
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: "{not-json",
+      },
+    );
+    const res = await handler(req, "email");
+    expect(res.status).toBe(400);
+  });
+
+  test("missing note is stored as null", async () => {
+    const handler = createChannelAdmissionPolicySetHandler();
+    const res = await handler(
+      jsonRequest(
+        "http://localhost/v1/channel-admission-policy/telegram",
+        "PUT",
+        { policy: "any_contact" },
+      ),
+      "telegram",
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      policy: { note: string | null };
+    };
+    expect(body.policy.note).toBeNull();
+  });
+
+  test("rejects PUT for hidden channels (`vellum`, `whatsapp`) with 403", async () => {
+    // Hidden channels are managed automatically and not user-configurable;
+    // even a non-kill-switch policy must be rejected so no stranded row forms.
+    const handler = createChannelAdmissionPolicySetHandler();
+    for (const channel of ["vellum", "whatsapp"] as const) {
+      const res = await handler(
+        jsonRequest(
+          `http://localhost/v1/channel-admission-policy/${channel}`,
+          "PUT",
+          { policy: "guardian_only" },
+        ),
+        channel,
+      );
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { error: string; channelType: string };
+      expect(body.channelType).toBe(channel);
+      expect(body.error).toMatch(/managed automatically/);
+      // Nothing was persisted.
+      expect(store.get(channel)).toBe(ADMISSION_POLICY_DEFAULT);
+    }
+  });
+
+  test("§8.1: rejects PUT for exempt channel `a2a` with 403", async () => {
+    const handler = createChannelAdmissionPolicySetHandler();
+    const res = await handler(
+      jsonRequest("http://localhost/v1/channel-admission-policy/a2a", "PUT", {
+        policy: "guardian_only",
+      }),
+      "a2a",
+    );
+    expect(res.status).toBe(403);
+    expect(store.get("a2a")).toBe(ADMISSION_POLICY_DEFAULT);
+  });
+
+  test("upserts `phone` like any enforced channel (voice ingress wired)", async () => {
+    const handler = createChannelAdmissionPolicySetHandler();
+    const res = await handler(
+      jsonRequest("http://localhost/v1/channel-admission-policy/phone", "PUT", {
+        policy: "strangers",
+      }),
+      "phone",
+    );
+    expect(res.status).toBe(200);
+    expect(store.get("phone")).toBe("strangers");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /v1/channel-admission-policy/:channelType
+// ---------------------------------------------------------------------------
+
+describe("DELETE /v1/channel-admission-policy/:channelType", () => {
+  test("removes a configurable channel's row, resetting it to the default", async () => {
+    store.set("slack", "guardian_only");
+    const handler = createChannelAdmissionPolicyDeleteHandler();
+    const res = await handler(
+      jsonRequest("http://localhost/v1/channel-admission-policy/slack", "DELETE"),
+      "slack",
+    );
+    expect(res.status).toBe(200);
+    expect(store.get("slack")).toBe(ADMISSION_POLICY_DEFAULT);
+  });
+
+  test("rejects DELETE for hidden channels (`vellum`, `whatsapp`) with 403", async () => {
+    store.set("whatsapp", "no_one");
+    const handler = createChannelAdmissionPolicyDeleteHandler();
+    for (const channel of ["vellum", "whatsapp"] as const) {
+      const res = await handler(
+        jsonRequest(
+          `http://localhost/v1/channel-admission-policy/${channel}`,
+          "DELETE",
+        ),
+        channel,
+      );
+      expect(res.status).toBe(403);
+    }
+    // The persisted whatsapp row is left untouched by the rejected delete;
+    // the startup seed (not DELETE) is what resets stranded hidden rows.
+    expect(store.get("whatsapp")).toBe("no_one");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /v1/channel-admission-policy (phone enforced)
+// ---------------------------------------------------------------------------
+
+describe("GET /v1/channel-admission-policy — phone enforced", () => {
+  test("includes `phone` in the list response", async () => {
+    const handler = createChannelAdmissionPolicyListHandler();
+    const res = await handler(
+      jsonRequest("http://localhost/v1/channel-admission-policy", "GET"),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { policies: Array<{ channelType: string }> };
+    const seen = new Set(body.policies.map((p) => p.channelType));
+    expect(seen.has("phone")).toBe(true);
+    // Confirm other non-exempt channels still appear.
+    expect(seen.has("telegram")).toBe(true);
+    expect(seen.has("slack")).toBe(true);
+  });
+});

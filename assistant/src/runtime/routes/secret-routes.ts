@@ -22,10 +22,12 @@ import {
   invalidateConfigCache,
 } from "../../config/loader.js";
 import type { CesClient } from "../../credential-execution/client.js";
+import { maybeReseedCapabilitiesAfterManagedCredential } from "../../daemon/memory-v2-startup.js";
 import { setSentryOrganizationId, setSentryUserId } from "../../instrument.js";
 import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import { validateAnthropicApiKey } from "../../providers/anthropic/client.js";
+import { validateAtlasCloudApiKey } from "../../providers/atlascloud/client.js";
 import { validateGeminiApiKey } from "../../providers/gemini/client.js";
 import { validateMinimaxApiKey } from "../../providers/minimax/client.js";
 import { validateOpenAIApiKey } from "../../providers/openai/client.js";
@@ -206,6 +208,15 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           );
           return { success: false, error: validation.reason };
         }
+      } else if (name === "atlascloud") {
+        const validation = await validateAtlasCloudApiKey(value);
+        if (!validation.valid) {
+          log.warn(
+            { provider: name, reason: validation.reason },
+            "API key validation failed",
+          );
+          return { success: false, error: validation.reason };
+        }
       }
 
       const stored = await setSecureKeyAsync(
@@ -286,6 +297,10 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
       }
       if (isManagedProxyCredential(service, field)) {
         await refreshProvidersAfterSecretChange();
+        // Close the first-boot race where the startup capability seed ran before
+        // the managed embedding credential was provisioned, leaving skill/CLI
+        // pages unseeded until restart. Detached — must not block the response.
+        void maybeReseedCapabilitiesAfterManagedCredential(getConfig());
         if (service === "vellum" && field === "assistant_api_key") {
           const generation = ++apiKeyGeneration;
           const deps = getSecretsDeps();
@@ -684,9 +699,21 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["secrets"],
     responseBody: z.object({
       secrets: z
-        .array(z.unknown())
+        .array(
+          z.object({
+            type: z.enum(["api_key", "credential"]),
+            name: z.string(),
+          }),
+        )
         .describe("List of secret metadata entries, each with type and name"),
-      accounts: z.array(z.unknown()).describe("Alias for secrets (same data)"),
+      accounts: z
+        .array(
+          z.object({
+            type: z.enum(["api_key", "credential"]),
+            name: z.string(),
+          }),
+        )
+        .describe("Alias for secrets (same data)"),
     }),
     handler: handleListSecrets,
   },

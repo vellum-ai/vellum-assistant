@@ -1,7 +1,7 @@
 import { and, asc, eq, gt, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getConfig } from "../config/loader.js";
+import { getCachedShareAnalytics } from "../platform/consent-cache.js";
 import { getDb } from "./db-connection.js";
 import { lifecycleEvents } from "./schema.js";
 
@@ -13,7 +13,7 @@ export interface LifecycleEvent {
 
 /** Record a lifecycle event (e.g. app_open, hatch). Returns null when usage data collection is disabled. */
 export function recordLifecycleEvent(eventName: string): LifecycleEvent | null {
-  if (!getConfig().collectUsageData) return null;
+  if (!getCachedShareAnalytics()) return null;
   const db = getDb();
   const event: LifecycleEvent = {
     id: uuid(),

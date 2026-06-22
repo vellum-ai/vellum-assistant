@@ -128,15 +128,20 @@ describe("Parallel tool execution benchmarks", () => {
       return { content: "ok", isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const start = Date.now();
-    await loop.run([userMessage], () => {});
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
     const elapsed = Date.now() - start;
 
     // Parallel: ~50ms + overhead. Sequential would be ~250ms.
@@ -172,15 +177,20 @@ describe("Parallel tool execution benchmarks", () => {
       return { content: "ok", isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const start = Date.now();
-    await loop.run([userMessage], () => {});
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
     const elapsed = Date.now() - start;
 
     // All 10 tools should have executed
@@ -228,16 +238,21 @@ describe("Parallel tool execution benchmarks", () => {
       return { content: "ok", isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
     const start = Date.now();
-    await loop.run([userMessage], collectEvents(events));
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
     const elapsed = Date.now() - start;
 
     // Parallel: ~2000ms (dominated by slow tool). Sequential: ~2400ms (2000 + 4*100).
@@ -298,15 +313,19 @@ describe("Parallel tool execution benchmarks", () => {
         return { content: "should not return", isError: false };
       };
 
-      const loop = new AgentLoop(
-        provider,
-        "system",
-        {},
-        dummyTools,
-        toolExecutor,
-      );
+      const loop = new AgentLoop({
+        provider: provider,
+        systemPrompt: "system",
+        conversationId: "test-conversation",
+        tools: dummyTools,
+        toolExecutor: toolExecutor,
+      });
       const start = Date.now();
-      const { history } = await loop.run([userMessage], () => {}, {
+      const { history } = await loop.run({
+        requestId: "test-request",
+        messages: [userMessage],
+        onEvent: () => {},
+        trust: { sourceChannel: "vellum", trustClass: "unknown" },
         signal: controller.signal,
       });
       const elapsed = Date.now() - start;

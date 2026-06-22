@@ -69,6 +69,18 @@ describe("onboarding template contracts", () => {
       expect(bootstrap).toContain("One-shot");
     });
 
+    test("offers assistant migration during low-signal first openings", () => {
+      expect(bootstrap).toContain("## Assistant migration");
+      expect(bootstrap).toContain("onboarding self-introduction");
+      expect(bootstrap).toContain("treat it as the real first user turn");
+      expect(bootstrap).toContain(
+        "If the first real user turn is only a greeting",
+      );
+      expect(bootstrap).toContain("that first response is the natural opening");
+      expect(bootstrap).toContain("assistant-migration");
+      expect(bootstrap).toContain("do not load or activate");
+    });
+
     test("does not contain personality quiz references", () => {
       expect(bootstrap).not.toMatch(/show.*personality quiz/i);
       expect(bootstrap).not.toMatch(/present.*personality quiz/i);

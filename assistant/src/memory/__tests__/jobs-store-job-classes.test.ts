@@ -40,11 +40,12 @@ describe("memory job classes", () => {
     expect(set.size).toBe(SLOW_LLM_JOB_TYPES.length);
   });
 
-  test("memory_v3_consolidate is a slow LLM job (lane isolation)", () => {
-    // It hands off to a background agent for up to 15 min, like
+  test("memory_v3_maintain is a slow LLM job (lane isolation)", () => {
+    // It runs an LLM classify-union pass over unassigned pages, like
     // memory_v2_consolidate; it must not sit in the fast lane and starve
-    // short jobs. The mechanical v3 jobs intentionally stay fast.
-    expect(SLOW_LLM_JOB_TYPES).toContain("memory_v3_consolidate");
+    // short jobs. The retired v3 job literals intentionally stay out.
+    expect(SLOW_LLM_JOB_TYPES).toContain("memory_v3_maintain");
+    expect(SLOW_LLM_JOB_TYPES).not.toContain("memory_v3_consolidate");
     expect(SLOW_LLM_JOB_TYPES).not.toContain("memory_v3_index_maintenance");
     expect(SLOW_LLM_JOB_TYPES).not.toContain("memory_v3_edge_learning");
   });

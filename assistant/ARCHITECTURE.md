@@ -33,7 +33,7 @@ Safe storage limits protect the workspace volume from running out of disk. The d
 
 **Background work:** Heartbeats, scheduled tasks, filing work, retry sweeps, and background tool completions call `src/daemon/disk-pressure-background-gate.ts` before starting work. While effectively locked they skip the wake or job and log throttled disk-pressure fields.
 
-**Prompt and tools:** Cleanup-mode turns carry `diskPressureContext` through runtime assembly and receive the `<disk_pressure_warning>` injector in `src/plugins/defaults/injectors.ts`. The instruction tells the assistant to warn first, focus only on freeing storage, inspect before deleting, ask for deletion approval, and explain that background processes and trusted-contact messages are blocked. Tool setup marks the turn as cleanup mode; `src/tools/tool-approval-handler.ts` rejects non-cleanup-safe tools, and foreground shell inspection remains available while background `bash` and `host_bash` modes are rejected. When a new lock is created, active background terminal tools are cancelled with reason `disk_pressure`.
+**Prompt and tools:** Cleanup-mode turns carry `diskPressureContext` through runtime assembly and receive the concise `<disk_pressure_warning>` injector in `src/plugins/defaults/memory-retrieval/injectors.ts`. The instruction tells the assistant to warn first, call `skill_load` for `system-storage-cleanup`, and explain that background processes and trusted-contact messages are blocked. Tool setup marks the turn as cleanup mode; `skill_load` remains available so the assistant can load the cleanup skill (or another already-installed skill) for its instructions, but under the lock it performs **no side effects** — it skips catalog auto-install (workspace writes / `bun install`) and strips inline command tokens instead of executing them, so loading a skill cannot write to the workspace or run shell. `skill_execute` and skill-origin tools remain unavailable, and a loaded skill's own tools stay filtered by the cleanup allowlist. The bundled `system-storage-cleanup` skill (`src/config/bundled-skills/system-storage-cleanup/SKILL.md`) carries the detailed cleanup procedure and deletion safety rules, including read-only SQLite diagnosis only; product-owned retention and maintenance work remains tracked separately by ATL-450 and related tickets. `src/tools/tool-approval-handler.ts` rejects non-cleanup-safe tools, and foreground shell inspection remains available while background `bash` and `host_bash` modes are rejected. When a new lock is created, active background terminal tools are cancelled with reason `disk_pressure`.
 
 ### Single-Header JWT Auth Model
 
@@ -343,11 +343,11 @@ The Slack channel provides text-based messaging via Slack's Socket Mode API. Unl
 
 **Control-plane endpoints** (`/v1/integrations/slack/channel/config`):
 
-| Endpoint                                | Method | Description                                                                                                                                                                                                                                                                     |
-| --------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/v1/integrations/slack/channel/config` | GET    | Returns current config status: `hasBotToken`, `hasAppToken`, `hasUserToken`, `connected`, plus workspace metadata (`teamId`, `teamName`, `botUserId`, `botUsername`)                                                                                                            |
-| `/v1/integrations/slack/channel/config` | POST   | Validates and stores credentials. Body: `{ botToken?: string, appToken?: string, userToken?: string }`                                                                                                                                                                          |
-| `/v1/integrations/slack/channel/config` | DELETE | Clears all Slack channel credentials (bot, app, and user tokens) from secure storage and credential metadata. Surgical user-token-only deletion is exposed internally via `clearSlackUserToken` (used by the credential vault) but is not reachable through this HTTP endpoint. |
+| Endpoint                                | Method | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| --------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/v1/integrations/slack/channel/config` | GET    | Returns current config status: `hasBotToken`, `hasAppToken`, `hasUserToken`, `connected`, plus workspace metadata (`teamId`, `teamName`, `botUserId`, `botUsername`)                                                                                                                                                                                                                                                                                              |
+| `/v1/integrations/slack/channel/config` | POST   | Validates and stores credentials. Body: `{ botToken?: string, appToken?: string, userToken?: string }`                                                                                                                                                                                                                                                                                                                                                            |
+| `/v1/integrations/slack/channel/config` | DELETE | Clears all Slack channel credentials (bot, app, and user tokens) from secure storage and credential metadata. The `credentials delete` route handles `slack_channel`/`user_token` like any other credential except that it skips the OAuth teardown, so removing just the user token leaves the channel's connection (run on the bot + app tokens) intact. `clearSlackUserToken` is the surgical user-token-only helper used internally by Slack config handling. |
 
 All endpoints are JWT-authenticated via `Authorization: Bearer <jwt>`.
 
@@ -609,10 +609,9 @@ Audio-to-text conversion occurs in six distinct runtime boundaries, each with it
 | ---------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | **Telephony (hybrid)**       | Twilio-native ConversationRelay or daemon media-stream (provider-conditional) | Configured STT provider (via `services.stt`) | `src/calls/telephony-stt-routing.ts`                                                                                                                                                                                                                       | `src/calls/twilio-routes.ts`                                                   |
 | **Daemon batch**             | Daemon process (REST API to provider)                                         | Configured STT provider (via `services.stt`) | `src/stt/daemon-batch-transcriber.ts`                                                                                                                                                                                                                      | `src/runtime/routes/inbound-stages/transcribe-audio.ts`                        |
-| **Conversation streaming**   | Daemon process (WebSocket-based)                                              | Configured STT provider (via `services.stt`) | `src/stt/stt-stream-session.ts`, `src/providers/speech-to-text/deepgram-realtime.ts`, `src/providers/speech-to-text/google-gemini-live-stream.ts`, `src/providers/speech-to-text/openai-whisper-stream.ts`, `src/providers/speech-to-text/xai-realtime.ts` | `VoiceInputManager` (macOS conversation) via gateway WS proxy                  |
-| **Live voice channel**       | Assistant process (gateway-authenticated WebSocket)                           | Configured STT provider (via `services.stt`) | `src/runtime/http-server.ts`, `src/live-voice/live-voice-session-manager.ts`, `src/live-voice/live-voice-session.ts`, `src/providers/speech-to-text/resolve.ts`, streaming provider adapters                                                               | `LiveVoiceChannelManager` (macOS voice mode) via `/v1/live-voice`              |
-| **Client service-first**     | macOS via gateway → daemon                                                    | Configured STT provider (via `services.stt`) | `src/runtime/routes/stt-routes.ts`, `clients/shared/Network/STTClient.swift`                                                                                                                                                                               | `VoiceInputManager` (macOS dictation), `OpenAIVoiceService` (macOS voice mode) |
-| **Client-native (fallback)** | macOS on-device                                                               | Apple Speech (`SFSpeechRecognizer`)          | `clients/macos/.../SpeechRecognizerAdapter.swift`                                                                                                                                                                                                          | Fallback when STT service is unconfigured or fails                             |
+| **Conversation streaming**   | Daemon process (WebSocket-based)                                              | Configured STT provider (via `services.stt`) | `src/stt/stt-stream-session.ts`, `src/providers/speech-to-text/deepgram-realtime.ts`, `src/providers/speech-to-text/google-gemini-live-stream.ts`, `src/providers/speech-to-text/openai-whisper-stream.ts`, `src/providers/speech-to-text/xai-realtime.ts` | Web/Electron dictation client via gateway WS proxy                             |
+| **Live voice channel**       | Assistant process (gateway-authenticated WebSocket)                           | Configured STT provider (via `services.stt`) | `src/runtime/http-server.ts`, `src/live-voice/live-voice-session-manager.ts`, `src/live-voice/live-voice-session.ts`, `src/providers/speech-to-text/resolve.ts`, streaming provider adapters                                                               | Web/Electron live voice client via `/v1/live-voice`                            |
+| **Client service-first**     | Web/Electron via gateway → daemon                                            | Configured STT provider (via `services.stt`) | `src/runtime/routes/stt-routes.ts`                                                                                                                                                                                                                         | Web/Electron dictation and voice clients                                       |
 
 **Telephony boundary (hybrid routing):**
 
@@ -679,16 +678,14 @@ Two provider adapters are supported, each implementing the `StreamingTranscriber
 
 **Session lifecycle (client side):**
 
-- `STTStreamingClient` (`clients/shared/Network/STTStreamingClient.swift`) manages the WebSocket session using `URLSessionWebSocketTask`. It builds the gateway WebSocket URL via `GatewayHTTPClient.buildWebSocketRequest(path: "stt/stream", params:)`.
-- `STTProviderRegistry` (`clients/shared/Utilities/STTProviderRegistry.swift`) exposes `isStreamingAvailable` (checks the configured provider's `conversationStreamingMode` from the `GET /v1/stt/providers` API) and `isServiceConfigured` (checks whether any STT provider is set).
-- macOS: `VoiceInputManager.startStreamingSession()` creates a fresh `STTStreamingClient` per recording session. Streaming partials take priority over `SFSpeechRecognizer` partials while the stream is active and healthy. When recording stops, if the stream delivered at least one `final` event (`streamingReceivedFinal`) and has not failed (`streamingFailed`), the streaming final text is used directly. Otherwise, the batch STT path (`STTClient.transcribe()`) provides the fallback.
+The web client streaming dictation client lives at `clients/web/src/domains/chat/voice/dictation-stream.ts`; it opens the gateway WebSocket to `/v1/stt/stream`, parses `partial`/`final` frames, and reports failures so the caller can fall back to batch transcription. Before opening a session the client checks the configured provider's `conversationStreamingMode` from the `GET /v1/stt/providers` API. When the stream delivers at least one `final` event and has not failed, the streaming final text is used directly; otherwise the batch STT path (`clients/web/src/domains/chat/voice/stt-api.ts`) provides the fallback.
 
 **Fallback semantics:**
 
 The conversation streaming path degrades gracefully to the existing batch STT path:
 
-1. **Unsupported provider** (a hypothetical provider with `conversationStreamingMode: "none"`): The client checks `STTProviderRegistry.isStreamingAvailable` before attempting a streaming session. When `false`, recording proceeds with the batch-only flow (no WebSocket is opened). On the daemon side, if a streaming session is somehow opened for an unsupported provider, the session sends an `error` event followed by `closed` and closes the socket with code 1000.
-2. **Connection failure** (network error, gateway down, auth failure): The `STTStreamingClient` reports an `STTStreamFailure` to the client's `onFailure` callback. macOS sets `streamingFailed = true` and falls through to batch STT resolution when recording stops.
+1. **Unsupported provider** (a hypothetical provider with `conversationStreamingMode: "none"`): The client checks streaming availability (the configured provider's `conversationStreamingMode` from `GET /v1/stt/providers`) before attempting a streaming session. When unavailable, recording proceeds with the batch-only flow (no WebSocket is opened). On the daemon side, if a streaming session is somehow opened for an unsupported provider, the session sends an `error` event followed by `closed` and closes the socket with code 1000.
+2. **Connection failure** (network error, gateway down, auth failure): The streaming client reports the failure to its caller, which marks the stream as failed and falls through to batch STT resolution when recording stops.
 3. **Mid-session provider error** (provider WebSocket disconnect, timeout, rate limit): The daemon session emits an `error` event (with a normalized `SttErrorCategory`) followed by `closed`. The client marks the stream as failed and defers to batch STT.
 4. **Missing credentials**: `resolveStreamingTranscriber()` returns `null` when the API key is not configured. The session sends an `error`+`closed` pair and the client falls back to batch.
 
@@ -713,9 +710,8 @@ The conversation streaming path degrades gracefully to the existing batch STT pa
 | `src/providers/speech-to-text/resolve.ts`                   | `resolveStreamingTranscriber()`: credential-aware factory for streaming adapters; `resolveConversationStreamingSttCapability()`: capability validator |
 | `src/runtime/http-server.ts`                                | Runtime WebSocket upgrade handler for `/v1/stt/stream`, session registry (`activeSttStreamSessions`), graceful shutdown                               |
 | `gateway/src/http/routes/stt-stream-websocket.ts`           | Gateway WebSocket proxy: authenticates client, opens upstream WS to daemon with service token                                                         |
-| `clients/shared/Network/STTStreamingClient.swift`           | Shared Swift WebSocket client: `URLSessionWebSocketTask`-based, event parsing, failure reporting                                                      |
-| `clients/shared/Utilities/STTProviderRegistry.swift`        | Client-side provider catalog: `isStreamingAvailable`, `conversationStreamingMode` per provider                                                        |
-| `clients/macos/.../VoiceInputManager.swift`                 | macOS integration: `startStreamingSession()`, streaming/batch priority, fallback on failure                                                           |
+| `clients/web/src/domains/chat/voice/dictation-stream.ts`       | Web streaming dictation client: WebSocket session, event parsing, failure reporting                                                                   |
+| `clients/web/src/domains/chat/voice/voice-recording-store.ts`  | Web voice recording state: streaming/batch priority, fallback on failure                                                                              |
 
 **Live voice channel boundary:**
 
@@ -742,58 +738,44 @@ V1 is local/gateway-scoped. Managed/cloud WebSocket proxy support, cross-region 
 
 **Client service-first boundary:**
 
-All product-facing dictation and voice-streaming paths on macOS use a service-first STT strategy. Clients record audio, encode it to WAV via `AudioWavEncoder` (shared utility in `clients/shared/Utilities/AudioWavEncoder.swift`), and POST it through the gateway to the daemon's `POST /v1/stt/transcribe` endpoint via `STTClient` (`clients/shared/Network/STTClient.swift`). The daemon resolves the configured STT provider through `resolveBatchTranscriber()` and returns the transcribed text.
+All product-facing dictation and voice-streaming paths use a service-first STT strategy. Clients record audio, encode it to WAV, and POST it through the gateway to the daemon's `POST /v1/stt/transcribe` endpoint. The daemon resolves the configured STT provider through `resolveBatchTranscriber()` and returns the transcribed text.
 
-- `STTClient` conforms to `STTClientProtocol` and returns a typed `STTResult` enum (`success`, `notConfigured`, `serviceUnavailable`, `error`). Callers pattern-match on the result to deterministically trigger native fallback.
+- The client receives a typed result distinguishing success from `notConfigured`, `serviceUnavailable`, and `error`, so callers can deterministically trigger their fallback path.
 - The gateway proxies the request via assistant-scoped path rewriting: `/v1/assistants/:id/stt/transcribe` is rewritten to `/v1/stt/transcribe` on the daemon.
 - `stt-routes.ts` (`src/runtime/routes/stt-routes.ts`) defines the HTTP endpoint, validates the audio payload, and delegates to `resolveBatchTranscriber()`.
 
-Product-facing flows using service-first STT:
-
-| Flow                          | Client | Entry point                                                                                                                                                                                         |
-| ----------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Push-to-talk dictation**    | macOS  | `VoiceInputManager.resolveTranscription()` — encodes accumulated PCM buffers to WAV, calls `sttClient.transcribe()`, falls back to native text on failure                                           |
-| **Conversation chat capture** | macOS  | `VoiceInputManager.handleFinalTranscription()` — prefers streaming final when available; falls back to batch `sttClient.transcribe()` when streaming was not used, failed, or produced no finals    |
-| **Voice mode (streaming)**    | macOS  | `OpenAIVoiceService.stopRecordingAndGetTranscription()` — encodes per-turn PCM to WAV, calls `sttClient.transcribe()` for turn-final transcript resolution, falls back to SFSpeechRecognizer result |
-
-**Client-native fallback boundary:**
-
-Apple-native on-device recognition via `SFSpeechRecognizer` serves two roles in all three product-facing flows above: (1) it provides low-latency partial transcriptions for real-time display during recording, and (2) it provides the fallback final transcription when the STT service is unconfigured (HTTP 503), temporarily unavailable (HTTP 5xx), or returns an empty result. The `SpeechRecognizerAdapter` protocols on each platform abstract Apple Speech for **testability and dependency injection**.
-
-The macOS `SpeechRecognizerAdapter` protocol in `clients/macos/vellum-assistant/Features/Voice/SpeechRecognizerAdapter.swift` abstracts `SFSpeechRecognizer` static APIs and instance creation. `AppleSpeechRecognizerAdapter` is the production implementation. `OpenAIVoiceService` and `VoiceInputManager` consume the adapter via dependency injection. **Note:** The protocol leaks Apple Speech types through its surface — `authorizationStatus()` returns `SFSpeechRecognizerAuthorizationStatus` and `makeRecognizer(locale:)` returns `SFSpeechRecognizer?` directly. This means callers depend on the Speech framework at compile time.
+The web client implements these flows in `clients/web/src/domains/chat/voice/`: `stt-api.ts` (batch transcribe), `dictation-stream.ts` (streaming dictation), and `voice-recording-store.ts` (recording state, streaming/batch priority, fallback). Push-to-talk dictation and conversation chat capture prefer a streaming final when available and fall back to batch transcription when streaming was not used, failed, or produced no finals.
 
 **Cross-boundary notes:**
 
 - The `services.stt` config block is the single source of truth for STT provider selection across the daemon batch boundary, the conversation streaming boundary, the client service-first boundary, and the telephony boundary. The batch and streaming resolvers (`resolveBatchTranscriber()`, `resolveStreamingTranscriber()`) both read from `services.stt.provider` and resolve credentials through the same catalog; the telephony boundary uses `resolveTelephonySttRouting()` to determine the Twilio integration strategy. The daemon provider catalog (`src/providers/speech-to-text/provider-catalog.ts`) is the authoritative registry of supported providers. Native clients fetch display metadata via `GET /v1/stt/providers`.
 - Conversation streaming does not replace the client service-first batch path. When streaming is available, it runs concurrently during recording and provides real-time partials and finals. The batch path remains the fallback for providers that do not support streaming, when streaming fails mid-session, or when streaming produces no final transcript.
 - Credential mapping is catalog-driven: `provider-secret-catalog.ts` derives STT API-key provider names from the daemon catalog via `listCredentialProviderNames()`, deduplicating against the LLM/search provider list. Adding a provider to the catalog automatically includes its credential name in `API_KEY_PROVIDERS`.
-- Terminology: "STT" and "transcription" refer to the same operation (converting audio to text). "Speech recognition" is used in client-native contexts where Apple's Speech framework terminology is canonical. All three terms map to the same conceptual operation.
+- Terminology: "STT", "transcription", and "speech recognition" all refer to the same operation (converting audio to text).
 - **Onboarding**: For a step-by-step guide to adding a new STT provider, see `docs/stt-provider-onboarding.md`.
 
-### Update Bulletin System
+### On-Demand Home Content Generation
 
-Release-driven update notification system that dispatches a background conversation to process release notes when a release lands.
+LLM-generated content shown by clients (personalized home greeting, suggested prompts, conversation starters) is produced on demand, never at daemon startup or on unconditional timers.
 
-**Data flow:**
+**Data flow (home greeting + suggested prompts):**
 
-1. **Storage** — Release notes live at `<workspace>/UPDATES.md`. The file is written by workspace migrations; each release that needs to surface notes ships a dedicated migration in `src/workspace/migrations/` that appends a release-notes block to the file. The workspace-migration runner is the authoritative idempotency mechanism: `runWorkspaceMigrations()` records each migration's `WorkspaceMigration.id` in `<workspace>/data/.workspace-migrations.json` and never re-runs an ID that is already in the `applied` set.
-2. **Dispatch** — At daemon startup (after `runWorkspaceMigrations()`), `runUpdateBulletinJobIfNeeded()` is invoked fire-and-forget. It hashes the current `UPDATES.md` content and compares against the `updates:last_processed_hash` checkpoint. When the hashes differ, it bootstraps a `conversationType: "background"` conversation and calls `wakeAgentForOpportunity()` so the agent processes the bulletin without any interactive session.
-3. **Completion** — The agent acts on the contents and deletes `UPDATES.md` when done. The job persists the new hash to `updates:last_processed_hash` post-wake, so subsequent startups short-circuit until the file is repopulated by a future migration.
+1. **Read** — `GET /v1/home/feed` reads both caches synchronously: the greeting from `memory_checkpoints` (`home:greeting:*`, 4-hour TTL, busted when identity files change) and suggested prompts from `memory_checkpoints` (`home:suggested_prompts:*`, 4-hour TTL, invalidated on OAuth connect/disconnect). When a cache is empty the handler falls back to a time-of-day greeting and an empty prompt list.
+2. **Revalidate** — The same GET fires `revalidateHomeContentInBackground()` (`src/home/home-content-refresh.ts`) fire-and-forget. It is single-flight (concurrent GETs share one run) and each refresher no-ops while its cache is fresh, so generation happens at most once per TTL window — and only when a user actually views Home.
+3. **Notify** — When fresh content lands, the coordinator publishes a `home_feed_updated` event; connected clients refetch the feed and the personalized content swaps in.
 
-**Checkpoint keys** (in `memory_checkpoints` table):
-
-- `updates:last_processed_hash` — content hash of the `UPDATES.md` payload most recently dispatched to the background job.
+Conversation starters follow the same pattern via `GET /v1/conversation-starters`, which enqueues a `generate_conversation_starters` memory job when the starter set is stale (cooldown-gated, deduped against in-flight jobs).
 
 **Key source files:**
 
-| File                                   | Purpose                                                                                   |
-| -------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `src/workspace/migrations/`            | Per-release migrations that append release notes to `UPDATES.md`                          |
-| `src/workspace/migrations/registry.ts` | Append-only `WORKSPACE_MIGRATIONS` registry                                               |
-| `src/prompts/update-bulletin-job.ts`   | `runUpdateBulletinJobIfNeeded()` — hash check, background dispatch, and checkpoint update |
-| `src/daemon/lifecycle.ts`              | Fire-and-forget dispatch of `runUpdateBulletinJobIfNeeded()` after DB init at startup     |
-| `src/config/schemas/updates.ts`        | `updates.enabled` config toggle (defaults to `true`; disables the background dispatch)    |
-| `src/permissions/defaults.ts`          | Auto-allow rules for file_read/write/edit + bare-filename `rm UPDATES.md`                 |
+| File                                                | Purpose                                                                  |
+| --------------------------------------------------- | ------------------------------------------------------------------------ |
+| `src/home/home-content-refresh.ts`                  | Single-flight on-demand revalidation coordinator + SSE notify            |
+| `src/home/home-greeting.ts`                         | Greeting generation (BTW side-chain, `homeGreeting` call site)           |
+| `src/home/home-greeting-cache.ts`                   | Checkpoint-backed greeting cache with identity-hash invalidation         |
+| `src/home/suggested-prompts.ts`                     | Prompt generation + checkpoint-backed cache + OAuth invalidation         |
+| `src/runtime/routes/home-feed-routes.ts`            | `GET /v1/home/feed` — cached read + fire-and-forget revalidation trigger |
+| `src/runtime/routes/conversation-starter-routes.ts` | On-demand starter refresh via memory job enqueue                         |
 
 ---
 
@@ -870,7 +852,7 @@ graph LR
         SL["logs/session-*.json<br/>───────────────<br/>Per-session JSON log<br/>task, start/end times, result<br/>Per-turn: AX tree, screenshot,<br/>action, token usage"]
     end
 
-    subgraph "~/.vellum/workspace/data/db/assistant.db (SQLite + WAL)"
+    subgraph "$VELLUM_WORKSPACE_DIR/data/db/assistant.db (SQLite + WAL)"
         direction TB
         CONV["conversations<br/>───────────────<br/>id, title, timestamps<br/>token counts, estimated cost<br/>context_summary (compaction)<br/>conversation_type: 'standard' | 'background' | 'scheduled'<br/>memory_scope_id: 'default' | '_pkb_workspace' | 'subagent:&lt;id&gt;'"]
         MSG["messages<br/>───────────────<br/>id, conversation_id (FK)<br/>role: user | assistant<br/>content: JSON array<br/>created_at"]
@@ -893,7 +875,7 @@ graph LR
         TRUST["protected/trust.json<br/>Tool permission rules"]
     end
 
-    subgraph "~/.vellum/workspace/ (Workspace Files)"
+    subgraph "$VELLUM_WORKSPACE_DIR/ (Workspace Files)"
         CONFIG["config files<br/>Hot-reloaded by daemon"]
         ONBOARD_PLAYBOOKS["onboarding/playbooks/<br/>[channel]_onboarding.md<br/>assistant-updatable checklists"]
         ONBOARD_REGISTRY["onboarding/playbooks/registry.json<br/>channel-start index for fast-path + reconciliation"]
@@ -925,7 +907,7 @@ graph TB
         LOCAL_CLIENT["RuntimeClient"]
         LOCAL_HTTP["HTTP API<br/>localhost:RUNTIME_HTTP_PORT"]
         LOCAL_DAEMON["Local Daemon<br/>(same machine)"]
-        LOCAL_DB["~/.vellum/workspace/data/db/assistant.db"]
+        LOCAL_DB["$VELLUM_WORKSPACE_DIR/data/db/assistant.db"]
     end
 
     subgraph "Cloud Mode"
@@ -1088,12 +1070,12 @@ All overflow recovery settings live under `contextWindow.overflowRecovery` in th
 
 ### Key Source Files
 
-| File                                     | Purpose                                                                       |
-| ---------------------------------------- | ----------------------------------------------------------------------------- |
-| `src/daemon/context-overflow-reducer.ts` | Tiered reducer: four-tier pipeline with idempotent steps and cumulative state |
-| `src/daemon/context-overflow-policy.ts`  | Overflow policy resolver: maps config + interactivity to concrete action      |
-| `src/daemon/conversation-agent-loop.ts`  | Integration: preflight budget check, convergence loop, emergency compaction   |
-| `src/config/core-schema.ts`              | `ContextOverflowRecoveryConfigSchema` with defaults and validation            |
+| File                                                          | Purpose                                                                       |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `src/plugins/defaults/compaction/context-overflow-reducer.ts` | Tiered reducer: four-tier pipeline with idempotent steps and cumulative state |
+| `src/daemon/context-overflow-policy.ts`                       | Overflow policy resolver: maps config + interactivity to concrete action      |
+| `src/daemon/conversation-agent-loop.ts`                       | Integration: preflight budget check, convergence loop, emergency compaction   |
+| `src/config/core-schema.ts`                                   | `ContextOverflowRecoveryConfigSchema` with defaults and validation            |
 
 ---
 
@@ -1159,7 +1141,7 @@ graph TB
 
     NATIVE -->|"macOS"| SBPL["sandbox-exec<br/>SBPL profile<br/>deny-default + allow workdir"]
     NATIVE -->|"Linux"| BWRAP["bwrap<br/>bubblewrap<br/>ro-root + rw-workdir<br/>unshare-net + unshare-pid"]
-    SBPL --> SB_FS["Sandbox filesystem root<br/>~/.vellum/workspace"]
+    SBPL --> SB_FS["Sandbox filesystem root<br/>$VELLUM_WORKSPACE_DIR"]
     BWRAP --> SB_FS
 
     EXEC -->|"host_file_* / host_bash"| HOST_TOOLS["Host-target tools<br/>(unchanged by backend choice)"]
@@ -1177,7 +1159,7 @@ graph TB
 - **Native backend**: Uses OS-level sandboxing — `sandbox-exec` with SBPL profiles on macOS, `bwrap` (bubblewrap) on Linux. Denies network access and restricts filesystem writes to the sandbox root, `/tmp`, `/private/tmp`, and `/var/folders` (macOS) or the sandbox root and `/tmp` (Linux).
 - **Fail-closed**: The native backend refuses to execute unsandboxed if its prerequisites are unavailable, throwing `ToolError` with actionable messages on failure.
 - **Host tools unchanged**: `host_bash`, `host_file_read`, `host_file_write`, and `host_file_edit` always execute directly on the host regardless of which sandbox backend is active.
-- Sandbox defaults: `file_*` and `bash` execute within `~/.vellum/workspace`.
+- Sandbox defaults: `file_*` and `bash` execute within `$VELLUM_WORKSPACE_DIR`.
 - Host access is explicit: `host_file_read`, `host_file_write`, `host_file_edit`, and `host_bash` are separate tools.
 - Prompt defaults: host tools and `computer_use_*` skill-projected actions default to `ask` unless a trust rule allowlists/denylists them.
 - Browser tool defaults: all `browser_*` tools are auto-allowed by default via seeded allow rules at priority 100, preserving the frictionless UX from when browser was a core tool.
@@ -1211,7 +1193,7 @@ Key behaviors:
 
 ## Dynamic Skill Authoring — Tool Flow
 
-The assistant can author, test, and persist new skills at runtime through a three-tool workflow. All operations target `~/.vellum/workspace/skills/` (managed skills directory) and require explicit user confirmation.
+The assistant can author, test, and persist new skills at runtime through a three-tool workflow. All operations target `$VELLUM_WORKSPACE_DIR/skills/` (managed skills directory) and require explicit user confirmation.
 
 ```mermaid
 graph TB
@@ -1227,7 +1209,7 @@ graph TB
     subgraph "2. Persist (Filesystem)"
         SCAFFOLD["scaffold_managed_skill<br/>───────────────<br/>RiskLevel: High<br/>Requires user consent"]
         MANAGED_STORE["managed-store.ts<br/>───────────────<br/>validateManagedSkillId()<br/>buildSkillMarkdown()<br/>createManagedSkill()"]
-        SKILL_DIR["~/.vellum/workspace/skills/&lt;id&gt;/<br/>SKILL.md (frontmatter + body)"]
+        SKILL_DIR["$VELLUM_WORKSPACE_DIR/skills/&lt;id&gt;/<br/>SKILL.md (frontmatter + body)"]
     end
 
     subgraph "3. Load & Use"
@@ -2095,44 +2077,44 @@ Connected channels are resolved at signal emission time: vellum is always includ
 
 ## Storage Summary
 
-| What                                     | Where                                                | Format                              | ORM/Driver                         | Retention                                               |
-| ---------------------------------------- | ---------------------------------------------------- | ----------------------------------- | ---------------------------------- | ------------------------------------------------------- |
-| API key                                  | CES / encrypted file store                           | Encrypted binary                    | CES API / `secure-keys.ts`         | Permanent                                               |
-| Credential secrets                       | CES / encrypted file store                           | Encrypted binary                    | `secure-keys.ts` wrapper           | Permanent (until deleted via tool)                      |
-| Credential metadata                      | `~/.vellum/workspace/data/credentials/metadata.json` | JSON                                | Atomic file write                  | Permanent (until deleted via tool)                      |
-| Integration OAuth tokens                 | CES / encrypted file store (via `secure-keys.ts`)    | Encrypted binary                    | `TokenManager` auto-refresh        | Until disconnected or revoked                           |
-| User preferences                         | UserDefaults                                         | plist                               | Foundation                         | Permanent                                               |
-| Session logs                             | `~/Library/.../logs/session-*.json`                  | JSON per session                    | Swift Codable                      | Unbounded                                               |
-| Conversations & messages                 | `~/.vellum/workspace/data/db/assistant.db`           | SQLite + WAL                        | Drizzle ORM (Bun)                  | Permanent                                               |
-| Memory segments                          | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent                                               |
-| Extracted facts                          | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent, deduped                                      |
-| Embeddings                               | `~/.vellum/workspace/data/db/assistant.db`           | JSON float arrays                   | Drizzle ORM                        | Permanent                                               |
-| Async job queue                          | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Completed jobs persist                                  |
-| Attachments                              | `~/.vellum/workspace/data/db/assistant.db`           | Base64 in SQLite                    | Drizzle ORM                        | Permanent                                               |
-| Sandbox filesystem                       | `~/.vellum/workspace`                                | Real filesystem tree                | Node FS APIs                       | Persistent across sessions                              |
-| Tool permission rules                    | `~/.vellum/protected/trust.json`                     | JSON                                | File I/O                           | Permanent                                               |
-| Web users & assistants                   | PostgreSQL                                           | Relational                          | Drizzle ORM (pg)                   | Permanent                                               |
-| Trace events                             | In-memory (TraceStore)                               | Structured events                   | Swift ObservableObject             | Max 5,000 per session, ephemeral                        |
-| Media embed settings                     | `~/.vellum/workspace/config.json` (`ui.mediaEmbeds`) | JSON                                | `WorkspaceConfigIO` (atomic merge) | Permanent                                               |
-| Media embed MIME cache                   | In-memory (`ImageMIMEProbe`)                         | `NSCache` (500 entries)             | HTTP HEAD                          | Ephemeral; cleared on app restart                       |
-| Tasks & task runs                        | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent                                               |
-| Work items (Task Queue)                  | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; archived items retained                      |
-| Recurrence schedules & runs              | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; supports cron and RRULE syntax               |
-| Watchers & events                        | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent, cascade on watcher delete                    |
-| Proxy CA cert + key                      | `{dataDir}/proxy-ca/`                                | PEM files (ca.pem, ca-key.pem)      | openssl CLI                        | Permanent (10-year validity)                            |
-| Proxy leaf certs                         | `{dataDir}/proxy-ca/issued/`                         | PEM files per hostname              | openssl CLI, cached                | 1-year validity, re-issued on CA change                 |
-| Proxy sessions                           | In-memory (SessionManager)                           | Map<ProxySessionId, ManagedSession> | Manual lifecycle                   | Ephemeral; 5min idle timeout, cleared on shutdown       |
-| Call sessions, events, pending questions | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent, cascade on session delete                    |
-| Active call controllers                  | In-memory (CallState)                                | Map<callSessionId, CallController>  | Manual lifecycle                   | Ephemeral; cleared on call end or destroy               |
-| Guardian bindings                        | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; revoked bindings retained                    |
-| Channel verification sessions            | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; consumed/expired sessions retained           |
-| Guardian approval requests               | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; decision outcome retained                    |
-| Contact invites                          | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; token hash stored, raw token never persisted |
-| Contacts & channels                      | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; revoked/blocked contacts retained            |
-| Notification events                      | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; deduplicated by dedupeKey                    |
-| Notification decisions                   | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; FK to notification_events                    |
-| Notification deliveries                  | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; FK to notification_decisions                 |
-| Notification preferences                 | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; per-assistant conversational preferences     |
+| What                                     | Where                                                  | Format                              | ORM/Driver                         | Retention                                               |
+| ---------------------------------------- | ------------------------------------------------------ | ----------------------------------- | ---------------------------------- | ------------------------------------------------------- |
+| API key                                  | CES / encrypted file store                             | Encrypted binary                    | CES API / `secure-keys.ts`         | Permanent                                               |
+| Credential secrets                       | CES / encrypted file store                             | Encrypted binary                    | `secure-keys.ts` wrapper           | Permanent (until deleted via tool)                      |
+| Credential metadata                      | `$VELLUM_WORKSPACE_DIR/data/credentials/metadata.json` | JSON                                | Atomic file write                  | Permanent (until deleted via tool)                      |
+| Integration OAuth tokens                 | CES / encrypted file store (via `secure-keys.ts`)      | Encrypted binary                    | `TokenManager` auto-refresh        | Until disconnected or revoked                           |
+| User preferences                         | UserDefaults                                           | plist                               | Foundation                         | Permanent                                               |
+| Session logs                             | `~/Library/.../logs/session-*.json`                    | JSON per session                    | Swift Codable                      | Unbounded                                               |
+| Conversations & messages                 | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite + WAL                        | Drizzle ORM (Bun)                  | Permanent                                               |
+| Memory segments                          | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent                                               |
+| Extracted facts                          | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent, deduped                                      |
+| Embeddings                               | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | JSON float arrays                   | Drizzle ORM                        | Permanent                                               |
+| Async job queue                          | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Completed jobs persist                                  |
+| Attachments                              | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | Base64 in SQLite                    | Drizzle ORM                        | Permanent                                               |
+| Sandbox filesystem                       | `$VELLUM_WORKSPACE_DIR`                                | Real filesystem tree                | Node FS APIs                       | Persistent across sessions                              |
+| Tool permission rules                    | `~/.vellum/protected/trust.json`                       | JSON                                | File I/O                           | Permanent                                               |
+| Web users & assistants                   | PostgreSQL                                             | Relational                          | Drizzle ORM (pg)                   | Permanent                                               |
+| Trace events                             | In-memory (TraceStore)                                 | Structured events                   | Swift ObservableObject             | Max 5,000 per session, ephemeral                        |
+| Media embed settings                     | `$VELLUM_WORKSPACE_DIR/config.json` (`ui.mediaEmbeds`) | JSON                                | `WorkspaceConfigIO` (atomic merge) | Permanent                                               |
+| Media embed MIME cache                   | In-memory (`ImageMIMEProbe`)                           | `NSCache` (500 entries)             | HTTP HEAD                          | Ephemeral; cleared on app restart                       |
+| Tasks & task runs                        | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent                                               |
+| Work items (Task Queue)                  | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; archived items retained                      |
+| Recurrence schedules & runs              | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; supports cron and RRULE syntax               |
+| Watchers & events                        | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent, cascade on watcher delete                    |
+| Proxy CA cert + key                      | `{dataDir}/proxy-ca/`                                  | PEM files (ca.pem, ca-key.pem)      | openssl CLI                        | Permanent (10-year validity)                            |
+| Proxy leaf certs                         | `{dataDir}/proxy-ca/issued/`                           | PEM files per hostname              | openssl CLI, cached                | 1-year validity, re-issued on CA change                 |
+| Proxy sessions                           | In-memory (SessionManager)                             | Map<ProxySessionId, ManagedSession> | Manual lifecycle                   | Ephemeral; 5min idle timeout, cleared on shutdown       |
+| Call sessions, events, pending questions | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent, cascade on session delete                    |
+| Active call controllers                  | In-memory (CallState)                                  | Map<callSessionId, CallController>  | Manual lifecycle                   | Ephemeral; cleared on call end or destroy               |
+| Guardian bindings                        | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; revoked bindings retained                    |
+| Channel verification sessions            | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; consumed/expired sessions retained           |
+| Guardian approval requests               | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; decision outcome retained                    |
+| Contact invites                          | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; token hash stored, raw token never persisted |
+| Contacts & channels                      | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; revoked/blocked contacts retained            |
+| Notification events                      | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; deduplicated by dedupeKey                    |
+| Notification decisions                   | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; FK to notification_events                    |
+| Notification deliveries                  | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; FK to notification_decisions                 |
+| Notification preferences                 | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; per-assistant conversational preferences     |
 
 ### Sensitive Tool Output Placeholder Substitution
 

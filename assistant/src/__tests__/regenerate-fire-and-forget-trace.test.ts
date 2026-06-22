@@ -104,6 +104,7 @@ function buildContext(
   ];
 
   const traceEvents = overrides.traceEvents ?? [];
+  let processing = false;
 
   const runAgentLoop: HistoryConversationContext["runAgentLoop"] =
     overrides.runAgentLoop ??
@@ -120,7 +121,10 @@ function buildContext(
     } as unknown as HistoryConversationContext["traceEmitter"],
     sendToClient: () => {},
     messages,
-    processing: false,
+    isProcessing: () => processing,
+    setProcessing: (value: boolean) => {
+      processing = value;
+    },
     abortController: null,
     runAgentLoop,
   };

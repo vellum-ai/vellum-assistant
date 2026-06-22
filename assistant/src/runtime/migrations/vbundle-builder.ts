@@ -3,7 +3,7 @@
  *
  * A .vbundle is a gzip-compressed tar archive containing:
  * - manifest.json: metadata with schema_version, checksums, and bundle info
- * - workspace/: the entire ~/.vellum/workspace/ directory tree (DB, config,
+ * - workspace/: the entire $VELLUM_WORKSPACE_DIR/ directory tree (DB, config,
  *   skills, prompts, attachments, etc.) — excluding large/regenerable
  *   dirs (embedding-models/, data/qdrant/)
  */
@@ -11,7 +11,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
-  createReadStream,
   createWriteStream,
   existsSync,
   lstatSync,
@@ -21,7 +20,7 @@ import {
   readSync,
   realpathSync,
 } from "node:fs";
-import { stat, unlink } from "node:fs/promises";
+import { type FileHandle, open, stat, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
@@ -668,7 +667,7 @@ export interface BuildExportVBundleOptions {
   /** Whether secrets were stripped from the bundle before archiving. */
   secretsRedacted: boolean;
   /**
-   * Absolute path to the workspace directory (~/.vellum/workspace/).
+   * Absolute path to the workspace directory ($VELLUM_WORKSPACE_DIR/).
    * When provided and exists, the entire directory tree is walked and
    * included in the archive under the "workspace/" prefix, skipping
    * large/regenerable dirs (embedding-models/, data/qdrant/).
@@ -679,8 +678,9 @@ export interface BuildExportVBundleOptions {
    * Optional callback to checkpoint the WAL before reading the database file.
    * In WAL mode, committed rows may live in the -wal file and not yet be
    * flushed to the main .db file. Callers should pass a function that runs
-   * PRAGMA wal_checkpoint(FULL) on the live database connection. (Not
-   * TRUNCATE — see assistant/AGENTS.md "SQLite WAL checkpointing".)
+   * PRAGMA wal_checkpoint(FULL) on the live database connection — FULL
+   * flushes committed frames to the .db file without the extra WAL restart
+   * and truncation that TRUNCATE performs.
    * Called before the workspace walk so the DB file is up to date.
    *
    * May return a Promise — `streamExportVBundle` awaits the result so an
@@ -696,7 +696,7 @@ export interface BuildExportVBundleOptions {
 /**
  * Build a .vbundle archive populated with real assistant data.
  *
- * Walks the entire workspace directory (~/.vellum/workspace/) and includes
+ * Walks the entire workspace directory ($VELLUM_WORKSPACE_DIR/) and includes
  * all files in the archive, skipping only large/regenerable directories
  * (embedding-models/, data/qdrant/). Binary files (SQLite DB, attachments)
  * are included.
@@ -885,9 +885,10 @@ export function walkDirectoryForMetadata(
 }
 
 /**
- * Compute SHA-256 hex digest of a file by streaming — never buffers the
- * entire file in memory. When `size` is provided, only hashes the first
- * `size` bytes to match what will be archived in the tar entry.
+ * Compute SHA-256 hex digest of a file by reading it in bounded chunks —
+ * never buffers the entire file in memory. When `size` is provided, only
+ * hashes the first `size` bytes to match what will be archived in the tar
+ * entry.
  */
 async function computeFileSha256(
   filePath: string,
@@ -895,11 +896,28 @@ async function computeFileSha256(
 ): Promise<string> {
   const hash = createHash("sha256");
   if (size === 0) return hash.digest("hex");
-  const streamOpts =
-    size !== undefined ? { start: 0, end: size - 1 } : undefined;
-  const stream = createReadStream(filePath, streamOpts);
-  for await (const chunk of stream) {
-    hash.update(chunk);
+
+  // Read through an explicitly-managed FileHandle so the descriptor is
+  // always released in `finally`. This pass opens every file in the
+  // workspace, so any per-file descriptor leak here would exhaust the
+  // daemon's file-descriptor limit (EMFILE). A bounded read loop keeps peak
+  // memory flat regardless of file size.
+  const readChunkBytes = 64 * 1024;
+  const handle = await open(filePath, "r");
+  try {
+    const chunk = Buffer.allocUnsafe(readChunkBytes);
+    let position = 0;
+    for (;;) {
+      const remaining = size !== undefined ? size - position : Infinity;
+      if (remaining <= 0) break;
+      const toRead = Math.min(chunk.length, remaining);
+      const { bytesRead } = await handle.read(chunk, 0, toRead, position);
+      if (bytesRead === 0) break;
+      hash.update(chunk.subarray(0, bytesRead));
+      position += bytesRead;
+    }
+  } finally {
+    await handle.close();
   }
   return hash.digest("hex");
 }
@@ -1055,21 +1073,33 @@ async function* generateTarStream(
       // alignment. The WAL checkpoint before export is the primary
       // consistency mechanism for the database.
       let bytesWritten = 0;
-      if (file.size > 0) {
+      if (entrySize > 0) {
+        // Read through an explicitly-managed FileHandle so the descriptor is
+        // released in `finally` even when the consumer abandons the generator
+        // mid-file. Each read uses a fresh buffer so a yielded chunk is never
+        // overwritten by the next read before the consumer drains it.
+        let handle: FileHandle | undefined;
         try {
-          const stream = createReadStream(file.diskPath, {
-            start: 0,
-            end: file.size - 1,
-          });
-          for await (const chunk of stream) {
-            const data =
-              chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
-            bytesWritten += data.length;
-            yield data;
+          handle = await open(file.diskPath, "r");
+          const readChunkBytes = 64 * 1024;
+          while (bytesWritten < entrySize) {
+            const toRead = Math.min(readChunkBytes, entrySize - bytesWritten);
+            const buf = Buffer.allocUnsafe(toRead);
+            const { bytesRead } = await handle.read(
+              buf,
+              0,
+              toRead,
+              bytesWritten,
+            );
+            if (bytesRead === 0) break;
+            bytesWritten += bytesRead;
+            yield bytesRead === buf.length ? buf : buf.subarray(0, bytesRead);
           }
         } catch {
           // File was deleted or rotated between passes — emit zeros for
           // the full declared size so the tar structure stays valid
+        } finally {
+          if (handle) await handle.close();
         }
       }
 

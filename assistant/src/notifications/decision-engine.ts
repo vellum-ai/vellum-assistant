@@ -24,17 +24,21 @@ import type { Provider } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import {
+  buildAccessRequestContractText,
+  buildAccessRequestInviteDirective,
+  hasAccessRequestInstructions,
+  hasInviteFlowDirective,
+} from "./access-request-copy.js";
+import {
+  buildAccessRequestSeedContentBlocks,
+  buildToolApprovalSeedContentBlocks,
+} from "./approval-card-data.js";
+import {
   buildConversationCandidates,
   type ConversationCandidateSet,
   serializeCandidatesForPrompt,
 } from "./conversation-candidates.js";
-import {
-  buildAccessRequestContractText,
-  buildAccessRequestInviteDirective,
-  composeFallbackCopy,
-  hasAccessRequestInstructions,
-  hasInviteFlowDirective,
-} from "./copy-composer.js";
+import { composeFallbackCopy, deriveTitle } from "./copy-composer.js";
 import { createDecision } from "./decisions-store.js";
 import {
   buildGuardianRequestCodeInstruction,
@@ -42,6 +46,7 @@ import {
   resolveGuardianQuestionInstructionMode,
   stripConflictingGuardianRequestInstructions,
 } from "./guardian-question-mode.js";
+import { nonEmpty, readPayloadString } from "./notification-utils.js";
 import { getPreferenceSummary } from "./preference-summary.js";
 import type { NotificationSignal, RoutingIntent } from "./signal.js";
 import type {
@@ -55,21 +60,6 @@ const log = getLogger("notification-decision-engine");
 
 const DECISION_TIMEOUT_MS = 15_000;
 const PROMPT_VERSION = "v4";
-
-/**
- * Derive a short notification title from a message body. Used when an
- * assistant_tool-sourced signal supplies `requestedMessage` without an
- * explicit `requestedTitle`: trims to the first sentence terminator when
- * present, then caps the result at 60 characters with an ellipsis.
- */
-function deriveTitle(body: string): string {
-  const firstSentenceEnd = body.search(/[.!?](\s|$)/);
-  const candidate =
-    firstSentenceEnd > 0 ? body.slice(0, firstSentenceEnd + 1) : body;
-  return candidate.length > 60
-    ? candidate.slice(0, 60).trim() + "…"
-    : candidate.trim();
-}
 
 /**
  * Maximum character budget for identity context injected into the notification
@@ -149,8 +139,8 @@ function buildSystemPrompt(
     `  - Avoid meta-send phrasing (e.g. "I'd like to send a notification", "May I go ahead with that?"). Write the recipient-facing message directly.`,
     `  - Avoid intermediary-instruction phrasing like "consider telling the guardian", "ask the recipient to", or "the assistant should remind them". Rewrite it as final copy the recipient can act on directly.`,
     `  - For telegram: 1-2 concise sentences.`,
-    `- \`conversationSeedMessage\` is the opening message in the internal notification conversation — it can be richer and more contextual.`,
-    `  - For vellum (desktop): 2-4 short sentences with useful context and clear next step if action is required.`,
+    `- \`conversationSeedMessage\` is the opening message in the internal notification conversation and also the expanded detail shown in the home feed. It should be richer and more contextual than the popup body.`,
+    `  - For vellum (desktop): use structured markdown for readability. Break content into bullet points, numbered lists, or short sections with **bold** labels. Avoid long unbroken paragraphs — scan-friendly formatting is preferred.`,
     `  - Never dump raw JSON. Include only human-readable context.`,
     ``,
     `Conversation reuse guidelines:`,
@@ -622,6 +612,49 @@ function enforceGuardianRequestCode(
 }
 
 /**
+ * Inject seedContentBlocks into every channel's copy when not already present.
+ * Used by both tool-approval and access-request guards to ensure Surface cards
+ * render on all decision paths (LLM, assistant_tool, fallback).
+ */
+function ensureSeedContentBlocks(
+  decision: NotificationDecision,
+  blocks: unknown[] | null | undefined,
+): NotificationDecision {
+  if (!blocks) return decision;
+
+  const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
+    ...decision.renderedCopy,
+  };
+  for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
+    const copy = nextCopy[channel];
+    if (!copy) continue;
+    if (!copy.seedContentBlocks) {
+      nextCopy[channel] = { ...copy, seedContentBlocks: blocks };
+    }
+  }
+
+  return {
+    ...decision,
+    renderedCopy: nextCopy,
+  };
+}
+
+/**
+ * Tool-approval and tool-grant notifications need a Surface card with
+ * Approve/Reject buttons on all decision paths.
+ */
+function enforceToolApprovalSeedBlocks(
+  decision: NotificationDecision,
+  signal: NotificationSignal,
+): NotificationDecision {
+  if (signal.sourceEventName !== "guardian.question") return decision;
+  return ensureSeedContentBlocks(
+    decision,
+    buildToolApprovalSeedContentBlocks(signal.contextPayload),
+  );
+}
+
+/**
  * Access-request notifications require deterministic instruction elements:
  * - Request-code approve/reject directive (when requestCode is present)
  * - Exact "open invite flow" phrase (always required)
@@ -675,10 +708,18 @@ function enforceAccessRequestInstructions(
     }
   }
 
-  return {
+  let result: NotificationDecision = {
     ...decision,
     renderedCopy: nextCopy,
   };
+
+  // Ensure seedContentBlocks on all paths (LLM, assistant_tool, fallback).
+  result = ensureSeedContentBlocks(
+    result,
+    buildAccessRequestSeedContentBlocks(signal.contextPayload),
+  );
+
+  return result;
 }
 
 function ensureAccessRequestInstructionsInCopy(
@@ -768,24 +809,15 @@ export async function evaluateSignal(
   // classifier entirely. The producer has already done the routing and
   // copy decisions — we just enforce the standard post-decision guards
   // and persist the result.
-  if (
-    signal.sourceChannel === "assistant_tool" &&
-    typeof signal.contextPayload === "object" &&
-    signal.contextPayload != null &&
-    typeof (signal.contextPayload as Record<string, unknown>)
-      .requestedMessage === "string" &&
-    (
-      (signal.contextPayload as Record<string, unknown>)
-        .requestedMessage as string
-    ).trim().length > 0
-  ) {
+  const requestedBody = nonEmpty(
+    readPayloadString(signal.contextPayload, "requestedMessage"),
+  );
+  if (signal.sourceChannel === "assistant_tool" && requestedBody) {
     const payload = signal.contextPayload as Record<string, unknown>;
-    const body = (payload.requestedMessage as string).trim();
+    const body = requestedBody;
     const title =
-      typeof payload.requestedTitle === "string" &&
-      payload.requestedTitle.trim().length > 0
-        ? (payload.requestedTitle as string).trim()
-        : deriveTitle(body);
+      nonEmpty(readPayloadString(signal.contextPayload, "requestedTitle")) ??
+      deriveTitle(body);
     const isUrgent =
       signal.attentionHints.urgency === "critical" ||
       signal.attentionHints.urgency === "high";
@@ -838,7 +870,10 @@ export async function evaluateSignal(
       selectedChannels,
       reasoningSummary: "assistant_tool pass-through",
       renderedCopy: Object.fromEntries(
-        availableChannels.map((ch) => [ch, { title, body }]),
+        availableChannels.map((ch) => [
+          ch,
+          { title, body, conversationSeedMessage: body },
+        ]),
       ) as NotificationDecision["renderedCopy"],
       conversationActions: Object.fromEntries(
         availableChannels.map((ch) => [ch, { action: "start_new" as const }]),
@@ -849,6 +884,7 @@ export async function evaluateSignal(
       ...(deepLinkTarget ? { deepLinkTarget } : {}),
     };
     decision = enforceGuardianRequestCode(decision, signal);
+    decision = enforceToolApprovalSeedBlocks(decision, signal);
     decision = enforceAccessRequestInstructions(decision, signal);
     decision = enforceGuardianCallConversationAffinity(decision, signal);
     decision = enforceConversationAffinity(
@@ -866,6 +902,7 @@ export async function evaluateSignal(
     );
     let decision = buildFallbackDecision(signal, availableChannels);
     decision = enforceGuardianRequestCode(decision, signal);
+    decision = enforceToolApprovalSeedBlocks(decision, signal);
     decision = enforceAccessRequestInstructions(decision, signal);
     decision = enforceGuardianCallConversationAffinity(decision, signal);
     decision = enforceConversationAffinity(
@@ -895,6 +932,7 @@ export async function evaluateSignal(
   }
 
   decision = enforceGuardianRequestCode(decision, signal);
+  decision = enforceToolApprovalSeedBlocks(decision, signal);
   decision = enforceAccessRequestInstructions(decision, signal);
   decision = enforceGuardianCallConversationAffinity(decision, signal);
   decision = enforceConversationAffinity(

@@ -34,9 +34,7 @@ import { getLogger } from "../util/logger.js";
 const log = getLogger("host-proxy-preactivation");
 
 /**
- * Subset of Conversation/ProcessConversationContext that
- * `preactivateHostProxySkills` needs. Both `Conversation` and
- * `ProcessConversationContext` satisfy this structurally.
+ * Subset of `Conversation` that `preactivateHostProxySkills` needs.
  */
 export interface HostProxyPreactivationTarget {
   readonly conversationId: string;
@@ -102,6 +100,7 @@ export const HOST_PROXY_SKILL_PREACTIVATIONS: ReadonlyArray<{
 export function evaluateHostProxyAttachment(
   capability: HostProxyCapability,
   sourceInterface: InterfaceId | undefined,
+  sourceActorPrincipalId?: string,
 ): HostProxyAttachmentDecision {
   if (!sourceInterface) {
     return { shouldAttach: false, reason: "denied_no_interface" };
@@ -112,10 +111,18 @@ export function evaluateHostProxyAttachment(
   if (sourceInterface === "chrome-extension") {
     return { shouldAttach: false, reason: "denied_chrome_extension" };
   }
-  const clientCount =
-    assistantEventHub.listClientsByCapability(capability).length;
-  if (clientCount > 0) {
-    return { shouldAttach: true, reason: "cross_client", clientCount };
+  if (sourceActorPrincipalId == null) {
+    return { shouldAttach: false, reason: "denied_no_clients", clientCount: 0 };
+  }
+  const sameActorClients = assistantEventHub
+    .listClientsByCapability(capability)
+    .filter((c) => c.actorPrincipalId === sourceActorPrincipalId);
+  if (sameActorClients.length > 0) {
+    return {
+      shouldAttach: true,
+      reason: "cross_client",
+      clientCount: sameActorClients.length,
+    };
   }
   return { shouldAttach: false, reason: "denied_no_clients", clientCount: 0 };
 }
@@ -128,8 +135,13 @@ export function evaluateHostProxyAttachment(
 export function shouldAttachHostProxyForCapability(
   capability: HostProxyCapability,
   sourceInterface: InterfaceId | undefined,
+  sourceActorPrincipalId?: string,
 ): boolean {
-  return evaluateHostProxyAttachment(capability, sourceInterface).shouldAttach;
+  return evaluateHostProxyAttachment(
+    capability,
+    sourceInterface,
+    sourceActorPrincipalId,
+  ).shouldAttach;
 }
 
 /**
@@ -148,12 +160,17 @@ export function shouldAttachHostProxyForCapability(
 export function preactivateHostProxySkills(
   conversation: HostProxyPreactivationTarget,
   sourceInterface: InterfaceId | undefined,
+  sourceActorPrincipalId?: string,
 ): void {
   const decisions: Record<string, HostProxyAttachmentDecision> = {};
   const preactivatedSkillIds: string[] = [];
 
   for (const { capability, skillId } of HOST_PROXY_SKILL_PREACTIVATIONS) {
-    const decision = evaluateHostProxyAttachment(capability, sourceInterface);
+    const decision = evaluateHostProxyAttachment(
+      capability,
+      sourceInterface,
+      sourceActorPrincipalId,
+    );
     decisions[capability] = decision;
     if (decision.shouldAttach) {
       conversation.addPreactivatedSkillId(skillId);

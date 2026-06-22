@@ -15,7 +15,7 @@ import {
 } from "../memory/canonical-guardian-store.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();

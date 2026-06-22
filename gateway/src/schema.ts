@@ -1981,7 +1981,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Refresh guardian access token",
           description:
-            "Refreshes an expired guardian access token. Accepts expired JWTs (signature, audience, and policy epoch are still verified — only the expiration check is relaxed).",
+            "Refreshes an expired guardian access token. Accepts expired JWTs (signature, audience, and policy epoch are still verified — only the expiration check is relaxed). Requires `refreshToken` and the `deviceId` the token was issued to; the refresh token is device-bound and is rejected if the device does not match.",
           operationId: "guardianRefresh",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -1994,7 +1994,14 @@ export function buildSchema(): Record<string, unknown> {
           },
           responses: {
             "200": { description: "New access token returned" },
+            "400": {
+              description: "Missing required field (refreshToken or deviceId)",
+            },
             "401": { description: "Unauthorized — invalid token" },
+            "403": {
+              description:
+                "Refresh token revoked, reused, or presented from a non-matching device",
+            },
             "502": { description: "Failed to reach assistant runtime" },
           },
         },
@@ -2614,115 +2621,6 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/config/privacy": {
-        get: {
-          summary: "Get privacy config",
-          description:
-            "Scope-protected gateway endpoint that returns the current privacy configuration (collectUsageData, sendDiagnostics, llmRequestLogRetentionMs). Missing or malformed values fall back to the daemon schema defaults. Requires a bearer token with `settings.read` scope.",
-          operationId: "privacyConfigGet",
-          security: [{ BearerAuth: [] }],
-          responses: {
-            "200": {
-              description: "Privacy config returned",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      collectUsageData: { type: "boolean" },
-                      sendDiagnostics: { type: "boolean" },
-                      llmRequestLogRetentionMs: {
-                        type: ["integer", "null"],
-                        minimum: 0,
-                        maximum: 31536000000,
-                        description:
-                          "Retention period for LLM request/response logs in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms); server-side clamping enforces this cap on reads.",
-                      },
-                    },
-                    required: [
-                      "collectUsageData",
-                      "sendDiagnostics",
-                      "llmRequestLogRetentionMs",
-                    ],
-                  },
-                },
-              },
-            },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "403": { description: "Insufficient scope" },
-            "500": { description: "Config file is malformed" },
-          },
-        },
-        patch: {
-          summary: "Update privacy config",
-          description:
-            "Scope-protected gateway endpoint that updates privacy configuration (collectUsageData, sendDiagnostics, llmRequestLogRetentionMs). Requires a bearer token with `settings.write` scope.",
-          operationId: "privacyConfigPatch",
-          security: [{ BearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: {
-                  type: "object",
-                  properties: {
-                    collectUsageData: { type: "boolean" },
-                    sendDiagnostics: { type: "boolean" },
-                    llmRequestLogRetentionMs: {
-                      type: ["integer", "null"],
-                      minimum: 0,
-                      maximum: 31536000000,
-                      description:
-                        "Retention window for LLM request logs, in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
-                    },
-                  },
-                  anyOf: [
-                    { required: ["collectUsageData"] },
-                    { required: ["sendDiagnostics"] },
-                    { required: ["llmRequestLogRetentionMs"] },
-                  ],
-                },
-              },
-            },
-          },
-          responses: {
-            "200": {
-              description: "Privacy config updated",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      collectUsageData: { type: "boolean" },
-                      sendDiagnostics: { type: "boolean" },
-                      llmRequestLogRetentionMs: {
-                        type: ["integer", "null"],
-                        minimum: 0,
-                        maximum: 31536000000,
-                        description:
-                          "Retention window for LLM request logs, in milliseconds. null keeps logs forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
-                      },
-                    },
-                    required: [
-                      "collectUsageData",
-                      "sendDiagnostics",
-                      "llmRequestLogRetentionMs",
-                    ],
-                  },
-                },
-              },
-            },
-            "400": { description: "Invalid request body" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "403": { description: "Insufficient scope" },
-            "500": { description: "Internal server error" },
-          },
-        },
-      },
       "/v1/assistants/{assistantId}/feature-flags": {
         get: {
           summary: "List feature flags (assistant-scoped)",
@@ -2786,133 +2684,6 @@ export function buildSchema(): Record<string, unknown> {
               description: "Unauthorized — missing or invalid bearer token",
             },
             "403": { description: "Insufficient scope" },
-          },
-        },
-      },
-      "/v1/assistants/{assistantId}/config/privacy/": {
-        get: {
-          summary: "Get privacy config (assistant-scoped)",
-          description:
-            "Assistant-scoped variant of the privacy config read endpoint. Returns the current privacy configuration (collectUsageData, sendDiagnostics, llmRequestLogRetentionMs). Missing or malformed values fall back to the daemon schema defaults. Requires a bearer token with `settings.read` scope.",
-          operationId: "assistantPrivacyConfigGet",
-          security: [{ BearerAuth: [] }],
-          parameters: [
-            {
-              name: "assistantId",
-              in: "path",
-              required: true,
-              schema: { type: "string" },
-              description: "The assistant identifier.",
-            },
-          ],
-          responses: {
-            "200": {
-              description: "Privacy config returned",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      collectUsageData: { type: "boolean" },
-                      sendDiagnostics: { type: "boolean" },
-                      llmRequestLogRetentionMs: {
-                        type: ["integer", "null"],
-                        minimum: 0,
-                        maximum: 31536000000,
-                        description:
-                          "Retention period for LLM request/response logs in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms); server-side clamping enforces this cap on reads.",
-                      },
-                    },
-                    required: [
-                      "collectUsageData",
-                      "sendDiagnostics",
-                      "llmRequestLogRetentionMs",
-                    ],
-                  },
-                },
-              },
-            },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "403": { description: "Insufficient scope" },
-            "500": { description: "Config file is malformed" },
-          },
-        },
-        patch: {
-          summary: "Update privacy config (assistant-scoped)",
-          description:
-            "Assistant-scoped variant of the privacy config endpoint. Requires a bearer token with `settings.write` scope.",
-          operationId: "assistantPrivacyConfigPatch",
-          security: [{ BearerAuth: [] }],
-          parameters: [
-            {
-              name: "assistantId",
-              in: "path",
-              required: true,
-              schema: { type: "string" },
-              description: "The assistant identifier.",
-            },
-          ],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: {
-                  type: "object",
-                  properties: {
-                    collectUsageData: { type: "boolean" },
-                    sendDiagnostics: { type: "boolean" },
-                    llmRequestLogRetentionMs: {
-                      type: ["integer", "null"],
-                      minimum: 0,
-                      maximum: 31536000000,
-                      description:
-                        "Retention window for LLM request logs, in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
-                    },
-                  },
-                  anyOf: [
-                    { required: ["collectUsageData"] },
-                    { required: ["sendDiagnostics"] },
-                    { required: ["llmRequestLogRetentionMs"] },
-                  ],
-                },
-              },
-            },
-          },
-          responses: {
-            "200": {
-              description: "Privacy config updated",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      collectUsageData: { type: "boolean" },
-                      sendDiagnostics: { type: "boolean" },
-                      llmRequestLogRetentionMs: {
-                        type: ["integer", "null"],
-                        minimum: 0,
-                        maximum: 31536000000,
-                        description:
-                          "Retention window for LLM request logs, in milliseconds. null keeps logs forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
-                      },
-                    },
-                    required: [
-                      "collectUsageData",
-                      "sendDiagnostics",
-                      "llmRequestLogRetentionMs",
-                    ],
-                  },
-                },
-              },
-            },
-            "400": { description: "Invalid request body" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "403": { description: "Insufficient scope" },
-            "500": { description: "Internal server error" },
           },
         },
       },
@@ -3330,8 +3101,14 @@ export function buildSchema(): Record<string, unknown> {
               name: "n",
               in: "query",
               required: false,
-              schema: { type: "integer", minimum: 1, maximum: 1000, default: 10 },
-              description: "Number of log entries to return (1–1000, default: 10)",
+              schema: {
+                type: "integer",
+                minimum: 1,
+                maximum: 1000,
+                default: 10,
+              },
+              description:
+                "Number of log entries to return (1–1000, default: 10)",
             },
             {
               name: "level",
@@ -3364,11 +3141,13 @@ export function buildSchema(): Record<string, unknown> {
                       lines: {
                         type: "array",
                         items: { type: "object" },
-                        description: "Matching log entries in chronological order",
+                        description:
+                          "Matching log entries in chronological order",
                       },
                       truncated: {
                         type: "boolean",
-                        description: "True if earlier matching entries exist beyond n",
+                        description:
+                          "True if earlier matching entries exist beyond n",
                       },
                     },
                   },
@@ -3557,6 +3336,113 @@ export function buildSchema(): Record<string, unknown> {
             },
             "403": { description: "Feature not enabled" },
             "404": { description: "Trust rule not found" },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/channel-admission-policy": {
+        get: {
+          summary: "List channel admission policies",
+          description:
+            "Authenticated gateway endpoint that lists the admission policy for every channel from the SQLite-backed store. Channels without a persisted row are returned with the default policy.",
+          operationId: "channelAdmissionPolicyGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Channel admission policies returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/channel-admission-policy/{channelType}": {
+        put: {
+          summary: "Set a channel admission policy",
+          description:
+            "Authenticated gateway endpoint that upserts the admission policy for a single channel in the SQLite-backed store and invalidates the in-memory admission-policy cache.",
+          operationId: "channelAdmissionPolicyPut",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "channelType",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Channel admission policy upserted" },
+            "400": { description: "Invalid request payload or channelType" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+        post: {
+          summary: "Set a channel admission policy",
+          description:
+            "Alias for the PUT upsert. Accepts the same payload so clients that issue POST upserts match the same handler.",
+          operationId: "channelAdmissionPolicyPost",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "channelType",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Channel admission policy upserted" },
+            "400": { description: "Invalid request payload or channelType" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+        delete: {
+          summary: "Delete a channel admission policy",
+          description:
+            "Authenticated gateway endpoint that removes the admission policy for a single channel from the SQLite-backed store and invalidates the in-memory admission-policy cache. Internal channels (vellum/platform, vellum/a2a) are exempt from deletion per §8.1.",
+          operationId: "channelAdmissionPolicyDelete",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "channelType",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Channel admission policy deleted" },
+            "400": { description: "Invalid channelType" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": {
+              description:
+                "Internal channel — exempt from admission policy (§8.1)",
+            },
             "500": { description: "Internal server error" },
           },
         },
@@ -4022,7 +3908,8 @@ export function buildSchema(): Record<string, unknown> {
                   properties: {
                     type: {
                       type: "string",
-                      description: "Email provider type (e.g. resend, mailgun, vellum)",
+                      description:
+                        "Email provider type (e.g. resend, mailgun, vellum)",
                     },
                     guardian_email: {
                       type: "string",
@@ -4314,7 +4201,13 @@ export function buildSchema(): Record<string, unknown> {
       schemas: {
         BackupSnapshot: {
           type: "object",
-          required: ["path", "filename", "created_at", "size_bytes", "encrypted"],
+          required: [
+            "path",
+            "filename",
+            "created_at",
+            "size_bytes",
+            "encrypted",
+          ],
           properties: {
             path: { type: "string" },
             filename: { type: "string" },

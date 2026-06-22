@@ -57,6 +57,7 @@ import { downRenameCleanedAt } from "./260-rename-cleaned-at.js";
 import { downLlmUsageAddRawUsage } from "./261-llm-usage-add-raw-usage.js";
 import { downMemoryV3Coactivation } from "./262-memory-v3-coactivation.js";
 import { downMemoryV3AutoEdges } from "./263-memory-v3-auto-edges.js";
+import { downScheduleDescription } from "./270-schedule-description.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -485,6 +486,13 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Create memory_v3_auto_edges table — weighted, decaying learned association graph (distinct from curated edges:) accrued by the edge-learning job from used co-activations and consumed above-threshold by edge expansion",
     down: downMemoryV3AutoEdges,
+  },
+  {
+    key: "migration_schedule_description_backfill_v1",
+    version: 57,
+    description:
+      "Backfill authored schedule descriptions for legacy non-defer schedules from their existing names",
+    down: downScheduleDescription,
   },
 ];
 

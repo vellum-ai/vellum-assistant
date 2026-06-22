@@ -23,7 +23,9 @@ import * as acpSteer from "./bundled-skills/acp/tools/acp-steer.js";
 import * as appCreate from "./bundled-skills/app-builder/tools/app-create.js";
 import * as appDelete from "./bundled-skills/app-builder/tools/app-delete.js";
 import * as appGenerateIcon from "./bundled-skills/app-builder/tools/app-generate-icon.js";
+import * as appList from "./bundled-skills/app-builder/tools/app-list.js";
 import * as appRefresh from "./bundled-skills/app-builder/tools/app-refresh.js";
+import * as appUpdate from "./bundled-skills/app-builder/tools/app-update.js";
 // ── app-control ────────────────────────────────────────────────────────────────
 import * as appControlClick from "./bundled-skills/app-control/tools/app-control-click.js";
 import * as appControlCombo from "./bundled-skills/app-control/tools/app-control-combo.js";
@@ -125,6 +127,9 @@ import * as subagentSpawn from "./bundled-skills/subagent/tools/subagent-spawn.j
 import * as subagentStatus from "./bundled-skills/subagent/tools/subagent-status.js";
 // ── transcribe ─────────────────────────────────────────────────────────────────
 import * as transcribeMedia from "./bundled-skills/transcribe/tools/transcribe-media.js";
+// ── workflows ──────────────────────────────────────────────────────────────────
+import * as manageWorkflows from "./bundled-skills/workflows/tools/manage-workflows.js";
+import * as runWorkflow from "./bundled-skills/workflows/tools/run-workflow.js";
 
 // ─── Registry ────────────────────────────────────────────────────────────────
 
@@ -139,9 +144,11 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
 
   // app-builder
   ["app-builder:tools/app-create.ts", appCreate],
+  ["app-builder:tools/app-update.ts", appUpdate],
   ["app-builder:tools/app-delete.ts", appDelete],
   ["app-builder:tools/app-refresh.ts", appRefresh],
   ["app-builder:tools/app-generate-icon.ts", appGenerateIcon],
+  ["app-builder:tools/app-list.ts", appList],
 
   // app-control
   ["app-control:tools/app-control-start.ts", appControlStart],
@@ -265,4 +272,8 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
 
   // transcribe
   ["transcribe:tools/transcribe-media.ts", transcribeMedia],
+
+  // workflows
+  ["workflows:tools/run-workflow.ts", runWorkflow],
+  ["workflows:tools/manage-workflows.ts", manageWorkflows],
 ]);

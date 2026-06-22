@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
+import { findLastUndoableUserMessageIndex } from "../daemon/conversation.js";
 import {
   CONTEXT_SUMMARY_MARKER,
   createContextSummaryMessage,
-} from "../context/window-manager.js";
-import { findLastUndoableUserMessageIndex } from "../daemon/conversation.js";
+} from "../plugins/defaults/compaction/window-manager.js";
 import type { Message } from "../providers/types.js";
 
 function textMessage(role: "user" | "assistant", text: string): Message {

@@ -27,7 +27,7 @@ mock.module("../config/env.js", () => ({
 }));
 
 const _conversationMocks = new Map<string, unknown>();
-mock.module("../daemon/conversation-store.js", () => ({
+mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => _conversationMocks.get(id),
 }));
 
@@ -46,27 +46,24 @@ import { eq } from "drizzle-orm";
 
 import { upsertContactChannel } from "../contacts/contacts-write.js";
 import type { Conversation } from "../daemon/conversation.js";
+import {
+  createCanonicalGuardianDelivery,
+  createCanonicalGuardianRequest,
+  getCanonicalGuardianRequest,
+} from "../memory/canonical-guardian-store.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import {
-  createApprovalRequest,
-  getPendingApprovalForRequest,
-} from "../memory/guardian-approvals.js";
 import { messages } from "../memory/schema/conversations.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import {
-  _clearApprovalPromptTsTrackerForTesting,
-  trackApprovalPromptTs,
-} from "../runtime/routes/approval-prompt-ts-tracker.js";
-import {
   isSlackReactionEvent,
   parseSlackReactionCallbackData,
-} from "../runtime/routes/inbound-message-handler.js";
+} from "../runtime/routes/inbound-stages/reaction-intercept.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -84,7 +81,6 @@ function resetState(): void {
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
-  _clearApprovalPromptTsTrackerForTesting();
 }
 
 function seedActiveMember(): void {
@@ -421,21 +417,35 @@ function seedGuardianForChannel(): void {
 function seedPendingGuardianApprovalForReaction(
   requestId: string,
   conversationId: string,
+  reactedTs: string,
 ): void {
-  createApprovalRequest({
-    runId: `run-${requestId}`,
-    requestId,
+  // Canonical tool_approval request keyed by the confirmation requestId — the
+  // same record assistant-event-hub creates for every confirmation.
+  createCanonicalGuardianRequest({
+    id: requestId,
+    kind: "tool_approval",
+    sourceType: "channel",
+    sourceChannel: "slack",
     conversationId,
-    channel: "slack",
     requesterExternalUserId: "requester-user-1",
     requesterChatId: SLACK_CHANNEL_ID,
     guardianExternalUserId: GUARDIAN_USER_ID,
-    guardianChatId: SLACK_CHANNEL_ID,
+    guardianPrincipalId: GUARDIAN_USER_ID,
     toolName: GUARDIAN_REACTION_TOOL,
+    status: "pending",
     expiresAt: Date.now() + 300_000,
   });
 
-  // Register a pending interaction so applyGuardianDecision finds the
+  // The delivered approval card → request mapping the reaction resolves
+  // against (destination_message_id = the reacted Slack ts).
+  createCanonicalGuardianDelivery({
+    requestId,
+    destinationChannel: "slack",
+    destinationChatId: SLACK_CHANNEL_ID,
+    destinationMessageId: reactedTs,
+  });
+
+  // Register a pending interaction so the tool_approval resolver finds the
   // requester-side hook to drive `allow`.
   const handleConfirmationResponse = mock(() => {});
   const _mockSession = {
@@ -466,18 +476,17 @@ describe("guardian approval-by-reaction integration via handleChannelInbound", (
     db.run("DELETE FROM conversations");
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
-    db.run("DELETE FROM channel_guardian_approval_requests");
+    db.run("DELETE FROM canonical_guardian_requests");
+    db.run("DELETE FROM canonical_guardian_deliveries");
     pendingInteractions.clear();
-    _clearApprovalPromptTsTrackerForTesting();
     msgCounter = 0;
   });
 
   test("guardian reaction on pending approval applies decision and persists no transcript row", async () => {
     seedGuardianForChannel();
     const requestId = "req-guardian-react-1";
-    // Conversation must exist so the approval row's conversation_id FK
-    // resolves; reuse an inbound seed by sending a no-op message that the
-    // ACL allows. Easier: insert directly via the DB layer.
+    // Back the canonical request and its pending interaction with a real
+    // conversation row, inserted directly via the DB layer.
     const db = getDb();
     const conversationId = "conv-react-test-1";
     const now = Date.now();
@@ -491,12 +500,15 @@ describe("guardian approval-by-reaction integration via handleChannelInbound", (
       )
       .run(conversationId, now, now);
 
-    seedPendingGuardianApprovalForReaction(requestId, conversationId);
-
     const reactedTs = "1700000099.000001";
-    // Simulate the approval prompt having been delivered on this ts so the
-    // guardian reaction is scoped to a tracked prompt message.
-    trackApprovalPromptTs("slack", SLACK_CHANNEL_ID, reactedTs);
+    // The approval card was delivered on this ts; its canonical delivery row
+    // is how the guardian reaction is scoped to a known approval message.
+    seedPendingGuardianApprovalForReaction(
+      requestId,
+      conversationId,
+      reactedTs,
+    );
+
     const body = {
       sourceChannel: "slack",
       interface: "slack",
@@ -541,11 +553,11 @@ describe("guardian approval-by-reaction integration via handleChannelInbound", (
 
     expect(resp.status).toBe(200);
     expect(json.accepted).toBe(true);
-    expect(json.approval).toBe("guardian_decision_applied");
+    expect(json.canonicalRouter).toBe("canonical_decision_applied");
     expect(approvalConversationGenerator).not.toHaveBeenCalled();
 
-    // The pending approval row is resolved (no longer pending).
-    expect(getPendingApprovalForRequest(requestId)).toBeNull();
+    // The canonical request is resolved (no longer pending).
+    expect(getCanonicalGuardianRequest(requestId)?.status).toBe("approved");
 
     // No transcript row was written for the reaction itself — resolved
     // guardian approval reactions have no transcript representation.
@@ -561,5 +573,114 @@ describe("guardian approval-by-reaction integration via handleChannelInbound", (
       }
     });
     expect(reactionRows.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reaction access-control regression (LUM-2489)
+// ---------------------------------------------------------------------------
+//
+// A reaction is a passive signal, not an access attempt. Because reactions are
+// dispatched before the ingress pipeline, an unknown user's 👍 must never run
+// ACL (no trusted-contact verification handshake), create a conversation, or
+// write a binding — it is dropped as channel noise. A known contact's reaction
+// is recorded; neither triggers a verification challenge.
+
+describe("reaction access control (no verification handshake)", () => {
+  const STRANGER_USER_ID = "U_REACTION_STRANGER";
+  const CONTACT_USER_ID = "U_REACTION_CONTACT";
+  // Guardian's approval channel is a DM, distinct from the public channel the
+  // reaction lands in (mirroring production). Reusing the public channel id
+  // would let a reactor match the guardian's channel via findContactChannel's
+  // externalChatId fallback and mask the bug.
+  const GUARDIAN_DM_CHAT = "D_GUARDIAN_DM";
+
+  function tableCount(table: string): number {
+    return (
+      getDb().$client.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as {
+        n: number;
+      }
+    ).n;
+  }
+
+  beforeEach(() => {
+    resetState();
+    getDb().run("DELETE FROM channel_verification_sessions");
+    // The assistant has a guardian (as in production); the reactors below are
+    // different users.
+    createGuardianBinding({
+      channel: "slack",
+      guardianExternalUserId: GUARDIAN_USER_ID,
+      guardianDeliveryChatId: GUARDIAN_DM_CHAT,
+      guardianPrincipalId: GUARDIAN_USER_ID,
+    });
+    msgCounter = 0;
+  });
+
+  test("stranger's reaction is dropped — no challenge, session, conversation, or row", async () => {
+    let agentDispatched = false;
+    const processMessage = async (): Promise<{ messageId: string }> => {
+      agentDispatched = true;
+      return { messageId: "should-not-be-called" };
+    };
+
+    const req = buildReactionRequest("reaction:thumbsup", {
+      actorExternalId: STRANGER_USER_ID,
+      actorDisplayName: "Outside Reactor",
+      actorUsername: "outsider",
+    });
+    const resp = await handleChannelInbound(
+      req,
+      processMessage,
+      TEST_BEARER_TOKEN,
+    );
+    const json = (await resp.json()) as Record<string, unknown>;
+
+    // Accepted as a passive signal — never denied or turned into a challenge.
+    expect(json.accepted).toBe(true);
+    expect(json.denied).not.toBe(true);
+    expect(json.reason).not.toBe("verification_challenge_sent");
+    expect(json.verificationSessionId).toBeUndefined();
+    expect(agentDispatched).toBe(false);
+
+    // No verification handshake, and no side effects: a dropped reaction leaves
+    // no transcript row, no conversation, and no binding.
+    expect(tableCount("channel_verification_sessions")).toBe(0);
+    expect(readPersistedMessages().length).toBe(0);
+    expect(tableCount("conversations")).toBe(0);
+    expect(tableCount("external_conversation_bindings")).toBe(0);
+  });
+
+  test("known contact's reaction is recorded — no challenge", async () => {
+    // A pending contact classifies as `unverified_contact` — a known tier, so
+    // its reactions are recorded. On a real message it would be re-challenged,
+    // but a reaction must not trigger that.
+    upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: CONTACT_USER_ID,
+      externalChatId: SLACK_CHANNEL_ID,
+      status: "pending",
+      policy: "allow",
+      displayName: "Pending Contact",
+    });
+
+    const req = buildReactionRequest("reaction:tada", {
+      actorExternalId: CONTACT_USER_ID,
+      actorDisplayName: "Pending Contact",
+      actorUsername: "pending_contact",
+    });
+    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    const json = (await resp.json()) as Record<string, unknown>;
+
+    expect(json.denied).not.toBe(true);
+    expect(json.reason).not.toBe("verification_challenge_sent");
+    expect(tableCount("channel_verification_sessions")).toBe(0);
+
+    const rows = readPersistedMessages();
+    expect(rows.length).toBe(1);
+    const envelope = JSON.parse(rows[0].metadata!) as Record<string, unknown>;
+    const slackMeta = readSlackMetadata(envelope.slackMeta as string);
+    expect(slackMeta?.eventKind).toBe("reaction");
+    expect(slackMeta?.reaction?.emoji).toBe("tada");
   });
 });

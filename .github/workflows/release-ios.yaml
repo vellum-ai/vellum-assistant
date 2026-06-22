@@ -16,26 +16,6 @@ on:
         required: false
         type: boolean
         default: true
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: "Target environment"
-        required: true
-        type: choice
-        options:
-          - dev
-          - staging
-          - production
-        default: dev
-      version:
-        description: "Release version string (e.g. 0.6.0)"
-        required: true
-        type: string
-      notify_slack:
-        description: "Send Slack alert from this workflow"
-        required: false
-        type: boolean
-        default: true
 
 concurrency:
   group: ios-release-${{ inputs.environment }}
@@ -111,24 +91,29 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('apps/web/bun.lock') }}
+          key: bun-${{ runner.os }}-${{ hashFiles('clients/web/bun.lock') }}
           restore-keys: bun-${{ runner.os }}-
 
       - name: Install dependencies
-        working-directory: apps/web
+        working-directory: clients/web
         run: bun install --frozen-lockfile
 
       - name: Capacitor sync
-        working-directory: apps/web
+        working-directory: clients/web
         env:
           VELLUM_ENVIRONMENT: ${{ steps.config.outputs.vellum_env }}
+          # No Sentry DSN here: this build bundles no web assets. The iOS app
+          # runs the deployed web SPA via `server.url`, so its Sentry DSN
+          # (SENTRY_DSN_IOS → VITE_SENTRY_DSN_IOS, vellum-assistant-ios) is baked
+          # into the SPA bundle by the web-SPA deploy workflow and selected at
+          # runtime on iOS.
         run: bunx cap sync ios
 
       - name: Install XcodeGen
         run: brew install xcodegen
 
       - name: Generate Xcode project
-        working-directory: apps/ios/App
+        working-directory: clients/ios/App
         run: xcodegen generate --spec project.yml
 
       - name: Select Xcode 26.2
@@ -229,7 +214,7 @@ jobs:
           EOF
 
       - name: Archive
-        working-directory: apps/ios/App
+        working-directory: clients/ios/App
         run: |
           xcodebuild archive \
             -project App.xcodeproj \

@@ -1,6 +1,6 @@
 # Live Voice Channel Integration Plan
 
-> **Implementation status:** V1 now uses `/v1/live-voice` as a gateway-authenticated WebSocket route. The gateway handler is `gateway/src/http/routes/live-voice-websocket.ts`; the assistant runtime upgrade and protocol shell live in `assistant/src/runtime/http-server.ts`; the assistant-side module boundaries are under `assistant/src/live-voice/`; and macOS voice mode is wired through `clients/shared/Network/LiveVoiceChannelClient.swift`, `clients/macos/vellum-assistant/Features/Voice/LiveVoiceChannelManager.swift`, `LiveVoiceAudioCapture.swift`, `LiveVoiceAudioPlayer.swift`, and `VoiceModeManager.swift`. Treat the proposal below as historical design context; the durable architecture references are `assistant/ARCHITECTURE.md` and `clients/ARCHITECTURE.md`.
+> **Implementation status:** V1 now uses `/v1/live-voice` as a gateway-authenticated WebSocket route. The gateway handler is `gateway/src/http/routes/live-voice-websocket.ts`; the assistant runtime upgrade and protocol shell live in `assistant/src/runtime/http-server.ts`; and the assistant-side module boundaries are under `assistant/src/live-voice/`. Treat the proposal below (including its references to the removed Swift macOS client) as historical design context; the durable architecture reference is `assistant/ARCHITECTURE.md`.
 >
 > V1 requires a configured streaming STT provider for live partial/final transcripts and a streaming-capable TTS provider for streamed assistant audio. Managed/cloud WebSocket proxy support, cross-region routing, and hard p50/p95 latency guarantees are explicitly out of scope for this version.
 
@@ -248,7 +248,7 @@ Key files:
 | `assistant/docs/stt-provider-onboarding.md` | Required steps for adding STT providers and keeping provider catalogs/client fallbacks in sync. | Confirms live voice should use the existing STT catalog rather than a new provider path. |
 | `assistant/docs/credential-execution-service.md` | Credential storage/access architecture. | Reference for provider-key handling and Docker mode. |
 | `assistant/docs/error-handling.md` | Error handling conventions. | Use for live voice user-visible and structured error design. |
-| `assistant/docs/plugins.md` and `assistant/docs/skills.md` | Plugin and skill docs. | Likely not directly involved in V1. |
+| `plugins/README.md` and `assistant/docs/skills.md` | Plugin and skill docs. | Likely not directly involved in V1. |
 | `assistant/docs/architecture/security.md` | Security architecture. | Reference if live voice adds new auth scopes or gateway routes. |
 | `assistant/docs/architecture/integrations.md` | Integration architecture notes. | Reference if voice channel exposes new integration points. |
 | `assistant/docs/architecture/memory.md` | Memory architecture notes. | Reference if archival changes memory/conversation persistence. |

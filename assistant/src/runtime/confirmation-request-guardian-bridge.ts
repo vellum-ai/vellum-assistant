@@ -13,15 +13,16 @@
  */
 
 import type { TrustContext } from "../daemon/trust-context.js";
+import type { CanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import {
-  type CanonicalGuardianRequest,
-  createCanonicalGuardianDelivery,
-} from "../memory/canonical-guardian-store.js";
+  recordApprovalCardDelivery,
+  recordGuardianRequestDeliveries,
+} from "../notifications/canonical-delivery-recorder.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
-import type { NotificationSourceChannel } from "../notifications/signal.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
+import { resolveCapabilities } from "./capabilities.js";
 import { getGuardianBinding } from "./channel-verification-service.js";
 
 const log = getLogger("confirmation-request-guardian-bridge");
@@ -48,7 +49,7 @@ export type BridgeConfirmationRequestResult =
   | {
       skipped: true;
       reason:
-        | "not_trusted_contact"
+        | "not_bridgeable_trust_class"
         | "no_guardian_binding"
         | "missing_guardian_identity"
         | "binding_identity_mismatch";
@@ -59,11 +60,13 @@ export type BridgeConfirmationRequestResult =
 // ---------------------------------------------------------------------------
 
 /**
- * Bridge a trusted-contact confirmation_request to a guardian.question notification.
+ * Bridge a non-guardian contact confirmation_request to a guardian.question
+ * notification.
  *
- * Only emits when the session belongs to a trusted-contact actor with a
- * resolvable guardian binding. Guardian and unknown actors are skipped — guardians
- * self-approve, and unknown actors are already fail-closed by the routing layer.
+ * Only emits when the session belongs to a trusted_contact or unverified_contact
+ * actor with a resolvable guardian binding. Guardian and unknown actors are
+ * skipped — guardians self-approve, and unknown actors are already fail-closed
+ * by the routing layer.
  *
  * Fire-and-forget safe: notification emission errors are logged but not propagated.
  */
@@ -78,10 +81,14 @@ export function bridgeConfirmationRequestToGuardian(
     assistantId = DAEMON_INTERNAL_ASSISTANT_ID,
   } = params;
 
-  // Only bridge for trusted-contact sessions. Guardians self-approve and
-  // unknown actors are fail-closed by the routing layer.
-  if (trustContext.trustClass !== "trusted_contact") {
-    return { skipped: true, reason: "not_trusted_contact" };
+  // Only bridge for actors whose sensitive tool approval escalates-and-waits.
+  // Guardians self-approve and unknown actors are fail-closed by the routing
+  // layer, so neither needs a guardian bridge.
+  if (
+    resolveCapabilities(trustContext.trustClass).sensitiveToolApproval !==
+    "escalate-and-wait"
+  ) {
+    return { skipped: true, reason: "not_bridgeable_trust_class" };
   }
 
   if (!trustContext.guardianExternalUserId) {
@@ -144,10 +151,14 @@ export function bridgeConfirmationRequestToGuardian(
     ? `Approve tool: ${toolName} — ${canonicalRequest.activityText}`
     : `Approve tool: ${toolName}`;
 
+  // The vellum delivery row is created up front in onConversationCreated so the
+  // in-app client sees it immediately; the post-resolve recorder reuses it.
+  let vellumDeliveryId: string | undefined;
+
   // Emit guardian.question notification so the guardian is alerted.
   const signalPromise = emitNotificationSignal({
     sourceEventName: "guardian.question",
-    sourceChannel: sourceChannel as NotificationSourceChannel,
+    sourceChannel,
     sourceContextId: conversationId,
     requiresConversation: true,
     attentionHints: {
@@ -157,7 +168,7 @@ export function bridgeConfirmationRequestToGuardian(
       visibleInSourceNow: false,
     },
     contextPayload: {
-      requestKind: "tool_approval" as const,
+      requestKind: "tool_approval",
       requestId: canonicalRequest.id,
       requestCode:
         canonicalRequest.requestCode ??
@@ -168,29 +179,27 @@ export function bridgeConfirmationRequestToGuardian(
       requesterIdentifier: senderLabel,
       toolName,
       questionText,
+      riskLevel: canonicalRequest.riskLevel ?? undefined,
+      commandPreview: canonicalRequest.commandPreview ?? undefined,
     },
     dedupeKey: `tc-confirmation-request:${canonicalRequest.id}`,
     onConversationCreated: (info) => {
-      createCanonicalGuardianDelivery({
+      vellumDeliveryId = recordApprovalCardDelivery({
         requestId: canonicalRequest.id,
-        destinationChannel: "vellum",
-        destinationConversationId: info.conversationId,
-      });
+        channel: "vellum",
+        conversationId: info.conversationId,
+      })?.id;
     },
   });
 
-  // Record channel deliveries from the notification pipeline (fire-and-forget).
+  // Record deliveries from the notification pipeline (fire-and-forget).
   void signalPromise
     .then((signalResult) => {
-      for (const result of signalResult.deliveryResults) {
-        if (result.channel === "vellum") continue; // handled in onConversationCreated
-        createCanonicalGuardianDelivery({
-          requestId: canonicalRequest.id,
-          destinationChannel: result.channel,
-          destinationChatId:
-            result.destination.length > 0 ? result.destination : undefined,
-        });
-      }
+      recordGuardianRequestDeliveries({
+        requestId: canonicalRequest.id,
+        deliveryResults: signalResult.deliveryResults,
+        vellumDeliveryId,
+      });
     })
     .catch((err) => {
       log.warn(

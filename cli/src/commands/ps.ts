@@ -444,6 +444,22 @@ async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
     return;
   }
 
+  if (cloud === "paired") {
+    // A remote assistant paired from another machine: no local process to
+    // list — probe the remote gateway's health over the bearer token instead.
+    const token = loadGuardianToken(entry.assistantId)?.accessToken;
+    const health = await checkHealth(entry.runtimeUrl, token);
+    const rows: TableRow[] = [
+      {
+        name: "gateway",
+        status: withStatusEmoji(health.status),
+        info: entry.runtimeUrl + (health.detail ? ` | ${health.detail}` : ""),
+      },
+    ];
+    printTable(rows);
+    return;
+  }
+
   let output: string;
   try {
     if (cloud === "gcp") {

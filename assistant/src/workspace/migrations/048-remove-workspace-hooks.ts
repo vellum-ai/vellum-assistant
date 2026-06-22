@@ -1,7 +1,7 @@
 /**
  * Workspace migration 046: Remove legacy `workspace/hooks/` directory.
  *
- * Migration 022 moved `~/.vellum/hooks/` into `~/.vellum/workspace/hooks/`.
+ * Migration 022 moved `~/.vellum/hooks/` into `$VELLUM_WORKSPACE_DIR/hooks/`.
  * With the hook system entirely removed, that directory is dead state — it is
  * no longer read or written by the assistant. This migration deletes the
  * directory (and everything under it) so stale hook manifests, config, and
