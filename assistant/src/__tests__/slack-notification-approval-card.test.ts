@@ -174,3 +174,114 @@ describe("Slack access-request card blocks", () => {
     ).toBe(true);
   });
 });
+
+/**
+ * Pins the Slack tool-approval card: the assistant-as-actor subtitle, the
+ * preview + command body, the action callback ids, and the source/permalink
+ * context block — all driven by the shared view model from `contextPayload`.
+ */
+const TOOL_CTX: Record<string, unknown> = {
+  requestId: "req-123",
+  requestCode: "ABC123",
+  requestKind: "tool_grant_request",
+  toolName: "web_fetch",
+  questionText: "ignored — the card recomposes from structured facts",
+  sourceChannel: "slack",
+  requesterIdentifier: "Noa Flaherty",
+  conversationExternalId: "C01ABC",
+  channelName: "general",
+  messageTs: "1700000000.000100",
+  messagePreview: "can you pull this?",
+  commandPreview: "GET https://example.com",
+};
+
+function buildToolPayload(
+  contextPayload: Record<string, unknown>,
+  approval: ApprovalUIMetadata = APPROVAL,
+): ChannelDeliveryPayload {
+  return {
+    sourceEventName: "guardian.question",
+    copy: { title: "Tool approval", body: "msg" },
+    urgency: "high",
+    approvalContext: approval,
+    contextPayload,
+  };
+}
+
+describe("Slack tool-approval card blocks", () => {
+  test("card title is generic; subtitle is the assistant-as-actor sentence", () => {
+    const c = card(
+      buildApprovalNotificationBlocks(buildToolPayload(TOOL_CTX), "msg"),
+    );
+    expect(text(c.title)).toBe("Tool approval");
+    expect(text(c.subtitle)).toBe(
+      'Assistant wants to use "web_fetch" in response to Noa Flaherty\'s message in #general.',
+    );
+  });
+
+  test("body shows the requester's words and the redacted command", () => {
+    const c = card(
+      buildApprovalNotificationBlocks(buildToolPayload(TOOL_CTX), "msg"),
+    );
+    const body = text(c.body);
+    expect(body).toContain('> _"can you pull this?"_');
+    expect(body).toContain("Will run: `GET https://example.com`");
+  });
+
+  test("actions encode the apr:<requestId>:<action> callback ids", () => {
+    const c = card(
+      buildApprovalNotificationBlocks(buildToolPayload(TOOL_CTX), "msg"),
+    );
+    const actions = c.actions as Array<Record<string, unknown>>;
+    expect(actions).toHaveLength(2);
+    expect(actions[0].action_id).toBe("apr:req-123:approve_once");
+    expect(actions[1].action_id).toBe("apr:req-123:reject");
+    expect(actions[1].style).toBe("danger");
+  });
+
+  test("source context renders the channel mention + exact-message permalink", () => {
+    const texts = contextTexts(
+      buildApprovalNotificationBlocks(buildToolPayload(TOOL_CTX), "msg"),
+    );
+    expect(texts).toContain(
+      "Source: Slack — <#C01ABC> · <https://slack.com/archives/C01ABC/p1700000000000100|View in Slack →>",
+    );
+  });
+
+  test("DM source drops the channel and reads Direct message", () => {
+    const texts = contextTexts(
+      buildApprovalNotificationBlocks(
+        buildToolPayload({
+          ...TOOL_CTX,
+          conversationExternalId: "D01XYZ",
+          channelName: undefined,
+        }),
+        "msg",
+      ),
+    );
+    expect(
+      texts.some(
+        (t) =>
+          t.startsWith("Source: Slack — Direct message") &&
+          t.includes("View in Slack →"),
+      ),
+    ).toBe(true);
+  });
+
+  test("no inbound trigger: title only, no source context block", () => {
+    const blocks = buildApprovalNotificationBlocks(
+      buildToolPayload({
+        requestId: "req-self",
+        requestCode: "AAA111",
+        requestKind: "tool_approval",
+        toolName: "bash",
+        questionText: "ignored",
+      }),
+      "msg",
+    );
+    expect(text(card(blocks).subtitle)).toBe('Assistant wants to use "bash".');
+    expect(contextTexts(blocks).some((t) => t.startsWith("Source:"))).toBe(
+      false,
+    );
+  });
+});

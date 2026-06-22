@@ -5,6 +5,8 @@ import {
   getCanonicalGuardianRequest,
   updateCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
+import { buildToolApprovalCardView } from "../notifications/tool-approval-copy.js";
+import { resolveToolApprovalSourceFacts } from "../notifications/tool-approval-source.js";
 import {
   isUnparseableToolArgs,
   unparseableToolArgsMessage,
@@ -29,20 +31,41 @@ import { enforceVerificationControlPlanePolicy } from "./verification-control-pl
 
 const log = getLogger("tool-approval-handler");
 
-function buildToolGrantQuestionText(
+/**
+ * Build the guardian-facing content for a tool-grant escalation: the redacted
+ * command preview, the triggering-message facts recovered from the source of
+ * truth, and the assistant-as-actor `questionText` — all composed through the
+ * shared {@link buildToolApprovalCardView} so the one-line phrasing matches the
+ * card the guardian sees on every surface.
+ */
+function buildToolGrantEscalationContent(
   toolName: string,
   input: Record<string, unknown>,
   context: ToolContext,
-): string {
-  const senderLabel =
+) {
+  const commandPreview =
+    redactSecrets(summarizeToolInput(toolName, input)) || undefined;
+  const source = resolveToolApprovalSourceFacts(
+    context.conversationId,
+    context.requesterExternalUserId,
+  );
+  const requesterIdentifier =
+    source.actorDisplayName ||
     context.requesterDisplayName ||
     context.requesterIdentifier ||
     context.requesterExternalUserId ||
     "A trusted contact";
-  const inputSummary = redactSecrets(summarizeToolInput(toolName, input));
-  return inputSummary
-    ? `${senderLabel} wants to use "${toolName}": ${inputSummary}`
-    : `${senderLabel} is requesting permission to use "${toolName}"`;
+  const { sentence: questionText } = buildToolApprovalCardView({
+    toolName,
+    requesterIdentifier,
+    sourceChannel: context.executionChannel,
+    conversationExternalId: source.conversationExternalId,
+    channelName: source.channelName,
+    messageTs: source.messageTs,
+    messagePreview: source.messagePreview,
+    commandPreview,
+  });
+  return { questionText, commandPreview, source, requesterIdentifier };
 }
 
 /** Default polling interval for inline grant wait (ms). */
@@ -553,6 +576,11 @@ export class ToolApprovalHandler {
         const inputDigest =
           deferredConsumeParams?.inputDigest ??
           computeToolApprovalDigest(name, input);
+        const escalationContent = buildToolGrantEscalationContent(
+          name,
+          input,
+          context,
+        );
         const escalation = createOrReuseToolGrantRequest({
           assistantId: context.assistantId,
           sourceChannel: context.executionChannel as ChannelId,
@@ -561,9 +589,10 @@ export class ToolApprovalHandler {
           requesterChatId: context.requesterChatId,
           toolName: name,
           inputDigest,
-          questionText: buildToolGrantQuestionText(name, input, context),
-          requesterIdentifier:
-            context.requesterDisplayName || context.requesterIdentifier,
+          questionText: escalationContent.questionText,
+          requesterIdentifier: escalationContent.requesterIdentifier,
+          commandPreview: escalationContent.commandPreview,
+          source: escalationContent.source,
         });
 
         // Only wait inline if the escalation succeeded (created or deduped).

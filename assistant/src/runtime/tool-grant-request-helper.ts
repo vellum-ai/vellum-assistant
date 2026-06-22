@@ -21,6 +21,8 @@ import {
   recordGuardianRequestDeliveries,
 } from "../notifications/canonical-delivery-recorder.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import type { ToolGrantGuardianPayload } from "../notifications/guardian-question-mode.js";
+import type { ToolApprovalSourceFacts } from "../notifications/tool-approval-source.js";
 import { getLogger } from "../util/logger.js";
 import { getGuardianBinding } from "./channel-verification-service.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "./routes/channel-route-shared.js";
@@ -41,6 +43,14 @@ export interface ToolGrantRequestParams {
   toolName: string;
   inputDigest: string;
   questionText: string;
+  /** Redacted summary of the tool invocation arguments (what the tool will do). */
+  commandPreview?: string;
+  /**
+   * Triggering-message facts (the requester's words + Slack source) resolved
+   * from the conversation by the caller, carried into the card payload so the
+   * guardian sees the source thread and an exact-message link.
+   */
+  source?: ToolApprovalSourceFacts;
 }
 
 export type ToolGrantRequestResult =
@@ -72,6 +82,8 @@ export function createOrReuseToolGrantRequest(
     toolName,
     inputDigest,
     questionText,
+    commandPreview,
+    source,
   } = params;
 
   if (!requesterExternalUserId) {
@@ -146,6 +158,29 @@ export function createOrReuseToolGrantRequest(
   // in-app client sees it immediately; the post-resolve recorder reuses it.
   let vellumDeliveryId: string | undefined;
 
+  // Typed to the inferred payload shape so the construction can't drift from
+  // the schema the renderers parse.
+  const contextPayload: ToolGrantGuardianPayload = {
+    requestId: canonicalRequest.id,
+    requestKind: "tool_grant_request",
+    requestCode,
+    sourceChannel,
+    requesterExternalUserId,
+    requesterChatId: requesterChatId ?? null,
+    requesterIdentifier: senderLabel,
+    toolName,
+    questionText,
+    ...(commandPreview ? { commandPreview } : {}),
+    ...(source?.conversationExternalId
+      ? { conversationExternalId: source.conversationExternalId }
+      : {}),
+    ...(source?.messageTs ? { messageTs: source.messageTs } : {}),
+    ...(source?.channelName ? { channelName: source.channelName } : {}),
+    ...(source?.messagePreview
+      ? { messagePreview: source.messagePreview }
+      : {}),
+  };
+
   // Emit notification so guardian is alerted. Uses 'guardian.question' as
   // sourceEventName so that existing request-code guidance in the notification
   // pipeline is preserved.
@@ -160,17 +195,7 @@ export function createOrReuseToolGrantRequest(
       isAsyncBackground: false,
       visibleInSourceNow: false,
     },
-    contextPayload: {
-      requestId: canonicalRequest.id,
-      requestKind: "tool_grant_request",
-      requestCode,
-      sourceChannel,
-      requesterExternalUserId,
-      requesterChatId: requesterChatId ?? null,
-      requesterIdentifier: senderLabel,
-      toolName,
-      questionText,
-    },
+    contextPayload,
     dedupeKey: `tool-grant-request:${canonicalRequest.id}`,
     onConversationCreated: (info) => {
       vellumDeliveryId = recordApprovalCardDelivery({

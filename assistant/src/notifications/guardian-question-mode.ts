@@ -68,6 +68,22 @@ const GuardianQuestionPayloadBaseSchema = z.object({
   requesterExternalUserId: z.string().optional(),
   /** External chat ID of the requester. */
   requesterChatId: z.string().nullable().optional(),
+  /**
+   * Source-message facts for guardian cards, captured from the triggering
+   * conversation message at request time (see `tool-approval-source.ts`).
+   * Optional because not every guardian request has an inbound message (voice,
+   * scheduled, self) or a Slack source. Carried in the payload so the pure card
+   * view model (`buildToolApprovalCardView`) projects them without re-reading
+   * the store — mirroring how `AccessRequestPayloadSchema` carries its own.
+   */
+  /** External conversation/channel id of the source (Slack channel id). */
+  conversationExternalId: z.string().optional(),
+  /** Native message timestamp of the triggering message (Slack `channelTs`). */
+  messageTs: z.string().optional(),
+  /** Human-readable channel name of the source (Slack `channelName`). */
+  channelName: z.string().optional(),
+  /** Preview text of the triggering message (the requester's own words). */
+  messagePreview: z.string().optional(),
 });
 
 export const PendingQuestionPayloadSchema =
@@ -134,6 +150,12 @@ export const LenientToolApprovalPayloadSchema = z.object({
   requesterChatId: z.string().nullable().optional(),
   riskLevel: z.string().nullable().optional(),
   commandPreview: z.string().nullable().optional(),
+  // Source-message facts (see base schema) — lenient so degraded payloads
+  // still render the assistant-as-actor card with whatever facts are present.
+  conversationExternalId: z.string().nullable().optional(),
+  messageTs: z.string().nullable().optional(),
+  channelName: z.string().nullable().optional(),
+  messagePreview: z.string().nullable().optional(),
 });
 
 export type LenientToolApprovalPayload = z.infer<

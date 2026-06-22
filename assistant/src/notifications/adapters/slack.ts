@@ -22,7 +22,9 @@ import {
   buildAccessRequestCardView,
   buildAccessRequestInviteDirective,
 } from "../access-request-copy.js";
+import { LenientToolApprovalPayloadSchema } from "../guardian-question-mode.js";
 import { truncate } from "../notification-utils.js";
+import { buildToolApprovalCardView } from "../tool-approval-copy.js";
 import type {
   ChannelAdapter,
   ChannelDeliveryPayload,
@@ -79,31 +81,45 @@ function buildAccessRequestBody(view: AccessRequestCardView): string {
   return "Requesting access to the assistant";
 }
 
-/** Source-channel context block with Slack permalink when available. */
-function buildSourceContextBlock(
-  view: AccessRequestCardView,
-): ContextBlock | undefined {
-  if (view.sourceChannel !== "slack" || !view.conversationExternalId) {
+/**
+ * Slack source-channel context block with an optional permalink, shared by the
+ * access-request and tool-approval cards so the `Source: Slack — <#channel> ·
+ * <link>` row is formatted in exactly one place. Only the link label differs
+ * between the two ("View message" vs "View in Slack →").
+ */
+function buildSlackSourceContextBlock(args: {
+  sourceChannel: string | undefined;
+  conversationExternalId: string | undefined;
+  isSlackDm: boolean;
+  permalink: string | undefined;
+  linkLabel: string;
+}): ContextBlock | undefined {
+  if (args.sourceChannel !== "slack" || !args.conversationExternalId) {
     return undefined;
   }
 
-  const permalink = view.messagePermalink;
-
-  let sourceText: string;
-  if (view.isSlackDm) {
-    sourceText = permalink
-      ? `Source: Slack — Direct message · <${permalink}|View message>`
-      : "Source: Slack — Direct message";
-  } else {
-    sourceText = permalink
-      ? `Source: Slack — <#${view.conversationExternalId}> · <${permalink}|View message>`
-      : `Source: Slack — <#${view.conversationExternalId}>`;
-  }
+  const channel = args.isSlackDm
+    ? "Direct message"
+    : `<#${args.conversationExternalId}>`;
+  const link = args.permalink ? ` · <${args.permalink}|${args.linkLabel}>` : "";
 
   return {
     type: "context",
-    elements: [{ type: "mrkdwn", text: sourceText }],
+    elements: [{ type: "mrkdwn", text: `Source: Slack — ${channel}${link}` }],
   };
+}
+
+/** Source-channel context block for an access request. */
+function buildSourceContextBlock(
+  view: AccessRequestCardView,
+): ContextBlock | undefined {
+  return buildSlackSourceContextBlock({
+    sourceChannel: view.sourceChannel,
+    conversationExternalId: view.conversationExternalId,
+    isSlackDm: view.isSlackDm,
+    permalink: view.messagePermalink,
+    linkLabel: "View message",
+  });
 }
 
 /** Stable requester identifier context block (external ID when it adds info). */
@@ -207,8 +223,14 @@ function buildAccessRequestCardBlocks(
 /**
  * Build Slack blocks for a tool approval notification using a native Card block.
  *
+ * Driven by the shared {@link buildToolApprovalCardView} (the same source the
+ * in-app card uses), so the assistant-as-actor copy, preview, and source link
+ * are authored once. Action buttons still come from `approvalContext`.
+ *
  * Layout:
- *   Card — title + subtitle (tool + requester) + body (notification text) + actions
+ *   Card    — title + subtitle (assistant-as-actor sentence) + body (preview +
+ *             command) + actions
+ *   Context — source channel + exact-message permalink (Slack sources)
  */
 function buildToolApprovalCardBlocks(
   payload: ChannelDeliveryPayload,
@@ -217,39 +239,45 @@ function buildToolApprovalCardBlocks(
   const approval = payload.approvalContext!;
   const blocks: KnownBlock[] = [];
 
-  const details = approval.permissionDetails;
-  const toolName = details?.toolName;
-  const requester = details?.requesterIdentifier;
-  let subtitle: string | undefined;
-  if (toolName && requester) {
-    subtitle = truncate(`${toolName} — requested by ${requester}`, 150);
-  } else if (toolName) {
-    subtitle = truncate(toolName, 150);
-  }
+  const parsed = LenientToolApprovalPayloadSchema.safeParse(
+    payload.contextPayload ?? {},
+  );
+  const view = parsed.success ? buildToolApprovalCardView(parsed.data) : null;
 
-  const needsOverflow = messageText.length > 200;
+  // Subtitle is the one-line assistant-as-actor sentence; fall back to the
+  // rendered notification text when the payload can't be parsed.
+  const subtitle = view ? truncate(view.sentence, 150) : undefined;
+
+  const bodyParts: string[] = [];
+  if (view?.messagePreview) {
+    bodyParts.push(`> _"${truncate(view.messagePreview, 180)}"_`);
+  }
+  if (view?.commandPreview) {
+    bodyParts.push(`Will run: \`${truncate(view.commandPreview, 180)}\``);
+  }
+  const body =
+    bodyParts.length > 0
+      ? bodyParts.join("\n")
+      : truncate(messageText, 200) || "Requesting approval to run this tool";
+
   const card: CardBlock = {
     type: "card",
-    title: {
-      type: "mrkdwn",
-      text: details ? "Tool Approval" : "Approval Request",
-    },
-    body: {
-      type: "mrkdwn",
-      text: needsOverflow ? truncate(messageText, 197) + " ↓" : messageText,
-    },
+    title: { type: "mrkdwn", text: "Tool approval" },
+    body: { type: "mrkdwn", text: body },
     actions: buildCardActions(approval),
   };
   if (subtitle) card.subtitle = { type: "mrkdwn", text: subtitle };
   blocks.push(card);
 
-  // When the message exceeds the card body limit, show the full text in a
-  // companion section so the approver can see the complete command/context.
-  if (needsOverflow) {
-    blocks.push({
-      type: "section",
-      text: { type: "mrkdwn", text: truncate(messageText, 3000) },
+  if (view) {
+    const sourceContext = buildSlackSourceContextBlock({
+      sourceChannel: view.sourceChannel,
+      conversationExternalId: view.conversationExternalId,
+      isSlackDm: view.isSlackDm,
+      permalink: view.messagePermalink,
+      linkLabel: "View in Slack →",
     });
+    if (sourceContext) blocks.push(sourceContext);
   }
 
   return blocks;

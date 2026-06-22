@@ -32,7 +32,8 @@ import {
   resolveGuardianInstructionModeFromFields,
   resolveGuardianInstructionModeFromPayload,
 } from "./guardian-question-mode.js";
-import { nonEmpty, sanitizeIdentityField } from "./notification-utils.js";
+import { nonEmpty } from "./notification-utils.js";
+import { buildToolApprovalCardView } from "./tool-approval-copy.js";
 
 // ── Surface ids ──────────────────────────────────────────────────────────────
 
@@ -181,30 +182,49 @@ function isLenientToolApproval(payload: LenientToolApprovalPayload): boolean {
 function extractToolApprovalCard(
   p: GuardianQuestionPayload | LenientToolApprovalPayload,
 ): ApprovalCardParams {
-  const toolName =
-    ("toolName" in p ? nonEmpty(p.toolName) : undefined) ?? "unknown tool";
-  const rawRequester = nonEmpty(p.requesterIdentifier);
-  const requester = rawRequester
-    ? sanitizeIdentityField(rawRequester)
-    : "Someone";
+  const view = buildToolApprovalCardView({
+    toolName: "toolName" in p ? p.toolName : undefined,
+    requesterIdentifier: p.requesterIdentifier,
+    sourceChannel: p.sourceChannel,
+    conversationExternalId: p.conversationExternalId,
+    channelName: p.channelName,
+    messageTs: p.messageTs,
+    messagePreview: p.messagePreview,
+    commandPreview: "commandPreview" in p ? p.commandPreview : undefined,
+    requestId: p.requestId,
+  });
 
-  const isGrant = p.requestKind === "tool_grant_request";
-
-  const metadata: Array<{ label: string; value: string }> = [];
-  metadata.push({ label: "Tool", value: toolName });
-  const sourceChannel = nonEmpty(p.sourceChannel);
-  if (sourceChannel) {
-    metadata.push({ label: "Source", value: sourceChannel });
+  const metadata: Array<{ label: string; value: string }> = [
+    { label: "Tool", value: view.toolName },
+  ];
+  if (view.sourceChannel === "slack" && view.conversationExternalId) {
+    metadata.push({
+      label: "Source",
+      value: view.isSlackDm
+        ? "Slack — Direct message"
+        : `Slack — #${view.channelName ?? view.conversationExternalId}`,
+    });
+  } else if (view.sourceChannel) {
+    metadata.push({ label: "Source", value: view.sourceChannel });
   }
 
-  const body = p.questionText
-    ? `> ${p.questionText}`
-    : "No additional context available.";
+  // Body: the requester's triggering message (the trigger), the redacted
+  // command (the action), and an exact-message link to the source thread.
+  const bodyParts: string[] = [];
+  if (view.messagePreview) bodyParts.push(`> "${view.messagePreview}"`);
+  if (view.commandPreview)
+    bodyParts.push(`Will run: \`${view.commandPreview}\``);
+  if (view.messagePermalink) {
+    bodyParts.push(`[View in Slack →](${view.messagePermalink})`);
+  }
+  const body =
+    bodyParts.length > 0
+      ? bodyParts.join("\n\n")
+      : "No additional context available.";
 
-  // Fallback text with request-code instructions for older clients.
-  const baseFallback =
-    p.questionText ?? `${requester} is requesting approval to use ${toolName}`;
-  let fallbackText = baseFallback;
+  // Fallback text reuses the one-line phrasing, plus request-code instructions
+  // for older clients.
+  let fallbackText = view.sentence;
   const requestCode = nonEmpty(p.requestCode);
   if (requestCode) {
     const modeResolution = resolveGuardianInstructionModeFromFields(
@@ -216,19 +236,19 @@ function extractToolApprovalCard(
       requestCode.trim().toUpperCase(),
       mode,
     );
-    fallbackText = `${baseFallback}\n\n${instruction}`;
+    fallbackText = `${view.sentence}\n\n${instruction}`;
   }
 
   return {
     surfaceIdPrefix: TOOL_APPROVAL_SURFACE_PREFIX,
-    cardTitle: isGrant ? "Tool Grant Request" : "Tool Approval",
-    requesterName: requester,
-    subtitle: isGrant
-      ? "Requesting permission to use this tool"
-      : "Requesting approval to run this tool",
+    cardTitle: "Tool approval",
+    requesterName: view.titleLine,
+    // The connective attributes the action to the inbound message; when there
+    // is none (self / scheduled / voice) fall back to a generic line.
+    subtitle: view.connectiveLine ?? "Requesting approval to run this tool",
     body,
     metadata,
-    requestId: nonEmpty(p.requestId),
+    requestId: view.requestId,
     fallbackText,
   };
 }
