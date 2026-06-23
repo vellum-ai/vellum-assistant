@@ -431,9 +431,15 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
           ...existing,
           status: params.status,
           error: params.error ?? existing.error,
-          inputTokens: params.inputTokens ?? existing.inputTokens,
-          outputTokens: params.outputTokens ?? existing.outputTokens,
-          totalCost: params.totalCost ?? existing.totalCost,
+          // Preserve the accumulated usage when a status event carries
+          // zero/absent totals. An ABORT (stop button) ships `usage: {0, 0}`,
+          // and `??` would let that 0 overwrite tokens we've already spent,
+          // flushing the panel to zero. A real terminal total (e.g. on
+          // completion) is non-zero, so `||` still lets it replace the running
+          // tally — only the zero-on-abort case falls back to `existing`.
+          inputTokens: params.inputTokens || existing.inputTokens,
+          outputTokens: params.outputTokens || existing.outputTokens,
+          totalCost: params.totalCost || existing.totalCost,
         },
       },
     });

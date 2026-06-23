@@ -238,6 +238,72 @@ describe("changeStatus", () => {
     expect(entry.totalCost).toBe(0.001);
   });
 
+  it("preserves accumulated tokens when an abort ships zero usage", () => {
+    // Stop button → the daemon emits an abort status carrying `usage: {0,0,0}`.
+    // The already-spent tokens must survive (not flush to zero) — `||`, not
+    // `??`, so the incoming 0 falls back to the running tally.
+    const store = getState();
+    store.spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+    store.changeStatus({
+      subagentId: "sa-1",
+      status: "running",
+      inputTokens: 1200,
+      outputTokens: 340,
+      totalCost: 0.002,
+    });
+
+    getState().changeStatus({
+      subagentId: "sa-1",
+      status: "aborted",
+      inputTokens: 0,
+      outputTokens: 0,
+      totalCost: 0,
+    });
+
+    const entry = getState().byId["sa-1"]!;
+    expect(entry.status).toBe("aborted");
+    expect(entry.inputTokens).toBe(1200);
+    expect(entry.outputTokens).toBe(340);
+    expect(entry.totalCost).toBe(0.002);
+  });
+
+  it("still applies a real non-zero terminal total over the running tally", () => {
+    const store = getState();
+    store.spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+    store.changeStatus({
+      subagentId: "sa-1",
+      status: "running",
+      inputTokens: 1200,
+      outputTokens: 340,
+      totalCost: 0.002,
+    });
+
+    // Completion ships the authoritative final totals — non-zero, so they
+    // replace the running tally (the abort guard only catches zeros).
+    getState().changeStatus({
+      subagentId: "sa-1",
+      status: "completed",
+      inputTokens: 1500,
+      outputTokens: 500,
+      totalCost: 0.003,
+    });
+
+    const entry = getState().byId["sa-1"]!;
+    expect(entry.inputTokens).toBe(1500);
+    expect(entry.outputTokens).toBe(500);
+    expect(entry.totalCost).toBe(0.003);
+  });
+
   it("silently ignores unknown subagent ID", () => {
     const before = getState();
     getState().changeStatus({
