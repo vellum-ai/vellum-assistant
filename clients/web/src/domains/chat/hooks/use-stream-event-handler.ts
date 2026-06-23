@@ -144,7 +144,7 @@ export function useStreamEventHandler(
   // that drains it, for coalesced (one-per-frame) flushes. See
   // handleToolOutputChunk / flushToolOutput.
   const toolOutputBufferRef = useRef<
-    Map<string, { messageId?: string; text: string }>
+    Map<string, { conversationId?: string; messageId?: string; text: string }>
   >(new Map());
   const toolOutputFlushHandleRef = useRef<number | null>(null);
 

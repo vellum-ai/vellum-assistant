@@ -162,7 +162,10 @@ function makeCtx(initial: DisplayMessage[]) {
   let messages = initial;
   const ctx = {
     toolOutputBufferRef: {
-      current: new Map<string, { messageId?: string; text: string }>(),
+      current: new Map<
+        string,
+        { conversationId?: string; messageId?: string; text: string }
+      >(),
     },
     toolOutputFlushHandleRef: { current: null as number | null },
     setMessages: (
@@ -195,6 +198,22 @@ describe("flushToolOutput", () => {
     const before = get();
     flushToolOutput(ctx);
     expect(get()).toBe(before);
+  });
+
+  it("drops buffered chunks from a non-active conversation", () => {
+    // A deferred flush after a conversation switch must not graft a prior
+    // conversation's output onto the active transcript. The active stream
+    // conversation defaults to none in tests, so an entry stamped with a
+    // conversation is dropped while an unstamped one still applies.
+    const { ctx, get } = makeCtx([userMsg, asstMsg([tc("a"), tc("b")])]);
+    ctx.toolOutputBufferRef.current.set("a", {
+      conversationId: "switched-away-convo",
+      text: "stale",
+    });
+    ctx.toolOutputBufferRef.current.set("b", { text: "kept" });
+    flushToolOutput(ctx);
+    expect(get()[1]!.toolCalls![0]!.streamedOutput).toBeUndefined();
+    expect(get()[1]!.toolCalls![1]!.streamedOutput).toBe("kept");
   });
 });
 

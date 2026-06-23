@@ -105,7 +105,7 @@ export interface StreamHandlerContext {
    * separate. See `handleToolOutputChunk` / `flushToolOutput`.
    */
   toolOutputBufferRef: MutableRefObject<
-    Map<string, { messageId?: string; text: string }>
+    Map<string, { conversationId?: string; messageId?: string; text: string }>
   >;
   /** rAF handle for the pending coalesced flush, or `null` when idle. */
   toolOutputFlushHandleRef: MutableRefObject<number | null>;

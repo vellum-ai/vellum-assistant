@@ -6,6 +6,7 @@ import {
 } from "@/domains/chat/utils/stream-updaters/tool-call-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { useStreamStore } from "@/domains/chat/stream-store";
 import type {
   ToolOutputChunkEvent,
   ToolResultEvent,
@@ -105,9 +106,17 @@ export function flushToolOutput(ctx: StreamHandlerContext): void {
   if (buffer.size === 0) return;
   const pending = [...buffer.entries()];
   buffer.clear();
+  // A deferred flush (rAF) can fire after the user switched conversations (or
+  // while a background tab's rAF was paused). Drop buffered chunks whose
+  // conversation is no longer the active stream conversation, so a prior
+  // conversation's output is never grafted onto — or misattributed within (the
+  // id-less fallback path) — the now-active conversation's transcript.
+  const activeConversationId =
+    useStreamStore.getState().streamContext?.conversationId;
   ctx.setMessages((prev) => {
     let next = prev;
-    for (const [toolUseId, { messageId, text }] of pending) {
+    for (const [toolUseId, { conversationId, messageId, text }] of pending) {
+      if (conversationId && conversationId !== activeConversationId) continue;
       next = appendToolOutputChunk(next, {
         chunk: text,
         toolUseId: toolUseId === NO_TOOL_ID ? undefined : toolUseId,
@@ -141,10 +150,15 @@ export function handleToolOutputChunk(
       combined.length > MAX_STREAMED_OUTPUT_CHARS
         ? combined.slice(combined.length - MAX_STREAMED_OUTPUT_CHARS)
         : combined;
-    // Prefer the latest non-empty row anchor.
+    // Prefer the latest non-empty row/conversation anchor.
     if (event.messageId) existing.messageId = event.messageId;
+    if (event.conversationId) existing.conversationId = event.conversationId;
   } else {
-    buffer.set(key, { messageId: event.messageId, text: event.chunk });
+    buffer.set(key, {
+      conversationId: event.conversationId,
+      messageId: event.messageId,
+      text: event.chunk,
+    });
   }
   if (ctx.toolOutputFlushHandleRef.current == null) {
     ctx.toolOutputFlushHandleRef.current = requestAnimationFrame(() => {
