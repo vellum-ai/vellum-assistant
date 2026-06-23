@@ -1,6 +1,7 @@
 // Surface types, UI surface lifecycle messages.
 
 import {
+  cardHasRenderableContent,
   type CardSurfaceData,
   CardSurfaceDataSchema,
 } from "../../api/surfaces.js";
@@ -10,7 +11,11 @@ import {
 // hand-written interfaces pending migration. Re-exported so the daemon's
 // surface protocol barrel (`message-protocol.ts`) keeps surfacing them to
 // daemon consumers under their canonical names.
-export { type CardSurfaceData, CardSurfaceDataSchema };
+export {
+  cardHasRenderableContent,
+  type CardSurfaceData,
+  CardSurfaceDataSchema,
+};
 
 // === Surface type definitions ===
 

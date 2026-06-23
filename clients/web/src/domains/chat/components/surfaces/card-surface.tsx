@@ -1,7 +1,10 @@
 import { lazy } from "react";
 import { Circle, CircleCheck, CircleX, Clock, Loader2 } from "lucide-react";
 
-import { CardSurfaceDataSchema } from "@vellumai/assistant-api";
+import {
+  CardSurfaceDataSchema,
+  cardHasRenderableContent,
+} from "@vellumai/assistant-api";
 import type { Surface } from "@/domains/chat/types/types";
 import { isTaskProgressSurface } from "@/domains/chat/transcript/message-content";
 
@@ -227,6 +230,15 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
   // unchecked cast or a re-declared local interface.
   const parsed = CardSurfaceDataSchema.safeParse(surface.data);
   const data = parsed.success ? parsed.data : {};
+
+  // Safety net for historical surfaces that bypassed daemon validation: strip
+  // actions from content-less cards so stale buttons don't trigger action-loops.
+  const hasContent = cardHasRenderableContent(data);
+  const effectiveSurface =
+    !hasContent && surface.actions?.length
+      ? { ...surface, actions: undefined }
+      : surface;
+
   const isWeather = data.template === "weather_forecast" && data.templateData;
   const isTaskProgress =
     data.template === "task_progress" &&
@@ -246,7 +258,7 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
     const steps = templateData.steps as TaskStepItem[];
 
     return (
-      <SurfaceContainer surface={surface} onAction={onAction} hideTitle>
+      <SurfaceContainer surface={effectiveSurface} onAction={onAction} hideTitle>
         <div>
           <div className="flex items-center justify-between">
             <span className="text-title-small text-[var(--content-strong)]">
@@ -268,7 +280,7 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
   );
 
   return (
-    <SurfaceContainer surface={surface} onAction={onAction} hideTitle>
+    <SurfaceContainer surface={effectiveSurface} onAction={onAction} hideTitle>
       <div>
         {cardTitle && (
           <h3 className="text-title-small text-[var(--content-strong)]">

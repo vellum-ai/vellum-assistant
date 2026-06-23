@@ -219,7 +219,7 @@ describe("CardSurface", () => {
     expect(rendered).not.toContain("animate-spin");
   });
 
-  test("a sparse card with actions renders its title and the button", () => {
+  test("a content-less card with actions strips the actions (safety net)", () => {
     const rendered = renderToStaticMarkup(
       <CardSurface
         surface={surface({
@@ -232,6 +232,24 @@ describe("CardSurface", () => {
     );
 
     expect(rendered).toContain("Restart the server?");
-    expect(rendered).toContain("Yes");
+    // Actions are stripped on content-less cards to prevent action-loops.
+    expect(rendered).not.toContain("Yes");
+  });
+
+  test("a card with body and actions renders both", () => {
+    const rendered = renderToStaticMarkup(
+      <CardSurface
+        surface={surface({
+          title: "Confirm",
+          data: { title: "Confirm", body: "Are you sure?" },
+          actions: [{ id: "ok", label: "OK", style: "primary" }],
+        })}
+        onAction={() => undefined}
+      />,
+    );
+
+    expect(rendered).toContain("Confirm");
+    expect(rendered).toContain("Are you sure?");
+    expect(rendered).toContain("OK");
   });
 });

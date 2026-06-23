@@ -631,7 +631,7 @@ describe("ui_show card content recovery", () => {
     expect(card?.metadata).toEqual([{ label: "Total", value: "$10" }]);
   });
 
-  test("renders a title-only card instead of rejecting it", async () => {
+  test("strips actions from a title-only card and returns error", async () => {
     const sent: ServerMessage[] = [];
     const ctx = makeContext(sent);
 
@@ -642,8 +642,187 @@ describe("ui_show card content recovery", () => {
       data: {},
     });
 
-    expect(result.isError).toBe(false);
+    // The card still renders (title visible), but actions are stripped and the
+    // model gets an error telling it to resend with content.
+    expect(result.isError).toBe(true);
     expect(shownCard(sent)?.title).toBe("Restart the server?");
+    const show = sent.find(
+      (m): m is UiSurfaceShow => m.type === "ui_surface_show",
+    )!;
+    expect(show.actions).toBeUndefined();
+  });
+
+  test("title-only card without actions renders without error", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    const result = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      title: "Status update",
+      data: {},
+    });
+
+    expect(result.isError).toBe(false);
+    expect(shownCard(sent)?.title).toBe("Status update");
+  });
+
+  test("card with body and actions is interactive", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    const result = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      title: "Confirm",
+      actions: [{ id: "ok", label: "OK" }],
+      data: { body: "Are you sure?" },
+    });
+
+    expect(result.isError).toBe(false);
+    const show = sent.find(
+      (m): m is UiSurfaceShow => m.type === "ui_surface_show",
+    )!;
+    expect(show.actions).toBeDefined();
+    expect(show.actions!.length).toBe(1);
+  });
+
+  // ── Body alias recovery from cross-surface keys ────────────────────
+
+  test("recovers body from choice/form-style `description` field", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      title: "Search results",
+      data: { description: "Found 12 matching documents." },
+    });
+
+    const card = shownCard(sent);
+    expect(card?.body).toBe("Found 12 matching documents.");
+    expect((card as Record<string, unknown>).description).toBeUndefined();
+  });
+
+  test("recovers body from work_result-style `summary` field", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      data: { title: "Report", summary: "All tests passed." },
+    });
+
+    expect(shownCard(sent)?.body).toBe("All tests passed.");
+  });
+
+  test("recovers body from confirmation-style `detail` field", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      data: { title: "Warning", detail: "This action cannot be undone." },
+    });
+
+    expect(shownCard(sent)?.body).toBe("This action cannot be undone.");
+  });
+
+  test("recovers body from top-level `description`", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      title: "Info",
+      description: "Top-level description text",
+      data: {},
+    });
+
+    expect(shownCard(sent)?.body).toBe("Top-level description text");
+  });
+
+  // ── Title alias recovery ────────────────────────────────────────────
+
+  test("recovers title from `heading` alias", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      data: { heading: "Results", body: "Done." },
+    });
+
+    expect(shownCard(sent)?.title).toBe("Results");
+  });
+
+  test("recovers title from `header` alias", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      data: { header: "Status Update", body: "All good." },
+    });
+
+    expect(shownCard(sent)?.title).toBe("Status Update");
+  });
+
+  // ── Subtitle alias recovery ─────────────────────────────────────────
+
+  test("recovers subtitle from `subheading` alias", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      data: { title: "Alert", body: "Check this.", subheading: "Important" },
+    });
+
+    expect(shownCard(sent)?.subtitle).toBe("Important");
+  });
+
+  test("recovers subtitle from table-style `caption` alias", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      data: { title: "Table Summary", body: "Data below.", caption: "Q4 2024" },
+    });
+
+    expect(shownCard(sent)?.subtitle).toBe("Q4 2024");
+  });
+
+  // ── Alias precedence ───────────────────────────────────────────────
+
+  test("canonical `body` takes precedence over aliased `description`", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      data: { body: "Real body", description: "Should be ignored" },
+    });
+
+    expect(shownCard(sent)?.body).toBe("Real body");
+  });
+
+  test("card with recovered `description` and actions keeps actions (has content)", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    const result = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      title: "Confirm",
+      actions: [{ id: "ok", label: "OK" }],
+      data: { description: "Proceed with deployment?" },
+    });
+
+    expect(result.isError).toBe(false);
+    const show = sent.find(
+      (m): m is UiSurfaceShow => m.type === "ui_surface_show",
+    )!;
+    expect(show.actions).toBeDefined();
+    expect(shownCard(sent)?.body).toBe("Proceed with deployment?");
   });
 
   test("a card with a real body broadcasts unchanged", async () => {

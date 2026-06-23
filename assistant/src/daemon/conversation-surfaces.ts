@@ -1,6 +1,9 @@
 import { v4 as uuid } from "uuid";
 
-import { CardSurfaceDataSchema } from "../api/surfaces.js";
+import {
+  cardHasRenderableContent,
+  CardSurfaceDataSchema,
+} from "../api/surfaces.js";
 import { isActivationSession } from "../memory/activation-session-store.js";
 import {
   addAppConversationId,
@@ -518,35 +521,90 @@ function normalizeCardShowData(
     normalized.body = input.body;
   }
 
-  // The model frequently puts the card's text under a sibling surface's field
-  // name — copy_block's `text`, confirmation's `message` — or a generic
-  // `content`. Recover those into `body` when no body was given, then drop the
-  // alias, so content the model actually provided renders instead of being
-  // silently swallowed by a key the card contract doesn't model.
+  // The model sees every surface type's schema in the ui_show tool description,
+  // so it frequently borrows keys from sibling surfaces when emitting a card.
+  // Recover those into the canonical card fields, checking both data-level and
+  // top-level (input) placement. First non-empty match wins; all alias keys are
+  // deleted afterward so they don't appear as droppedKeys noise.
+  //
+  // body aliases: copy_block's `text`, confirmation's `message`, generic
+  // `content`, and cross-surface `description` (choice/form/oauth/work_result/
+  // dynamic_page — 5 types use it), work_result's `summary`, confirmation's
+  // `detail`.
   if (typeof normalized.body !== "string" || normalized.body.trim() === "") {
     const aliased = firstNonEmptyString([
       normalized.text,
       normalized.message,
       normalized.content,
+      normalized.description,
+      normalized.summary,
+      normalized.detail,
       input.text,
       input.message,
       input.content,
+      input.description,
+      input.summary,
+      input.detail,
     ]);
     if (aliased !== undefined) {
       normalized.body = aliased;
     }
   }
-  delete normalized.text;
-  delete normalized.message;
-  delete normalized.content;
+  for (const key of [
+    "text",
+    "message",
+    "content",
+    "description",
+    "summary",
+    "detail",
+  ]) {
+    delete normalized[key];
+  }
 
-  // Recover top-level subtitle/metadata, mirroring the title/body recovery.
+  // title aliases: natural synonyms the model reaches for when it doesn't
+  // use `title` verbatim.
+  if (typeof normalized.title !== "string" || normalized.title.trim() === "") {
+    const aliased = firstNonEmptyString([
+      normalized.heading,
+      normalized.header,
+      normalized.name,
+      input.heading,
+      input.header,
+      input.name,
+    ]);
+    if (aliased !== undefined) {
+      normalized.title = aliased;
+    }
+  }
+  for (const key of ["heading", "header", "name"]) {
+    delete normalized[key];
+  }
+
+  // subtitle aliases: table's `caption`, natural synonym `subheading`.
   if (
     typeof normalized.subtitle !== "string" &&
     typeof input.subtitle === "string"
   ) {
     normalized.subtitle = input.subtitle;
   }
+  if (
+    typeof normalized.subtitle !== "string" ||
+    normalized.subtitle.trim() === ""
+  ) {
+    const aliased = firstNonEmptyString([
+      normalized.subheading,
+      normalized.caption,
+      input.subheading,
+      input.caption,
+    ]);
+    if (aliased !== undefined) {
+      normalized.subtitle = aliased;
+    }
+  }
+  for (const key of ["subheading", "caption"]) {
+    delete normalized[key];
+  }
+
   if (!Array.isArray(normalized.metadata) && Array.isArray(input.metadata)) {
     normalized.metadata = input.metadata;
   }
@@ -2785,12 +2843,11 @@ export async function surfaceProxyResolver(
           data?: Record<string, unknown>;
         }>
       | undefined;
-    const actions =
+    let actions =
       surfaceType === "choice"
         ? buildChoiceActions(data as ChoiceSurfaceData)
         : inputActions;
-    // Interactive surfaces default to awaiting user action.
-    const hasActions = Array.isArray(actions) && actions.length > 0;
+    let hasActions = Array.isArray(actions) && actions.length > 0;
     if (surfaceType === "choice" && !hasActions) {
       return {
         content:
@@ -2812,6 +2869,24 @@ export async function surfaceProxyResolver(
         isError: true,
       };
     }
+
+    // A content-less card with actions creates a UX loop: each click triggers
+    // a model turn with "[User action on app: …]" but no meaningful context,
+    // so the model produces a no-op response. Strip actions at the boundary so
+    // the card renders as a non-interactive title-only display surface.
+    const actionsStrippedFromEmptyCard =
+      surfaceType === "card" &&
+      hasActions &&
+      !cardHasRenderableContent(data as CardSurfaceData);
+    if (actionsStrippedFromEmptyCard) {
+      log.info(
+        { surfaceType, title, dataKeys: Object.keys(data) },
+        "Stripping actions from content-less card to prevent action-loop",
+      );
+      actions = undefined;
+      hasActions = false;
+    }
+
     const isInteractive =
       surfaceType === "card"
         ? hasActions
@@ -2940,6 +3015,13 @@ export async function surfaceProxyResolver(
         }),
         isError: false,
         yieldToUser: true,
+      };
+    }
+    if (actionsStrippedFromEmptyCard) {
+      return {
+        content:
+          "Error: Card requires content to be interactive — provide `data.body`, a `template`, `data.subtitle`, or `data.metadata`. The card rendered with its title but actions were stripped because a content-less card with buttons creates a loop. Resend ui_show with populated card content to include interactive actions.",
+        isError: true,
       };
     }
     return { content: JSON.stringify({ surfaceId }), isError: false };
