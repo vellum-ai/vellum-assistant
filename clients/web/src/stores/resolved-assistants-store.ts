@@ -44,6 +44,9 @@ export interface ResolvedAssistant {
   id: string;
   name?: string;
   hatchedAt?: string;
+  cloud?: string;
+  runtimeVersion?: string;
+  isActiveLockfileAssistant?: boolean;
   isLocal: boolean;
   isPlatformHosted: boolean;
   /** Owning org for platform entries; only the lockfile carries it, so
@@ -104,10 +107,16 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
     assistantsHydrated: false,
 
     setFromLockfile: (lockfile) => {
+      const activeLockfileAssistantId = getEffectiveActiveLockfileAssistantId(
+        lockfile,
+      );
       const assistants = lockfile.assistants.map((a) => ({
         id: a.assistantId,
         name: a.name,
         hatchedAt: a.hatchedAt,
+        cloud: a.cloud,
+        runtimeVersion: a.resources?.runtimeVersion,
+        isActiveLockfileAssistant: activeLockfileAssistantId === a.assistantId,
         isLocal: isLocalAssistant(a),
         isPlatformHosted: isPlatformAssistant(a),
         organizationId: a.organizationId,
@@ -126,13 +135,20 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
     setFromApi: (assistants) =>
       set({
         assistantsHydrated: true,
-        assistants: assistants.map((a) => ({
-          id: a.id,
-          name: a.name,
-          hatchedAt: a.created,
-          isLocal: a.is_local,
-          isPlatformHosted: !a.is_local,
-        })),
+        assistants: assistants.map((a) => {
+          const lockfileFields = getLockfileFields(a.id);
+          return {
+            id: a.id,
+            name: a.name,
+            hatchedAt: a.created,
+            cloud: lockfileFields.cloud,
+            runtimeVersion: lockfileFields.runtimeVersion,
+            isActiveLockfileAssistant:
+              lockfileFields.isActiveLockfileAssistant,
+            isLocal: a.is_local,
+            isPlatformHosted: !a.is_local,
+          };
+        }),
       }),
 
     upsertFromApi: (assistant) =>
@@ -147,23 +163,35 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
         const idx = state.assistants.findIndex((a) => a.id === assistant.id);
         if (idx >= 0) {
           const next = [...state.assistants];
-          // The API payload has no org field; preserve the org the lockfile
-          // seeded so a lifecycle refresh doesn't erase it.
-          next[idx] = { ...entry, organizationId: next[idx]!.organizationId };
+          const lockfileFields = getLockfileFields(assistant.id);
+          // The API payload omits lockfile-sourced fields; preserve them across
+          // lifecycle refreshes.
+          next[idx] = {
+            ...entry,
+            cloud: lockfileFields.cloud ?? next[idx]!.cloud,
+            organizationId: next[idx]!.organizationId,
+            runtimeVersion:
+              lockfileFields.runtimeVersion ?? next[idx]!.runtimeVersion,
+            isActiveLockfileAssistant:
+              lockfileFields.isActiveLockfileAssistant ??
+              next[idx]!.isActiveLockfileAssistant,
+          };
           return { assistants: next };
         }
-        // New entry: the API payload has no org field, but the lockfile may
-        // already know it (a lifecycle refresh can land before the lockfile
-        // subscription seeds the list).
-        const lockfileOrg = useLockfileStore
-          .getState()
-          .lockfile?.assistants.find(
-            (a) => a.assistantId === assistant.id,
-          )?.organizationId;
+        // New entry: the API payload omits lockfile-sourced fields, but the
+        // lockfile may already know them.
+        const lockfileFields = getLockfileFields(assistant.id);
         return {
           assistants: [
             ...state.assistants,
-            { ...entry, organizationId: lockfileOrg },
+            {
+              ...entry,
+              cloud: lockfileFields.cloud,
+              organizationId: lockfileFields.organizationId,
+              runtimeVersion: lockfileFields.runtimeVersion,
+              isActiveLockfileAssistant:
+                lockfileFields.isActiveLockfileAssistant,
+            },
           ],
         };
       }),
@@ -214,6 +242,43 @@ function reconcileSelection(
 export const useResolvedAssistantsStore = createSelectors(
   useResolvedAssistantsStoreBase,
 );
+
+function getLockfileFields(assistantId: string): {
+  cloud?: string;
+  organizationId?: string;
+  runtimeVersion?: string;
+  isActiveLockfileAssistant?: boolean;
+} {
+  const lockfile = useLockfileStore.getState().lockfile;
+  const entry = lockfile?.assistants.find((a) => a.assistantId === assistantId);
+  const activeLockfileAssistantId = lockfile
+    ? getEffectiveActiveLockfileAssistantId(lockfile)
+    : null;
+  return {
+    cloud: entry?.cloud,
+    organizationId: entry?.organizationId,
+    runtimeVersion: entry?.resources?.runtimeVersion,
+    isActiveLockfileAssistant: lockfile
+      ? activeLockfileAssistantId === assistantId
+      : undefined,
+  };
+}
+
+function getEffectiveActiveLockfileAssistantId(
+  lockfile: Lockfile,
+): string | null {
+  if (
+    lockfile.activeAssistant &&
+    lockfile.assistants.some(
+      (assistant) => assistant.assistantId === lockfile.activeAssistant,
+    )
+  ) {
+    return lockfile.activeAssistant;
+  }
+  return lockfile.assistants.length === 1
+    ? (lockfile.assistants[0]?.assistantId ?? null)
+    : null;
+}
 
 // ---------------------------------------------------------------------------
 // Subscriptions

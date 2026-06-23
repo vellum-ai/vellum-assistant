@@ -69,6 +69,32 @@ describe("isActiveAssistant", () => {
     expect(isActiveAssistant([lockfilePath], "active")).toBe(true);
   });
 
+  test("returns true for the sole assistant when activeAssistant is empty", () => {
+    const dir = makeTempDir();
+    const lockfilePath = path.join(dir, "lockfile.json");
+    fs.writeFileSync(
+      lockfilePath,
+      JSON.stringify({
+        assistants: [{ assistantId: "only" }],
+        activeAssistant: null,
+      }),
+    );
+    expect(isActiveAssistant([lockfilePath], "only")).toBe(true);
+  });
+
+  test("returns true for the sole assistant when activeAssistant is stale", () => {
+    const dir = makeTempDir();
+    const lockfilePath = path.join(dir, "lockfile.json");
+    fs.writeFileSync(
+      lockfilePath,
+      JSON.stringify({
+        assistants: [{ assistantId: "only" }],
+        activeAssistant: "missing",
+      }),
+    );
+    expect(isActiveAssistant([lockfilePath], "only")).toBe(true);
+  });
+
   test("returns false for a non-active assistant", () => {
     const dir = makeTempDir();
     const lockfilePath = path.join(dir, "lockfile.json");

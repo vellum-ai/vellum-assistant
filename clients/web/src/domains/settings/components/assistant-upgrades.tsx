@@ -15,11 +15,13 @@ import type {
   ReleaseChannelEnum,
   ReleaseListItem,
 } from "@/generated/api/types.gen";
-import { lifecycleService } from "@/assistant/lifecycle-service";
-import { clearGatewayToken } from "@/lib/auth/gateway-session";
-import { upgradeLocalAssistantHost } from "@/runtime/local-mode-host";
+import { useLocalRuntimeUpgrade } from "@/hooks/use-local-runtime-upgrade";
+import {
+  getLatestRuntimeRelease,
+  isRuntimeUpgradeAvailable,
+  LOCAL_RUNTIME_RELEASES_FETCH_LIMIT,
+} from "@/lib/local-runtime-upgrade";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { useAuthStore } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { compareParsed, parseSemver } from "@/utils/semver";
 import { Button } from "@vellumai/design-library/components/button";
@@ -37,11 +39,6 @@ function releaseLabel(
   if (currentVersion && release.version === currentVersion)
     parts.push("(current)");
   return parts.join(" ");
-}
-
-function isLocalBuildVersion(version: string | null | undefined): boolean {
-  const parsed = version ? parseSemver(version) : null;
-  return parsed?.pre?.split(".")[0] === "local";
 }
 
 const POLL_INTERVAL_MS = 3000;
@@ -384,50 +381,25 @@ export function LocalAssistantUpgrades({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const { data: releases, isLoading: releasesLoading } = useQuery(
     releasesListOptions({
-      query: { channel: "stable" },
+      query: { stable: true, limit: LOCAL_RUNTIME_RELEASES_FETCH_LIMIT },
     }),
   );
 
-  const runtimeReleases = useMemo(
-    () => releases?.filter((r) => !isLocalBuildVersion(r.version)) ?? [],
+  const latestRelease = useMemo(
+    () => getLatestRuntimeRelease(releases),
     [releases],
   );
-  const latestRelease =
-    runtimeReleases.find((r) => r.is_stable !== false) ?? runtimeReleases[0];
   const targetVersion = latestRelease?.version;
-  const upgradeAvailable = useMemo(() => {
-    if (!targetVersion) return false;
-    if (!currentVersion) return true;
-    const target = parseSemver(targetVersion);
-    const current = parseSemver(currentVersion);
-    if (!target || !current) return targetVersion !== currentVersion;
-    return compareParsed(target, current) > 0;
-  }, [currentVersion, targetVersion]);
-
-  const upgradeCreate = useMutation({
-    mutationFn: async () => {
-      lifecycleService.setLocalAssistantUpgradeInProgress(assistantId, true);
-      try {
-        const result = await upgradeLocalAssistantHost(assistantId, {
-          ...(targetVersion ? { version: targetVersion } : { latest: true }),
-        });
-        if (!result.ok) {
-          throw new Error(result.error ?? "Failed to trigger update.");
-        }
-        return result;
-      } finally {
-        lifecycleService.setLocalAssistantUpgradeInProgress(assistantId, false);
-      }
-    },
-  });
+  const upgradeAvailable = !currentVersion
+    ? !!targetVersion
+    : isRuntimeUpgradeAvailable(currentVersion, targetVersion);
+  const upgradeCreate = useLocalRuntimeUpgrade({ assistantId, targetVersion });
 
   const handleUpgrade = async () => {
     setShowConfirmation(false);
     setSuccessMessage(null);
     try {
-      const result = await upgradeCreate.mutateAsync();
-      clearGatewayToken();
-      await useAuthStore.getState().connectLocalAssistant(assistantId);
+      const result = await upgradeCreate.upgrade();
       setSuccessMessage(
         result.version
           ? `Successfully updated to version ${result.version}.`
