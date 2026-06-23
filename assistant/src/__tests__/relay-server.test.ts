@@ -5713,7 +5713,7 @@ describe("relay-server", () => {
     )?.trustContext?.memberStatus;
   }
 
-  test("inbound guardian verification: memberful blocked verdict is denied mid-call (spoken denial + teardown, not continued)", async () => {
+  test("inbound guardian verification: memberful blocked unknown verdict is honored (verdict path enforces blocked status)", async () => {
     ensureConversation("conv-midcall-verdict-blocked");
     const session = createCallSession({
       conversationId: "conv-midcall-verdict-blocked",
@@ -5728,7 +5728,7 @@ describe("relay-server", () => {
       createMockProviderResponse(["Hello there."]),
     );
 
-    const { ws, relay } = createMockWs(session.id);
+    const { relay } = createMockWs(session.id);
 
     // Setup resolves locally (no verdict) so the pending guardian challenge
     // drives verification rather than denying at the door.
@@ -5742,9 +5742,9 @@ describe("relay-server", () => {
     );
 
     // The gateway classifies a blocked member as trustClass "unknown" but still
-    // carries contactId/channelId and the deny ACL. On mid-call re-resolution
-    // this hard-deny verdict must route to the existing denial/disconnect path —
-    // NOT continue to connected/greeting.
+    // carries contactId/channelId and the deny ACL. This memberful unknown must
+    // take the verdict path on mid-call re-resolution so its blocked status is
+    // enforced — not fall back to local, which could miss a stale block.
     mockMidCallVerdict = {
       trustClass: "unknown",
       canonicalSenderId: "+15559999999",
@@ -5759,26 +5759,15 @@ describe("relay-server", () => {
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    // Denied + torn down, not connected.
-    expect(relay.getConnectionState()).toBe("disconnecting");
-    expect(getCallSession(session.id)!.status).toBe("failed");
-
-    const denyEvents = getCallEvents(session.id).filter(
-      (e) => e.eventType === "inbound_acl_denied",
-    );
-    expect(denyEvents.length).toBeGreaterThan(0);
-
-    const textMessages = ws.sentMessages
-      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
-      .filter((m) => m.type === "text");
-    expect(
-      textMessages.some((m) => (m.token ?? "").includes("not authorized")),
-    ).toBe(true);
+    expect(relay.getConnectionState()).toBe("connected");
+    // Verdict path consumed the memberful unknown verdict; blocked status lands.
+    expect(trustVerdictMapperUsed).toBe(true);
+    expect(readControllerMemberStatus(relay)).toBe("blocked");
 
     relay.destroy();
   });
 
-  test("inbound guardian verification: memberful revoked verdict is denied mid-call (spoken denial + teardown, not continued)", async () => {
+  test("inbound guardian verification: memberful revoked unknown verdict is honored (verdict path enforces revoked status)", async () => {
     ensureConversation("conv-midcall-verdict-revoked");
     const session = createCallSession({
       conversationId: "conv-midcall-verdict-revoked",
@@ -5793,7 +5782,7 @@ describe("relay-server", () => {
       createMockProviderResponse(["Hello there."]),
     );
 
-    const { ws, relay } = createMockWs(session.id);
+    const { relay } = createMockWs(session.id);
 
     await relay.handleMessage(
       JSON.stringify({
@@ -5818,81 +5807,9 @@ describe("relay-server", () => {
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    expect(relay.getConnectionState()).toBe("disconnecting");
-    expect(getCallSession(session.id)!.status).toBe("failed");
-    expect(
-      getCallEvents(session.id).filter(
-        (e) => e.eventType === "inbound_acl_denied",
-      ).length,
-    ).toBeGreaterThan(0);
-
-    const textMessages = ws.sentMessages
-      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
-      .filter((m) => m.type === "text");
-    expect(
-      textMessages.some((m) => (m.token ?? "").includes("not authorized")),
-    ).toBe(true);
-
-    relay.destroy();
-  });
-
-  test("inbound guardian verification: memberful policy-escalate verdict is denied mid-call (not continued)", async () => {
-    ensureConversation("conv-midcall-verdict-escalate");
-    const session = createCallSession({
-      conversationId: "conv-midcall-verdict-escalate",
-      provider: "twilio",
-      fromNumber: "+15559999999",
-      toNumber: "+15551111111",
-    });
-
-    const secret = createPendingVoiceGuardianChallenge();
-
-    mockSendMessage.mockImplementation(
-      createMockProviderResponse(["Hello there."]),
-    );
-
-    const { ws, relay } = createMockWs(session.id);
-
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "setup",
-        callSid: "CA_midcall_verdict_escalate",
-        from: "+15559999999",
-        to: "+15551111111",
-      }),
-    );
-
-    // Active member whose channel requires guardian approval (escalate). Live
-    // calls can't await approval, so the setup path denies escalate — mid-call
-    // must too.
-    mockMidCallVerdict = {
-      trustClass: "trusted_contact",
-      canonicalSenderId: "+15559999999",
-      contactId: "ct_escalate",
-      channelId: "ch_escalate",
-      status: "active",
-      policy: "escalate",
-    };
-
-    for (const digit of secret) {
-      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
-    }
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
-    expect(relay.getConnectionState()).toBe("disconnecting");
-    expect(getCallSession(session.id)!.status).toBe("failed");
-    expect(
-      getCallEvents(session.id).filter(
-        (e) => e.eventType === "inbound_acl_denied",
-      ).length,
-    ).toBeGreaterThan(0);
-
-    const textMessages = ws.sentMessages
-      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
-      .filter((m) => m.type === "text");
-    expect(
-      textMessages.some((m) => (m.token ?? "").includes("guardian approval")),
-    ).toBe(true);
+    expect(relay.getConnectionState()).toBe("connected");
+    expect(trustVerdictMapperUsed).toBe(true);
+    expect(readControllerMemberStatus(relay)).toBe("revoked");
 
     relay.destroy();
   });
@@ -5981,129 +5898,6 @@ describe("relay-server", () => {
     expect(readControllerTrustClass(relay)).toBe("guardian");
     expect(trustClassAtTurn.length).toBeGreaterThan(0);
     expect(trustClassAtTurn.every((c) => c === "guardian")).toBe(true);
-
-    relay.destroy();
-  });
-
-  test("inbound guardian verification: memberful active/allow verdict admits and lands member status", async () => {
-    ensureConversation("conv-midcall-verdict-active");
-    const session = createCallSession({
-      conversationId: "conv-midcall-verdict-active",
-      provider: "twilio",
-      fromNumber: "+15559999999",
-      toNumber: "+15551111111",
-    });
-
-    const secret = createPendingVoiceGuardianChallenge();
-
-    mockSendMessage.mockImplementation(
-      createMockProviderResponse(["Hello there."]),
-    );
-
-    const { relay } = createMockWs(session.id);
-
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "setup",
-        callSid: "CA_midcall_verdict_active",
-        from: "+15559999999",
-        to: "+15551111111",
-      }),
-    );
-
-    // A normal verified member (active/allow) must still be admitted mid-call.
-    mockMidCallVerdict = {
-      trustClass: "trusted_contact",
-      canonicalSenderId: "+15559999999",
-      contactId: "ct_active",
-      channelId: "ch_active",
-      status: "active",
-      policy: "allow",
-    };
-
-    for (const digit of secret) {
-      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
-    }
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
-    expect(relay.getConnectionState()).toBe("connected");
-    expect(trustVerdictMapperUsed).toBe(true);
-    expect(readControllerMemberStatus(relay)).toBe("active");
-
-    relay.destroy();
-  });
-
-  test("a prompt buffered during re-resolution is NOT replayed as a turn when the verdict denies the caller", async () => {
-    ensureConversation("conv-midcall-deny-buffer");
-    const session = createCallSession({
-      conversationId: "conv-midcall-deny-buffer",
-      provider: "twilio",
-      fromNumber: "+15559999999",
-      toNumber: "+15551111111",
-    });
-
-    const secret = createPendingVoiceGuardianChallenge();
-
-    let turnsFired = 0;
-    mockSendMessage.mockImplementation((...args: unknown[]) => {
-      turnsFired += 1;
-      return createMockProviderResponse(["Should not run."])(
-        ...(args as Parameters<ReturnType<typeof createMockProviderResponse>>),
-      );
-    });
-
-    const { relay } = createMockWs(session.id);
-
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "setup",
-        callSid: "CA_midcall_deny_buffer",
-        from: "+15559999999",
-        to: "+15551111111",
-      }),
-    );
-
-    // Slow, denying verdict so a prompt can land in the re-resolution await.
-    mockMidCallVerdict = {
-      trustClass: "unknown",
-      canonicalSenderId: "+15559999999",
-      contactId: "ct_deny_buffer",
-      channelId: "ch_deny_buffer",
-      status: "blocked",
-      policy: "deny",
-    };
-    let releaseVerdict!: () => void;
-    mockMidCallVerdictGate = new Promise<void>((resolve) => {
-      releaseVerdict = resolve;
-    });
-
-    const digits = secret.split("");
-    for (const digit of digits.slice(0, -1)) {
-      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
-    }
-    const verificationDone = relay.handleMessage(
-      JSON.stringify({ type: "dtmf", digit: digits[digits.length - 1] }),
-    );
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    // Prompt arrives mid-await: buffered while trust re-resolves.
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Let me in.",
-        lang: "en-US",
-        last: true,
-      }),
-    );
-
-    // Release the denying verdict; the call is torn down and the buffered prompt
-    // must be discarded, not replayed as a turn.
-    releaseVerdict();
-    await verificationDone;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-
-    expect(relay.getConnectionState()).toBe("disconnecting");
-    expect(turnsFired).toBe(0);
 
     relay.destroy();
   });

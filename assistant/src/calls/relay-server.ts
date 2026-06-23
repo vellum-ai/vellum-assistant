@@ -26,10 +26,7 @@ import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.
 import {
   resolveActorTrust,
   toTrustContext,
-  type TrustClass,
 } from "../runtime/actor-trust-resolver.js";
-import type { ResolvedMember } from "../runtime/routes/inbound-stages/acl-enforcement.js";
-import { enforceAdmissionPolicy } from "../runtime/routes/inbound-stages/admission-policy.js";
 import {
   resolvedMemberFromVerdict,
   trustContextFromVerdict,
@@ -64,7 +61,7 @@ import {
   emitAccessRequestCallbackHandoff,
   scheduleNextHeartbeat,
 } from "./relay-access-wait.js";
-import { routeSetup } from "./relay-setup-router.js";
+import { routeSetup, type SetupResolved } from "./relay-setup-router.js";
 import {
   attemptInviteCodeRedemption,
   attemptVerificationCode,
@@ -89,74 +86,6 @@ function firstToken(name: string | null | undefined): string | null {
   const trimmed = name.trim();
   if (!trimmed) return null;
   return trimmed.split(/\s+/)[0] ?? null;
-}
-
-/** Mid-call re-resolved trust: the context plus the member/class it enforces. */
-interface MidCallTrust {
-  context: TrustContext;
-  member: ResolvedMember | null;
-  trustClass: TrustClass;
-}
-
-/**
- * Hard-deny check for a mid-call re-resolved verdict, mirroring the setup
- * path's member deny criteria EXACTLY (`relay-setup-router.routeSetup`):
- * blocked/revoked status and the admission floor via `enforceAdmissionPolicy`,
- * plus member `policy: "deny"`/`"escalate"` (live calls can't await guardian
- * approval). Returns the spoken-denial copy + log reason for `denyInboundCall`,
- * or `null` to admit. Messages match the corresponding setup deny branches.
- */
-function midCallTrustDeny(
-  member: ResolvedMember | null,
-  trustClass: TrustClass,
-  admissionPolicy: AdmissionPolicy | null,
-): { message: string; logReason: string } | null {
-  const channel = member?.channel;
-
-  if (channel?.policy === "deny") {
-    return {
-      message: "This number is not authorized to use this assistant.",
-      logReason: "Inbound voice ACL: member policy deny",
-    };
-  }
-  if (channel?.policy === "escalate") {
-    return {
-      message:
-        "This number requires guardian approval for calls. Please have the account guardian update your permissions.",
-      logReason:
-        "Inbound voice ACL: member policy escalate — voice calls cannot await guardian approval",
-    };
-  }
-
-  if (admissionPolicy != null) {
-    const floor = enforceAdmissionPolicy({
-      sourceChannel: "phone",
-      trustClass,
-      memberStatus: channel?.status,
-      policy: admissionPolicy,
-    });
-    if (!floor.admitted) {
-      const blockedOrRevoked =
-        floor.reason === "member_blocked" || floor.reason === "member_revoked";
-      return {
-        message: blockedOrRevoked
-          ? "This number is not authorized to use this assistant."
-          : "This number is not authorized to reach the assistant right now.",
-        logReason: blockedOrRevoked
-          ? `Inbound voice ACL: caller ${channel?.status}`
-          : `Inbound voice admission floor: ${floor.effectivePolicy}`,
-      };
-    }
-  } else if (channel?.status === "blocked" || channel?.status === "revoked") {
-    // No admission floor configured: still hard-deny blocked/revoked, matching
-    // the setup blocked-caller branch (which denies independent of the floor).
-    return {
-      message: "This number is not authorized to use this assistant.",
-      logReason: `Inbound voice ACL: caller ${channel.status}`,
-    };
-  }
-
-  return null;
 }
 
 // ── ConversationRelay message types ──────────────────────────────────
@@ -749,14 +678,7 @@ export class RelayConnection {
         await this.startVerification(session, outcome.verificationConfig);
         return;
       case "deny":
-        await this.denyInboundCall(
-          msg.from,
-          {
-            trustClass: resolved.actorTrust.trustClass,
-            member: resolved.actorTrust.memberRecord,
-          },
-          outcome,
-        );
+        await this.denyInboundCall(msg.from, resolved, outcome);
         return;
       case "invite_redemption":
         this.startInviteRedemption(
@@ -875,14 +797,14 @@ export class RelayConnection {
   /** Deny an inbound call with a TTS message and schedule disconnect. */
   private async denyInboundCall(
     from: string,
-    denied: { trustClass: TrustClass; member: ResolvedMember | null },
+    resolved: SetupResolved,
     outcome: { message: string; logReason: string },
   ): Promise<void> {
     recordCallEvent(this.callSessionId, "inbound_acl_denied", {
       from,
-      trustClass: denied.trustClass,
-      channelId: denied.member?.channel.id,
-      memberPolicy: denied.member?.channel.policy,
+      trustClass: resolved.actorTrust.trustClass,
+      channelId: resolved.actorTrust.memberRecord?.channel.id,
+      memberPolicy: resolved.actorTrust.memberRecord?.channel.policy,
     });
     this.connectionState = "disconnecting";
     updateCallSession(this.callSessionId, {
@@ -983,7 +905,7 @@ export class RelayConnection {
   private async resolveMidCallTrustContext(
     assistantId: string,
     fromNumber: string,
-  ): Promise<MidCallTrust> {
+  ): Promise<TrustContext> {
     const verdict = await getInboundTrustVerdict({
       channelType: "phone",
       actorExternalId: fromNumber,
@@ -1008,27 +930,21 @@ export class RelayConnection {
       !memberlessUnknown;
 
     if (usable) {
-      return {
-        context: trustContextFromVerdict(verdict, {
-          sourceChannel: "phone",
-          conversationExternalId: fromNumber,
-        }),
-        member: resolvedMemberFromVerdict(verdict),
-        trustClass: verdict.trustClass,
-      };
+      return trustContextFromVerdict(verdict, {
+        sourceChannel: "phone",
+        conversationExternalId: fromNumber,
+      });
     }
 
-    const actorTrust = resolveActorTrust({
-      assistantId,
-      sourceChannel: "phone",
-      conversationExternalId: fromNumber,
-      actorExternalId: fromNumber,
-    });
-    return {
-      context: toTrustContext(actorTrust, fromNumber),
-      member: actorTrust.memberRecord,
-      trustClass: actorTrust.trustClass,
-    };
+    return toTrustContext(
+      resolveActorTrust({
+        assistantId,
+        sourceChannel: "phone",
+        conversationExternalId: fromNumber,
+        actorExternalId: fromNumber,
+      }),
+      fromNumber,
+    );
   }
 
   /**
@@ -1036,46 +952,24 @@ export class RelayConnection {
    * prompt that arrives during the async window. Guards the gap between
    * connectionState flipping to "connected" and the upgraded context landing so
    * a verified caller never starts a turn under the stale pre-verification
-   * trust. Clears the guard in a finally so an IPC error can't wedge the call.
-   *
-   * Returns `true` when the re-resolved verdict is a hard deny (blocked/revoked
-   * status or deny/escalate policy): the caller is torn down via the same
-   * denial path as setup and MUST NOT proceed to connected/greeting. On admit
-   * (or fail-soft fallback) returns `false`; the caller flushes buffered prompts
-   * AFTER the connected transition so a deferred utterance runs as the first
-   * real turn under the upgraded trust.
+   * trust. Clears the guard in a finally and flushes buffered prompts under the
+   * new context, so an IPC error can't wedge the call.
    */
   private async reResolveAndApplyTrustContext(
     assistantId: string,
     fromNumber: string,
-  ): Promise<boolean> {
-    if (!this.controller) return false;
+  ): Promise<void> {
+    if (!this.controller) return;
     this.trustReResolving = true;
     try {
-      const { context, member, trustClass } =
-        await this.resolveMidCallTrustContext(assistantId, fromNumber);
-
-      const admissionPolicy = await getChannelAdmissionPolicy("phone");
-      const deny = midCallTrustDeny(member, trustClass, admissionPolicy);
-      if (deny) {
-        this.trustReResolvePending = [];
-        await this.denyInboundCall(fromNumber, { trustClass, member }, deny);
-        return true;
-      }
-
-      this.controller.setTrustContext(context);
-      return false;
-    } catch (err) {
-      // Fail soft: a re-resolution error must not wedge the call. Keep the
-      // controller's existing (setup-time) trust and let the caller proceed to
-      // connected + flush, consistent with the verdict-first fallback.
-      log.error(
-        { err, callSessionId: this.callSessionId },
-        "Mid-call trust re-resolution failed — keeping existing trust",
+      const context = await this.resolveMidCallTrustContext(
+        assistantId,
+        fromNumber,
       );
-      return false;
+      this.controller.setTrustContext(context);
     } finally {
       this.trustReResolving = false;
+      this.flushDeferredPrompts();
     }
   }
 
@@ -1122,21 +1016,11 @@ export class RelayConnection {
     // longer writes contact/channel records on inbound voice calls.
 
     if (this.controller) {
-      const denied = await this.reResolveAndApplyTrustContext(
-        assistantId,
-        fromNumber,
-      );
-      // Re-resolution surfaced a blocked/revoked/policy-deny verdict: the call
-      // is torn down by denyInboundCall — don't continue to connected/greeting.
-      if (denied) return;
+      await this.reResolveAndApplyTrustContext(assistantId, fromNumber);
     }
 
     this.connectionState = "connected";
     updateCallSession(this.callSessionId, { status: "in_progress" });
-    // Flush AFTER connected so a prompt buffered during re-resolution runs as
-    // the caller's first real turn under the upgraded trust, not as wait-state
-    // chatter swallowed while still verification_pending.
-    this.flushDeferredPrompts();
 
     const guardianLabel = this.resolveGuardianLabel();
     let handoffText: string;
@@ -1316,20 +1200,12 @@ export class RelayConnection {
 
         // Update trust context on the controller so the LLM knows this is the guardian
         if (this.controller) {
-          const denied = await this.reResolveAndApplyTrustContext(
-            assistantId,
-            fromNumber,
-          );
-          // Blocked/revoked/policy-deny verdict: torn down — don't greet.
-          if (denied) return;
+          await this.reResolveAndApplyTrustContext(assistantId, fromNumber);
         }
 
         // Mark session as in-progress and transition to guardian conversation
-        // with verification context so the LLM greets naturally. Connected was
-        // already set above; flush buffered prompts now so a deferred utterance
-        // runs as the first real turn under the upgraded trust.
+        // with verification context so the LLM greets naturally.
         updateCallSession(this.callSessionId, { status: "in_progress" });
-        this.flushDeferredPrompts();
         if (this.controller) {
           this.controller
             .startPostVerificationGreeting()
@@ -1350,15 +1226,7 @@ export class RelayConnection {
         // Inbound guardian verification: binding already handled above,
         // proceed to normal call flow.
         if (this.controller) {
-          const denied = await this.reResolveAndApplyTrustContext(
-            assistantId,
-            fromNumber,
-          );
-          // Blocked/revoked/policy-deny verdict: torn down — don't start flow.
-          if (denied) return;
-          // Connected was already set above; flush buffered prompts so a
-          // deferred utterance runs as the first real turn under upgraded trust.
-          this.flushDeferredPrompts();
+          await this.reResolveAndApplyTrustContext(assistantId, fromNumber);
           this.startNormalCallFlow(this.controller, true);
         }
       }
