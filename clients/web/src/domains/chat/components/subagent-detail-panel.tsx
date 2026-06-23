@@ -25,7 +25,6 @@ import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-component
 import { Button, Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
-import { FileReadDetailView } from "@/domains/chat/components/file-read/file-read-detail-view";
 import { SubagentPhaseTimeline } from "@/domains/chat/components/subagent-phase-timeline";
 import {
     deriveStepLabelFromName,
@@ -310,8 +309,8 @@ export function SubagentDetailPanel({
                 and the breadcrumb; this body only renders the step's detail.
                 Thinking steps render their full reasoning markdown statically
                 (subagent detail isn't a live chat-session source); web_search
-                steps render their query + source links; web_fetch / file_read
-                get result-shaped views; other tools fall back to the shared
+                steps render their query + source links; web_fetch gets a
+                result-shaped view; other tools fall back to the shared
                 technical-details/output body. */}
             {activeDetail.kind === "thinking" ? (
               <ChatMarkdownMessage
@@ -322,8 +321,6 @@ export function SubagentDetailPanel({
               <WebSearchDetailView detail={activeDetail} />
             ) : activeDetail.toolName === "web_fetch" ? (
               <WebFetchDetailView detail={activeDetail} />
-            ) : activeDetail.toolName === "file_read" ? (
-              <FileReadDetailView detail={activeDetail} />
             ) : (
               <ToolDetailBody
                 detail={activeDetail}

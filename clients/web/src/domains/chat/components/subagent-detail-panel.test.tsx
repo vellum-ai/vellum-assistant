@@ -69,13 +69,6 @@ mock.module("@/domains/chat/components/subagent-phase-timeline", () => ({
       >
         fetch
       </button>
-      <button
-        type="button"
-        data-testid="timeline-file-pill"
-        onClick={() => onStepDetailClick?.("file-1")}
-      >
-        file
-      </button>
     </div>
   ),
 }));
@@ -507,36 +500,6 @@ function entryWithWebFetch(): SubagentEntry {
   });
 }
 
-/**
- * A `file_read` call/result pair keyed `file-1` (the stubbed timeline's file
- * pill), routed to `FileReadDetailView`.
- */
-function entryWithFileRead(): SubagentEntry {
-  const now = Date.now();
-  return makeEntry({
-    events: [
-      {
-        id: "te-fr-call",
-        type: "tool_call",
-        content: "{}",
-        toolName: "file_read",
-        toolUseId: "file-1",
-        input: { path: "/tmp/notes.txt" },
-        timestamp: now,
-      },
-      {
-        id: "te-fr-res",
-        type: "tool_result",
-        content: "hello from the file",
-        result: "hello from the file",
-        toolName: "file_read",
-        toolUseId: "file-1",
-        timestamp: now + 1000,
-      },
-    ],
-  });
-}
-
 describe("SubagentDetailPanel — nested tool detail", () => {
   test("the top-level timeline view shows no breadcrumb", () => {
     render(<SubagentDetailPanel entry={entryWithTool(true)} onClose={noop} />);
@@ -705,16 +668,6 @@ describe("SubagentDetailPanel — nested tool detail", () => {
     // body must NOT appear.
     expect(screen.getByText("example.com")).toBeDefined();
     expect(screen.getByText("200 OK")).toBeDefined();
-    expect(screen.queryByText("Technical details")).toBeNull();
-  });
-
-  test("a file_read pill routes to the file viewer", () => {
-    render(<SubagentDetailPanel entry={entryWithFileRead()} onClose={noop} />);
-
-    fireEvent.click(screen.getByTestId("timeline-file-pill"));
-
-    // The file viewer shows the basename header and the file contents.
-    expect(screen.getByText("notes.txt")).toBeDefined();
     expect(screen.queryByText("Technical details")).toBeNull();
   });
 });
