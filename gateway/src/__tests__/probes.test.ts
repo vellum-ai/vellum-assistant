@@ -30,18 +30,19 @@ async function handleRequest(req: Request): Promise<Response> {
     return Response.json({ status: "ok" });
   }
 
+  if (!postAssistantReadyComplete) {
+    return Response.json({ status: "starting" }, { status: 503 });
+  }
+
+  if (url.pathname === "/schema") {
+    return Response.json({ openapi: "3.1.0" });
+  }
+
   if (url.pathname === "/readyz") {
     if (draining) {
       return Response.json({ status: "draining" }, { status: 503 });
     }
-    if (!postAssistantReadyComplete) {
-      return Response.json({ status: "starting" }, { status: 503 });
-    }
     return Response.json({ status: "ok" });
-  }
-
-  if (!postAssistantReadyComplete) {
-    return Response.json({ status: "starting" }, { status: 503 });
   }
 
   if (url.pathname === "/webhooks/telegram") {
@@ -122,6 +123,20 @@ describe("/readyz", () => {
     try {
       const res = await handleRequest(
         new Request("http://gateway.test/webhooks/telegram"),
+      );
+      expect(res.status).toBe(503);
+      const body = await res.json();
+      expect(body.status).toBe("starting");
+    } finally {
+      postAssistantReadyComplete = true;
+    }
+  });
+
+  test("blocks schema while post-assistant-ready startup work is incomplete", async () => {
+    postAssistantReadyComplete = false;
+    try {
+      const res = await handleRequest(
+        new Request("http://gateway.test/schema"),
       );
       expect(res.status).toBe(503);
       const body = await res.json();
