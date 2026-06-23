@@ -48,7 +48,6 @@ import { GlobalPushToTalkBridge } from "@/domains/chat/voice/global-push-to-talk
 import { TimezoneSync } from "@/components/timezone-sync";
 import { StatusBanner } from "@/components/status-banner";
 import { UpdateToast } from "@/components/update-toast";
-import { LocalRuntimeUpgradeBanner } from "@/components/local-runtime-upgrade-banner";
 import { retireAssistant } from "@/assistant/retire-service";
 import { setSelectedAssistant } from "@/assistant/selection";
 import { CreateAssistantDialog } from "@/components/create-assistant-dialog";
@@ -304,12 +303,6 @@ export function RootLayout() {
       }}
     >
       <UpdateToast />
-      {!electron && !isPopout && !suppressStatusBanner ? (
-        <LocalRuntimeUpgradeBanner
-          assistantId={assistantId}
-          currentVersion={assistantVersion}
-        />
-      ) : null}
       {!electron && !isPopout && !suppressStatusBanner ? (
         <StatusBanner placement="web" />
       ) : null}
