@@ -55,7 +55,7 @@ mock.module("@/domains/onboarding/onboarding-store", () => ({
   useOnboardingStore: { getState: () => ({ setShareDiagnostics }) },
 }));
 
-const { PRIVACY_CONSENT_VERSION } = await import("@/utils/onboarding-cleanup");
+const { DIAGNOSTICS_CONSENT_VERSION } = await import("@/utils/onboarding-cleanup");
 const { refreshDiagnosticsConsent, installConsentRefreshListeners } =
   await import("./consent-refresh");
 
@@ -81,7 +81,7 @@ function consentRecord(overrides: Partial<UserConsent> = {}): UserConsent {
 function revokeRecord(): UserConsent {
   return consentRecord({
     share_diagnostics: false,
-    share_diagnostics_accepted_version: PRIVACY_CONSENT_VERSION,
+    share_diagnostics_accepted_version: DIAGNOSTICS_CONSENT_VERSION,
   });
 }
 

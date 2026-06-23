@@ -205,6 +205,8 @@ mock.module("@/utils/onboarding-cleanup", () => ({
   resolveServerConsent: resolveServerConsentMock,
   TOS_CONSENT_VERSION: "2026-06-08",
   PRIVACY_CONSENT_VERSION: "2026-06-08",
+  ANALYTICS_CONSENT_VERSION: "2026-06-08",
+  DIAGNOSTICS_CONSENT_VERSION: "2026-06-08",
 }));
 
 const setAnalyticsConsentCurrentMock = mock((_value: boolean) => {});
