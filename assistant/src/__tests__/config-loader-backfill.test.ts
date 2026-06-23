@@ -745,7 +745,7 @@ describe("loadConfig startup behavior", () => {
     );
     expect(raw.llm.profiles.frontier.provider).toBe("anthropic");
     expect(raw.llm.profiles.frontier.model).toBe("claude-opus-4-8");
-    // Speed is now DeepSeek V4 Flash on Fireworks.
+    // Speed is served by DeepSeek V4 Flash on Fireworks.
     expect(raw.llm.profiles["cost-optimized"].provider).toBe("fireworks");
     expect(raw.llm.profiles["cost-optimized"].model).toBe(
       "accounts/fireworks/models/deepseek-v4-flash",
