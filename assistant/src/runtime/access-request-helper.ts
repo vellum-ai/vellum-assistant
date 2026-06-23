@@ -12,7 +12,10 @@
  */
 
 import type { ChannelId } from "../channels/types.js";
-import { findGuardianForChannel } from "../contacts/contact-store.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../contacts/guardian-delivery-reader.js";
 import type { ChannelStatus } from "../contacts/types.js";
 import {
   createCanonicalGuardianRequest,
@@ -70,12 +73,12 @@ export type AccessRequestResult =
  * trust anchor and only accepts source-channel contacts that match it. This
  * prevents stale or cross-assistant contacts from being bound to the request.
  *
- * This is intentionally synchronous with respect to the canonical store writes
- * and fire-and-forget for the notification signal emission.
+ * The canonical store writes complete before this resolves; the notification
+ * signal emission is fire-and-forget.
  */
-export function notifyGuardianOfAccessRequest(
+export async function notifyGuardianOfAccessRequest(
   params: AccessRequestParams,
-): AccessRequestResult {
+): Promise<AccessRequestResult> {
   const {
     canonicalAssistantId,
     sourceChannel,
@@ -103,27 +106,28 @@ export function notifyGuardianOfAccessRequest(
   let guardianBindingChannel: string | null = null;
   let guardianResolutionSource: GuardianResolutionSource = "none";
 
-  const vellumGuardian = findGuardianForChannel("vellum");
-  const assistantGuardianPrincipalId = vellumGuardian?.contact.principalId;
+  const guardians = (await getGuardianDelivery()) ?? [];
+  const vellumGuardian = guardianForChannel(guardians, "vellum");
+  const assistantGuardianPrincipalId = vellumGuardian?.principalId;
 
   // Try source-channel guardian, but only if it maps to the assistant's
-  // anchored principal. This blocks cross-assistant/stale contact selection.
-  const sourceGuardian = findGuardianForChannel(sourceChannel);
+  // anchored principal. This blocks cross-assistant/stale binding selection.
+  const sourceGuardian = guardianForChannel(guardians, sourceChannel);
   if (
     assistantGuardianPrincipalId &&
     sourceGuardian &&
-    sourceGuardian.contact.principalId === assistantGuardianPrincipalId
+    sourceGuardian.principalId === assistantGuardianPrincipalId
   ) {
-    guardianExternalUserId = sourceGuardian.channel.address;
-    guardianPrincipalId = sourceGuardian.contact.principalId;
-    guardianBindingChannel = sourceGuardian.channel.type;
+    guardianExternalUserId = sourceGuardian.address;
+    guardianPrincipalId = sourceGuardian.principalId;
+    guardianBindingChannel = sourceGuardian.channelType;
     guardianResolutionSource = "source-channel-contact";
   }
 
   // Access requests always require a principal. If source-channel resolution
   // did not match the assistant anchor, use the anchored vellum identity.
   if (!guardianPrincipalId && vellumGuardian) {
-    guardianExternalUserId = vellumGuardian.channel.address;
+    guardianExternalUserId = vellumGuardian.address;
     guardianPrincipalId = assistantGuardianPrincipalId ?? null;
     guardianBindingChannel = guardianBindingChannel ?? "vellum";
     guardianResolutionSource = "vellum-anchor";

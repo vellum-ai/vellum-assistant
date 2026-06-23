@@ -196,6 +196,35 @@ mock.module("../calls/inbound-trust-reader.js", () => ({
   },
 }));
 
+// ── Guardian delivery reader ────────────────────────────────────────
+//
+// Guardian identity now resolves via the gateway delivery reader. Derive the
+// list from the DB-seeded guardian bindings so the existing createGuardianBinding
+// setup keeps driving guardian resolution without per-test changes.
+const realContactStoreModule = {
+  ...(await import("../contacts/contact-store.js")),
+};
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => {
+    const guardians = realContactStoreModule.listGuardianChannels();
+    if (!guardians) return [];
+    return guardians.channels.map((ch) => ({
+      channelType: ch.type,
+      contactId: guardians.contact.id,
+      principalId: guardians.contact.principalId ?? null,
+      displayName: guardians.contact.displayName ?? null,
+      address: ch.address,
+      externalChatId: ch.externalChatId ?? null,
+      status: ch.status,
+      verifiedAt: ch.verifiedAt ?? null,
+    }));
+  },
+  guardianForChannel: (
+    list: Array<{ channelType: string; status: string }>,
+    channelType: string,
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
+}));
+
 // ── Trust verdict consumer spy ──────────────────────────────────────
 //
 // Tracks whether the verdict mapper produced the final mid-call context, so a

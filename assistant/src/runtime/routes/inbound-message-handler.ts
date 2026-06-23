@@ -801,7 +801,7 @@ export async function handleChannelInbound({
     // guardian sees "previously pending" etc.
     let guardianNotified = false;
     try {
-      const accessResult = notifyGuardianOfAccessRequest({
+      const accessResult = await notifyGuardianOfAccessRequest({
         canonicalAssistantId,
         sourceChannel,
         conversationExternalId,

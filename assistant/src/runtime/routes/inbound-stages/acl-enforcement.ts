@@ -7,7 +7,10 @@ import type { AdmissionPolicy, SourceMetadata } from "@vellumai/gateway-client";
 
 import { isInviteCodeRedemptionEnabled } from "../../../channels/config.js";
 import type { ChannelId } from "../../../channels/types.js";
-import { findGuardianForChannel } from "../../../contacts/contact-store.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../../../contacts/guardian-delivery-reader.js";
 import { channelStatusToMemberStatus } from "../../../contacts/member-status.js";
 import type {
   ContactChannel,
@@ -46,12 +49,15 @@ const log = getLogger("runtime-http");
  * Resolve the guardian's display name for use in requester-facing messages.
  *
  * Uses the assistant's anchored vellum principal to validate the guardian
- * contact, matching the same strategy used by `notifyGuardianOfAccessRequest`.
- * This prevents stale or cross-assistant contacts from leaking a wrong name.
+ * binding, matching the same strategy used by `notifyGuardianOfAccessRequest`.
+ * This prevents stale or cross-assistant bindings from leaking a wrong name.
+ * Cosmetic copy, not an admission decision, so a null gateway list degrades
+ * gracefully to the default reference.
  */
-function resolveGuardianLabel(sourceChannel: ChannelId): string {
-  const vellumGuardian = findGuardianForChannel("vellum");
-  const anchoredPrincipalId = vellumGuardian?.contact.principalId;
+async function resolveGuardianLabel(sourceChannel: ChannelId): Promise<string> {
+  const guardians = await getGuardianDelivery();
+  const vellumGuardian = guardianForChannel(guardians ?? [], "vellum");
+  const anchoredPrincipalId = vellumGuardian?.principalId;
 
   if (!anchoredPrincipalId) {
     return resolveGuardianName(undefined);
@@ -59,15 +65,12 @@ function resolveGuardianLabel(sourceChannel: ChannelId): string {
 
   // Try source-channel guardian, but only accept it when the principal
   // matches the assistant's anchor.
-  const sourceGuardian = findGuardianForChannel(sourceChannel);
-  if (
-    sourceGuardian &&
-    sourceGuardian.contact.principalId === anchoredPrincipalId
-  ) {
-    return resolveGuardianName(sourceGuardian.contact.displayName);
+  const sourceGuardian = guardianForChannel(guardians ?? [], sourceChannel);
+  if (sourceGuardian && sourceGuardian.principalId === anchoredPrincipalId) {
+    return resolveGuardianName(sourceGuardian.displayName);
   }
 
-  return resolveGuardianName(vellumGuardian.contact.displayName);
+  return resolveGuardianName(vellumGuardian.displayName);
 }
 
 // ---------------------------------------------------------------------------
@@ -347,7 +350,7 @@ export async function enforceIngressAcl(
           if (slackVerifyResult.initiated) {
             // Still notify the guardian about the access attempt
             try {
-              notifyGuardianOfAccessRequest({
+              await notifyGuardianOfAccessRequest({
                 canonicalAssistantId,
                 sourceChannel,
                 conversationExternalId,
@@ -387,7 +390,7 @@ export async function enforceIngressAcl(
               try {
                 await deliverChannelReply(dmCallbackUrl, {
                   chatId: senderUserId,
-                  text: `I don't recognize you yet! I've let ${resolveGuardianLabel(sourceChannel)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
+                  text: `I don't recognize you yet! I've let ${await resolveGuardianLabel(sourceChannel)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
                   assistantId,
                 });
               } catch (err) {
@@ -422,7 +425,7 @@ export async function enforceIngressAcl(
 
           if (emailVerifyResult.initiated) {
             try {
-              notifyGuardianOfAccessRequest({
+              await notifyGuardianOfAccessRequest({
                 canonicalAssistantId,
                 sourceChannel,
                 conversationExternalId,
@@ -461,7 +464,7 @@ export async function enforceIngressAcl(
         // deduplication, canonical request creation, and notification emission.
         let guardianNotified = false;
         try {
-          const accessResult = notifyGuardianOfAccessRequest({
+          const accessResult = await notifyGuardianOfAccessRequest({
             canonicalAssistantId,
             sourceChannel,
             conversationExternalId,
@@ -485,7 +488,7 @@ export async function enforceIngressAcl(
         }
 
         const replyText = guardianNotified
-          ? `Hmm looks like you don't have access to talk to me. I'll let ${resolveGuardianLabel(sourceChannel)} know you tried talking to me and get back to you.`
+          ? `Hmm looks like you don't have access to talk to me. I'll let ${await resolveGuardianLabel(sourceChannel)} know you tried talking to me and get back to you.`
           : "Sorry, you haven't been approved to message this assistant.";
         let replyDelivered = false;
         if (replyCallbackUrl) {
@@ -667,7 +670,7 @@ export async function enforceIngressAcl(
 
             if (slackVerifyResult.initiated) {
               try {
-                notifyGuardianOfAccessRequest({
+                await notifyGuardianOfAccessRequest({
                   canonicalAssistantId,
                   sourceChannel,
                   conversationExternalId,
@@ -706,7 +709,7 @@ export async function enforceIngressAcl(
                 try {
                   await deliverChannelReply(dmCallbackUrl, {
                     chatId: senderUserId,
-                    text: `I don't recognize you yet! I've let ${resolveGuardianLabel(sourceChannel)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
+                    text: `I don't recognize you yet! I've let ${await resolveGuardianLabel(sourceChannel)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
                     assistantId,
                   });
                 } catch (err) {
@@ -735,7 +738,7 @@ export async function enforceIngressAcl(
           let guardianNotified = false;
           if (resolvedMember.channel.status !== "blocked") {
             try {
-              const accessResult = notifyGuardianOfAccessRequest({
+              const accessResult = await notifyGuardianOfAccessRequest({
                 canonicalAssistantId,
                 sourceChannel,
                 conversationExternalId,
@@ -763,7 +766,7 @@ export async function enforceIngressAcl(
           }
 
           const inactiveReplyText = guardianNotified
-            ? `Hmm looks like you don't have access to talk to me. I'll let ${resolveGuardianLabel(sourceChannel)} know you tried talking to me and get back to you.`
+            ? `Hmm looks like you don't have access to talk to me. I'll let ${await resolveGuardianLabel(sourceChannel)} know you tried talking to me and get back to you.`
             : "Sorry, you haven't been approved to message this assistant.";
           let inactiveReplyDelivered = false;
           if (replyCallbackUrl) {
