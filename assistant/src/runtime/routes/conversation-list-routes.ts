@@ -18,6 +18,7 @@ import {
   recordConversationSeenSignal,
   type SignalType,
 } from "../../memory/conversation-attention-store.js";
+import { isConversationProcessing } from "../../memory/conversation-crud.js";
 import {
   type ConversationRow,
   getDisplayMetaForConversations,
@@ -270,12 +271,12 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
         attentionState: attentionStates.get(conversation.id),
         displayMeta: displayMeta.get(conversation.id),
         parentCache,
-        // Cold (evicted / never-loaded) rows aren't in the in-memory
-        // store, so `findConversation` returns `undefined` and they
-        // report `isProcessing: false` — by definition they aren't
-        // mid-turn since the agent loop only runs on resident convs.
+        // Hot (resident) conversations use the in-memory flag; cold
+        // (evicted / never-loaded) rows fall back to the persisted
+        // `processing_started_at` column.
         isProcessing:
-          findConversation(conversation.id)?.isProcessing() ?? false,
+          findConversation(conversation.id)?.isProcessing() ??
+          isConversationProcessing(conversation.id),
       }),
     ),
     nextOffset,

@@ -21,6 +21,7 @@ import {
   type ConversationRow,
   getConversation,
   getDisplayMetaForConversations,
+  isConversationProcessing,
 } from "../../memory/conversation-crud.js";
 import type { ExternalConversationBinding } from "../../memory/external-conversation-store.js";
 import { getBindingsForConversations } from "../../memory/external-conversation-store.js";
@@ -286,11 +287,13 @@ export function buildConversationDetailResponse(
       attentionState: attentionStates.get(conversation.id),
       displayMeta: displayMeta.get(conversation.id),
       parentCache,
-      // Cold (evicted / never-loaded) rows aren't in the in-memory
-      // store, so `findConversation` returns `undefined` and they
-      // report `isProcessing: false` — by definition they aren't
-      // mid-turn since the agent loop only runs on resident convs.
-      isProcessing: findConversation(conversation.id)?.isProcessing() ?? false,
+      // Hot (resident) conversations use the in-memory flag; cold
+      // (evicted / never-loaded) rows fall back to the persisted
+      // `processing_started_at` column so a mid-turn conversation
+      // that was evicted from memory still reports correctly.
+      isProcessing:
+        findConversation(conversation.id)?.isProcessing() ??
+        isConversationProcessing(conversation.id),
     }),
   };
 }

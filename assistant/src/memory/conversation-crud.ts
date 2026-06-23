@@ -304,6 +304,7 @@ export interface ConversationRow {
   inferenceProfileSessionId: string | null;
   inferenceProfileExpiresAt: number | null;
   lastNotifiedInferenceProfile: string | null;
+  processingStartedAt: number | null;
 }
 
 export const parseConversation = createRowMapper<
@@ -339,6 +340,7 @@ export const parseConversation = createRowMapper<
   inferenceProfileSessionId: "inferenceProfileSessionId",
   inferenceProfileExpiresAt: "inferenceProfileExpiresAt",
   lastNotifiedInferenceProfile: "lastNotifiedInferenceProfile",
+  processingStartedAt: "processingStartedAt",
 });
 
 /** Allowed values for the `role` column on `messages`. */
@@ -2178,6 +2180,51 @@ export function unarchiveConversation(id: string): boolean {
     id,
   );
   return true;
+}
+
+/**
+ * Persist the processing-start timestamp for a conversation. Called by
+ * `Conversation.setProcessing(true)` so out-of-process callers can detect
+ * mid-turn state by reading the `conversations` row directly. Pass `null`
+ * to clear (turn ended).
+ */
+export function setConversationProcessingStartedAt(
+  id: string,
+  startedAt: number | null,
+): void {
+  rawRun(
+    "UPDATE conversations SET processing_started_at = ? WHERE id = ?",
+    startedAt,
+    id,
+  );
+}
+
+/**
+ * Read whether a conversation is currently processing, directly from the
+ * `conversations` row. This is the cross-process source of truth — the
+ * in-memory `Conversation._processing` flag is the hot-path read for
+ * resident conversations, but out-of-process callers (e.g. the retrospective
+ * CLI) use this instead. Returns `false` when the conversation row doesn't
+ * exist.
+ */
+export function isConversationProcessing(id: string): boolean {
+  const row = rawGet<{ processing_started_at: number | null }>(
+    "SELECT processing_started_at FROM conversations WHERE id = ?",
+    id,
+  );
+  return row?.processing_started_at != null;
+}
+
+/**
+ * Clear `processing_started_at` for every conversation that still has it set.
+ * Called on daemon startup so conversations left mid-turn by a crash don't
+ * appear processing to out-of-process callers. The in-memory flag is reset
+ * naturally — crashed conversations are evicted and reloaded fresh.
+ */
+export function resetStaleProcessingState(): number {
+  return rawRun(
+    "UPDATE conversations SET processing_started_at = NULL WHERE processing_started_at IS NOT NULL",
+  );
 }
 
 /**

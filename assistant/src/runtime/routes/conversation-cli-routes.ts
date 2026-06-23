@@ -13,6 +13,7 @@ import { findConversation } from "../../daemon/conversation-registry.js";
 import { clearAllConversations as clearAllActive } from "../../daemon/handlers/conversations.js";
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
 import { ipcCall as ipcCallGateway } from "../../ipc/gateway-client.js";
+import { isConversationProcessing } from "../../memory/conversation-crud.js";
 import {
   addMessage,
   createConversation,
@@ -55,8 +56,11 @@ function handleListCli({ body = {} }: RouteHandlerArgs) {
       updatedAt: c.updatedAt,
       // `isProcessing` mirrors `Conversation.isProcessing()` from the
       // in-memory daemon store — true when the agent loop is mid-turn.
-      // Rows not currently in memory (cold / evicted) report `false`.
-      isProcessing: findConversation(c.id)?.isProcessing() ?? false,
+      // Cold (evicted / never-loaded) rows fall back to the persisted
+      // `processing_started_at` column.
+      isProcessing:
+        findConversation(c.id)?.isProcessing() ??
+        isConversationProcessing(c.id),
     })),
   };
 }
