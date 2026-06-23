@@ -49,6 +49,7 @@ interface ProviderCall {
   options: SendMessageOptions | undefined;
 }
 const providerCalls: ProviderCall[] = [];
+const warnCalls: Array<{ args: unknown[] }> = [];
 
 mock.module("../../../../providers/provider-send-message.js", () => ({
   getConfiguredProvider: async () => providerStub,
@@ -57,10 +58,12 @@ mock.module("../../../../providers/provider-send-message.js", () => ({
 }));
 
 mock.module("../../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: (_t, prop) => (prop === "child" ? () => ({}) : () => {}),
+  getLogger: () => ({
+    warn: (...args: unknown[]) => warnCalls.push({ args }),
+    child: () => ({
+      warn: (...args: unknown[]) => warnCalls.push({ args }),
     }),
+  }),
 }));
 
 const { selectPool, MemoryV3RetrievalUnavailableError } =
@@ -97,7 +100,18 @@ function noToolResponse(): ProviderResponse {
     model: "stub-model",
     stopReason: "end_turn",
     usage: { inputTokens: 0, outputTokens: 0 },
+    rawRequest: { model: "MiniMaxAI/MiniMax-M3" },
+    rawResponse: { model: "accounts/fireworks/models/minimax-m3" },
     content: [{ type: "text", text: "no tool call" }],
+  };
+}
+
+function wrongToolResponse(): ProviderResponse {
+  return {
+    model: "stub-model",
+    stopReason: "tool_use",
+    usage: { inputTokens: 0, outputTokens: 0 },
+    content: [{ type: "tool_use", id: "tu-1", name: "wrong_tool", input: {} }],
   };
 }
 
@@ -118,12 +132,12 @@ function makeSequenceProvider(responses: ProviderResponse[]): Provider {
 
 /** Provider that records each call and then throws — the throw-after-retries
  * path (the provider's own RetryProvider has already exhausted its backoff). */
-function makeThrowingProvider(): Provider {
+function makeThrowingProvider(message = "boom"): Provider {
   return {
     name: "throwing",
     sendMessage: async (messages, options) => {
       providerCalls.push({ messages, options });
-      throw new Error("boom");
+      throw new Error(message);
     },
   };
 }
@@ -167,9 +181,19 @@ function sentBlocks(callIndex = 0): RenderedBlock[] {
     .content as unknown as RenderedBlock[];
 }
 
+function warnPayloads(): Array<Record<string, unknown>> {
+  return warnCalls
+    .map((call) => call.args[0])
+    .filter(
+      (payload): payload is Record<string, unknown> =>
+        payload !== null && typeof payload === "object",
+    );
+}
+
 beforeEach(() => {
   providerStub = null;
   providerCalls.length = 0;
+  warnCalls.length = 0;
 });
 
 // ---------------------------------------------------------------------------
@@ -250,6 +274,62 @@ describe("selectPool — infrastructure failures throw", () => {
       MemoryV3RetrievalUnavailableError,
     );
     expect(providerCalls).toHaveLength(3);
+    const payloads = warnPayloads();
+    const attemptPayloads = payloads.filter(
+      (payload) => payload.reason === "missing_tool_use",
+    );
+    expect(attemptPayloads).toHaveLength(3);
+    expect(attemptPayloads[0]).toMatchObject({
+      attempt: 1,
+      reason: "missing_tool_use",
+      providerName: "stub",
+      candidateCount: 4,
+      stableCount: 2,
+      finderCount: 2,
+      response: {
+        model: "stub-model",
+        stopReason: "end_turn",
+        requestModel: "MiniMaxAI/MiniMax-M3",
+        responseModel: "accounts/fireworks/models/minimax-m3",
+        contentBlockTypes: ["text"],
+        toolUseNames: [],
+      },
+    });
+    const aggregatePayload = payloads.find((payload) =>
+      Array.isArray(payload.failures),
+    );
+    expect(aggregatePayload?.providerName).toBe("stub");
+    const failures = aggregatePayload?.failures as
+      | Array<Record<string, unknown>>
+      | undefined;
+    expect(failures?.[0]).toMatchObject({ reason: "missing_tool_use" });
+  });
+
+  test("wrong tool_use name logs the unexpected name before throwing", async () => {
+    providerStub = makeProvider(wrongToolResponse());
+    await expect(selectPool(makePool(), makeTurn("x"))).rejects.toThrow(
+      MemoryV3RetrievalUnavailableError,
+    );
+    expect(providerCalls).toHaveLength(3);
+    expect(
+      warnPayloads().filter(
+        (payload) => payload.reason === "unexpected_tool_name",
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        attempt: 1,
+        reason: "unexpected_tool_name",
+        providerName: "stub",
+        toolName: "wrong_tool",
+        response: expect.objectContaining({
+          stopReason: "tool_use",
+          contentBlockTypes: ["tool_use"],
+          toolUseNames: ["wrong_tool"],
+        }),
+      }),
+      expect.objectContaining({ attempt: 2 }),
+      expect.objectContaining({ attempt: 3 }),
+    ]);
   });
 
   test("schema mismatch → throws after retrying", async () => {
@@ -258,6 +338,17 @@ describe("selectPool — infrastructure failures throw", () => {
       MemoryV3RetrievalUnavailableError,
     );
     expect(providerCalls).toHaveLength(3);
+    expect(
+      warnPayloads().filter((payload) => payload.reason === "schema_mismatch"),
+    ).toEqual([
+      expect.objectContaining({
+        attempt: 1,
+        reason: "schema_mismatch",
+        schemaIssues: [expect.objectContaining({ path: "ids" })],
+      }),
+      expect.objectContaining({ attempt: 2 }),
+      expect.objectContaining({ attempt: 3 }),
+    ]);
   });
 
   test("provider throw → throws after retrying", async () => {
@@ -266,6 +357,44 @@ describe("selectPool — infrastructure failures throw", () => {
       MemoryV3RetrievalUnavailableError,
     );
     expect(providerCalls).toHaveLength(3);
+    expect(
+      warnPayloads().filter((payload) => payload.reason === "provider_error"),
+    ).toEqual([
+      expect.objectContaining({
+        attempt: 1,
+        reason: "provider_error",
+        providerName: "throwing",
+        error: { name: "Error", message: "boom" },
+      }),
+      expect.objectContaining({ attempt: 2 }),
+      expect.objectContaining({ attempt: 3 }),
+    ]);
+  });
+
+  test("provider throw redacts sensitive message details in diagnostics", async () => {
+    const providerSecret = ["sk-proj-", "a".repeat(40)].join("");
+    const message = `provider rejected Authorization: Bearer ${providerSecret}`;
+    providerStub = makeThrowingProvider(message);
+
+    let thrown: unknown;
+    try {
+      await selectPool(makePool(), makeTurn("x"));
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(MemoryV3RetrievalUnavailableError);
+    expect((thrown as Error).message).not.toContain(providerSecret);
+    expect((thrown as Error).message).toContain("[REDACTED]");
+
+    const providerErrors = warnPayloads().filter(
+      (payload) => payload.reason === "provider_error",
+    );
+    const error = providerErrors[0]?.error as
+      | Record<string, unknown>
+      | undefined;
+    expect(error?.message).not.toContain(providerSecret);
+    expect(error?.message).toContain("[REDACTED]");
   });
 
   test("a malformed response that recovers on retry returns its pages", async () => {
