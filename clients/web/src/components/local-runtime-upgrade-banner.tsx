@@ -50,7 +50,7 @@ export function LocalRuntimeUpgradeBanner({
       : null,
   );
   const effectiveCurrentVersion =
-    currentVersion ?? activeAssistant?.runtimeVersion ?? null;
+    activeAssistant?.runtimeVersion ?? currentVersion ?? null;
   const isBunLocalAssistant = activeAssistant?.cloud === "local";
   const canUpgradeActiveBunLocalAssistant =
     isBunLocalAssistant && activeAssistant?.isActiveLockfileAssistant === true;

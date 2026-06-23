@@ -29,6 +29,17 @@ const localAssistant: LockfileAssistant = {
   },
 };
 
+const otherLocalAssistant: LockfileAssistant = {
+  assistantId: "asst-other",
+  name: "Other Local",
+  cloud: "local",
+  resources: {
+    gatewayPort: 7930,
+    daemonPort: 7931,
+    runtimeVersion: "v0.8.12",
+  },
+};
+
 beforeEach(() => {
   localStorage.removeItem(SELECTED_ASSISTANT_STORAGE_KEY);
   useLockfileStore.setState({ lockfile: null, committed: false });
@@ -73,15 +84,43 @@ describe("setFromLockfile", () => {
 
   it("marks local entries inactive when the lockfile active pointer differs", () => {
     const lockfile: Lockfile = {
-      assistants: [localAssistant],
+      assistants: [localAssistant, otherLocalAssistant],
       activeAssistant: "asst-other",
+    };
+    useResolvedAssistantsStore.getState().setFromLockfile(lockfile);
+
+    const [entry, otherEntry] = useResolvedAssistantsStore.getState().assistants;
+    expect(entry?.id).toBe("asst-local");
+    expect(entry?.cloud).toBe("local");
+    expect(entry?.isActiveLockfileAssistant).toBe(false);
+    expect(otherEntry?.id).toBe("asst-other");
+    expect(otherEntry?.isActiveLockfileAssistant).toBe(true);
+  });
+
+  it("treats a sole local entry as active when the lockfile active pointer is empty", () => {
+    const lockfile: Lockfile = {
+      assistants: [localAssistant],
+      activeAssistant: null,
     };
     useResolvedAssistantsStore.getState().setFromLockfile(lockfile);
 
     const entry = useResolvedAssistantsStore.getState().assistants[0];
     expect(entry.id).toBe("asst-local");
     expect(entry.cloud).toBe("local");
-    expect(entry.isActiveLockfileAssistant).toBe(false);
+    expect(entry.isActiveLockfileAssistant).toBe(true);
+  });
+
+  it("treats a sole local entry as active when the lockfile active pointer is stale", () => {
+    const lockfile: Lockfile = {
+      assistants: [localAssistant],
+      activeAssistant: "asst-stale",
+    };
+    useResolvedAssistantsStore.getState().setFromLockfile(lockfile);
+
+    const entry = useResolvedAssistantsStore.getState().assistants[0];
+    expect(entry.id).toBe("asst-local");
+    expect(entry.cloud).toBe("local");
+    expect(entry.isActiveLockfileAssistant).toBe(true);
   });
 });
 

@@ -107,13 +107,16 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
     assistantsHydrated: false,
 
     setFromLockfile: (lockfile) => {
+      const activeLockfileAssistantId = getEffectiveActiveLockfileAssistantId(
+        lockfile,
+      );
       const assistants = lockfile.assistants.map((a) => ({
         id: a.assistantId,
         name: a.name,
         hatchedAt: a.hatchedAt,
         cloud: a.cloud,
         runtimeVersion: a.resources?.runtimeVersion,
-        isActiveLockfileAssistant: lockfile.activeAssistant === a.assistantId,
+        isActiveLockfileAssistant: activeLockfileAssistantId === a.assistantId,
         isLocal: isLocalAssistant(a),
         isPlatformHosted: isPlatformAssistant(a),
         organizationId: a.organizationId,
@@ -248,14 +251,33 @@ function getLockfileFields(assistantId: string): {
 } {
   const lockfile = useLockfileStore.getState().lockfile;
   const entry = lockfile?.assistants.find((a) => a.assistantId === assistantId);
+  const activeLockfileAssistantId = lockfile
+    ? getEffectiveActiveLockfileAssistantId(lockfile)
+    : null;
   return {
     cloud: entry?.cloud,
     organizationId: entry?.organizationId,
     runtimeVersion: entry?.resources?.runtimeVersion,
     isActiveLockfileAssistant: lockfile
-      ? lockfile.activeAssistant === assistantId
+      ? activeLockfileAssistantId === assistantId
       : undefined,
   };
+}
+
+function getEffectiveActiveLockfileAssistantId(
+  lockfile: Lockfile,
+): string | null {
+  if (
+    lockfile.activeAssistant &&
+    lockfile.assistants.some(
+      (assistant) => assistant.assistantId === lockfile.activeAssistant,
+    )
+  ) {
+    return lockfile.activeAssistant;
+  }
+  return lockfile.assistants.length === 1
+    ? (lockfile.assistants[0]?.assistantId ?? null)
+    : null;
 }
 
 // ---------------------------------------------------------------------------
