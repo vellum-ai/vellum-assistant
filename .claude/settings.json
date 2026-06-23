@@ -13,6 +13,7 @@
   },
   "permissions": {
     "allow": [
+      "mcp__Linear",
       "Bash(git worktree *)",
       "Bash(git show *)",
       "Bash(gh pr view *)",
