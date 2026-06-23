@@ -183,7 +183,7 @@ export async function enforceIngressAcl(
 
   // Member resolved from the gateway verdict (ACL + identity only); null for a
   // stranger verdict, which falls through to the non-member intercepts.
-  let resolvedMember: ResolvedMember | null = resolvedMemberFromVerdict(verdict);
+  const resolvedMember: ResolvedMember | null = resolvedMemberFromVerdict(verdict);
 
   // /start gv_<token> bootstrap commands must also bypass ACL — the user
   // hasn't been verified yet and needs to complete the bootstrap handshake.
