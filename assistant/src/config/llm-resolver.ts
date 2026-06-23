@@ -17,7 +17,13 @@ import {
  * Merge layers (low → high precedence; later layers override earlier) for
  * non-main-agent call sites:
  *   1. `llm.default` fields (required base)
- *   2. `llm.profiles[llm.activeProfile]` (workspace-wide active profile)
+ *   2. `llm.profiles[llm.activeProfile]` (workspace-wide active profile) —
+ *      folded in ONLY when the call site resolves no profile of its own (a
+ *      profile-less leaf like `vision`/`workflowLeaf`, or a BYOK install whose
+ *      pinned managed profile was stripped). When the call site resolves a
+ *      profile, that profile is the authoritative provider config and the
+ *      active profile does not contribute — otherwise a deep-merge would let
+ *      its orphan fields bleed onto a different provider.
  *   3. `llm.profiles[opts.overrideProfile]` (per-call ad-hoc override)
  *   4. `llm.profiles[site.profile]` fields (call-site's named profile)
  *   5. `llm.callSites[callSite]` fields (call-site override)
@@ -49,6 +55,15 @@ import {
  * `contextWindow.overflowRecovery`) are deep-merged so partial overrides at
  * any nesting level merge into — rather than replace — the corresponding
  * base value.
+ *
+ * `temperature` and `top_p` are provider-coupled, so they do NOT deep-merge
+ * field-by-field with the rest of the config: only the winning profile (the
+ * highest-precedence profile that determines provider/model) contributes them,
+ * and an explicit `llm.callSites[callSite]` override still wins. A lower-
+ * precedence profile whose model is shadowed never leaks its sampling onto a
+ * different provider (which would trip e.g. Anthropic's "temperature and top_p
+ * cannot both be specified" constraint). `logitBias` is winning-profile-scoped
+ * the same way.
  *
  * `activeProfile` and `overrideProfile` are resolved by name lookup against
  * `llm.profiles`. Missing references silently fall through (no throw) so the
@@ -108,6 +123,14 @@ export function resolveCallSiteConfig(
   // call-site default selected by `effectiveDefault`.
   const biasRef: LogitBiasRef = { preset: undefined };
 
+  // Effective sampling params, tracked outside the deep-merge for the same
+  // reason as `logitBias`: `temperature`/`top_p` are provider-coupled, so only
+  // the winning profile may contribute them. Each profile fully determines the
+  // pair (REPLACE — a profile that omits a param clears what a lower-precedence
+  // profile set), while an explicit call-site override COALESCES on top (see
+  // `appendProfileLayer` / `appendCallSiteLayers`).
+  const samplingRef: SamplingRef = { temperature: undefined, topP: undefined };
+
   const activeFragment = resolveProfileFragment(llm.activeProfile, llm, opts);
   const overrideFragment = resolveProfileFragment(
     opts.overrideProfile,
@@ -119,22 +142,55 @@ export function resolveCallSiteConfig(
     effectiveDefault(callSite, llm, opts.overrideProfile != null);
 
   if (callSite === "mainAgent") {
-    appendCallSiteLayers(layers, callSite, llm, site, opts, biasRef);
-    appendProfileLayer(layers, activeFragment, biasRef);
-    appendProfileLayer(layers, overrideFragment, biasRef);
+    appendCallSiteLayers(
+      layers,
+      callSite,
+      llm,
+      site,
+      opts,
+      biasRef,
+      samplingRef,
+    );
+    appendProfileLayer(layers, activeFragment, biasRef, samplingRef);
+    appendProfileLayer(layers, overrideFragment, biasRef, samplingRef);
   } else if (opts.forceOverrideProfile === true && overrideFragment != null) {
     // Escape hatch: float the override profile above the call-site layers,
     // mirroring mainAgent's treatment of the user's chat-model selection.
     // Guarded on a resolved fragment so a missing profile reference degrades
     // to the normal precedence below instead of silently dropping the
-    // call-site layers' standing.
-    appendProfileLayer(layers, activeFragment, biasRef);
-    appendCallSiteLayers(layers, callSite, llm, site, opts, biasRef);
-    appendProfileLayer(layers, overrideFragment, biasRef);
+    // call-site layers' standing. The active profile stays the bottom fallback
+    // (its sampling can't leak — a higher profile's REPLACE clears it).
+    appendProfileLayer(layers, activeFragment, biasRef, samplingRef);
+    appendCallSiteLayers(
+      layers,
+      callSite,
+      llm,
+      site,
+      opts,
+      biasRef,
+      samplingRef,
+    );
+    appendProfileLayer(layers, overrideFragment, biasRef, samplingRef);
   } else {
-    appendProfileLayer(layers, activeFragment, biasRef);
-    appendProfileLayer(layers, overrideFragment, biasRef);
-    appendCallSiteLayers(layers, callSite, llm, site, opts, biasRef);
+    // The active profile is a low-precedence FALLBACK for call sites that
+    // resolve no profile of their own — profile-less leaves (`vision`,
+    // `workflowLeaf`) and BYOK installs where the pinned managed profile was
+    // stripped. When the call site DOES resolve its own profile, that profile
+    // is the authoritative provider config, so the active profile must not
+    // contribute its orphan fields to a different provider.
+    if (site?.profile == null) {
+      appendProfileLayer(layers, activeFragment, biasRef, samplingRef);
+    }
+    appendProfileLayer(layers, overrideFragment, biasRef, samplingRef);
+    appendCallSiteLayers(
+      layers,
+      callSite,
+      llm,
+      site,
+      opts,
+      biasRef,
+      samplingRef,
+    );
   }
 
   const resolved = finalize(
@@ -149,10 +205,26 @@ export function resolveCallSiteConfig(
   } else {
     delete (resolved as { logitBias?: unknown }).logitBias;
   }
+  // `temperature`/`top_p` are winning-profile-scoped like `logitBias`, but an
+  // explicit call-site override may also set them. Apply the tracked value,
+  // overriding whatever a shadowed profile may have left in the merge. An
+  // `undefined` ref means no profile or override opted in, so the `llm.default`
+  // base already in `resolved` stands.
+  if (samplingRef.temperature !== undefined) {
+    resolved.temperature = samplingRef.temperature;
+  }
+  if (samplingRef.topP !== undefined) {
+    resolved.topP = samplingRef.topP;
+  }
   return resolved;
 }
 
 type LogitBiasRef = { preset: ProfileEntry["logitBias"] };
+
+type SamplingRef = {
+  temperature: ProfileEntry["temperature"];
+  topP: ProfileEntry["topP"];
+};
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -315,9 +387,15 @@ function appendProfileLayer(
   layers: Mergeable[],
   profile: ProfileEntry | undefined,
   biasRef: LogitBiasRef,
+  samplingRef: SamplingRef,
 ): void {
   if (profile != null) {
     biasRef.preset = profile.logitBias;
+    // Each profile fully determines the sampling pair: a profile that omits
+    // `temperature`/`topP` clears what a lower-precedence profile set, so the
+    // winning (last-appended) profile is the sole profile source.
+    samplingRef.temperature = profile.temperature;
+    samplingRef.topP = profile.topP;
     layers.push(profileConfigFragment(profile));
   }
 }
@@ -329,6 +407,7 @@ function appendCallSiteLayers(
   site: z.infer<typeof LLMSchema>["callSites"][LLMCallSite] | undefined,
   opts: ResolveCallSiteOpts,
   biasRef: LogitBiasRef,
+  samplingRef: SamplingRef,
 ): void {
   if (site != null) {
     if (site.profile != null) {
@@ -343,11 +422,24 @@ function appendCallSiteLayers(
         );
       }
       biasRef.preset = profileFragment.logitBias;
+      samplingRef.temperature = profileFragment.temperature;
+      samplingRef.topP = profileFragment.topP;
       layers.push(profileConfigFragment(profileFragment));
     }
-    // Strip the `profile` discriminator before merging — it isn't a
-    // `LLMConfigBase` field.
-    const { profile: _profile, ...siteFragment } = site;
+    // Strip the `profile` discriminator (not a `LLMConfigBase` field) and the
+    // sampling params before merging. An explicit call-site `temperature` /
+    // `topP` is a deliberate per-site choice, so it COALESCES over the winning
+    // profile's pair (only overriding the fields it sets) — routed through
+    // `samplingRef` so it never inherits a shadowed profile's value via merge.
+    const {
+      profile: _profile,
+      temperature: siteTemperature,
+      topP: siteTopP,
+      ...siteFragment
+    } = site;
+    if (siteTemperature !== undefined)
+      samplingRef.temperature = siteTemperature;
+    if (siteTopP !== undefined) samplingRef.topP = siteTopP;
     layers.push(siteFragment as Mergeable);
   }
 }
@@ -369,6 +461,12 @@ function profileConfigFragment(profile: ProfileEntry): Mergeable {
     // Per-profile advisor toggle is profile identity, not inheritable model
     // config — strip it so it can't leak into the merged `LLMConfigBase`.
     advisorEnabled: _advisorEnabled,
+    // `temperature`/`top_p` are provider-coupled: only the winning profile
+    // contributes them (tracked via `samplingRef`, applied post-merge), so a
+    // shadowed profile's sampling can never reach a different provider through
+    // the deep-merge. Strip here so no profile's sampling enters the merge.
+    temperature: _temperature,
+    topP: _topP,
     ...config
   } = profile;
   return config as Mergeable;
