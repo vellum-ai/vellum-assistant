@@ -54,6 +54,8 @@ import {
   getPlatformUrl,
   getWebUrl,
   readPlatformToken,
+  savePlatformToken,
+  clearPlatformToken,
 } from "../lib/platform-client";
 import { tuiLog } from "../lib/tui-log";
 import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
@@ -392,6 +394,20 @@ const HATCH_PATTERN = /^(?:\/assistant)?\/__local\/hatch$/;
 const RETIRE_PATTERN = /^(?:\/assistant)?\/__local\/retire$/;
 const GUARDIAN_TOKEN_PATTERN =
   /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
+const PLATFORM_SESSION_PATTERN =
+  /^(?:\/assistant)?\/__local\/platform-session$/;
+
+// The loopback platform session token. Persisted via the same store the CLI
+// uses (so `vellum client` restarts and CLI logins stay in sync), cached here
+// to keep it off the per-request proxy path. Set only after the SPA validates
+// the loopback `state`, so an unsolicited /callback can't fixate a session.
+let platformSessionToken: string | null | undefined;
+function currentPlatformToken(): string | null {
+  if (platformSessionToken === undefined) {
+    platformSessionToken = readPlatformToken();
+  }
+  return platformSessionToken;
+}
 
 function getEnvRecord(): Record<string, string> {
   const result: Record<string, string> = {};
@@ -421,6 +437,7 @@ async function handleLocalEndpoints(
     HATCH_PATTERN.test(pathname) ||
     RETIRE_PATTERN.test(pathname) ||
     GUARDIAN_TOKEN_PATTERN.test(pathname) ||
+    PLATFORM_SESSION_PATTERN.test(pathname) ||
     parseGatewayUrl(pathname).match;
 
   if (!isLocalRoute) return null;
@@ -436,6 +453,33 @@ async function handleLocalEndpoints(
     !originIsAllowed(req.headers.get("origin") ?? undefined)
   ) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // Platform session: the SPA hands over the loopback token here (after it has
+  // validated the `state` nonce) so the proxy below can authenticate to the
+  // platform. The browser never holds a session cookie.
+  if (PLATFORM_SESSION_PATTERN.test(pathname)) {
+    if (req.method === "DELETE") {
+      clearPlatformToken();
+      platformSessionToken = null;
+      return Response.json({ ok: true });
+    }
+    if (req.method === "POST") {
+      const body = (await req.json().catch(() => null)) as {
+        token?: unknown;
+      } | null;
+      const token = body?.token;
+      if (typeof token !== "string" || !/^[A-Za-z0-9]+$/.test(token)) {
+        return Response.json(
+          { ok: false, error: "Invalid token" },
+          { status: 400 },
+        );
+      }
+      savePlatformToken(token);
+      platformSessionToken = token;
+      return Response.json({ ok: true });
+    }
+    return new Response(null, { status: 405 });
   }
 
   // Lockfile
@@ -761,22 +805,6 @@ async function findFreeDualLoopbackPort(preferred: number): Promise<number> {
   return preferred;
 }
 
-/**
- * Drop `Set-Cookie` headers for the Django session cookie from a proxied
- * upstream response so the loopback-managed session cookie stays authoritative
- * (the platform must not clobber the cookie the `/callback` handler installed).
- */
-function stripSessionSetCookies(headers: Headers): void {
-  const setCookies = headers.getSetCookie?.() ?? [];
-  if (setCookies.length === 0) return;
-  headers.delete("set-cookie");
-  for (const cookie of setCookies) {
-    if (!/^\s*(sessionid|__Secure-sessionid)=/i.test(cookie)) {
-      headers.append("set-cookie", cookie);
-    }
-  }
-}
-
 async function runWebInterface(
   flagEnvVars: Record<string, string>,
   parsedFlagOverrides: Record<string, boolean | string>,
@@ -827,25 +855,10 @@ async function runWebInterface(
     }
 
     // Loopback auth: the platform redirects here after login with
-    // ?state=...&session_token=... — install the session cookie server-side
-    // (a server Set-Cookie overwrites an HttpOnly squatter that the SPA's
-    // document.cookie write cannot) and forward into the SPA.
+    // ?state=...&session_token=... — forward into the SPA, which validates the
+    // `state` nonce before registering the token via /__local/platform-session.
     if (pathname === "/callback") {
-      const headers = new Headers({
-        Location: `/account/platform-callback${url.search}`,
-      });
-      const token = url.searchParams.get("session_token");
-      if (token && /^[A-Za-z0-9]+$/.test(token)) {
-        // Loopback http:// → no Secure; SameSite=Lax survives the cross-site
-        // login redirect. The proxy below mirrors sessionid →
-        // __Secure-sessionid when forwarding upstream, so the single cookie
-        // is sufficient locally.
-        headers.append(
-          "Set-Cookie",
-          `sessionid=${token}; Path=/; SameSite=Lax; Max-Age=1209600`,
-        );
-      }
-      return new Response(null, { status: 302, headers });
+      return Response.redirect(`/account/platform-callback${url.search}`, 302);
     }
 
     // Expose environment config to the SPA.
@@ -871,14 +884,10 @@ async function runWebInterface(
       headers.delete("Origin");
       headers.delete("Referer");
 
-      // Forward the session token — the loopback flow stores it in
-      // the browser cookie jar for localhost, but the platform backend
-      // expects it on its own domain. Set both the Cookie (for Django
-      // session middleware / allauth) and X-Session-Token (for DRF
-      // views that accept header-based auth).
-      const sessionToken = /sessionid=([^;]+)/.exec(
-        req.headers.get("Cookie") ?? "",
-      )?.[1];
+      // Authenticate with the loopback session token the SPA registered. The
+      // platform expects it both as the Django session cookie and as
+      // X-Session-Token (for DRF views that accept header-based auth).
+      const sessionToken = currentPlatformToken();
       if (sessionToken) {
         headers.set(
           "Cookie",
@@ -898,8 +907,6 @@ async function runWebInterface(
         });
         const resHeaders = new Headers(proxyRes.headers);
         resHeaders.delete("transfer-encoding");
-        // Keep the loopback-managed session cookie authoritative.
-        stripSessionSetCookies(resHeaders);
         return new Response(proxyRes.body, {
           status: proxyRes.status,
           statusText: proxyRes.statusText,

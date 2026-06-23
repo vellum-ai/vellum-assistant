@@ -5,7 +5,7 @@ import { rmSync } from "node:fs";
 import type http from "node:http";
 import path from "node:path";
 import { defineConfig, loadEnv } from "vite";
-import { localModePlugin } from "./vite-plugin-local-mode";
+import { localModePlugin, getDevPlatformToken } from "./vite-plugin-local-mode";
 
 const DESIGN_LIBRARY_SRC = path.resolve(
   import.meta.dirname,
@@ -19,55 +19,24 @@ function isPlatformMode(raw: string | undefined): boolean {
 }
 
 /**
- * Proxy configure hook that rewrites the localhost `sessionid` cookie
- * into both `sessionid` and `__Secure-sessionid` so the platform's
- * Django session middleware recognises it regardless of which cookie
- * name is configured (dev vs production).
- *
- * Only used in local mode — platform mode proxies without rewriting.
+ * Proxy configure hook (local mode) that authenticates upstream requests with
+ * the loopback platform session token the SPA registered — as both the Django
+ * session cookie and `X-Session-Token`. No browser cookie is involved.
  */
-function forwardSessionCookie(proxy: {
+function injectPlatformToken(proxy: {
   on: (event: string, cb: (...args: unknown[]) => void) => void;
 }): void {
   proxy.on("proxyReq", (...args: unknown[]) => {
     const proxyReq = args[0] as http.ClientRequest;
-    const req = args[1] as http.IncomingMessage;
-    const cookie = req.headers.cookie ?? "";
-    const match = /sessionid=([^;]+)/.exec(cookie);
-    if (match?.[1]) {
+    const token = getDevPlatformToken();
+    if (token) {
       proxyReq.setHeader(
         "Cookie",
-        `sessionid=${match[1]}; __Secure-sessionid=${match[1]}`,
+        `sessionid=${token}; __Secure-sessionid=${token}`,
       );
+      proxyReq.setHeader("X-Session-Token", token);
     }
   });
-}
-
-/**
- * Drop the platform's own `sessionid`/`__Secure-sessionid` `Set-Cookie` from
- * proxied responses so it can't clobber the loopback-managed session cookie.
- * Local mode only — in platform mode those cookies are first-party and must
- * pass through.
- */
-function stripUpstreamSessionCookie(proxy: {
-  on: (event: string, cb: (...args: unknown[]) => void) => void;
-}): void {
-  proxy.on("proxyRes", (...args: unknown[]) => {
-    const proxyRes = args[0] as http.IncomingMessage;
-    const setCookie = proxyRes.headers["set-cookie"];
-    if (Array.isArray(setCookie)) {
-      proxyRes.headers["set-cookie"] = setCookie.filter(
-        (cookie) => !/^\s*(sessionid|__Secure-sessionid)=/i.test(cookie),
-      );
-    }
-  });
-}
-
-function configureLocalApiProxy(proxy: {
-  on: (event: string, cb: (...args: unknown[]) => void) => void;
-}): void {
-  forwardSessionCookie(proxy);
-  stripUpstreamSessionCookie(proxy);
 }
 
 // Reference: https://vite.dev/config/#using-environment-variables-in-config
@@ -176,17 +145,17 @@ export default defineConfig(({ mode }) => {
               "/v1": {
                 target: apiProxyTarget,
                 changeOrigin: true,
-                configure: configureLocalApiProxy,
+                configure: injectPlatformToken,
               },
               "/_allauth": {
                 target: apiProxyTarget,
                 changeOrigin: true,
-                configure: configureLocalApiProxy,
+                configure: injectPlatformToken,
               },
               "/accounts": {
                 target: apiProxyTarget,
                 changeOrigin: true,
-                configure: stripUpstreamSessionCookie,
+                configure: injectPlatformToken,
               },
             }),
         "/auth": { target: gatewayProxyTarget, changeOrigin: true },

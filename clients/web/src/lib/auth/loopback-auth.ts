@@ -4,9 +4,9 @@
  * Mirrors the CLI's `vellum login` browser flow: navigates to the
  * platform's login page, which authenticates via WorkOS and redirects
  * back to `http://localhost:{port}/callback?state=...&session_token=...`.
- * The local web server installs the session cookie server-side on the
- * `/callback` redirect and forwards it to the SPA's `PlatformLoopbackPage`,
- * which validates the state and confirms the session.
+ * The local web server forwards `/callback` to the SPA's `PlatformLoopbackPage`,
+ * which validates the state and registers the token with the local server so
+ * its platform proxy can authenticate — no browser session cookie is used.
  */
 
 const FALLBACK_WEB_URL = "https://www.vellum.ai";

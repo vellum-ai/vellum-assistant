@@ -3,8 +3,8 @@ import { useSearchParams, useNavigate } from "react-router";
 
 import { listAssistants } from "@/assistant/api";
 import { syncPlatformAssistantsToLockfile } from "@/lib/local-mode";
+import { registerLocalPlatformSession } from "@/runtime/local-mode-host";
 import { setMenuPlatformSession } from "@/runtime/menu";
-import { getSessionTokenFromCookies } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { routes } from "@/utils/routes";
@@ -21,10 +21,10 @@ const LOOPBACK_RETURN_TO_KEY = "vellum:loopback:returnTo";
  *      `returnTo=/accounts/cli/callback?port={localPort}&state={nonce}`
  *   2. After authentication, the platform redirects to
  *      `http://localhost:{port}/callback?state={nonce}&session_token={token}`
- *   3. The local web server installs the session cookie (server-side, so it
- *      overrides any stale HttpOnly squatter) and redirects `/callback` → here
- *   4. This page validates the state, confirms the cookie, checks for existing
- *      assistants, and navigates accordingly
+ *   3. The local web server redirects `/callback` → this SPA page
+ *   4. This page validates the state, registers the token with the local
+ *      server (which authenticates its platform proxy with it — no browser
+ *      cookie), checks for existing assistants, and navigates accordingly
  */
 export function PlatformLoopbackPage() {
   const [searchParams] = useSearchParams();
@@ -56,22 +56,20 @@ export function PlatformLoopbackPage() {
       return;
     }
 
-    // The local web server already installed this cookie server-side on the
-    // `/callback` redirect (which can overwrite an HttpOnly squatter). Re-write
-    // it as a fallback, then verify it actually took — a stale HttpOnly
-    // `sessionid` left by the local platform would silently block both writes.
-    document.cookie = `sessionid=${sessionToken}; path=/; samesite=lax; max-age=1209600`;
-    if (getSessionTokenFromCookies() !== sessionToken) {
-      setError(
-        "Login failed: a stale 'sessionid' cookie from the local platform is " +
-          "blocking the session. Clear site data for this site (DevTools → " +
-          "Application → Clear storage) and try again.",
-      );
-      return;
-    }
-
     void (async () => {
-      // Re-run session init now that the cookie is set — this moves
+      // Hand the validated token to the local web server; its proxy uses it to
+      // authenticate to the platform. No browser session cookie is involved, so
+      // a stale HttpOnly `sessionid` from the local platform can't block login.
+      const registered = await registerLocalPlatformSession(sessionToken);
+      if (!registered) {
+        setError(
+          "Login failed: couldn't reach the local Vellum server to store the " +
+            "session. Please try again.",
+        );
+        return;
+      }
+
+      // Re-run session init now that the proxy is authenticated — this moves
       // sessionStatus to "authenticated" so the auth middleware lets
       // navigation through.
       await useAuthStore.getState().initSession();

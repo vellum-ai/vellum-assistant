@@ -29,6 +29,17 @@ const GUARDIAN_TOKEN_PATTERN =
   /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
 const LOCAL_STATUS_PATTERN = /^(?:\/assistant)?\/__local\/status\/([^/]+)$/;
 const LOCAL_UPGRADE_PATTERN = /^(?:\/assistant)?\/__local\/upgrade$/;
+const PLATFORM_SESSION_PATTERN =
+  /^(?:\/assistant)?\/__local\/platform-session$/;
+
+// In-memory loopback platform session token for the dev server. The proxy
+// (vite.config.ts) and the middleware below run in the same Node process, so
+// this module singleton bridges them. Dev-only and session-scoped; the
+// installed CLI persists the token via its own store.
+let devPlatformToken: string | null = null;
+export function getDevPlatformToken(): string | null {
+  return devPlatformToken;
+}
 
 export function localModePlugin(env: Record<string, string>): Plugin {
   const config = resolveLocalConfigFromEnv(env);
@@ -49,6 +60,7 @@ export function localModePlugin(env: Record<string, string>): Plugin {
     },
     configureServer(server) {
       server.middlewares.use(loopbackCallbackMiddleware());
+      server.middlewares.use(platformSessionMiddleware());
       server.middlewares.use(
         configMiddleware(config.webUrl, config.platformUrl),
       );
@@ -105,24 +117,56 @@ function loopbackCallbackMiddleware(): Connect.NextHandleFunction {
   return (req, res, next) => {
     if (req.url?.startsWith("/callback")) {
       const qs = req.url.slice("/callback".length);
-      const headers: Record<string, string> = {
-        Location: `/account/platform-callback${qs}`,
-      };
-      // Install the session cookie server-side: a server Set-Cookie overwrites
-      // a stale HttpOnly `sessionid` squatter (e.g. left by the local platform)
-      // that the SPA's document.cookie write cannot touch.
-      const token = new URLSearchParams(qs.replace(/^\?/, "")).get(
-        "session_token",
-      );
-      if (token && /^[A-Za-z0-9]+$/.test(token)) {
-        headers["Set-Cookie"] =
-          `sessionid=${token}; Path=/; SameSite=Lax; Max-Age=1209600`;
-      }
-      res.writeHead(302, headers);
+      res.writeHead(302, { Location: `/account/platform-callback${qs}` });
       res.end();
       return;
     }
     next();
+  };
+}
+
+// Receives the loopback platform session token from the SPA (after it has
+// validated the `state` nonce) and holds it for the proxy. Mirrors the Bun
+// server's /__local/platform-session endpoint.
+function platformSessionMiddleware(): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    const path = (req.url ?? "").split("?")[0];
+    if (!PLATFORM_SESSION_PATTERN.test(path)) return next();
+    if (rejectUnlessLocalEndpointRequest(req, res)) return;
+
+    if (req.method === "DELETE") {
+      devPlatformToken = null;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    if (req.method !== "POST") {
+      res.statusCode = 405;
+      res.end();
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => {
+      let token: unknown;
+      try {
+        token = (
+          JSON.parse(Buffer.concat(chunks).toString()) as { token?: unknown }
+        ).token;
+      } catch {
+        token = undefined;
+      }
+      if (typeof token !== "string" || !/^[A-Za-z0-9]+$/.test(token)) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ ok: false, error: "Invalid token" }));
+        return;
+      }
+      devPlatformToken = token;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: true }));
+    });
   };
 }
 
