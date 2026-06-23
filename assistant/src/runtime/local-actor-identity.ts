@@ -17,6 +17,7 @@ import { findGuardianForChannel } from "../contacts/contact-store.js";
 import {
   getGuardianDelivery,
   guardianForChannel,
+  peekCachedGuardianDelivery,
 } from "../contacts/guardian-delivery-reader.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { getLogger } from "../util/logger.js";
@@ -74,14 +75,23 @@ export async function findLocalGuardianPrincipalId(): Promise<
 }
 
 /**
- * Synchronous local-store read of the vellum guardian's principalId.
+ * Synchronous read of the vellum guardian's principalId for paths that cannot
+ * await {@link findLocalGuardianPrincipalId} — namely the SSE eager-subscribe
+ * path (`events-routes`), which registers before the stream is created.
  *
- * The async gateway-backed read is the primary source, but the SSE
- * eager-subscribe path (`events-routes`) registers synchronously before the
- * stream is created and cannot await. It reads the local store directly,
- * which is the same fallback the async path lands on during bootstrap.
+ * Reads the same gateway-owned binding as the async path via a sync, IO-free
+ * snapshot of the guardian-delivery cache (kept fresh by the async hot paths
+ * and event-driven invalidation), so SSE registers the SAME principal the
+ * send/result routes resolve. Falls back to the local store when the cache is
+ * cold — the same fallback the async path lands on during bootstrap.
  */
 export function findLocalGuardianPrincipalIdFromStore(): string | undefined {
+  const cached = peekCachedGuardianDelivery({ channelTypes: ["vellum"] });
+  if (cached) {
+    const principalId = guardianForChannel(cached, "vellum")?.principalId;
+    if (principalId) return principalId;
+  }
+
   return findGuardianForChannel("vellum")?.contact.principalId ?? undefined;
 }
 
@@ -123,9 +133,11 @@ export async function resolveActorPrincipalIdForLocalGuardian(
 /**
  * Synchronous variant of {@link resolveActorPrincipalIdForLocalGuardian} for
  * the SSE eager-subscribe path, which registers before the response stream is
- * created and cannot await. Resolves the guardian from the local store rather
- * than the gateway; on bootstrap the gateway-backed async path lands on the
- * same store read.
+ * created and cannot await. Resolves the guardian from the IO-free gateway
+ * cache snapshot first (same source the async path reads), falling back to the
+ * local store when the cache is cold — so SSE registers the SAME principal the
+ * send/result routes resolve and host-proxy targeting matches the same-user
+ * client even when the local contact row is stale.
  */
 export function resolveActorPrincipalIdForLocalGuardianSync(
   rawHeader: string | undefined,
