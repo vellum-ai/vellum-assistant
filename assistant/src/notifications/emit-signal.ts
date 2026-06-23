@@ -96,18 +96,20 @@ export function getBroadcaster(): NotificationBroadcaster {
 
 /**
  * Resolve a binding-based channel's delivery endpoint (externalChatId) the
- * SAME way destination-resolver's `resolveGuardian` does: gateway list when
- * present, falling back to the LOCAL contacts read only when the list is null
- * (gateway unreachable). The local fallback is removed in Combo 11. Keeping
- * connectivity aligned with delivery prevents a channel being marked connected
- * but then skipped with no destination (or vice-versa).
+ * SAME way destination-resolver's `resolveGuardian` does: gateway match first,
+ * falling back to the LOCAL contacts read on ANY per-channel no-match — gateway
+ * list null (unreachable) OR no active gateway entry for this channel. The
+ * local read is the transitional dual-written mirror, removed in Combo 11.
+ * Keeping connectivity aligned with delivery prevents a channel being marked
+ * connected but then skipped with no destination (or vice-versa).
  */
 function resolveChannelChatId(
   guardians: GuardianDelivery[] | null,
   channelType: string,
 ): string | undefined {
-  if (guardians) {
-    return guardianForChannel(guardians, channelType)?.externalChatId ?? undefined;
+  const g = guardians ? guardianForChannel(guardians, channelType) : undefined;
+  if (g) {
+    return g.externalChatId ?? undefined;
   }
   return findGuardianForChannel(channelType)?.channel.externalChatId ?? undefined;
 }

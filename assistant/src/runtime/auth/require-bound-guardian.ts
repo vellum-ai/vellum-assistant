@@ -1,5 +1,8 @@
 import { isHttpAuthDisabled } from "../../config/env.js";
-import { getGuardianDelivery } from "../../contacts/guardian-delivery-reader.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../../contacts/guardian-delivery-reader.js";
 import { httpError } from "../http-errors.js";
 import type { AuthContext } from "./types.js";
 
@@ -33,7 +36,7 @@ export async function requireBoundGuardian(
       403,
     );
   }
-  const guardian = guardians.find((g) => g.channelType === "vellum");
+  const guardian = guardianForChannel(guardians, "vellum");
   if (guardian && guardian.principalId === authContext.actorPrincipalId) {
     return null;
   }
