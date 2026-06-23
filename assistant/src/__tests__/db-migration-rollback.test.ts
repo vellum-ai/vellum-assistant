@@ -12,7 +12,7 @@
 
 import { createHash } from "node:crypto";
 import { Database } from "bun:sqlite";
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
@@ -68,19 +68,17 @@ import { migrateBackfillInlineAttachmentsToDiskDown } from "../memory/migrations
 import { migrateRenameThreadStartersCheckpointsDown } from "../memory/migrations/181-rename-thread-starters-checkpoints.js";
 import { migrateBackfillAudioAttachmentMimeTypesDown } from "../memory/migrations/191-backfill-audio-attachment-mime-types.js";
 import { migrateLlmUsageAttribution } from "../memory/migrations/235-llm-usage-attribution.js";
-import { migrationSteps } from "../memory/steps.js";
 import {
   type MigrationStep,
-  type MigrationStepObject,
-  type RollbackEntry,
   runMigrationSteps,
 } from "../memory/migrations/run-migrations.js";
 import {
+  type MigrationValidationResult,
   rollbackMemoryMigration,
   validateMigrationState,
-  type MigrationValidationResult,
 } from "../memory/migrations/validate-migration-state.js";
 import * as schema from "../memory/schema.js";
+import { migrationSteps } from "../memory/steps.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

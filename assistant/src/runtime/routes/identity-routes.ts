@@ -10,8 +10,8 @@ import { z } from "zod";
 import { getCpuLimit, getIsPlatform } from "../../config/env-registry.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getProfilerRuntimeStatus } from "../../daemon/profiler-run-store.js";
-import { migrationSteps } from "../../memory/steps.js";
 import { getMaxRollbackVersion } from "../../memory/migrations/run-migrations.js";
+import { migrationSteps } from "../../memory/steps.js";
 import { getCesClient } from "../../security/secure-keys.js";
 import {
   getDiskUsageInfo,

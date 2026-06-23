@@ -13,7 +13,6 @@ import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getMemoryDbPath } from "../util/memory-db-path.js";
 import { ensureDataDir, getDbPath } from "../util/platform.js";
-import { backfillAppConversationIds } from "./app-store.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
   getDb,
@@ -21,10 +20,9 @@ import {
   getMemorySqlite,
   getSqlite,
 } from "./db-connection.js";
-import { migrateToolCreatedItems } from "./graph/bootstrap.js";
-import { migrationSteps } from "./steps.js";
 import { runMigrationSteps } from "./migrations/run-migrations.js";
 import { validateMigrationState } from "./migrations/validate-migration-state.js";
+import { migrationSteps } from "./steps.js";
 
 // ---------------------------------------------------------------------------
 // Test DB template — run migrations once, reuse across test files

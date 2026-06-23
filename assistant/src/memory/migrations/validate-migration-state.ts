@@ -3,10 +3,10 @@ import { getLogger } from "../../util/logger.js";
 import { getDbPath } from "../../util/platform.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 import {
-  type MigrationStep,
-  STEP_CHECKPOINT_PREFIX,
   getStepName,
+  type MigrationStep,
   normalizeStep,
+  STEP_CHECKPOINT_PREFIX,
 } from "./run-migrations.js";
 
 const log = getLogger("memory-db");
@@ -243,7 +243,6 @@ export function rollbackMemoryMigration(
   // entries for that step have been executed.
   const stepNamesToRollback = new Set(toRollback.map((r) => r.stepName));
   const rolledBack: string[] = [];
-  const completedRollbacks = new Set<string>(); // stepNames whose down()s all succeeded
 
   for (const item of toRollback) {
     const stepKey = `${STEP_CHECKPOINT_PREFIX}${item.stepName}`;
