@@ -1,8 +1,7 @@
 import { findContactByAddress, listContacts } from "../contacts/contact-store.js";
 import {
-  anyGuardian,
   getGuardianDelivery,
-  guardianForChannel,
+  voiceGuardianDisplayName,
 } from "../contacts/guardian-delivery-reader.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import { DEFAULT_USER_REFERENCE, resolveGuardianName } from "../prompts/user-reference.js";
@@ -136,10 +135,7 @@ export async function resolveCallHints(
   let guardianDisplayName: string | undefined;
   try {
     const list = await getGuardianDelivery();
-    const guardian = list
-      ? (guardianForChannel(list, "phone") ?? anyGuardian(list))
-      : undefined;
-    guardianDisplayName = guardian?.displayName ?? undefined;
+    guardianDisplayName = voiceGuardianDisplayName(list);
   } catch (err) {
     logger.warn({ err }, "Failed to look up guardian contact for STT hints");
   }

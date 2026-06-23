@@ -12,9 +12,8 @@ import type { AdmissionPolicy, TrustVerdict } from "@vellumai/gateway-client";
 import type { ServerWebSocket } from "bun";
 
 import {
-  anyGuardian,
   getGuardianDelivery,
-  guardianForChannel,
+  voiceGuardianDisplayName,
 } from "../contacts/guardian-delivery-reader.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
@@ -1848,10 +1847,7 @@ export class RelayConnection {
    */
   private async primeGuardianDisplayName(): Promise<void> {
     const list = await getGuardianDelivery();
-    const guardian = list
-      ? (guardianForChannel(list, "phone") ?? anyGuardian(list))
-      : undefined;
-    this.primedGuardianDisplayName = guardian?.displayName ?? undefined;
+    this.primedGuardianDisplayName = voiceGuardianDisplayName(list);
   }
 
   /**

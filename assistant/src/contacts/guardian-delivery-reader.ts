@@ -7,10 +7,13 @@
  *
  * Guardian binding is near-static — it only changes on guardian onboarding /
  * verification or revocation — yet this reader sits on many hot paths. To keep
- * those paths off the IPC, results are cached behind a minutes-scale TTL,
- * cleared event-driven via {@link invalidateGuardianDeliveryCache} (subscribed
- * to contact mutations, and called explicitly by guardian-binding mutations),
- * and coalesced single-flight so a cold cache storms the gateway at most once.
+ * those paths off the IPC, results are cached behind a minutes-scale TTL and
+ * coalesced single-flight so a cold cache storms the gateway at most once.
+ *
+ * Freshness comes from two sources: the {@link invalidateGuardianDeliveryCache}
+ * subscription to `onContactChange` (contact mutations clear the cache), and
+ * {@link getGuardianDeliveryFresh} reads on existence guards (gateway-side
+ * binding writes don't invalidate the daemon cache, so those paths read fresh).
  *
  * Returns `null` on ANY failure (transport failure, malformed shape, timeout,
  * or thrown error); failures are NOT cached, so a recovered gateway is retried
@@ -70,22 +73,15 @@ async function fetchGuardianDelivery(
   }
 }
 
-/**
- * Resolve active guardian deliveries, optionally filtered by channel type.
- * Returns the cached list when fresh, otherwise fetches (single-flight) and
- * caches on success. Returns `null` on failure without caching.
- *
- * Pass `forceRefresh` to bypass the cached entry and fetch fresh — still
- * single-flight, and still populates the cache with the fresh result. Used by
- * existence guards, since gateway-side binding writes don't invalidate the
- * daemon cache.
- */
-export async function getGuardianDelivery(
-  input?: { channelTypes?: string[]; forceRefresh?: boolean },
+// Shared fetch path for both the cached and fresh public surfaces. When
+// `forceRefresh` is set the cached entry is bypassed; the read is still
+// single-flight and still populates the cache with the fresh result.
+async function readGuardianDelivery(
+  input: { channelTypes?: string[]; forceRefresh?: boolean },
 ): Promise<GuardianDelivery[] | null> {
-  const key = cacheKey(input?.channelTypes);
+  const key = cacheKey(input.channelTypes);
 
-  if (!input?.forceRefresh) {
+  if (!input.forceRefresh) {
     const cached = cache.get(key);
     if (
       cached &&
@@ -99,7 +95,7 @@ export async function getGuardianDelivery(
   if (pending) return pending;
 
   const startGen = cacheGeneration;
-  const promise = fetchGuardianDelivery({ channelTypes: input?.channelTypes })
+  const promise = fetchGuardianDelivery({ channelTypes: input.channelTypes })
     .then((guardians) => {
       // Skip the write if an invalidation fired during the fetch: the result
       // may predate the change. Return it to this caller (freshest it has) but
@@ -115,6 +111,20 @@ export async function getGuardianDelivery(
 
   inFlight.set(key, promise);
   return promise;
+}
+
+/**
+ * Resolve active guardian deliveries, optionally filtered by channel type.
+ * Returns the cached list when fresh, otherwise fetches (single-flight) and
+ * caches on success. Returns `null` on failure without caching.
+ *
+ * To force an uncached read, call {@link getGuardianDeliveryFresh} — the only
+ * public fresh-read entry point.
+ */
+export async function getGuardianDelivery(
+  input?: { channelTypes?: string[] },
+): Promise<GuardianDelivery[] | null> {
+  return readGuardianDelivery({ channelTypes: input?.channelTypes });
 }
 
 /**
@@ -140,17 +150,21 @@ export function peekCachedGuardianDelivery(
 /**
  * Fresh (uncached) variant of {@link getGuardianDelivery}. Existence guards read
  * fresh because gateway-side binding writes don't invalidate the daemon cache.
+ * Still single-flight, and still populates the cache with the fresh result.
  */
 export async function getGuardianDeliveryFresh(
   input?: { channelTypes?: string[] },
 ): Promise<GuardianDelivery[] | null> {
-  return getGuardianDelivery({ ...input, forceRefresh: true });
+  return readGuardianDelivery({
+    channelTypes: input?.channelTypes,
+    forceRefresh: true,
+  });
 }
 
 /**
- * Clear ALL cached guardian deliveries. Called event-driven on contact
- * mutations, and must also be called from guardian-binding mutation sites
- * (gateway onboarding / verification / revocation) so the next read refetches.
+ * Clear ALL cached guardian deliveries. Subscribed to `onContactChange` so
+ * contact mutations refetch on the next read; also exported for any caller that
+ * wants to invalidate explicitly.
  */
 export function invalidateGuardianDeliveryCache(): void {
   cacheGeneration += 1;
@@ -175,6 +189,20 @@ export function anyGuardian(
   list: GuardianDelivery[],
 ): GuardianDelivery | undefined {
   return list[0];
+}
+
+/**
+ * Resolve a guardian displayName for voice surfaces: prefer the phone-channel
+ * guardian, falling back to any guardian. Returns `undefined` when the list is
+ * absent or no guardian carries a displayName.
+ */
+export function voiceGuardianDisplayName(
+  list: GuardianDelivery[] | null,
+): string | undefined {
+  const guardian = list
+    ? (guardianForChannel(list, "phone") ?? anyGuardian(list))
+    : undefined;
+  return guardian?.displayName ?? undefined;
 }
 
 /** Test-only: reset cache + in-flight state for deterministic test runs. */

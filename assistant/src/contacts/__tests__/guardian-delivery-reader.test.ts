@@ -203,7 +203,7 @@ describe("getGuardianDelivery", () => {
     expect(countCalls(METHOD)).toBe(2);
   });
 
-  test("forceRefresh ignores a stale cached entry and re-fetches", async () => {
+  test("fresh read ignores a stale cached entry and re-fetches", async () => {
     // Seed the cache with an empty list (the stale gateway-side view).
     ipcHandlers.set(METHOD, () => ({ guardians: [] }));
     expect(await getGuardianDelivery()).toEqual([]);
@@ -212,20 +212,18 @@ describe("getGuardianDelivery", () => {
     expect(await getGuardianDelivery()).toEqual([]);
     expect(countCalls(METHOD)).toBe(1);
 
-    // ...but forceRefresh bypasses the cache and sees the now-present guardian.
+    // ...but a fresh read bypasses the cache and sees the now-present guardian.
     ipcHandlers.set(METHOD, () => ({ guardians: [telegramGuardian] }));
-    expect(await getGuardianDelivery({ forceRefresh: true })).toEqual([
-      telegramGuardian,
-    ]);
+    expect(await getGuardianDeliveryFresh()).toEqual([telegramGuardian]);
     expect(countCalls(METHOD)).toBe(2);
   });
 
-  test("forceRefresh updates the cache with the fresh result", async () => {
+  test("fresh read updates the cache with the fresh result", async () => {
     ipcHandlers.set(METHOD, () => ({ guardians: [] }));
     await getGuardianDelivery();
 
     ipcHandlers.set(METHOD, () => ({ guardians: [telegramGuardian] }));
-    await getGuardianDelivery({ forceRefresh: true });
+    await getGuardianDeliveryFresh();
 
     // A subsequent cached read serves the refreshed value without a new IPC.
     expect(await getGuardianDelivery()).toEqual([telegramGuardian]);
