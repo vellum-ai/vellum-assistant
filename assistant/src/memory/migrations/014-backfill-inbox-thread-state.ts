@@ -1,4 +1,5 @@
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
+import { tableHasColumn } from "./schema-introspection.js";
 
 /**
  * One-shot migration: seed assistant_inbox_thread_state from existing
@@ -39,12 +40,22 @@ export function migrateBackfillInboxThreadStateFromBindings(
     return;
   }
 
+  // The assistant_id column was dropped from assistant_inbox_thread_state by a
+  // later migration (drop-assistant-id-columns). When the backfill checkpoint
+  // hasn't been written yet but that drop has already run, the table no longer
+  // carries assistant_id, so only reference the column when it still exists.
+  const hasAssistantId = tableHasColumn(
+    database,
+    "assistant_inbox_thread_state",
+    "assistant_id",
+  );
+
   try {
     raw.exec("BEGIN");
 
     raw.exec(/*sql*/ `
       INSERT OR IGNORE INTO assistant_inbox_thread_state (
-        conversation_id, assistant_id, source_channel, external_chat_id,
+        conversation_id, ${hasAssistantId ? "assistant_id, " : ""}source_channel, external_chat_id,
         external_user_id, display_name, username,
         last_inbound_at, last_outbound_at, last_message_at,
         unread_count, pending_escalation_count, has_pending_escalation,
@@ -52,8 +63,7 @@ export function migrateBackfillInboxThreadStateFromBindings(
       )
       SELECT
         conversation_id,
-        'self',
-        source_channel,
+        ${hasAssistantId ? "'self',\n        " : ""}source_channel,
         external_chat_id,
         external_user_id,
         display_name,
