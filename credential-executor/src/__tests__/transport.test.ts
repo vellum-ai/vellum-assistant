@@ -33,7 +33,10 @@ import { CesRpcServer, type RpcHandlerRegistry } from "../server.js";
 /**
  * Create a CesRpcServer wired to in-memory PassThrough streams for testing.
  */
-function createTestServer(handlers: RpcHandlerRegistry = {}) {
+function createTestServer(
+  handlers: RpcHandlerRegistry = {},
+  options?: { requireAuthToken?: string },
+) {
   const input = new PassThrough();
   const output = new PassThrough();
   const logs: string[] = [];
@@ -47,6 +50,7 @@ function createTestServer(handlers: RpcHandlerRegistry = {}) {
       warn: (msg: string) => logs.push(`WARN: ${msg}`),
       error: (msg: string) => logs.push(`ERROR: ${msg}`),
     },
+    requireAuthToken: options?.requireAuthToken,
   });
 
   /**
@@ -69,11 +73,15 @@ function createTestServer(handlers: RpcHandlerRegistry = {}) {
   /**
    * Send a handshake request and read the response.
    */
-  async function handshake(sessionId = "test-session"): Promise<HandshakeAck> {
+  async function handshake(
+    sessionId = "test-session",
+    authToken?: string,
+  ): Promise<HandshakeAck> {
     send({
       type: "handshake_request",
       protocolVersion: CES_PROTOCOL_VERSION,
       sessionId,
+      ...(authToken ? { authToken } : {}),
     });
     // Give the server a tick to process
     await new Promise((r) => setTimeout(r, 10));
@@ -252,6 +260,51 @@ describe("CesRpcServer", () => {
     expect(ack.accepted).toBe(false);
     expect(ack.reason).toMatch(/Unsupported protocol version/);
     expect(server.isHandshakeComplete).toBe(false);
+
+    server.close();
+    input.end();
+  });
+
+  test("rejects handshake when auth token is required but missing", async () => {
+    const { server, handshake, input } = createTestServer({}, {
+      requireAuthToken: "secret-token",
+    });
+    const _servePromise = server.serve();
+
+    const ack = await handshake("test-session");
+    expect(ack.accepted).toBe(false);
+    expect(ack.reason).toContain("auth token");
+    expect(server.isHandshakeComplete).toBe(false);
+
+    server.close();
+    input.end();
+  });
+
+  test("rejects handshake when auth token is required but wrong", async () => {
+    const { server, handshake, input } = createTestServer({}, {
+      requireAuthToken: "secret-token",
+    });
+    const _servePromise = server.serve();
+
+    const ack = await handshake("test-session", "wrong-token");
+    expect(ack.accepted).toBe(false);
+    expect(ack.reason).toContain("auth token");
+    expect(server.isHandshakeComplete).toBe(false);
+
+    server.close();
+    input.end();
+  });
+
+  test("accepts handshake with correct auth token", async () => {
+    const { server, handshake, input } = createTestServer({}, {
+      requireAuthToken: "secret-token",
+    });
+    const _servePromise = server.serve();
+
+    const ack = await handshake("test-session", "secret-token");
+    expect(ack.accepted).toBe(true);
+    expect(ack.sessionId).toBe("test-session");
+    expect(server.isHandshakeComplete).toBe(true);
 
     server.close();
     input.end();

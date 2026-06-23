@@ -97,6 +97,13 @@ export interface CesRpcHandshakeOptions {
    * the assistant forwards it here once it is known.
    */
   assistantId?: string;
+  /**
+   * Shared-secret authentication token for managed (sidecar) mode.
+   * The assistant passes CES_SERVICE_TOKEN here so CES can verify the
+   * caller is the legitimate assistant, not an unauthenticated process
+   * that connected to the shared bootstrap socket volume.
+   */
+  authToken?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -365,6 +372,9 @@ export function createCesRpcClient(
               : {}),
             ...(options?.assistantId
               ? { assistantId: options.assistantId }
+              : {}),
+            ...(options?.authToken
+              ? { authToken: options.authToken }
               : {}),
           });
         } catch (err) {

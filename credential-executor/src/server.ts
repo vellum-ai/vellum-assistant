@@ -92,6 +92,14 @@ export interface CesServerOptions {
   onHandshakeComplete?: (sessionId: string, assistantApiKey?: string, assistantId?: string) => void;
   /** Callback invoked when the assistant pushes an updated API key (and optionally assistant ID) after hatch. */
   onApiKeyUpdate?: (assistantApiKey: string, assistantId?: string) => void;
+  /**
+   * Required auth token for managed (sidecar) mode. When set, the
+   * handshake must include a matching `authToken` field or it is rejected.
+   * This prevents unauthenticated processes from hijacking the bootstrap
+   * Unix socket during the reconnect window. Leave undefined in local mode
+   * (stdio transport) where the channel is inherently private.
+   */
+  requireAuthToken?: string;
 }
 
 export type ServeEndReason =
@@ -110,6 +118,7 @@ export class CesRpcServer {
   private readonly logger: Pick<Console, "log" | "warn" | "error">;
   private readonly signal?: AbortSignal;
   private readonly onHandshakeComplete?: (sessionId: string, assistantApiKey?: string, assistantId?: string) => void;
+  private readonly requireAuthToken?: string;
 
   private handshakeComplete = false;
   private sessionId: string | null = null;
@@ -123,6 +132,7 @@ export class CesRpcServer {
     this.logger = options.logger ?? console;
     this.signal = options.signal;
     this.onHandshakeComplete = options.onHandshakeComplete;
+    this.requireAuthToken = options.requireAuthToken;
 
     // Auto-register the update_managed_credential handler if a callback is provided.
     if (options.onApiKeyUpdate) {
@@ -259,6 +269,27 @@ export class CesRpcServer {
   }
 
   private handleHandshake(req: HandshakeRequest): void {
+    // Verify the auth token when required (managed mode). The bootstrap Unix
+    // socket is on a shared volume, so without this check any co-located
+    // process can connect and impersonate the assistant, especially during
+    // the reconnect window when CES re-binds the socket after a disconnect.
+    if (this.requireAuthToken !== undefined) {
+      if (!req.authToken || req.authToken !== this.requireAuthToken) {
+        this.logger.warn(
+          "[ces-server] Handshake rejected: auth token missing or mismatch",
+        );
+        const ack: HandshakeAck = {
+          type: "handshake_ack",
+          protocolVersion: CES_PROTOCOL_VERSION,
+          sessionId: req.sessionId,
+          accepted: false,
+          reason: "Authentication required: invalid or missing auth token",
+        };
+        this.sendMessage(ack);
+        return;
+      }
+    }
+
     const accepted = req.protocolVersion === CES_PROTOCOL_VERSION;
     const ack: HandshakeAck = {
       type: "handshake_ack",

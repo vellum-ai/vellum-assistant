@@ -235,6 +235,12 @@ async function startCesProcess(
       const proxyCtx = await resolveManagedProxyContext();
       const assistantId = getPlatformAssistantId();
       const { accepted, reason } = await client.handshake({
+        // Pass the CES_SERVICE_TOKEN so CES can authenticate the caller.
+        // Without this, the handshake would be rejected in managed mode
+        // where requireAuthToken is set on the server.
+        ...(process.env.CES_SERVICE_TOKEN
+          ? { authToken: process.env.CES_SERVICE_TOKEN }
+          : {}),
         ...(proxyCtx.assistantApiKey
           ? { assistantApiKey: proxyCtx.assistantApiKey }
           : {}),
@@ -781,6 +787,9 @@ export async function runDaemon(): Promise<void> {
           const transport = await pm.start();
           const newClient = createCesClient(transport);
           const { accepted, reason } = await newClient.handshake({
+            ...(process.env.CES_SERVICE_TOKEN
+              ? { authToken: process.env.CES_SERVICE_TOKEN }
+              : {}),
             ...(startupProxyCtx.assistantApiKey
               ? { assistantApiKey: startupProxyCtx.assistantApiKey }
               : {}),

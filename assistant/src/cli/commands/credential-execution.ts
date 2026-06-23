@@ -70,7 +70,11 @@ async function acquireCesClient(): Promise<{
   const client = createCesClient(transport);
 
   try {
-    const hs = await client.handshake();
+    const hs = await client.handshake(
+      process.env.CES_SERVICE_TOKEN
+        ? { authToken: process.env.CES_SERVICE_TOKEN }
+        : undefined,
+    );
 
     if (!hs.accepted) {
       throw new Error(`CES handshake rejected: ${hs.reason ?? "unknown"}`);

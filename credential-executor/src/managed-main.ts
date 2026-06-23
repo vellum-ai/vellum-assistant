@@ -21,7 +21,7 @@
  * All RPC traffic flows exclusively over the accepted Unix socket stream.
  */
 
-import { mkdirSync, unlinkSync } from "node:fs";
+import { mkdirSync, unlinkSync, chmodSync } from "node:fs";
 import { createServer as createNetServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
@@ -543,6 +543,17 @@ function acceptOneConnection(
     });
 
     netServer.listen(socketPath, () => {
+      // Restrict the socket file to owner-only access (0o600) so only
+      // the CES process owner can accept connections. This is defense-in-
+      // depth on top of the handshake auth token: even if an attacker has
+      // the same UID, the auth token still blocks them. Without this, the
+      // default umask may leave the socket world-accessible on the shared
+      // emptyDir volume.
+      try {
+        chmodSync(socketPath, 0o600);
+      } catch {
+        // Non-fatal: the auth token is the primary security control.
+      }
       log.info(`Bootstrap socket listening at ${socketPath}`);
     });
 
@@ -726,6 +737,13 @@ async function main(): Promise<void> {
         error: (msg: string, ...args: unknown[]) => rpcLog.error({ args }, msg),
       },
       signal: controller.signal,
+      // Require the CES_SERVICE_TOKEN on every handshake. The bootstrap
+      // socket is on a shared emptyDir volume, so without this any
+      // co-located process can connect and impersonate the assistant,
+      // particularly during the reconnect window after the assistant
+      // disconnects and CES re-binds the socket. In local mode (stdio)
+      // the channel is private and requireAuthToken is not set.
+      requireAuthToken: serviceToken || undefined,
       onHandshakeComplete: (hsSessionId, hsApiKey, hsAssistantId) => {
         sessionIdRef.current = hsSessionId;
         // Overwrite the credential refs on every handshake. The handler

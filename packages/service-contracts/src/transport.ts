@@ -38,6 +38,15 @@ export const HandshakeRequestSchema = z.object({
    * so the assistant forwards it here for platform credential materialisation.
    */
   assistantId: z.string().optional(),
+  /**
+   * Shared-secret authentication token (managed mode only).
+   * In managed (sidecar) mode the bootstrap Unix socket is on a shared
+   * volume, so any co-located process can connect. The assistant passes
+   * the CES_SERVICE_TOKEN here so CES can reject unauthenticated
+   * connections, preventing socket hijack after a reconnect window.
+   * In local mode (stdio transport) this is not required.
+   */
+  authToken: z.string().optional(),
 });
 export type HandshakeRequest = z.infer<typeof HandshakeRequestSchema>;
 

@@ -454,6 +454,30 @@ describe("CesRpcClient", () => {
     await handshakePromise;
   });
 
+  test("handshake passes authToken for managed mode", async () => {
+    const transport = createMockTransport();
+    const client = createCesRpcClient(transport, { handshakeTimeoutMs: 5000 });
+
+    const handshakePromise = client.handshake({
+      authToken: "ces-service-token-xyz",
+    });
+
+    const sent = JSON.parse(transport.messages[0]!);
+    expect(sent.authToken).toBe("ces-service-token-xyz");
+
+    // Complete the handshake
+    transport.messageHandler!(
+      JSON.stringify({
+        type: "handshake_ack",
+        protocolVersion: CES_PROTOCOL_VERSION,
+        sessionId: sent.sessionId,
+        accepted: true,
+      }),
+    );
+
+    await handshakePromise;
+  });
+
   test("handshake times out", async () => {
     const transport = createMockTransport();
     const client = createCesRpcClient(transport, { handshakeTimeoutMs: 50 });
