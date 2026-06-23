@@ -22,9 +22,6 @@ const TRUST_IPC_TIMEOUT_MS = 2_000;
 export async function getInboundTrustVerdict(input: {
   channelType: ChannelId;
   actorExternalId?: string;
-  actorUsername?: string;
-  actorDisplayName?: string;
-  conversationExternalId?: string;
 }): Promise<TrustVerdict | null> {
   try {
     const result = (await ipcCall(
