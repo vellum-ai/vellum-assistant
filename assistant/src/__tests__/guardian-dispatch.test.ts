@@ -24,17 +24,11 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-// The pending_question request principal is resolved via the SAME source the
-// Vellum actor uses — findLocalGuardianPrincipalId — so the stamped principal
-// always equals the submitting actor principal. Stub it so we can model drift
-// (gateway != local) and empty-gateway fallback independently of the binding
-// row seeded for the actor-side resolution below.
-let mockLocalGuardianPrincipalId: string | undefined = "test-principal-id";
-
-mock.module("../runtime/local-actor-identity.js", () => ({
-  findLocalGuardianPrincipalId: () => mockLocalGuardianPrincipalId,
-}));
-
+// The pending_question request principal is resolved via the SAME local source
+// the Vellum actor uses — findGuardianForChannel("vellum")?.contact.principalId
+// — so the stamped principal always equals the submitting actor principal. The
+// real contacts DB is seeded in resetTables(); tests model drift / missing
+// guardian by reseeding or clearing that local binding directly.
 const emitCalls: unknown[] = [];
 let conversationCreatedFromMock: ConversationCreatedInfo | null = null;
 let mockEmitResult: {
@@ -117,7 +111,6 @@ function resetTables(): void {
   });
   emitCalls.length = 0;
   conversationCreatedFromMock = null;
-  mockLocalGuardianPrincipalId = "test-principal-id";
   mockEmitResult = {
     signalId: "sig-1",
     deduplicated: false,
@@ -176,7 +169,7 @@ describe("guardian-dispatch", () => {
     expect(request).toBeDefined();
     expect(request!.status).toBe("pending");
     expect(request!.question_text).toBe("What is the gate code?");
-    // principalId comes from the gateway guardian binding
+    // principalId comes from the local guardian binding (same source the actor submits)
     expect(request!.guardian_principal_id).toBe("test-principal-id");
 
     const vellumDelivery = raw
@@ -194,12 +187,21 @@ describe("guardian-dispatch", () => {
     expect(typeof signalParams.onConversationCreated).toBe("function");
   });
 
-  test("stamps the request principal from the actor resolver, not the (possibly drifted) gateway binding", async () => {
-    // Simulate gateway/local binding drift: the actor resolver returns a
-    // different principal than any direct gateway read would. The request must
-    // be stamped with the actor resolver's value so a later actor submission
-    // matches (no identity_mismatch under drift).
-    mockLocalGuardianPrincipalId = "actor-resolver-principal";
+  test("stamps the request principal from the local source the actor submits, not the (possibly drifted) gateway binding", async () => {
+    // Simulate gateway/local binding drift: the local guardian binding (the
+    // source the actor submit path reads) carries a different principal than
+    // the gateway would. The request must be stamped with that local value so
+    // a later actor submission matches (no identity_mismatch under drift).
+    const db = getDb();
+    db.run("DELETE FROM contact_channels");
+    db.run("DELETE FROM contacts");
+    createGuardianBinding({
+      channel: "vellum",
+      guardianExternalUserId: "local-actor-principal",
+      guardianDeliveryChatId: "local",
+      guardianPrincipalId: "local-actor-principal",
+      verifiedVia: "bootstrap",
+    });
 
     const convId = "conv-dispatch-drift";
     ensureConversation(convId);
@@ -219,7 +221,6 @@ describe("guardian-dispatch", () => {
       pendingQuestion: pq,
     });
 
-    const db = getDb();
     const raw = (db as unknown as { $client: import("bun:sqlite").Database })
       .$client;
     const request = raw
@@ -230,11 +231,13 @@ describe("guardian-dispatch", () => {
       | { guardian_principal_id: string | null }
       | undefined;
     expect(request).toBeDefined();
-    expect(request!.guardian_principal_id).toBe("actor-resolver-principal");
+    expect(request!.guardian_principal_id).toBe("local-actor-principal");
   });
 
-  test("skips dispatch when the actor resolver yields no principal (empty gateway, no local fallback)", async () => {
-    mockLocalGuardianPrincipalId = undefined;
+  test("skips dispatch when no local guardian binding exists (no principal to stamp)", async () => {
+    const db = getDb();
+    db.run("DELETE FROM contact_channels");
+    db.run("DELETE FROM contacts");
 
     const convId = "conv-dispatch-no-principal";
     ensureConversation(convId);
@@ -255,7 +258,6 @@ describe("guardian-dispatch", () => {
     });
 
     // No request is created and the pipeline is never invoked.
-    const db = getDb();
     const raw = (db as unknown as { $client: import("bun:sqlite").Database })
       .$client;
     const request = raw
