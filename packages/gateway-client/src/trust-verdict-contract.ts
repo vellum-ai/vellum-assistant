@@ -42,6 +42,11 @@ export const TrustVerdictSchema = z.object({
   trustClass: TrustClassSchema,
   canonicalSenderId: z.string().nullable(),
 
+  // Present+true ⇒ gateway attempted resolution but failed (DB error);
+  // consumer treats it as "could not vouch", distinct from a real `unknown`
+  // stranger.
+  resolutionFailed: z.boolean().optional(),
+
   // Guardian binding — present only when a guardian binding matches.
   guardianExternalUserId: z.string().optional(),
   guardianDeliveryChatId: z.string().nullable().optional(),

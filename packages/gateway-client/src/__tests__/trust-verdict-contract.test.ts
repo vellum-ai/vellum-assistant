@@ -43,6 +43,23 @@ describe("TrustVerdictSchema", () => {
     expect(TrustVerdictSchema.parse(minimal)).toEqual(minimal);
   });
 
+  test("parses a verdict carrying resolutionFailed", () => {
+    const verdict = {
+      trustClass: "unknown",
+      canonicalSenderId: null,
+      resolutionFailed: true,
+    } satisfies TrustVerdict;
+    expect(TrustVerdictSchema.parse(verdict)).toEqual(verdict);
+  });
+
+  test("leaves resolutionFailed undefined when absent", () => {
+    const parsed = TrustVerdictSchema.parse({
+      trustClass: "unknown",
+      canonicalSenderId: null,
+    });
+    expect(parsed.resolutionFailed).toBeUndefined();
+  });
+
   test("rejects an invalid trustClass", () => {
     expect(() =>
       TrustVerdictSchema.parse({
