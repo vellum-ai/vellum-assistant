@@ -1400,7 +1400,7 @@ export class RelayConnection {
    * Creates a canonical access request, notifies the guardian, and
    * enters the bounded wait loop for the guardian decision.
    */
-  private handleNameCaptureResponse(callerName: string): void {
+  private async handleNameCaptureResponse(callerName: string): Promise<void> {
     if (!this.accessRequestAssistantId || !this.accessRequestFromNumber) {
       return;
     }
@@ -1421,7 +1421,7 @@ export class RelayConnection {
     // Create canonical access request and notify the guardian, including
     // the caller's spoken name and voice channel metadata.
     try {
-      const accessResult = notifyGuardianOfAccessRequest({
+      const accessResult = await notifyGuardianOfAccessRequest({
         canonicalAssistantId: this.accessRequestAssistantId,
         sourceChannel: "phone",
         conversationExternalId: this.accessRequestFromNumber,
@@ -2063,7 +2063,7 @@ export class RelayConnection {
         { callSessionId: this.callSessionId, callerName },
         "Name captured from unknown inbound caller",
       );
-      this.handleNameCaptureResponse(callerName);
+      await this.handleNameCaptureResponse(callerName);
       return;
     }
 
