@@ -288,7 +288,11 @@ function SubagentPhaseRow({
         {isExpandable && showStepCount && (
           <span
             data-testid="subagent-phase-step-count"
-            className="ml-auto shrink-0 whitespace-nowrap rounded-full bg-[var(--surface-base)] px-2 py-0.5"
+            // `inline-flex` (not the default inline span, which ignores
+            // height) + `max-h-full` caps the pill at the row's height
+            // (`h-[22px]`), and `items-center` keeps the label centered within
+            // that cap so it can never grow the grouped row.
+            className="ml-auto inline-flex max-h-full shrink-0 items-center whitespace-nowrap rounded-full bg-[var(--surface-base)] px-2 py-0.5"
           >
             <Typography
               variant="body-small-default"
