@@ -216,6 +216,20 @@ export function parseResearchResultStreaming(text: string): ResearchResult {
   return { claims, suggestions };
 }
 
+/**
+ * Prettify a marketplace plugin install name into a human display label for the
+ * suggestion-card chip — `"marketing-expert"` → `"Marketing Expert"`. Splits on
+ * hyphens/underscores/whitespace and title-cases each word. Returns an empty
+ * string for a blank/whitespace input so callers can skip rendering the chip.
+ */
+export function pluginDisplayName(plugin: string): string {
+  return plugin
+    .split(/[-_\s]+/)
+    .filter((w) => w.length > 0)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 interface ConfidenceBadge {
   label: string;
   tone: "positive" | "warning" | "neutral";

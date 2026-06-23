@@ -10,7 +10,10 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { parseResearchResultStreaming } from "@/utils/research-facts";
+import {
+  parseResearchResultStreaming,
+  pluginDisplayName,
+} from "@/utils/research-facts";
 
 describe("parseResearchResultStreaming — plugin tagging", () => {
   test("parses the optional plugin field on a suggestion", () => {
@@ -71,5 +74,25 @@ describe("parseResearchResultStreaming — plugin tagging", () => {
 
     expect(suggestions).toHaveLength(1);
     expect(suggestions[0]?.plugin).toBe("marketing-expert");
+  });
+});
+
+describe("pluginDisplayName", () => {
+  test("title-cases a hyphenated install name", () => {
+    expect(pluginDisplayName("marketing-expert")).toBe("Marketing Expert");
+  });
+
+  test("handles underscores and extra whitespace", () => {
+    expect(pluginDisplayName("admin_copilot")).toBe("Admin Copilot");
+    expect(pluginDisplayName("  growth   coach ")).toBe("Growth Coach");
+  });
+
+  test("leaves a single word capitalized", () => {
+    expect(pluginDisplayName("recruiter")).toBe("Recruiter");
+  });
+
+  test("returns an empty string for blank input", () => {
+    expect(pluginDisplayName("   ")).toBe("");
+    expect(pluginDisplayName("")).toBe("");
   });
 });

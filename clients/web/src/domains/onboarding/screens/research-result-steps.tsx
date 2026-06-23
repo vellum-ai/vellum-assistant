@@ -25,7 +25,11 @@ import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
-import type { ResearchFact, ResearchSuggestion } from "@/utils/research-facts";
+import {
+  pluginDisplayName,
+  type ResearchFact,
+  type ResearchSuggestion,
+} from "@/utils/research-facts";
 
 function useViewportSize() {
   const [size, setSize] = useState(() => ({
@@ -404,7 +408,22 @@ export function SuggestionsStep({
               }}
             >
               <Sparkles className="h-4 w-4 shrink-0" style={{ color: tone.fgMuted }} />
-              <span>{s.suggestion}</span>
+              <div className="flex flex-col items-start gap-2">
+                <span>{s.suggestion}</span>
+                {s.plugin && (
+                  <span
+                    className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium leading-none"
+                    style={{
+                      backgroundColor: tone.isLight
+                        ? "rgba(0,0,0,0.08)"
+                        : "rgba(255,255,255,0.16)",
+                      color: tone.fgMuted,
+                    }}
+                  >
+                    {pluginDisplayName(s.plugin)}
+                  </span>
+                )}
+              </div>
             </motion.button>
           ))}
         </div>
