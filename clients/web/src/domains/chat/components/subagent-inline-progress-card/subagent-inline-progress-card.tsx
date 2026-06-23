@@ -78,12 +78,12 @@ export function SubagentInlineProgressCard({
 
   const leadingIcon = <SubagentAvatarChip subagentId={subagentId} size={20} />;
 
-  // Title = the subagent's task name. The previously-derived status ("Working",
-  // "Searching the web") + detail collapse into the subtitle: prefer the
-  // specific detail, falling back to the status word when a step carries none
-  // (e.g. a web_search, whose detail is empty) or when the only "detail" is the
-  // label itself (no steps yet) — so the subtitle never reads blank or echoes
-  // the title.
+  // Title = the subagent's task name. The derived status `data.currentStepTitle`
+  // ("Working", "Searching the web") and its detail collapse into the subtitle:
+  // prefer the specific detail, falling back to the status word when a step
+  // carries none (e.g. a web_search, whose detail is empty) or when the only
+  // "detail" is the label itself (no steps yet) — so the subtitle never reads
+  // blank or echoes the title.
   const headerTitle = label ?? data.currentStepTitle;
   const headerInfo =
     data.currentStepInfo && data.currentStepInfo !== label
