@@ -23,7 +23,7 @@ export const CardSurfaceDataSchema = z.object({
   subtitle: z.string().optional(),
   body: z.string().optional(),
   metadata: z
-    .array(z.object({ label: z.string(), value: z.string() }))
+    .array(z.object({ label: z.coerce.string(), value: z.coerce.string() }))
     .optional(),
   /** Optional template name for specialized rendering (e.g. "weather_forecast"). */
   template: z.string().optional(),

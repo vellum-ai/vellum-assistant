@@ -29,6 +29,24 @@ describe("CardSurfaceDataSchema", () => {
     );
   });
 
+  test("coerces primitive metadata values to strings", () => {
+    const parsed = CardSurfaceDataSchema.safeParse({
+      metadata: [
+        { label: "Docs", value: 12 },
+        { label: "Passed", value: true },
+        { label: "Status", value: "OK" },
+      ],
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.metadata).toEqual([
+        { label: "Docs", value: "12" },
+        { label: "Passed", value: "true" },
+        { label: "Status", value: "OK" },
+      ]);
+    }
+  });
+
   test("the schema's keys define what the normalizer supports", () => {
     expect(Object.keys(CardSurfaceDataSchema.shape).sort()).toEqual([
       "body",

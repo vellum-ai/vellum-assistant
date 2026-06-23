@@ -2908,7 +2908,13 @@ export async function surfaceProxyResolver(
             category: "card-normalization",
             message: "action parse failure (individual)",
             level: "warning",
-            data: { issues: result.error.issues, raw },
+            data: {
+              issuePaths: result.error.issues.map((i) => i.path.join(".")),
+              keys:
+                typeof raw === "object" && raw !== null
+                  ? Object.keys(raw)
+                  : [typeof raw],
+            },
           });
         }
       }
