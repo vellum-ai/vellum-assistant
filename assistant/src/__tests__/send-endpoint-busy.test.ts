@@ -109,10 +109,15 @@ mock.module("../daemon/approval-generators.js", () => ({
   createApprovalConversationGenerator: () => _approvalGenerator,
 }));
 
-// Mock local-actor-identity to return a stable guardian context that uses
-// the same principal as the canonical requests created in tests.
+// Dev-bypass resolves the real guardian principal, then maps it through the
+// local-principal trust mapper. Both are stubbed to the principal the canonical
+// requests in these tests use.
 mock.module("../runtime/local-actor-identity.js", () => ({
-  resolveLocalTrustContext: () => ({
+  findLocalGuardianPrincipalId: async () => "test-principal-id",
+}));
+
+mock.module("../runtime/local-principal-trust.js", () => ({
+  resolveLocalPrincipalTrustContext: async () => ({
     sourceChannel: "vellum",
     trustClass: "guardian",
     guardianPrincipalId: "test-principal-id",
