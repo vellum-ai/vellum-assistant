@@ -13,11 +13,16 @@ import { isHttpAuthDisabled } from "../../config/env.js";
 import { findGuardianForChannel } from "../../contacts/contact-store.js";
 import type { TrustContext } from "../../daemon/trust-context.js";
 import { getLogger } from "../../util/logger.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { processGuardianDecision } from "../guardian-action-service.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
 import { findLocalGuardianPrincipalId } from "../local-actor-identity.js";
 import { resolveLocalPrincipalTrustContext } from "../local-principal-trust.js";
+import {
+  resolveTrustContext,
+  withSourceChannel,
+} from "../trust-context-resolver.js";
 import { parseCallbackData } from "./channel-route-shared.js";
 import {
   BadRequestError,
@@ -70,11 +75,17 @@ async function applyTrustContext(
   if (trustCtx.trustClass === "unknown") {
     const healed = await healGuardianBindingDrift(principalId);
     if (healed) {
-      trustCtx = await resolveLocalPrincipalTrustContext({
-        actorPrincipalId: principalId,
+      // Heal repairs the local mirror, not the gateway binding, so re-resolve
+      // from the local mirror. Transitional; removed in Combo 11.
+      trustCtx = withSourceChannel(
         sourceChannel,
-        conversationExternalId: "local",
-      });
+        resolveTrustContext({
+          assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+          sourceChannel,
+          conversationExternalId: "local",
+          actorExternalId: principalId,
+        }),
+      );
       log.info(
         { actorPrincipalId: principalId, trustClass: trustCtx.trustClass },
         "Trust re-resolved after guardian binding drift heal (surface action)",

@@ -46,12 +46,15 @@ const rawGetCalls: Array<{ sql: string; params: unknown[] }> = [];
 // Gateway guardian-delivery list (shared by the route's dev-bypass lookup and
 // the local-principal-trust mapper): null = unreachable, [] = no guardian.
 let mockGuardianList: Array<Record<string, unknown>> | null = [];
-// Local store fallback used only on the dev-bypass path when the gateway is
-// empty.
-let mockGuardianRecord: { contact: Record<string, unknown> } | null = null;
+// Local-mirror guardian record: dev-bypass reads .contact.principalId; the
+// post-heal local resolver reads .contact and .channel.
+let mockGuardianRecord: {
+  contact: Record<string, unknown>;
+  channel?: Record<string, unknown>;
+} | null = null;
 let httpAuthDisabled = false;
-// Tracks heal invocations and lets a test flip the guardian list to simulate
-// drift being reconciled on the second mapper resolve.
+// Tracks heal invocations; onHeal lets a test repair the local mirror to
+// simulate the post-heal re-resolve matching.
 const healCalls: string[] = [];
 let healResult = false;
 let onHeal: (() => void) | null = null;
@@ -403,6 +406,24 @@ function guardianDelivery(principalId: string): Record<string, unknown> {
   };
 }
 
+// Local-mirror guardian record as returned by findGuardianForChannel and read
+// by resolveActorTrust. The channel address equals the principal so the local
+// resolver classifies it as guardian on the vellum channel.
+function localGuardianRecord(principalId: string): {
+  contact: Record<string, unknown>;
+  channel: Record<string, unknown>;
+} {
+  return {
+    contact: { principalId, displayName: "Guardian" },
+    channel: {
+      type: "vellum",
+      address: principalId,
+      externalChatId: "guardian-chat",
+      status: "active",
+    },
+  };
+}
+
 describe("triggerSurfaceAction trust context", () => {
   test("guardian principal → guardian trust context from the gateway binding", async () => {
     mockGuardianList = [guardianDelivery(GUARDIAN_PRINCIPAL)];
@@ -436,13 +457,14 @@ describe("triggerSurfaceAction trust context", () => {
     expect(healCalls).toEqual(["principal-other"]);
   });
 
-  test("drift: heal makes the principal match → guardian after re-resolve", async () => {
-    // First mapper resolve sees no guardian (drift), heal flips the binding so
-    // the second resolve matches.
-    mockGuardianList = [];
+  test("drift: heal repairs the local mirror → guardian from local re-resolve", async () => {
+    // The gateway binding stays mismatched throughout, so the gateway mapper
+    // returns unknown both before and after heal. Heal repairs the local mirror;
+    // the post-heal re-resolve reads that mirror and matches.
+    mockGuardianList = [guardianDelivery("principal-stale")];
     healResult = true;
     onHeal = () => {
-      mockGuardianList = [guardianDelivery(GUARDIAN_PRINCIPAL)];
+      mockGuardianRecord = localGuardianRecord(GUARDIAN_PRINCIPAL);
     };
     const live = makeStub("conv-drift");
     memoryBySurface = live;
@@ -454,6 +476,8 @@ describe("triggerSurfaceAction trust context", () => {
     });
 
     expect(healCalls).toEqual([GUARDIAN_PRINCIPAL]);
+    // Gateway binding never matched; guardian comes from the local mirror.
+    expect(mockGuardianList).toEqual([guardianDelivery("principal-stale")]);
     expect(live.trustContext?.trustClass).toBe("guardian");
   });
 
@@ -478,9 +502,14 @@ describe("triggerSurfaceAction trust context", () => {
   test("dev-bypass falls back to the local store when the gateway is empty", async () => {
     httpAuthDisabled = true;
     mockGuardianList = [];
-    mockGuardianRecord = { contact: { principalId: GUARDIAN_PRINCIPAL } };
+    // Local store supplies the guardian principal for dev-bypass; its channel
+    // address starts mismatched so the pre-heal local resolve misses.
+    mockGuardianRecord = {
+      contact: { principalId: GUARDIAN_PRINCIPAL },
+      channel: { type: "vellum", address: "stale-address", status: "active" },
+    };
     onHeal = () => {
-      mockGuardianList = [guardianDelivery(GUARDIAN_PRINCIPAL)];
+      mockGuardianRecord = localGuardianRecord(GUARDIAN_PRINCIPAL);
     };
     healResult = true;
     const live = makeStub("conv-dev-fallback");
@@ -492,8 +521,8 @@ describe("triggerSurfaceAction trust context", () => {
       headers: { "x-vellum-actor-principal-id": "dev-bypass" },
     });
 
-    // The local store supplies the guardian principal; the first mapper resolve
-    // misses (gateway empty), heal populates it, second resolve matches.
+    // The local store supplies the guardian principal; the gateway resolve
+    // misses, heal repairs the local mirror, post-heal local resolve matches.
     expect(healCalls).toEqual([GUARDIAN_PRINCIPAL]);
     expect(live.trustContext?.trustClass).toBe("guardian");
   });
