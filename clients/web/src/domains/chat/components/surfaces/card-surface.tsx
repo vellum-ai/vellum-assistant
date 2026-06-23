@@ -1,12 +1,8 @@
 import { lazy } from "react";
 import { Circle, CircleCheck, CircleX, Clock, Loader2 } from "lucide-react";
 
-import {
-  CardSurfaceDataSchema,
-  cardHasRenderableContent,
-} from "@vellumai/assistant-api";
+import { CardSurfaceDataSchema } from "@vellumai/assistant-api";
 import type { Surface } from "@/domains/chat/types/types";
-import { isTaskProgressSurface } from "@/domains/chat/transcript/message-content";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
@@ -231,22 +227,16 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
   const parsed = CardSurfaceDataSchema.safeParse(surface.data);
   const data = parsed.success ? parsed.data : {};
 
-  // Safety net for historical surfaces that bypassed daemon validation: strip
-  // actions from content-less cards so stale buttons don't trigger action-loops.
-  const hasContent = cardHasRenderableContent(data);
-  const effectiveSurface =
-    !hasContent && surface.actions?.length
-      ? { ...surface, actions: undefined }
-      : surface;
-
   const isWeather = data.template === "weather_forecast" && data.templateData;
   const isTaskProgress =
     data.template === "task_progress" &&
     !!data.templateData &&
     hasUsableProgressCounters(data.templateData);
-  // Shared predicate so this render-detection and the activity-summary
-  // hoist-detection in transcript-message-body cannot drift.
-  const hasSteps = isTaskProgressSurface(surface);
+  const steps = data.templateData?.steps;
+  const hasSteps =
+    data.template === "task_progress" &&
+    Array.isArray(steps) &&
+    steps.length > 0;
   const cardTitle =
     normalizedTitle(data.title) || normalizedTitle(surface.title);
 
@@ -258,7 +248,7 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
     const steps = templateData.steps as TaskStepItem[];
 
     return (
-      <SurfaceContainer surface={effectiveSurface} onAction={onAction} hideTitle>
+      <SurfaceContainer surface={surface} onAction={onAction} hideTitle>
         <div>
           <div className="flex items-center justify-between">
             <span className="text-title-small text-[var(--content-strong)]">
@@ -280,7 +270,7 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
   );
 
   return (
-    <SurfaceContainer surface={effectiveSurface} onAction={onAction} hideTitle>
+    <SurfaceContainer surface={surface} onAction={onAction} hideTitle>
       <div>
         {cardTitle && (
           <h3 className="text-title-small text-[var(--content-strong)]">

@@ -31,18 +31,3 @@ export const CardSurfaceDataSchema = z.object({
   templateData: z.record(z.string(), z.unknown()).optional(),
 });
 export type CardSurfaceData = z.infer<typeof CardSurfaceDataSchema>;
-
-/**
- * A card has renderable content when it carries at least one of: body text,
- * subtitle, metadata entries, or a named template. Title alone is not content
- * — a title-only card with action buttons creates a UX loop where each click
- * triggers a model turn with no meaningful context.
- */
-export function cardHasRenderableContent(data: CardSurfaceData): boolean {
-  return !!(
-    data.body?.trim() ||
-    data.subtitle?.trim() ||
-    (data.metadata?.length ?? 0) > 0 ||
-    data.template
-  );
-}

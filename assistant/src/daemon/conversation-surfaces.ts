@@ -1,9 +1,8 @@
 import { v4 as uuid } from "uuid";
+import { z } from "zod";
 
-import {
-  cardHasRenderableContent,
-  CardSurfaceDataSchema,
-} from "../api/surfaces.js";
+import { SurfaceActionSchema } from "../api/events/ui-surface-show.js";
+import { CardSurfaceDataSchema } from "../api/surfaces.js";
 import { isActivationSession } from "../memory/activation-session-store.js";
 import {
   addAppConversationId,
@@ -73,6 +72,16 @@ import type { UserMessageAttachment } from "./message-types/shared.js";
 import type { TrustContext } from "./trust-context.js";
 
 const log = getLogger("conversation-surfaces");
+
+// Tolerant variant of SurfaceActionSchema for parsing raw model output.
+// The canonical schema rejects unknown style values; this one coerces them
+// to "secondary" so a single mistyped style doesn't drop all actions.
+const ModelActionSchema = SurfaceActionSchema.extend({
+  style: z
+    .enum(["primary", "secondary", "destructive"])
+    .catch("secondary")
+    .optional(),
+});
 
 const MAX_UNDO_DEPTH = 10;
 
@@ -2822,7 +2831,11 @@ export async function surfaceProxyResolver(
     const surfaceType = input.surface_type as SurfaceType;
     const title = typeof input.title === "string" ? input.title : undefined;
     const rawData = isPlainObject(input.data) ? input.data : {};
-    const data = (
+    // Each surface type that has a canonical Zod schema gets parsed through it;
+    // the rest pass through raw until migrated (LUM-2134 scope). The per-type
+    // normalizers validate+recover; the union cast at the end is only for the
+    // unmigrated branches that still return hand-written interfaces.
+    const data: SurfaceData =
       surfaceType === "card"
         ? normalizeCardShowData(input, rawData)
         : surfaceType === "choice"
@@ -2833,21 +2846,26 @@ export async function surfaceProxyResolver(
               ? normalizeOAuthConnectShowData(rawData)
               : surfaceType === "dynamic_page"
                 ? normalizeDynamicPageShowData(input, rawData)
-                : rawData
-    ) as SurfaceData;
-    const inputActions = input.actions as
-      | Array<{
-          id: string;
-          label: string;
-          style?: string;
-          data?: Record<string, unknown>;
-        }>
-      | undefined;
-    let actions =
+                : (rawData as SurfaceData);
+    // Parse actions through the schema instead of typecasting raw model output.
+    // The model may place actions inside `data` instead of the top-level
+    // `actions` param — recover them so they aren't silently dropped.
+    const rawActions = Array.isArray(input.actions)
+      ? input.actions
+      : Array.isArray(rawData.actions)
+        ? rawData.actions
+        : undefined;
+    const parsedActions = rawActions
+      ? z.array(ModelActionSchema).safeParse(rawActions)
+      : undefined;
+    const inputActions = parsedActions?.success
+      ? parsedActions.data
+      : undefined;
+    const actions =
       surfaceType === "choice"
         ? buildChoiceActions(data as ChoiceSurfaceData)
         : inputActions;
-    let hasActions = Array.isArray(actions) && actions.length > 0;
+    const hasActions = Array.isArray(actions) && actions.length > 0;
     if (surfaceType === "choice" && !hasActions) {
       return {
         content:
@@ -2868,23 +2886,6 @@ export async function surfaceProxyResolver(
         content: "oauth_connect surfaces require data.providerKey.",
         isError: true,
       };
-    }
-
-    // A content-less card with actions creates a UX loop: each click triggers
-    // a model turn with "[User action on app: …]" but no meaningful context,
-    // so the model produces a no-op response. Strip actions at the boundary so
-    // the card renders as a non-interactive title-only display surface.
-    const actionsStrippedFromEmptyCard =
-      surfaceType === "card" &&
-      hasActions &&
-      !cardHasRenderableContent(data as CardSurfaceData);
-    if (actionsStrippedFromEmptyCard) {
-      log.info(
-        { surfaceType, title, dataKeys: Object.keys(data) },
-        "Stripping actions from content-less card to prevent action-loop",
-      );
-      actions = undefined;
-      hasActions = false;
     }
 
     const isInteractive =
@@ -2923,10 +2924,7 @@ export async function surfaceProxyResolver(
     const mappedActions = actions?.map((a) => ({
       id: a.id,
       label: a.label,
-      style: (a.style ?? "secondary") as
-        | "primary"
-        | "secondary"
-        | "destructive",
+      style: a.style ?? "secondary",
       ...(a.data ? { data: a.data } : {}),
     }));
 
@@ -3017,13 +3015,6 @@ export async function surfaceProxyResolver(
         yieldToUser: true,
       };
     }
-    if (actionsStrippedFromEmptyCard) {
-      return {
-        content:
-          "Error: Card requires content to be interactive — provide `data.body`, a `template`, `data.subtitle`, or `data.metadata`. The card rendered with its title but actions were stripped because a content-less card with buttons creates a loop. Resend ui_show with populated card content to include interactive actions.",
-        isError: true,
-      };
-    }
     return { content: JSON.stringify({ surfaceId }), isError: false };
   }
 
@@ -3049,7 +3040,26 @@ export async function surfaceProxyResolver(
         const currentHtml = (stored.data as DynamicPageSurfaceData).html;
         pushUndoState(ctx.surfaceUndoStacks, surfaceId, currentHtml);
       }
-      mergedData = { ...stored.data, ...patch } as SurfaceData;
+      const rawMerged = { ...stored.data, ...patch };
+      if (stored.surfaceType === "card") {
+        // Validate the merged card data through the canonical schema so
+        // malformed patches (e.g. metadata as a string) are caught here
+        // instead of crashing the client's safeParse.
+        const parsed = CardSurfaceDataSchema.safeParse(rawMerged);
+        mergedData = parsed.success
+          ? parsed.data
+          : (CardSurfaceDataSchema.safeParse(stored.data).data ?? {});
+        if (!parsed.success) {
+          log.warn(
+            { surfaceId, issues: parsed.error.issues },
+            "ui_update card patch produced invalid merged data; reverting to stored data",
+          );
+        }
+      } else {
+        // Other surface types lack canonical Zod schemas (LUM-2134 scope).
+        // The raw merge is the best we can do until they're migrated.
+        mergedData = rawMerged as SurfaceData;
+      }
       stored.data = mergedData;
     } else {
       mergedData = patch as unknown as SurfaceData;
