@@ -501,7 +501,7 @@ describe("HTTP POST /v1/messages trust context from the gateway binding", () => 
     healGuardianBindingDriftMock.mockClear();
   });
 
-  function requestAs(principalId: string) {
+  function requestAs(principalId: string, sourceChannel = "vellum") {
     return new Request("http://localhost/v1/messages", {
       method: "POST",
       headers: {
@@ -512,13 +512,16 @@ describe("HTTP POST /v1/messages trust context from the gateway binding", () => 
       body: JSON.stringify({
         conversationKey: "trust-test-key",
         content: "hi",
-        sourceChannel: "vellum",
+        sourceChannel,
         interface: "macos",
       }),
     });
   }
 
-  async function trustClassFor(principalId: string): Promise<string> {
+  async function trustContextFor(
+    principalId: string,
+    sourceChannel = "vellum",
+  ): Promise<Record<string, unknown>> {
     let captured: Record<string, unknown> | undefined;
     const conversation = makeConversation({
       setTrustContext: (ctx: Record<string, unknown>) => {
@@ -534,12 +537,16 @@ describe("HTTP POST /v1/messages trust context from the gateway binding", () => 
             resolveAttachments: () => [],
           },
         }),
-      requestAs(principalId),
+      requestAs(principalId, sourceChannel),
       undefined,
       202,
     );
     expect(res.status).toBe(202);
-    return captured?.trustClass as string;
+    return captured ?? {};
+  }
+
+  async function trustClassFor(principalId: string): Promise<string> {
+    return (await trustContextFor(principalId)).trustClass as string;
   }
 
   test("guardian principal resolves to guardian context", async () => {
@@ -594,5 +601,21 @@ describe("HTTP POST /v1/messages trust context from the gateway binding", () => 
 
   test("dev-bypass maps the gateway guardian principal to guardian", async () => {
     expect(await trustClassFor("dev-bypass")).toBe("guardian");
+  });
+
+  test("fails closed to unknown when the gateway is unreachable", async () => {
+    // Gateway read returns null (unreachable) while the local mirror WOULD
+    // grant guardian. The drift fallback must not fall open to the mirror.
+    mockGuardians = null;
+    localMirrorGuardians = new Set<string>(["vellum-principal-healed"]);
+
+    expect(await trustClassFor("vellum-principal-healed")).toBe("unknown");
+    expect(healGuardianBindingDriftMock).not.toHaveBeenCalled();
+  });
+
+  test("preserves the request body channel on the guardian-match happy path", async () => {
+    const ctx = await trustContextFor("test-user", "telegram");
+    expect(ctx.trustClass).toBe("guardian");
+    expect(ctx.sourceChannel).toBe("telegram");
   });
 });

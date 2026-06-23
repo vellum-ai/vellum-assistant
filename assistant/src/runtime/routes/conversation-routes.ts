@@ -1457,55 +1457,63 @@ export async function handleSendMessage(
       const guardianPrincipalId = guardians?.[0]?.principalId;
       conversation.setTrustContext(
         guardianPrincipalId
-          ? await resolveLocalPrincipalTrustContext({
-              actorPrincipalId: guardianPrincipalId,
-              sourceChannel: "vellum",
-              conversationExternalId: "local",
-            })
+          ? withSourceChannel(
+              sourceChannel,
+              await resolveLocalPrincipalTrustContext({
+                actorPrincipalId: guardianPrincipalId,
+                sourceChannel: "vellum",
+                conversationExternalId: "local",
+              }),
+            )
           : await resolveLocalTrustContext(sourceChannel),
       );
     } else {
-      let trustCtx = await resolveLocalPrincipalTrustContext({
-        actorPrincipalId,
-        sourceChannel: "vellum",
-        conversationExternalId: "local",
-      });
+      let trustCtx = withSourceChannel(
+        sourceChannel,
+        await resolveLocalPrincipalTrustContext({
+          actorPrincipalId,
+          sourceChannel: "vellum",
+          conversationExternalId: "local",
+        }),
+      );
       if (trustCtx.trustClass === "unknown") {
         // Guardian binding drift: a DB reset rebinds to a new
         // vellum-principal-* UUID while the client holds a valid JWT for the
         // old one. The signing key survives, so the JWT is authentic but
-        // stale. Best-effort repair the local mirror (no-op once repaired),
-        // then re-resolve from it on every gateway-unknown — not just the
-        // request that writes the heal. Safe on vellum: only the daemon mints
-        // signature-valid vellum-principal-* JWTs, so a valid one is the owner.
-        await healGuardianBindingDrift(actorPrincipalId);
-        trustCtx = withSourceChannel(
-          sourceChannel,
-          resolveTrustContext({
-            assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-            sourceChannel: "vellum",
-            conversationExternalId: "local",
-            actorExternalId: actorPrincipalId,
-          }),
-        );
-        if (trustCtx.trustClass === "unknown") {
-          log.warn(
-            {
-              actorPrincipalId: actorPrincipalId,
-              sourceChannel,
-              trustClass: trustCtx.trustClass,
-              principalType: principalType,
-            },
-            "JWT-verified actor resolved to unknown trust class — possible guardian binding drift (e.g. DB reset without re-bootstrap)",
+        // stale. Re-resolve from the local mirror only when the gateway read
+        // is non-null; a null read means the gateway is unreachable and must
+        // fail closed (stay unknown) rather than fall open to the mirror.
+        const guardians = await getGuardianDelivery({ channelTypes: ["vellum"] });
+        if (guardians) {
+          await healGuardianBindingDrift(actorPrincipalId);
+          trustCtx = withSourceChannel(
+            sourceChannel,
+            resolveTrustContext({
+              assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+              sourceChannel: "vellum",
+              conversationExternalId: "local",
+              actorExternalId: actorPrincipalId,
+            }),
           );
-        } else {
-          log.info(
-            {
-              actorPrincipalId: actorPrincipalId,
-              trustClass: trustCtx.trustClass,
-            },
-            "Trust re-resolved from local mirror after gateway returned unknown",
-          );
+          if (trustCtx.trustClass === "unknown") {
+            log.warn(
+              {
+                actorPrincipalId,
+                sourceChannel,
+                trustClass: trustCtx.trustClass,
+                principalType,
+              },
+              "JWT-verified actor resolved to unknown trust class — possible guardian binding drift (e.g. DB reset without re-bootstrap)",
+            );
+          } else {
+            log.info(
+              {
+                actorPrincipalId,
+                trustClass: trustCtx.trustClass,
+              },
+              "Trust re-resolved from local mirror after gateway returned unknown",
+            );
+          }
         }
       }
       conversation.setTrustContext(trustCtx);
