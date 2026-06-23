@@ -7,10 +7,7 @@ import type { AdmissionPolicy, SourceMetadata } from "@vellumai/gateway-client";
 
 import { isInviteCodeRedemptionEnabled } from "../../../channels/config.js";
 import type { ChannelId } from "../../../channels/types.js";
-import {
-  findContactChannel,
-  findGuardianForChannel,
-} from "../../../contacts/contact-store.js";
+import { findGuardianForChannel } from "../../../contacts/contact-store.js";
 import type {
   ChannelStatus,
   ContactChannel,
@@ -41,6 +38,7 @@ import {
   redeemInviteByCode,
 } from "../../invite-redemption-service.js";
 import { getInviteRedemptionReply } from "../../invite-redemption-templates.js";
+import { resolvedMemberFromVerdict } from "../../trust-verdict-consumer.js";
 
 const log = getLogger("runtime-http");
 
@@ -164,7 +162,28 @@ export async function enforceIngressAcl(
   // Slack message timestamp for permalink construction.
   const messageTs = sourceMetadata?.messageId ?? undefined;
 
-  let resolvedMember: ResolvedMember | null = null;
+  // Absent verdict = gateway could not vouch for this actor → fail-closed deny.
+  // A PRESENT verdict with no member (stranger) still flows through the
+  // intercepts below; only a missing verdict short-circuits here.
+  const verdict = sourceMetadata?.trustVerdict;
+  if (verdict == null) {
+    log.info(
+      { sourceChannel, externalUserId: canonicalSenderId },
+      "Ingress ACL: absent trust verdict, denying fail-closed",
+    );
+    return {
+      resolvedMember: null,
+      earlyResponse: {
+        accepted: true,
+        denied: true,
+        reason: "not_a_member",
+      },
+    };
+  }
+
+  // Member resolved from the gateway verdict (ACL + identity only); null for a
+  // stranger verdict, which falls through to the non-member intercepts.
+  const resolvedMember: ResolvedMember | null = resolvedMemberFromVerdict(verdict);
 
   // /start gv_<token> bootstrap commands must also bypass ACL — the user
   // hasn't been verified yet and needs to complete the bootstrap handshake.
@@ -181,23 +200,6 @@ export async function enforceIngressAcl(
   });
 
   if (canonicalSenderId || hasSenderIdentityClaim) {
-    // Only perform member lookup when we have a usable canonical ID.
-    // Whitespace-only senders (hasSenderIdentityClaim=true but
-    // canonicalSenderId=null) skip the lookup and fall into the deny path.
-    if (canonicalSenderId) {
-      const contactResult = findContactChannel({
-        channelType: sourceChannel,
-        address: canonicalSenderId,
-        externalChatId: conversationExternalId,
-      });
-      resolvedMember = contactResult
-        ? {
-            contact: contactResult.contact,
-            channel: contactResult.channel,
-          }
-        : null;
-    }
-
     if (!resolvedMember) {
       let denyNonMember = true;
 
