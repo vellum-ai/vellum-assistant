@@ -29,6 +29,32 @@ const GUARDIAN_TOKEN_PATTERN =
   /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
 const LOCAL_STATUS_PATTERN = /^(?:\/assistant)?\/__local\/status\/([^/]+)$/;
 const LOCAL_UPGRADE_PATTERN = /^(?:\/assistant)?\/__local\/upgrade$/;
+const PLATFORM_SESSION_PATTERN =
+  /^(?:\/assistant)?\/__local\/platform-session$/;
+
+// In-memory loopback platform session token for the dev server. The proxy
+// (vite.config.ts) and the middleware below run in the same Node process, so
+// this module singleton bridges them. Dev-only and session-scoped; the
+// installed CLI persists the token via its own store.
+let devPlatformToken: string | null = null;
+export function getDevPlatformToken(): string | null {
+  return devPlatformToken;
+}
+
+/**
+ * Whether a proxied request is same-origin SPA traffic that may carry the
+ * platform credential. A cross-site page must not be able to use the dev proxy
+ * as a confused deputy. Mirrors the Bun server's check.
+ */
+export function isSameOriginProxyRequest(req: http.IncomingMessage): boolean {
+  const origin = Array.isArray(req.headers.origin)
+    ? req.headers.origin[0]
+    : req.headers.origin;
+  if (!originIsAllowed(origin)) return false;
+  const site = req.headers["sec-fetch-site"];
+  const siteValue = Array.isArray(site) ? site[0] : site;
+  return !siteValue || siteValue === "same-origin" || siteValue === "none";
+}
 
 export function localModePlugin(env: Record<string, string>): Plugin {
   const config = resolveLocalConfigFromEnv(env);
@@ -49,6 +75,7 @@ export function localModePlugin(env: Record<string, string>): Plugin {
     },
     configureServer(server) {
       server.middlewares.use(loopbackCallbackMiddleware());
+      server.middlewares.use(platformSessionMiddleware());
       server.middlewares.use(
         configMiddleware(config.webUrl, config.platformUrl),
       );
@@ -82,9 +109,17 @@ function rejectUnlessLocalEndpointRequest(
   res: http.ServerResponse,
 ): boolean {
   const peer = req.socket.remoteAddress ?? "";
-  const host = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host;
-  const origin = Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin;
-  if (!isLoopbackAddr(peer) || !headerHostIsLoopback(host) || !originIsAllowed(origin)) {
+  const host = Array.isArray(req.headers.host)
+    ? req.headers.host[0]
+    : req.headers.host;
+  const origin = Array.isArray(req.headers.origin)
+    ? req.headers.origin[0]
+    : req.headers.origin;
+  if (
+    !isLoopbackAddr(peer) ||
+    !headerHostIsLoopback(host) ||
+    !originIsAllowed(origin)
+  ) {
     res.statusCode = 403;
     res.setHeader("Content-Type", "application/json");
     res.end(JSON.stringify({ error: "Forbidden" }));
@@ -102,6 +137,51 @@ function loopbackCallbackMiddleware(): Connect.NextHandleFunction {
       return;
     }
     next();
+  };
+}
+
+// Receives the loopback platform session token from the SPA (after it has
+// validated the `state` nonce) and holds it for the proxy. Mirrors the Bun
+// server's /__local/platform-session endpoint.
+function platformSessionMiddleware(): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    const path = (req.url ?? "").split("?")[0];
+    if (!PLATFORM_SESSION_PATTERN.test(path)) return next();
+    if (rejectUnlessLocalEndpointRequest(req, res)) return;
+
+    if (req.method === "DELETE") {
+      devPlatformToken = null;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    if (req.method !== "POST") {
+      res.statusCode = 405;
+      res.end();
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => {
+      let token: unknown;
+      try {
+        token = (
+          JSON.parse(Buffer.concat(chunks).toString()) as { token?: unknown }
+        ).token;
+      } catch {
+        token = undefined;
+      }
+      if (typeof token !== "string" || !/^[A-Za-z0-9]+$/.test(token)) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ ok: false, error: "Invalid token" }));
+        return;
+      }
+      devPlatformToken = token;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: true }));
+    });
   };
 }
 
@@ -254,22 +334,27 @@ function hatchMiddleware(baseDir: string): Connect.NextHandleFunction {
         return;
       }
 
-      runHatch(invocation, species, remote ? { remote } : undefined).then((result) => {
-        res.statusCode = result.ok ? 200 : result.status;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify(
-            result.ok
-              ? { ok: true, assistantId: result.assistantId }
-              : { ok: false, error: result.error },
-          ),
-        );
-      });
+      runHatch(invocation, species, remote ? { remote } : undefined).then(
+        (result) => {
+          res.statusCode = result.ok ? 200 : result.status;
+          res.setHeader("Content-Type", "application/json");
+          res.end(
+            JSON.stringify(
+              result.ok
+                ? { ok: true, assistantId: result.assistantId }
+                : { ok: false, error: result.error },
+            ),
+          );
+        },
+      );
     });
   };
 }
 
-function retireMiddleware(baseDir: string, lockfilePaths: string[]): Connect.NextHandleFunction {
+function retireMiddleware(
+  baseDir: string,
+  lockfilePaths: string[],
+): Connect.NextHandleFunction {
   return (req, res, next) => {
     if (
       req.url !== "/assistant/__local/retire" &&
@@ -313,7 +398,12 @@ function retireMiddleware(baseDir: string, lockfilePaths: string[]): Connect.Nex
       if (!isActiveAssistant(lockfilePaths, assistantId)) {
         res.statusCode = 403;
         res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ ok: false, error: "Can only retire the active local assistant" }));
+        res.end(
+          JSON.stringify({
+            ok: false,
+            error: "Can only retire the active local assistant",
+          }),
+        );
         return;
       }
 

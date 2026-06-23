@@ -78,6 +78,7 @@ import {
 import { clearUserScopedStorage } from "@/lib/auth/session-cleanup";
 import { subscribe } from "@/lib/event-bus";
 import { isElectron } from "@/runtime/is-electron";
+import { clearLocalPlatformSession } from "@/runtime/local-mode-host";
 import {
   isNativePlatform,
   isOAuthFlowInFlight,
@@ -312,7 +313,9 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
         // opted-in user whose acceptance lives only in the per-device cache
         // isn't left with Sentry disabled. The live-session requirement still
         // applies via sentry-control's composed gate.
-        setDiagnosticsReportingGate(store.shareDiagnostics && diagnosticsCurrent);
+        setDiagnosticsReportingGate(
+          store.shareDiagnostics && diagnosticsCurrent,
+        );
         if (deviceConsent.tos && deviceConsent.privacy) {
           tos = true;
           privacy = true;
@@ -344,7 +347,10 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       store.setAnalyticsConsentCurrent(analyticsCurrent);
       store.setDiagnosticsConsentCurrent(diagnosticsCurrent);
       persistConsentForUser(nextUserId, tos, privacy);
-      persistToggleConsent(nextUserId, { analyticsCurrent, diagnosticsCurrent });
+      persistToggleConsent(nextUserId, {
+        analyticsCurrent,
+        diagnosticsCurrent,
+      });
       syncOrganizationState(nextUserId);
       return;
     } catch {
@@ -863,9 +869,9 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     } finally {
       // Clean up session token in the main process.
       if (isElectron()) await window.vellum?.auth?.signOut?.();
-      if (isLocalMode()) {
-        document.cookie =
-          "sessionid=; path=/; samesite=lax; expires=Thu, 01 Jan 1970 00:00:00 UTC";
+      // Web loopback: drop the token the local server's proxy authenticates with.
+      if (isLocalMode() && !isElectron()) {
+        await clearLocalPlatformSession();
       }
       void deleteBiometricToken();
       clearOrganization();
