@@ -222,7 +222,7 @@ What to import:
 - Hook context types and the `HOOKS` constant, when you need to refer to event names inside a hook body.
 - `ToolDefinition`, `ToolContext`, `ToolExecutionResult`, `RiskLevel`.
 - `PluginLogger` (Pino-compatible, scoped to your plugin, threaded onto contexts).
-- Runtime handles: `assistantEventHub` (the pub/sub hub for runtime events) and `getSecureKeyAsync` (read a secret by key). Both rebind to the assistant's live singletons via a boot-time shim; do not wrap them.
+- Runtime handles: `assistantEventHub` (the pub/sub hub for runtime events), `getModelProfiles` (list workspace inference profiles), `doesSupportVision` (check profile image support), and `getConfiguredProvider` (run inference through workspace credentials). All rebind to the assistant's live singletons via a boot-time shim; do not wrap them.
 
 What not to import:
 

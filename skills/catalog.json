@@ -644,7 +644,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-16T19:50:46.000Z"
+      "updatedAt": "2026-06-22T22:11:12.000Z"
     },
     {
       "id": "public-ingress",
@@ -807,7 +807,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-22T21:39:19.000Z"
+      "updatedAt": "2026-06-22T21:42:47.000Z"
     },
     {
       "id": "stripe-app-setup",
