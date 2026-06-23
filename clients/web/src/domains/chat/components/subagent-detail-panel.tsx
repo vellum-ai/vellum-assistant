@@ -201,14 +201,17 @@ export function SubagentDetailPanel({
             <button
               type="button"
               onClick={() => setSelectedToolCallId(null)}
-              className="mb-4 flex cursor-pointer items-center gap-1 text-[var(--content-secondary)] transition-colors hover:text-[var(--content-default)]"
+              className="mb-4 flex cursor-pointer items-center gap-1.5 text-[var(--content-secondary)] transition-colors hover:text-[var(--content-default)]"
             >
-              <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
-              <Typography variant="label-small-default">
+              <ChevronLeft className="h-4 w-4" aria-hidden />
+              <Typography variant="label-medium-default">
                 Back to timeline
               </Typography>
             </button>
-            <ToolDetailBody detail={activeDetail} />
+            <ToolDetailBody
+              detail={activeDetail}
+              showTechnicalDetailsLabel={false}
+            />
           </>
         ) : (
           <>

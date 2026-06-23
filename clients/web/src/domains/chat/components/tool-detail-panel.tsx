@@ -207,7 +207,19 @@ function ThinkingDetailBody({
  * inside its own `DetailShell`, and reused by `SubagentDetailPanel` to show a
  * nested tool call under the subagent's own header.
  */
-export function ToolDetailBody({ detail }: { detail: ToolDetailPayload }) {
+export function ToolDetailBody({
+  detail,
+  showTechnicalDetailsLabel = true,
+}: {
+  detail: ToolDetailPayload;
+  /**
+   * Render the "Technical details" section label above the tool name + input.
+   * Defaults to true (main-chat `ToolDetailPanel`). `SubagentDetailPanel` passes
+   * false — its nested view already sits under the subagent header and a "Back
+   * to timeline" affordance, so the extra label reads as redundant there.
+   */
+  showTechnicalDetailsLabel?: boolean;
+}) {
   const hasResult = detail.result !== undefined && detail.result !== "";
   const isRunning = detail.status === "running";
   const inputJson = JSON.stringify(detail.input, null, 2);
@@ -226,7 +238,9 @@ export function ToolDetailBody({ detail }: { detail: ToolDetailPayload }) {
 
       {/* Technical details section */}
       <div>
-        <SectionLabel>Technical details</SectionLabel>
+        {showTechnicalDetailsLabel && (
+          <SectionLabel>Technical details</SectionLabel>
+        )}
         <Typography
           variant="body-medium-default"
           as="div"

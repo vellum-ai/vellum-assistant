@@ -423,12 +423,14 @@ describe("SubagentDetailPanel — nested tool detail", () => {
 
     // Timeline view first.
     expect(screen.getByTestId("timeline")).toBeDefined();
-    expect(screen.queryByText("Technical details")).toBeNull();
+    expect(screen.queryByText("Back to timeline")).toBeNull();
 
     fireEvent.click(screen.getByTestId("timeline-pill"));
 
-    // Detail body is shown: Technical details + Input + Output sections.
-    expect(screen.getByText("Technical details")).toBeDefined();
+    // Detail body is shown (tool input + Output sections). The nested view
+    // omits the "Technical details" label — redundant under the subagent
+    // header + "Back to timeline" affordance — so it must NOT appear.
+    expect(screen.queryByText("Technical details")).toBeNull();
     expect(screen.getByText("Output")).toBeDefined();
     expect(screen.getByText("file-listing-output")).toBeDefined();
     // Timeline is no longer rendered (body swapped, not stacked).
@@ -442,18 +444,18 @@ describe("SubagentDetailPanel — nested tool detail", () => {
     render(<SubagentDetailPanel entry={entryWithTool(true)} onClose={noop} />);
 
     fireEvent.click(screen.getByTestId("timeline-pill"));
-    expect(screen.getByText("Technical details")).toBeDefined();
+    expect(screen.getByText("Output")).toBeDefined();
 
     fireEvent.click(screen.getByText("Back to timeline"));
     expect(screen.getByTestId("timeline")).toBeDefined();
-    expect(screen.queryByText("Technical details")).toBeNull();
+    expect(screen.queryByText("Back to timeline")).toBeNull();
   });
 
   test("selecting a still-running tool shows the 'Running…' output state", () => {
     render(<SubagentDetailPanel entry={entryWithTool(false)} onClose={noop} />);
 
     fireEvent.click(screen.getByTestId("timeline-pill"));
-    expect(screen.getByText("Technical details")).toBeDefined();
+    expect(screen.getByText("Output")).toBeDefined();
     expect(screen.getByText("Running…")).toBeDefined();
   });
 
@@ -466,7 +468,7 @@ describe("SubagentDetailPanel — nested tool detail", () => {
     );
 
     fireEvent.click(screen.getByTestId("timeline-pill"));
-    expect(screen.getByText("Technical details")).toBeDefined();
+    expect(screen.getByText("Output")).toBeDefined();
 
     rerender(
       <SubagentDetailPanel
@@ -477,6 +479,6 @@ describe("SubagentDetailPanel — nested tool detail", () => {
 
     // Reset to the timeline for the new subagent.
     expect(screen.getByTestId("timeline")).toBeDefined();
-    expect(screen.queryByText("Technical details")).toBeNull();
+    expect(screen.queryByText("Back to timeline")).toBeNull();
   });
 });
