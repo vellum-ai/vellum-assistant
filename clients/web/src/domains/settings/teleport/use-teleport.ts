@@ -159,11 +159,21 @@ export function useTeleport(): TeleportController {
     if (!target) return;
 
     void (async () => {
-      const auth = useAuthStore.getState();
-      if (target.kind === "managed") {
-        await auth.connectPlatformAssistant(target.id);
-      } else {
-        await auth.connectLocalAssistant(target.id);
+      try {
+        const auth = useAuthStore.getState();
+        if (target.kind === "managed") {
+          await auth.connectPlatformAssistant(target.id);
+        } else {
+          await auth.connectLocalAssistant(target.id);
+        }
+      } catch (error) {
+        // The switch failed — keep the target around and surface the error
+        // rather than leaving the UI stuck in the verifying phase.
+        const message =
+          error instanceof Error ? error.message : "Failed to switch assistant.";
+        setPhase({ kind: "failed", error: `Switch failed: ${message}` });
+        captureError(error, { context: "teleport-confirm-switch" });
+        return;
       }
 
       // Fire-and-forget retirement of the source — mirrors the Swift flow,
