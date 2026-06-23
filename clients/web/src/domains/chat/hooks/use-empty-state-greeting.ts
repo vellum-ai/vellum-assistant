@@ -45,7 +45,9 @@ const greetingCacheMap = new Map<string, GreetingCache>();
 /** Pick a random greeting from the cached pool. */
 function pickCachedGreeting(assistantId: string): string | null {
   const entry = greetingCacheMap.get(assistantId);
-  if (!entry || entry.greetings.length === 0) return null;
+  if (!entry || entry.greetings.length === 0) {
+    return null;
+  }
   const idx = Math.floor(Math.random() * entry.greetings.length);
   return entry.greetings[idx]!;
 }
@@ -74,7 +76,9 @@ function loadGreetingPool(
     streamEmptyStateGreeting({ assistantId, signal })
       .then((text) => {
         const trimmed = text.trim();
-        if (!trimmed) return;
+        if (!trimmed) {
+          return;
+        }
         cache.greetings.push(trimmed);
         if (!firstFired) {
           firstFired = true;
@@ -101,7 +105,9 @@ export function useEmptyStateGreeting({
   // resolve immediately; otherwise we wait for the pool to load.
   const cachedPick = useMemo(
     () => {
-      if (!assistantId || !conversationId) return null;
+      if (!assistantId || !conversationId) {
+        return null;
+      }
       return pickCachedGreeting(assistantId);
     },
     [assistantId, conversationId],
