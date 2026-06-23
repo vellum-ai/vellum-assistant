@@ -839,6 +839,7 @@ export class AnthropicProvider implements Provider {
         // newer models reject them outright (see `deprecatesSamplingParams`).
         temperature: callerTemperature,
         top_p: callerTopP,
+        top_k: callerTopK,
         ...restConfig
       } = (config ?? {}) as Record<string, unknown> & {
         // "xhigh" is an intermediate tier between "high" and "max" supported
@@ -853,6 +854,7 @@ export class AnthropicProvider implements Provider {
         usageAttributionHeaders?: Record<string, string>;
         temperature?: number;
         top_p?: number;
+        top_k?: number;
       };
       // Haiku does not support the effort / output_config parameter or
       // extended cache TTL betas.
@@ -899,9 +901,10 @@ export class AnthropicProvider implements Provider {
             : 64000,
         messages: sentMessages,
         ...restConfig,
-        // Forward `temperature` / `top_p` only to models that still accept them;
-        // newer models 400 on either. `temperature: 0` is preserved for accepting
-        // models (a `typeof === "number"` check, not truthiness).
+        // Forward `temperature` / `top_p` / `top_k` only to models that still
+        // accept them; newer models 400 on any of the deprecated sampler params.
+        // `temperature: 0` is preserved for accepting models (a `typeof ===
+        // "number"` check, not truthiness).
         ...(deprecatesSamplingParams
           ? {}
           : {
@@ -909,6 +912,7 @@ export class AnthropicProvider implements Provider {
                 ? { temperature: callerTemperature }
                 : {}),
               ...(typeof callerTopP === "number" ? { top_p: callerTopP } : {}),
+              ...(typeof callerTopK === "number" ? { top_k: callerTopK } : {}),
             }),
         ...(Object.keys(mergedOutputConfig).length > 0
           ? { output_config: mergedOutputConfig }
