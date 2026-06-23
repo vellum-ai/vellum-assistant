@@ -51,7 +51,7 @@ export function routeDefinitionsToHTTPRoutes(
     handler: async ({ req, url, params, authContext }) => {
       try {
         if (r.requireGuardian) {
-          const guardianError = requireBoundGuardian(authContext);
+          const guardianError = await requireBoundGuardian(authContext);
           if (guardianError) return guardianError;
         }
 
