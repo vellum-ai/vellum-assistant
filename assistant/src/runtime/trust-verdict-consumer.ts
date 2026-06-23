@@ -13,7 +13,12 @@
 import type { TrustVerdict } from "@vellumai/gateway-client";
 
 import type { ChannelId } from "../channels/types.js";
-import type { ContactChannel, ContactWithChannels } from "../contacts/types.js";
+import type {
+  ChannelPolicy,
+  ChannelStatus,
+  ContactChannel,
+  ContactWithChannels,
+} from "../contacts/types.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import type { ActorTrustContext } from "./actor-trust-resolver.js";
 import { toTrustContext } from "./actor-trust-resolver.js";
@@ -70,6 +75,28 @@ export function trustContextFromVerdict(
   return toTrustContext(actorTrustContext, input.conversationExternalId);
 }
 
+// Allowed ACL enum values, kept in sync with the ContactChannel union types.
+const CHANNEL_STATUS_VALUES: readonly ChannelStatus[] = [
+  "active",
+  "pending",
+  "revoked",
+  "blocked",
+  "unverified",
+];
+const CHANNEL_POLICY_VALUES: readonly ChannelPolicy[] = [
+  "allow",
+  "deny",
+  "escalate",
+];
+
+function isChannelStatus(value: string): value is ChannelStatus {
+  return (CHANNEL_STATUS_VALUES as readonly string[]).includes(value);
+}
+
+function isChannelPolicy(value: string): value is ChannelPolicy {
+  return (CHANNEL_POLICY_VALUES as readonly string[]).includes(value);
+}
+
 /**
  * Build a synthetic {@link ResolvedMember} from a gateway verdict.
  *
@@ -80,10 +107,14 @@ export function resolvedMemberFromVerdict(
   verdict: TrustVerdict,
 ): ResolvedMember | null {
   if (!verdict.contactId || !verdict.channelId) return null;
-  // Member verdict requires status+policy, else null (fail-closed): a
-  // partial/mixed-version verdict must not synthesize an active/allow channel
+  // Member verdict requires valid known status+policy enums, else null
+  // (fail-closed): a partial/mixed-version verdict (absent OR
+  // present-but-unknown ACL value) must not synthesize an active/allow channel
   // that would skip ingress ACL gates.
   if (!verdict.status || !verdict.policy) return null;
+  if (!isChannelStatus(verdict.status) || !isChannelPolicy(verdict.policy)) {
+    return null;
+  }
 
   const channel: ContactChannel = {
     id: verdict.channelId,
@@ -92,8 +123,8 @@ export function resolvedMemberFromVerdict(
     address: verdict.address ?? "",
     isPrimary: false,
     externalChatId: verdict.externalChatId ?? null,
-    status: verdict.status as ContactChannel["status"],
-    policy: verdict.policy as ContactChannel["policy"],
+    status: verdict.status,
+    policy: verdict.policy,
     verifiedAt: verdict.verifiedAt ?? null,
     verifiedVia: verdict.verifiedVia ?? null,
     inviteId: null,

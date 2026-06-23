@@ -205,6 +205,48 @@ describe("resolvedMemberFromVerdict", () => {
     expect(resolvedMemberFromVerdict(verdict)).toBeNull();
   });
 
+  test("member verdict with unknown policy returns null (fail-closed)", () => {
+    const verdict = {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "u-6",
+      contactId: "contact-6",
+      channelId: "channel-6",
+      status: "active",
+      policy: "bogus",
+    } satisfies TrustVerdict;
+
+    expect(resolvedMemberFromVerdict(verdict)).toBeNull();
+  });
+
+  test("member verdict with unknown status returns null (fail-closed)", () => {
+    const verdict = {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "u-7",
+      contactId: "contact-7",
+      channelId: "channel-7",
+      status: "quarantined",
+      policy: "allow",
+    } satisfies TrustVerdict;
+
+    expect(resolvedMemberFromVerdict(verdict)).toBeNull();
+  });
+
+  test("member verdict with valid known status+policy returns a member", () => {
+    const verdict = {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "u-8",
+      contactId: "contact-8",
+      channelId: "channel-8",
+      status: "active",
+      policy: "allow",
+    } satisfies TrustVerdict;
+
+    const member = resolvedMemberFromVerdict(verdict);
+    expect(member).not.toBeNull();
+    expect(member!.channel.status).toBe("active");
+    expect(member!.channel.policy).toBe("allow");
+  });
+
   test("blocked/revoked verdict surfaces channel.status verbatim", () => {
     for (const status of ["blocked", "revoked"] as const) {
       const verdict = {
