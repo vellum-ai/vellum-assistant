@@ -219,7 +219,7 @@ export function SubagentDetailPanel({
           mirroring the header Back button; the step crumb is the current
           (deepest) level. */}
       {activeDetail && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-5 py-3">
+        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-hover)] px-5 py-3">
           <button
             type="button"
             onClick={handleBack}
@@ -246,7 +246,7 @@ export function SubagentDetailPanel({
       )}
 
       {/* Header */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-subtle)] px-5 py-4">
+      <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-hover)] px-5 py-4">
         {activeDetail && (
           <Button
             variant="outlined"
