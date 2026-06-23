@@ -117,10 +117,13 @@ describe("TextSelectionPopover", () => {
       }
 
       const button = await screen.findByRole("button", { name: "Reply" });
+      const popoverContent = document.body.querySelector(
+        '[data-slot="popover-content"]',
+      );
       expect(button.getAttribute("data-slot")).toBe("button");
-      expect(
-        document.body.querySelector('[data-slot="popover-content"]'),
-      ).toBeTruthy();
+      expect(popoverContent).toBeTruthy();
+      expect(popoverContent?.className).not.toContain("bg-transparent");
+      expect(popoverContent?.className).not.toContain("shadow-none");
       expect(screen.queryByRole("button", { name: "Quote & Reply" })).toBeNull();
     } finally {
       restoreAnimationFrame();
