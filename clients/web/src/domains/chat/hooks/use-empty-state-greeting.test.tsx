@@ -161,4 +161,27 @@ describe("useEmptyStateGreeting", () => {
       expect(["Alpha", "Beta", "Gamma", "Delta", "Epsilon"]).toContain(pick);
     }
   });
+
+  test("replenishes an under-filled pool on subsequent renders", async () => {
+    // Simulate a pool that was partially filled (e.g. due to prior abort)
+    greetingCacheMap.set("a1", {
+      greetings: ["Only one"],
+      loading: false,
+    });
+
+    streamImpl = async () => "Replenished";
+
+    const { result } = renderHook(() =>
+      useEmptyStateGreeting({ assistantId: "a1", conversationId: "c1" }),
+    );
+
+    // Should immediately display the cached greeting
+    expect(result.current.greeting).toBe("Only one");
+
+    // Background replenishment should fire requests for the remaining 4 slots
+    await waitFor(() => {
+      expect(streamCalls.length).toBeGreaterThan(0);
+    });
+    expect(streamCalls).toHaveLength(GREETING_POOL_SIZE - 1);
+  });
 });

@@ -123,14 +123,19 @@ export function useEmptyStateGreeting({
       return;
     }
 
-    // If we already picked a cached greeting, nothing to do.
+    const controller = new AbortController();
+
     if (cachedPick) {
       setGreeting(cachedPick);
       setIsGenerating(false);
-      return;
+      // Replenish the pool in the background if it's under-filled (e.g.
+      // previous requests were aborted before all 5 completed).
+      loadGreetingPool(assistantId, controller.signal, () => {});
+      return () => {
+        controller.abort();
+      };
     }
 
-    const controller = new AbortController();
     let active = true;
     let resolved = false;
     setGreeting("");
