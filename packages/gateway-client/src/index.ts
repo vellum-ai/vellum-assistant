@@ -85,3 +85,16 @@ export type {
   TrustClass,
   TrustVerdict,
 } from "./trust-verdict-contract.js";
+
+// Guardian delivery contract (daemon → gateway pull) — Zod schemas + derived types
+export {
+  GuardianDeliverySchema,
+  ResolveGuardianDeliveryRequestSchema,
+  ResolveGuardianDeliveryResponseSchema,
+} from "./guardian-delivery-contract.js";
+
+export type {
+  GuardianDelivery,
+  ResolveGuardianDeliveryRequest,
+  ResolveGuardianDeliveryResponse,
+} from "./guardian-delivery-contract.js";
