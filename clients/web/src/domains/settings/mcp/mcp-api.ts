@@ -162,7 +162,7 @@ export async function pollMcpAuthStatus(
   serverId: string,
 ): Promise<{ status: string; auth_url?: string; error?: string }> {
   const { data, response } = await client.get({
-    url: `/v1/assistants/{assistant_id}/internal/mcp/auth/status/${serverId}` as "/v1/assistants/{assistant_id}/config",
+    url: `/v1/assistants/{assistant_id}/internal/mcp/auth/status/${encodeURIComponent(serverId)}` as "/v1/assistants/{assistant_id}/config",
     path: { assistant_id: assistantId },
   });
   if (!response?.ok) {

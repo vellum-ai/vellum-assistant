@@ -114,14 +114,21 @@ function McpPageInner() {
   const handleAuthenticate = useCallback(
     async (serverId: string) => {
       setAuthenticatingServerId(serverId);
+      let result;
       try {
-        const result = await startMcpAuth(assistantId, serverId);
+        result = await startMcpAuth(assistantId, serverId);
+      } catch {
+        toast.error(`Failed to start authentication for ${serverId}`);
+        setAuthenticatingServerId(null);
+        return;
+      }
+      try {
         if (result.already_authenticated) {
           toast.success(`${serverId} is already authenticated`);
           invalidateAll();
           return;
         }
-        window.open(result.auth_url, "_blank");
+        window.open(result.auth_url, "_blank", "noopener,noreferrer");
         const maxAttempts = 60;
         for (let i = 0; i < maxAttempts; i++) {
           await new Promise((resolve) => setTimeout(resolve, 3000));
@@ -138,7 +145,7 @@ function McpPageInner() {
         }
         toast.error(`Authentication timed out for ${serverId}`);
       } catch {
-        toast.error(`Failed to start authentication for ${serverId}`);
+        toast.error(`Authentication polling failed for ${serverId}`);
       } finally {
         setAuthenticatingServerId(null);
       }
