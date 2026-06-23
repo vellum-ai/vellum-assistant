@@ -20,7 +20,7 @@ Read these before making changes:
   `@vellumai/design-library` when adding or changing controls, surfaces,
   typography, popovers, inputs, cards, or button/icon affordances. Use existing
   design-library primitives when they are available; only build custom
-  Tailwind/HTML equivalents when the design library does not provide an
+  components when the design library does not provide an
   appropriate primitive, and call out that choice in the PR body if the UI is
   non-trivial.
 - **`conversationId` vs `conversationKey`**: API queries must send `conversationId` (UUID), never `conversationKey`. See [`docs/CONVENTIONS.md` — Conversation identifiers](./docs/CONVENTIONS.md#conversation-identifiers-conversationid-vs-conversationkey).
