@@ -122,6 +122,7 @@ function stepDetailKey(step: ToolCallCardStep): string | undefined {
   if (step.kind === "tool") return step.toolCallId || undefined;
   if (step.kind === "thinking") return step.detailKey;
   if (step.kind === "web_search") return step.detailKey;
+  if (step.kind === "web_search_error") return step.detailKey;
   return undefined;
 }
 
@@ -530,6 +531,23 @@ function SubagentPhaseRow({
                     iconName="globe"
                     label={step.query || step.title}
                     ariaLabel="View search details"
+                    onClick={() => onStepDetailClick(detailKey)}
+                  />
+                );
+              }
+              if (step.kind === "web_search_error") {
+                // A failed search becomes an error-toned pill that opens the
+                // full, untruncated provider error in the nested detail —
+                // parity with a failed tool. Falls back to the inline error chip
+                // below when no detail handler is wired (deploy-safe).
+                return (
+                  <ToolStepPill
+                    key={stepKey(step, stepIdx)}
+                    variant="tool"
+                    iconName="globe"
+                    label={step.errorMessage}
+                    tone="error"
+                    ariaLabel="View search error"
                     onClick={() => onStepDetailClick(detailKey)}
                   />
                 );

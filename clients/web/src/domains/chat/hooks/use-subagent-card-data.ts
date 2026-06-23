@@ -133,6 +133,10 @@ function webSearchErrorStep(
     durationLabel,
     errorMessage:
       trimTextPreview(event.result ?? event.content) || "Web search failed",
+    // Key the chip to its tool id so the timeline pill opens the nested detail
+    // (the full, untruncated error) — matching the failed web_search payload
+    // `buildSubagentStepDetails` keeps under the same id.
+    detailKey: event.toolUseId,
   };
 }
 
@@ -745,6 +749,13 @@ export function buildSubagentStepDetails(
               searchResults: event.isError
                 ? []
                 : parseWebSearchResultText(event.result ?? event.content),
+              // On failure, keep the full provider/backend error so the nested
+              // detail can show it untruncated — the timeline chip only carries
+              // a `trimTextPreview` snippet. Parity with how a failed tool keeps
+              // its full `result`.
+              result: event.isError
+                ? (event.result ?? event.content)
+                : undefined,
             }
           : {
               ...target,
@@ -756,14 +767,9 @@ export function buildSubagentStepDetails(
     }
   }
 
-  // A failed web_search renders in the timeline as a `web_search_error` step
-  // (see `computeSubagentCardData`), which carries no `detailKey` — so a payload
-  // for it here could never be opened. Drop it rather than leave a dead entry
-  // the two projections disagree on. A failed non-web tool keeps its payload:
-  // its timeline pill stays clickable to surface the error.
-  return new Map(
-    payloads
-      .filter((p) => !(p.kind === "web_search" && p.status === "error"))
-      .map((payload) => [payload.toolCallId, payload]),
-  );
+  // Every payload (including a failed web_search) is kept and keyed by its tool
+  // id. The timeline's `web_search_error` step carries the same id as its
+  // `detailKey`, so clicking the failed-search chip opens this payload's full,
+  // untruncated error — parity with a failed tool.
+  return new Map(payloads.map((payload) => [payload.toolCallId, payload]));
 }

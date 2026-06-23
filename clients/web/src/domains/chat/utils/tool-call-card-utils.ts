@@ -111,6 +111,12 @@ export type ToolCallCardStep =
       title: string;
       durationLabel: string;
       errorMessage: string;
+      /**
+       * Detail-map key (the failed search's tool id) so the timeline error chip
+       * opens the full, untruncated error in a nested detail. `undefined` when
+       * the failed search carried no tool id (chip stays non-clickable).
+       */
+      detailKey?: string;
     }
   | {
       kind: "tool";

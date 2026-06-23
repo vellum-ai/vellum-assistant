@@ -734,6 +734,8 @@ describe("computeSubagentCardData — web tools match main-chat group labels", (
     if (step.kind === "web_search_error") {
       expect(step.title).toBe("Web search failed");
       expect(step.errorMessage).toBe("rate limited");
+      // Keyed to its tool id so the chip opens the full error in the detail.
+      expect(step.detailKey).toBe("tu-ws");
     }
     // web_search_error still groups under "Searching the web".
     expect(phaseFromStep(step)).toBe("Searching the web");
@@ -1439,6 +1441,41 @@ describe("buildSubagentStepDetails", () => {
     const payload = details.get("tu-1")!;
     expect(payload.status).toBe("error");
     expect(payload.result).toBe("permission denied");
+  });
+
+  test("failed web_search → payload kept (status error) with the full untruncated error", () => {
+    // The timeline chip shows only a `trimTextPreview` snippet; the detail must
+    // keep the FULL provider error so the user can inspect why the search failed
+    // — parity with a failed tool. Keyed by the tool id the chip's `detailKey`
+    // points at, so it's reachable (NOT filtered out as a dead entry).
+    const longError =
+      "provider error: backend 503; " + "rate limited; ".repeat(20);
+    const details = buildSubagentStepDetails(
+      makeEntry({
+        events: [
+          makeEvent(
+            { type: "tool_call", toolName: "web_search", toolUseId: "tu-ws" },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "web_search",
+              toolUseId: "tu-ws",
+              isError: true,
+              result: longError,
+            },
+            1,
+          ),
+        ],
+      }),
+    );
+    const payload = details.get("tu-ws")!;
+    expect(payload).toBeDefined();
+    expect(payload.kind).toBe("web_search");
+    expect(payload.status).toBe("error");
+    expect(payload.result).toBe(longError);
+    expect(payload.result!.length).toBeGreaterThan(160);
   });
 
   test("in-flight tool_call with no result → running payload, result undefined", () => {

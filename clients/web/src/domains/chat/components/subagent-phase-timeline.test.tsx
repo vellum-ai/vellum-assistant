@@ -454,6 +454,49 @@ describe("SubagentPhaseTimeline — clickable tool steps", () => {
     expect(queryByTestId("tool-step-pill")).toBeNull();
   });
 
+  test("a web_search_error WITH a detail key renders a clickable error pill and calls back", () => {
+    const onStepDetailClick = mock((_id: string) => {});
+    const steps: ToolCallCardStep[] = [
+      {
+        kind: "web_search_error",
+        title: "Web search failed",
+        durationLabel: "1s",
+        errorMessage: "provider error 503",
+        detailKey: "tu-ws",
+      },
+    ];
+    const { getByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} onStepDetailClick={onStepDetailClick} />,
+    );
+
+    fireEvent.click(getByTestId("subagent-phase-header"));
+    const pill = getByTestId("tool-step-pill");
+    expect(pill.tagName).toBe("BUTTON");
+
+    fireEvent.click(pill);
+    expect(onStepDetailClick).toHaveBeenLastCalledWith("tu-ws");
+  });
+
+  test("a web_search_error WITHOUT a detail key falls back to the inline error chip", () => {
+    const onStepDetailClick = mock((_id: string) => {});
+    const steps: ToolCallCardStep[] = [
+      {
+        kind: "web_search_error",
+        title: "Web search failed",
+        durationLabel: "1s",
+        errorMessage: "provider error 503",
+      },
+    ];
+    const { getByTestId, queryByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} onStepDetailClick={onStepDetailClick} />,
+    );
+
+    fireEvent.click(getByTestId("subagent-phase-header"));
+    // No detail key → the non-clickable error chip, not a clickable pill.
+    expect(queryByTestId("tool-step-pill")).toBeNull();
+    expect(getByTestId("web-search-error-chip")).toBeDefined();
+  });
+
   test("tool steps with an empty toolCallId stay non-clickable", () => {
     const onStepDetailClick = mock((_id: string) => {});
     const steps: ToolCallCardStep[] = [

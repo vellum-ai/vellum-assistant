@@ -317,7 +317,11 @@ export function SubagentDetailPanel({
                 content={activeDetail.thinkingText ?? ""}
                 hardLineBreaks
               />
-            ) : activeDetail.kind === "web_search" ? (
+            ) : activeDetail.kind === "web_search" &&
+              activeDetail.status !== "error" ? (
+              // A successful search shows query + sources; a FAILED one falls
+              // through to `ToolDetailBody`, which renders its full, untruncated
+              // error in the Output section — parity with a failed tool.
               <WebSearchDetailView detail={activeDetail} />
             ) : activeDetail.toolName === "web_fetch" ? (
               <WebFetchDetailView detail={activeDetail} />
