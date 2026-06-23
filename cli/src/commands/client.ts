@@ -661,17 +661,18 @@ function getBaseDir(): string {
   return path.resolve(import.meta.dir, "..", "..", "..");
 }
 
-// Minimal structural view of a Bun server — kept as a supertype of Bun's
-// `Server` (rather than importing it) so the shared `fetchHandler` only
-// depends on what it actually uses, matching `handleLocalEndpoints`'s arg.
-type LoopbackServer = {
-  hostname: string;
-  port: number;
+// Just the slice of a Bun server `fetchHandler` needs — matches the structural
+// arg `handleLocalEndpoints` accepts, so Bun's `Server` is assignable to it.
+type RequestPeerServer = {
   requestIP(req: Request): { address: string } | null;
-  stop(closeActiveConnections?: boolean): void;
 };
 
 const WEB_PORT_SCAN_LIMIT = 50;
+
+type WebFetchHandler = (
+  req: Request,
+  server: RequestPeerServer,
+) => Promise<Response>;
 
 function isAddrInUse(err: unknown): boolean {
   const e = err as { code?: string; message?: string } | undefined;
@@ -679,6 +680,21 @@ function isAddrInUse(err: unknown): boolean {
     e?.code === "EADDRINUSE" ||
     /EADDRINUSE|address already in use/i.test(e?.message ?? "")
   );
+}
+
+// Bind one loopback family; returns the server, or null when the port is in
+// use. Server type is inferred from `Bun.serve` (avoids a generic mismatch).
+function tryBindLoopback(
+  port: number,
+  hostname: string,
+  fetchHandler: WebFetchHandler,
+) {
+  try {
+    return Bun.serve({ port, hostname, fetch: fetchHandler });
+  } catch (err) {
+    if (isAddrInUse(err)) return null;
+    throw err;
+  }
 }
 
 /**
@@ -695,36 +711,33 @@ function isAddrInUse(err: unknown): boolean {
  * Never binds wildcard interfaces (`0.0.0.0`/`::`): the server exposes
  * `/__local/*` control endpoints, so it must stay loopback-only.
  */
-function serveLoopback(
-  preferredPort: number,
-  fetchHandler: (req: Request, server: LoopbackServer) => Promise<Response>,
-): { port: number; servers: LoopbackServer[] } {
+function serveLoopback(preferredPort: number, fetchHandler: WebFetchHandler) {
   for (
     let port = preferredPort;
     port < preferredPort + WEB_PORT_SCAN_LIMIT;
     port++
   ) {
-    let primary: LoopbackServer;
-    try {
-      primary = Bun.serve({ port, hostname: "127.0.0.1", fetch: fetchHandler });
-    } catch (err) {
-      if (isAddrInUse(err)) continue;
-      throw err;
-    }
+    const primary = tryBindLoopback(port, "127.0.0.1", fetchHandler);
+    if (!primary) continue;
 
-    let secondary: LoopbackServer | null = null;
     try {
-      secondary = Bun.serve({ port, hostname: "::1", fetch: fetchHandler });
+      const secondary = Bun.serve({
+        port,
+        hostname: "::1",
+        fetch: fetchHandler,
+      });
+      return { port, servers: [primary, secondary] };
     } catch (err) {
       if (isAddrInUse(err)) {
+        // `::1` is contested (e.g. `vel up`) — move ports so `localhost`
+        // doesn't resolve to that other server.
         primary.stop(true);
         continue;
       }
       // IPv6 unavailable (e.g. EADDRNOTAVAIL) — IPv4-only is acceptable since
       // `localhost` then resolves to 127.0.0.1 anyway.
+      return { port, servers: [primary] };
     }
-
-    return { port, servers: secondary ? [primary, secondary] : [primary] };
   }
   throw new Error(
     `Could not bind a free loopback port in [${preferredPort}, ${preferredPort + WEB_PORT_SCAN_LIMIT - 1}]`,
@@ -805,10 +818,7 @@ async function runWebInterface(
     `<script>window.__VELLUM_CONFIG__=${configJson}${flagOverridesSnippet}</script></head>`,
   );
 
-  const fetchHandler = async (
-    req: Request,
-    server: LoopbackServer,
-  ): Promise<Response> => {
+  const fetchHandler: WebFetchHandler = async (req, server) => {
     const url = new URL(req.url);
     const { pathname } = url;
 
