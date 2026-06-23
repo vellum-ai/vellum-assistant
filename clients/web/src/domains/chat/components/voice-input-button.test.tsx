@@ -411,6 +411,41 @@ describe("VoiceInputButton — native partials fallback", () => {
     expect(lastBreadcrumb().data.outcome).toBe("empty");
   });
 
+  test("configuration errors still surface when native startup resolves unavailable after stop", async () => {
+    let resolveNativeStart:
+      | ((stop: (() => Promise<string | null>) | null) => void)
+      | null = null;
+    nativePartialsImpl = () =>
+      new Promise<(() => Promise<string | null>) | null>((resolve) => {
+        resolveNativeStart = resolve;
+      });
+    postSttTranscribeSpy.mockImplementationOnce(async () => ({
+      status: "error",
+      reason: "config-missing",
+    }));
+
+    const onTranscript = mock(async (_text: string) => {});
+    await startSession(onTranscript);
+    await waitFor(() => {
+      expect(resolveNativeStart).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+    act(() => {
+      resolveNativeStart?.(null);
+    });
+
+    await waitFor(() => {
+      expect(useVoiceRecordingStore.getState().phase).toBe("error");
+    });
+    expect(useVoiceRecordingStore.getState().errorCode).toBe(
+      "stt-not-configured",
+    );
+    expect(onTranscript).not.toHaveBeenCalled();
+    expect(postSttTranscribeSpy).toHaveBeenCalledTimes(1);
+    expect(lastBreadcrumb().data.outcome).toBe("error");
+  });
+
   test("successful batch STT takes priority over native partials text", async () => {
     nativePartialsImpl = async (onPartial) => {
       onPartial("offline transcript");

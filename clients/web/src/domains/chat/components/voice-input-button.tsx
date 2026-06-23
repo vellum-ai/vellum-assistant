@@ -196,6 +196,11 @@ type DictationSessionOutcome =
   | "cancelled"
   | "aborted";
 
+interface NativeFinalResult {
+  text: string | null;
+  stopRan: boolean;
+}
+
 /**
  * One breadcrumb per dictation session, emitted when the session reaches a
  * terminal state. Carries only metrics (duration, locale, final transcript
@@ -326,7 +331,7 @@ export const VoiceInputButton = forwardRef<
   // Resolves with the recognizer's final transcript of the whole utterance
   // after stopNativePartials — short dictations end before the first
   // partial, so this is the only reliable native text source.
-  const nativeFinalPromiseRef = useRef<Promise<string | null> | null>(null);
+  const nativeFinalPromiseRef = useRef<Promise<NativeFinalResult> | null>(null);
 
   // Latest running transcript from the daemon stream — kept through
   // teardown so it can serve as the final-transcript fallback when batch
@@ -387,9 +392,18 @@ export const VoiceInputButton = forwardRef<
     // The promise resolves once the helper's recognizer drains the session
     // (dictation.finalized); recorder.onstop awaits it alongside batch STT.
     const final = stop
-      ? stop()
-      : pendingStart!.then((readyStop) => readyStop?.() ?? null);
-    if (final) nativeFinalPromiseRef.current = final;
+      ? Promise.resolve(stop()).then((text) => ({
+          text: text ?? null,
+          stopRan: true,
+        }))
+      : pendingStart!.then(async (readyStop) => {
+          if (!readyStop) return { text: null, stopRan: false };
+          return {
+            text: (await readyStop()) ?? null,
+            stopRan: true,
+          };
+        });
+    nativeFinalPromiseRef.current = final;
   }, []);
 
   // Run the mac helper's local speech recognizer alongside the whole
@@ -726,7 +740,6 @@ export const VoiceInputButton = forwardRef<
       const nativePartialText = nativePartialsTextRef.current;
       stopNativePartials();
       const pendingNativeFinal = nativeFinalPromiseRef.current;
-      const nativeFinalWasRequested = pendingNativeFinal !== null;
       nativeFinalPromiseRef.current = null;
       publishInterim("");
 
@@ -812,10 +825,12 @@ export const VoiceInputButton = forwardRef<
         // partials of a 1-2s dictation are usually still empty. The await
         // overlaps the batch POST above, so it adds ~no wall-clock time.
         let nativeText = nativePartialText;
+        let nativeFinalStopRan = false;
         if (pendingNativeFinal) {
-          const finalText = await pendingNativeFinal;
-          if (finalText) {
-            nativeText = finalText;
+          const finalResult = await pendingNativeFinal;
+          nativeFinalStopRan = finalResult.stopRan;
+          if (finalResult.text) {
+            nativeText = finalResult.text;
           }
         }
 
@@ -866,7 +881,7 @@ export const VoiceInputButton = forwardRef<
             onError?.("native-stt-no-transcript");
             vsFail("native-stt-no-transcript");
             return;
-          } else if (daemonFailure && !nativeFinalWasRequested) {
+          } else if (daemonFailure && !nativeFinalStopRan) {
             // The user-cancelled `aborted` reason should not trigger a
             // visible error — it's the expected outcome of stop().
             if (daemonFailure === "aborted") {
