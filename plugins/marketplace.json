@@ -106,9 +106,9 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/git-workflow",
-        "ref": "57edb1d5bdd6f8b42745a8efd187dfc654486bec"
+        "ref": "205c245d5e66d02f98f1de5e889b66b30b6ee470"
       },
-      "description": "Git workflow tools: branch management, PR creation/review/merge, diffs, logs, and changelog generation. Wraps git and gh CLI into structured Vellum plugin tools.",
+      "description": "Git workflow tools and multi-perspective code review: branch management, PR creation/review/merge, diffs, logs, changelog generation, and parallel subagent code review with confidence scoring.",
       "category": "developer",
       "homepage": "https://github.com/vellum-ai/git-workflow",
       "license": "MIT"
