@@ -15,53 +15,16 @@
  * round-trip to the daemon.
  */
 
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
-
 import type { Command } from "commander";
 
+import {
+  probeMemoryWorker,
+  spawnMemoryWorkerProcess,
+} from "../../../memory/worker-control.js";
 import { getMemoryWorkerPidPath } from "../../../util/platform.js";
 import { registerCommand } from "../../lib/register-command.js";
 import { log } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
-
-// ---------------------------------------------------------------------------
-// PID file helpers
-// ---------------------------------------------------------------------------
-
-interface PidStatus {
-  status: "running" | "not_running";
-  pid?: number;
-}
-
-function probeWorker(): PidStatus {
-  const pidPath = getMemoryWorkerPidPath();
-  if (!existsSync(pidPath)) return { status: "not_running" };
-
-  const raw = readFileSync(pidPath, "utf-8").trim();
-  const pid = parseInt(raw, 10);
-  if (!Number.isFinite(pid) || pid <= 0) return { status: "not_running" };
-
-  try {
-    process.kill(pid, 0);
-    return { status: "running", pid };
-  } catch (err: unknown) {
-    if (
-      err &&
-      typeof err === "object" &&
-      "code" in err &&
-      err.code === "ESRCH"
-    ) {
-      // Stale PID file — clean it up.
-      try {
-        unlinkSync(pidPath);
-      } catch {
-        // best-effort
-      }
-      return { status: "not_running" };
-    }
-    throw err;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // `start`
@@ -71,44 +34,11 @@ async function startWorker(
   opts: { json?: boolean },
   cmd: Command,
 ): Promise<void> {
-  const current = probeWorker();
-  if (current.status === "running") {
-    const msg = `Memory worker is already running (PID ${current.pid})`;
-    if (shouldOutputJson(cmd)) {
-      writeOutput(cmd, { ok: false, error: msg, pid: current.pid });
-    } else {
-      log.error(msg);
-    }
-    process.exitCode = 1;
-    return;
-  }
-
-  const pidPath = getMemoryWorkerPidPath();
-  const entry = new URL("../../../memory/worker-process.ts", import.meta.url);
-
-  // Spawn detached so the worker survives the CLI process exiting.
-  const child = Bun.spawn({
-    cmd: ["bun", "run", entry.pathname],
-    stdio: ["ignore", "ignore", "ignore"],
-    detached: true,
-  });
-
-  // Unreference so the CLI process doesn't wait for the child.
-  child.unref();
-
-  // Wait briefly for the PID file to appear (the worker writes it on startup).
-  let pidWritten = false;
-  for (let i = 0; i < 10; i++) {
-    await Bun.sleep(100);
-    if (existsSync(pidPath)) {
-      pidWritten = true;
-      break;
-    }
-  }
-
-  if (!pidWritten) {
-    const msg =
-      "Memory worker was spawned but PID file did not appear within 1s";
+  let result: { pid: number; alreadyRunning: boolean };
+  try {
+    result = await spawnMemoryWorkerProcess();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     if (shouldOutputJson(cmd)) {
       writeOutput(cmd, { ok: false, error: msg });
     } else {
@@ -118,11 +48,25 @@ async function startWorker(
     return;
   }
 
-  const pid = parseInt(readFileSync(pidPath, "utf-8").trim(), 10);
+  if (result.alreadyRunning) {
+    const msg = `Memory worker is already running (PID ${result.pid})`;
+    if (shouldOutputJson(cmd)) {
+      writeOutput(cmd, { ok: false, error: msg, pid: result.pid });
+    } else {
+      log.error(msg);
+    }
+    process.exitCode = 1;
+    return;
+  }
+
   if (shouldOutputJson(cmd)) {
-    writeOutput(cmd, { ok: true, pid, pidPath });
+    writeOutput(cmd, {
+      ok: true,
+      pid: result.pid,
+      pidPath: getMemoryWorkerPidPath(),
+    });
   } else {
-    log.info(`Memory worker started (PID ${pid})`);
+    log.info(`Memory worker started (PID ${result.pid})`);
   }
 }
 
@@ -131,7 +75,7 @@ async function startWorker(
 // ---------------------------------------------------------------------------
 
 function stopWorker(opts: { json?: boolean }, cmd: Command): void {
-  const current = probeWorker();
+  const current = probeMemoryWorker();
   if (current.status !== "running" || current.pid == null) {
     const msg = "Memory worker is not running";
     if (shouldOutputJson(cmd)) {
@@ -169,7 +113,7 @@ function stopWorker(opts: { json?: boolean }, cmd: Command): void {
 // ---------------------------------------------------------------------------
 
 function statusWorker(opts: { json?: boolean }, cmd: Command): void {
-  const result = probeWorker();
+  const result = probeMemoryWorker();
   if (shouldOutputJson(cmd)) {
     writeOutput(cmd, result);
   } else {
