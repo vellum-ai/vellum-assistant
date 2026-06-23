@@ -37,18 +37,18 @@ export function LocalRuntimeUpgradeBanner({
       ? s.assistants.find((assistant) => assistant.id === assistantId)
       : null,
   );
-  const isLocalRuntimeState =
-    assistantState.kind === "self_hosted" ||
-    (assistantState.kind === "active" && assistantState.isLocal);
-  const isUpgrading =
-    (assistantState.kind === "active" ||
-      assistantState.kind === "self_hosted") &&
-    assistantState.health === "upgrading";
+  const isHealthyLocalRuntimeState =
+    assistantState.kind === "self_hosted"
+      ? !assistantState.health || assistantState.health === "healthy"
+      : assistantState.kind === "active" && assistantState.isLocal
+        ? assistantState.reachable !== false &&
+          (!assistantState.health || assistantState.health === "healthy")
+        : false;
   const shouldCheck =
     !!assistantId &&
     !!currentVersion &&
     !!activeAssistant?.isLocal &&
-    isLocalRuntimeState &&
+    isHealthyLocalRuntimeState &&
     isLocalModeHostAvailable();
 
   const { data: releases, refetch: refetchReleases } = useQuery({
@@ -132,8 +132,7 @@ export function LocalRuntimeUpgradeBanner({
     !shouldCheck ||
     !targetVersion ||
     !upgradeAvailable ||
-    dismissed ||
-    isUpgrading
+    dismissed
   ) {
     return null;
   }
