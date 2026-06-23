@@ -52,23 +52,25 @@ export function resolveOverridePath(
 /**
  * Load a prompt-override file, returning its raw contents when the override is
  * present and usable, or `null` (after logging a warning describing why) when
- * the caller should fall back to its bundled prompt. A `null` `overridePath`
- * returns `null` without touching the filesystem.
+ * the caller should fall back to its bundled prompt. A nullish `overridePath`
+ * (`null` or `undefined`) returns `null` without touching the filesystem.
  *
- * Fallback is intentionally total — a missing, non-regular, oversized,
- * unreadable, or empty/whitespace-only file all degrade to `null`. Memory
- * retrieval and consolidation must never break because of a bad override.
+ * Fallback is intentionally total — an absent override, a missing, non-regular,
+ * oversized, unreadable, or empty/whitespace-only file all degrade to `null`.
+ * Memory retrieval and consolidation must never break because of a bad
+ * override, so `undefined` (an unset config field) is treated as "no override"
+ * rather than crashing on path resolution.
  *
  * `label` names the prompt in the warning messages (e.g. `"router prompt"`).
  */
 export function loadPromptOverride(opts: {
-  overridePath: string | null;
+  overridePath: string | null | undefined;
   workspaceDir: string;
   log: PromptOverrideLogger;
   label: string;
 }): string | null {
   const { overridePath, workspaceDir, log, label } = opts;
-  if (overridePath === null) return null;
+  if (overridePath == null) return null;
 
   const resolvedPath = resolveOverridePath(overridePath, workspaceDir);
   let contents: string;

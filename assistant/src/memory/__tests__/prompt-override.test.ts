@@ -39,7 +39,7 @@ afterEach(() => {
 
 /** Load against the per-test temp dir with the recording logger. */
 const load = (
-  overridePath: string | null,
+  overridePath: string | null | undefined,
   label = "test prompt",
 ): string | null =>
   loadPromptOverride({
@@ -70,6 +70,11 @@ describe("resolveOverridePath", () => {
 describe("loadPromptOverride — usable override", () => {
   test("null overridePath returns null without touching the filesystem", () => {
     expect(load(null)).toBeNull();
+    expect(warnCalls).toHaveLength(0);
+  });
+
+  test("undefined overridePath (unset config field) returns null without throwing", () => {
+    expect(load(undefined)).toBeNull();
     expect(warnCalls).toHaveLength(0);
   });
 
