@@ -186,6 +186,10 @@ export function LocalRuntimeUpgradeBanner({
               >
                 Update
               </Button>
+              <span
+                aria-hidden="true"
+                className="h-3 w-px bg-[color-mix(in_srgb,var(--status-banner-action-color)_35%,transparent)]"
+              />
               <Button
                 variant="ghost"
                 size="compact"
