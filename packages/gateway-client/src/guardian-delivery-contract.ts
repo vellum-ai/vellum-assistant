@@ -13,9 +13,11 @@ import { z } from "zod";
  * IPC request for `resolve_guardian_delivery`. `channelTypes` is an optional
  * filter; omitted ⇒ all active guardian channels.
  */
-export const ResolveGuardianDeliveryRequestSchema = z.object({
-  channelTypes: z.array(z.string()).optional(),
-});
+export const ResolveGuardianDeliveryRequestSchema = z
+  .object({
+    channelTypes: z.array(z.string()).optional(),
+  })
+  .default({});
 
 export type ResolveGuardianDeliveryRequest = z.infer<
   typeof ResolveGuardianDeliveryRequestSchema

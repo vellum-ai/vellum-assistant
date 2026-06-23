@@ -30,6 +30,10 @@ describe("ResolveGuardianDeliveryRequestSchema", () => {
   test("parses with channelTypes omitted", () => {
     expect(ResolveGuardianDeliveryRequestSchema.parse({})).toEqual({});
   });
+
+  test("defaults to {} when params are undefined (no-param IPC call)", () => {
+    expect(ResolveGuardianDeliveryRequestSchema.parse(undefined)).toEqual({});
+  });
 });
 
 describe("GuardianDeliverySchema", () => {
