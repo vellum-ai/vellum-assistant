@@ -908,8 +908,16 @@ export class RelayConnection {
     const hasMemberIdentity = !!(verdict?.contactId || verdict?.channelId);
     const memberUnresolvable =
       hasMemberIdentity && resolvedMemberFromVerdict(verdict!) === null;
+    // Post-activation re-resolution falls back to local on an unknown/memberless
+    // verdict: the caller was just activated, and invite redemption writes the
+    // channel assistant-side, so the gateway may not see the member yet — local
+    // resolution has it. (Setup path treats unknown as a real stranger; here it
+    // means a stale gateway view.)
     const usable =
-      verdict && !verdict.resolutionFailed && !memberUnresolvable;
+      verdict &&
+      !verdict.resolutionFailed &&
+      !memberUnresolvable &&
+      verdict.trustClass !== "unknown";
 
     if (usable) {
       return trustContextFromVerdict(verdict, {

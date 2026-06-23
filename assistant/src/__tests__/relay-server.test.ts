@@ -191,6 +191,26 @@ mock.module("../calls/inbound-trust-reader.js", () => ({
   },
 }));
 
+// ── Trust verdict consumer spy ──────────────────────────────────────
+//
+// Tracks whether the verdict mapper produced the final mid-call context, so a
+// test can assert the local resolver was used instead (verdict not consumed).
+let trustVerdictMapperUsed = false;
+const realTrustVerdictConsumerModule = {
+  ...(await import("../runtime/trust-verdict-consumer.js")),
+};
+mock.module("../runtime/trust-verdict-consumer.js", () => ({
+  ...realTrustVerdictConsumerModule,
+  trustContextFromVerdict: (
+    ...args: Parameters<
+      typeof realTrustVerdictConsumerModule.trustContextFromVerdict
+    >
+  ) => {
+    trustVerdictMapperUsed = true;
+    return realTrustVerdictConsumerModule.trustContextFromVerdict(...args);
+  },
+}));
+
 // ── TTS provider mocks (for call-speech-output) ─────────────────────
 
 let mockTtsProviderId: string = "elevenlabs";
@@ -510,6 +530,7 @@ describe("relay-server", () => {
     mockAdmissionPolicy = null;
     mockAdmissionGate = null;
     mockMidCallVerdict = null;
+    trustVerdictMapperUsed = false;
     mockSendMessage.mockImplementation(createMockProviderResponse(["Hello"]));
     mockConfig.calls.verification.enabled = false;
     mockConfig.calls.verification.maxAttempts = 3;
@@ -5621,6 +5642,56 @@ describe("relay-server", () => {
 
     // Fail-soft: unusable verdict does not drop the call; local fallback fires.
     expect(relay.getConnectionState()).toBe("connected");
+    expect(readControllerTrustClass(relay)).toBeDefined();
+
+    relay.destroy();
+  });
+
+  test("inbound guardian verification: memberless unknown verdict falls back to local resolution (just-activated invitee not downgraded)", async () => {
+    ensureConversation("conv-midcall-verdict-unknown");
+    const session = createCallSession({
+      conversationId: "conv-midcall-verdict-unknown",
+      provider: "twilio",
+      fromNumber: "+15559999999",
+      toNumber: "+15551111111",
+    });
+
+    const secret = createPendingVoiceGuardianChallenge();
+
+    // Invite redemption writes the channel assistant-side, so right after
+    // activation the gateway has no member and returns a memberless unknown
+    // verdict. Mid-call re-resolution must treat it as a stale gateway view
+    // and fall back to local resolution (which has the fresh channel) rather
+    // than downgrade the just-activated invitee to unknown.
+    mockMidCallVerdict = {
+      trustClass: "unknown",
+      canonicalSenderId: "+15559999999",
+    };
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Hello there."]),
+    );
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_midcall_verdict_unknown",
+        from: "+15559999999",
+        to: "+15551111111",
+      }),
+    );
+
+    for (const digit of secret) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(relay.getConnectionState()).toBe("connected");
+    // Local resolver produced the final context; the unknown verdict was not
+    // consumed as authoritative.
+    expect(trustVerdictMapperUsed).toBe(false);
     expect(readControllerTrustClass(relay)).toBeDefined();
 
     relay.destroy();
