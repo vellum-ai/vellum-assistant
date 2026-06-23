@@ -63,6 +63,8 @@ import {
   resolveServerConsent,
   TOS_CONSENT_VERSION,
   PRIVACY_CONSENT_VERSION,
+  ANALYTICS_CONSENT_VERSION,
+  DIAGNOSTICS_CONSENT_VERSION,
 } from "@/utils/onboarding-cleanup";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import {
@@ -323,13 +325,13 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
             ai_data_sharing_accepted_version: PRIVACY_CONSENT_VERSION,
             ...(analyticsCurrent
               ? {
-                  share_analytics_accepted_version: PRIVACY_CONSENT_VERSION,
+                  share_analytics_accepted_version: ANALYTICS_CONSENT_VERSION,
                   share_analytics: store.shareAnalytics,
                 }
               : {}),
             ...(diagnosticsCurrent
               ? {
-                  share_diagnostics_accepted_version: PRIVACY_CONSENT_VERSION,
+                  share_diagnostics_accepted_version: DIAGNOSTICS_CONSENT_VERSION,
                   share_diagnostics: store.shareDiagnostics,
                 }
               : {}),

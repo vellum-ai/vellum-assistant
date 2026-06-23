@@ -79,6 +79,24 @@ function Divider() {
   return <div className="h-px bg-[var(--surface-active)] dark:bg-[var(--surface-lift)]" />;
 }
 
+// A short "what's changed" summary shown above a consent checkbox when the
+// policy version was bumped. Renders nothing when there are no notes.
+function PolicyChangeNotes({ notes }: { notes?: string[] }) {
+  if (!notes || notes.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-1 text-[var(--content-tertiary)]">
+      <p className="text-body-small-default font-medium uppercase tracking-wider">
+        What&apos;s changed
+      </p>
+      <ul className="ml-4 list-disc text-body-medium-lighter">
+        {notes.map((note) => (
+          <li key={note}>{note}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function PrivacyPreferencesCard({
   electron,
   showAnalytics = true,
@@ -136,6 +154,8 @@ export function AgreementsCard({
   tosAccepted,
   onPrivacyChange,
   onTosChange,
+  privacyNotes,
+  tosNotes,
   className,
   style,
 }: {
@@ -146,6 +166,8 @@ export function AgreementsCard({
   tosAccepted: boolean;
   onPrivacyChange: (next: boolean) => void;
   onTosChange: (next: boolean) => void;
+  privacyNotes?: string[];
+  tosNotes?: string[];
   className?: string;
   style?: CSSProperties;
 }) {
@@ -155,18 +177,24 @@ export function AgreementsCard({
       <Card padding={electron ? "sm" : "md"} className="w-full">
         <div className={`flex flex-col ${electron ? "gap-3.5" : "gap-4"}`}>
           {showPrivacy && (
-            <ConsentCheckbox
-              kind="privacy"
-              checked={privacyConsent}
-              onChange={onPrivacyChange}
-            />
+            <>
+              <PolicyChangeNotes notes={privacyNotes} />
+              <ConsentCheckbox
+                kind="privacy"
+                checked={privacyConsent}
+                onChange={onPrivacyChange}
+              />
+            </>
           )}
           {showTos && (
-            <ConsentCheckbox
-              kind="tos"
-              checked={tosAccepted}
-              onChange={onTosChange}
-            />
+            <>
+              <PolicyChangeNotes notes={tosNotes} />
+              <ConsentCheckbox
+                kind="tos"
+                checked={tosAccepted}
+                onChange={onTosChange}
+              />
+            </>
           )}
         </div>
       </Card>
