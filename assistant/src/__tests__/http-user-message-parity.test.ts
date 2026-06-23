@@ -130,9 +130,16 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
   getGuardianDelivery: async () => mockGuardians,
 }));
 
+// The local mirror grants guardian only to principals present in this set;
+// everyone else resolves unknown. Models the dual-written local mirror that
+// the gateway-first resolve falls back to.
+let localMirrorGuardians = new Set<string>(["test-user"]);
 mock.module("../runtime/trust-context-resolver.js", () => ({
-  resolveTrustContext: () => ({
-    trustClass: "guardian",
+  resolveTrustContext: (input: { actorExternalId?: string }) => ({
+    trustClass:
+      input.actorExternalId && localMirrorGuardians.has(input.actorExternalId)
+        ? "guardian"
+        : "unknown",
     sourceChannel: "vellum",
   }),
   withSourceChannel: (sourceChannel: unknown, ctx: unknown) => ({
@@ -490,6 +497,7 @@ describe("HTTP POST /v1/messages trust context from the gateway binding", () => 
       },
     ];
     healDriftReturn = false;
+    localMirrorGuardians = new Set<string>(["test-user"]);
     healGuardianBindingDriftMock.mockClear();
   });
 
@@ -557,6 +565,28 @@ describe("HTTP POST /v1/messages trust context from the gateway binding", () => 
         status: "active",
       },
     ];
+    localMirrorGuardians = new Set<string>(["vellum-principal-healed"]);
+
+    expect(await trustClassFor("vellum-principal-healed")).toBe("guardian");
+    expect(healGuardianBindingDriftMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("re-resolves to guardian on later drift requests where heal is a no-op", async () => {
+    // Second-request drift window: the gateway binding still mismatches the
+    // JWT, so heal is a no-op and returns false. The local re-resolve must
+    // still run (gated on the gateway returning unknown, not on a heal write)
+    // and keep guardian trust from the already-repaired local mirror.
+    healDriftReturn = false;
+    mockGuardians = [
+      {
+        channelType: "vellum",
+        contactId: "guardian-contact",
+        principalId: "vellum-principal-stale",
+        address: "vellum-principal-stale",
+        status: "active",
+      },
+    ];
+    localMirrorGuardians = new Set<string>(["vellum-principal-healed"]);
 
     expect(await trustClassFor("vellum-principal-healed")).toBe("guardian");
     expect(healGuardianBindingDriftMock).toHaveBeenCalledTimes(1);
