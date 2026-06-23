@@ -51,12 +51,6 @@ mock.module(
   }),
 );
 
-mock.module(
-  "@/domains/chat/components/chat-composer/chat-composer",
-  () => ({
-    ChatComposer: () => <div data-testid="composer">COMPOSER</div>,
-  }),
-);
 
 mock.module("@vellumai/design-library", () => ({
   Button: ({
@@ -69,8 +63,17 @@ mock.module("@vellumai/design-library", () => ({
   } & ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button {...props}>{iconOnly ?? children}</button>
   ),
-  Notice: ({ children }: { children: string }) => (
-    <div data-testid="notice">{children}</div>
+  Notice: ({
+    children,
+    actions,
+  }: {
+    children?: ReactNode;
+    actions?: ReactNode;
+  }) => (
+    <div data-testid="notice">
+      {children}
+      {actions ? <div data-testid="notice-actions">{actions}</div> : null}
+    </div>
   ),
   ResizablePanel: () => <div data-testid="resizable-panel" />,
   Typography: ({ children }: { children?: ReactNode }) => (
@@ -112,7 +115,8 @@ function baseProps(
       transcriptRef: null,
       transcriptProps: { messages: [], onScrollToMessage: noop } as never,
     },
-    composerProps: {} as never,
+    composerSlot: <div data-testid="composer">COMPOSER</div>,
+    onStopGenerating: noop,
     dragHandlers: {
       onDragEnter: noopDrag,
       onDragOver: noopDrag,
@@ -232,7 +236,6 @@ describe("ChatBody — read-only cancellation", () => {
       <ChatBody
         {...baseProps({
           isChannelReadonly: true,
-          composerProps: { onStopGenerating: noop } as never,
         })}
       />,
     );
@@ -248,7 +251,6 @@ describe("ChatBody — read-only cancellation", () => {
         {...baseProps({
           isChannelReadonly: true,
           canStopGenerating: true,
-          composerProps: { onStopGenerating: noop } as never,
         })}
       />,
     );
@@ -276,5 +278,51 @@ describe("ChatBody — channel footer slot", () => {
     expect(html.indexOf("CHANNEL_FOOTER")).toBeLessThan(
       html.indexOf("COMPOSER"),
     );
+  });
+});
+
+describe("ChatBody — generic chat error Notice (dismiss UX)", () => {
+  // The Notice is rendered as an inline error banner above the composer.
+  // The banner has a "Go to Doctor" action and a "Dismiss" button as a
+  // second action (so the user has a real way to close the banner).
+
+  test("renders a Dismiss button when genericChatError + onDismissChatError are both provided", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          genericChatError: {
+            message: "Model doesn't support image input.",
+            actions: (
+              <a href="/assistant/settings/debug?tab=doctor">Go to Doctor</a>
+            ),
+          },
+          onDismissChatError: () => {},
+        })}
+      />,
+    );
+
+    expect(html).toContain("Go to Doctor");
+    expect(html).toContain("Dismiss");
+  });
+
+  test("does NOT render the Dismiss button when onDismissChatError is omitted", () => {
+    // Defensive: don't silently show a Dismiss button that does nothing.
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          genericChatError: { message: "Something went wrong." },
+        })}
+      />,
+    );
+
+    expect(html).not.toContain("Dismiss");
+  });
+
+  test("does not render the error banner at all when genericChatError is null", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody {...baseProps({ genericChatError: null })} />,
+    );
+
+    expect(html).not.toContain(">Dismiss<");
   });
 });

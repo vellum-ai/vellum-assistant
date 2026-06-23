@@ -109,6 +109,25 @@ mock.module("../calls/channel-admission-reader.js", () => ({
   getChannelAdmissionPolicy: async () => mockAdmissionPolicy,
 }));
 
+// Mock the inbound trust reader used by the media-stream preflight. Captures
+// its args so tests can assert the inbound caller's verdict is fetched, and
+// returns mockInboundVerdict which is threaded into the preflight routeSetup.
+let mockInboundVerdict: unknown = null;
+let lastInboundVerdictArgs: Record<string, unknown> | null = null;
+mock.module("../calls/inbound-trust-reader.js", () => ({
+  getInboundTrustVerdict: async (args: Record<string, unknown>) => {
+    lastInboundVerdictArgs = args;
+    return mockInboundVerdict;
+  },
+  getPhoneCallerVerdict: async (otherPartyNumber: string | undefined) => {
+    lastInboundVerdictArgs = {
+      channelType: "phone",
+      actorExternalId: otherPartyNumber || undefined,
+    };
+    return mockInboundVerdict;
+  },
+}));
+
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   getGatewayInternalBaseUrl: () => "http://gateway.internal:7830",
@@ -470,6 +489,8 @@ describe("twilio webhook routes", () => {
     // Reset admission policy + captured routeSetup context between tests
     mockAdmissionPolicy = null;
     lastRouteSetupCtx = null;
+    mockInboundVerdict = null;
+    lastInboundVerdictArgs = null;
     // Reset routeSetup mock to default normal_call
     mockRouteSetupResult = {
       outcome: { action: "normal_call", isInbound: true },
@@ -1267,6 +1288,81 @@ describe("twilio webhook routes", () => {
       // classification matches the real stream-start enforcement.
       expect(lastRouteSetupCtx).not.toBeNull();
       expect(lastRouteSetupCtx?.admissionPolicy).toBe("guardian_only");
+    });
+
+    test("media-stream inbound: fetches the caller's verdict (From) and threads it into the preflight routeSetup", async () => {
+      mockConfigObj.services.stt.provider = "openai-whisper" as any;
+      mockInboundVerdict = {
+        channelType: "phone",
+        actorExternalId: "+14155551234",
+        contactId: "contact-1",
+        channelId: "channel-1",
+        status: "verified",
+        policy: "allow",
+        resolutionFailed: false,
+      };
+
+      const req = makeInboundVoiceRequest({
+        CallSid: "CA_ms_verdict_inbound_1",
+        From: "+14155551234",
+        To: "+15550001111",
+      });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      // Inbound: verdict fetched for the caller (From) on the phone channel.
+      expect(lastInboundVerdictArgs).toEqual({
+        channelType: "phone",
+        actorExternalId: "+14155551234",
+      });
+      // Verdict threaded into the preflight routeSetup.
+      expect(lastRouteSetupCtx?.verdict).toEqual(mockInboundVerdict);
+    });
+
+    test("media-stream inbound: a blocked/denied member verdict is classified deny in the preflight", async () => {
+      mockConfigObj.services.stt.provider = "openai-whisper" as any;
+      mockInboundVerdict = {
+        channelType: "phone",
+        actorExternalId: "+14155551234",
+        contactId: "contact-1",
+        channelId: "channel-1",
+        status: "blocked",
+        policy: "deny",
+        resolutionFailed: false,
+      };
+      // The real router returns `deny` for a blocked member verdict; the mock
+      // reflects that outcome. deny is supported on media-stream, so the
+      // preflight still emits Stream TwiML (denial spoken at stream start).
+      mockRouteSetupResult = {
+        outcome: {
+          action: "deny",
+          message:
+            "This number is not authorized to reach the assistant right now.",
+          logReason: "Inbound voice ACL: member blocked",
+        },
+        resolved: {
+          assistantId: "self",
+          isInbound: true,
+          otherPartyNumber: "+14155551234",
+          actorTrust: { trustClass: "unknown", memberRecord: null },
+        },
+      };
+
+      const req = makeInboundVoiceRequest({
+        CallSid: "CA_ms_verdict_deny_1",
+        From: "+14155551234",
+        To: "+15550001111",
+      });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      // Verdict was threaded into routeSetup, which denied the caller.
+      expect(lastRouteSetupCtx?.verdict).toEqual(mockInboundVerdict);
+      const twiml = await res.text();
+      expect(twiml).toContain("<Stream");
+      expect(twiml).not.toContain("<ConversationRelay");
     });
 
     test("media-stream: floor-denied caller classified deny still produces Stream TwiML (deny handled at stream level)", async () => {

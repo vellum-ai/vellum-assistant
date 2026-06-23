@@ -291,14 +291,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "query-complexity-routing",
-      "scope": "assistant",
-      "key": "query-complexity-routing",
-      "label": "Query Complexity Routing",
-      "description": "Automatically route user messages to the most appropriate inference profile based on query complexity. Simple queries use the speed profile, complex queries escalate to the quality profile. The user is notified of each switch and can opt out by pinning a profile on the conversation.",
-      "defaultEnabled": false
-    },
-    {
       "id": "queue-steering",
       "scope": "assistant",
       "key": "queue-steering",
@@ -432,6 +424,14 @@
       "key": "os-beta",
       "label": "OS Beta",
       "description": "Enable the OS Beta model profile (GLM 5.2 / Fireworks) in the assistant's model profile selection.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "quote-reply",
+      "scope": "client",
+      "key": "quote-reply",
+      "label": "Quote & Reply",
+      "description": "Show a Quote & Reply popover when selecting text in assistant messages, allowing users to annotate quoted passages and stage them for inclusion in the next chat message.",
       "defaultEnabled": false
     }
   ]

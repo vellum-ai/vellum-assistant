@@ -10,6 +10,7 @@ import {
 } from "react";
 
 import { BubbleAttachments } from "@/domains/chat/components/chat-attachments/bubble-attachments";
+import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
@@ -172,6 +173,19 @@ export function TranscriptMessageBody({
     return rid !== null && cardBackedWorkflowRunIds.has(rid) ? rid : null;
   };
 
+  const handleVellumLinkClick = useCallback(
+    (href: string, linkText: string) => {
+      const pathBasename = href.split("/").pop() ?? "";
+      const att =
+        message.attachments?.find((a) => a.filename === linkText) ??
+        message.attachments?.find((a) => a.filename === pathBasename);
+      if (att) {
+        void downloadAttachment(att, assistantId);
+      }
+    },
+    [message.attachments, assistantId],
+  );
+
   const renderTextWithInlineSurfaces = (text: string, key: string) => {
     const inlineSegments = parseInlineSurfaces(text);
     if (inlineSegments) {
@@ -195,7 +209,7 @@ export function TranscriptMessageBody({
             }
             return (
               <div key={`inline-text-${si}`} className={segmentClass}>
-                <ChatMarkdownMessage content={seg.content} hardLineBreaks />
+                <ChatMarkdownMessage content={seg.content} hardLineBreaks onVellumLinkClick={handleVellumLinkClick} />
               </div>
             );
           })}
@@ -204,7 +218,7 @@ export function TranscriptMessageBody({
     }
     return (
       <div key={key} className={segmentClass}>
-        <ChatMarkdownMessage content={text} hardLineBreaks />
+        <ChatMarkdownMessage content={text} hardLineBreaks onVellumLinkClick={handleVellumLinkClick} />
       </div>
     );
   };
@@ -503,6 +517,8 @@ export function TranscriptMessageBody({
     return (
       <div
         ref={wrapperRef}
+        data-message-id={message.id || undefined}
+        data-message-role={message.role}
         onClick={handleBubbleClick}
         data-revealed={revealed}
         className={wrapperClass}
@@ -519,6 +535,8 @@ export function TranscriptMessageBody({
     <div
       ref={wrapperRef}
       id={message.id ? `msg-${message.id}` : undefined}
+      data-message-id={message.id || undefined}
+      data-message-role={message.role}
       onClick={handleBubbleClick}
       data-revealed={revealed}
       className={wrapperClass}

@@ -47,9 +47,15 @@ const ALLOWED_PREFIXES = {
     "./",
     // Config schema/loader at depth-1 and depth-2.
     "../../config/loader",
+    "../../../config/loader",
     "../../config/schema",
     "../../config/env",
     "../../util/platform",
+    // Memory retrospective — the retrospective CLI runs the fork-based
+    // retrospective in-process (no daemon, no IPC), so it imports the
+    // job handler directly. Depth-2 for commands/memory/ nesting.
+    "../../memory/memory-retrospective-job",
+    "../../../memory/memory-retrospective-job",
     "../logger",
     "../output",
     "../../logger",

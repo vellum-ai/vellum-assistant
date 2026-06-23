@@ -1,10 +1,8 @@
 import { ArrowUp, Square } from "lucide-react";
 import {
-    type Dispatch,
     type FormEvent,
     type ReactNode,
     type RefObject,
-    type SetStateAction,
     useCallback,
     useEffect,
     useLayoutEffect,
@@ -18,7 +16,12 @@ import {
     AttachFileButton,
     ChatAttachmentsStrip,
 } from "@/domains/chat/components/chat-attachments/chat-attachments";
-import { type ChatAttachment } from "@/domains/chat/composer-store";
+import {
+    selectUploadedIds,
+    selectUploadingCount,
+    useComposerStore,
+} from "@/domains/chat/composer-store";
+import { ComposerDraftNotices } from "@/domains/chat/components/composer-draft-notices";
 import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
 import { LiveVoiceButton } from "@/domains/chat/components/live-voice-button";
 import {
@@ -56,9 +59,14 @@ import { SlashCommandPopup } from "@/domains/chat/components/chat-composer/slash
 import { useTextPopup } from "@/domains/chat/components/chat-composer/use-text-popup";
 
 /**
- * Controlled composer used at the bottom of the chat (main variant) and inside
- * the app-editing split layout. The two call sites previously inlined the
- * composer JSX; this component is the consolidated version.
+ * Composer used at the bottom of the chat (main variant) and inside the
+ * app-editing split layout.
+ *
+ * The draft text is the only high-frequency state here, so the composer
+ * subscribes to it directly from `composer-store` via atomic selectors (per
+ * `docs/STATE_MANAGEMENT.md`) rather than receiving it as a prop. That keeps a
+ * keystroke from re-rendering the orchestrator and the transcript above it —
+ * only this component re-renders as you type.
  *
  * The optional slots/voice props exist because the app-editing variant does
  * NOT render a voice button, threshold picker, context-window indicator, or
@@ -66,27 +74,17 @@ import { useTextPopup } from "@/domains/chat/components/chat-composer/use-text-p
  * those as `undefined` keeps the app-editing layout byte-identical.
  */
 export interface ChatComposerProps {
-  // text + form
-  input: string;
-  /**
-   * Accepts both a plain setter (`setInput("foo")`) and the React-state
-   * updater form (`setInput((current) => …)`). The voice transcript handler
-   * relies on the updater form; the rest of the composer only writes plain
-   * strings.
-   */
-  setInput: Dispatch<SetStateAction<string>>;
   placeholder?: string;
   onSubmit: (event: FormEvent) => void;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   typingDisabled: boolean;
   sendDisabled: boolean;
-  attachmentsUploadingCount: number;
-  canSendAttachments: boolean;
 
-  // attachments
-  chatAttachments: ChatAttachment[];
+  // Adding files is orchestration-owned: it runs the vision-capability gate
+  // (which depends on the active model) before queueing the upload. The rest of
+  // the attachment lifecycle — the strip, the uploading/can-send derivation, and
+  // removal — is read straight from the composer store below.
   onAddAttachmentFiles: (files: FileList | File[]) => void;
-  onRemoveAttachment: (id: string) => void;
 
   // voice — optional; when `voiceInputRef` is omitted the voice button is
   // skipped entirely (matches the app-editing variant which has no voice).
@@ -150,18 +148,12 @@ export interface ChatComposerProps {
 }
 
 export function ChatComposer({
-  input,
-  setInput,
   placeholder = "What would you like to do?",
   onSubmit,
   inputRef,
   typingDisabled,
   sendDisabled,
-  attachmentsUploadingCount,
-  canSendAttachments,
-  chatAttachments,
   onAddAttachmentFiles,
-  onRemoveAttachment,
   voiceInputRef,
   onVoiceTranscript,
   onVoiceInterimTranscript,
@@ -182,6 +174,19 @@ export function ChatComposer({
   onRecallLastMessage,
   onCancelEdit,
 }: ChatComposerProps) {
+  // Draft text is owned by the composer store; subscribing here (rather than
+  // receiving it as a prop) means a keystroke re-renders only this component,
+  // not the orchestrator or the transcript above it.
+  const input = useComposerStore.use.input();
+  const setInput = useComposerStore.use.setInput();
+  // Attachments are composer-owned too: read the list and derive send-gating
+  // here rather than threading four props down from the orchestrator.
+  const attachments = useComposerStore.use.attachments();
+  const removeAttachment = useComposerStore.use.removeAttachment();
+  const attachmentsUploadingCount = selectUploadingCount(attachments);
+  const canSendAttachments =
+    attachmentsUploadingCount === 0 && selectUploadedIds(attachments).length > 0;
+
   const voicePhase = useVoiceRecordingStore.use.phase();
   const isVoiceActive = voicePhase === "recording" || voicePhase === "processing";
   // Holds the MediaStream opened by VoiceInputButton so we can reuse it for
@@ -316,13 +321,16 @@ export function ChatComposer({
         pointerCoarse,
         suggestion: suggestion ?? null,
         input,
-        hasAttachments: chatAttachments.length > 0,
+        hasAttachments: attachments.length > 0,
       }),
-    [pointerCoarse, suggestion, input, chatAttachments],
+    [pointerCoarse, suggestion, input, attachments],
   );
 
   return (
     <>
+      {/* Composer-owned draft/attachment notices (self-sourced), above the
+          orchestration banner stack. */}
+      <ComposerDraftNotices />
       {noticesAboveFormSlot}
       <Popover.Root open={emoji.show || slash.show}>
         <Popover.Anchor asChild>
@@ -333,8 +341,8 @@ export function ChatComposer({
             }`}
           >
             <ChatAttachmentsStrip
-              attachments={chatAttachments}
-              onRemove={onRemoveAttachment}
+              attachments={attachments}
+              onRemove={removeAttachment}
             />
             {/* CSS Grid hidden-mirror technique for auto-growing textarea.
             A hidden div mirrors the textarea content in the same grid cell.
@@ -371,6 +379,13 @@ export function ChatComposer({
                   const value = e.target.value;
                   cursorRef.current = e.target.selectionStart ?? value.length;
                   setInput(value);
+                  // The user has edited the text, so it's no longer a pristine
+                  // restored draft — retire the "draft restored" marker (and its
+                  // notice). Keeps `restoredDraftConversationId` an accurate
+                  // signal for "unedited restored draft" (see use-deep-link-consumer).
+                  if (useComposerStore.getState().restoredDraftConversationId !== null) {
+                    useComposerStore.getState().clearRestoredDraftNotice();
+                  }
                 }}
                 onPaste={(e) => {
                   const items = e.clipboardData?.items;

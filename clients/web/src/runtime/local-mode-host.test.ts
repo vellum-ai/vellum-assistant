@@ -13,6 +13,7 @@ const {
   saveLockfileAssistantHost,
   replacePlatformAssistantsHost,
   retireLocalAssistantHost,
+  upgradeLocalAssistantHost,
   wakeLocalAssistantHost,
   getLocalAssistantStatusHost,
   fetchGuardianTokenHost,
@@ -319,6 +320,53 @@ describe("wakeLocalAssistantHost", () => {
 
     const result = await wakeLocalAssistantHost("a-1");
     expect(result.ok).toBe(false);
+  });
+});
+
+describe("upgradeLocalAssistantHost", () => {
+  test("web/dev host POSTs the assistant id and options to the upgrade middleware", async () => {
+    const fetchMock = mock(async () => ({
+      json: async () => ({ ok: true, version: "v1.2.3" }),
+    }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    expect(
+      await upgradeLocalAssistantHost("a-1", { latest: true }),
+    ).toEqual({ ok: true, version: "v1.2.3" });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(url).toBe("/assistant/__local/upgrade");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({
+      assistantId: "a-1",
+      latest: true,
+    });
+  });
+
+  test("Electron host upgrades through the bridge and never touches fetch", async () => {
+    const upgrade = mock(async () => ({ ok: true, version: "v1.2.3" }));
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run on the Electron branch");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    setElectronBridge({ upgrade });
+
+    expect(
+      await upgradeLocalAssistantHost("a-1", { version: "v1.2.3" }),
+    ).toEqual({ ok: true, version: "v1.2.3" });
+    expect(upgrade).toHaveBeenCalledWith("a-1", { version: "v1.2.3" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("older Electron shell without the upgrade channel reports an unsupported failure", async () => {
+    setElectronBridge({});
+
+    expect(await upgradeLocalAssistantHost("a-1")).toEqual({
+      ok: false,
+      error: "Update and restart the desktop app to enable local upgrades.",
+    });
   });
 });
 

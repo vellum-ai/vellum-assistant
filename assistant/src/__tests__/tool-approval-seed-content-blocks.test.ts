@@ -70,6 +70,8 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     expect(blocks).toHaveLength(2);
     expect((blocks[0] as Record<string, unknown>).type).toBe("ui_surface");
     expect((blocks[1] as Record<string, unknown>).type).toBe("text");
+    // The fallback block is flagged so surface-capable clients skip it.
+    expect((blocks[1] as Record<string, unknown>)._surfaceFallback).toBe(true);
   });
 
   test("produces a ui_surface block and a text fallback block for tool_grant_request", () => {

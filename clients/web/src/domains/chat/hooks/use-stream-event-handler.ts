@@ -1,9 +1,4 @@
-import {
-  type Dispatch,
-  type SetStateAction,
-  useCallback,
-  useRef,
-} from "react";
+import { type Dispatch, type SetStateAction, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useConversationStore } from "@/stores/conversation-store";
@@ -38,6 +33,7 @@ import {
   handleSecretRequest,
   handleConfirmationRequest,
   handleContactRequest,
+  handleInteractionResolved,
   handleQuestionRequest,
 } from "@/domains/chat/utils/stream-handlers/interaction-handlers";
 import {
@@ -54,7 +50,6 @@ import {
   handleUsageUpdate,
   handleCompactionCircuitOpen,
   handleCompactionCircuitClosed,
-  handleTurnProfileAutoRouted,
 } from "@/domains/chat/utils/stream-handlers/metadata-handlers";
 import {
   handleMessageQueued,
@@ -235,7 +230,8 @@ export function useStreamEventHandler(
         setConfirmationToolCall: store.setConfirmationToolCall,
         setAssetsRefreshKey,
         addDismissedSurfaceId: store.addDismissedSurfaceId,
-        setContextWindowUsageForConversation: store.setContextWindowUsageForConversation,
+        setContextWindowUsageForConversation:
+          store.setContextWindowUsageForConversation,
         setContextWindowUsage: store.setContextWindowUsage,
         queryClient,
         setCompactionCircuitOpenUntil: store.setCompactionCircuitOpenUntil,
@@ -350,9 +346,6 @@ export function useStreamEventHandler(
           handleCompactionCircuitClosed(event, ctx);
           break;
 
-        case "turn_profile_auto_routed":
-          handleTurnProfileAutoRouted(event, ctx);
-          break;
         case "message_queued":
           handleMessageQueued(event, ctx);
           break;
@@ -409,7 +402,13 @@ export function useStreamEventHandler(
         case "document_comment_resolved":
         case "document_comment_reopened":
         case "document_comment_deleted":
+          break;
+        // The daemon resolved a pending interaction for the active
+        // conversation. Attention tracking handles non-active conversations
+        // and defers the active one here, so retire any matching confirmation
+        // card before the user can tap a prompt the server has discarded.
         case "interaction_resolved":
+          handleInteractionResolved(event, ctx);
           break;
         // Diagnostic timeline events. The logs domain fetches these from
         // the daemon's trace-events endpoint on demand; the chat stream

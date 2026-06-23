@@ -20,8 +20,8 @@
  * the host hands to plugin hooks, and the logger shape they include.
  *
  * Alongside those types, the module exposes a small set of **runtime
- * handles** for plugins that need to reach the assistant's live singletons
- * (subscribe to runtime events, read secrets). These resolve to the
+ * handles for plugins that need to reach the assistant's live singletons
+ * (subscribe to runtime events, inspect inference profiles). These resolve to the
  * assistant's own instances: the host parks the loaded plugin-api namespace
  * on `globalThis` at boot, and the workspace-level shim re-binds each
  * runtime export from there — so a plugin's
@@ -31,7 +31,6 @@
  * disjoint module copy.
  *
  * - {@link assistantEventHub} — the assistant's pub/sub hub for runtime events
- * - {@link getSecureKeyAsync} — read a secret from secure storage
  * - {@link getModelProfiles} — list the workspace inference profiles a plugin
  *   can route to (e.g. a model router building its category → profile map)
  * - {@link getConfiguredProvider} — resolve a {@link Provider} for a call site
@@ -130,7 +129,6 @@ export type {
   AssistantEventSubscription,
 } from "../runtime/assistant-event-hub.js";
 export { assistantEventHub } from "../runtime/assistant-event-hub.js";
-export { getSecureKeyAsync } from "../security/secure-keys.js";
 export { getModelProfiles } from "./model-profiles.js";
 // Check whether a profile's resolved model can process image input. Resolves
 // the effective (provider, model) by merging over the workspace default and

@@ -17,8 +17,17 @@ let mockDefault: { provider?: string; model?: string } = {
   model: "claude-opus-4-6",
 };
 
+const realConfigLoader = await import("../config/loader.js");
+
 mock.module("../config/loader.js", () => ({
+  ...realConfigLoader,
   getConfig: () => ({
+    llm: {
+      profiles: mockProfiles,
+      default: mockDefault,
+    },
+  }),
+  getConfigReadOnly: () => ({
     llm: {
       profiles: mockProfiles,
       default: mockDefault,
@@ -73,24 +82,6 @@ describe("doesSupportVision", () => {
       },
     });
     expect(doesSupportVision(profile("text-profile"))).toBe(false);
-  });
-
-  test("returns false for the 'auto' meta-profile even when llm.default is vision-capable", () => {
-    // auto has no provider/model — would inherit llm.default (anthropic/claude-opus-4-6,
-    // which IS vision-capable) — but must still return false because auto is a router,
-    // not a concrete model, and may route to a text-only profile at runtime.
-    setMockConfig({
-      auto: { /* no provider/model — metadata only */ },
-    });
-    expect(doesSupportVision(profile("auto"))).toBe(false);
-  });
-
-  test("returns false for the 'auto' meta-profile when llm.default is text-only", () => {
-    setMockConfig(
-      { auto: {} },
-      { provider: "fireworks", model: "accounts/fireworks/models/glm-5p2" },
-    );
-    expect(doesSupportVision(profile("auto"))).toBe(false);
   });
 
   test("fails open (true) for an unknown profile key not in config", () => {

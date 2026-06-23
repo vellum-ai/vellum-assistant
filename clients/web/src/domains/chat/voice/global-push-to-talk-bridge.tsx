@@ -15,6 +15,7 @@ import { useNativePushToTalkRegistration } from "@/domains/chat/voice/use-native
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { usePushToTalk } from "@/domains/chat/voice/use-push-to-talk";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
+import { subscribeToDictationOverlayStop } from "@/runtime/dictation-overlay";
 import { insertTextIntoFrontApp } from "@/runtime/text-insertion";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -77,6 +78,13 @@ export function GlobalPushToTalkBridge({
       (assistantId ? fallbackVoiceInputRef.current : null),
     [assistantId],
   );
+
+  useEffect(() => {
+    return subscribeToDictationOverlayStop(() => {
+      if (useVoiceRecordingStore.getState().phase !== "recording") return;
+      resolveTarget()?.stop();
+    });
+  }, [resolveTarget]);
 
   usePushToTalk(resolveTarget, { enabled: shouldEnablePushToTalk() });
 

@@ -197,7 +197,7 @@ async function deliverSlack(
   if (text) {
     const result = await sendSlackReply(chatId, text, {
       threadTs,
-      blocks: blocks as unknown[] | undefined,
+      blocks,
       approval: payload.approval,
       useBlocks: payload.useBlocks,
       ephemeral: payload.ephemeral,

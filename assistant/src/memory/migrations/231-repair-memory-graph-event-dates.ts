@@ -1,8 +1,6 @@
 import type { DrizzleDb } from "../db-connection.js";
 import { getSqliteFrom } from "../db-connection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
 
-const CHECKPOINT_KEY = "migration_repair_memory_graph_event_dates_v1";
 const REPAIR_CREATED_YEAR = 2026;
 const CORRUPT_EVENT_YEARS = [2024, 2025] as const;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -76,67 +74,65 @@ export function repairMemoryGraphEventDate(
 export function migrate231RepairMemoryGraphEventDates(
   database: DrizzleDb,
 ): void {
-  withCrashRecovery(database, CHECKPOINT_KEY, () => {
-    const raw = getSqliteFrom(database);
-    const rows = raw
-      .query(
-        /*sql*/ `
-          SELECT id, created, event_date, content
-          FROM memory_graph_nodes
-          WHERE event_date IS NOT NULL
-            AND CAST(strftime('%Y', created / 1000, 'unixepoch') AS INTEGER) = ?
-            AND CAST(strftime('%Y', event_date / 1000, 'unixepoch') AS INTEGER) IN (?, ?)
-        `,
-      )
-      .all(
-        REPAIR_CREATED_YEAR,
-        ...CORRUPT_EVENT_YEARS,
-      ) as GraphNodeEventDateRow[];
+  const raw = getSqliteFrom(database);
+  const rows = raw
+    .query(
+      /*sql*/ `
+        SELECT id, created, event_date, content
+        FROM memory_graph_nodes
+        WHERE event_date IS NOT NULL
+          AND CAST(strftime('%Y', created / 1000, 'unixepoch') AS INTEGER) = ?
+          AND CAST(strftime('%Y', event_date / 1000, 'unixepoch') AS INTEGER) IN (?, ?)
+      `,
+    )
+    .all(
+      REPAIR_CREATED_YEAR,
+      ...CORRUPT_EVENT_YEARS,
+    ) as GraphNodeEventDateRow[];
 
-    const repairs: EventDateRepair[] = [];
-    for (const row of rows) {
-      const corrected = repairMemoryGraphEventDate(
-        row.created,
-        row.event_date,
-        row.content ?? "",
-      );
-      if (corrected == null) continue;
-      repairs.push({
-        id: row.id,
-        oldEventDate: row.event_date,
-        newEventDate: corrected,
-      });
+  const repairs: EventDateRepair[] = [];
+  for (const row of rows) {
+    const corrected = repairMemoryGraphEventDate(
+      row.created,
+      row.event_date,
+      row.content ?? "",
+    );
+    if (corrected == null) continue;
+    repairs.push({
+      id: row.id,
+      oldEventDate: row.event_date,
+      newEventDate: corrected,
+    });
+  }
+
+  if (repairs.length === 0) return;
+
+  const updateNode = raw.prepare(/*sql*/ `
+      UPDATE memory_graph_nodes
+      SET event_date = ?
+      WHERE id = ?
+        AND event_date = ?
+    `);
+  const updateTrigger = raw.prepare(/*sql*/ `
+      UPDATE memory_graph_triggers
+      SET event_date = ?
+      WHERE node_id = ?
+        AND event_date = ?
+    `);
+
+  raw.exec("BEGIN");
+  try {
+    for (const repair of repairs) {
+      updateNode.run(repair.newEventDate, repair.id, repair.oldEventDate);
+      updateTrigger.run(repair.newEventDate, repair.id, repair.oldEventDate);
     }
-
-    if (repairs.length === 0) return;
-
-    const updateNode = raw.prepare(/*sql*/ `
-        UPDATE memory_graph_nodes
-        SET event_date = ?
-        WHERE id = ?
-          AND event_date = ?
-      `);
-    const updateTrigger = raw.prepare(/*sql*/ `
-        UPDATE memory_graph_triggers
-        SET event_date = ?
-        WHERE node_id = ?
-          AND event_date = ?
-      `);
-
-    raw.exec("BEGIN");
+    raw.exec("COMMIT");
+  } catch (error) {
     try {
-      for (const repair of repairs) {
-        updateNode.run(repair.newEventDate, repair.id, repair.oldEventDate);
-        updateTrigger.run(repair.newEventDate, repair.id, repair.oldEventDate);
-      }
-      raw.exec("COMMIT");
-    } catch (error) {
-      try {
-        raw.exec("ROLLBACK");
-      } catch {
-        // No active transaction.
-      }
-      throw error;
+      raw.exec("ROLLBACK");
+    } catch {
+      // No active transaction.
     }
-  });
+    throw error;
+  }
 }

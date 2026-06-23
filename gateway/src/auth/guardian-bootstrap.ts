@@ -8,7 +8,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { getGatewayDb } from "../db/connection.js";
 import {
@@ -90,11 +90,6 @@ export function getExternalAssistantId(): string {
 // Contact operations (via IPC proxy to assistant's DB)
 // ---------------------------------------------------------------------------
 
-interface GuardianLookupRow {
-  contact_id: string;
-  principal_id: string | null;
-}
-
 interface ExistingChannelRow {
   id: string;
   contactId: string;
@@ -107,20 +102,62 @@ interface ExistingChannelRow {
 export async function findVellumGuardian(): Promise<{
   principalId: string;
 } | null> {
-  const rows = await assistantDbQuery<GuardianLookupRow>(
-    `SELECT c.id AS contact_id, c.principal_id
+  const row = getGatewayDb()
+    .select({ principalId: gwContacts.principalId })
+    .from(gwContacts)
+    .innerJoin(
+      gwContactChannels,
+      eq(gwContactChannels.contactId, gwContacts.id),
+    )
+    .where(
+      and(
+        eq(gwContacts.role, "guardian"),
+        eq(gwContactChannels.type, "vellum"),
+        eq(gwContactChannels.status, "active"),
+      ),
+    )
+    .orderBy(desc(gwContactChannels.verifiedAt))
+    .limit(1)
+    .get();
+
+  return row?.principalId ? { principalId: row.principalId } : null;
+}
+
+/**
+ * Pre-repoint assistant-DB lookup for an active vellum guardian. Used to
+ * adopt an existing guardian whose row never reached the gateway mirror
+ * (skipped m0006 or a dropped dual-write), so we repair instead of minting
+ * a duplicate principal. Returns null when no row or no principalId.
+ */
+export async function findVellumGuardianFromAssistant(): Promise<{
+  principalId: string;
+  address: string;
+  deliveryChatId: string | null;
+  displayName: string | null;
+} | null> {
+  const rows = await assistantDbQuery<{
+    principalId: string | null;
+    address: string;
+    deliveryChatId: string | null;
+    displayName: string | null;
+  }>(
+    `SELECT c.principal_id AS principalId, cc.address AS address,
+            cc.external_chat_id AS deliveryChatId, c.display_name AS displayName
      FROM contacts c
      INNER JOIN contact_channels cc ON cc.contact_id = c.id
-     WHERE c.role = 'guardian'
-       AND cc.type = 'vellum'
-       AND cc.status = 'active'
+     WHERE c.role = 'guardian' AND cc.type = 'vellum' AND cc.status = 'active'
      ORDER BY cc.verified_at DESC
      LIMIT 1`,
   );
 
   const row = rows[0];
-  if (!row?.principal_id) return null;
-  return { principalId: row.principal_id };
+  if (!row?.principalId) return null;
+  return {
+    principalId: row.principalId,
+    address: row.address,
+    deliveryChatId: row.deliveryChatId,
+    displayName: row.displayName,
+  };
 }
 
 /**
@@ -138,21 +175,25 @@ export async function findGuardianForChannelActor(
 ): Promise<{ principalId: string } | null> {
   if (!channelType || !externalUserId) return null;
 
-  const rows = await assistantDbQuery<GuardianLookupRow>(
-    `SELECT c.id AS contact_id, c.principal_id
-     FROM contacts c
-     INNER JOIN contact_channels cc ON cc.contact_id = c.id
-     WHERE c.role = 'guardian'
-       AND cc.type = ?
-       AND cc.address = ? COLLATE NOCASE
-       AND cc.status = 'active'
-     LIMIT 1`,
-    [channelType, externalUserId],
-  );
+  const row = getGatewayDb()
+    .select({ principalId: gwContacts.principalId })
+    .from(gwContacts)
+    .innerJoin(
+      gwContactChannels,
+      eq(gwContactChannels.contactId, gwContacts.id),
+    )
+    .where(
+      and(
+        eq(gwContacts.role, "guardian"),
+        eq(gwContactChannels.type, channelType),
+        eq(gwContactChannels.status, "active"),
+        sql`${gwContactChannels.address} = ${externalUserId} COLLATE NOCASE`,
+      ),
+    )
+    .limit(1)
+    .get();
 
-  const row = rows[0];
-  if (!row?.principal_id) return null;
-  return { principalId: row.principal_id };
+  return row?.principalId ? { principalId: row.principalId } : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -333,38 +374,60 @@ export async function createGuardianBinding(
         })
         .run();
 
-      tx.insert(gwContactChannels)
-        .values({
-          id: channelId,
-          contactId,
-          type: params.channel,
-          address: params.externalUserId,
-          externalChatId: params.deliveryChatId,
-          isPrimary: true,
-          status: "active",
-          policy: "allow",
-          verifiedAt: now,
-          verifiedVia,
-          interactionCount: 0,
-          createdAt: now,
+      const channelSet = {
+        contactId,
+        address: params.externalUserId,
+        externalChatId: params.deliveryChatId,
+        isPrimary: true,
+        status: "active",
+        policy: "allow",
+        verifiedAt: now,
+        verifiedVia,
+        revokedReason: null,
+        blockedReason: null,
+        updatedAt: now,
+      };
+
+      // Heal a divergent (type,address) row (m0006): adopt it by its own id
+      // rather than insert and throw on idx_contact_channels_type_address_unique.
+      const existingGw = tx
+        .select({
+          id: gwContactChannels.id,
+          status: gwContactChannels.status,
         })
-        .onConflictDoUpdate({
-          target: gwContactChannels.id,
-          set: {
-            contactId,
-            address: params.externalUserId,
-            externalChatId: params.deliveryChatId,
-            isPrimary: true,
-            status: "active",
-            policy: "allow",
-            verifiedAt: now,
-            verifiedVia,
-            revokedReason: null,
-            blockedReason: null,
-            updatedAt: now,
-          },
-        })
-        .run();
+        .from(gwContactChannels)
+        .where(
+          and(
+            eq(gwContactChannels.type, params.channel),
+            sql`${gwContactChannels.address} = ${params.externalUserId} COLLATE NOCASE`,
+          ),
+        )
+        .get();
+
+      if (existingGw) {
+        // Never reactivate a blocked gateway row by code-match — leave it
+        // intact (mirrors text-verification / contact-helpers guards).
+        if (existingGw.status !== "blocked") {
+          tx.update(gwContactChannels)
+            .set(channelSet)
+            .where(eq(gwContactChannels.id, existingGw.id))
+            .run();
+        }
+      } else {
+        tx.insert(gwContactChannels)
+          .values({
+            id: channelId,
+            type: params.channel,
+            interactionCount: 0,
+            createdAt: now,
+            ...channelSet,
+          })
+          .onConflictDoUpdate({
+            target: gwContactChannels.id,
+            set: channelSet,
+          })
+          .run();
+      }
     });
   } catch (gwErr) {
     log.warn(
@@ -671,22 +734,46 @@ async function fetchPlatformOwnerDisplayName(): Promise<string | null> {
 }
 
 /**
- * Ensure a vellum guardian binding exists. If one already exists, returns
- * its principalId. Otherwise creates a new binding with a fresh principal
- * and dual-writes to both the assistant and gateway DBs.
+ * Resolve the vellum guardian principal, in order: (a) gateway fast path,
+ * (b) adopt an assistant guardian the gateway is missing — repairs the
+ * gateway row under its EXISTING principal via the logical-key dual-write,
+ * (c) mint a fresh principal when neither DB has a guardian.
  *
- * Called during gateway startup to backfill existing installations.
+ * Shared by ensureVellumGuardianBinding + bootstrapGuardian. `isNew` is true
+ * only on the mint path.
  */
-export async function ensureVellumGuardianBinding(): Promise<string> {
-  const existing = await findVellumGuardian();
-  if (existing) {
+async function resolveOrCreateVellumGuardian(): Promise<{
+  guardianPrincipalId: string;
+  isNew: boolean;
+}> {
+  const gw = await findVellumGuardian();
+  if (gw) {
     log.debug(
-      { guardianPrincipalId: existing.principalId },
+      { guardianPrincipalId: gw.principalId },
       "Vellum guardian binding already exists",
     );
-    return existing.principalId;
+    return { guardianPrincipalId: gw.principalId, isNew: false };
   }
 
+  // Adopt an assistant guardian the gateway mirror is missing.
+  const asst = await findVellumGuardianFromAssistant();
+  if (asst) {
+    log.info(
+      { guardianPrincipalId: asst.principalId },
+      "Adopting assistant guardian — repairing gateway mirror",
+    );
+    await createGuardianBinding({
+      channel: "vellum",
+      externalUserId: asst.address,
+      deliveryChatId: asst.deliveryChatId ?? "local",
+      guardianPrincipalId: asst.principalId,
+      verifiedVia: "bootstrap",
+      ...(asst.displayName ? { displayName: asst.displayName } : {}),
+    });
+    return { guardianPrincipalId: asst.principalId, isNew: false };
+  }
+
+  // Neither DB has a guardian — mint a fresh principal.
   const displayName = await fetchPlatformOwnerDisplayName();
   const guardianPrincipalId = `vellum-principal-${uuid()}`;
   await createGuardianBinding({
@@ -697,6 +784,18 @@ export async function ensureVellumGuardianBinding(): Promise<string> {
     verifiedVia: "bootstrap",
     ...(displayName ? { displayName } : {}),
   });
+  return { guardianPrincipalId, isNew: true };
+}
+
+/**
+ * Ensure a vellum guardian binding exists, returning its principalId.
+ * Adopts an existing assistant guardian before minting (see
+ * resolveOrCreateVellumGuardian).
+ *
+ * Called during gateway startup to backfill existing installations.
+ */
+export async function ensureVellumGuardianBinding(): Promise<string> {
+  const { guardianPrincipalId } = await resolveOrCreateVellumGuardian();
   return guardianPrincipalId;
 }
 
@@ -711,24 +810,8 @@ export async function bootstrapGuardian(params: {
   platform: string;
   deviceId: string;
 }): Promise<GuardianBootstrapResult> {
-  // 1. Ensure guardian principal
-  let isNew = false;
-  let guardianPrincipalId: string;
-
-  const existing = await findVellumGuardian();
-  if (existing) {
-    guardianPrincipalId = existing.principalId;
-  } else {
-    guardianPrincipalId = `vellum-principal-${uuid()}`;
-    await createGuardianBinding({
-      channel: "vellum",
-      externalUserId: guardianPrincipalId,
-      deliveryChatId: "local",
-      guardianPrincipalId,
-      verifiedVia: "bootstrap",
-    });
-    isNew = true;
-  }
+  // 1. Resolve (or adopt/mint) the guardian principal.
+  const { guardianPrincipalId, isNew } = await resolveOrCreateVellumGuardian();
 
   // 2. Revoke existing credentials for this device and mint a fresh pair.
   const pair = mintAndRecordDeviceBoundTokenPair({

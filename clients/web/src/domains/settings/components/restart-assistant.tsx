@@ -2,8 +2,9 @@ import { Loader2, RotateCcw } from "lucide-react";
 import { useState } from "react";
 
 import { restartAssistant } from "@/assistant/api";
-import { getLockfile, isLocalAssistant, isLocalMode } from "@/lib/local-mode";
+import { isCliWakeableAssistant } from "@/lib/local-mode";
 import {
+  isLocalModeHostAvailable,
   sleepLocalAssistantHost,
   wakeLocalAssistantHost,
 } from "@/runtime/local-mode-host";
@@ -33,10 +34,11 @@ export function RestartAssistant({ assistantId }: { assistantId: string }) {
     setConfirmOpen(false);
     setRestarting(true);
     try {
-      const lockfileEntry = isLocalMode()
-        ? getLockfile().assistants.find((a) => a.assistantId === assistantId)
-        : undefined;
-      const isCli = !!lockfileEntry && isLocalAssistant(lockfileEntry);
+      // CLI restart (sleep + wake) only when a local host is present to run it
+      // and the assistant is one wake operates on; otherwise the platform API.
+      // Mirrors the wake-affordance gating in status-banner / connect-recovery.
+      const isCli =
+        isLocalModeHostAvailable() && isCliWakeableAssistant(assistantId);
 
       if (isCli) {
         const result = await restartLocalAssistant(assistantId);

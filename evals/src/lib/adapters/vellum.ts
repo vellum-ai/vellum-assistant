@@ -842,6 +842,7 @@ export class VellumAgent implements BaseAgent {
       retireResult = await this.runner.run(this.cliCommand, [
         "retire",
         this.id,
+        "--yes",
       ]);
     } catch (err) {
       retireError = err;

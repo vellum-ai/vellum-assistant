@@ -76,6 +76,42 @@
       "category": "marketing",
       "homepage": "https://github.com/vellum-ai/marketing-expert",
       "license": "MIT"
+    },
+    {
+      "name": "ai-hero-engineer-kit",
+      "source": {
+        "source": "github",
+        "repo": "marinatrajk/ai-hero-engineer-kit",
+        "ref": "18d33c62b15a3e2cc22dc070723fe3077749dcec"
+      },
+      "description": "Five engineering skills adapted from Matt Pocock's '5 Agent Skills I Use Every Day' \u2014 plans, PRDs, vertical-slice issues, TDD loop, and codebase deepening in one install.",
+      "category": "developer",
+      "homepage": "https://github.com/marinatrajk/ai-hero-engineer-kit",
+      "license": "MIT"
+    },
+    {
+      "name": "admin-copilot",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/admin-copilot",
+        "ref": "287276f2dd36608f660851858cea14c85e1785d1"
+      },
+      "description": "Proactive chief-of-staff: a morning digest, propose-then-confirm inbox triage, calendar prep, and a weekly competitor brief.",
+      "category": "productivity",
+      "homepage": "https://github.com/vellum-ai/admin-copilot",
+      "license": "MIT"
+    },
+    {
+      "name": "git-workflow",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/git-workflow",
+        "ref": "6a8a8df108615c3fdae2bb5c512c2b6632047dd6"
+      },
+      "description": "Git workflow tools and multi-perspective code review: branch management, push, stash, PR creation/review/merge/checkout, diffs, logs, changelog generation, and parallel subagent code review with confidence scoring.",
+      "category": "developer",
+      "homepage": "https://github.com/vellum-ai/git-workflow",
+      "license": "MIT"
     }
   ]
 }

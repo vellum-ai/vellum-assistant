@@ -33,6 +33,40 @@ mock.module("../config/loader.js", () => ({
   },
 }));
 
+// `resolveTurnInboundActorContext` reads INFO (contact notes / interaction
+// count) via a local contactId join. Stub the join so the actor-context tests
+// can stage it without standing up the contacts schema.
+const realContactStoreForAssemblyTest =
+  await import("../contacts/contact-store.js");
+let contactInfoById: Record<
+  string,
+  { notes: string | null; interactionCount: number }
+> = {};
+mock.module("../contacts/contact-store.js", () => ({
+  ...realContactStoreForAssemblyTest,
+  findContactInfoById: (contactId: string) =>
+    contactInfoById[contactId] ?? null,
+}));
+
+// `resolveTurnInboundActorContext` must NOT re-resolve ACL via the actor-trust
+// resolver on the fresh-inbound path. Track calls so the tests can assert it
+// is never invoked.
+const realActorTrustResolverForAssemblyTest = await import(
+  "../runtime/actor-trust-resolver.js"
+);
+let resolveActorTrustCalls = 0;
+mock.module("../runtime/actor-trust-resolver.js", () => ({
+  ...realActorTrustResolverForAssemblyTest,
+  resolveActorTrust: (
+    ...args: Parameters<
+      typeof realActorTrustResolverForAssemblyTest.resolveActorTrust
+    >
+  ) => {
+    resolveActorTrustCalls += 1;
+    return realActorTrustResolverForAssemblyTest.resolveActorTrust(...args);
+  },
+}));
+
 // PKB search is mocked so the reminder-hints tests can assert behavior
 // without standing up Qdrant. The mock returns whatever is staged in
 // `pkbSearchResults` / `pkbSearchThrows` for the enclosing test.
@@ -1476,6 +1510,11 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
 // ---------------------------------------------------------------------------
 
 describe("resolveTurnInboundActorContext", () => {
+  beforeEach(() => {
+    contactInfoById = {};
+    resolveActorTrustCalls = 0;
+  });
+
   /**
    * No trust context means there is no inbound actor to ground the turn on, so
    * the actor section is suppressed.
@@ -1483,7 +1522,7 @@ describe("resolveTurnInboundActorContext", () => {
   test("returns null when there is no trust context", () => {
     // GIVEN a turn with no trust context
     // WHEN the inbound actor context is resolved
-    const actorContext = resolveTurnInboundActorContext(undefined, "asst-1");
+    const actorContext = resolveTurnInboundActorContext(undefined);
 
     // THEN there is no actor context to inject
     expect(actorContext).toBeNull();
@@ -1494,8 +1533,7 @@ describe("resolveTurnInboundActorContext", () => {
    * only renders actor fields for non-guardian actors.
    */
   test("returns null on guardian turns", () => {
-    // GIVEN a guardian trust context (no requester chat id, so the direct
-    // projection branch is taken)
+    // GIVEN a guardian trust context
     const trustContext: TrustContext = {
       sourceChannel: "vellum",
       trustClass: "guardian",
@@ -1503,40 +1541,78 @@ describe("resolveTurnInboundActorContext", () => {
     };
 
     // WHEN the inbound actor context is resolved
-    const actorContext = resolveTurnInboundActorContext(trustContext, "asst-1");
+    const actorContext = resolveTurnInboundActorContext(trustContext);
 
     // THEN the actor section is suppressed for the owner
     expect(actorContext).toBeNull();
   });
 
   /**
-   * A non-guardian trust context without the identity fields needed for the
-   * unified actor-trust lookup is projected directly into the actor context.
+   * ACL fields (trust class, member status/policy, guardian identity) project
+   * from the verdict-derived trust context — without re-resolving via the
+   * actor-trust resolver.
    */
-  test("projects a non-guardian trust context directly", () => {
-    // GIVEN a trusted-contact trust context lacking requester chat/user ids
+  test("projects ACL from the verdict-derived trust context", () => {
+    // GIVEN a trusted-contact trust context carrying verdict-derived ACL fields
     const trustContext: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "trusted_contact",
       requesterIdentifier: "@bob_handle",
       requesterDisplayName: "Bob",
       requesterSenderDisplayName: "Bobby",
+      requesterExternalUserId: "tg-123",
+      requesterChatId: "chat-1",
+      memberStatus: "active",
+      memberPolicy: "allow",
     };
 
     // WHEN the inbound actor context is resolved
-    const actorContext = resolveTurnInboundActorContext(trustContext, "asst-1");
+    const actorContext = resolveTurnInboundActorContext(trustContext);
 
-    // THEN the trust context is projected into the model-facing actor context
+    // THEN ACL is projected from the context and no ACL re-read happened
     expect(actorContext).toEqual({
       sourceChannel: "telegram",
-      canonicalActorIdentity: null,
+      canonicalActorIdentity: "tg-123",
       actorIdentifier: "@bob_handle",
       actorDisplayName: "Bob",
       actorSenderDisplayName: "Bobby",
       actorMemberDisplayName: undefined,
       trustClass: "trusted_contact",
       guardianIdentity: undefined,
+      memberStatus: "active",
+      memberPolicy: "allow",
     });
+    expect(resolveActorTrustCalls).toBe(0);
+  });
+
+  /**
+   * INFO fields (contact notes, interaction count) are joined locally by the
+   * verdict-stamped contact ID, not re-resolved through the ACL store.
+   */
+  test("populates INFO via the local contactId join", () => {
+    // GIVEN a contact whose INFO is available by id
+    contactInfoById["contact-42"] = {
+      notes: "prefers async updates",
+      interactionCount: 7,
+    };
+    const trustContext: TrustContext = {
+      sourceChannel: "telegram",
+      trustClass: "trusted_contact",
+      requesterExternalUserId: "tg-123",
+      requesterChatId: "chat-1",
+      requesterContactId: "contact-42",
+      memberStatus: "active",
+      memberPolicy: "allow",
+    };
+
+    // WHEN the inbound actor context is resolved
+    const actorContext = resolveTurnInboundActorContext(trustContext);
+
+    // THEN INFO comes from the local join and ACL stays verdict-derived
+    expect(actorContext?.contactNotes).toBe("prefers async updates");
+    expect(actorContext?.contactInteractionCount).toBe(7);
+    expect(actorContext?.memberStatus).toBe("active");
+    expect(resolveActorTrustCalls).toBe(0);
   });
 });
 

@@ -44,7 +44,6 @@ import { ToolResultEventSchema } from "./events/tool-result.js";
 import { ToolUsePreviewStartEventSchema } from "./events/tool-use-preview-start.js";
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
 import { TraceEventSchema } from "./events/trace-event.js";
-import { TurnProfileAutoRoutedEventSchema } from "./events/turn-profile-auto-routed.js";
 import { UISurfaceCompleteEventSchema } from "./events/ui-surface-complete.js";
 import { UISurfaceDismissEventSchema } from "./events/ui-surface-dismiss.js";
 import { UISurfaceShowEventSchema } from "./events/ui-surface-show.js";
@@ -62,7 +61,6 @@ export {
   CALL_SITE_COMPACTION_AGENT,
   CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
 } from "./constants/call-sites.js";
-export { AUTO_PROFILE_KEY } from "./constants/inference-profiles.js";
 export { SSE_REPLAY_RING_COUNT_LIMIT } from "./constants/sse-replay.js";
 export { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "./constants/tool-execution.js";
 export {
@@ -300,10 +298,6 @@ export {
   TraceEventStatusSchema,
 } from "./events/trace-event.js";
 export {
-  type TurnProfileAutoRoutedEvent,
-  TurnProfileAutoRoutedEventSchema,
-} from "./events/turn-profile-auto-routed.js";
-export {
   type UISurfaceCompleteEvent,
   UISurfaceCompleteEventSchema,
 } from "./events/ui-surface-complete.js";
@@ -537,7 +531,6 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ToolUsePreviewStartEventSchema,
   ToolUseStartEventSchema,
   TraceEventSchema,
-  TurnProfileAutoRoutedEventSchema,
   UISurfaceCompleteEventSchema,
   UISurfaceDismissEventSchema,
   UISurfaceShowEventSchema,

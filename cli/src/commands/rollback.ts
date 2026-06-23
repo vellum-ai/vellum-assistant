@@ -2,7 +2,6 @@ import {
   findAssistantByName,
   getActiveAssistant,
   loadAllAssistants,
-  resolveCloud,
   saveAssistantEntry,
   type AssistantEntry,
 } from "../lib/assistant-config";
@@ -208,7 +207,7 @@ async function rollbackPlatformViaEndpoint(
 export async function rollback(): Promise<void> {
   const { name, version } = parseArgs();
   const entry = resolveTargetAssistant(name);
-  const cloud = resolveCloud(entry);
+  const cloud = entry.cloud;
 
   if (cloud === "apple-container") {
     console.error(

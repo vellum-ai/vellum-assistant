@@ -13,29 +13,23 @@
  * 2. Finds a vision-capable profile for captioning via `findVisionProfile`.
  *    If none exists, images are replaced with a fail-open placeholder so the
  *    model at least knows an image was present.
- * 3. Persists each image to the workspace attachments directory (content-hash
- *    deduped) so the original image is accessible to future vision-capable
- *    turns or subagents.
- * 4. Captions each `ImageContent` block through the `vision` call site (with
- *    an in-memory content-hash cache to avoid re-captioning across turns), and
- *    replaces the block with `[Image: <caption>] (saved to <path>)`.
+ * 3. Replaces each `ImageContent` block with a `[Image …]` text caption via
+ *    {@link captionImageBlocks} (which also persists the original and caches
+ *    captions across turns).
  *
- * Fail-open is the dominant error mode: a captioning failure leaves a
- * placeholder text block (with the saved image path) rather than the raw
- * image (which would cause a provider rejection on a text-only model) or
- * dropping the image entirely (which would lose information).
+ * The companion `post-tool-use` hook applies the same substitution to images a
+ * tool returns (e.g. a browser screenshot).
  */
 
 import {
   doesSupportVision,
   getModelProfiles,
-  type ImageContent,
   type PluginHookFn,
   type UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
 
-import { persistImage } from "../src/image-persist.js";
-import { captionImage, findVisionProfile } from "../src/vision-caption.js";
+import { captionImageBlocks } from "../src/caption-blocks.js";
+import { findVisionProfile } from "../src/vision-caption.js";
 
 const userPromptSubmit: PluginHookFn<UserPromptSubmitContext> = async (ctx) => {
   // Resolve the active profile from modelProfileKey, falling back to the
@@ -57,39 +51,11 @@ const userPromptSubmit: PluginHookFn<UserPromptSubmitContext> = async (ctx) => {
   // Scan all messages for image blocks and replace them with captions.
   let imageCount = 0;
   for (const message of ctx.latestMessages) {
-    for (let i = 0; i < message.content.length; i++) {
-      const block = message.content[i];
-      if (block.type !== "image") continue;
-
-      imageCount++;
-      const image = block as ImageContent;
-
-      // Persist the image to the workspace so it's accessible to future
-      // vision-capable turns or subagents.
-      const savedPath = persistImage(
-        image.source.data,
-        image.source.media_type,
-      );
-
-      if (visionProfileKey != null) {
-        const caption = await captionImage(image, visionProfileKey, ctx.logger);
-        const pathSuffix = savedPath != null ? ` (saved to ${savedPath})` : "";
-        message.content[i] = {
-          type: "text",
-          text:
-            caption != null
-              ? `[Image: ${caption}]${pathSuffix}`
-              : `[Image: captioning failed — unable to describe]${pathSuffix}`,
-        };
-      } else {
-        // No vision profile configured at all — fail-open placeholder.
-        const pathSuffix = savedPath != null ? ` (saved to ${savedPath})` : "";
-        message.content[i] = {
-          type: "text",
-          text: `[Image: no vision-capable model configured to describe this image]${pathSuffix}`,
-        };
-      }
-    }
+    imageCount += await captionImageBlocks(
+      message.content,
+      visionProfileKey,
+      ctx.logger,
+    );
   }
 
   if (imageCount > 0) {

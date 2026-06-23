@@ -21,7 +21,8 @@ export function makeCtx(
   // initial state and verify outcomes without direct mutation.
   const queueState = {
     pendingQueuedMessageIds: overrides.pendingQueuedMessageIds ?? [],
-    requestIdToMessageId: overrides.requestIdToMessageId ?? new Map<string, string>(),
+    requestIdToMessageId:
+      overrides.requestIdToMessageId ?? new Map<string, string>(),
     pendingLocalDeletions: overrides.pendingLocalDeletions ?? new Set<string>(),
     dismissedSurfaceIds: overrides.dismissedSurfaceIds ?? new Set<string>(),
   };
@@ -65,7 +66,6 @@ export function makeCtx(
       onPollReconciled: mock(() => {}),
       onTurnTimeout: mock(() => {}),
       resetTurn: mock(() => {}),
-      onProfileAutoRouted: mock(() => {}),
       enqueueMessage: mock(() => {}),
       dequeueMessage: mock(() => {}),
       deleteQueuedMessage: mock(() => {}),

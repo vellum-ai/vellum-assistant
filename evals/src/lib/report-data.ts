@@ -176,6 +176,10 @@ export interface SessionProfileAggregate {
   failedCount: number;
   runningCount: number;
   scoreTotal: number;
+  /** Sum of every run's wall-clock runtime (ms) — undefined when any run lacks it. */
+  totalRuntimeMs?: number;
+  /** Sum of every run's cost (USD cents) — undefined when any run lacks it. */
+  totalCostUsd?: number;
 }
 
 /** One test row inside a session detail page. */
@@ -615,6 +619,14 @@ function aggregateByProfile(
       runningCount: profileRuns.filter((run) => run.status === "running")
         .length,
       scoreTotal: aggregateScore(profileRuns),
+      // Sum per-run runtime/cost. Undefined when any run lacks the field
+      // (legacy runs) so the UI shows "—" rather than a misleading partial sum.
+      totalRuntimeMs: profileRuns.every((r) => r.runtimeMs !== undefined)
+        ? profileRuns.reduce((sum, r) => sum + (r.runtimeMs ?? 0), 0)
+        : undefined,
+      totalCostUsd: profileRuns.every((r) => r.totalCostUsd !== undefined)
+        ? profileRuns.reduce((sum, r) => sum + (r.totalCostUsd ?? 0), 0)
+        : undefined,
     }))
     .sort((a, b) => a.profileId.localeCompare(b.profileId));
 }

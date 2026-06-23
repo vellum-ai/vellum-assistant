@@ -24,7 +24,6 @@ import {
 import { isHttpAuthDisabled } from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
-import { createApprovalCopyGenerator } from "../daemon/approval-generators.js";
 import { processMessage } from "../daemon/process-message.js";
 import { createLiveVoiceSession } from "../live-voice/live-voice-session.js";
 import { LiveVoiceSessionManager } from "../live-voice/live-voice-session-manager.js";
@@ -77,10 +76,6 @@ import {
   startCanonicalGuardianExpirySweep,
   stopCanonicalGuardianExpirySweep,
 } from "./routes/canonical-guardian-expiry-sweep.js";
-import {
-  startGuardianExpirySweep,
-  stopGuardianExpirySweep,
-} from "./routes/channel-guardian-routes.js";
 import { RouteError } from "./routes/errors.js";
 import { handleHealth, handleReadyz } from "./routes/identity-routes.js";
 import {
@@ -92,10 +87,7 @@ import { matchSkillRoute } from "./skill-route-registry.js";
 // Re-export for consumers
 export { isPrivateAddress } from "./middleware/auth.js";
 
-import type {
-  ApprovalCopyGenerator,
-  RuntimeHttpServerOptions,
-} from "./http-types.js";
+import type { RuntimeHttpServerOptions } from "./http-types.js";
 
 const log = getLogger("runtime-http");
 
@@ -155,7 +147,6 @@ export class RuntimeHttpServer {
   private port: number;
   private hostname: string;
 
-  private readonly approvalCopyGenerator: ApprovalCopyGenerator;
   private retrySweepTimer: ReturnType<typeof setInterval> | null = null;
   private sweepInProgress = false;
 
@@ -166,7 +157,6 @@ export class RuntimeHttpServer {
     this.port = options.port ?? DEFAULT_PORT;
     this.hostname = options.hostname ?? DEFAULT_HOSTNAME;
 
-    this.approvalCopyGenerator = createApprovalCopyGenerator();
     this.liveVoiceSessionManager = new LiveVoiceSessionManager({
       createSession: (context) => createLiveVoiceSession(context),
     });
@@ -475,9 +465,6 @@ export class RuntimeHttpServer {
       }, 30_000);
     }
 
-    startGuardianExpirySweep(this.approvalCopyGenerator);
-    log.info("Guardian approval expiry sweep started");
-
     startCanonicalGuardianExpirySweep();
     log.info("Canonical guardian request expiry sweep started");
 
@@ -486,7 +473,6 @@ export class RuntimeHttpServer {
   }
 
   async stop(): Promise<void> {
-    stopGuardianExpirySweep();
     stopCanonicalGuardianExpirySweep();
     stopInferenceProfileSessionReaper();
     if (this.retrySweepTimer) {

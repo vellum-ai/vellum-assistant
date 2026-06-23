@@ -398,7 +398,7 @@
 
     "@typescript-eslint/eslint-plugin/ignore": ["ignore@7.0.5", "", {}, "sha512-Hs59xBNfUIunMFgWAbGX5cq6893IbWg4KnrjbYwX3tx0ztorVgTDA6B2sxf8ejHJ4wz8BqGUMYlnzNBer5NvGg=="],
 
-    "@vellumai/local-mode/@vellumai/environments": ["@vellumai/environments@file:../packages/environments", {}],
+    "@vellumai/local-mode/@vellumai/environments": ["@vellumai/environments@file:../packages/environments", { "devDependencies": { "@types/bun": "1.3.11", "typescript": "5.9.3" } }],
 
     "fast-glob/glob-parent": ["glob-parent@5.1.2", "", { "dependencies": { "is-glob": "^4.0.1" } }, "sha512-AOIgSQCepiJYwP3ARnGx+5VnTu2HBYdzbGP45eLw1vr3zB3vZLeyed1sC9hnbcOc9/SrMyM5RPQrkGz4aS9Zow=="],
 

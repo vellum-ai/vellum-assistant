@@ -21,6 +21,7 @@ import {
   findContactByAddress,
   findGuardianForChannel,
 } from "../contacts/contact-store.js";
+import { channelStatusToMemberStatus } from "../contacts/member-status.js";
 import type { ContactChannel, ContactWithChannels } from "../contacts/types.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
@@ -56,22 +57,6 @@ export type TrustClass =
   | "trusted_contact"
   | "unverified_contact"
   | "unknown";
-
-/**
- * Trust-class ordinal used by the per-channel admission policy floor check.
- * Higher rank = more trusted. Blocked/revoked never reach classification —
- * their effective rank is 0 and is enforced by the inbound ACL stage's
- * member-status short-circuit, not via this table.
- *
- * See `wave-b-plan.md` §2.4. Paired with `ADMISSION_FLOOR` from
- * `@vellumai/gateway-client` — both tables move together.
- */
-export const TRUST_CLASS_RANK: Record<TrustClass, number> = {
-  guardian: 4,
-  trusted_contact: 3,
-  unverified_contact: 2,
-  unknown: 1,
-};
 
 /**
  * Fully resolved trust context from the actor trust resolver.
@@ -338,5 +323,12 @@ export function toTrustContext(
     requesterMemberDisplayName: ctx.actorMetadata.memberDisplayName,
     requesterExternalUserId: ctx.canonicalSenderId ?? undefined,
     requesterChatId: conversationExternalId,
+    // Member grounding from the resolved memberRecord (voice + verdict paths
+    // both populate it).
+    requesterContactId: ctx.memberRecord?.contact.id,
+    memberStatus: ctx.memberRecord
+      ? channelStatusToMemberStatus(ctx.memberRecord.channel.status)
+      : undefined,
+    memberPolicy: ctx.memberRecord?.channel.policy,
   };
 }

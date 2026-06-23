@@ -1,5 +1,4 @@
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
 
 /**
  * Reverse v23: add the "guardian_" prefix back to verification-related
@@ -48,36 +47,30 @@ export function downRenameGuardianVerificationValues(
 export function migrateRenameGuardianVerificationValues(
   database: DrizzleDb,
 ): void {
-  withCrashRecovery(
-    database,
-    "migration_rename_guardian_verification_values_v1",
-    () => {
-      const raw = getSqliteFrom(database);
+  const raw = getSqliteFrom(database);
 
-      // Rename call_mode values
-      raw.exec(
-        /*sql*/ `UPDATE call_sessions SET call_mode = 'verification' WHERE call_mode = 'guardian_verification'`,
-      );
+  // Rename call_mode values
+  raw.exec(
+    /*sql*/ `UPDATE call_sessions SET call_mode = 'verification' WHERE call_mode = 'guardian_verification'`,
+  );
 
-      // Rename event_type values
-      raw.exec(
-        /*sql*/ `UPDATE call_events SET event_type = 'voice_verification_started' WHERE event_type = 'guardian_voice_verification_started'`,
-      );
-      raw.exec(
-        /*sql*/ `UPDATE call_events SET event_type = 'voice_verification_succeeded' WHERE event_type = 'guardian_voice_verification_succeeded'`,
-      );
-      raw.exec(
-        /*sql*/ `UPDATE call_events SET event_type = 'voice_verification_failed' WHERE event_type = 'guardian_voice_verification_failed'`,
-      );
-      raw.exec(
-        /*sql*/ `UPDATE call_events SET event_type = 'outbound_voice_verification_started' WHERE event_type = 'outbound_guardian_voice_verification_started'`,
-      );
-      raw.exec(
-        /*sql*/ `UPDATE call_events SET event_type = 'outbound_voice_verification_succeeded' WHERE event_type = 'outbound_guardian_voice_verification_succeeded'`,
-      );
-      raw.exec(
-        /*sql*/ `UPDATE call_events SET event_type = 'outbound_voice_verification_failed' WHERE event_type = 'outbound_guardian_voice_verification_failed'`,
-      );
-    },
+  // Rename event_type values
+  raw.exec(
+    /*sql*/ `UPDATE call_events SET event_type = 'voice_verification_started' WHERE event_type = 'guardian_voice_verification_started'`,
+  );
+  raw.exec(
+    /*sql*/ `UPDATE call_events SET event_type = 'voice_verification_succeeded' WHERE event_type = 'guardian_voice_verification_succeeded'`,
+  );
+  raw.exec(
+    /*sql*/ `UPDATE call_events SET event_type = 'voice_verification_failed' WHERE event_type = 'guardian_voice_verification_failed'`,
+  );
+  raw.exec(
+    /*sql*/ `UPDATE call_events SET event_type = 'outbound_voice_verification_started' WHERE event_type = 'outbound_guardian_voice_verification_started'`,
+  );
+  raw.exec(
+    /*sql*/ `UPDATE call_events SET event_type = 'outbound_voice_verification_succeeded' WHERE event_type = 'outbound_guardian_voice_verification_succeeded'`,
+  );
+  raw.exec(
+    /*sql*/ `UPDATE call_events SET event_type = 'outbound_voice_verification_failed' WHERE event_type = 'outbound_guardian_voice_verification_failed'`,
   );
 }

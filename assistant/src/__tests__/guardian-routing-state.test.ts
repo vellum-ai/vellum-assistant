@@ -36,7 +36,6 @@ await initializeDb();
 function resetTables(): void {
   const db = getDb();
   db.run("DELETE FROM channel_inbound_events");
-  db.run("DELETE FROM channel_guardian_approval_requests");
   db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM conversation_keys");
   db.run("DELETE FROM messages");

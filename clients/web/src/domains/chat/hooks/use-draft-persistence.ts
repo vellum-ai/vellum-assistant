@@ -22,6 +22,7 @@
 
 import { useEffect, useRef } from "react";
 
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { useConversationStore } from "@/stores/conversation-store";
 
@@ -56,10 +57,13 @@ export function useDraftPersistence(): void {
         clearTimeout(timer);
         timer = undefined;
       }
-      const key = useConversationStore.getState().activeConversationId;
+      // previousConversationId stays in sync with the composer's content
+      // because switchToConversation updates it after handleConversationSwitch
+      // sets the new input. Falls back to activeConversationId for the
+      // initial-load case where previousConversationId is still null.
+      const key = useChatSessionStore.getState().previousConversationId
+        ?? useConversationStore.getState().activeConversationId;
       if (key) {
-        // saveDraft deletes the entry when the text is empty, so clearing the
-        // composer then reloading correctly leaves nothing to restore.
         useComposerStore.getState().saveDraft(key, useComposerStore.getState().input);
       }
     };
@@ -81,16 +85,17 @@ export function useDraftPersistence(): void {
   }, []);
 
   // --- Cold-load restore ---------------------------------------------------
-  // When a conversation first becomes active (page load / navigation), restore
-  // its saved draft. `restoreDraftIfEmpty` no-ops when the composer already has
-  // text, so this never fights `handleConversationSwitch` (which owns switch-time
-  // restore) and never clobbers a deep-link / starter prefill.
+  // On mount, restore the saved draft for the initial conversation. Runs once
+  // per component lifecycle — navigation switches are handled by
+  // handleConversationSwitch (called from switchToConversation). Limiting to
+  // mount prevents restoreDraftIfEmpty from racing with handleConversationSwitch
+  // when both fire for the same activeConversationId change.
   const activeConversationId = useConversationStore.use.activeConversationId();
-  const restoredKeyRef = useRef<string | null>(null);
+  const didMountRestoreRef = useRef(false);
   useEffect(() => {
     if (!activeConversationId) return;
-    if (restoredKeyRef.current === activeConversationId) return;
-    restoredKeyRef.current = activeConversationId;
+    if (didMountRestoreRef.current) return;
+    didMountRestoreRef.current = true;
     useComposerStore.getState().restoreDraftIfEmpty(activeConversationId);
   }, [activeConversationId]);
 }

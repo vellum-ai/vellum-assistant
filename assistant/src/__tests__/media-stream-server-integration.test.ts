@@ -176,6 +176,22 @@ mock.module("../calls/channel-admission-reader.js", () => ({
   getChannelAdmissionPolicy: mockGetChannelAdmissionPolicy,
 }));
 
+// Mock the inbound trust reader. handleStart awaits this and threads the
+// verdict into routeSetup so the media-stream transport enforces the same
+// gateway ACL as ConversationRelay. Tests override mockInboundVerdict.
+let mockInboundVerdict: unknown = null;
+const mockGetInboundTrustVerdict = jest.fn(
+  async (_args?: Record<string, unknown>) => mockInboundVerdict,
+);
+mock.module("../calls/inbound-trust-reader.js", () => ({
+  getInboundTrustVerdict: mockGetInboundTrustVerdict,
+  getPhoneCallerVerdict: (otherPartyNumber: string | undefined) =>
+    mockGetInboundTrustVerdict({
+      channelType: "phone",
+      actorExternalId: otherPartyNumber || undefined,
+    }),
+}));
+
 // Mock the actor trust resolver (used by handleStart to derive trust context)
 mock.module("../runtime/actor-trust-resolver.js", () => ({
   toTrustContext: jest.fn(() => ({
@@ -356,6 +372,8 @@ beforeEach(() => {
   mockGetChannelAdmissionPolicy.mockClear();
   mockAdmissionPolicy = null;
   mockAdmissionGate = null;
+  mockGetInboundTrustVerdict.mockClear();
+  mockInboundVerdict = null;
   // Reset routeSetup to default normal_call
   mockRouteSetupResult = {
     outcome: { action: "normal_call" as const, isInbound: true },
@@ -1533,6 +1551,115 @@ describe("media-stream setup outcome scenarios", () => {
       expect(registerCallController).not.toHaveBeenCalled();
       expect(mockStartInitialGreeting).not.toHaveBeenCalled();
       expect(speakSystemPrompt).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Gateway trust verdict ──────────────────────────────────────────
+  // handleStart fetches getInboundTrustVerdict for the inbound caller and
+  // threads it into routeSetup, so the media-stream transport enforces the
+  // same gateway ACL as ConversationRelay. routeSetup itself decides
+  // verdict-vs-local; these tests assert the verdict is fetched and passed.
+
+  describe("gateway trust verdict", () => {
+    test("fetches the inbound caller's verdict and threads it into routeSetup", async () => {
+      mockInboundVerdict = {
+        channelType: "phone",
+        actorExternalId: "+14155550000",
+        contactId: "contact-1",
+        channelId: "channel-1",
+        status: "verified",
+        policy: "allow",
+        resolutionFailed: false,
+      };
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-verdict-thread-1", {
+        id: "call-verdict-thread-1",
+        conversationId: "conv-verdict-thread-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+14155550000",
+        toNumber: "+15550001111",
+      });
+
+      const session = new MediaStreamCallSession(
+        mockWs.ws,
+        "call-verdict-thread-1",
+      );
+      session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
+
+      // Verdict fetched for the inbound caller (from number) on the phone channel.
+      expect(mockGetInboundTrustVerdict).toHaveBeenCalledWith({
+        channelType: "phone",
+        actorExternalId: "+14155550000",
+      });
+      // Verdict threaded into routeSetup.
+      expect(routeSetup).toHaveBeenCalledWith(
+        expect.objectContaining({ verdict: mockInboundVerdict }),
+      );
+    });
+
+    test("a blocked/denied member verdict is enforced (deny) on the media-stream transport", async () => {
+      // The real router returns `deny` for a member verdict whose ACL is
+      // blocked/revoked/deny; the mock reflects that outcome here.
+      mockInboundVerdict = {
+        channelType: "phone",
+        actorExternalId: "+14155550000",
+        contactId: "contact-1",
+        channelId: "channel-1",
+        status: "blocked",
+        policy: "deny",
+        resolutionFailed: false,
+      };
+      mockRouteSetupResult = {
+        outcome: {
+          action: "deny",
+          message:
+            "This number is not authorized to reach the assistant right now.",
+          logReason: "Inbound voice ACL: member blocked",
+        },
+        resolved: {
+          assistantId: "self",
+          isInbound: true,
+          otherPartyNumber: "+14155550000",
+          actorTrust: { trustClass: "unknown", memberRecord: null },
+        },
+      };
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-verdict-deny-1", {
+        id: "call-verdict-deny-1",
+        conversationId: "conv-verdict-deny-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+14155550000",
+        toNumber: "+15550001111",
+      });
+
+      const session = new MediaStreamCallSession(
+        mockWs.ws,
+        "call-verdict-deny-1",
+      );
+      session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
+
+      // Verdict was passed into routeSetup, which denied the caller.
+      expect(routeSetup).toHaveBeenCalledWith(
+        expect.objectContaining({ verdict: mockInboundVerdict }),
+      );
+      expect(speakSystemPrompt).toHaveBeenCalledWith(
+        expect.anything(),
+        "This number is not authorized to reach the assistant right now.",
+      );
+      expect(updateCallSession).toHaveBeenCalledWith(
+        "call-verdict-deny-1",
+        expect.objectContaining({ status: "failed" }),
+      );
+      expect(registerCallController).not.toHaveBeenCalled();
+      expect(mockStartInitialGreeting).not.toHaveBeenCalled();
     });
   });
 });

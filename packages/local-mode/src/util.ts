@@ -2,6 +2,8 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 
+import { SENSITIVE_KEYS } from "./lockfile-contract";
+
 const CLI_PACKAGE_NAME = "@vellumai/cli";
 
 /**
@@ -17,24 +19,18 @@ export interface CliInvocation {
   baseArgs: string[];
 }
 
-const SENSITIVE_FIELDS = [
-  "signingKey",
-  "bearerToken",
-  "guardianBootstrapSecret",
-] as const;
-
 export function stripSensitiveFields(data: Record<string, unknown>): void {
   const assistants = data.assistants;
   if (!Array.isArray(assistants)) return;
   for (const assistant of assistants) {
     if (assistant && typeof assistant === "object") {
       const entry = assistant as Record<string, unknown>;
-      for (const field of SENSITIVE_FIELDS) {
+      for (const field of SENSITIVE_KEYS) {
         delete entry[field];
       }
       const resources = entry.resources;
       if (resources && typeof resources === "object") {
-        for (const field of SENSITIVE_FIELDS) {
+        for (const field of SENSITIVE_KEYS) {
           delete (resources as Record<string, unknown>)[field];
         }
       }

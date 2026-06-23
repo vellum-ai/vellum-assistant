@@ -24,12 +24,14 @@ let mockOperationCalls: Array<{
   conversationId: string;
   trustClass?: string;
   transportInterface?: string;
+  sourceActorPrincipalId?: string;
 }> = [];
 
 /** When set, findConversation returns a fake conversation object. */
 let mockConversation: {
   trustContext?: { trustClass: string };
   transportInterface?: string;
+  getTurnActorPrincipalId?: () => string | undefined;
 } | null = null;
 
 let mockFindConversationCalls: string[] = [];
@@ -42,6 +44,7 @@ mock.module("../../browser/operations.js", () => ({
       conversationId: string;
       trustClass?: string;
       transportInterface?: string;
+      sourceActorPrincipalId?: string;
     },
   ) => {
     mockOperationCalls.push({
@@ -50,6 +53,7 @@ mock.module("../../browser/operations.js", () => ({
       conversationId: context.conversationId,
       trustClass: context.trustClass,
       transportInterface: context.transportInterface,
+      sourceActorPrincipalId: context.sourceActorPrincipalId,
     });
     return mockOperationResult;
   },
@@ -71,8 +75,16 @@ const browserExecuteHandler = ROUTES.find(
 )!.handler;
 
 /** Call the handler with the RouteHandlerArgs shape. */
-function callHandler(body: Record<string, unknown>) {
-  return browserExecuteHandler({ body, pathParams: {}, queryParams: {} });
+function callHandler(
+  body: Record<string, unknown>,
+  headers?: Record<string, string>,
+) {
+  return browserExecuteHandler({
+    body,
+    headers,
+    pathParams: {},
+    queryParams: {},
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -187,6 +199,7 @@ describe("browser_execute route", () => {
     mockConversation = {
       trustContext: { trustClass: "trusted" },
       transportInterface: "chrome-extension",
+      getTurnActorPrincipalId: () => undefined,
     };
 
     await callHandler({
@@ -202,6 +215,64 @@ describe("browser_execute route", () => {
       trustClass: "trusted",
       transportInterface: "chrome-extension",
     });
+  });
+
+  test("threads actor principal header into browser tool context", async () => {
+    await callHandler(
+      {
+        operation: "status",
+        input: {},
+        sessionId: "actor-session",
+      },
+      { "x-vellum-actor-principal-id": "actor-123" },
+    );
+
+    expect(mockOperationCalls).toHaveLength(1);
+    expect(mockOperationCalls[0].sourceActorPrincipalId).toBe("actor-123");
+  });
+
+  test("falls back to live conversation actor when no actor header exists", async () => {
+    mockConversation = {
+      trustContext: { trustClass: "trusted" },
+      transportInterface: "macos",
+      getTurnActorPrincipalId: () => "conversation-actor",
+    };
+
+    await callHandler({
+      operation: "status",
+      input: {},
+      sessionId: "unused",
+      conversationId: "conv-live-actor",
+    });
+
+    expect(mockOperationCalls).toHaveLength(1);
+    expect(mockOperationCalls[0]).toMatchObject({
+      conversationId: "conv-live-actor",
+      sourceActorPrincipalId: "conversation-actor",
+    });
+  });
+
+  test("prefers live conversation actor over the request header", async () => {
+    mockConversation = {
+      trustContext: { trustClass: "trusted" },
+      transportInterface: "macos",
+      getTurnActorPrincipalId: () => "conversation-actor",
+    };
+
+    await callHandler(
+      {
+        operation: "status",
+        input: {},
+        sessionId: "unused",
+        conversationId: "conv-live-actor",
+      },
+      { "x-vellum-actor-principal-id": "header-actor" },
+    );
+
+    expect(mockOperationCalls).toHaveLength(1);
+    expect(mockOperationCalls[0].sourceActorPrincipalId).toBe(
+      "conversation-actor",
+    );
   });
 
   test("does not call findConversation when no conversationId provided", async () => {

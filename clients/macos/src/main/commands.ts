@@ -41,6 +41,7 @@ export const DEFAULT_ACCELERATORS: Record<VellumCommandKind, string> = {
   zoomOut: "",
   actualSize: "",
   selectAssistant: "",
+  chooseAssistant: "",
   createAssistant: "",
   retireAssistant: "",
   quickInputSubmit: "",

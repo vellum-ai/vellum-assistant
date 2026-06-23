@@ -22,7 +22,22 @@ const localAssistant: LockfileAssistant = {
   assistantId: "asst-local",
   name: "Local",
   cloud: "local",
-  resources: { gatewayPort: 7830, daemonPort: 7831 },
+  resources: {
+    gatewayPort: 7830,
+    daemonPort: 7831,
+    runtimeVersion: "v0.8.13",
+  },
+};
+
+const otherLocalAssistant: LockfileAssistant = {
+  assistantId: "asst-other",
+  name: "Other Local",
+  cloud: "local",
+  resources: {
+    gatewayPort: 7930,
+    daemonPort: 7931,
+    runtimeVersion: "v0.8.12",
+  },
 };
 
 beforeEach(() => {
@@ -39,17 +54,50 @@ describe("setFromLockfile", () => {
   it("copies organizationId for platform entries", () => {
     const lockfile: Lockfile = {
       assistants: [platformAssistant],
-      activeAssistant: null,
+      activeAssistant: "asst-platform",
     };
     useResolvedAssistantsStore.getState().setFromLockfile(lockfile);
 
     const entry = useResolvedAssistantsStore.getState().assistants[0];
     expect(entry.id).toBe("asst-platform");
+    expect(entry.cloud).toBe("vellum");
     expect(entry.isPlatformHosted).toBe(true);
     expect(entry.organizationId).toBe("org-1");
+    expect(entry.isActiveLockfileAssistant).toBe(true);
   });
 
-  it("leaves organizationId undefined for local entries", () => {
+  it("copies Bun-local fields for local entries", () => {
+    const lockfile: Lockfile = {
+      assistants: [localAssistant],
+      activeAssistant: "asst-local",
+    };
+    useResolvedAssistantsStore.getState().setFromLockfile(lockfile);
+
+    const entry = useResolvedAssistantsStore.getState().assistants[0];
+    expect(entry.id).toBe("asst-local");
+    expect(entry.cloud).toBe("local");
+    expect(entry.isLocal).toBe(true);
+    expect(entry.organizationId).toBeUndefined();
+    expect(entry.runtimeVersion).toBe("v0.8.13");
+    expect(entry.isActiveLockfileAssistant).toBe(true);
+  });
+
+  it("marks local entries inactive when the lockfile active pointer differs", () => {
+    const lockfile: Lockfile = {
+      assistants: [localAssistant, otherLocalAssistant],
+      activeAssistant: "asst-other",
+    };
+    useResolvedAssistantsStore.getState().setFromLockfile(lockfile);
+
+    const [entry, otherEntry] = useResolvedAssistantsStore.getState().assistants;
+    expect(entry?.id).toBe("asst-local");
+    expect(entry?.cloud).toBe("local");
+    expect(entry?.isActiveLockfileAssistant).toBe(false);
+    expect(otherEntry?.id).toBe("asst-other");
+    expect(otherEntry?.isActiveLockfileAssistant).toBe(true);
+  });
+
+  it("treats a sole local entry as active when the lockfile active pointer is empty", () => {
     const lockfile: Lockfile = {
       assistants: [localAssistant],
       activeAssistant: null,
@@ -58,12 +106,50 @@ describe("setFromLockfile", () => {
 
     const entry = useResolvedAssistantsStore.getState().assistants[0];
     expect(entry.id).toBe("asst-local");
-    expect(entry.isLocal).toBe(true);
-    expect(entry.organizationId).toBeUndefined();
+    expect(entry.cloud).toBe("local");
+    expect(entry.isActiveLockfileAssistant).toBe(true);
+  });
+
+  it("treats a sole local entry as active when the lockfile active pointer is stale", () => {
+    const lockfile: Lockfile = {
+      assistants: [localAssistant],
+      activeAssistant: "asst-stale",
+    };
+    useResolvedAssistantsStore.getState().setFromLockfile(lockfile);
+
+    const entry = useResolvedAssistantsStore.getState().assistants[0];
+    expect(entry.id).toBe("asst-local");
+    expect(entry.cloud).toBe("local");
+    expect(entry.isActiveLockfileAssistant).toBe(true);
   });
 });
 
 describe("upsertFromApi", () => {
+  it("hydrates lockfile fields when replacing the list from the API", () => {
+    useLockfileStore.getState().setLockfile({
+      assistants: [localAssistant],
+      activeAssistant: "asst-local",
+    });
+
+    useResolvedAssistantsStore.getState().setFromApi([
+      {
+        id: "asst-local",
+        name: "Local",
+        created: "2026-01-01T00:00:00Z",
+        is_local: true,
+      } as Parameters<
+        ReturnType<typeof useResolvedAssistantsStore.getState>["setFromApi"]
+      >[0][number],
+    ]);
+
+    const entry = useResolvedAssistantsStore.getState().assistants[0];
+    expect(entry.id).toBe("asst-local");
+    expect(entry.cloud).toBe("local");
+    expect(entry.runtimeVersion).toBe("v0.8.13");
+    expect(entry.isActiveLockfileAssistant).toBe(true);
+    expect(entry.organizationId).toBeUndefined();
+  });
+
   it("preserves a lockfile-seeded organizationId on refresh (API has no org)", () => {
     useResolvedAssistantsStore.getState().setFromLockfile({
       assistants: [platformAssistant],
@@ -86,12 +172,35 @@ describe("upsertFromApi", () => {
     expect(entry.organizationId).toBe("org-1");
   });
 
-  it("seeds organizationId from the lockfile cache when inserting a new entry", () => {
+  it("preserves a lockfile-seeded runtimeVersion on refresh", () => {
+    useResolvedAssistantsStore.getState().setFromLockfile({
+      assistants: [localAssistant],
+      activeAssistant: "asst-local",
+    });
+
+    useResolvedAssistantsStore.getState().upsertFromApi({
+      id: "asst-local",
+      name: "Local (refreshed)",
+      created: "2026-01-01T00:00:00Z",
+      is_local: true,
+    } as Parameters<
+      ReturnType<typeof useResolvedAssistantsStore.getState>["upsertFromApi"]
+    >[0]);
+
+    const entry = useResolvedAssistantsStore.getState().assistants[0];
+    expect(entry.id).toBe("asst-local");
+    expect(entry.name).toBe("Local (refreshed)");
+    expect(entry.cloud).toBe("local");
+    expect(entry.runtimeVersion).toBe("v0.8.13");
+    expect(entry.isActiveLockfileAssistant).toBe(true);
+  });
+
+  it("seeds lockfile fields from the cache when inserting a new entry", () => {
     // A lifecycle refresh can land before the lockfile subscription has seeded
-    // the resolved list; the insert must still pick up the org the lockfile knows.
+    // the resolved list; the insert must still pick up the fields the lockfile knows.
     useLockfileStore.getState().setLockfile({
-      assistants: [platformAssistant],
-      activeAssistant: null,
+      assistants: [platformAssistant, localAssistant],
+      activeAssistant: "asst-local",
     });
 
     useResolvedAssistantsStore.getState().upsertFromApi({
@@ -105,7 +214,24 @@ describe("upsertFromApi", () => {
 
     const entry = useResolvedAssistantsStore.getState().assistants[0];
     expect(entry.id).toBe("asst-platform");
+    expect(entry.cloud).toBe("vellum");
     expect(entry.organizationId).toBe("org-1");
+    expect(entry.isActiveLockfileAssistant).toBe(false);
+
+    useResolvedAssistantsStore.getState().upsertFromApi({
+      id: "asst-local",
+      name: "Local",
+      created: "2026-01-01T00:00:00Z",
+      is_local: true,
+    } as Parameters<
+      ReturnType<typeof useResolvedAssistantsStore.getState>["upsertFromApi"]
+    >[0]);
+
+    const localEntry = useResolvedAssistantsStore.getState().assistants[1];
+    expect(localEntry.id).toBe("asst-local");
+    expect(localEntry.cloud).toBe("local");
+    expect(localEntry.runtimeVersion).toBe("v0.8.13");
+    expect(localEntry.isActiveLockfileAssistant).toBe(true);
   });
 });
 

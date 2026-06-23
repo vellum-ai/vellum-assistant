@@ -29,7 +29,11 @@ import {
   PluginAlreadyInstalledError,
   PluginNotFoundError,
 } from "../lib/install-from-github.js";
-import { listInstalledPlugins } from "../lib/list-installed-plugins.js";
+import {
+  type AllPluginInfo,
+  listAllPlugins,
+  listInstalledPlugins,
+} from "../lib/list-installed-plugins.js";
 import type { FingerprintComparison } from "../lib/plugin-fingerprint.js";
 import {
   DEFAULT_PIN_HISTORY_LIMIT,
@@ -43,6 +47,13 @@ import {
   InvalidSearchPatternError,
   searchPlugins,
 } from "../lib/search-plugins.js";
+import {
+  disablePlugin,
+  enablePlugin,
+  InvalidPluginNameError as ToggleInvalidPluginNameError,
+  PluginAlreadyInStateException,
+  PluginDirectoryNotFoundError,
+} from "../lib/toggle-plugin.js";
 import {
   PluginNotInstalledError,
   uninstallPlugin,
@@ -78,6 +89,8 @@ Examples:
   $ assistant plugins install example --pin <sha> --force
   $ assistant plugins list
   $ assistant plugins list --json
+  $ assistant plugins list --all
+  $ assistant plugins list --all --json
   $ assistant plugins inspect example
   $ assistant plugins inspect example --json
   $ assistant plugins diff example
@@ -90,7 +103,9 @@ Examples:
   $ assistant plugins search example
   $ assistant plugins search "^example"
   $ assistant plugins search example --json
-  $ assistant plugins uninstall example`,
+  $ assistant plugins uninstall example
+  $ assistant plugins enable example
+  $ assistant plugins disable example`,
       );
 
       plugins
@@ -230,9 +245,63 @@ Examples:
 
       plugins
         .command("list")
-        .description("List plugins installed under <workspaceDir>/plugins/")
+        .description(
+          "List plugins installed in your workspace.",
+        )
         .option("--json", "Emit machine-readable JSON instead of a table")
-        .action((opts: { json?: boolean }) => {
+        .option(
+          "--all",
+          "Include first-party default plugins and disabled plugins in the listing",
+        )
+        .action((opts: { json?: boolean; all?: boolean }) => {
+          if (opts.all) {
+            const all = listAllPlugins();
+
+            if (opts.json) {
+              process.stdout.write(JSON.stringify(all, null, 2) + "\n");
+              return;
+            }
+
+            if (all.length === 0) {
+              console.log("No plugins found.");
+              return;
+            }
+
+            const rows = all.map((p) => ({
+              name: p.name,
+              version: p.packageJson?.version ?? "—",
+              source: p.source,
+              status: formatAllPluginStatus(p),
+            }));
+            const nameW = Math.max(4, ...rows.map((r) => r.name.length));
+            const versionW = Math.max(7, ...rows.map((r) => r.version.length));
+            const sourceW = Math.max(6, ...rows.map((r) => r.source.length));
+            const pad = (s: string, w: number) =>
+              s + " ".repeat(w - s.length);
+            console.log(
+              `${pad("NAME", nameW)}  ${pad("VERSION", versionW)}  ${pad("SOURCE", sourceW)}  STATUS`,
+            );
+            for (const r of rows) {
+              console.log(
+                `${pad(r.name, nameW)}  ${pad(r.version, versionW)}  ${pad(r.source, sourceW)}  ${r.status}`,
+              );
+            }
+
+            const userCount = all.filter((p) => p.source === "user").length;
+            const defaultCount = all.length - userCount;
+            const disabledCount = all.filter((p) => p.disabled).length;
+            console.log("");
+            console.log(
+              `${all.length} plugin${all.length === 1 ? "" : "s"} ` +
+                `(${userCount} user, ${defaultCount} default` +
+                (disabledCount > 0
+                  ? `, ${disabledCount} disabled`
+                  : "") +
+                `).`,
+            );
+            return;
+          }
+
           const installed = listInstalledPlugins();
 
           if (opts.json) {
@@ -490,6 +559,61 @@ Examples:
         });
 
       plugins
+        .command("disable <name>")
+        .description(
+          "Disable a plugin by creating a .disabled sentinel file. Works for both user-installed and default plugins. Restart the assistant for the change to take effect.",
+        )
+        .action((name: string) => {
+          try {
+            const result = disablePlugin(name);
+            log.info({ name: result.name }, "plugin disabled");
+            console.log(
+              `Disabled plugin "${result.name}". Restart the assistant for the change to take effect.`,
+            );
+          } catch (err) {
+            if (
+              err instanceof PluginAlreadyInStateException ||
+              err instanceof ToggleInvalidPluginNameError ||
+              err instanceof PluginDirectoryNotFoundError
+            ) {
+              console.error(err.message);
+              process.exitCode = 1;
+              return;
+            }
+            const message = err instanceof Error ? err.message : String(err);
+            console.error(`Plugin disable failed: ${message}`);
+            process.exitCode = 1;
+          }
+        });
+
+      plugins
+        .command("enable <name>")
+        .description(
+          "Re-enable a disabled plugin by removing the .disabled sentinel file. Restart the assistant for the change to take effect.",
+        )
+        .action((name: string) => {
+          try {
+            const result = enablePlugin(name);
+            log.info({ name: result.name }, "plugin enabled");
+            console.log(
+              `Enabled plugin "${result.name}". Restart the assistant for the change to take effect.`,
+            );
+          } catch (err) {
+            if (
+              err instanceof PluginAlreadyInStateException ||
+              err instanceof ToggleInvalidPluginNameError
+            ) {
+              console.error(err.message);
+              process.exitCode = 1;
+              return;
+            }
+            const message = err instanceof Error ? err.message : String(err);
+            console.error(`Plugin enable failed: ${message}`);
+            process.exitCode = 1;
+          }
+        });
+
+      plugins
         .command("upgrade <name>")
         .description(
           "Upgrade an installed plugin to the marketplace's current pin",
@@ -691,6 +815,18 @@ function formatTimestamp(iso: string | null): string {
   const ms = Date.parse(iso);
   if (!Number.isFinite(ms)) return "unknown";
   return new Date(ms).toISOString().slice(0, 19);
+}
+
+/**
+ * Build a human-readable status string for a plugin in the `--all` listing.
+ * Combines disabled state with any structural issues.
+ */
+function formatAllPluginStatus(p: AllPluginInfo): string {
+  const parts: string[] = [];
+  if (p.disabled) parts.push("disabled");
+  if (p.issues.length > 0) parts.push(p.issues.join("; "));
+  if (parts.length === 0) parts.push("enabled");
+  return parts.join(", ");
 }
 
 /** Human-readable status line for an inspection result. The from/to revisions

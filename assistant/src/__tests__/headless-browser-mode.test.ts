@@ -482,9 +482,9 @@ describe("browser_mode wiring through tool execution", () => {
     expect(result.isError).toBe(false);
   });
 
-  // ── Auto mode still works without browser_mode ────────────────
+  // ── Default browser selection works without browser_mode ──────
 
-  test("auto mode works when browser_mode is not specified", async () => {
+  test("default browser selection works when browser_mode is not specified", async () => {
     const result = await executeBrowserSnapshot({}, ctx);
     expect(result.isError).toBe(false);
   });

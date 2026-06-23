@@ -1,5 +1,7 @@
 // Surface types, UI surface lifecycle messages.
 
+import { z } from "zod";
+
 // === Surface type definitions ===
 
 export type SurfaceType =
@@ -35,16 +37,24 @@ export interface SurfaceAction {
   data?: Record<string, unknown>;
 }
 
-export interface CardSurfaceData {
-  title: string;
-  subtitle?: string;
-  body: string;
-  metadata?: Array<{ label: string; value: string }>;
+/**
+ * Card surface data. Defined as a Zod schema so the type is derived (not
+ * hand-maintained) and the seed-content-block schema can compose it directly
+ * instead of treating card `data` as an opaque record.
+ */
+export const CardSurfaceDataSchema = z.object({
+  title: z.string(),
+  subtitle: z.string().optional(),
+  body: z.string(),
+  metadata: z
+    .array(z.object({ label: z.string(), value: z.string() }))
+    .optional(),
   /** Optional template name for specialized rendering (e.g. "weather_forecast"). */
-  template?: string;
+  template: z.string().optional(),
   /** Arbitrary data consumed by the template renderer. Shape depends on template. */
-  templateData?: Record<string, unknown>;
-}
+  templateData: z.record(z.string(), z.unknown()).optional(),
+});
+export type CardSurfaceData = z.infer<typeof CardSurfaceDataSchema>;
 
 export interface ChoiceOption {
   id: string;

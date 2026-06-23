@@ -5,7 +5,6 @@ import { Tag } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import { AUTO_PROFILE_KEY } from "@vellumai/assistant-api";
 import type { ProfileWithName } from "@/domains/settings/ai/utils";
 
 // ---------------------------------------------------------------------------
@@ -56,7 +55,6 @@ export function ProfileListItem({
 }: ProfileListItemProps) {
   const isManaged = profile.source === "managed";
   const isActive = profile.status !== "disabled";
-  const isAutoProfile = profile.name === AUTO_PROFILE_KEY;
 
   return (
     <div className="relative">
@@ -78,9 +76,7 @@ export function ProfileListItem({
         />
 
         {/* Label — dimmed when disabled */}
-        <div
-          className={`min-w-0 flex-1${isActive ? "" : " opacity-55"}`}
-        >
+        <div className={`min-w-0 flex-1${isActive ? "" : " opacity-55"}`}>
           <div className="flex items-center gap-2">
             <Typography
               variant="body-medium-default"
@@ -89,7 +85,7 @@ export function ProfileListItem({
             >
               {profile.label ?? profile.name}
             </Typography>
-            {isManaged && profile.name !== AUTO_PROFILE_KEY && (
+            {isManaged && (
               <Tag
                 tone="positive"
                 title="Managed by Platform — auth is locked, but you can rename or disable this profile."
@@ -135,14 +131,8 @@ export function ProfileListItem({
               aria-label={`${isActive ? "Disable" : "Enable"} ${profile.label ?? profile.name}`}
             />
           </div>
-          <div
-            className={`flex w-[92px] items-center justify-end gap-2${isAutoProfile ? " invisible" : ""}`}
-          >
-            <Button
-              variant="ghost"
-              size="compact"
-              onClick={onEditClick}
-            >
+          <div className="flex w-[92px] items-center justify-end gap-2">
+            <Button variant="ghost" size="compact" onClick={onEditClick}>
               {isManaged ? "View" : "Edit"}
             </Button>
             <Button
@@ -172,9 +162,6 @@ export function ProfileListItem({
           {deleteError}
         </Typography>
       ) : null}
-      {profile.name === AUTO_PROFILE_KEY && (
-        <div className="mx-2 mt-1 border-b border-[var(--border-subtle)]" />
-      )}
     </div>
   );
 }

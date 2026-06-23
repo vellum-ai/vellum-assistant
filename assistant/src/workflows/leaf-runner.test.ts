@@ -511,6 +511,45 @@ describe("runLeaf — tool path", () => {
   });
 });
 
+describe("runLeaf — tool path fails loud on empty output", () => {
+  test("rethrows a swallowed provider rejection instead of returning empty", async () => {
+    // The agent loop does not throw out of run() on a provider rejection — it
+    // emits an `error` event and returns with no assistant text. An empty
+    // responseQueue makes the mocked provider reject on the first call, which
+    // the real AgentLoop swallows. Before the fix runToolLeaf returned
+    // `{ output: "" }` (a phantom success the engine scored as completed); now
+    // the leaf rethrows the captured error so the engine journals it failed.
+    responseQueue = [];
+
+    await expect(
+      runLeaf({ prompt: "do work", tools: [], trustContext }),
+    ).rejects.toThrow(/responseQueue exhausted/);
+  });
+
+  test("throws when the model produces no output text", async () => {
+    // A clean end_turn with empty text is still a failure for a leaf whose
+    // contract is to return a result — surfacing it lets `map`/`parallel`
+    // yield null rather than a silent empty success.
+    responseQueue = [
+      {
+        content: [{ type: "text", text: "   " }],
+        model: "test",
+        usage: { inputTokens: 4, outputTokens: 0 },
+        stopReason: "end_turn",
+      },
+    ];
+
+    await expect(
+      runLeaf({
+        prompt: "do work",
+        tools: [],
+        label: "empty-leaf",
+        trustContext,
+      }),
+    ).rejects.toThrow(/produced no output text/);
+  });
+});
+
 describe("runLeaf — no persistence", () => {
   test("creates no conversation rows and no workspace files", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "leaf-runner-test-"));
