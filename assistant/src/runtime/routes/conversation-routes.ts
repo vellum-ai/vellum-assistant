@@ -25,6 +25,7 @@ import {
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
+import { getGuardianDelivery } from "../../contacts/guardian-delivery-reader.js";
 import {
   mergeConsecutiveAssistantMessages,
   mergeToolResultsIntoAssistantMessages,
@@ -121,7 +122,6 @@ import {
 } from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { getPersistedSeq } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
@@ -136,15 +136,12 @@ import type {
   SendMessageDeps,
 } from "../http-types.js";
 import { resolveLocalTrustContext } from "../local-actor-identity.js";
+import { resolveLocalPrincipalTrustContext } from "../local-principal-trust.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
   publishConversationListAndMetadataChanged,
   publishConversationMessagesChanged,
 } from "../sync/resource-sync-events.js";
-import {
-  resolveTrustContext,
-  withSourceChannel,
-} from "../trust-context-resolver.js";
 import {
   BadRequestError,
   InternalError,
@@ -1444,24 +1441,29 @@ export async function handleSendMessage(
     conversation.setOnboardingContext(body.onboarding!);
   }
 
-  // Resolve guardian context from the AuthContext's actorPrincipalId.
-  // The JWT-verified principal is used as the sender identity through
-  // the same trust resolution pipeline that channel ingress uses.
+  // Resolve guardian context from the AuthContext's actorPrincipalId via the
+  // gateway guardian binding: a vellum principal is the guardian or nobody.
   if (actorPrincipalId) {
     // Dev bypass (HTTP auth disabled): the synthetic "dev-bypass" principal
-    // won't match any guardian binding. Resolve from the local guardian
-    // binding instead, which produces the correct guardian trust context.
+    // won't match any guardian binding. Resolve the real guardian principal
+    // from the gateway binding and map that through instead.
     if (isHttpAuthDisabled() && actorPrincipalId === "dev-bypass") {
+      const guardians = await getGuardianDelivery({ channelTypes: ["vellum"] });
+      const guardianPrincipalId = guardians?.[0]?.principalId;
       conversation.setTrustContext(
-        await resolveLocalTrustContext(sourceChannel),
+        guardianPrincipalId
+          ? await resolveLocalPrincipalTrustContext({
+              actorPrincipalId: guardianPrincipalId,
+              sourceChannel: "vellum",
+              conversationExternalId: "local",
+            })
+          : await resolveLocalTrustContext(sourceChannel),
       );
     } else {
-      const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-      let trustCtx = resolveTrustContext({
-        assistantId,
+      let trustCtx = await resolveLocalPrincipalTrustContext({
+        actorPrincipalId,
         sourceChannel: "vellum",
         conversationExternalId: "local",
-        actorExternalId: actorPrincipalId,
       });
       if (trustCtx.trustClass === "unknown") {
         // Attempt to heal guardian binding drift: after a DB reset the
@@ -1470,11 +1472,10 @@ export async function handleSendMessage(
         // key survives the reset, so the JWT is authentic — just stale.
         const healed = await healGuardianBindingDrift(actorPrincipalId);
         if (healed) {
-          trustCtx = resolveTrustContext({
-            assistantId,
+          trustCtx = await resolveLocalPrincipalTrustContext({
+            actorPrincipalId,
             sourceChannel: "vellum",
             conversationExternalId: "local",
-            actorExternalId: actorPrincipalId,
           });
           log.info(
             {
@@ -1495,7 +1496,7 @@ export async function handleSendMessage(
           );
         }
       }
-      conversation.setTrustContext(withSourceChannel(sourceChannel, trustCtx));
+      conversation.setTrustContext(trustCtx);
     }
   } else {
     // Service principals (svc_gateway) or tokens without an actor ID

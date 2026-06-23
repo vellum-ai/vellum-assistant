@@ -62,6 +62,12 @@ mock.module("../runtime/guardian-reply-router.js", () => ({
   routeGuardianReply: routeGuardianReplyMock,
 }));
 
+let healDriftReturn = false;
+const healGuardianBindingDriftMock = mock(async () => healDriftReturn);
+mock.module("../runtime/guardian-vellum-migration.js", () => ({
+  healGuardianBindingDrift: healGuardianBindingDriftMock,
+}));
+
 mock.module("../memory/canonical-guardian-store.js", () => ({
   createCanonicalGuardianRequest: () => ({
     id: "canonical-id",
@@ -108,6 +114,20 @@ mock.module("../runtime/local-actor-identity.js", () => ({
     trustClass: "guardian",
     sourceChannel: "vellum",
   }),
+}));
+
+let mockGuardians: Array<Record<string, unknown>> | null = [
+  {
+    channelType: "vellum",
+    contactId: "guardian-contact",
+    principalId: "test-user",
+    address: "test-user",
+    status: "active",
+  },
+];
+
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => mockGuardians,
 }));
 
 mock.module("../runtime/trust-context-resolver.js", () => ({
@@ -452,5 +472,101 @@ describe("HTTP POST /v1/messages clientTimezone transport metadata", () => {
     });
     expect(persistUserMessage).toHaveBeenCalledTimes(1);
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ============================================================================
+// TRUST CONTEXT — derived from the gateway guardian binding
+// ============================================================================
+describe("HTTP POST /v1/messages trust context from the gateway binding", () => {
+  beforeEach(() => {
+    mockGuardians = [
+      {
+        channelType: "vellum",
+        contactId: "guardian-contact",
+        principalId: "test-user",
+        address: "test-user",
+        status: "active",
+      },
+    ];
+    healDriftReturn = false;
+    healGuardianBindingDriftMock.mockClear();
+  });
+
+  function requestAs(principalId: string) {
+    return new Request("http://localhost/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-vellum-actor-principal-id": principalId,
+        "x-vellum-principal-type": "actor",
+      },
+      body: JSON.stringify({
+        conversationKey: "trust-test-key",
+        content: "hi",
+        sourceChannel: "vellum",
+        interface: "macos",
+      }),
+    });
+  }
+
+  async function trustClassFor(principalId: string): Promise<string> {
+    let captured: Record<string, unknown> | undefined;
+    const conversation = makeConversation({
+      setTrustContext: (ctx: Record<string, unknown>) => {
+        captured = ctx;
+      },
+    });
+    const res = await callHandler(
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async () => conversation,
+            assistantEventHub: { publish: async () => {} } as any,
+            resolveAttachments: () => [],
+          },
+        }),
+      requestAs(principalId),
+      undefined,
+      202,
+    );
+    expect(res.status).toBe(202);
+    return captured?.trustClass as string;
+  }
+
+  test("guardian principal resolves to guardian context", async () => {
+    expect(await trustClassFor("test-user")).toBe("guardian");
+  });
+
+  test("non-guardian principal resolves to unknown", async () => {
+    expect(await trustClassFor("vellum-principal-stranger")).toBe("unknown");
+    expect(healGuardianBindingDriftMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("re-resolves to guardian after a drift heal", async () => {
+    healDriftReturn = true;
+    // First read misses; heal "repairs" the binding so the second read matches.
+    let call = 0;
+    mockGuardians = [];
+    healGuardianBindingDriftMock.mockImplementation(async () => {
+      mockGuardians = [
+        {
+          channelType: "vellum",
+          contactId: "guardian-contact",
+          principalId: "vellum-principal-healed",
+          address: "vellum-principal-healed",
+          status: "active",
+        },
+      ];
+      call += 1;
+      return true;
+    });
+
+    expect(await trustClassFor("vellum-principal-healed")).toBe("guardian");
+    expect(call).toBe(1);
+  });
+
+  test("dev-bypass maps the gateway guardian principal to guardian", async () => {
+    expect(await trustClassFor("dev-bypass")).toBe("guardian");
   });
 });
