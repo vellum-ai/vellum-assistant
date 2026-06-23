@@ -8,7 +8,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 
 import { getGatewayDb } from "../db/connection.js";
 import {
@@ -240,46 +240,66 @@ export async function createGuardianBinding(
   let contactId: string;
   let channelId: string;
 
+  // --- Id resolution (reads the gateway DB; ids feed the dual-write) ---
+  const gwReadDb = getGatewayDb();
+
+  const existingContacts = gwReadDb
+    .select({ id: gwContacts.id })
+    .from(gwContacts)
+    .where(
+      and(
+        eq(gwContacts.role, "guardian"),
+        eq(gwContacts.principalId, params.guardianPrincipalId),
+      ),
+    )
+    .limit(1)
+    .all();
+  const existingGuardianContactId = existingContacts[0]?.id;
+
+  const claimableChannels = gwReadDb
+    .select({
+      id: gwContactChannels.id,
+      contactId: gwContactChannels.contactId,
+    })
+    .from(gwContactChannels)
+    .where(
+      and(
+        eq(gwContactChannels.type, params.channel),
+        ne(gwContactChannels.status, "blocked"),
+        sql`${gwContactChannels.address} = ${params.externalUserId} COLLATE NOCASE`,
+      ),
+    )
+    .orderBy(
+      sql`CASE WHEN ${gwContactChannels.contactId} = ${existingGuardianContactId ?? ""} THEN 0 ELSE 1 END`,
+      sql`CASE ${gwContactChannels.status} WHEN 'active' THEN 0 WHEN 'unverified' THEN 1 ELSE 2 END`,
+      desc(gwContactChannels.updatedAt),
+    )
+    .limit(1)
+    .all() as ExistingChannelRow[];
+
+  contactId =
+    existingContacts[0]?.id ?? claimableChannels[0]?.contactId ?? uuid();
+
+  let existingChannels: { id: string }[] = [];
+  if (!claimableChannels[0] && existingContacts[0]) {
+    existingChannels = gwReadDb
+      .select({ id: gwContactChannels.id })
+      .from(gwContactChannels)
+      .where(
+        and(
+          eq(gwContactChannels.contactId, contactId),
+          eq(gwContactChannels.type, params.channel),
+        ),
+      )
+      .limit(1)
+      .all();
+  }
+
+  channelId = claimableChannels[0]?.id ?? existingChannels[0]?.id ?? uuid();
+
   // --- Assistant DB write (primary, via IPC proxy) ---
   await assistantDbExec("BEGIN IMMEDIATE");
   try {
-    const existingContacts = await assistantDbQuery<{ id: string }>(
-      `SELECT id FROM contacts WHERE role = 'guardian' AND principal_id = ? LIMIT 1`,
-      [params.guardianPrincipalId],
-    );
-    const existingGuardianContactId = existingContacts[0]?.id;
-
-    const claimableChannels = await assistantDbQuery<ExistingChannelRow>(
-      `SELECT cc.id, cc.contact_id AS contactId
-       FROM contact_channels cc
-       WHERE cc.type = ?
-         AND cc.status != 'blocked'
-         AND cc.address = ? COLLATE NOCASE
-       ORDER BY
-         CASE WHEN cc.contact_id = ? THEN 0 ELSE 1 END,
-         CASE cc.status
-           WHEN 'active' THEN 0
-           WHEN 'unverified' THEN 1
-           ELSE 2
-         END,
-         cc.updated_at DESC
-       LIMIT 1`,
-      [params.channel, params.externalUserId, existingGuardianContactId ?? ""],
-    );
-
-    contactId =
-      existingContacts[0]?.id ?? claimableChannels[0]?.contactId ?? uuid();
-
-    let existingChannels: { id: string }[] = [];
-    if (!claimableChannels[0] && existingContacts[0]) {
-      existingChannels = await assistantDbQuery<{ id: string }>(
-        `SELECT id FROM contact_channels WHERE contact_id = ? AND type = ? LIMIT 1`,
-        [contactId, params.channel],
-      );
-    }
-
-    channelId = claimableChannels[0]?.id ?? existingChannels[0]?.id ?? uuid();
-
     if (existingContacts[0] || claimableChannels[0]) {
       await assistantDbRun(
         `UPDATE contacts
