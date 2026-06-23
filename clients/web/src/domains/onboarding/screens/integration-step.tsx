@@ -9,8 +9,7 @@
  * the popup must open within the user gesture — and plays the coin flourish
  * (drops toward the eyes, the eyes bump it Mario-style, it pops up and
  * vanishes). On a successful grant the parent fires the Day-2 check-in and
- * advances straight to "Meeting Created!", so the standalone calendar step is no
- * longer needed in the happy path. Skippable.
+ * advances straight to "Meeting Created!". Skippable.
  */
 
 import { useEffect, useState } from "react";
