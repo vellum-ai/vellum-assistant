@@ -298,7 +298,7 @@ function usePlatformRuntimeUpgrade({
   const targetVersionRef = useRef<string | null>(null);
   const { data: pollingOperationalStatus } = useAssistantOperationalStatus(
     pollingAssistantId,
-    { ignoreLifecycleGate: true },
+    { ignoreActiveAssistantGate: true },
   );
   const mutation = useMutation({
     mutationFn: async ({
