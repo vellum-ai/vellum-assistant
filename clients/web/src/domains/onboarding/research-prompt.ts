@@ -57,9 +57,9 @@ function renderCapabilitiesBlock(capabilities: AvailableCapability[]): string {
 Capabilities you can offer me. Each is a specialized skillset you can invoke on my behalf via your skills — not generic chat:
 ${lines}
 
-If one of these capabilities genuinely fits my situation, make AT LEAST ONE of your suggestions invoke it, and set that suggestion's "plugin" field to the capability's exact name (e.g. "marketing-expert"). The "prompt" for that suggestion must be phrased as concrete work that capability would do (e.g. "Draft positioning and a competitive teardown for my product"), so clicking it actually puts the skillset to work.
+If one of these capabilities genuinely fits my situation, make AT LEAST ONE of your suggestions invoke it, and set that suggestion's "plugin" field to the capability's exact name from the list above. The "suggestion" and "prompt" must describe the concrete work that capability would do for ME — grounded in what you researched (my actual product, stack, market, and the rivals/tools by name) — so clicking it puts the skillset to work on my real situation, not a generic version.
 Match on my IMPLIED needs, not just my stated role — use everything you researched. A technical founder very likely needs marketing-expert and admin-copilot help even though they never said "marketing" or "operations"; a solo builder shipping product still benefits from go-to-market help. Infer the capabilities that would genuinely move the needle for someone in my situation. It's fine for more than one suggestion to carry a "plugin". A suggestion with no fitting capability simply omits "plugin".
-Shape of a capability-backed suggestion: { "suggestion": "I'll sharpen your positioning and run a competitive teardown", "prompt": "Sharpen my product's positioning and run a competitive teardown of my top rivals", "plugin": "marketing-expert" }
+A capability-backed suggestion is shaped like the others plus a "plugin" key: { "suggestion": "<offer in your voice>", "prompt": "<the request in my voice>", "plugin": "<exact name from the list above>" }. The angle-bracketed parts are PLACEHOLDERS — replace them with specifics about me. Do NOT copy this example wording into a real suggestion.
 `;
 }
 
