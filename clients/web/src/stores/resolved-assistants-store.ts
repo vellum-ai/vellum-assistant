@@ -44,7 +44,9 @@ export interface ResolvedAssistant {
   id: string;
   name?: string;
   hatchedAt?: string;
+  cloud?: string;
   runtimeVersion?: string;
+  isActiveLockfileAssistant?: boolean;
   isLocal: boolean;
   isPlatformHosted: boolean;
   /** Owning org for platform entries; only the lockfile carries it, so
@@ -109,7 +111,9 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
         id: a.assistantId,
         name: a.name,
         hatchedAt: a.hatchedAt,
+        cloud: a.cloud,
         runtimeVersion: a.resources?.runtimeVersion,
+        isActiveLockfileAssistant: lockfile.activeAssistant === a.assistantId,
         isLocal: isLocalAssistant(a),
         isPlatformHosted: isPlatformAssistant(a),
         organizationId: a.organizationId,
@@ -128,13 +132,20 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
     setFromApi: (assistants) =>
       set({
         assistantsHydrated: true,
-        assistants: assistants.map((a) => ({
-          id: a.id,
-          name: a.name,
-          hatchedAt: a.created,
-          isLocal: a.is_local,
-          isPlatformHosted: !a.is_local,
-        })),
+        assistants: assistants.map((a) => {
+          const lockfileFields = getLockfileFields(a.id);
+          return {
+            id: a.id,
+            name: a.name,
+            hatchedAt: a.created,
+            cloud: lockfileFields.cloud,
+            runtimeVersion: lockfileFields.runtimeVersion,
+            isActiveLockfileAssistant:
+              lockfileFields.isActiveLockfileAssistant,
+            isLocal: a.is_local,
+            isPlatformHosted: !a.is_local,
+          };
+        }),
       }),
 
     upsertFromApi: (assistant) =>
@@ -149,27 +160,34 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
         const idx = state.assistants.findIndex((a) => a.id === assistant.id);
         if (idx >= 0) {
           const next = [...state.assistants];
+          const lockfileFields = getLockfileFields(assistant.id);
           // The API payload omits lockfile-sourced fields; preserve them across
           // lifecycle refreshes.
           next[idx] = {
             ...entry,
+            cloud: lockfileFields.cloud ?? next[idx]!.cloud,
             organizationId: next[idx]!.organizationId,
-            runtimeVersion: next[idx]!.runtimeVersion,
+            runtimeVersion:
+              lockfileFields.runtimeVersion ?? next[idx]!.runtimeVersion,
+            isActiveLockfileAssistant:
+              lockfileFields.isActiveLockfileAssistant ??
+              next[idx]!.isActiveLockfileAssistant,
           };
           return { assistants: next };
         }
         // New entry: the API payload omits lockfile-sourced fields, but the
         // lockfile may already know them.
-        const lockfileEntry = useLockfileStore
-          .getState()
-          .lockfile?.assistants.find((a) => a.assistantId === assistant.id);
+        const lockfileFields = getLockfileFields(assistant.id);
         return {
           assistants: [
             ...state.assistants,
             {
               ...entry,
-              organizationId: lockfileEntry?.organizationId,
-              runtimeVersion: lockfileEntry?.resources?.runtimeVersion,
+              cloud: lockfileFields.cloud,
+              organizationId: lockfileFields.organizationId,
+              runtimeVersion: lockfileFields.runtimeVersion,
+              isActiveLockfileAssistant:
+                lockfileFields.isActiveLockfileAssistant,
             },
           ],
         };
@@ -221,6 +239,24 @@ function reconcileSelection(
 export const useResolvedAssistantsStore = createSelectors(
   useResolvedAssistantsStoreBase,
 );
+
+function getLockfileFields(assistantId: string): {
+  cloud?: string;
+  organizationId?: string;
+  runtimeVersion?: string;
+  isActiveLockfileAssistant?: boolean;
+} {
+  const lockfile = useLockfileStore.getState().lockfile;
+  const entry = lockfile?.assistants.find((a) => a.assistantId === assistantId);
+  return {
+    cloud: entry?.cloud,
+    organizationId: entry?.organizationId,
+    runtimeVersion: entry?.resources?.runtimeVersion,
+    isActiveLockfileAssistant: lockfile
+      ? lockfile.activeAssistant === assistantId
+      : undefined,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Subscriptions

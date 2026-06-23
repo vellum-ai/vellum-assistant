@@ -39,6 +39,9 @@ export function LocalRuntimeUpgradeBanner({
   );
   const effectiveCurrentVersion =
     currentVersion ?? activeAssistant?.runtimeVersion ?? null;
+  const isBunLocalAssistant = activeAssistant?.cloud === "local";
+  const canUpgradeActiveBunLocalAssistant =
+    isBunLocalAssistant && activeAssistant?.isActiveLockfileAssistant === true;
   const isHealthyLocalRuntimeState =
     assistantState.kind === "self_hosted"
       ? !assistantState.health || assistantState.health === "healthy"
@@ -50,6 +53,7 @@ export function LocalRuntimeUpgradeBanner({
     !!assistantId &&
     !!effectiveCurrentVersion &&
     !!activeAssistant?.isLocal &&
+    canUpgradeActiveBunLocalAssistant &&
     isHealthyLocalRuntimeState &&
     isLocalModeHostAvailable();
 
