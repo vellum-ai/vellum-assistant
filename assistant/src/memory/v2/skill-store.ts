@@ -16,8 +16,11 @@
 //
 // Skill entries are kept in a small in-process cache so the render path can
 // fetch a `SkillEntry` synchronously by id without round-tripping to Qdrant.
-// The cache is replaced atomically at the end of a successful seed run; on
-// error the prior cache stays intact (skills are best-effort).
+// The cache is replaced atomically from the local catalog at the end of a seed
+// run — including when the dense embedding backend is unavailable, in which
+// case only the dense Qdrant write is deferred so the cache (and the v3 needle
+// lane it feeds) still reflects the current skills. An unexpected error in
+// another step leaves the prior cache intact (skills are best-effort).
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
@@ -228,26 +231,26 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
       );
     }
 
-    // Embed all content strings in one batched call when there is anything to
-    // embed. Skipping the call when `seeds` is empty avoids throwing on an
-    // unavailable embedding backend in the all-disabled case, so pruning and
-    // cache replacement still run and clear stale state.
+    // Build the dense + sparse vectors for the Qdrant write. Sparse (BM25/TF)
+    // encoding is computed locally and needs no backend; only the dense vectors
+    // require `embedWithBackend`, which is unconfigured during the cold-start
+    // window before a managed-proxy embedding credential is provisioned.
+    //
+    // A dense-embed failure is non-fatal to the in-memory cache: the v3 needle
+    // finder lane and always-candidate skill pinning read skills from `entries`
+    // / the page index, NOT from Qdrant, so the cache is populated from the
+    // local catalog regardless of backend state and skills stay discoverable
+    // from first boot. Only the dense Qdrant upsert is skipped; the managed-
+    // credential reseed (`maybeReseedCapabilitiesAfterManagedCredential`) and
+    // the v3 maintain pass backfill the dense vectors once the backend recovers.
     const nextEntries = new Map<string, SkillEntry>();
     let denseVectors: number[][] = [];
+    let denseAvailable = false;
+    let denseError: unknown = null;
     let encodeSparse: (
       input: string,
     ) => ReturnType<typeof generateSparseEmbedding> = generateSparseEmbedding;
     if (seeds.length > 0) {
-      const embedded = await embedWithBackend(
-        config,
-        seeds.map((s) => s.content),
-      );
-      denseVectors = await Promise.all(
-        embedded.vectors.map((v) =>
-          applyCorrectionIfCalibrated(v, embedded.provider, embedded.model),
-        ),
-      );
-
       // Skills share the concept-page Qdrant collection, so the sparse vector
       // must use the same stemmed BM25 encoding the concept-page documents
       // carry — otherwise the stemmed BM25 query vectors used by callers (see
@@ -263,6 +266,24 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
               b: config.memory.v2.bm25_b,
             })
           : generateSparseEmbedding(input);
+      try {
+        const embedded = await embedWithBackend(
+          config,
+          seeds.map((s) => s.content),
+        );
+        denseVectors = await Promise.all(
+          embedded.vectors.map((v) =>
+            applyCorrectionIfCalibrated(v, embedded.provider, embedded.model),
+          ),
+        );
+        denseAvailable = true;
+      } catch (err) {
+        denseError = err;
+        log.warn(
+          { err },
+          "Embedding backend unavailable — seeding skill cache without dense Qdrant vectors; the needle lane surfaces skills from the cache and the dense lane backfills when the backend recovers",
+        );
+      }
     }
 
     if (generation !== requestedSeedGeneration) {
@@ -274,7 +295,17 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
       return;
     }
 
-    if (seeds.length > 0) {
+    // Populate the in-memory cache (and therefore the page index / needle lane)
+    // from the local catalog regardless of dense availability.
+    for (const seed of seeds) {
+      nextEntries.set(seed.id, seed);
+    }
+
+    // Write Qdrant points only when dense vectors were produced. In the
+    // degraded (backend-unavailable) path we skip Qdrant mutation entirely —
+    // both the upsert and the prune below — so we never write half-formed
+    // points or reconcile the collection against a set we did not persist.
+    if (seeds.length > 0 && denseAvailable) {
       const now = Date.now();
       await Promise.all(
         seeds.map((seed, i) =>
@@ -287,16 +318,15 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
           }),
         ),
       );
-      for (const seed of seeds) {
-        nextEntries.set(seed.id, seed);
-      }
     }
 
-    // Prune stale skill slugs. When the catalog is unavailable (empty array
-    // from network failure or cold cache), we cannot enumerate which
-    // uninstalled catalog skills should exist, so skip pruning entirely to
-    // avoid aggressively removing previously-seeded catalog skill embeddings.
-    if (catalogAvailable) {
+    // Prune stale skill slugs. Skip when the catalog is unavailable (empty array
+    // from network failure or cold cache — we cannot enumerate which uninstalled
+    // catalog skills should exist) OR when dense vectors were not written this
+    // run (don't reconcile Qdrant against points we did not refresh). The
+    // `seeds.length === 0` branch still prunes under an available catalog so the
+    // all-disabled case clears stale rows.
+    if (catalogAvailable && (denseAvailable || seeds.length === 0)) {
       // Tag legacy skill points missing `payload.kind` before pruning so the
       // kind-scoped prune can see them. Once-per-process; the backfill is
       // idempotent (server-side `is_empty` filter), so a partial failure
@@ -321,19 +351,41 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
         seeds.map((s) => s.id),
         { kind: SKILL_PAYLOAD_KIND },
       );
-    } else {
+    } else if (!catalogAvailable) {
       log.info(
         "Catalog unavailable — skipping skill pruning to preserve prior catalog embeddings",
       );
     }
 
-    // Atomically replace the cache only after every step above succeeds.
-    entries = nextEntries;
-    // Drop the page-index cache so the next router invocation observes the
-    // freshly seeded skill set (skill entries share the unified concept-page
-    // collection and surface in the same index).
-    invalidatePageIndex();
-    lastSeedError = null;
+    // Replace the cache — but never clear a populated cache on an unverified-
+    // empty enumeration. When this run produced no entries AND the catalog was
+    // unavailable, we cannot tell "genuinely no skills" from "catalog fetch
+    // failed", so keep the prior cache rather than wiping the needle lane. A
+    // genuinely-empty catalog (catalogAvailable) still clears stale state.
+    const priorEntries = entries;
+    if (
+      nextEntries.size === 0 &&
+      priorEntries !== null &&
+      priorEntries.size > 0 &&
+      !catalogAvailable
+    ) {
+      log.warn(
+        { cachedEntries: priorEntries.size },
+        "Refusing to clear cached skill entries on an unverified-empty enumeration (catalog unavailable) — preserving the prior cache",
+      );
+    } else {
+      // Drop the page-index cache so the next router invocation observes the
+      // freshly seeded skill set (skill entries share the unified concept-page
+      // collection and surface in the same index).
+      entries = nextEntries;
+      invalidatePageIndex();
+    }
+
+    // Surface a dense-embed failure to `throwOnError` callers (the managed-
+    // credential reseed and the operator reembed route) so the existing retry +
+    // maintain machinery backfills the dense lane. The in-memory cache is
+    // already updated above, so the needle lane is fixed regardless.
+    lastSeedError = denseError;
   } catch (err) {
     lastSeedError = err;
     log.warn({ err }, "Failed to seed v2 skill entries");

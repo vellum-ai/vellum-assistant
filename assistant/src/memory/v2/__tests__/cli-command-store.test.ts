@@ -371,6 +371,31 @@ describe("seedV2CliCommandEntries", () => {
     ).rejects.toThrow("backend exploded");
   });
 
+  test("populates the cache from the Commander tree on the first seed even when the embedding backend is unavailable (cold-start needle resilience)", async () => {
+    // Cold-start race: the startup seed runs before the managed embedding
+    // credential is provisioned, so the first `embedWithBackend` throws. The
+    // in-memory cache (read by the v3 needle lane and the page index) must
+    // still populate from the local Commander tree so CLI commands are
+    // discoverable from first boot; only the dense Qdrant upsert is deferred.
+    state.commands = [
+      { name: "config", description: "Manage configuration", helpText: "..." },
+    ];
+    state.embedThrows = new Error(
+      'Embedding backend "gemini" is not configured',
+    );
+
+    await expect(seedV2CliCommandEntries()).resolves.toBeUndefined();
+
+    const entry = getCliCommandCapability("config");
+    expect(entry).not.toBeNull();
+    expect(entry?.id).toBe("config");
+    expect(listCliCommandEntries().map((e) => e.id)).toEqual(["config"]);
+
+    // No dense vectors were produced, so the Qdrant write is skipped entirely.
+    expect(state.upsertCalls).toHaveLength(0);
+    expect(state.pruneCalls).toHaveLength(0);
+  });
+
   test("skips stale in-flight seed results when a newer refresh is requested", async () => {
     state.commands = [
       { name: "config", description: "Manage configuration", helpText: "..." },
@@ -392,13 +417,28 @@ describe("seedV2CliCommandEntries", () => {
     expect(getCliCommandCapability("browser")).not.toBeNull();
   });
 
-  test("empty command set still calls prune to clear stale rows", async () => {
+  test("treats an empty command set as anomalous: skips prune and preserves the prior cache", async () => {
+    // The Commander tree is always non-empty in production, so an empty
+    // `buildCliProgramTree()` result is a transient anomaly — not a signal to
+    // clear. We neither prune Qdrant (nothing was persisted this run) nor wipe
+    // a previously-populated cache, which would take the needle lane dark.
+    state.commands = [
+      { name: "config", description: "Manage configuration", helpText: "..." },
+    ];
+    state.embedReturn = [[0.1, 0.2, 0.3]];
+
+    await seedV2CliCommandEntries();
+    expect(getCliCommandCapability("config")).not.toBeNull();
+
+    state.upsertCalls.length = 0;
+    state.pruneCalls.length = 0;
     state.commands = [];
 
     await seedV2CliCommandEntries();
 
     expect(state.upsertCalls).toHaveLength(0);
-    expect(state.pruneCalls).toHaveLength(1);
-    expect(state.pruneCalls[0].activeSuffixes).toEqual([]);
+    expect(state.pruneCalls).toHaveLength(0);
+    // The prior cache survives the anomalous empty run.
+    expect(getCliCommandCapability("config")).not.toBeNull();
   });
 });
