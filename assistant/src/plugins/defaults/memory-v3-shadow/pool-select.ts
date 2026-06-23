@@ -59,7 +59,9 @@ import type {
   ContentBlock,
   Message,
   ToolDefinition,
+  ToolUseContent,
 } from "../../../providers/types.js";
+import { redactLogString } from "../../../util/log-redact.js";
 import { getLogger } from "../../../util/logger.js";
 import { truncate } from "../../../util/truncate.js";
 import { retryForResult } from "./llm-retry.js";
@@ -118,9 +120,44 @@ export interface SelectorPool {
 
 /** Tool name forced via `tool_choice`. Shared constant so tests can match it. */
 const SELECT_PAGES_TOOL_NAME = "select_pages";
+const MEMORY_V3_SELECT_CALL_SITE = "memoryV3SelectL2" as const;
 
 /** Finder-line snippets are truncated to keep the dynamic tail compact. */
 const SNIPPET_MAX_CHARS = 300;
+const ERROR_MESSAGE_MAX_CHARS = 500;
+
+type PoolSelectorAttemptFailureReason =
+  | "provider_error"
+  | "missing_tool_use"
+  | "unexpected_tool_name"
+  | "schema_mismatch";
+
+interface PoolSelectorAttemptFailure {
+  attempt: number;
+  reason: PoolSelectorAttemptFailureReason;
+  callSite: typeof MEMORY_V3_SELECT_CALL_SITE;
+  providerName: string;
+  candidateCount: number;
+  stableCount: number;
+  finderCount: number;
+  response?: {
+    model: string;
+    actualProvider?: string;
+    stopReason: string;
+    requestModel?: string;
+    responseModel?: string;
+    contentBlockTypes: string[];
+    toolUseNames: string[];
+  };
+  error?: {
+    name: string;
+    message: string;
+    provider?: string;
+    statusCode?: number;
+  };
+  toolName?: string;
+  schemaIssues?: Array<{ path: string; code: string }>;
+}
 
 const SelectPagesSchema = z.object({
   // Optional: an omitted `ids` field is the recall-safe "keep everything"
@@ -167,6 +204,66 @@ If the conversation is centrally ABOUT a page (rather than only peripherally rel
 /** Collapse a descriptor to one line and cap its length for a finder line. */
 function renderSnippet(descriptor: string): string {
   return truncate(descriptor.replace(/\s+/g, " ").trim(), SNIPPET_MAX_CHARS);
+}
+
+function readStringField(value: unknown, key: string): string | undefined {
+  if (value === null || typeof value !== "object") return undefined;
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === "string" && field.length > 0 ? field : undefined;
+}
+
+function summarizeResponse(response: {
+  model: string;
+  actualProvider?: string;
+  stopReason: string;
+  rawRequest?: unknown;
+  rawResponse?: unknown;
+  content: ContentBlock[];
+}): NonNullable<PoolSelectorAttemptFailure["response"]> {
+  const requestModel = readStringField(response.rawRequest, "model");
+  const responseModel = readStringField(response.rawResponse, "model");
+  return {
+    model: response.model,
+    ...(response.actualProvider
+      ? { actualProvider: response.actualProvider }
+      : {}),
+    stopReason: response.stopReason,
+    ...(requestModel ? { requestModel } : {}),
+    ...(responseModel ? { responseModel } : {}),
+    contentBlockTypes: response.content.map((block) => block.type),
+    toolUseNames: response.content
+      .filter((block): block is ToolUseContent => block.type === "tool_use")
+      .map((block) => block.name),
+  };
+}
+
+function summarizeError(error: unknown): PoolSelectorAttemptFailure["error"] {
+  const record =
+    error !== null && typeof error === "object"
+      ? (error as Record<string, unknown>)
+      : {};
+  const name =
+    error instanceof Error
+      ? error.name
+      : typeof record.name === "string"
+        ? record.name
+        : "Error";
+  const rawMessage =
+    error instanceof Error
+      ? error.message
+      : typeof record.message === "string"
+        ? record.message
+        : String(error);
+  const provider =
+    typeof record.provider === "string" ? record.provider : undefined;
+  const statusCode =
+    typeof record.statusCode === "number" ? record.statusCode : undefined;
+  return {
+    name,
+    message: truncate(redactLogString(rawMessage), ERROR_MESSAGE_MAX_CHARS),
+    ...(provider ? { provider } : {}),
+    ...(statusCode !== undefined ? { statusCode } : {}),
+  };
 }
 
 /**
@@ -234,10 +331,15 @@ export async function selectPool(
   const keepAll = (): SelectedPage[] =>
     dedupeBySlug(ordered.map((slug) => ({ slug, pinned: false })));
 
-  const provider = await getConfiguredProvider("memoryV3SelectL2");
+  const provider = await getConfiguredProvider(MEMORY_V3_SELECT_CALL_SITE);
   if (!provider) {
     log.warn(
-      { candidateCount: ordered.length },
+      {
+        callSite: MEMORY_V3_SELECT_CALL_SITE,
+        candidateCount: ordered.length,
+        stableCount: pool.stable.length,
+        finderCount: pool.finder.length,
+      },
       "pool selector provider unavailable — failing the turn rather than dropping memory",
     );
     throw new MemoryV3RetrievalUnavailableError(
@@ -264,6 +366,29 @@ export async function selectPool(
   content.push({ type: "text", text: tailParts.join("\n") });
 
   const userMsg: Message = { role: "user", content };
+  const failures: PoolSelectorAttemptFailure[] = [];
+  let attempt = 0;
+  const recordFailure = (
+    failure: Omit<
+      PoolSelectorAttemptFailure,
+      | "callSite"
+      | "providerName"
+      | "candidateCount"
+      | "stableCount"
+      | "finderCount"
+    >,
+  ): void => {
+    const diagnostic: PoolSelectorAttemptFailure = {
+      ...failure,
+      callSite: MEMORY_V3_SELECT_CALL_SITE,
+      providerName: provider.name,
+      candidateCount: ordered.length,
+      stableCount: pool.stable.length,
+      finderCount: pool.finder.length,
+    };
+    failures.push(diagnostic);
+    log.warn(diagnostic, "pool selector attempt failed");
+  };
 
   // One forced-tool call, retried a few times so a transient malformed response
   // (no usable tool_use, or tool input that fails the schema) re-prompts before
@@ -277,12 +402,14 @@ export async function selectPool(
   // response, so it reflects the LAST attempt's failure mode.
   let lastError: unknown = null;
   const parsed = await retryForResult(async () => {
+    attempt += 1;
+    let response: Awaited<ReturnType<typeof provider.sendMessage>>;
     try {
-      const response = await provider.sendMessage([userMsg], {
+      response = await provider.sendMessage([userMsg], {
         tools: [SELECT_PAGES_TOOL],
         systemPrompt: SYSTEM_PROMPT,
         config: {
-          callSite: "memoryV3SelectL2" as const,
+          callSite: MEMORY_V3_SELECT_CALL_SITE,
           tool_choice: { type: "tool" as const, name: SELECT_PAGES_TOOL_NAME },
           // The last block of this one-shot message varies every turn; the
           // provider's auto-applied turn-start breakpoint would land on it and
@@ -292,14 +419,47 @@ export async function selectPool(
         },
       });
       lastError = null;
-      const toolBlock = extractToolUse(response);
-      if (!toolBlock || toolBlock.name !== SELECT_PAGES_TOOL_NAME) return null;
-      const result = SelectPagesSchema.safeParse(toolBlock.input);
-      return result.success ? result.data : null;
-    } catch (err) {
-      lastError = err;
-      throw err;
+    } catch (error) {
+      lastError = error;
+      recordFailure({
+        attempt,
+        reason: "provider_error",
+        error: summarizeError(error),
+      });
+      throw error;
     }
+    const toolBlock = extractToolUse(response);
+    if (!toolBlock) {
+      recordFailure({
+        attempt,
+        reason: "missing_tool_use",
+        response: summarizeResponse(response),
+      });
+      return null;
+    }
+    if (toolBlock.name !== SELECT_PAGES_TOOL_NAME) {
+      recordFailure({
+        attempt,
+        reason: "unexpected_tool_name",
+        response: summarizeResponse(response),
+        toolName: toolBlock.name,
+      });
+      return null;
+    }
+    const result = SelectPagesSchema.safeParse(toolBlock.input);
+    if (!result.success) {
+      recordFailure({
+        attempt,
+        reason: "schema_mismatch",
+        response: summarizeResponse(response),
+        schemaIssues: result.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          code: issue.code,
+        })),
+      });
+      return null;
+    }
+    return result.data;
   });
 
   if (parsed === null) {
@@ -309,16 +469,34 @@ export async function selectPool(
       // reporting it as a model-output problem.
       const detail =
         lastError instanceof Error ? lastError.message : String(lastError);
+      const redactedDetail = truncate(
+        redactLogString(detail),
+        ERROR_MESSAGE_MAX_CHARS,
+      );
       log.warn(
-        { candidateCount: ordered.length, err: lastError },
+        {
+          candidateCount: ordered.length,
+          stableCount: pool.stable.length,
+          finderCount: pool.finder.length,
+          callSite: MEMORY_V3_SELECT_CALL_SITE,
+          providerName: provider.name,
+          failures,
+        },
         "pool selector provider call failed after retries — failing the turn rather than dropping memory",
       );
       throw new MemoryV3RetrievalUnavailableError(
-        `memory-v3 pool selector provider call failed after retries: ${detail}`,
+        `memory-v3 pool selector provider call failed after retries: ${redactedDetail}`,
       );
     }
     log.warn(
-      { candidateCount: ordered.length },
+      {
+        candidateCount: ordered.length,
+        stableCount: pool.stable.length,
+        finderCount: pool.finder.length,
+        callSite: MEMORY_V3_SELECT_CALL_SITE,
+        providerName: provider.name,
+        failures,
+      },
       "pool selector returned no usable tool_use after retries — failing the turn rather than dropping memory",
     );
     throw new MemoryV3RetrievalUnavailableError(
