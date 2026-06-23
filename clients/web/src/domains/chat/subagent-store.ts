@@ -17,6 +17,7 @@ import { subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
 import { useConversationStore } from "@/stores/conversation-store";
 import { createSelectors } from "@/utils/create-selectors";
 import type { SubagentStatus, SubagentInnerEvent } from "@vellumai/assistant-api";
+import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import { isActiveStatus } from "@/utils/subagent-status";
 import { fetchSubagentDetail } from "./fetch-subagent-detail";
 import { mapDetailEvents } from "./map-detail-events";
@@ -45,6 +46,16 @@ export interface SubagentTimelineEvent {
    */
   input?: Record<string, unknown>;
   result?: string;
+  /**
+   * Resolved web-search query, captured from a `tool_result` event's
+   * `activityMetadata.webSearch.query`. Anthropic web_search resolves its
+   * `{query}` input only at content_block_stop, so the originating
+   * `tool_use_start` arrives with empty `input` and the query is otherwise
+   * absent live — it rides through on the matching result's metadata. The
+   * history/detail path rebuilds the query from the persisted resolved input
+   * instead, so this is only the live source.
+   */
+  searchQuery?: string;
 }
 
 export interface SubagentEntry {
@@ -340,6 +351,22 @@ function summarizeToolInput(input: Record<string, unknown>): string {
   return "";
 }
 
+/**
+ * Pull the resolved web-search query off a subagent inner event's
+ * `activityMetadata`. The query rides through on the matching `tool_result`'s
+ * metadata (passthrough on the subagent wire — see `SubagentInnerEventSchema`),
+ * which is the only place it appears live: the `tool_use_start` carries empty
+ * `input` for Anthropic web_search. `activityMetadata` isn't on the inferred
+ * `SubagentInnerEvent` type (it's a passthrough field), so read it via a narrow
+ * cast. Returns `undefined` for non-search events or an empty query.
+ */
+function extractSearchQuery(event: SubagentInnerEvent): string | undefined {
+  const meta = (event as { activityMetadata?: ToolActivityMetadata })
+    .activityMetadata;
+  const query = meta?.webSearch?.query;
+  return typeof query === "string" && query.length > 0 ? query : undefined;
+}
+
 let timelineEventCounter = 0;
 
 /** Generate a unique ID for timeline events. */
@@ -487,6 +514,9 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
         params.event.type === "tool_result"
           ? params.event.result ?? params.event.content ?? params.event.text
           : undefined,
+      // The resolved web-search query — only present (and only needed) on a
+      // web_search `tool_result`; `undefined` everywhere else.
+      searchQuery: extractSearchQuery(params.event),
     };
 
     set({

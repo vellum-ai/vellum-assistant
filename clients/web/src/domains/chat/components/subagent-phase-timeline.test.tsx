@@ -112,7 +112,11 @@ describe("SubagentPhaseTimeline — running row", () => {
     const steps: ToolCallCardStep[] = [
       bash("sleep 5", "running", "", "tc-a", "Compiling the project"),
     ];
-    const { getByTestId } = render(<SubagentPhaseTimeline steps={steps} />);
+    // A running phase implies a running subagent (the panel always passes this);
+    // only then is the last phase the pulsing active tail.
+    const { getByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} isRunning />,
+    );
 
     // The running node is the three-dot indicator: it stamps no `data-status`
     // and exposes 3 dot children (the `ThreeDotIndicator` contract).
@@ -129,9 +133,96 @@ describe("SubagentPhaseTimeline — running row", () => {
     const steps: ToolCallCardStep[] = [
       bash("npm run build", "running", "", "tc-a", ""),
     ];
-    const { getByTestId } = render(<SubagentPhaseTimeline steps={steps} />);
+    const { getByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} isRunning />,
+    );
     const header = getByTestId("subagent-phase-header");
     expect(header.textContent).toContain("npm run build");
+  });
+
+  test("an in-flight web_search surfaces its query as the live sub-label", () => {
+    // Title "Searching the web" → the phase reads as running; the running row's
+    // sub-label is the search query, not the generic phase label.
+    const steps: ToolCallCardStep[] = [
+      webSearch([], "Searching the web", "best thermos 2025"),
+    ];
+    const { getByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} isRunning />,
+    );
+    const header = getByTestId("subagent-phase-header");
+    expect(header.textContent).toContain("best thermos 2025");
+  });
+});
+
+describe("SubagentPhaseTimeline — running tail", () => {
+  test("the last phase's node keeps pulsing when the subagent is running but its steps have settled", () => {
+    // Settled bash phase + the subagent is still running → the node is the
+    // pulsing ThreeDotIndicator (no `data-status`, 3 dot children), NOT a green
+    // check — so the timeline shows ongoing work without a separate row.
+    const steps: ToolCallCardStep[] = [bash("ls", "completed", "1s", "tc-a")];
+    const { getByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} isRunning />,
+    );
+    const node = getByTestId("phase-header-status-icon");
+    expect(node.getAttribute("data-status")).toBeNull();
+    expect(node.children.length).toBe(3);
+  });
+
+  test("the last node shows its settled status when the subagent is NOT running", () => {
+    const steps: ToolCallCardStep[] = [bash("ls", "completed", "1s", "tc-a")];
+    const { getByTestId } = render(<SubagentPhaseTimeline steps={steps} />);
+    const node = getByTestId("phase-header-status-icon");
+    expect(node.getAttribute("data-status")).toBe("completed");
+  });
+
+  test("a non-last phase whose web_search never resolved does NOT pulse (coerced to settled)", () => {
+    // The web_search keeps the present-tense title because its `tool_result`
+    // never arrived, so phaseHeaderStatus reads it as "running". With a later
+    // phase after it, it must read as settled — only the tail may pulse.
+    const steps: ToolCallCardStep[] = [
+      webSearch([], "Searching the web", "orphaned query"),
+      bash("ls", "completed", "1s", "tc-a"),
+    ];
+    const { getAllByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} isRunning />,
+    );
+    const nodes = getAllByTestId("phase-header-status-icon");
+    // The stuck search node is coerced to a completed check, not the pulse.
+    expect(nodes[0]!.getAttribute("data-status")).toBe("completed");
+    // The genuine tail (bash) pulses.
+    const last = nodes[nodes.length - 1]!;
+    expect(last.getAttribute("data-status")).toBeNull();
+    expect(last.children.length).toBe(3);
+  });
+
+  test("an orphaned web_search does not pulse once the subagent is terminal", () => {
+    // Same stuck search, but as the LAST phase with the subagent no longer
+    // running — it must not pulse (the subagent is done).
+    const steps: ToolCallCardStep[] = [
+      webSearch([], "Searching the web", "orphaned query"),
+    ];
+    const { getByTestId } = render(<SubagentPhaseTimeline steps={steps} />);
+    expect(
+      getByTestId("phase-header-status-icon").getAttribute("data-status"),
+    ).toBe("completed");
+  });
+
+  test("only the last phase pulses — earlier settled phases keep their status", () => {
+    // Working → Thinking → Working. While running, only the final Working phase
+    // pulses; the first Working stays a completed check.
+    const steps: ToolCallCardStep[] = [
+      bash("a", "completed", "1s", "tc-a"),
+      thinking("t1"),
+      bash("b", "completed", "1s", "tc-b"),
+    ];
+    const { getAllByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} isRunning />,
+    );
+    const nodes = getAllByTestId("phase-header-status-icon");
+    expect(nodes[0]!.getAttribute("data-status")).toBe("completed");
+    const last = nodes[nodes.length - 1]!;
+    expect(last.getAttribute("data-status")).toBeNull();
+    expect(last.children.length).toBe(3);
   });
 });
 
@@ -382,35 +473,43 @@ describe("SubagentPhaseTimeline — clickable tool steps", () => {
   });
 });
 
-describe("SubagentPhaseTimeline — web_search ticker", () => {
-  test("an in-flight web_search phase renders the rotating result ticker", () => {
-    const steps: ToolCallCardStep[] = [
-      webSearch(
-        [
-          { title: "First Source", url: "https://a.com", domain: "a.com" },
-          { title: "Second Source", url: "https://b.com", domain: "b.com" },
-        ],
-        "Searched the web",
-      ),
-      // The latest search is still in flight → the phase reads as running.
-      webSearch([], "Searching the web"),
-    ];
-    const { getByText } = render(<SubagentPhaseTimeline steps={steps} />);
-    // The ticker (WebsiteCarousel) sits under the group header and starts on
-    // the first accumulated source — no expansion needed.
-    expect(getByText("First Source")).toBeDefined();
-  });
-
-  test("a completed web_search phase does NOT render the ticker", () => {
+describe("SubagentPhaseTimeline — web_search trailing query", () => {
+  test("an in-flight search shows the most recent query to the right of the divider", () => {
     const steps: ToolCallCardStep[] = [
       webSearch(
         [{ title: "First Source", url: "https://a.com", domain: "a.com" }],
         "Searched the web",
+        "thermos history",
+      ),
+      // The latest search is still in flight (no resolved query yet) → the phase
+      // reads as running and falls back to the previous, known query.
+      webSearch([], "Searching the web"),
+    ];
+    const { getByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} isRunning />,
+    );
+    expect(getByTestId("subagent-phase-header").textContent).toContain(
+      "thermos history",
+    );
+  });
+
+  test("a completed search shows its query in the trailing slot (not under the row)", () => {
+    const steps: ToolCallCardStep[] = [
+      webSearch(
+        [{ title: "First Source", url: "https://a.com", domain: "a.com" }],
+        "Searched the web",
+        "best vacuum flask 2025",
       ),
     ];
-    const { queryByText } = render(<SubagentPhaseTimeline steps={steps} />);
-    // Completed + collapsed → no rotating ticker; the sources live in the
-    // expandable detail instead.
+    const { getByTestId, queryByText } = render(
+      <SubagentPhaseTimeline steps={steps} />,
+    );
+    // Query sits inline on the header row...
+    expect(getByTestId("subagent-phase-header").textContent).toContain(
+      "best vacuum flask 2025",
+    );
+    // ...and the result source is NOT rendered under the row (no ticker); it
+    // only appears in the expandable detail.
     expect(queryByText("First Source")).toBeNull();
   });
 });

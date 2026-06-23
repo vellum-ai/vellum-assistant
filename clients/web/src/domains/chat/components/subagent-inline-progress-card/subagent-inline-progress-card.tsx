@@ -28,6 +28,7 @@ import { SubagentAvatarChip } from "@/components/avatar/subagent-avatar-chip";
 import { PhaseGroupedStepList } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import { ToolProgressCardShell } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
 import { useSubagentCardData } from "@/domains/chat/hooks/use-subagent-card-data";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
 
 export interface SubagentInlineProgressCardProps {
   subagentId: string;
@@ -49,6 +50,10 @@ export function SubagentInlineProgressCard({
   onStopSubagent,
 }: SubagentInlineProgressCardProps) {
   const data = useSubagentCardData(subagentId);
+  // The subagent's task name (e.g. "research-car-brands") titles the card so it
+  // reads as "which subagent"; the derived live status/detail moves to the
+  // subtitle (below).
+  const label = useSubagentStore((s) => s.byId[subagentId]?.label);
   // The shell's `loading` state subsumes running / pending / awaiting_input
   // (see `deriveCardState` in use-subagent-card-data) — exactly the window
   // where stopping the subagent is a meaningful action.
@@ -72,6 +77,18 @@ export function SubagentInlineProgressCard({
   if (!data) return null;
 
   const leadingIcon = <SubagentAvatarChip subagentId={subagentId} size={20} />;
+
+  // Title = the subagent's task name. The previously-derived status ("Working",
+  // "Searching the web") + detail collapse into the subtitle: prefer the
+  // specific detail, falling back to the status word when a step carries none
+  // (e.g. a web_search, whose detail is empty) or when the only "detail" is the
+  // label itself (no steps yet) — so the subtitle never reads blank or echoes
+  // the title.
+  const headerTitle = label ?? data.currentStepTitle;
+  const headerInfo =
+    data.currentStepInfo && data.currentStepInfo !== label
+      ? data.currentStepInfo
+      : data.currentStepTitle;
 
   // Stop button only — the open affordance is gone; the whole header row
   // now fires `onSubagentClick` via the shell's `onHeaderClick` override.
@@ -97,8 +114,8 @@ export function SubagentInlineProgressCard({
         statusIndicatorTestId="subagent-inline-card-status-indicator"
         state={data.state}
         leadingIcon={leadingIcon}
-        currentStepTitle={data.currentStepTitle}
-        currentStepInfo={data.currentStepInfo}
+        currentStepTitle={headerTitle}
+        currentStepInfo={headerInfo}
         stepCount={data.stepCount}
         // The shell's expanded body is unused — there is no inline timeline
         // to reveal. Disabling expand keeps the shell from tracking state

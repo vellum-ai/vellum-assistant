@@ -457,38 +457,6 @@ function entryWithThinking(): SubagentEntry {
   });
 }
 
-describe("SubagentDetailPanel — header step carousel", () => {
-  test("shows the live current-step line, and hides it (no duplicate) in a detail", () => {
-    render(<SubagentDetailPanel entry={entryWithThinking()} onClose={noop} />);
-
-    // Timeline view: the header reuses HeaderStepCarousel, surfacing the
-    // current step's text. The stubbed timeline body doesn't render it, so the
-    // single match is the header line.
-    expect(
-      screen.getAllByText("Full reasoning the pill preview truncates.").length,
-    ).toBe(1);
-
-    // Opening a step detail hides the live header line so the reasoning isn't
-    // duplicated across the header and the body — it renders once, in the body.
-    fireEvent.click(screen.getByTestId("timeline-thinking-pill"));
-    expect(
-      screen.getAllByText("Full reasoning the pill preview truncates.").length,
-    ).toBe(1);
-  });
-
-  test("renders no header line before any step exists", () => {
-    render(
-      <SubagentDetailPanel
-        entry={makeEntry({ status: "running", events: [] })}
-        onClose={noop}
-      />,
-    );
-    // No steps yet → the carousel is suppressed so it doesn't just echo the
-    // label; "Working" (the no-step title) never paints.
-    expect(screen.queryByText("Working")).toBeNull();
-  });
-});
-
 describe("SubagentDetailPanel — nested tool detail", () => {
   test("clicking a timeline tool pill swaps the body to the tool detail while keeping the header", () => {
     render(<SubagentDetailPanel entry={entryWithTool(true)} onClose={noop} />);

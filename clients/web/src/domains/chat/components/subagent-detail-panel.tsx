@@ -24,7 +24,6 @@ import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-component
 import { Button, Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
-import { HeaderStepCarousel } from "@/domains/chat/components/tool-progress-card/header-step-carousel";
 import { SubagentPhaseTimeline } from "@/domains/chat/components/subagent-phase-timeline";
 import { ToolDetailBody } from "@/domains/chat/components/tool-detail-panel";
 import { WebSearchDetailView } from "@/domains/chat/components/web-search/web-search-detail-view";
@@ -178,30 +177,15 @@ export function SubagentDetailPanel({
         ) : (
           <div style={{ width: 32, height: 32, flexShrink: 0 }} aria-hidden />
         )}
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <div className="flex min-w-0 items-center gap-2">
-            <Typography
-              variant="title-medium"
-              title={entry.label}
-              className="min-w-0 shrink truncate text-[var(--content-default)]"
-            >
-              {entry.label}
-            </Typography>
-            <StatusBadge status={entry.status} />
-          </div>
-          {/* Live "what the subagent is doing now" line — reuses the main-chat
-              header carousel, fed by the same derived (title, info) the inline
-              card uses. Hidden until there's at least one step (so an event-less
-              spawn doesn't just echo the label) and while a nested step detail
-              is open (the body is focused on one step, not the live latest). */}
-          {cardData.steps.length > 0 && !activeDetail && (
-            <HeaderStepCarousel
-              currentStepTitle={cardData.currentStepTitle}
-              currentStepInfo={cardData.currentStepInfo}
-              bypassDwell={cardData.state !== "loading"}
-            />
-          )}
-        </div>
+        <Typography
+          variant="title-medium"
+          title={entry.label}
+          className="min-w-0 shrink truncate text-[var(--content-default)]"
+        >
+          {entry.label}
+        </Typography>
+        <StatusBadge status={entry.status} />
+        <span className="flex-1" />
         {isRunning && onStop && (
           <button
             type="button"
@@ -355,6 +339,9 @@ export function SubagentDetailPanel({
                   onStepDetailClick={(key) => {
                     if (stepDetails.has(key)) setSelectedDetailKey(key);
                   }}
+                  // Keeps the last phase's node pulsing while the subagent is
+                  // still active but its last phase has settled.
+                  isRunning={isRunning}
                 />
               ) : (
                 <Typography

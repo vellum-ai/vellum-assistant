@@ -13,7 +13,7 @@
  * empty state, so this returns `null` for an empty input.
  */
 
-import { Brain } from "lucide-react";
+import { Brain, Globe } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import { Typography } from "@vellumai/design-library";
@@ -29,12 +29,12 @@ import {
   TimelineNode,
   type PhaseSection,
 } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
+import { HeaderStepCarousel } from "@/domains/chat/components/tool-progress-card/header-step-carousel";
 import { ToolStepPill } from "@/domains/chat/components/tool-progress-card/tool-step-pill";
 import {
   WebSearchErrorRow,
   WebSearchStepRow,
 } from "@/domains/chat/components/web-search/web-search-step-row";
-import { WebsiteCarousel } from "@/domains/chat/components/web-search/website-carousel";
 import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 import { cn } from "@/utils/misc";
 
@@ -50,18 +50,50 @@ function sectionKey(section: PhaseSection, index: number): string {
 }
 
 /**
- * Live activity sub-label for a running phase: the `activity` of the last
- * still-running tool step, falling back to that step's `info`, then to the
- * phase label so the row never reads blank.
+ * The last still-running step of a phase — a running tool, or an in-flight
+ * web_search (whose title is still the present-tense placeholder). Drives the
+ * running row's live activity text + leading icon. `undefined` when the phase
+ * has no running step.
  */
-function runningActivity(section: PhaseSection): string {
+function runningStep(section: PhaseSection): ToolCallCardStep | undefined {
   for (let i = section.steps.length - 1; i >= 0; i--) {
     const step = section.steps[i]!;
-    if (step.kind === "tool" && step.status === "running") {
-      return step.activity || step.info || section.label;
+    if (step.kind === "tool" && step.status === "running") return step;
+    if (step.kind === "web_search" && step.title === "Searching the web") {
+      return step;
     }
   }
-  return section.label;
+  return undefined;
+}
+
+/**
+ * Live activity sub-label for a running tool phase: the running tool's
+ * `activity`/`info`, falling back to the phase label. Search phases derive their
+ * trailing label from {@link mostRecentSearchQuery} instead (the query lands
+ * with the result, not at call time), so they don't route through here.
+ */
+function runningActivity(
+  step: ToolCallCardStep | undefined,
+  fallback: string,
+): string {
+  if (!step) return fallback;
+  if (step.kind === "tool") return step.activity || step.info || fallback;
+  return fallback;
+}
+
+/**
+ * The query of the most recent web_search step in a phase that has one — walked
+ * newest-first so an in-flight search (whose query hasn't resolved yet) shows
+ * the previous, known query rather than nothing. `undefined` when no search in
+ * the phase carries a query. Drives the trailing query shown to the right of the
+ * divider for a "Searching the web" phase.
+ */
+function mostRecentSearchQuery(section: PhaseSection): string | undefined {
+  for (let i = section.steps.length - 1; i >= 0; i--) {
+    const step = section.steps[i]!;
+    if (step.kind === "web_search" && step.query) return step.query;
+  }
+  return undefined;
 }
 
 /**
@@ -82,6 +114,7 @@ export function SubagentPhaseTimeline({
   onStepDetailClick,
   expandedKeys,
   onExpandedKeysChange,
+  isRunning = false,
 }: {
   steps: ToolCallCardStep[];
   /**
@@ -100,6 +133,17 @@ export function SubagentPhaseTimeline({
    */
   expandedKeys?: Set<string>;
   onExpandedKeysChange?: (next: Set<string>) => void;
+  /**
+   * Whether the owning subagent is still active. When `true`, the LAST phase's
+   * node keeps pulsing (a `ThreeDotIndicator`) even after its own steps settle,
+   * so the timeline reflects ongoing work during the between-steps window —
+   * without inventing a separate "Working" row. A separate row would flicker in
+   * and out: a same-type next step (e.g. another search) merges back into the
+   * last phase, so the interim bullet would appear then vanish. Defaults to
+   * `false`. A genuinely different next step opens a new phase row, which then
+   * becomes the pulsing tail.
+   */
+  isRunning?: boolean;
 }) {
   // Expanded section keys. Controlled by the parent when `expandedKeys` is
   // supplied (so the state outlives an unmount); otherwise managed internally.
@@ -134,11 +178,15 @@ export function SubagentPhaseTimeline({
     <div className="flex w-full flex-col">
       {sections.map((section, index) => {
         const key = sectionKey(section, index);
+        const isLast = index === sections.length - 1;
         return (
           <SubagentPhaseRow
             key={key}
             section={section}
-            isLast={index === sections.length - 1}
+            isLast={isLast}
+            // Only the last row keeps pulsing while the subagent runs — so the
+            // timeline shows ongoing work without a separate, flicker-prone row.
+            isActiveTail={isLast && isRunning}
             expanded={expanded.has(key)}
             sectionKeyValue={key}
             onToggle={toggle}
@@ -153,6 +201,7 @@ export function SubagentPhaseTimeline({
 function SubagentPhaseRow({
   section,
   isLast,
+  isActiveTail,
   expanded,
   sectionKeyValue,
   onToggle,
@@ -160,20 +209,40 @@ function SubagentPhaseRow({
 }: {
   section: PhaseSection;
   isLast: boolean;
+  /**
+   * The last row while the subagent is still running. Keeps the node pulsing
+   * after this phase's own steps settle, so the next same-type step merges back
+   * in (this row stays the tail) instead of a transient "Working" row flashing.
+   */
+  isActiveTail: boolean;
   expanded: boolean;
   sectionKeyValue: string;
   onToggle: (key: string) => void;
   onStepDetailClick?: (detailKey: string) => void;
 }) {
-  const status = phaseHeaderStatus(section.steps);
+  const rawStatus = phaseHeaderStatus(section.steps);
+  // Only the active tail — the last phase while the subagent is still running —
+  // may read as in-flight. Steps are sequential, so any OTHER phase computing
+  // "running" is stale: a web_search whose `tool_result` never arrives keeps its
+  // present-tense title ("Searching the web") forever, and `phaseHeaderStatus`
+  // reports that as running. Left alone it pulses mid-timeline with already
+  // settled phases after it (and a terminal subagent would pulse too). Coerce
+  // those orphaned "running" phases to "completed" so only the tail can pulse.
+  const status =
+    rawStatus === "running" && !isActiveTail ? "completed" : rawStatus;
+  // The node pulses for the active tail (equivalently, a genuinely running last
+  // phase — `status` stays "running" only there after the coercion above). The
+  // trailing slot still reflects `status` (query / "Worked for <dur>").
+  const nodePulses = status === "running" || isActiveTail;
   const isThinking = section.steps[0]?.kind === "thinking";
   const stepCount = section.steps.length;
 
-  // Accumulated web-search result sources for this phase, in order. Drives the
-  // rotating thumbnail ticker shown while the phase is still in flight.
-  const webResults = section.steps.flatMap((step) =>
-    step.kind === "web_search" ? step.results : [],
-  );
+  // A "Searching the web" phase surfaces its query to the right of the divider
+  // (running or done) instead of a duration / generic activity — that's the
+  // most useful thing to show for a search. `searchQuery` is the most recent
+  // resolved query in the phase (see the helper); `undefined` until one lands.
+  const isSearch = section.label === "Searching the web";
+  const searchQuery = isSearch ? mostRecentSearchQuery(section) : undefined;
 
   // The "N steps" pill only makes sense for a multi-step phase.
   const showStepCount = stepCount >= 2;
@@ -200,10 +269,27 @@ function SubagentPhaseRow({
             "durationLabel" in s ? s.durationLabel : "",
           ),
         );
-  const activity = status === "running" ? runningActivity(section) : "";
-  // Whether a trailing detail (activity or duration) follows the label — the
-  // faint `|` separator only renders when one does.
-  const hasTrailingDetail = status === "running" || Boolean(totalDuration);
+  const running = status === "running" ? runningStep(section) : undefined;
+  // Non-search running phases show the running tool's activity in the trailing
+  // slot; search phases use `searchTrailing` (their query) instead — see below.
+  const activity =
+    status === "running" && !isSearch
+      ? runningActivity(running, section.label)
+      : "";
+  // A search phase shows its query in the trailing slot whenever it's running
+  // OR has a resolved query — running or done, so the SAME animated carousel
+  // renders in both states. That keeps the animation alive as a multi-search
+  // phase flips between in-flight and settled: newer queries slide in instead of
+  // a component swap (carousel ↔ static text) silently dropping the transition.
+  // Falls back to the phase label during the brief window before the first
+  // query resolves.
+  const showSearchTrailing =
+    isSearch && (status === "running" || Boolean(searchQuery));
+  const searchTrailing = searchQuery ?? section.label;
+  // Whether a trailing detail (activity, search query, or duration) follows the
+  // label — the faint `|` separator only renders when one does.
+  const hasTrailingDetail =
+    status === "running" || showSearchTrailing || Boolean(totalDuration);
   const stepCountLabel = `${stepCount} step${stepCount === 1 ? "" : "s"}`;
 
   return (
@@ -255,7 +341,10 @@ function SubagentPhaseRow({
           <span className="h-[5px] w-[5px] rounded-full bg-[var(--content-disabled)]" />
         </span>
 
-        <TimelineNode status={status} isThinking={isThinking} />
+        <TimelineNode
+          status={nodePulses ? "running" : status}
+          isThinking={isThinking}
+        />
         <Typography
           variant="body-medium-default"
           className="shrink-0 text-[var(--content-default)]"
@@ -275,18 +364,33 @@ function SubagentPhaseRow({
           </span>
         )}
 
-        {status === "running" ? (
-          <span className="flex min-w-0 items-center gap-1">
+        {showSearchTrailing ? (
+          // Search phase (running or done): the query in the trailing slot with
+          // a globe, animated via the header carousel so newer queries slide in.
+          // Replaces "Worked for <dur>" once settled — the query is the useful
+          // thing to surface for a search, and matches what the row read as live.
+          <span className="flex min-w-0 flex-1 items-center gap-1">
+            <Globe
+              aria-hidden="true"
+              className="h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]"
+            />
+            <HeaderStepCarousel
+              currentStepTitle=""
+              currentStepInfo={searchTrailing}
+            />
+          </span>
+        ) : status === "running" ? (
+          <span className="flex min-w-0 flex-1 items-center gap-1">
             <Brain
               aria-hidden="true"
               className="h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]"
             />
-            <Typography
-              variant="body-small-default"
-              className="min-w-0 truncate text-[var(--content-tertiary)]"
-            >
-              {activity}
-            </Typography>
+            {/* Live running activity, animated + throttled via the main-chat
+                header carousel so the current task slides/updates in place
+                instead of hard-cutting. Empty title — the phase label already
+                sits before the separator, so the carousel carries just the
+                running tool's activity. */}
+            <HeaderStepCarousel currentStepTitle="" currentStepInfo={activity} />
           </span>
         ) : totalDuration ? (
           <Typography
@@ -315,17 +419,6 @@ function SubagentPhaseRow({
           </span>
         )}
       </button>
-
-      {status === "running" && webResults.length > 0 && (
-        // Rotating "sites searched" ticker for an in-flight web-search phase —
-        // the same `WebsiteCarousel` main chat shows in its collapsed header,
-        // placed as its own row here (the timeline header is pinned to 22px, so
-        // the 28px ticker can't sit inline). Disappears once the phase
-        // completes; the expanded query pills + source detail cover the results.
-        <div className="pl-[22px]">
-          <WebsiteCarousel items={webResults} />
-        </div>
-      )}
 
       {/* Expanded body: the section's steps as default pills, indented to clear
           the bullet rail and align under the status icon (bullet 14px + the

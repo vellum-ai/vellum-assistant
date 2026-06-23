@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "bun:test";
+import type { SubagentInnerEvent } from "@vellumai/assistant-api";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 
 // ---------------------------------------------------------------------------
@@ -328,6 +329,43 @@ describe("receiveEvent", () => {
 
     expect(getState().byId["sa-1"]!.events).toHaveLength(1);
     expect(getState().byId["sa-1"]!.events[0]!.type).toBe("tool_result");
+  });
+
+  it("captures the web_search query from a tool_result's activityMetadata", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+
+    getState().receiveEvent({
+      subagentId: "sa-1",
+      // `activityMetadata` rides through on the subagent wire as a passthrough
+      // field (not on the inferred `SubagentInnerEvent` type), so cast to attach
+      // it — this is the only live source of the web_search query, since the
+      // originating `tool_use_start` carries empty input.
+      event: {
+        type: "tool_result",
+        toolName: "web_search",
+        toolUseId: "tu-ws",
+        result: "Title\nhttps://example.com",
+        activityMetadata: {
+          webSearch: {
+            query: "best thermos 2025",
+            provider: "anthropic-native",
+            resultCount: 1,
+            durationMs: 120,
+            results: [],
+          },
+        },
+      } as SubagentInnerEvent,
+      timestamp: NOW + 700,
+    });
+
+    expect(getState().byId["sa-1"]!.events[0]!.searchQuery).toBe(
+      "best thermos 2025",
+    );
   });
 
   it("maps to error type when isError is true", () => {

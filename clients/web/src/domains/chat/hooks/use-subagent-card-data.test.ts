@@ -486,6 +486,73 @@ describe("computeSubagentCardData — web tools match main-chat group labels", (
     expect(phaseFromStep(step)).toBe("Searching the web");
   });
 
+  test("web_search query backfills from the result's searchQuery when the call carried none (live)", () => {
+    // Live path: Anthropic resolves the web_search query only at completion, so
+    // the `tool_call` arrives with no query and the matching `tool_result`
+    // carries it (captured by the store from `activityMetadata`).
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "running",
+        events: [
+          makeEvent(
+            { type: "tool_call", toolName: "web_search", toolUseId: "tu-ws" },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "web_search",
+              toolUseId: "tu-ws",
+              result: "results...",
+              searchQuery: "best thermos 2025",
+            },
+            1,
+          ),
+        ],
+      }),
+    );
+    const step = data.steps[0]!;
+    expect(step.kind).toBe("web_search");
+    if (step.kind === "web_search") {
+      expect(step.query).toBe("best thermos 2025");
+    }
+  });
+
+  test("web_search keeps the call-time query over the result's searchQuery (history)", () => {
+    // History/detail path: the query is already on the call (rebuilt from the
+    // persisted resolved input), so it wins over any result-borne value.
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "completed",
+        events: [
+          makeEvent(
+            {
+              type: "tool_call",
+              toolName: "web_search",
+              toolUseId: "tu-ws",
+              input: { query: "call-time query" },
+            },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "web_search",
+              toolUseId: "tu-ws",
+              result: "results...",
+              searchQuery: "result query",
+            },
+            1,
+          ),
+        ],
+      }),
+    );
+    const step = data.steps[0]!;
+    if (step.kind === "web_search") {
+      expect(step.query).toBe("call-time query");
+    }
+  });
+
   test("web_search result text is parsed into link chips (no clamp)", () => {
     // The subagent timeline carries the raw result text (Title\nURL pairs), not
     // structured metadata — parse it into chips like main chat does on reload.
@@ -1222,6 +1289,32 @@ describe("buildSubagentStepDetails", () => {
       "https://example.com/a",
       "https://foo.org/b",
     ]);
+  });
+
+  test("web_search payload backfills searchQuery from the result when the call carried none (live)", () => {
+    const details = buildSubagentStepDetails(
+      makeEntry({
+        events: [
+          makeEvent(
+            { type: "tool_call", toolName: "web_search", toolUseId: "tu-ws" },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "web_search",
+              toolUseId: "tu-ws",
+              result: "results...",
+              searchQuery: "best thermos 2025",
+            },
+            1,
+          ),
+        ],
+      }),
+    );
+    const payload = details.get("tu-ws")!;
+    expect(payload.kind).toBe("web_search");
+    expect(payload.searchQuery).toBe("best thermos 2025");
   });
 
   test("whitespace-only text event produces no thinking payload", () => {

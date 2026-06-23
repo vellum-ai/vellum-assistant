@@ -419,6 +419,12 @@ export function computeSubagentCardData(
         steps[matchIndex] = {
           ...target,
           title: "Searched the web",
+          // Backfill the query from the result's metadata. The originating
+          // `tool_call` carried empty input live (Anthropic resolves web_search
+          // input only at completion), so `target.query` is usually undefined
+          // until this result lands `searchQuery`. The history/detail path
+          // already has it on the call, hence the `target.query ||` precedence.
+          query: target.query || event.searchQuery,
           durationLabel,
           linkCount: results.length,
           results,
@@ -730,6 +736,10 @@ export function buildSubagentStepDetails(
               ...target,
               status: event.isError ? "error" : "completed",
               durationLabel,
+              // Backfill the query from the result metadata for the nested
+              // detail view — the call-time `searchQuery` is empty live (see
+              // the timeline projection's matching backfill).
+              searchQuery: target.searchQuery || event.searchQuery,
               searchResults: event.isError
                 ? []
                 : parseWebSearchResultText(event.result ?? event.content),
