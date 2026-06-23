@@ -165,4 +165,22 @@ describe("resolve_inbound_trust route", () => {
     expect(result.verdict.trustClass).toBe("unknown");
     expect(result.verdict.canonicalSenderId).toBe("U_STRANGER");
   });
+
+  test("resolver throw with whitespace-only actor id → sentinel canonicalSenderId is null", async () => {
+    resetGatewayDb();
+
+    const params = { channelType: CHANNEL, actorExternalId: "   " };
+    const result = (await route.handler(params)) as {
+      verdict: {
+        trustClass: string;
+        canonicalSenderId: string | null;
+        resolutionFailed?: boolean;
+      };
+    };
+
+    expect(result.verdict.resolutionFailed).toBe(true);
+    expect(result.verdict.trustClass).toBe("unknown");
+    // Matches a real resolve: whitespace-only id normalizes to absent.
+    expect(result.verdict.canonicalSenderId).toBeNull();
+  });
 });
