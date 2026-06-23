@@ -319,6 +319,9 @@ export const VoiceInputButton = forwardRef<
   const nativePartialsStopRef = useRef<StopNativeDictationPartials | null>(
     null,
   );
+  const nativePartialsStartRef = useRef<
+    Promise<StopNativeDictationPartials | null> | null
+  >(null);
   const nativePartialsTextRef = useRef("");
   // Resolves with the recognizer's final transcript of the whole utterance
   // after stopNativePartials — short dictations end before the first
@@ -379,10 +382,13 @@ export const VoiceInputButton = forwardRef<
     // fallback. startRecording resets it for the next session.
     const stop = nativePartialsStopRef.current;
     nativePartialsStopRef.current = null;
-    if (!stop) return;
+    const pendingStart = nativePartialsStartRef.current;
+    if (!stop && !pendingStart) return;
     // The promise resolves once the helper's recognizer drains the session
     // (dictation.finalized); recorder.onstop awaits it alongside batch STT.
-    const final = stop();
+    const final = stop
+      ? stop()
+      : pendingStart!.then((readyStop) => readyStop?.() ?? null);
     if (final) nativeFinalPromiseRef.current = final;
   }, []);
 
@@ -395,14 +401,19 @@ export const VoiceInputButton = forwardRef<
   // provider behind it is unreachable, so it just stays silent. Same role
   // the recognizer played in the legacy Swift client.
   const startNativePartials = useCallback(() => {
-    if (!mediaRecorderRef.current || nativePartialsStopRef.current) {
+    if (
+      !mediaRecorderRef.current ||
+      nativePartialsStopRef.current ||
+      nativePartialsStartRef.current
+    ) {
       console.info(
         "dictation: native partials not started (session ended or already running)",
       );
       return;
     }
+    const sessionIdAtStart = sessionIdRef.current;
     let partialCount = 0;
-    void startNativeDictationPartials(
+    const startPromise = startNativeDictationPartials(
       (text) => {
         partialCount += 1;
         if (partialCount === 1 || partialCount % 25 === 0) {
@@ -420,16 +431,30 @@ export const VoiceInputButton = forwardRef<
       // the device itself (a second capture client on the same device reads
       // silence or kills this recording's stream).
       { stream: streamRef.current ?? undefined },
-    ).then((stop) => {
-      // The unavailable case logs its reason in native-dictation-partials.
-      if (!stop) return;
-      console.info("dictation: native partials running");
-      // The session may have ended while the helper call was in flight.
-      if (!mediaRecorderRef.current) {
-        stop();
-        return;
+    )
+      .then((stop) => {
+        // The unavailable case logs its reason in native-dictation-partials.
+        if (!stop) return null;
+        console.info("dictation: native partials running");
+        // The session may have ended while the helper call was in flight.
+        if (
+          !mediaRecorderRef.current ||
+          sessionIdRef.current !== sessionIdAtStart
+        ) {
+          return stop;
+        }
+        nativePartialsStopRef.current = stop;
+        return stop;
+      })
+      .catch((err) => {
+        console.warn("dictation: native partials failed to start", err);
+        return null;
+      });
+    nativePartialsStartRef.current = startPromise;
+    void startPromise.finally(() => {
+      if (nativePartialsStartRef.current === startPromise) {
+        nativePartialsStartRef.current = null;
       }
-      nativePartialsStopRef.current = stop;
     });
   }, [publishInterim]);
 
@@ -582,6 +607,7 @@ export const VoiceInputButton = forwardRef<
     // pipeline first. Starting it after getUserMedia claims the mic causes
     // Chrome to silently starve SpeechRecognition of audio input.
     speechAccumulatorRef.current = "";
+    nativePartialsStartRef.current = null;
     nativePartialsTextRef.current = "";
     nativeFinalPromiseRef.current = null;
     streamTranscriptRef.current = "";
@@ -700,6 +726,7 @@ export const VoiceInputButton = forwardRef<
       const nativePartialText = nativePartialsTextRef.current;
       stopNativePartials();
       const pendingNativeFinal = nativeFinalPromiseRef.current;
+      const nativeFinalWasRequested = pendingNativeFinal !== null;
       nativeFinalPromiseRef.current = null;
       publishInterim("");
 
@@ -830,7 +857,16 @@ export const VoiceInputButton = forwardRef<
           if (text) {
             addDictationSessionBreadcrumb("completed", durationMs, text.length);
             await onTranscript(text);
-          } else if (daemonFailure) {
+          } else if (nativeSttForced && audioBlob) {
+            // Audio was captured but the forced-native recognizer produced
+            // nothing — most likely macOS Dictation (and its on-device
+            // model) isn't enabled. Surface that instead of resetting
+            // silently; there is no daemon failure to report here.
+            addDictationSessionBreadcrumb("error", durationMs, 0);
+            onError?.("native-stt-no-transcript");
+            vsFail("native-stt-no-transcript");
+            return;
+          } else if (daemonFailure && !nativeFinalWasRequested) {
             // The user-cancelled `aborted` reason should not trigger a
             // visible error — it's the expected outcome of stop().
             if (daemonFailure === "aborted") {
@@ -842,15 +878,6 @@ export const VoiceInputButton = forwardRef<
             const code = errorCodeForReason(daemonFailure);
             onError?.(code);
             vsFail(code);
-            return;
-          } else if (nativeSttForced && audioBlob) {
-            // Audio was captured but the forced-native recognizer produced
-            // nothing — most likely macOS Dictation (and its on-device
-            // model) isn't enabled. Surface that instead of resetting
-            // silently; there is no daemon failure to report here.
-            addDictationSessionBreadcrumb("error", durationMs, 0);
-            onError?.("native-stt-no-transcript");
-            vsFail("native-stt-no-transcript");
             return;
           } else {
             addDictationSessionBreadcrumb("empty", durationMs, 0);
