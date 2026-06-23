@@ -45,6 +45,7 @@ import {
 import {
   handleToolUseStart,
   handleToolResult,
+  handleToolOutputChunk,
 } from "@/domains/chat/utils/stream-handlers/tool-call-handlers";
 import {
   handleUsageUpdate,
@@ -134,6 +135,13 @@ export function useStreamEventHandler(
   const lastActivityVersionRef = useRef<Map<string, number>>(new Map());
   const toolCallIdCounterRef = useRef(0);
   const currentAssistantMessageIdRef = useRef<string | undefined>(undefined);
+  // Per-toolUseId buffer of pending tool_output_chunk text + the rAF handle
+  // that drains it, for coalesced (one-per-frame) flushes. See
+  // handleToolOutputChunk / flushToolOutput.
+  const toolOutputBufferRef = useRef<
+    Map<string, { conversationId?: string; messageId?: string; text: string }>
+  >(new Map());
+  const toolOutputFlushHandleRef = useRef<number | null>(null);
 
   // --- Main event handler ---
 
@@ -242,6 +250,8 @@ export function useStreamEventHandler(
         lastActivityVersionRef,
         toolCallIdCounterRef,
         currentAssistantMessageIdRef,
+        toolOutputBufferRef,
+        toolOutputFlushHandleRef,
       };
 
       switch (event.type) {
@@ -311,11 +321,15 @@ export function useStreamEventHandler(
         case "tool_result":
           handleToolResult(event, ctx);
           break;
-        // The web transcript renders tool activity from `tool_use_start`
-        // and `tool_result`. It does not surface the optimistic pre-input
-        // affordance or incremental output chunks, so these are ignored.
+        // The optimistic pre-input affordance has no transcript treatment.
         case "tool_use_preview_start":
+          break;
+        // Incremental tool output (e.g. foreground bash stdout/stderr) is
+        // buffered onto the matching tool call's live `streamedOutput` tail
+        // (coalesced per animation frame) and surfaced in the tool-detail
+        // drawer while the call runs.
         case "tool_output_chunk":
+          handleToolOutputChunk(event, ctx);
           break;
         case "usage_update":
           handleUsageUpdate(event, ctx);

@@ -1,15 +1,20 @@
 import { isHttpAuthDisabled } from "../../config/env.js";
-import { findGuardianForChannel } from "../../contacts/contact-store.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../../contacts/guardian-delivery-reader.js";
 import { httpError } from "../http-errors.js";
 import type { AuthContext } from "./types.js";
 
 /**
  * Verify the actor from AuthContext is the bound guardian for the vellum channel.
- * Returns an error Response if not, or null if allowed.
+ * Sources the guardian from the gateway binding and fails closed when the
+ * gateway is unreachable (null list). Returns an error Response if not
+ * authorized, or null if allowed.
  */
-export function requireBoundGuardian(
+export async function requireBoundGuardian(
   authContext: AuthContext,
-): Response | null {
+): Promise<Response | null> {
   // Dev bypass: when auth is disabled, skip guardian binding check
   // (mirrors enforcePolicy dev bypass in route-policy.ts)
   if (isHttpAuthDisabled()) {
@@ -22,17 +27,22 @@ export function requireBoundGuardian(
       403,
     );
   }
-  const guardianResult = findGuardianForChannel("vellum");
-  if (!guardianResult) {
-    // No guardian yet — in pre-bootstrap state, allow through
-    return null;
-  }
-  if (guardianResult.channel.address !== authContext.actorPrincipalId) {
+  const guardians = await getGuardianDelivery({ channelTypes: ["vellum"] });
+  if (!guardians) {
+    // Gateway unreachable — fail closed.
     return httpError(
       "FORBIDDEN",
       "Actor is not the bound guardian for this channel",
       403,
     );
   }
-  return null;
+  const guardian = guardianForChannel(guardians, "vellum");
+  if (guardian && guardian.principalId === authContext.actorPrincipalId) {
+    return null;
+  }
+  return httpError(
+    "FORBIDDEN",
+    "Actor is not the bound guardian for this channel",
+    403,
+  );
 }

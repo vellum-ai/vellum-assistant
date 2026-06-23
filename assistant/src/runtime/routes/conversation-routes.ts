@@ -1452,7 +1452,9 @@ export async function handleSendMessage(
     // won't match any guardian binding. Resolve from the local guardian
     // binding instead, which produces the correct guardian trust context.
     if (isHttpAuthDisabled() && actorPrincipalId === "dev-bypass") {
-      conversation.setTrustContext(resolveLocalTrustContext(sourceChannel));
+      conversation.setTrustContext(
+        await resolveLocalTrustContext(sourceChannel),
+      );
     } else {
       const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
       let trustCtx = resolveTrustContext({
@@ -1466,7 +1468,7 @@ export async function handleSendMessage(
         // guardian binding gets a new vellum-principal-* UUID while the
         // client still holds a valid JWT with the old one. The signing
         // key survives the reset, so the JWT is authentic — just stale.
-        const healed = healGuardianBindingDrift(actorPrincipalId);
+        const healed = await healGuardianBindingDrift(actorPrincipalId);
         if (healed) {
           trustCtx = resolveTrustContext({
             assistantId,

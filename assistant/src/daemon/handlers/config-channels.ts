@@ -28,6 +28,7 @@ import {
   findActiveSession,
   getGuardianBinding,
   getPendingSession,
+  isGuardianBoundForChannel,
   revokeBinding,
   revokePendingSessions,
   updateSessionDelivery,
@@ -80,19 +81,18 @@ export function getReadinessService(): ChannelReadinessService {
 // Extracted business logic functions
 // ---------------------------------------------------------------------------
 
-export function createInboundChallenge(
+export async function createInboundChallenge(
   channel?: ChannelId,
   rebind?: boolean,
   conversationId?: string,
-): ChannelVerificationSessionResult {
-  const resolvedAssistantId = DAEMON_INTERNAL_ASSISTANT_ID;
+): Promise<ChannelVerificationSessionResult> {
   const resolvedChannel = channel ?? "telegram";
 
-  const existingBinding = getGuardianBinding(
-    resolvedAssistantId,
-    resolvedChannel,
-  );
-  if (existingBinding && !rebind) {
+  // Gateway-backed presence guard: block re-binding when a guardian is already
+  // bound. Null-list (gateway unreachable) is treated as bound, so a transient
+  // miss blocks rather than letting a second binding through.
+  const alreadyBound = await isGuardianBoundForChannel(resolvedChannel);
+  if (alreadyBound && !rebind) {
     return {
       success: false,
       error: "already_bound",
@@ -579,7 +579,7 @@ export async function handleChannelVerificationSession(
           ...publicResult,
         });
       } else {
-        const result = createInboundChallenge(
+        const result = await createInboundChallenge(
           channel,
           msg.rebind,
           msg.conversationId,

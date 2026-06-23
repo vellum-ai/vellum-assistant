@@ -78,6 +78,17 @@ export const MemoryJobsConfigSchema = MemoryJobsConfigInputSchema.transform(
   },
 ).describe("Memory background job processing configuration");
 
+export const MemoryWorkerConfigSchema = z
+  .object({
+    enabled: z
+      .boolean({ error: "memory.worker.enabled must be a boolean" })
+      .default(false)
+      .describe(
+        "Whether the memory jobs worker runs as a separate OS process spawned at daemon startup (the `assistant memory worker` implementation) instead of on the daemon's main event loop. Only affects daemon startup; shutdown stops whichever worker is actually running.",
+      ),
+  })
+  .describe("Memory jobs worker process configuration");
+
 export const MemoryRetentionConfigSchema = z
   .object({
     keepRawForever: z
@@ -185,6 +196,7 @@ export const MemoryMaintenanceConfigSchema = z
   );
 
 export type MemoryJobsConfig = z.infer<typeof MemoryJobsConfigSchema>;
+export type MemoryWorkerConfig = z.infer<typeof MemoryWorkerConfigSchema>;
 export type MemoryRetentionConfig = z.infer<typeof MemoryRetentionConfigSchema>;
 export type MemoryCleanupConfig = z.infer<typeof MemoryCleanupConfigSchema>;
 export type MemoryMaintenanceConfig = z.infer<

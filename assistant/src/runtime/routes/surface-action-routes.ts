@@ -45,7 +45,7 @@ const log = getLogger("surface-action-routes");
  * surface actions inherit the correct trust class (guardian vs trusted_contact)
  * rather than defaulting to unknown.
  */
-function applyTrustContext(
+async function applyTrustContext(
   conversation: {
     setTrustContext?(ctx: {
       trustClass: TrustClass;
@@ -53,14 +53,16 @@ function applyTrustContext(
     }): void;
   },
   actorPrincipalId: string | undefined,
-): void {
+): Promise<void> {
   if (!conversation.setTrustContext) return;
 
   const sourceChannel = "vellum";
 
   if (actorPrincipalId) {
     if (isHttpAuthDisabled() && actorPrincipalId === "dev-bypass") {
-      conversation.setTrustContext(resolveLocalTrustContext(sourceChannel));
+      conversation.setTrustContext(
+        await resolveLocalTrustContext(sourceChannel),
+      );
     } else {
       const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
       let trustCtx = resolveTrustContext({
@@ -70,7 +72,7 @@ function applyTrustContext(
         actorExternalId: actorPrincipalId,
       });
       if (trustCtx.trustClass === "unknown") {
-        const healed = healGuardianBindingDrift(actorPrincipalId);
+        const healed = await healGuardianBindingDrift(actorPrincipalId);
         if (healed) {
           trustCtx = resolveTrustContext({
             assistantId,
@@ -186,7 +188,7 @@ async function handleSurfaceAction({
   }
 
   const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
-  applyTrustContext(conversation, actorPrincipalId);
+  await applyTrustContext(conversation, actorPrincipalId);
 
   try {
     const raw = await conversation.handleSurfaceAction(

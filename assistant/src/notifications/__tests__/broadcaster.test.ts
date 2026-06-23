@@ -27,14 +27,22 @@ mock.module("../copy-composer.js", () => ({
   composeFallbackCopy: () => composeFallbackReturn,
 }));
 
-mock.module("../destination-resolver.js", () => ({
-  resolveDestinations: (channels: string[]) => {
-    const map = new Map<string, ChannelDestination>();
-    for (const ch of channels) {
-      map.set(ch, { channel: ch as ChannelDestination["channel"] });
-    }
-    return map;
-  },
+// Stub only getGuardianDelivery; keep the real selectors so this mock is
+// harmless if it leaks into destination-resolver.test.ts under a shared run.
+const realGuardianReader = await import(
+  "../../contacts/guardian-delivery-reader.js"
+);
+mock.module("../../contacts/guardian-delivery-reader.js", () => ({
+  ...realGuardianReader,
+  getGuardianDelivery: async () => null,
+}));
+
+// Use the real destination-resolver (DB-free via the local-read stub below)
+// so this mock does not leak into destination-resolver.test.ts under a shared
+// bun-test invocation. With no guardian, the resolver still yields a vellum
+// destination, which is all these tests exercise.
+mock.module("../../contacts/contact-store.js", () => ({
+  findGuardianForChannel: () => null,
 }));
 
 mock.module("../conversation-pairing.js", () => ({

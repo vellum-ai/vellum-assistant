@@ -83,6 +83,32 @@ mock.module("../ipc/gateway-client.js", () => ({
   }),
 }));
 
+// Guardian-delivery reader mock — the inbound challenge guard reads guardian
+// existence from the gateway. Derive the list from the local binding state so
+// the gateway-backed presence guard mirrors the DB the rest of the test sets up.
+const resolveGuardianList = async (input?: { channelTypes?: string[] }) => {
+  const { findGuardianForChannel } = await import(
+    "../contacts/contact-store.js"
+  );
+  const channels = input?.channelTypes ?? [];
+  return channels
+    .map((channelType) => {
+      const found = findGuardianForChannel(channelType);
+      return found ? { channelType, status: "active" } : null;
+    })
+    .filter((g): g is { channelType: string; status: string } => g !== null);
+};
+
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: resolveGuardianList,
+  getGuardianDeliveryFresh: resolveGuardianList,
+  guardianForChannel: (
+    list: Array<{ channelType: string; status: string }>,
+    channelType: string,
+  ) =>
+    list.find((g) => g.channelType === channelType && g.status === "active"),
+}));
+
 import { handleChannelVerificationSession } from "../daemon/handlers/config-channels.js";
 import type {
   ChannelVerificationSessionRequest,

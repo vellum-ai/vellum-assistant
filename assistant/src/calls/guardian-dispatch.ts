@@ -86,14 +86,16 @@ async function dispatchGuardianQuestionInner(
   try {
     const expiresAt = Date.now() + getUserConsultationTimeoutMs();
 
-    // Voice decisions are handled in guardian conversations tied to the assistant-
-    // level guardian identity. Resolve the principal from the contacts table.
-    let guardianPrincipalId: string | undefined;
-
-    const guardianResult = findGuardianForChannel("vellum");
-    if (guardianResult?.contact.principalId) {
-      guardianPrincipalId = guardianResult.contact.principalId;
-    }
+    // Resolve the request principal from the same local source as the
+    // submitting actor (guardian-action-routes / actor-trust-resolver both read
+    // findGuardianForChannel("vellum")?.contact.principalId), so they cannot
+    // diverge. applyCanonicalGuardianDecision requires strict equality with
+    // request.guardianPrincipalId; sharing this local source guarantees the
+    // stamped principal == the submitting principal even when the gateway and
+    // local bindings drift during migration. This pair converts to the gateway
+    // together with the actor-trust path.
+    const guardianPrincipalId =
+      findGuardianForChannel("vellum")?.contact.principalId ?? undefined;
 
     if (!guardianPrincipalId) {
       log.error(
