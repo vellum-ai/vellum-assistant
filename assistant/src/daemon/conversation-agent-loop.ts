@@ -1523,6 +1523,10 @@ export async function runAgentLoopImpl(
     ctx.diskPressureCleanupModeActive = false;
     ctx.preactivatedSkillIds = undefined;
     ctx.currentTurnOverrideProfile = undefined;
+    // Turn-scoped interactivity. Clear it so paths that bypass this loop (e.g.
+    // opportunity wakes calling `agentLoop.run` directly) don't inherit a stale
+    // value and instead fall back to live client state in the tool context.
+    ctx.currentTurnIsNonInteractive = undefined;
     // Channel command intents (e.g. Telegram /start) are single-turn metadata.
     // Clear at turn end so they never leak into subsequent unrelated messages.
     ctx.commandIntent = undefined;
