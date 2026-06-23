@@ -68,15 +68,17 @@ import { migrateBackfillInlineAttachmentsToDiskDown } from "../memory/migrations
 import { migrateRenameThreadStartersCheckpointsDown } from "../memory/migrations/181-rename-thread-starters-checkpoints.js";
 import { migrateBackfillAudioAttachmentMimeTypesDown } from "../memory/migrations/191-backfill-audio-attachment-mime-types.js";
 import { migrateLlmUsageAttribution } from "../memory/migrations/235-llm-usage-attribution.js";
+import { migrationSteps } from "../memory/steps.js";
 import {
-  MIGRATION_REGISTRY,
-  type MigrationRegistryEntry,
-  type MigrationValidationResult,
-} from "../memory/migrations/registry.js";
-import { runMigrationSteps } from "../memory/migrations/run-migrations.js";
+  type MigrationStep,
+  type MigrationStepObject,
+  type RollbackEntry,
+  runMigrationSteps,
+} from "../memory/migrations/run-migrations.js";
 import {
   rollbackMemoryMigration,
   validateMigrationState,
+  type MigrationValidationResult,
 } from "../memory/migrations/validate-migration-state.js";
 import * as schema from "../memory/schema.js";
 
@@ -547,7 +549,7 @@ describe("schema-drift recovery: migration handles unexpected schema state", () 
     // structured diagnostic data. Assert directly on the returned result rather
     // than re-deriving the crashed list from the raw DB — this verifies the
     // function itself detects the crash, not just that the data is present.
-    const result: MigrationValidationResult = validateMigrationState(db);
+    const result: MigrationValidationResult = validateMigrationState(db, migrationSteps);
     expect(result.crashed).toContain("step:migrateJobDeferrals");
     expect(result.crashed).not.toContain(
       "step:migrateMemoryEntityRelationDedup",
@@ -575,22 +577,24 @@ describe("schema-drift recovery: migration handles unexpected schema state", () 
 
     // validateMigrationState throws an IntegrityError on dependency violations
     // to block daemon startup with an inconsistent schema.
-    expect(() => validateMigrationState(db)).toThrow(
+    expect(() => validateMigrationState(db, migrationSteps)).toThrow(
       "Migration dependency violations detected",
     );
-    expect(() => validateMigrationState(db)).toThrow(
-      "migration_memory_items_fingerprint_scope_unique_v1",
+    expect(() => validateMigrationState(db, migrationSteps)).toThrow(
+      "migrateMemoryItemsFingerprintScopeUnique",
     );
 
-    // Sanity-check: confirm the registry also declares this dependency, so the
-    // violation detection is grounded in real schema intent.
-    const saltedEntry = MIGRATION_REGISTRY.find(
-      (e) => e.key === "migration_memory_items_scope_salted_fingerprints_v1",
+    // Sanity-check: confirm the steps list also declares this dependency, so
+    // the violation detection is grounded in real schema intent.
+    const saltedStep = migrationSteps.find(
+      (s) => typeof s !== "function" && s.name === "migrateMemoryItemsScopeSaltedFingerprints",
     );
-    expect(saltedEntry).toBeTruthy();
-    expect(saltedEntry!.dependsOn).toContain(
-      "migration_memory_items_fingerprint_scope_unique_v1",
-    );
+    expect(saltedStep).toBeTruthy();
+    if (saltedStep && typeof saltedStep !== "function") {
+      expect(saltedStep.dependsOn).toContain(
+        "migrateMemoryItemsFingerprintScopeUnique",
+      );
+    }
   });
 
   test("validateMigrationState: no checkpoints table is handled gracefully", () => {
@@ -599,7 +603,7 @@ describe("schema-drift recovery: migration handles unexpected schema state", () 
     const db = createTestDb();
     // Deliberately do NOT create memory_checkpoints.
 
-    expect(() => validateMigrationState(db)).not.toThrow();
+    expect(() => validateMigrationState(db, migrationSteps)).not.toThrow();
   });
 
   test("migrateMemoryItemsFingerprintScopeUnique: old schema with UNIQUE on fingerprint is migrated", () => {
@@ -859,26 +863,40 @@ describe("schema-drift recovery: migration handles unexpected schema state", () 
     }
   });
 
-  test("MIGRATION_REGISTRY: version numbers are strictly monotonically increasing", () => {
-    // Registry ordering invariant: each entry's version must be strictly greater
-    // than the previous one. A violation here would mean the ordering guarantees
-    // documented in the migration comments cannot be relied upon.
-    for (let i = 1; i < MIGRATION_REGISTRY.length; i++) {
-      const prev = MIGRATION_REGISTRY[i - 1];
-      const curr = MIGRATION_REGISTRY[i];
-      expect(curr.version).toBeGreaterThan(prev.version);
+  test("migrationSteps: rollback versions are strictly monotonically increasing", () => {
+    // Steps ordering invariant: every rollback entry's version must be strictly
+    // greater than the previous rollback entry across the full steps list. A
+    // violation here would mean the rollback ordering guarantees documented in
+    // the migration comments cannot be relied upon.
+    const rollbackVersions: number[] = [];
+    for (const step of migrationSteps) {
+      if (typeof step === "function") continue;
+      if (!step.rollback) continue;
+      for (const entry of step.rollback) {
+        rollbackVersions.push(entry.version);
+      }
+    }
+    rollbackVersions.sort((a, b) => a - b);
+    for (let i = 1; i < rollbackVersions.length; i++) {
+      const prev = rollbackVersions[i - 1];
+      const curr = rollbackVersions[i];
+      expect(curr).toBeGreaterThan(prev);
     }
   });
 
-  test("MIGRATION_REGISTRY: all dependsOn references point to existing registry keys", () => {
-    // Schema drift guard: if a migration declares a dependency on a key that
-    // doesn't exist in the registry, the dependency check in validateMigrationState
-    // can never be satisfied. This test ensures all declared dependencies are valid.
-    const allKeys = new Set(MIGRATION_REGISTRY.map((e) => e.key));
-    for (const entry of MIGRATION_REGISTRY) {
-      if (!entry.dependsOn) continue;
-      for (const dep of entry.dependsOn) {
-        expect(allKeys.has(dep)).toBe(true);
+  test("migrationSteps: all dependsOn references point to existing step names", () => {
+    // Schema drift guard: if a migration declares a dependency on a step name
+    // that doesn't exist in the steps list, the dependency check in
+    // validateMigrationState can never be satisfied. This test ensures all
+    // declared dependencies are valid.
+    const allNames = new Set(
+      migrationSteps.map((s) => (typeof s === "function" ? s.name : s.name)),
+    );
+    for (const step of migrationSteps) {
+      if (typeof step === "function") continue;
+      if (!step.dependsOn) continue;
+      for (const dep of step.dependsOn) {
+        expect(allNames.has(dep)).toBe(true);
       }
     }
   });
@@ -938,26 +956,7 @@ describe("schema-drift recovery: migration handles unexpected schema state", () 
 // ---------------------------------------------------------------------------
 
 describe("rollbackMemoryMigration", () => {
-  // Track test entries pushed onto MIGRATION_REGISTRY so we can restore after
-  // each test. This avoids polluting the real registry across test runs.
-  let registrySnapshot: MigrationRegistryEntry[];
-
-  function saveRegistry() {
-    registrySnapshot = [...MIGRATION_REGISTRY];
-  }
-
-  function restoreRegistry() {
-    MIGRATION_REGISTRY.length = 0;
-    MIGRATION_REGISTRY.push(...registrySnapshot);
-  }
-
-  afterEach(() => {
-    restoreRegistry();
-  });
-
   test("rolls back checkpoint-tracked migrations in reverse version order", () => {
-    saveRegistry();
-
     const db = createTestDb();
     const raw = getRaw(db);
     bootstrapCheckpointsTable(raw);
@@ -968,47 +967,58 @@ describe("rollbackMemoryMigration", () => {
     const now = Date.now();
 
     // Use very high version numbers to avoid colliding with real registry entries.
-    const testEntries: MigrationRegistryEntry[] = [
+    const testSteps: MigrationStep[] = [
       {
-        key: "test_rollback_v1000",
-        stepName: "test_rollback_v1000",
-        version: 1000,
-        description: "test migration v1000",
-        down: () => {
-          downCalls.push("test_rollback_v1000");
-        },
+        name: "test_rollback_v1000",
+        run: () => {},
+        rollback: [
+          {
+            version: 1000,
+            description: "test migration v1000",
+            down: () => {
+              downCalls.push("test_rollback_v1000");
+            },
+          },
+        ],
       },
       {
-        key: "test_rollback_v1001",
-        stepName: "test_rollback_v1001",
-        version: 1001,
-        description: "test migration v1001",
-        down: () => {
-          downCalls.push("test_rollback_v1001");
-        },
+        name: "test_rollback_v1001",
+        run: () => {},
+        rollback: [
+          {
+            version: 1001,
+            description: "test migration v1001",
+            down: () => {
+              downCalls.push("test_rollback_v1001");
+            },
+          },
+        ],
       },
       {
-        key: "test_rollback_v1002",
-        stepName: "test_rollback_v1002",
-        version: 1002,
-        description: "test migration v1002",
-        down: () => {
-          downCalls.push("test_rollback_v1002");
-        },
+        name: "test_rollback_v1002",
+        run: () => {},
+        rollback: [
+          {
+            version: 1002,
+            description: "test migration v1002",
+            down: () => {
+              downCalls.push("test_rollback_v1002");
+            },
+          },
+        ],
       },
     ];
 
-    MIGRATION_REGISTRY.push(...testEntries);
-
     // Simulate all three migrations as completed via their step checkpoints.
-    for (const entry of testEntries) {
+    for (const entry of testSteps) {
+      if (typeof entry === "function") continue;
       raw.exec(
-        `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:${entry.stepName}', '1', ${now})`,
+        `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:${entry.name}', '1', ${now})`,
       );
     }
 
     // Roll back to version 1000 — should roll back v1002 and v1001 (version > 1000).
-    const rolledBack = rollbackMemoryMigration(db, 1000);
+    const rolledBack = rollbackMemoryMigration(db, 1000, testSteps);
 
     // Verify returned keys.
     expect(rolledBack).toEqual(["test_rollback_v1002", "test_rollback_v1001"]);
@@ -1048,8 +1058,6 @@ describe("rollbackMemoryMigration", () => {
      * must clear the step checkpoint too, otherwise the next upgrade skips the
      * step and never restores the rolled-back schema.
      */
-    saveRegistry();
-
     const db = createTestDb();
     const raw = getRaw(db);
     bootstrapCheckpointsTable(raw);
@@ -1063,7 +1071,7 @@ describe("rollbackMemoryMigration", () => {
 
     // GIVEN a registry-backed migration whose forward body is a named step that
     // creates a table. The step runner records `step:<functionName>` after a
-    // successful run; the registry entry's stepName maps to that key so rollback
+    // successful run; the step's rollback entry maps to that key so rollback
     // can find and clear it.
     function migrateTestStepRollback(database: DrizzleDb): void {
       getSqliteFrom(database).exec(
@@ -1071,18 +1079,25 @@ describe("rollbackMemoryMigration", () => {
       );
     }
 
-    // AND the migration is registered with a down() that drops that table.
-    MIGRATION_REGISTRY.push({
-      key: "test_step_rollback_v4000",
-      stepName: "migrateTestStepRollback",
-      version: 4000,
-      description: "test step rollback",
-      down: (database) => {
-        getSqliteFrom(database).exec(
-          `DROP TABLE IF EXISTS test_step_rollback_data`,
-        );
+    // The test step carries rollback metadata so rollbackMemoryMigration can
+    // find it in the steps list.
+    const testSteps: MigrationStep[] = [
+      {
+        name: "migrateTestStepRollback",
+        run: migrateTestStepRollback,
+        rollback: [
+          {
+            version: 4000,
+            description: "test step rollback",
+            down: (database) => {
+              getSqliteFrom(database).exec(
+                `DROP TABLE IF EXISTS test_step_rollback_data`,
+              );
+            },
+          },
+        ],
       },
-    });
+    ];
 
     // AND the step has run once through the runner, recording the step checkpoint.
     await runMigrationSteps(db, [migrateTestStepRollback]);
@@ -1096,7 +1111,7 @@ describe("rollbackMemoryMigration", () => {
     ).toBeTruthy();
 
     // AND the migration has since been rolled back below its version.
-    rollbackMemoryMigration(db, 3999);
+    rollbackMemoryMigration(db, 3999, testSteps);
     expect(hasTable()).toBe(false);
 
     // WHEN the runner executes the forward steps again on a later upgrade.
@@ -1107,8 +1122,6 @@ describe("rollbackMemoryMigration", () => {
   });
 
   test("handles transaction failure in down() — rolls back and preserves checkpoint", () => {
-    saveRegistry();
-
     const db = createTestDb();
     const raw = getRaw(db);
     bootstrapCheckpointsTable(raw);
@@ -1126,21 +1139,27 @@ describe("rollbackMemoryMigration", () => {
       `INSERT INTO test_rollback_data (id, value) VALUES ('row-1', 'original')`,
     );
 
-    // Register a migration whose down() modifies test_rollback_data,
-    // but a trigger will force the modification to fail.
-    MIGRATION_REGISTRY.push({
-      key: "test_fail_down_v3000",
-      stepName: "test_fail_down_v3000",
-      version: 3000,
-      description: "test migration with failing down()",
-      down: (database) => {
-        const sqlite = getSqliteFrom(database);
-        // This UPDATE will trigger our failure trigger.
-        sqlite.exec(
-          `UPDATE test_rollback_data SET value = 'rolled-back' WHERE id = 'row-1'`,
-        );
+    // The test step carries rollback metadata so rollbackMemoryMigration can
+    // find it in the steps list.
+    const testSteps: MigrationStep[] = [
+      {
+        name: "test_fail_down_v3000",
+        run: () => {},
+        rollback: [
+          {
+            version: 3000,
+            description: "test migration with failing down()",
+            down: (database) => {
+              const sqlite = getSqliteFrom(database);
+              // This UPDATE will trigger our failure trigger.
+              sqlite.exec(
+                `UPDATE test_rollback_data SET value = 'rolled-back' WHERE id = 'row-1'`,
+              );
+            },
+          },
+        ],
       },
-    });
+    ];
 
     // Mark as completed (via step checkpoint).
     raw.exec(
@@ -1158,7 +1177,7 @@ describe("rollbackMemoryMigration", () => {
     // Rollback should throw because down() fails.
     let threw = false;
     try {
-      rollbackMemoryMigration(db, 2999);
+      rollbackMemoryMigration(db, 2999, testSteps);
     } catch {
       threw = true;
     }
@@ -1187,8 +1206,6 @@ describe("rollbackMemoryMigration", () => {
   });
 
   test("down() with its own BEGIN/COMMIT succeeds without nested-transaction errors", () => {
-    saveRegistry();
-
     const db = createTestDb();
     const raw = getRaw(db);
     bootstrapCheckpointsTable(raw);
@@ -1206,23 +1223,30 @@ describe("rollbackMemoryMigration", () => {
       `INSERT INTO test_self_txn_data (id, value) VALUES ('row-1', 'migrated')`,
     );
 
-    // Register a migration whose down() manages its own transaction —
+    // The test step carries rollback metadata so rollbackMemoryMigration can
+    // find it in the steps list. The down() manages its own transaction —
     // this previously caused nested-transaction errors when rollbackMemoryMigration
     // wrapped every down() call in BEGIN/COMMIT.
-    MIGRATION_REGISTRY.push({
-      key: "test_self_txn_down_v3500",
-      stepName: "test_self_txn_down_v3500",
-      version: 3500,
-      description: "test migration with self-transactional down()",
-      down: (database) => {
-        const sqlite = getSqliteFrom(database);
-        sqlite.exec("BEGIN");
-        sqlite.exec(
-          `UPDATE test_self_txn_data SET value = 'original' WHERE id = 'row-1'`,
-        );
-        sqlite.exec("COMMIT");
+    const testSteps: MigrationStep[] = [
+      {
+        name: "test_self_txn_down_v3500",
+        run: () => {},
+        rollback: [
+          {
+            version: 3500,
+            description: "test migration with self-transactional down()",
+            down: (database) => {
+              const sqlite = getSqliteFrom(database);
+              sqlite.exec("BEGIN");
+              sqlite.exec(
+                `UPDATE test_self_txn_data SET value = 'original' WHERE id = 'row-1'`,
+              );
+              sqlite.exec("COMMIT");
+            },
+          },
+        ],
       },
-    });
+    ];
 
     // Mark as completed (via step checkpoint).
     raw.exec(
@@ -1230,7 +1254,7 @@ describe("rollbackMemoryMigration", () => {
     );
 
     // This should succeed — no nested transaction error.
-    const rolledBack = rollbackMemoryMigration(db, 3499);
+    const rolledBack = rollbackMemoryMigration(db, 3499, testSteps);
 
     expect(rolledBack).toEqual(["test_self_txn_down_v3500"]);
 
@@ -1251,37 +1275,43 @@ describe("rollbackMemoryMigration", () => {
   });
 
   test("no-op when already at target version", () => {
-    saveRegistry();
-
     const db = createTestDb();
     const raw = getRaw(db);
     bootstrapCheckpointsTable(raw);
 
     const now = Date.now();
 
-    // Register entries with down functions — they should NOT be called.
+    // Test steps with rollback metadata — they should NOT have down() called.
     const downCalls: string[] = [];
 
-    MIGRATION_REGISTRY.push(
+    const testSteps: MigrationStep[] = [
       {
-        key: "test_noop_v4000",
-        stepName: "test_noop_v4000",
-        version: 4000,
-        description: "test noop v4000",
-        down: () => {
-          downCalls.push("test_noop_v4000");
-        },
+        name: "test_noop_v4000",
+        run: () => {},
+        rollback: [
+          {
+            version: 4000,
+            description: "test noop v4000",
+            down: () => {
+              downCalls.push("test_noop_v4000");
+            },
+          },
+        ],
       },
       {
-        key: "test_noop_v4001",
-        stepName: "test_noop_v4001",
-        version: 4001,
-        description: "test noop v4001",
-        down: () => {
-          downCalls.push("test_noop_v4001");
-        },
+        name: "test_noop_v4001",
+        run: () => {},
+        rollback: [
+          {
+            version: 4001,
+            description: "test noop v4001",
+            down: () => {
+              downCalls.push("test_noop_v4001");
+            },
+          },
+        ],
       },
-    );
+    ];
 
     // Mark both as completed (via step checkpoints).
     raw.exec(
@@ -1292,7 +1322,7 @@ describe("rollbackMemoryMigration", () => {
     );
 
     // Roll back to version >= latest applied migration — should be a no-op.
-    const rolledBack = rollbackMemoryMigration(db, 4001);
+    const rolledBack = rollbackMemoryMigration(db, 4001, testSteps);
 
     expect(rolledBack).toEqual([]);
     expect(downCalls).toEqual([]);
@@ -1312,14 +1342,12 @@ describe("rollbackMemoryMigration", () => {
     expect(cp4001!.value).toBe("1");
 
     // Also verify with a target version greater than the latest.
-    const rolledBack2 = rollbackMemoryMigration(db, 9999);
+    const rolledBack2 = rollbackMemoryMigration(db, 9999, testSteps);
     expect(rolledBack2).toEqual([]);
     expect(downCalls).toEqual([]);
   });
 
   test("respects dependency ordering on rollback (children rolled back before parents)", () => {
-    saveRegistry();
-
     const db = createTestDb();
     const raw = getRaw(db);
     bootstrapCheckpointsTable(raw);
@@ -1332,27 +1360,35 @@ describe("rollbackMemoryMigration", () => {
     // Since the child has a higher version number, rolling back in reverse
     // version order means the child (v5001) is rolled back BEFORE the parent
     // (v5000), which is the correct dependency-safe ordering.
-    MIGRATION_REGISTRY.push(
+    const testSteps: MigrationStep[] = [
       {
-        key: "test_parent_v5000",
-        stepName: "test_parent_v5000",
-        version: 5000,
-        description: "test parent migration",
-        down: () => {
-          downCalls.push("test_parent_v5000");
-        },
+        name: "test_parent_v5000",
+        run: () => {},
+        rollback: [
+          {
+            version: 5000,
+            description: "test parent migration",
+            down: () => {
+              downCalls.push("test_parent_v5000");
+            },
+          },
+        ],
       },
       {
-        key: "test_child_v5001",
-        stepName: "test_child_v5001",
-        version: 5001,
+        name: "test_child_v5001",
+        run: () => {},
         dependsOn: ["test_parent_v5000"],
-        description: "test child migration depending on parent",
-        down: () => {
-          downCalls.push("test_child_v5001");
-        },
+        rollback: [
+          {
+            version: 5001,
+            description: "test child migration depending on parent",
+            down: () => {
+              downCalls.push("test_child_v5001");
+            },
+          },
+        ],
       },
-    );
+    ];
 
     // Both are completed (via step checkpoints).
     raw.exec(
@@ -1363,7 +1399,7 @@ describe("rollbackMemoryMigration", () => {
     );
 
     // Roll back to version 4999 — both should be rolled back, child first.
-    const rolledBack = rollbackMemoryMigration(db, 4999);
+    const rolledBack = rollbackMemoryMigration(db, 4999, testSteps);
 
     expect(rolledBack).toEqual(["test_child_v5001", "test_parent_v5000"]);
 

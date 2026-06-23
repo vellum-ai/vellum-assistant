@@ -10,7 +10,8 @@ import { z } from "zod";
 import { getCpuLimit, getIsPlatform } from "../../config/env-registry.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getProfilerRuntimeStatus } from "../../daemon/profiler-run-store.js";
-import { getMaxMigrationVersion } from "../../memory/migrations/registry.js";
+import { migrationSteps } from "../../memory/steps.js";
+import { getMaxRollbackVersion } from "../../memory/migrations/run-migrations.js";
 import { getCesClient } from "../../security/secure-keys.js";
 import {
   getDiskUsageInfo,
@@ -335,7 +336,7 @@ function getDetailedHealth() {
     memory: getMemoryInfo(),
     cpu: getCpuInfo(),
     migrations: {
-      dbVersion: getMaxMigrationVersion(),
+      dbVersion: getMaxRollbackVersion(migrationSteps),
       lastWorkspaceMigrationId:
         getLastWorkspaceMigrationId(WORKSPACE_MIGRATIONS),
     },

@@ -31,6 +31,7 @@ import {
   resetDb,
 } from "../../memory/db-connection.js";
 import { validateMigrationState } from "../../memory/migrations/validate-migration-state.js";
+import { migrationSteps } from "../../memory/steps.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   bulkSetSecureKeysAsync,
@@ -1712,7 +1713,7 @@ function appendNewerMigrationWarningsIfAny(report: ImportCommitReport): void {
     return;
   }
   try {
-    const migrationValidation = validateMigrationState(getDb());
+    const migrationValidation = validateMigrationState(getDb(), migrationSteps);
     if (migrationValidation.unknownCheckpoints.length > 0) {
       report.warnings.push(
         `Imported data contains ${migrationValidation.unknownCheckpoints.length} migration(s) from a newer version. Some data may not be fully compatible.`,
