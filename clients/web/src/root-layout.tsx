@@ -304,7 +304,7 @@ export function RootLayout() {
       }}
     >
       <UpdateToast />
-      {!isPopout && !suppressStatusBanner ? (
+      {!electron && !isPopout && !suppressStatusBanner ? (
         <LocalRuntimeUpgradeBanner
           assistantId={assistantId}
           currentVersion={assistantVersion}

@@ -53,6 +53,7 @@ import type { Conversation } from "@/types/conversation-types";
 import { requestComposerFocus } from "./composer-focus";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
+import { LocalRuntimeUpgradeBanner } from "@/components/local-runtime-upgrade-banner";
 import { StatusBanner } from "@/components/status-banner";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
@@ -615,7 +616,16 @@ export function ChatLayout() {
         />
       )}
 
-      {!isPopout && electron ? <StatusBanner placement="electron" /> : null}
+      {!isPopout && electron ? (
+        <div className="flex shrink-0 flex-col gap-2 empty:hidden">
+          <StatusBanner placement="electron" />
+          <LocalRuntimeUpgradeBanner
+            assistantId={assistantId}
+            currentVersion={assistantVersion}
+            placement="electron"
+          />
+        </div>
+      ) : null}
 
       {isMobile ? (
         <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">

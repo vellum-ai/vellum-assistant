@@ -3,7 +3,10 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
-import { StatusBannerNotice } from "@/components/status-banner";
+import {
+  StatusBannerNotice,
+  type StatusBannerPlacement,
+} from "@/components/status-banner";
 import { releasesListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { useLocalRuntimeUpgrade } from "@/hooks/use-local-runtime-upgrade";
 import { subscribe } from "@/lib/event-bus";
@@ -15,23 +18,32 @@ import {
   LOCAL_RUNTIME_RELEASES_REFETCH_INTERVAL_MS,
 } from "@/lib/local-runtime-upgrade";
 import { isLocalModeHostAvailable } from "@/runtime/local-mode-host";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
 
 interface LocalRuntimeUpgradeBannerProps {
-  assistantId: string | null;
-  currentVersion: string | null;
+  assistantId?: string | null;
+  currentVersion?: string | null;
+  placement?: StatusBannerPlacement;
+  className?: string;
 }
 
 export function LocalRuntimeUpgradeBanner({
-  assistantId,
-  currentVersion,
+  assistantId: assistantIdProp,
+  currentVersion: currentVersionProp,
+  placement = "web",
+  className,
 }: LocalRuntimeUpgradeBannerProps) {
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [dismissedScope, setDismissedScope] = useState<string | null>(null);
   const assistantState = useAssistantLifecycleStore((s) => s.assistantState);
+  const fallbackAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const fallbackCurrentVersion = useAssistantIdentityStore.use.version();
+  const assistantId = assistantIdProp ?? fallbackAssistantId;
+  const currentVersion = currentVersionProp ?? fallbackCurrentVersion;
   const activeAssistant = useResolvedAssistantsStore((s) =>
     assistantId
       ? s.assistants.find((assistant) => assistant.id === assistantId)
@@ -148,6 +160,8 @@ export function LocalRuntimeUpgradeBanner({
       <StatusBannerNotice
         tone="info"
         title={`Assistant runtime ${targetVersion} is ready`}
+        placement={placement}
+        className={className}
         icon={
           upgrade.isPending ? (
             <Loader2 className="animate-spin" aria-hidden="true" />
