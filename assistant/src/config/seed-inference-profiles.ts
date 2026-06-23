@@ -92,6 +92,11 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   // fast, low-cost open model. `model` is pinned explicitly rather than
   // resolved via the `latency-optimized` intent (which still maps to Kimi K2.5
   // on Fireworks and Anthropic Haiku elsewhere).
+  //
+  // `effort: "none"` (not "low") because Fireworks is not thinking-aware: the
+  // disabled `thinking` config is stripped before the request, so a non-"none"
+  // effort would be sent as `reasoning_effort` and make this profile pay for
+  // reasoning despite thinking being off. "none" keeps Speed non-reasoning.
   "cost-optimized": {
     model: "accounts/fireworks/models/deepseek-v4-flash",
     provider: "fireworks",
@@ -100,7 +105,7 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     label: "Speed",
     description: "Fastest responses at lower cost (DeepSeek V4 Flash)",
     maxTokens: 8192,
-    effort: "low",
+    effort: "none",
     thinking: { enabled: false, streamThinking: false },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
