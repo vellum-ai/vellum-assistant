@@ -403,19 +403,11 @@ function findOptimisticUserEchoIdx(
  *  2. An optimistic user row is correlated by `clientMessageId` (or, absent
  *     the nonce, the most recent optimistic row) — the originating client
  *     whose POST hasn't resolved yet (the echo beat the 202). Swap its id to
- *     the server `messageId`, clear `isOptimistic`, and clear any optimistic
- *     `queueStatus`/`queuePosition`, mirroring the POST-resolve path so a
- *     later reconcile can't double it. Clearing the queue status here is
- *     load-bearing: the echo is only emitted once the daemon has begun
- *     *processing* the message (a direct send, or a queued send right after
- *     it is dequeued), so the row is no longer waiting in the queue. When the
- *     client optimistically marked the row `queued` (it believed a turn was
- *     in flight) but the daemon processed it directly — no `message_queued` /
- *     `message_dequeued` pair is ever sent — the echo is the only signal that
- *     clears the stale queue badge. Because the echo swaps the row id, the
- *     POST-resolve path's `clearQueueStatus(userMessage.id)` (keyed on the
- *     original optimistic id) can no longer find the row, so the clear must
- *     happen here. With no `messageId` (synthetic echo) there is nothing to
+ *     the server `messageId`, clear `isOptimistic`, and clear any
+ *     `queueStatus`/`queuePosition`: the echo is emitted only once the daemon
+ *     is processing the message (a direct send, or a queued send right after
+ *     it is dequeued), so a persisted echo means the row is no longer waiting
+ *     in the queue. With no `messageId` (synthetic echo) there is nothing to
  *     upgrade to, so the optimistic row is left as-is.
  *  3. Otherwise append a new user row — passive client or synthetic
  *     prompt. Keyed by `messageId` when present so reconcile/refetch merges
