@@ -69,6 +69,46 @@ describe("resolveSkillExecuteInput", () => {
     expect(result).toEqual({ prompt: "the real prompt" });
   });
 
+  test("strips a misplaced activity nested inside input", () => {
+    // The exact shape from the MiniMax app_refresh failure: the harness
+    // `activity` label nested inside `input` alongside the real parameters,
+    // where it would otherwise trip app_refresh's strict unknown-parameter
+    // validation ("Unknown parameter \"activity\"").
+    const result = resolveSkillExecuteInput({
+      tool: "app_refresh",
+      input: {
+        app_id: "3133005b-caf6-4173-ab3b-d072776f19fd",
+        change_summary: "feat: add calculator logic and styles",
+        activity: "Compiling the calculator",
+      },
+    });
+    expect(result).toEqual({
+      app_id: "3133005b-caf6-4173-ab3b-d072776f19fd",
+      change_summary: "feat: add calculator logic and styles",
+    });
+  });
+
+  test("strips a misplaced activity from a JSON-encoded input string", () => {
+    const result = resolveSkillExecuteInput({
+      tool: "app_refresh",
+      input: '{"app_id":"abc","change_summary":"x","activity":"Compiling"}',
+    });
+    expect(result).toEqual({ app_id: "abc", change_summary: "x" });
+  });
+
+  test("falls through to sibling rescue when input holds only activity", () => {
+    // input nested nothing but the harness `activity`; the real parameters sit
+    // at the top level. Stripping activity empties the nested object so sibling
+    // rescue can recover the real call.
+    const result = resolveSkillExecuteInput({
+      tool: "app_refresh",
+      input: { activity: "Compiling the calculator" },
+      app_id: "abc",
+      change_summary: "x",
+    });
+    expect(result).toEqual({ app_id: "abc", change_summary: "x" });
+  });
+
   test("returns empty object when no parameters are present anywhere", () => {
     const result = resolveSkillExecuteInput({
       tool: "media_generate_image",

@@ -11,6 +11,27 @@ import type {
 const SKILL_EXECUTE_ENVELOPE_KEYS = new Set(["tool", "input", "activity"]);
 
 /**
+ * Harness keys that may surface inside a resolved inner-input object but never
+ * name an inner-tool parameter. `activity` is the progress label carried on the
+ * `skill_execute` envelope; weak models sometimes nest it inside `input` (or a
+ * JSON-encoded `input` string) rather than alongside `tool`, where it then
+ * trips the inner tool's strict unknown-parameter validation. `tool`/`input`
+ * are structural and could legitimately name an inner param, so only `activity`
+ * is stripped.
+ */
+const RESERVED_INNER_KEYS = ["activity"] as const;
+
+/** Drop reserved harness keys from a resolved inner-input object. */
+function stripReservedInnerKeys(
+  input: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!RESERVED_INNER_KEYS.some((key) => key in input)) return input;
+  const scrubbed = { ...input };
+  for (const key of RESERVED_INNER_KEYS) delete scrubbed[key];
+  return scrubbed;
+}
+
+/**
  * Recover a `skill_execute` envelope that the provider layer wrapped under the
  * `_raw` unparseable marker.
  *
@@ -62,6 +83,10 @@ export function recoverSkillExecuteEnvelope(
  *    — e.g. the full Markdown body as `input` instead of `{ "content": "..." }`.
  *    Rescued only when `innerSchema` has exactly one required string field, so
  *    the mapping is unambiguous.
+ *
+ * Reserved harness keys (see {@link RESERVED_INNER_KEYS}) are stripped from the
+ * resolved object so a misplaced `activity` cannot trip the inner tool's strict
+ * unknown-parameter validation.
  */
 export function resolveSkillExecuteInput(
   envelope: Record<string, unknown>,
@@ -70,10 +95,11 @@ export function resolveSkillExecuteInput(
   const raw = envelope.input;
 
   if (raw != null && typeof raw === "object" && !Array.isArray(raw)) {
-    const obj = raw as Record<string, unknown>;
-    // A populated object is the well-formed case. An empty object falls
-    // through to sibling rescue: the model may have nested nothing yet placed
-    // the real parameters at the top level.
+    const obj = stripReservedInnerKeys(raw as Record<string, unknown>);
+    // A populated object is the well-formed case. An object that is empty (or
+    // empty once reserved harness keys are dropped) falls through to sibling
+    // rescue: the model may have nested nothing yet placed the real parameters
+    // at the top level.
     if (Object.keys(obj).length > 0) return obj;
   } else if (typeof raw === "string" && raw.trim()) {
     try {
@@ -83,7 +109,8 @@ export function resolveSkillExecuteInput(
         typeof parsed === "object" &&
         !Array.isArray(parsed)
       ) {
-        return parsed as Record<string, unknown>;
+        const obj = stripReservedInnerKeys(parsed as Record<string, unknown>);
+        if (Object.keys(obj).length > 0) return obj;
       }
     } catch {
       // Not JSON. A weak model may have placed the inner tool's sole required
