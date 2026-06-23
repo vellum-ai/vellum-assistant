@@ -17,6 +17,7 @@ import {
 } from "../contacts/contact-store.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import { addMessage } from "../memory/conversation-crud.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
@@ -26,6 +27,10 @@ import {
   resolveActorTrust,
   toTrustContext,
 } from "../runtime/actor-trust-resolver.js";
+import {
+  resolvedMemberFromVerdict,
+  trustContextFromVerdict,
+} from "../runtime/trust-verdict-consumer.js";
 import {
   composeVerificationVoice,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
@@ -261,6 +266,12 @@ export class RelayConnection {
   private callbackOfferMade = false;
   private callbackOptIn = false;
   private callbackHandoffNotified = false;
+
+  // True while mid-call trust is being re-resolved (async). handlePrompt defers
+  // prompts to trustReResolvePending so a verified caller can't start a turn
+  // under the stale pre-verification trust context during the await window.
+  private trustReResolving = false;
+  private trustReResolvePending: RelayPromptMessage[] = [];
 
   constructor(ws: ServerWebSocket<RelayWebSocketData>, callSessionId: string) {
     this.ws = ws;
@@ -885,13 +896,105 @@ export class RelayConnection {
   }
 
   /**
+   * Re-resolve caller trust after a mid-call verification/activation. Prefers
+   * the gateway verdict (authoritative right after the gateway updated the
+   * binding); falls back to local resolution on a missing/failed/unusable
+   * verdict so a blip never drops the call. Mirrors the setup path's
+   * verdict-first-with-fallback condition.
+   */
+  private async resolveMidCallTrustContext(
+    assistantId: string,
+    fromNumber: string,
+  ): Promise<TrustContext> {
+    const verdict = await getInboundTrustVerdict({
+      channelType: "phone",
+      actorExternalId: fromNumber,
+    });
+
+    const hasMemberIdentity = !!(verdict?.contactId || verdict?.channelId);
+    const memberUnresolvable =
+      hasMemberIdentity && resolvedMemberFromVerdict(verdict!) === null;
+    // Only a MEMBERLESS unknown verdict is treated as a stale gateway view and
+    // falls back to local: the caller was just activated, and invite redemption
+    // writes the channel assistant-side, so the gateway may not see the member
+    // yet — local resolution has it. A MEMBERFUL unknown verdict (blocked/revoked
+    // member, carrying contactId/channelId) is honored so its deny ACL is
+    // enforced; falling back could lose the gateway's member status if local
+    // state is stale.
+    const memberlessUnknown =
+      verdict?.trustClass === "unknown" && !hasMemberIdentity;
+    const usable =
+      verdict &&
+      !verdict.resolutionFailed &&
+      !memberUnresolvable &&
+      !memberlessUnknown;
+
+    if (usable) {
+      return trustContextFromVerdict(verdict, {
+        sourceChannel: "phone",
+        conversationExternalId: fromNumber,
+      });
+    }
+
+    return toTrustContext(
+      resolveActorTrust({
+        assistantId,
+        sourceChannel: "phone",
+        conversationExternalId: fromNumber,
+        actorExternalId: fromNumber,
+      }),
+      fromNumber,
+    );
+  }
+
+  /**
+   * Re-resolve mid-call trust and install it on the controller, deferring any
+   * prompt that arrives during the async window. Guards the gap between
+   * connectionState flipping to "connected" and the upgraded context landing so
+   * a verified caller never starts a turn under the stale pre-verification
+   * trust. Clears the guard in a finally and flushes buffered prompts under the
+   * new context, so an IPC error can't wedge the call.
+   */
+  private async reResolveAndApplyTrustContext(
+    assistantId: string,
+    fromNumber: string,
+  ): Promise<void> {
+    if (!this.controller) return;
+    this.trustReResolving = true;
+    try {
+      const context = await this.resolveMidCallTrustContext(
+        assistantId,
+        fromNumber,
+      );
+      this.controller.setTrustContext(context);
+    } finally {
+      this.trustReResolving = false;
+      this.flushDeferredPrompts();
+    }
+  }
+
+  /**
+   * Replay prompts buffered while trust was re-resolving. Runs after the
+   * upgraded context is installed so deferred utterances are answered under the
+   * correct trust.
+   */
+  private flushDeferredPrompts(): void {
+    if (this.trustReResolvePending.length === 0) return;
+    const pending = this.trustReResolvePending;
+    this.trustReResolvePending = [];
+    for (const msg of pending) {
+      void this.handlePrompt(msg);
+    }
+  }
+
+  /**
    * Shared post-activation handoff for all trusted-contact success paths
    * (access-request approval, invite redemption, verification code).
    * Activates the caller, updates guardian context, delivers deterministic
    * transition copy, and marks the next utterance as opening-ack so the
    * LLM continues naturally.
    */
-  private continueCallAfterTrustedContactActivation(params: {
+  private async continueCallAfterTrustedContactActivation(params: {
     assistantId: string;
     fromNumber: string;
     activationReason?:
@@ -906,21 +1009,14 @@ export class RelayConnection {
      * address.
      */
     inviteeName?: string | null;
-  }): void {
+  }): Promise<void> {
     const { assistantId, fromNumber } = params;
 
     // Contact activation is handled by the gateway — the assistant no
     // longer writes contact/channel records on inbound voice calls.
 
-    const updatedTrust = resolveActorTrust({
-      assistantId,
-      sourceChannel: "phone",
-      conversationExternalId: fromNumber,
-      actorExternalId: fromNumber,
-    });
-
     if (this.controller) {
-      this.controller.setTrustContext(toTrustContext(updatedTrust, fromNumber));
+      await this.reResolveAndApplyTrustContext(assistantId, fromNumber);
     }
 
     this.connectionState = "connected";
@@ -1104,15 +1200,7 @@ export class RelayConnection {
 
         // Update trust context on the controller so the LLM knows this is the guardian
         if (this.controller) {
-          const verifiedActorTrust = resolveActorTrust({
-            assistantId,
-            sourceChannel: "phone",
-            conversationExternalId: fromNumber,
-            actorExternalId: fromNumber,
-          });
-          this.controller.setTrustContext(
-            toTrustContext(verifiedActorTrust, fromNumber),
-          );
+          await this.reResolveAndApplyTrustContext(assistantId, fromNumber);
         }
 
         // Mark session as in-progress and transition to guardian conversation
@@ -1129,7 +1217,7 @@ export class RelayConnection {
             );
         }
       } else if (result.verificationType === "trusted_contact") {
-        this.continueCallAfterTrustedContactActivation({
+        await this.continueCallAfterTrustedContactActivation({
           assistantId,
           fromNumber,
           activationReason: "trusted_contact_verified",
@@ -1138,15 +1226,7 @@ export class RelayConnection {
         // Inbound guardian verification: binding already handled above,
         // proceed to normal call flow.
         if (this.controller) {
-          const verifiedActorTrust = resolveActorTrust({
-            assistantId,
-            sourceChannel: "phone",
-            conversationExternalId: fromNumber,
-            actorExternalId: fromNumber,
-          });
-          this.controller.setTrustContext(
-            toTrustContext(verifiedActorTrust, fromNumber),
-          );
+          await this.reResolveAndApplyTrustContext(assistantId, fromNumber);
           this.startNormalCallFlow(this.controller, true);
         }
       }
@@ -1423,7 +1503,7 @@ export class RelayConnection {
       }
 
       if (request.status === "approved") {
-        this.handleAccessRequestApproved();
+        void this.handleAccessRequestApproved();
       } else if (request.status === "denied") {
         void this.handleAccessRequestDenied();
       }
@@ -1475,7 +1555,7 @@ export class RelayConnection {
    * Handle an approved access request: activate the caller as a trusted
    * contact, update runtime context, and continue with normal call flow.
    */
-  private handleAccessRequestApproved(): void {
+  private async handleAccessRequestApproved(): Promise<void> {
     this.clearAccessRequestWait();
 
     const assistantId = this.accessRequestAssistantId!;
@@ -1493,7 +1573,7 @@ export class RelayConnection {
       "Access request approved — caller activated and continuing call",
     );
 
-    this.continueCallAfterTrustedContactActivation({
+    await this.continueCallAfterTrustedContactActivation({
       assistantId,
       fromNumber,
       activationReason: "access_approved",
@@ -1701,7 +1781,7 @@ export class RelayConnection {
         "Voice invite redemption succeeded",
       );
 
-      this.continueCallAfterTrustedContactActivation({
+      await this.continueCallAfterTrustedContactActivation({
         assistantId: this.inviteRedemptionAssistantId,
         fromNumber: this.inviteRedemptionFromNumber,
         activationReason: "invite_redeemed",
@@ -1927,6 +2007,15 @@ export class RelayConnection {
 
   private async handlePrompt(msg: RelayPromptMessage): Promise<void> {
     if (this.connectionState === "disconnecting") {
+      return;
+    }
+
+    // Defer (don't drop) prompts while trust is being re-resolved mid-call so a
+    // verified caller's first utterance runs under the upgraded context, not the
+    // stale pre-verification one. flushDeferredPrompts replays them in order
+    // once the new context lands.
+    if (this.trustReResolving) {
+      this.trustReResolvePending.push(msg);
       return;
     }
 
