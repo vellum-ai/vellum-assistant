@@ -6,7 +6,6 @@ import {
     Bolt,
     ChevronDown,
     ChevronRight,
-    DollarSign,
     Square,
     X,
 } from "lucide-react";
@@ -26,6 +25,7 @@ import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-component
 import { Button, Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import { FileReadDetailView } from "@/domains/chat/components/file-read/file-read-detail-view";
 import { SubagentPhaseTimeline } from "@/domains/chat/components/subagent-phase-timeline";
 import {
     deriveStepLabelFromName,
@@ -34,23 +34,13 @@ import {
 import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
 import { ToolDetailBody } from "@/domains/chat/components/tool-detail-panel";
+import { WebFetchDetailView } from "@/domains/chat/components/web-fetch/web-fetch-detail-view";
 import { WebSearchDetailView } from "@/domains/chat/components/web-search/web-search-detail-view";
 import {
     buildSubagentStepDetails,
     computeSubagentCardData,
 } from "@/domains/chat/hooks/use-subagent-card-data";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
-
-/** Format a cost value (e.g. 0.68 -> "0.68"). */
-function formatCost(cost: number): string {
-  if (cost === 0) {
-    return "0.00";
-  }
-  if (cost < 0.01) {
-    return cost.toFixed(4);
-  }
-  return cost.toFixed(2);
-}
 
 /**
  * The icon name for a nested step detail — the same glyph its timeline pill
@@ -320,8 +310,9 @@ export function SubagentDetailPanel({
                 and the breadcrumb; this body only renders the step's detail.
                 Thinking steps render their full reasoning markdown statically
                 (subagent detail isn't a live chat-session source); web_search
-                steps render their query + source links; tool steps use the
-                shared technical-details/output body. */}
+                steps render their query + source links; web_fetch / file_read
+                get result-shaped views; other tools fall back to the shared
+                technical-details/output body. */}
             {activeDetail.kind === "thinking" ? (
               <ChatMarkdownMessage
                 content={activeDetail.thinkingText ?? ""}
@@ -329,6 +320,10 @@ export function SubagentDetailPanel({
               />
             ) : activeDetail.kind === "web_search" ? (
               <WebSearchDetailView detail={activeDetail} />
+            ) : activeDetail.toolName === "web_fetch" ? (
+              <WebFetchDetailView detail={activeDetail} />
+            ) : activeDetail.toolName === "file_read" ? (
+              <FileReadDetailView detail={activeDetail} />
             ) : (
               <ToolDetailBody
                 detail={activeDetail}
@@ -339,7 +334,7 @@ export function SubagentDetailPanel({
         ) : (
           <>
             {/* Metrics row */}
-            <div className="mb-5 grid grid-cols-3 gap-3">
+            <div className="mb-5 grid grid-cols-2 gap-3">
               <AnimatedMetricCard
                 icon={<ArrowDownToLine className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
                 target={entry.inputTokens}
@@ -351,12 +346,6 @@ export function SubagentDetailPanel({
                 target={entry.outputTokens}
                 format={(n) => formatNumber(Math.round(n))}
                 label="Output"
-              />
-              <AnimatedMetricCard
-                icon={<DollarSign className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
-                target={entry.totalCost}
-                format={formatCost}
-                label="Cost"
               />
             </div>
 

@@ -98,7 +98,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 /** A `<pre>` code block with a copy button positioned in the top-right. */
-function CodeBlock({ text }: { text: string }) {
+export function CodeBlock({ text }: { text: string }) {
   return (
     <div className="relative">
       <pre className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3 font-mono text-xs whitespace-pre-wrap break-words text-[var(--content-default)]">

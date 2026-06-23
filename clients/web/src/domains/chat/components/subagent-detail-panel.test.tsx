@@ -62,6 +62,20 @@ mock.module("@/domains/chat/components/subagent-phase-timeline", () => ({
       >
         thinking
       </button>
+      <button
+        type="button"
+        data-testid="timeline-fetch-pill"
+        onClick={() => onStepDetailClick?.("fetch-1")}
+      >
+        fetch
+      </button>
+      <button
+        type="button"
+        data-testid="timeline-file-pill"
+        onClick={() => onStepDetailClick?.("file-1")}
+      >
+        file
+      </button>
     </div>
   ),
 }));
@@ -111,10 +125,9 @@ describe("SubagentDetailPanel — metric cards", () => {
     expect(skeletonCount(container)).toBe(0);
     expect(screen.getByText("Input")).toBeDefined();
     expect(screen.getByText("Output")).toBeDefined();
-    expect(screen.getByText("Cost")).toBeDefined();
-    // Live values render immediately: two "0" tokens and one "0.00" cost.
+    // Cost was removed — only Input + Output remain, each a live "0".
+    expect(screen.queryByText("Cost")).toBeNull();
     expect(screen.getAllByText("0").length).toBe(2);
-    expect(screen.getByText("0.00")).toBeDefined();
   });
 
   test("running with usage renders real values", () => {
@@ -128,7 +141,6 @@ describe("SubagentDetailPanel — metric cards", () => {
     expect(skeletonCount(container)).toBe(0);
     expect(screen.getByText("1.2K")).toBeDefined();
     expect(screen.getByText("340")).toBeDefined();
-    expect(screen.getByText("0.68")).toBeDefined();
   });
 
   test("terminal subagent renders real values including a legitimate zero", () => {
@@ -140,9 +152,8 @@ describe("SubagentDetailPanel — metric cards", () => {
     );
 
     expect(skeletonCount(container)).toBe(0);
-    // Two "0" inputs/outputs and one "0.00" cost render as real text.
+    // Two "0" inputs/outputs render as real text (the cost section was removed).
     expect(screen.getAllByText("0").length).toBe(2);
-    expect(screen.getByText("0.00")).toBeDefined();
   });
 });
 
@@ -457,6 +468,75 @@ function entryWithThinking(): SubagentEntry {
   });
 }
 
+const WEB_FETCH_RESULT = `Final URL: https://www.example.com/article
+Status: 200 OK
+
+Content:
+<external_content source="web" origin="https://www.example.com/article">
+The extracted article body.
+</external_content>`;
+
+/**
+ * A `web_fetch` call/result pair keyed `fetch-1` (the id the stubbed timeline's
+ * fetch pill forwards), so `buildSubagentStepDetails` yields a `web_fetch`
+ * payload the panel routes to `WebFetchDetailView`.
+ */
+function entryWithWebFetch(): SubagentEntry {
+  const now = Date.now();
+  return makeEntry({
+    events: [
+      {
+        id: "te-wf-call",
+        type: "tool_call",
+        content: "{}",
+        toolName: "web_fetch",
+        toolUseId: "fetch-1",
+        input: { url: "https://www.example.com/article" },
+        timestamp: now,
+      },
+      {
+        id: "te-wf-res",
+        type: "tool_result",
+        content: WEB_FETCH_RESULT,
+        result: WEB_FETCH_RESULT,
+        toolName: "web_fetch",
+        toolUseId: "fetch-1",
+        timestamp: now + 1000,
+      },
+    ],
+  });
+}
+
+/**
+ * A `file_read` call/result pair keyed `file-1` (the stubbed timeline's file
+ * pill), routed to `FileReadDetailView`.
+ */
+function entryWithFileRead(): SubagentEntry {
+  const now = Date.now();
+  return makeEntry({
+    events: [
+      {
+        id: "te-fr-call",
+        type: "tool_call",
+        content: "{}",
+        toolName: "file_read",
+        toolUseId: "file-1",
+        input: { path: "/tmp/notes.txt" },
+        timestamp: now,
+      },
+      {
+        id: "te-fr-res",
+        type: "tool_result",
+        content: "hello from the file",
+        result: "hello from the file",
+        toolName: "file_read",
+        toolUseId: "file-1",
+        timestamp: now + 1000,
+      },
+    ],
+  });
+}
+
 describe("SubagentDetailPanel — nested tool detail", () => {
   test("the top-level timeline view shows no breadcrumb", () => {
     render(<SubagentDetailPanel entry={entryWithTool(true)} onClose={noop} />);
@@ -614,5 +694,27 @@ describe("SubagentDetailPanel — nested tool detail", () => {
     expect(screen.getByTestId("timeline-expand").textContent).toBe(
       "group-open",
     );
+  });
+
+  test("a web_fetch pill routes to the source-card view, not the generic body", () => {
+    render(<SubagentDetailPanel entry={entryWithWebFetch()} onClose={noop} />);
+
+    fireEvent.click(screen.getByTestId("timeline-fetch-pill"));
+
+    // The web_fetch view shows the source host; the generic technical-details
+    // body must NOT appear.
+    expect(screen.getByText("example.com")).toBeDefined();
+    expect(screen.getByText("200 OK")).toBeDefined();
+    expect(screen.queryByText("Technical details")).toBeNull();
+  });
+
+  test("a file_read pill routes to the file viewer", () => {
+    render(<SubagentDetailPanel entry={entryWithFileRead()} onClose={noop} />);
+
+    fireEvent.click(screen.getByTestId("timeline-file-pill"));
+
+    // The file viewer shows the basename header and the file contents.
+    expect(screen.getByText("notes.txt")).toBeDefined();
+    expect(screen.queryByText("Technical details")).toBeNull();
   });
 });
