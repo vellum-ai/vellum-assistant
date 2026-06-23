@@ -159,7 +159,7 @@ export function LocalRuntimeUpgradeBanner({
     <>
       <StatusBannerNotice
         tone="info"
-        title={`Assistant runtime ${targetVersion} is ready`}
+        title={`New assistant version available: ${targetVersion}`}
         placement={placement}
         className={className}
         icon={
@@ -189,9 +189,7 @@ export function LocalRuntimeUpgradeBanner({
             </Button>
           </>
         }
-      >
-        Updates assistant, gateway, and CES from the stable release feed.
-      </StatusBannerNotice>
+      />
       <ConfirmDialog
         open={showConfirmation}
         title="Update assistant runtime"
