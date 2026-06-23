@@ -279,20 +279,30 @@ export function ResearchOnboardingRoute() {
     // eyes collapse into the small avatar beside the text. Extra edge
     // characters are revealed by the looking-you-up carousel (see edgeAvatars).
     const postCalendar = ["meeting", "looking", "results", "suggestions"].includes(step);
-    // The peeking crowd grows one per step (by position in the toned sequence),
-    // plus any extras the looking-you-up carousel reveals.
-    const peekLevel = tonedSteps.indexOf(step) + 1 + edgeAvatars;
+    // The edge crowd is gone from the pitch/setup steps — there it's just the
+    // top team and the eyes. The crowd builds up one character per message
+    // during the looking-you-up carousel, then stays on for the result steps.
+    const peekLevel = ["looking", "results", "suggestions"].includes(step)
+      ? edgeAvatars
+      : 0;
     return (
       <div data-theme="dark" className="relative h-full overflow-hidden">
         <OnboardingTonedBackdrop
           eyesBumpNonce={eyesBump}
           peekLevel={peekLevel}
           darkBg={postCalendar}
-          showBottomEyes={!postCalendar}
+          // The pitch steps choreograph their own eyes (rising to speak the
+          // line in, or acting out "smarter"/"faster"), so hide the backdrop's
+          // resting pair there to avoid doubling.
+          showBottomEyes={
+            !postCalendar && step !== "different" && step !== "together"
+          }
+          // The team forms on "together" and rides along for the rest of the flow.
+          showTopTeam={step !== "different"}
         />
         {step === "different" && (
           <PitchDifferentStep
-            onDone={() => goForwardTo("together")}
+            onContinue={() => goForwardTo("together")}
             onBack={() => goBackTo("intro")}
             onForward={onForward}
           />

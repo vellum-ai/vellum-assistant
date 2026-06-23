@@ -1,23 +1,18 @@
 /**
- * A chunky, glossy gold credit coin rendered with real CSS 3D depth.
+ * A flat, glossy gold credit coin (no thickness), facing forward.
  *
  * SPIKE — research-onboarding flow.
  *
- * Built from a front face, a back face, and a stack of edge slices between them
- * — a solid cylinder with genuine thickness when tilted. The coin owns its
- * whole 3D context (one `perspective` → `preserve-3d` element carrying both the
- * resting tilt and the spin), so the front face and its embossed $ stay
- * coplanar with the coin. Pass `spinning` to make it tumble (e.g. on claim);
- * the caller can still wrap it in a plain 2D motion element for a flight path.
+ * A front + back face back-to-back, kept in a `preserve-3d` context only so the
+ * coin can still flip on claim. Pass `spinning` to make it tumble; the caller
+ * can wrap it in a plain 2D motion element for a flight path.
  */
 
 import { motion } from "motion/react";
 
 interface OnboardingCoinProps {
   size: number;
-  /** Coin thickness as a fraction of size. */
-  depthRatio?: number;
-  /** Resting tilt (degrees). */
+  /** Resting tilt (degrees) — face-forward by default. */
   tiltX?: number;
   tiltY?: number;
   /** Draw a soft cast shadow beneath the coin. */
@@ -26,8 +21,6 @@ interface OnboardingCoinProps {
   spinning?: boolean;
   className?: string;
 }
-
-const EDGE_SLICES = 24;
 
 /** One coin face — raised rim, even gold center, specular shine, embossed $. */
 function CoinFace({ idSuffix }: { idSuffix: string }) {
@@ -119,16 +112,12 @@ function CoinFace({ idSuffix }: { idSuffix: string }) {
 
 export function OnboardingCoin({
   size,
-  depthRatio = 0.22,
-  tiltX = 8,
-  tiltY = -22,
+  tiltX = 0,
+  tiltY = 0,
   shadow = true,
   spinning = false,
   className,
 }: OnboardingCoinProps) {
-  const depth = size * depthRatio;
-  const step = depth / (EDGE_SLICES - 1);
-
   return (
     <div style={{ position: "relative", width: size, height: size }}>
       {/* Soft cast shadow beneath the coin. */}
@@ -148,7 +137,7 @@ export function OnboardingCoin({
           }}
         />
       )}
-      {/* Single perspective for the whole coin so the face + $ stay coplanar. */}
+      {/* Perspective only so the coin can flip on claim; it sits flat otherwise. */}
       <div style={{ width: size, height: size, perspective: size * 10 }}>
         <motion.div
           className={className}
@@ -171,44 +160,24 @@ export function OnboardingCoin({
               : { duration: 0 }
           }
         >
-          {/* Edge slices form the coin's thickness; brighter toward the middle
-              of the stack so the rim reads as a rounded, specular edge. */}
-          {Array.from({ length: EDGE_SLICES }, (_, i) => {
-            const t = i / (EDGE_SLICES - 1);
-            const mid = 1 - Math.abs(t - 0.5) * 2; // 0 at faces, 1 at middle
-            const lightness = 44 + mid * 22;
-            return (
-              <div
-                key={i}
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  borderRadius: "50%",
-                  background: `linear-gradient(to bottom, hsl(45 92% ${Math.min(lightness + 10, 82)}%), hsl(42 90% ${lightness - 8}%))`,
-                  transform: `translateZ(${-depth / 2 + i * step}px)`,
-                }}
-              />
-            );
-          })}
-
-          {/* Front face */}
+          {/* Front + back faces, back-to-back (a hair apart to avoid z-fighting)
+              so the coin can still flip on claim. */}
           <div
             style={{
               position: "absolute",
               inset: 0,
               backfaceVisibility: "hidden",
-              transform: `translateZ(${depth / 2}px)`,
+              transform: "translateZ(0.5px)",
             }}
           >
             <CoinFace idSuffix="front" />
           </div>
-          {/* Back face (rotated so its $ reads correctly facing the viewer) */}
           <div
             style={{
               position: "absolute",
               inset: 0,
               backfaceVisibility: "hidden",
-              transform: `translateZ(${-depth / 2}px) rotateY(180deg)`,
+              transform: "translateZ(-0.5px) rotateY(180deg)",
             }}
           >
             <CoinFace idSuffix="back" />
