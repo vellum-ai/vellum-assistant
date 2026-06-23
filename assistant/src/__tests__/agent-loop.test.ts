@@ -2327,6 +2327,7 @@ describe("AgentLoop", () => {
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "mainAgent",
     });
 
     // Provider should be called 3 times: initial, empty response, retry
@@ -2410,6 +2411,7 @@ describe("AgentLoop", () => {
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "mainAgent",
     });
 
     // Provider called exactly 2 times: initial [text+tool_use], then empty.
@@ -2477,6 +2479,7 @@ describe("AgentLoop", () => {
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "mainAgent",
     });
 
     // Provider called 3 times: initial, empty, retry (also empty)
