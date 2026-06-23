@@ -23,7 +23,8 @@ let emitNotificationSignalCalls: unknown[] = [];
 let messageIdCounter = 0;
 
 mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
-  getGuardianDelivery: () => Promise.resolve(mockGuardianList),
+  // Existence guard reads fresh (uncached) — only this variant is stubbed.
+  getGuardianDeliveryFresh: () => Promise.resolve(mockGuardianList),
   guardianForChannel: (
     list: Array<{ channelType: string; status: string }>,
     channelType: string,

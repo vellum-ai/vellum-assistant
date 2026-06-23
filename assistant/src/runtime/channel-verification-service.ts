@@ -12,7 +12,7 @@ import { v4 as uuid } from "uuid";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
 import { revokeGuardianBinding } from "../contacts/contacts-write.js";
 import {
-  getGuardianDelivery,
+  getGuardianDeliveryFresh,
   guardianForChannel,
 } from "../contacts/guardian-delivery-reader.js";
 import type {
@@ -365,7 +365,9 @@ export function getGuardianBinding(
 export async function isGuardianBoundForChannel(
   channel: string,
 ): Promise<boolean> {
-  const list = await getGuardianDelivery({ channelTypes: [channel] });
+  // Existence guards read fresh because gateway-side binding writes don't
+  // invalidate the daemon cache.
+  const list = await getGuardianDeliveryFresh({ channelTypes: [channel] });
   if (list === null) return true;
   return !!guardianForChannel(list, channel);
 }

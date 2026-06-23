@@ -3,9 +3,14 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Gateway guardian-delivery list: null = unreachable, [] = unbound,
 // one active entry = bound.
 let mockGuardianList: Array<Record<string, unknown>> | null = [];
+const freshCalls: Array<{ channelTypes?: string[] } | undefined> = [];
 
 mock.module("../../contacts/guardian-delivery-reader.js", () => ({
-  getGuardianDelivery: () => Promise.resolve(mockGuardianList),
+  // Existence guard must read fresh (uncached) — only this variant is stubbed.
+  getGuardianDeliveryFresh: (input?: { channelTypes?: string[] }) => {
+    freshCalls.push(input);
+    return Promise.resolve(mockGuardianList);
+  },
   guardianForChannel: (
     list: Array<{ channelType: string; status: string }>,
     channelType: string,
@@ -19,6 +24,12 @@ const { isGuardianBoundForChannel } = await import(
 describe("isGuardianBoundForChannel", () => {
   beforeEach(() => {
     mockGuardianList = [];
+    freshCalls.length = 0;
+  });
+
+  test("reads fresh so a stale cached empty list can't mask a present guardian", async () => {
+    await isGuardianBoundForChannel("telegram");
+    expect(freshCalls).toEqual([{ channelTypes: ["telegram"] }]);
   });
 
   test("returns false when no guardian is bound", async () => {

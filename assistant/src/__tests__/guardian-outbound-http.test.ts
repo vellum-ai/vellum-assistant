@@ -89,6 +89,7 @@ globalThis.fetch = (async (
 // list (not bound) rather than a null that would fail closed as already-bound.
 mock.module("../contacts/guardian-delivery-reader.js", () => ({
   getGuardianDelivery: async () => [],
+  getGuardianDeliveryFresh: async () => [],
   guardianForChannel: (
     list: Array<{ channelType: string; status: string }>,
     channelType: string,

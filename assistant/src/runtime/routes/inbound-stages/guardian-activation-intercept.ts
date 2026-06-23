@@ -10,7 +10,7 @@
  */
 import type { ChannelId } from "../../../channels/types.js";
 import {
-  getGuardianDelivery,
+  getGuardianDeliveryFresh,
   guardianForChannel,
 } from "../../../contacts/guardian-delivery-reader.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
@@ -94,7 +94,8 @@ export async function handleGuardianActivationIntercept(
   // If a guardian already exists for this channel, continue to normal flow.
   // Null-list (gateway unreachable) is treated as guardian-present so a
   // transient miss does NOT spuriously auto-start verification.
-  const guardianList = await getGuardianDelivery({
+  // Read fresh: gateway-side binding writes don't invalidate the daemon cache.
+  const guardianList = await getGuardianDeliveryFresh({
     channelTypes: [sourceChannel],
   });
   if (guardianList === null || guardianForChannel(guardianList, sourceChannel)) {
