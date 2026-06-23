@@ -13,6 +13,7 @@
 import { z } from "zod";
 
 import { AdmissionPolicySchema } from "./admission-policy-contract.js";
+import { TrustVerdictSchema } from "./trust-verdict-contract.js";
 
 // ---------------------------------------------------------------------------
 // Command intent (channel-initiated commands, e.g. Telegram /start)
@@ -76,6 +77,13 @@ export const SourceMetadataSchema = z
      * `ADMISSION_POLICY_DEFAULT` (`trusted_contacts`).
      */
     admissionPolicy: AdmissionPolicySchema.optional(),
+
+    /**
+     * Per-actor trust verdict resolved by the gateway from its ACL DB;
+     * absent until the gateway stamps it. Consumers must treat absence as
+     * "not provided", never as a decision.
+     */
+    trustVerdict: TrustVerdictSchema.optional(),
 
     // Email-specific fields
     /** Email subject line. */
