@@ -12,6 +12,7 @@
  */
 
 import type { ChannelId } from "../channels/types.js";
+import { findGuardianForChannel } from "../contacts/contact-store.js";
 import {
   getGuardianDelivery,
   guardianForChannel,
@@ -131,6 +132,30 @@ export async function notifyGuardianOfAccessRequest(
     guardianPrincipalId = assistantGuardianPrincipalId ?? null;
     guardianBindingChannel = guardianBindingChannel ?? "vellum";
     guardianResolutionSource = "vellum-anchor";
+  }
+
+  // Fallback: gateway delivery read was empty/unavailable (restart, timeout,
+  // malformed IPC), so resolve from the LOCAL dual-written binding to avoid an
+  // undecidable request. Removed in Combo 11.
+  if (!guardianPrincipalId) {
+    const localVellum = findGuardianForChannel("vellum");
+    const localAnchorPrincipalId = localVellum?.contact.principalId;
+    const localSource = findGuardianForChannel(sourceChannel);
+    if (
+      localAnchorPrincipalId &&
+      localSource &&
+      localSource.contact.principalId === localAnchorPrincipalId
+    ) {
+      guardianExternalUserId = localSource.channel.address;
+      guardianPrincipalId = localSource.contact.principalId;
+      guardianBindingChannel = localSource.channel.type;
+      guardianResolutionSource = "source-channel-contact";
+    } else if (localVellum) {
+      guardianExternalUserId = localVellum.channel.address;
+      guardianPrincipalId = localAnchorPrincipalId ?? null;
+      guardianBindingChannel = guardianBindingChannel ?? "vellum";
+      guardianResolutionSource = "vellum-anchor";
+    }
   }
 
   log.debug(

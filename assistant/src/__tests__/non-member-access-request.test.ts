@@ -551,6 +551,98 @@ describe("access-request-helper unit tests", () => {
     expect(payload.guardianBindingChannel).toBe("telegram");
   });
 
+  test("notifyGuardianOfAccessRequest falls back to local source-channel binding when gateway delivery is empty", async () => {
+    // Gateway delivery read yields nothing (restart/timeout/malformed IPC).
+    gatewayGuardians = [];
+    // Local dual-written mirror still has the vellum anchor + telegram binding.
+    createGuardianBinding({
+      channel: "telegram",
+      guardianExternalUserId: "guardian-tg",
+      guardianDeliveryChatId: "tg-chat",
+      guardianPrincipalId: anchorPrincipalId,
+      verifiedVia: "test",
+    });
+
+    const result = await notifyGuardianOfAccessRequest({
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      conversationExternalId: "chat-123",
+      actorExternalId: "unknown-user",
+    });
+
+    expect(result.notified).toBe(true);
+
+    const pending = listCanonicalGuardianRequests({
+      status: "pending",
+      requesterExternalUserId: "unknown-user",
+      kind: "access_request",
+    });
+    expect(pending.length).toBe(1);
+    // Request is decidable: local read supplied the principal + source binding.
+    expect(pending[0].guardianPrincipalId).toBe(anchorPrincipalId);
+    expect(pending[0].guardianExternalUserId).toBe("guardian-tg");
+
+    const payload = emitSignalCalls[0].contextPayload as Record<
+      string,
+      unknown
+    >;
+    expect(payload.guardianBindingChannel).toBe("telegram");
+  });
+
+  test("notifyGuardianOfAccessRequest falls back to local vellum anchor when gateway delivery is empty", async () => {
+    // Gateway empty; only the local vellum anchor from resetState remains.
+    gatewayGuardians = [];
+
+    const result = await notifyGuardianOfAccessRequest({
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      conversationExternalId: "chat-123",
+      actorExternalId: "unknown-user",
+    });
+
+    expect(result.notified).toBe(true);
+
+    const pending = listCanonicalGuardianRequests({
+      status: "pending",
+      requesterExternalUserId: "unknown-user",
+      kind: "access_request",
+    });
+    expect(pending.length).toBe(1);
+    // Decidable via the local vellum anchor principal.
+    expect(pending[0].guardianPrincipalId).toBe(anchorPrincipalId);
+
+    const payload = emitSignalCalls[0].contextPayload as Record<
+      string,
+      unknown
+    >;
+    expect(payload.guardianBindingChannel).toBe("vellum");
+  });
+
+  test("notifyGuardianOfAccessRequest does not create a decisionable request when both gateway and local reads are empty", async () => {
+    // Genuinely unbound assistant: gateway empty AND no local binding. Prior
+    // behavior rejects creation of a decisionable request without a principal.
+    gatewayGuardians = [];
+    const db = getDb();
+    db.run("DELETE FROM contact_channels");
+    db.run("DELETE FROM contacts");
+
+    await expect(
+      notifyGuardianOfAccessRequest({
+        canonicalAssistantId: "self",
+        sourceChannel: "telegram",
+        conversationExternalId: "chat-123",
+        actorExternalId: "unknown-user",
+      }),
+    ).rejects.toThrow();
+
+    const pending = listCanonicalGuardianRequests({
+      status: "pending",
+      requesterExternalUserId: "unknown-user",
+      kind: "access_request",
+    });
+    expect(pending.length).toBe(0);
+  });
+
   test("notifyGuardianOfAccessRequest for voice channel includes actorDisplayName in contextPayload", async () => {
     const result = await notifyGuardianOfAccessRequest({
       canonicalAssistantId: "self",
