@@ -40,7 +40,7 @@ const realContactStoreForAssemblyTest =
   await import("../contacts/contact-store.js");
 let contactInfoById: Record<
   string,
-  { notes: string | null; interactionCount: number; userFile: string | null }
+  { notes: string | null; interactionCount: number }
 > = {};
 mock.module("../contacts/contact-store.js", () => ({
   ...realContactStoreForAssemblyTest,
@@ -1594,7 +1594,6 @@ describe("resolveTurnInboundActorContext", () => {
     contactInfoById["contact-42"] = {
       notes: "prefers async updates",
       interactionCount: 7,
-      userFile: "bob.md",
     };
     const trustContext: TrustContext = {
       sourceChannel: "telegram",
