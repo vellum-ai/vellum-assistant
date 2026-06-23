@@ -225,6 +225,10 @@ export type ConversationMessageToolCall = z.infer<
 // Surface
 // ---------------------------------------------------------------------------
 
+// Intentionally more permissive than the canonical SurfaceActionSchema in
+// api/events/ui-surface-show.ts: the write-path schema uses z.enum for style
+// so new surfaces only emit known values; this read-path schema uses z.string
+// so historical surfaces with non-standard style values still parse.
 const SurfaceActionSchema = z.object({
   id: z.string(),
   label: z.string(),

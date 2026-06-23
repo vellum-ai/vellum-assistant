@@ -1,6 +1,16 @@
 // Surface types, UI surface lifecycle messages.
 
-import { z } from "zod";
+import {
+  type CardSurfaceData,
+  CardSurfaceDataSchema,
+} from "../../api/surfaces.js";
+
+// Surface `data` shapes are wire payloads owned by `@vellumai/assistant-api`.
+// Card is migrated (canonical Zod schema); the remaining types below are still
+// hand-written interfaces pending migration. Re-exported so the daemon's
+// surface protocol barrel (`message-protocol.ts`) keeps surfacing them to
+// daemon consumers under their canonical names.
+export { type CardSurfaceData, CardSurfaceDataSchema };
 
 // === Surface type definitions ===
 
@@ -36,25 +46,6 @@ export interface SurfaceAction {
   /** Optional data payload returned to the daemon when this action is clicked. */
   data?: Record<string, unknown>;
 }
-
-/**
- * Card surface data. Defined as a Zod schema so the type is derived (not
- * hand-maintained) and the seed-content-block schema can compose it directly
- * instead of treating card `data` as an opaque record.
- */
-export const CardSurfaceDataSchema = z.object({
-  title: z.string(),
-  subtitle: z.string().optional(),
-  body: z.string(),
-  metadata: z
-    .array(z.object({ label: z.string(), value: z.string() }))
-    .optional(),
-  /** Optional template name for specialized rendering (e.g. "weather_forecast"). */
-  template: z.string().optional(),
-  /** Arbitrary data consumed by the template renderer. Shape depends on template. */
-  templateData: z.record(z.string(), z.unknown()).optional(),
-});
-export type CardSurfaceData = z.infer<typeof CardSurfaceDataSchema>;
 
 export interface ChoiceOption {
   id: string;
