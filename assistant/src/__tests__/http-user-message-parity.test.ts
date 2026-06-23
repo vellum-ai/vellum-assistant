@@ -66,6 +66,31 @@ let healDriftReturn = false;
 const healGuardianBindingDriftMock = mock(async () => healDriftReturn);
 mock.module("../runtime/guardian-vellum-migration.js", () => ({
   healGuardianBindingDrift: healGuardianBindingDriftMock,
+  // Mirror the real helper against the mocked gateway/local-mirror state so the
+  // route exercises the shared narrow-drift gate end-to-end.
+  reResolveTrustOnResetDrift: async (
+    incomingPrincipalId: string,
+    sourceChannel: string,
+  ) => {
+    const gatewayPrincipal = mockGuardians
+      ? mockGuardians.find(
+          (g) => g.channelType === "vellum" && g.status === "active",
+        )?.principalId
+      : undefined;
+    const isResetDrift =
+      incomingPrincipalId.startsWith("vellum-principal-") &&
+      typeof gatewayPrincipal === "string" &&
+      gatewayPrincipal.startsWith("vellum-principal-") &&
+      gatewayPrincipal !== incomingPrincipalId;
+    if (!isResetDrift) return null;
+    await healGuardianBindingDriftMock();
+    return {
+      trustClass: localMirrorGuardians.has(incomingPrincipalId)
+        ? "guardian"
+        : "unknown",
+      sourceChannel,
+    };
+  },
 }));
 
 mock.module("../memory/canonical-guardian-store.js", () => ({
@@ -110,10 +135,10 @@ mock.module("../memory/conversation-crud.js", () => ({
 }));
 
 mock.module("../runtime/local-actor-identity.js", () => ({
-  resolveLocalTrustContext: () => ({
-    trustClass: "guardian",
-    sourceChannel: "vellum",
-  }),
+  findLocalGuardianPrincipalId: async () =>
+    mockGuardians?.find(
+      (g) => g.channelType === "vellum" && g.status === "active",
+    )?.principalId as string | undefined,
 }));
 
 let mockGuardians: Array<Record<string, unknown>> | null = [
@@ -131,8 +156,7 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
   guardianForChannel: (
     list: Array<Record<string, unknown>>,
     channelType: string,
-  ) =>
-    list.find((g) => g.channelType === channelType && g.status === "active"),
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
 // The local mirror grants guardian only to principals present in this set;
@@ -606,6 +630,14 @@ describe("HTTP POST /v1/messages trust context from the gateway binding", () => 
 
   test("dev-bypass maps the gateway guardian principal to guardian", async () => {
     expect(await trustClassFor("dev-bypass")).toBe("guardian");
+  });
+
+  test("dev-bypass fails closed to unknown on an empty gateway", async () => {
+    // No active gateway binding: dev-bypass must not grant guardian from the
+    // stale local mirror — parity with /v1/surface-actions.
+    mockGuardians = [];
+    localMirrorGuardians = new Set<string>(["test-user"]);
+    expect(await trustClassFor("dev-bypass")).toBe("unknown");
   });
 
   test("fails closed to unknown when the gateway is unreachable", async () => {

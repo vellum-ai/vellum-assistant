@@ -26,10 +26,6 @@ import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-fl
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import {
-  getGuardianDelivery,
-  guardianForChannel,
-} from "../../contacts/guardian-delivery-reader.js";
-import {
   mergeConsecutiveAssistantMessages,
   mergeToolResultsIntoAssistantMessages,
 } from "../../conversations/message-consolidation.js";
@@ -72,6 +68,7 @@ import type {
   HostProxyTransportMetadata,
   NonHostProxyTransportMetadata,
 } from "../../daemon/message-types/conversations.js";
+import type { TrustContext } from "../../daemon/trust-context.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import {
   writeOnboardingSidecar,
@@ -125,31 +122,27 @@ import {
 } from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { getPersistedSeq } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   type GuardianPendingScope,
   routeGuardianReply,
 } from "../guardian-reply-router.js";
-import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
+import { reResolveTrustOnResetDrift } from "../guardian-vellum-migration.js";
 import type {
   ApprovalConversationGenerator,
   RuntimeAttachmentMetadata,
   RuntimeMessagePayload,
   SendMessageDeps,
 } from "../http-types.js";
-import { resolveLocalTrustContext } from "../local-actor-identity.js";
+import { findLocalGuardianPrincipalId } from "../local-actor-identity.js";
 import { resolveLocalPrincipalTrustContext } from "../local-principal-trust.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
   publishConversationListAndMetadataChanged,
   publishConversationMessagesChanged,
 } from "../sync/resource-sync-events.js";
-import {
-  resolveTrustContext,
-  withSourceChannel,
-} from "../trust-context-resolver.js";
+import { withSourceChannel } from "../trust-context-resolver.js";
 import {
   BadRequestError,
   InternalError,
@@ -1453,23 +1446,28 @@ export async function handleSendMessage(
   // gateway guardian binding: a vellum principal is the guardian or nobody.
   if (actorPrincipalId) {
     // Dev bypass (HTTP auth disabled): the synthetic "dev-bypass" principal
-    // won't match any guardian binding. Resolve the real guardian principal
-    // from the gateway binding and map that through instead.
+    // won't match any guardian binding. Resolve the real guardian principal and
+    // map that through, failing closed to unknown on an empty gateway.
     if (isHttpAuthDisabled() && actorPrincipalId === "dev-bypass") {
-      const guardians = await getGuardianDelivery({ channelTypes: ["vellum"] });
-      const guardianPrincipalId = guardians?.[0]?.principalId;
-      conversation.setTrustContext(
-        guardianPrincipalId
-          ? withSourceChannel(
-              sourceChannel,
-              await resolveLocalPrincipalTrustContext({
-                actorPrincipalId: guardianPrincipalId,
-                sourceChannel: "vellum",
-                conversationExternalId: "local",
-              }),
-            )
-          : await resolveLocalTrustContext(sourceChannel),
-      );
+      const guardianPrincipalId = await findLocalGuardianPrincipalId();
+      let trustCtx: TrustContext = guardianPrincipalId
+        ? withSourceChannel(
+            sourceChannel,
+            await resolveLocalPrincipalTrustContext({
+              actorPrincipalId: guardianPrincipalId,
+              sourceChannel: "vellum",
+              conversationExternalId: "local",
+            }),
+          )
+        : { trustClass: "unknown", sourceChannel };
+      if (guardianPrincipalId && trustCtx.trustClass === "unknown") {
+        const healed = await reResolveTrustOnResetDrift(
+          guardianPrincipalId,
+          sourceChannel,
+        );
+        if (healed) trustCtx = healed;
+      }
+      conversation.setTrustContext(trustCtx);
     } else {
       let trustCtx = withSourceChannel(
         sourceChannel,
@@ -1480,49 +1478,26 @@ export async function handleSendMessage(
         }),
       );
       if (trustCtx.trustClass === "unknown") {
-        const guardians = await getGuardianDelivery({ channelTypes: ["vellum"] });
-        const gatewayPrincipal = guardians
-          ? guardianForChannel(guardians, "vellum")?.principalId
-          : undefined;
-        // Narrow drift only: a DB reset rebound the gateway to a fresh
-        // vellum-principal while the client holds a valid JWT for the old one.
-        // Both are daemon-minted vellum-principal-* ids, so a genuine
-        // revocation or rebind to a real identity fails closed instead of
-        // re-granting from a stale mirror.
-        const isResetDrift =
-          actorPrincipalId.startsWith("vellum-principal-") &&
-          !!gatewayPrincipal?.startsWith("vellum-principal-") &&
-          gatewayPrincipal !== actorPrincipalId;
-        if (isResetDrift) {
-          await healGuardianBindingDrift(actorPrincipalId);
-          trustCtx = withSourceChannel(
-            sourceChannel,
-            resolveTrustContext({
-              assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-              sourceChannel: "vellum",
-              conversationExternalId: "local",
-              actorExternalId: actorPrincipalId,
-            }),
+        const healed = await reResolveTrustOnResetDrift(
+          actorPrincipalId,
+          sourceChannel,
+        );
+        if (healed && healed.trustClass !== "unknown") {
+          trustCtx = healed;
+          log.info(
+            { actorPrincipalId, trustClass: trustCtx.trustClass },
+            "Trust re-resolved from local mirror after gateway returned unknown",
           );
-          if (trustCtx.trustClass === "unknown") {
-            log.warn(
-              {
-                actorPrincipalId,
-                sourceChannel,
-                trustClass: trustCtx.trustClass,
-                principalType,
-              },
-              "JWT-verified actor resolved to unknown trust class — possible guardian binding drift (e.g. DB reset without re-bootstrap)",
-            );
-          } else {
-            log.info(
-              {
-                actorPrincipalId,
-                trustClass: trustCtx.trustClass,
-              },
-              "Trust re-resolved from local mirror after gateway returned unknown",
-            );
-          }
+        } else {
+          log.warn(
+            {
+              actorPrincipalId,
+              sourceChannel,
+              trustClass: "unknown",
+              principalType,
+            },
+            "JWT-verified actor resolved to unknown trust class — possible guardian binding drift (e.g. DB reset without re-bootstrap)",
+          );
         }
       }
       conversation.setTrustContext(trustCtx);

@@ -66,8 +66,7 @@ mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
   guardianForChannel: (
     list: Array<Record<string, unknown>>,
     channelType: string,
-  ) =>
-    list.find((g) => g.channelType === channelType && g.status === "active"),
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
 mock.module("../../../contacts/contact-store.js", () => ({
@@ -84,6 +83,33 @@ mock.module("../../guardian-vellum-migration.js", () => ({
     healCalls.push(principalId);
     onHeal?.();
     return healResult;
+  },
+  // Mirror the real helper against this file's mocked gateway/local-mirror
+  // state so the route exercises the shared narrow-drift gate end-to-end.
+  reResolveTrustOnResetDrift: async (
+    incomingPrincipalId: string,
+    sourceChannel: string,
+  ) => {
+    const gatewayPrincipal = mockGuardianList
+      ? mockGuardianList.find(
+          (g) => g.channelType === "vellum" && g.status === "active",
+        )?.principalId
+      : undefined;
+    const isResetDrift =
+      incomingPrincipalId.startsWith("vellum-principal-") &&
+      typeof gatewayPrincipal === "string" &&
+      gatewayPrincipal.startsWith("vellum-principal-") &&
+      gatewayPrincipal !== incomingPrincipalId;
+    if (!isResetDrift) return null;
+    healCalls.push(incomingPrincipalId);
+    onHeal?.();
+    return {
+      trustClass:
+        mockGuardianRecord?.contact.principalId === incomingPrincipalId
+          ? "guardian"
+          : "unknown",
+      sourceChannel,
+    };
   },
 }));
 
