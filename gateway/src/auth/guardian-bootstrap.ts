@@ -8,7 +8,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 
 import { getGatewayDb } from "../db/connection.js";
 import {
@@ -89,11 +89,6 @@ export function getExternalAssistantId(): string {
 // ---------------------------------------------------------------------------
 // Contact operations (via IPC proxy to assistant's DB)
 // ---------------------------------------------------------------------------
-
-interface ExistingChannelRow {
-  id: string;
-  contactId: string;
-}
 
 /**
  * Find the existing guardian contact for the "vellum" channel.
@@ -237,50 +232,67 @@ export async function createGuardianBinding(
   const displayName = params.displayName ?? params.externalUserId;
   const verifiedVia = params.verifiedVia ?? "challenge";
 
-  let contactId: string;
-  let channelId: string;
+  // Resolve ids from the gateway DB; the dual-write keeps both DBs in sync, so
+  // a gateway-resolved id matches the assistant row in normal operation.
+  const gwReadDb = getGatewayDb();
+
+  const existingGuardianContact = gwReadDb
+    .select({ id: gwContacts.id })
+    .from(gwContacts)
+    .where(
+      and(
+        eq(gwContacts.role, "guardian"),
+        eq(gwContacts.principalId, params.guardianPrincipalId),
+      ),
+    )
+    .limit(1)
+    .get();
+
+  const claimableChannel = gwReadDb
+    .select({
+      id: gwContactChannels.id,
+      contactId: gwContactChannels.contactId,
+    })
+    .from(gwContactChannels)
+    .where(
+      and(
+        eq(gwContactChannels.type, params.channel),
+        ne(gwContactChannels.status, "blocked"),
+        sql`${gwContactChannels.address} = ${params.externalUserId} COLLATE NOCASE`,
+      ),
+    )
+    .orderBy(
+      sql`CASE WHEN ${gwContactChannels.contactId} = ${existingGuardianContact?.id ?? ""} THEN 0 ELSE 1 END`,
+      sql`CASE ${gwContactChannels.status} WHEN 'active' THEN 0 WHEN 'unverified' THEN 1 ELSE 2 END`,
+      desc(gwContactChannels.updatedAt),
+    )
+    .limit(1)
+    .get();
+
+  const contactId =
+    existingGuardianContact?.id ?? claimableChannel?.contactId ?? uuid();
+
+  const existingChannel =
+    !claimableChannel && existingGuardianContact
+      ? gwReadDb
+          .select({ id: gwContactChannels.id })
+          .from(gwContactChannels)
+          .where(
+            and(
+              eq(gwContactChannels.contactId, contactId),
+              eq(gwContactChannels.type, params.channel),
+            ),
+          )
+          .limit(1)
+          .get()
+      : undefined;
+
+  const channelId = claimableChannel?.id ?? existingChannel?.id ?? uuid();
 
   // --- Assistant DB write (primary, via IPC proxy) ---
   await assistantDbExec("BEGIN IMMEDIATE");
   try {
-    const existingContacts = await assistantDbQuery<{ id: string }>(
-      `SELECT id FROM contacts WHERE role = 'guardian' AND principal_id = ? LIMIT 1`,
-      [params.guardianPrincipalId],
-    );
-    const existingGuardianContactId = existingContacts[0]?.id;
-
-    const claimableChannels = await assistantDbQuery<ExistingChannelRow>(
-      `SELECT cc.id, cc.contact_id AS contactId
-       FROM contact_channels cc
-       WHERE cc.type = ?
-         AND cc.status != 'blocked'
-         AND cc.address = ? COLLATE NOCASE
-       ORDER BY
-         CASE WHEN cc.contact_id = ? THEN 0 ELSE 1 END,
-         CASE cc.status
-           WHEN 'active' THEN 0
-           WHEN 'unverified' THEN 1
-           ELSE 2
-         END,
-         cc.updated_at DESC
-       LIMIT 1`,
-      [params.channel, params.externalUserId, existingGuardianContactId ?? ""],
-    );
-
-    contactId =
-      existingContacts[0]?.id ?? claimableChannels[0]?.contactId ?? uuid();
-
-    let existingChannels: { id: string }[] = [];
-    if (!claimableChannels[0] && existingContacts[0]) {
-      existingChannels = await assistantDbQuery<{ id: string }>(
-        `SELECT id FROM contact_channels WHERE contact_id = ? AND type = ? LIMIT 1`,
-        [contactId, params.channel],
-      );
-    }
-
-    channelId = claimableChannels[0]?.id ?? existingChannels[0]?.id ?? uuid();
-
-    if (existingContacts[0] || claimableChannels[0]) {
+    if (existingGuardianContact || claimableChannel) {
       await assistantDbRun(
         `UPDATE contacts
          SET display_name = ?, role = 'guardian', principal_id = ?, updated_at = ?
@@ -295,7 +307,7 @@ export async function createGuardianBinding(
       );
     }
 
-    if (claimableChannels[0] || existingChannels[0]) {
+    if (claimableChannel || existingChannel) {
       // Remove duplicate channels with the same address (defensive).
       await assistantDbRun(
         `DELETE FROM contact_channels
