@@ -946,25 +946,28 @@ export function handleListMessages({
         .filter((block) => block.type !== "text" || block.text.length > 0);
     }
 
-  // Ensure every hydrated attachment has a corresponding content block.
-  // renderHistoryContent inlines attachment blocks only when it has
-  // file-block refs with matching DB rows; directives (assistant-authored
-  // <vellum-attachment/> tags) don't leave a file block after stripping,
-  // so their attachments end up in the flat `attachments` array but not in
-  // `contentBlocks`. Append any that are missing so the canonical
-  // projection is complete.
-  const existingAttachmentIds = new Set(
-    contentBlocks
-      .filter((b): b is Extract<ConversationContentBlock, { type: "attachment" }> => b.type === "attachment")
-      .map((b) => b.attachment.id),
-  );
-  for (const att of msgAttachments) {
-    if (!existingAttachmentIds.has(att.id)) {
-      contentBlocks.push({ type: "attachment", attachment: att });
+    // Ensure every hydrated attachment has a corresponding content block.
+    // renderHistoryContent inlines attachment blocks only when it has
+    // file-block refs with matching DB rows; directives (assistant-authored
+    // <vellum-attachment/> tags) don't leave a file block after stripping,
+    // so their attachments end up in the flat `attachments` array but not in
+    // `contentBlocks`. Append any that are missing so the canonical
+    // projection is complete.
+    const existingAttachmentIds = new Set(
+      contentBlocks
+        .filter(
+          (b): b is Extract<ConversationContentBlock, { type: "attachment" }> =>
+            b.type === "attachment",
+        )
+        .map((b) => b.attachment.id),
+    );
+    for (const att of msgAttachments) {
+      if (!existingAttachmentIds.has(att.id)) {
+        contentBlocks.push({ type: "attachment", attachment: att });
+      }
     }
-  }
 
-  const alignedContentOrder = aligned.rewriteContentOrder(contentOrder);
+    const alignedContentOrder = aligned.rewriteContentOrder(contentOrder);
 
     // Use sentAt (actual event time) for the display timestamp when available,
     // falling back to createdAt (persistence time). Clients use this display
@@ -1448,7 +1451,9 @@ export async function handleSendMessage(
     // won't match any guardian binding. Resolve from the local guardian
     // binding instead, which produces the correct guardian trust context.
     if (isHttpAuthDisabled() && actorPrincipalId === "dev-bypass") {
-      conversation.setTrustContext(resolveLocalTrustContext(sourceChannel));
+      conversation.setTrustContext(
+        await resolveLocalTrustContext(sourceChannel),
+      );
     } else {
       const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
       let trustCtx = resolveTrustContext({
