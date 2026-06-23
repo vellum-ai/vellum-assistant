@@ -24,7 +24,7 @@ import { getMcpAuthState } from "../../mcp/mcp-auth-state.js";
 import { deleteMcpOAuthCredentials } from "../../mcp/mcp-oauth-provider.js";
 import { getMcpToolsByServer } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
-import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -476,8 +476,8 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "internal/mcp/auth/start",
     method: "POST",
     policy: {
-      requiredScopes: ["internal.write"],
-      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Start MCP OAuth flow",
     description:
@@ -491,8 +491,8 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "internal/mcp/auth/status/:serverId",
     method: "GET",
     policy: {
-      requiredScopes: ["internal.write"],
-      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Poll MCP OAuth flow status",
     description:

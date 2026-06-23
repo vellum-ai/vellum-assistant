@@ -95,17 +95,31 @@ export function McpServerDetailModal({
       return;
     }
 
-    let headers: Record<string, string> | null = null;
-    if (authType === "bearer" && bearerToken.trim()) {
+    const initialAuthType = detectAuthType(server.transport.headers);
+    const authChanged = authType !== initialAuthType
+      || (authType === "bearer" && bearerToken.trim() !== extractBearerToken(server.transport.headers))
+      || (authType === "api-key" && (
+        apiKeyHeader.trim() !== extractApiKey(server.transport.headers).header
+        || apiKeyValue.trim() !== extractApiKey(server.transport.headers).value
+      ));
+
+    let headers: Record<string, string> | null | undefined;
+    if (!authChanged) {
+      headers = undefined;
+    } else if (authType === "none") {
+      headers = null;
+    } else if (authType === "bearer" && bearerToken.trim()) {
       headers = { Authorization: `Bearer ${bearerToken.trim()}` };
     } else if (authType === "api-key" && apiKeyHeader.trim() && apiKeyValue.trim()) {
       headers = { [apiKeyHeader.trim()]: apiKeyValue.trim() };
+    } else {
+      headers = undefined;
     }
 
     onSave(server.id, {
       name: server.id,
       defaultRiskLevel: riskLevel,
-      headers,
+      ...(headers !== undefined ? { headers } : {}),
     });
   }, [server, riskLevel, authType, bearerToken, apiKeyHeader, apiKeyValue, onSave]);
 
