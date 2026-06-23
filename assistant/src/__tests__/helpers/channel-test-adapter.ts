@@ -61,6 +61,12 @@ mock.module("../../daemon/approval-generators.js", () => ({
   createApprovalConversationGenerator: () => undefined,
 }));
 
+import type { TrustClass, TrustVerdict } from "@vellumai/gateway-client";
+
+import {
+  findContactChannel,
+  findGuardianForChannel,
+} from "../../contacts/contact-store.js";
 import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
@@ -112,7 +118,99 @@ export async function handleChannelInbound(
   _approvalConversationGenerator?: ApprovalConversationGenerator,
 ): Promise<Response> {
   const body = await req.json();
+  stampTrustVerdict(body);
   return wrapHandler(() => _handleChannelInbound({ body }));
+}
+
+/**
+ * Mirror the gateway: stamp a per-actor {@link TrustVerdict} onto inbound
+ * `sourceMetadata` from the local contact store, so the daemon's ACL stage
+ * (which now reads the verdict and fail-closed-denies when it is absent) sees
+ * the same verdict the gateway would resolve in production.
+ *
+ * Skipped when a test already supplies `trustVerdict` (or sets `sourceMetadata`
+ * to null) so absent-verdict / explicit-verdict tests keep their setup.
+ */
+function stampTrustVerdict(body: Record<string, unknown>): void {
+  const meta = body.sourceMetadata as Record<string, unknown> | undefined;
+  if (meta && "trustVerdict" in meta) return;
+
+  const channelType = String(body.sourceChannel ?? "");
+  const actorExternalId =
+    typeof body.actorExternalId === "string" ? body.actorExternalId : undefined;
+  const externalChatId =
+    typeof body.conversationExternalId === "string"
+      ? body.conversationExternalId
+      : undefined;
+  if (!channelType) return;
+
+  const verdict = resolveLocalTrustVerdict({
+    channelType,
+    actorExternalId,
+    externalChatId,
+  });
+  body.sourceMetadata = { ...(meta ?? {}), trustVerdict: verdict };
+}
+
+/** Local mirror of the gateway resolver, reading the daemon contact store. */
+function resolveLocalTrustVerdict(input: {
+  channelType: string;
+  actorExternalId?: string;
+  externalChatId?: string;
+}): TrustVerdict {
+  const canonicalSenderId = input.actorExternalId ?? null;
+
+  const member = input.actorExternalId
+    ? findContactChannel({
+        channelType: input.channelType,
+        address: input.actorExternalId,
+        externalChatId: input.externalChatId,
+      })
+    : null;
+  const guardian = findGuardianForChannel(input.channelType);
+
+  const isGuardian =
+    !!guardian &&
+    !!canonicalSenderId &&
+    guardian.channel.address.toLowerCase() === canonicalSenderId.toLowerCase();
+
+  let trustClass: TrustClass;
+  if (isGuardian) {
+    trustClass = "guardian";
+  } else if (member) {
+    const status = member.channel.status;
+    if (status === "active") trustClass = "trusted_contact";
+    else if (status === "unverified" || status === "pending")
+      trustClass = "unverified_contact";
+    else trustClass = "unknown";
+  } else {
+    trustClass = "unknown";
+  }
+
+  const verdict: TrustVerdict = { trustClass, canonicalSenderId };
+
+  if (guardian) {
+    verdict.guardianExternalUserId = guardian.channel.address;
+    verdict.guardianDeliveryChatId = guardian.channel.externalChatId;
+    if (guardian.contact.principalId)
+      verdict.guardianPrincipalId = guardian.contact.principalId;
+    verdict.guardianDisplayName = guardian.contact.displayName;
+  }
+
+  if (member) {
+    verdict.contactId = member.channel.contactId;
+    verdict.channelId = member.channel.id;
+    verdict.type = member.channel.type;
+    verdict.address = member.channel.address;
+    verdict.externalChatId = member.channel.externalChatId;
+    verdict.status = member.channel.status;
+    verdict.policy = member.channel.policy;
+    verdict.verifiedAt = member.channel.verifiedAt;
+    verdict.verifiedVia = member.channel.verifiedVia;
+    verdict.memberDisplayName = member.contact.displayName;
+  }
+
+  return verdict;
 }
 
 // ---------------------------------------------------------------------------

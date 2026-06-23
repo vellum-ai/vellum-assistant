@@ -302,6 +302,12 @@ describe("Verification control messages are deterministic (guard)", () => {
           replyCallbackUrl: "http://localhost/callback",
           sourceMetadata: {
             commandIntent: { type: "start", payload: `gv_${bootstrapToken}` },
+            // Gateway stamps a stranger verdict for this not-yet-bound user;
+            // the bootstrap intercept still fires for a present stranger.
+            trustVerdict: {
+              trustClass: "unknown",
+              canonicalSenderId: "user-bootstrap-123",
+            },
           },
         }),
       });
@@ -367,6 +373,18 @@ describe("Verification control messages are deterministic (guard)", () => {
         actorDisplayName: blockedIdentity.displayName,
         sourceMetadata: {
           commandIntent: { type: "start", payload: `gv_${bootstrapToken}` },
+          // Gateway stamps the member verdict surfacing the blocked status; the
+          // ACL hard-deny fires before the bootstrap intercept.
+          trustVerdict: {
+            trustClass: "unknown",
+            canonicalSenderId: blockedIdentity.externalUserId,
+            contactId: "contact-blocked-bootstrap",
+            channelId: "channel-blocked-bootstrap",
+            type: blockedIdentity.sourceChannel,
+            address: blockedIdentity.externalUserId,
+            status: blockedIdentity.status,
+            policy: blockedIdentity.policy,
+          },
         },
       }),
     });
