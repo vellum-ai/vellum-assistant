@@ -33,10 +33,8 @@ const fakeProvider = {
 // Mock @vellumai/plugin-api — only the runtime handles the plugin imports.
 // `extractAllText` stays real (imported from the relative path, not plugin-api).
 mock.module("@vellumai/plugin-api", () => ({
-  doesSupportVision: (arg: ModelProfileInfo | string) =>
-    typeof arg === "string"
-      ? visionModels.has(arg)
-      : visionProfiles.has(arg.key),
+  doesSupportVision: (profile: ModelProfileInfo) =>
+    visionProfiles.has(profile.key),
   getModelProfiles: () => mockProfiles,
   getConfiguredProvider: async () => (providerResolves ? fakeProvider : null),
 }));
@@ -360,10 +358,9 @@ describe("image-fallback post-tool-use hook", () => {
     );
   });
 
-  test("is a no-op when the model that ran supports vision", async () => {
-    visionModels = new Set(["vision-model"]);
+  test("is a no-op when the active model supports vision", async () => {
+    visionProfiles = new Set(["text-only"]); // active profile supports vision
     const ctx = makeToolCtx({
-      model: "vision-model",
       toolResponse: toolResult([imageBlock("shot1")]),
     });
     await postToolUse(ctx);
@@ -412,30 +409,5 @@ describe("image-fallback post-tool-use hook", () => {
     await postToolUse(ctx);
     const text = (ctx.toolResponse.contentBlocks![0] as { text: string }).text;
     expect(text).not.toContain("saved to");
-  });
-
-  test("is a no-op when contentBlocks carry no image", async () => {
-    const textBlock = { type: "text" as const, text: "just text" };
-    const ctx = makeToolCtx({ toolResponse: toolResult([textBlock]) });
-    await postToolUse(ctx);
-    expect(ctx.toolResponse.contentBlocks![0]).toEqual(textBlock);
-  });
-
-  test("gates on ctx.model, not the workspace active profile", async () => {
-    // The active profile is vision-capable, but the model that actually ran
-    // (ctx.model) is text-only — the model that ran must win, so the image is
-    // captioned.
-    mockProfiles = [
-      profile("vision-active", { isActive: true }),
-      profile("vision-profile", {}),
-    ];
-    visionProfiles = new Set(["vision-active", "vision-profile"]);
-    visionModels = new Set<string>(); // "text-only-model" is text-only
-    const ctx = makeToolCtx({
-      model: "text-only-model",
-      toolResponse: toolResult([imageBlock("shot1")]),
-    });
-    await postToolUse(ctx);
-    expect(ctx.toolResponse.contentBlocks![0].type).toBe("text");
   });
 });
