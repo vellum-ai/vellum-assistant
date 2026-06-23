@@ -28,8 +28,9 @@ import {
   toTrustContext,
 } from "../runtime/actor-trust-resolver.js";
 import {
-  resolvedMemberFromVerdict,
   trustContextFromVerdict,
+  verdictHasMemberIdentity,
+  verdictMemberUnresolvable,
 } from "../runtime/trust-verdict-consumer.js";
 import {
   composeVerificationVoice,
@@ -55,7 +56,10 @@ import {
 import { ConversationRelayTransport } from "./call-transport.js";
 import { getChannelAdmissionPolicy } from "./channel-admission-reader.js";
 import { finalizeCall } from "./finalize-call.js";
-import { getInboundTrustVerdict } from "./inbound-trust-reader.js";
+import {
+  getInboundTrustVerdict,
+  getPhoneCallerVerdict,
+} from "./inbound-trust-reader.js";
 import {
   classifyWaitUtterance,
   emitAccessRequestCallbackHandoff,
@@ -602,10 +606,7 @@ export class RelayConnection {
     // returns null on failure, so a gateway blip keeps the local path.
     const isInbound = session?.initiatedFromConversationId == null;
     const otherPartyNumber = isInbound ? msg.from : msg.to;
-    const verdict = await getInboundTrustVerdict({
-      channelType: "phone",
-      actorExternalId: otherPartyNumber || undefined,
-    });
+    const verdict = await getPhoneCallerVerdict(otherPartyNumber);
 
     try {
       await this.routeSetupOutcome(msg, session, admissionPolicy, verdict);
@@ -911,9 +912,6 @@ export class RelayConnection {
       actorExternalId: fromNumber,
     });
 
-    const hasMemberIdentity = !!(verdict?.contactId || verdict?.channelId);
-    const memberUnresolvable =
-      hasMemberIdentity && resolvedMemberFromVerdict(verdict!) === null;
     // Only a MEMBERLESS unknown verdict is treated as a stale gateway view and
     // falls back to local: the caller was just activated, and invite redemption
     // writes the channel assistant-side, so the gateway may not see the member
@@ -922,11 +920,11 @@ export class RelayConnection {
     // enforced; falling back could lose the gateway's member status if local
     // state is stale.
     const memberlessUnknown =
-      verdict?.trustClass === "unknown" && !hasMemberIdentity;
+      verdict?.trustClass === "unknown" && !verdictHasMemberIdentity(verdict);
     const usable =
       verdict &&
       !verdict.resolutionFailed &&
-      !memberUnresolvable &&
+      !verdictMemberUnresolvable(verdict) &&
       !memberlessUnknown;
 
     if (usable) {
@@ -1015,12 +1013,18 @@ export class RelayConnection {
     // Contact activation is handled by the gateway — the assistant no
     // longer writes contact/channel records on inbound voice calls.
 
+    // Reach connected and clear wait/verification flags before re-resolving
+    // trust, so a prompt buffered during re-resolution flushes onto the
+    // real-turn path, not the verification/wait branches.
+    this.connectionState = "connected";
+    this.verificationSessionActive = false;
+    this.inviteRedemptionActive = false;
+    this.accessRequestWaitActive = false;
+    updateCallSession(this.callSessionId, { status: "in_progress" });
+
     if (this.controller) {
       await this.reResolveAndApplyTrustContext(assistantId, fromNumber);
     }
-
-    this.connectionState = "connected";
-    updateCallSession(this.callSessionId, { status: "in_progress" });
 
     const guardianLabel = this.resolveGuardianLabel();
     let handoffText: string;

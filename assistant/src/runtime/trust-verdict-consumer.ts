@@ -109,6 +109,26 @@ export function trustContextFromVerdict(
   return context;
 }
 
+/**
+ * True when the verdict carries a member identity (contactId or channelId),
+ * regardless of whether that member resolves to a usable {@link ResolvedMember}.
+ */
+export function verdictHasMemberIdentity(verdict: TrustVerdict): boolean {
+  return !!(verdict.contactId || verdict.channelId);
+}
+
+/**
+ * True when the verdict claims a member identity but that member can't be
+ * synthesized (partial/mixed-version verdict). Such a verdict is unusable —
+ * callers fall back to local resolution.
+ */
+export function verdictMemberUnresolvable(verdict: TrustVerdict): boolean {
+  return (
+    verdictHasMemberIdentity(verdict) &&
+    resolvedMemberFromVerdict(verdict) === null
+  );
+}
+
 // Allowed ACL enum values, kept in sync with the ContactChannel union types.
 const CHANNEL_STATUS_VALUES: readonly ChannelStatus[] = [
   "active",

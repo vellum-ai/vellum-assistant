@@ -55,7 +55,7 @@ import {
   updateCallSession,
 } from "./call-store.js";
 import { getChannelAdmissionPolicy } from "./channel-admission-reader.js";
-import { getInboundTrustVerdict } from "./inbound-trust-reader.js";
+import { getPhoneCallerVerdict } from "./inbound-trust-reader.js";
 import { routeSetup } from "./relay-setup-router.js";
 import { resolveCallHints } from "./stt-hints.js";
 import { resolveTelephonySttRouting } from "./telephony-stt-routing.js";
@@ -491,10 +491,7 @@ async function buildVoiceWebhookTwiml(
   // local path on a gateway blip.
   const isInbound = sessionContext?.direction !== "outbound";
   const otherPartyNumber = isInbound ? from : to;
-  const verdict = await getInboundTrustVerdict({
-    channelType: "phone",
-    actorExternalId: otherPartyNumber || undefined,
-  });
+  const verdict = await getPhoneCallerVerdict(otherPartyNumber);
 
   const { outcome } = routeSetup({
     callSessionId,

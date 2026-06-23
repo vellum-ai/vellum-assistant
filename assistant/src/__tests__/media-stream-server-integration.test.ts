@@ -180,9 +180,16 @@ mock.module("../calls/channel-admission-reader.js", () => ({
 // verdict into routeSetup so the media-stream transport enforces the same
 // gateway ACL as ConversationRelay. Tests override mockInboundVerdict.
 let mockInboundVerdict: unknown = null;
-const mockGetInboundTrustVerdict = jest.fn(async () => mockInboundVerdict);
+const mockGetInboundTrustVerdict = jest.fn(
+  async (_args?: Record<string, unknown>) => mockInboundVerdict,
+);
 mock.module("../calls/inbound-trust-reader.js", () => ({
   getInboundTrustVerdict: mockGetInboundTrustVerdict,
+  getPhoneCallerVerdict: (otherPartyNumber: string | undefined) =>
+    mockGetInboundTrustVerdict({
+      channelType: "phone",
+      actorExternalId: otherPartyNumber || undefined,
+    }),
 }));
 
 // Mock the actor trust resolver (used by handleStart to derive trust context)

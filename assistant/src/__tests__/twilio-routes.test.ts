@@ -119,6 +119,13 @@ mock.module("../calls/inbound-trust-reader.js", () => ({
     lastInboundVerdictArgs = args;
     return mockInboundVerdict;
   },
+  getPhoneCallerVerdict: async (otherPartyNumber: string | undefined) => {
+    lastInboundVerdictArgs = {
+      channelType: "phone",
+      actorExternalId: otherPartyNumber || undefined,
+    };
+    return mockInboundVerdict;
+  },
 }));
 
 mock.module("../config/env.js", () => ({
