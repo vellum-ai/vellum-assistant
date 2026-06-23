@@ -71,10 +71,12 @@ async function applyTrustContext(
     const healed = await reResolveTrustOnResetDrift(principalId, sourceChannel);
     if (healed) {
       trustCtx = healed;
-      log.info(
-        { actorPrincipalId: principalId, trustClass: trustCtx.trustClass },
-        "Trust re-resolved from local mirror after gateway reset drift (surface action)",
-      );
+      if (healed.trustClass !== "unknown") {
+        log.info(
+          { actorPrincipalId: principalId, trustClass: trustCtx.trustClass },
+          "Trust re-resolved from local mirror after gateway reset drift (surface action)",
+        );
+      }
     }
   }
   conversation.setTrustContext(trustCtx);
