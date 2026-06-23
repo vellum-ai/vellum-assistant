@@ -29,10 +29,25 @@ mock.module("@/domains/chat/components/subagent-status-badge", () => ({
 mock.module("@/domains/chat/components/subagent-phase-timeline", () => ({
   SubagentPhaseTimeline: ({
     onToolStepClick,
+    expandedKeys,
+    onExpandedKeysChange,
   }: {
     onToolStepClick?: (toolCallId: string) => void;
+    expandedKeys?: Set<string>;
+    onExpandedKeysChange?: (next: Set<string>) => void;
   }) => (
     <div data-testid="timeline">
+      {/* Surfaces the controlled expand state so a test can assert the panel
+          preserves it across the tool-detail view swap. */}
+      <button
+        type="button"
+        data-testid="timeline-expand"
+        onClick={() =>
+          onExpandedKeysChange?.(new Set(expandedKeys).add("grp-1"))
+        }
+      >
+        {expandedKeys?.has("grp-1") ? "group-open" : "group-closed"}
+      </button>
       <button
         type="button"
         data-testid="timeline-pill"
@@ -423,13 +438,13 @@ describe("SubagentDetailPanel — nested tool detail", () => {
 
     // Timeline view first.
     expect(screen.getByTestId("timeline")).toBeDefined();
-    expect(screen.queryByText("Back to timeline")).toBeNull();
+    expect(screen.queryByText("Back")).toBeNull();
 
     fireEvent.click(screen.getByTestId("timeline-pill"));
 
     // Detail body is shown (tool input + Output sections). The nested view
     // omits the "Technical details" label — redundant under the subagent
-    // header + "Back to timeline" affordance — so it must NOT appear.
+    // header + "Back" affordance — so it must NOT appear.
     expect(screen.queryByText("Technical details")).toBeNull();
     expect(screen.getByText("Output")).toBeDefined();
     expect(screen.getByText("file-listing-output")).toBeDefined();
@@ -440,15 +455,15 @@ describe("SubagentDetailPanel — nested tool detail", () => {
     expect(screen.getByLabelText("Close subagent detail")).toBeDefined();
   });
 
-  test("'Back to timeline' restores the timeline view", () => {
+  test("'Back' restores the timeline view", () => {
     render(<SubagentDetailPanel entry={entryWithTool(true)} onClose={noop} />);
 
     fireEvent.click(screen.getByTestId("timeline-pill"));
     expect(screen.getByText("Output")).toBeDefined();
 
-    fireEvent.click(screen.getByText("Back to timeline"));
+    fireEvent.click(screen.getByText("Back"));
     expect(screen.getByTestId("timeline")).toBeDefined();
-    expect(screen.queryByText("Back to timeline")).toBeNull();
+    expect(screen.queryByText("Back")).toBeNull();
   });
 
   test("selecting a still-running tool shows the 'Running…' output state", () => {
@@ -459,14 +474,39 @@ describe("SubagentDetailPanel — nested tool detail", () => {
     expect(screen.getByText("Running…")).toBeDefined();
   });
 
-  test("switching to a different subagent resets the nested view to the timeline", () => {
+  test("returning via 'Back' preserves the expanded timeline group", () => {
+    render(<SubagentDetailPanel entry={entryWithTool(true)} onClose={noop} />);
+
+    // Expand a group.
+    expect(screen.getByTestId("timeline-expand").textContent).toBe(
+      "group-closed",
+    );
+    fireEvent.click(screen.getByTestId("timeline-expand"));
+    expect(screen.getByTestId("timeline-expand").textContent).toBe(
+      "group-open",
+    );
+
+    // Open a tool's detail (the timeline unmounts) then return via "Back".
+    fireEvent.click(screen.getByTestId("timeline-pill"));
+    expect(screen.getByText("Output")).toBeDefined();
+    fireEvent.click(screen.getByText("Back"));
+
+    // The group the user had open is still expanded — the lifted expand state
+    // survived the timeline unmounting.
+    expect(screen.getByTestId("timeline-expand").textContent).toBe(
+      "group-open",
+    );
+  });
+
+  test("switching to a different subagent resets the nested view and expanded groups", () => {
     // The desktop parent reuses this instance across subagent switches (no
-    // React `key`), so an open nested detail must not leak onto the next
-    // subagent.
+    // React `key`), so neither an open nested detail nor an expanded group may
+    // leak onto the next subagent.
     const { rerender } = render(
       <SubagentDetailPanel entry={entryWithTool(true)} onClose={noop} />,
     );
 
+    fireEvent.click(screen.getByTestId("timeline-expand"));
     fireEvent.click(screen.getByTestId("timeline-pill"));
     expect(screen.getByText("Output")).toBeDefined();
 
@@ -477,8 +517,12 @@ describe("SubagentDetailPanel — nested tool detail", () => {
       />,
     );
 
-    // Reset to the timeline for the new subagent.
+    // Reset to the timeline for the new subagent, with no leaked detail or
+    // expansion.
     expect(screen.getByTestId("timeline")).toBeDefined();
-    expect(screen.queryByText("Back to timeline")).toBeNull();
+    expect(screen.queryByText("Back")).toBeNull();
+    expect(screen.getByTestId("timeline-expand").textContent).toBe(
+      "group-closed",
+    );
   });
 });

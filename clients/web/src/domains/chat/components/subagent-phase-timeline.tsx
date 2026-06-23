@@ -62,6 +62,8 @@ function runningActivity(section: PhaseSection): string {
 export function SubagentPhaseTimeline({
   steps,
   onToolStepClick,
+  expandedKeys,
+  onExpandedKeysChange,
 }: {
   steps: ToolCallCardStep[];
   /**
@@ -70,18 +72,41 @@ export function SubagentPhaseTimeline({
    * this component is deploy-safe without a consumer wired up.
    */
   onToolStepClick?: (toolCallId: string) => void;
+  /**
+   * Controlled expand/collapse state — the set of currently-expanded section
+   * keys. When supplied (with `onExpandedKeysChange`), the parent owns this
+   * state so it survives the timeline being unmounted (e.g. while a nested tool
+   * detail is shown) and is restored on return. When omitted, the component
+   * manages the state internally.
+   */
+  expandedKeys?: Set<string>;
+  onExpandedKeysChange?: (next: Set<string>) => void;
 }) {
-  // Expanded section keys. Default collapsed; the toggler is memoized so
-  // already-rendered rows stay referentially stable across toggles.
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const toggle = useCallback((key: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
+  // Expanded section keys. Controlled by the parent when `expandedKeys` is
+  // supplied (so the state outlives an unmount); otherwise managed internally.
+  // Default collapsed.
+  const [internalExpanded, setInternalExpanded] = useState<Set<string>>(
+    new Set(),
+  );
+  const expanded = expandedKeys ?? internalExpanded;
+  const toggle = useCallback(
+    (key: string) => {
+      if (onExpandedKeysChange) {
+        const next = new Set(expanded);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        onExpandedKeysChange(next);
+        return;
+      }
+      setInternalExpanded((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      });
+    },
+    [expanded, onExpandedKeysChange],
+  );
 
   if (steps.length === 0) return null;
   const sections = groupStepsByPhase(steps);

@@ -90,6 +90,14 @@ export function SubagentDetailPanel({
     null,
   );
 
+  // Which timeline groups are expanded. Lifted out of `SubagentPhaseTimeline`
+  // so the expansion survives the timeline unmounting while a nested tool
+  // detail is shown — returning via "Back" restores the same open group. Reset
+  // on subagent switch via the render-phase block below.
+  const [expandedSectionKeys, setExpandedSectionKeys] = useState<Set<string>>(
+    new Set(),
+  );
+
   // Objective collapse/expand. The toggle only appears when the clamped body
   // actually overflows, so short objectives show no affordance.
   const [objectiveExpanded, setObjectiveExpanded] = useState(false);
@@ -109,8 +117,10 @@ export function SubagentDetailPanel({
     setPrevSubagentId(entry.subagentId);
     setObjectiveExpanded(false);
     setObjectiveOverflows(false);
-    // Switching subagents returns the panel to the timeline view.
+    // Switching subagents returns the panel to the timeline view and clears
+    // the previous subagent's expanded groups.
     setSelectedToolCallId(null);
+    setExpandedSectionKeys(new Set());
   }
 
   // Measure overflow against the collapsed clamp. While collapsed the clamp is
@@ -204,9 +214,7 @@ export function SubagentDetailPanel({
               className="mb-4 flex cursor-pointer items-center gap-1.5 text-[var(--content-secondary)] transition-colors hover:text-[var(--content-default)]"
             >
               <ChevronLeft className="h-4 w-4" aria-hidden />
-              <Typography variant="label-medium-default">
-                Back to timeline
-              </Typography>
+              <Typography variant="label-medium-default">Back</Typography>
             </button>
             <ToolDetailBody
               detail={activeDetail}
@@ -309,6 +317,8 @@ export function SubagentDetailPanel({
                 <SubagentPhaseTimeline
                   key={entry.subagentId}
                   steps={cardData.steps}
+                  expandedKeys={expandedSectionKeys}
+                  onExpandedKeysChange={setExpandedSectionKeys}
                   onToolStepClick={(id) => {
                     if (toolDetails.has(id)) setSelectedToolCallId(id);
                   }}

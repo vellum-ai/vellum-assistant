@@ -356,3 +356,45 @@ describe("SubagentPhaseTimeline — phase grouping", () => {
     expect(queryAllByTestId("phase-step-pill").length).toBe(2);
   });
 });
+
+describe("SubagentPhaseTimeline — controlled expand state", () => {
+  // When `expandedKeys`/`onExpandedKeysChange` are supplied the parent owns the
+  // expansion (so it can outlive an unmount): the component renders from the
+  // prop and reports toggles instead of self-managing, and does not expand
+  // until the parent feeds the new set back.
+  test("renders expansion from `expandedKeys` and reports toggles to the parent", () => {
+    const onExpandedKeysChange = mock((_next: Set<string>) => {});
+    const steps: ToolCallCardStep[] = [
+      bash("ls", "completed", "1s", "tc-a"),
+      bash("pwd", "completed", "2s", "tc-b"),
+    ];
+
+    const { rerender, getByTestId, queryAllByTestId } = render(
+      <SubagentPhaseTimeline
+        steps={steps}
+        expandedKeys={new Set()}
+        onExpandedKeysChange={onExpandedKeysChange}
+      />,
+    );
+
+    // Controlled + collapsed: no pills yet.
+    expect(queryAllByTestId("phase-step-pill").length).toBe(0);
+
+    // Clicking the header reports the next set but does NOT self-expand.
+    fireEvent.click(getByTestId("subagent-phase-header"));
+    expect(onExpandedKeysChange).toHaveBeenCalledTimes(1);
+    const nextKeys = onExpandedKeysChange.mock.calls[0]![0];
+    expect(nextKeys.size).toBe(1);
+    expect(queryAllByTestId("phase-step-pill").length).toBe(0);
+
+    // Feeding the reported set back expands the section.
+    rerender(
+      <SubagentPhaseTimeline
+        steps={steps}
+        expandedKeys={nextKeys}
+        onExpandedKeysChange={onExpandedKeysChange}
+      />,
+    );
+    expect(queryAllByTestId("phase-step-pill").length).toBe(2);
+  });
+});
