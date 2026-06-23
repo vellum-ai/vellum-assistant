@@ -14681,6 +14681,12 @@ paths:
                   type: string
                 disabled:
                   type: boolean
+                headers:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties:
+                    type: string
               required:
                 - name
                 - transportType
@@ -14906,6 +14912,14 @@ paths:
                   anyOf:
                     - type: array
                       items:
+                        type: string
+                    - type: "null"
+                headers:
+                  anyOf:
+                    - type: object
+                      propertyNames:
+                        type: string
+                      additionalProperties:
                         type: string
                     - type: "null"
               required:
