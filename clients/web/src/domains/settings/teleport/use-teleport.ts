@@ -11,7 +11,7 @@
 import { type MutableRefObject, useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
-import { hatchAssistant } from "@/assistant/api";
+import { getAssistantHealthz, hatchAssistant } from "@/assistant/api";
 import { retireAssistant } from "@/assistant/retire-service";
 import {
   assistantsList,
@@ -25,7 +25,6 @@ import {
   saveLockfileAssistant,
   setActiveLockfileAssistant,
 } from "@/lib/local-mode";
-import { getAppVersionInfo } from "@/runtime/app-info";
 import type { LockfileAssistant } from "@/runtime/local-mode-host";
 import {
   hatchLocalAssistant,
@@ -341,7 +340,12 @@ async function teleportToLocal(
   targetRef: MutableRefObject<AssistantRef | null>,
 ): Promise<void> {
   setStep("Preparing export...");
-  const upload = await requestSignedUploadUrl();
+  // Stamp the upload with the managed source's runtime version so the platform
+  // records the bundle's compat band — without it the download-side
+  // version-mismatch guard has nothing to compare against and a newer-cloud →
+  // older-local import only fails late at runtime import.
+  const sourceRuntimeVersion = await resolveRuntimeVersion(source.assistantId);
+  const upload = await requestSignedUploadUrl(sourceRuntimeVersion);
 
   setStep("Exporting cloud data...");
   const jobId = await exportManagedToGcs(source.assistantId, upload.url);
@@ -349,14 +353,20 @@ async function teleportToLocal(
 
   // Resolve the local target BEFORE requesting the download so the version
   // check runs against the local *runtime* version, not the Electron shell —
-  // local runtimes upgrade independently of the app, so the shell version can
-  // wrongly block a newer runtime or wrongly pass a stale one.
+  // local runtimes upgrade independently of the app. Don't fall back to the
+  // shell version: a legacy entry without a recorded runtime version would
+  // make the compat check use the wrong value, so fail with a repairable error.
   setStep("Preparing local assistant...");
   const { assistant: local, createdFresh } = await resolveLocalTarget();
   const targetRuntimeVersion =
     local.resources?.runtimeVersion ??
-    (await getAppVersionInfo())?.version ??
-    "0.0.0";
+    (await resolveRuntimeVersion(local.assistantId));
+  if (!targetRuntimeVersion) {
+    throw new TeleportError(
+      "local_assistant_not_found",
+      "Could not determine the local assistant's runtime version. Restart or upgrade the local assistant, then retry the teleport.",
+    );
+  }
 
   setStep("Preparing import...");
   const downloadUrl = await requestSignedDownloadUrl(
@@ -380,6 +390,18 @@ async function teleportToLocal(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * The runtime version reported by an assistant's gateway healthz, or
+ * `undefined` if it can't be read. Used to stamp the bundle's compat band and
+ * to validate the import target against the real runtime (not the app shell).
+ */
+async function resolveRuntimeVersion(
+  assistantId: string,
+): Promise<string | undefined> {
+  const health = await getAssistantHealthz(assistantId);
+  return health.ok ? (health.data.version ?? undefined) : undefined;
+}
 
 /**
  * Resolve and validate the organization id, mirroring the Swift logic: use the
