@@ -33,16 +33,17 @@ export interface TrustVerdictTransport {
 }
 
 /**
- * Build a {@link TrustContext} from a gateway verdict + transport identity.
+ * Reassemble an {@link ActorTrustContext} from a gateway verdict + transport
+ * identity (mirroring `resolveActorTrust`), without any local DB/IPC reads.
  *
- * Reassembles an {@link ActorTrustContext} (mirroring `resolveActorTrust`) and
- * routes it through {@link toTrustContext}, so the output is byte-identical to
- * the local resolution path.
+ * Pure: the voice path consumes this directly for routing on
+ * `actorTrust.trustClass`; {@link trustContextFromVerdict} routes it through
+ * {@link toTrustContext}.
  */
-export function trustContextFromVerdict(
+export function actorTrustContextFromVerdict(
   verdict: TrustVerdict,
   input: TrustVerdictTransport,
-): TrustContext {
+): ActorTrustContext {
   const canonicalSenderId = verdict.canonicalSenderId;
   const memberDisplayName = verdict.memberDisplayName;
   const senderDisplayName = input.actorDisplayName;
@@ -51,7 +52,7 @@ export function trustContextFromVerdict(
     ? `@${username}`
     : (canonicalSenderId ?? undefined);
 
-  const actorTrustContext: ActorTrustContext = {
+  return {
     canonicalSenderId,
     guardianBindingMatch: verdict.guardianExternalUserId
       ? {
@@ -72,9 +73,21 @@ export function trustContextFromVerdict(
       trustStatus: verdict.trustClass,
     },
   };
+}
 
+/**
+ * Build a {@link TrustContext} from a gateway verdict + transport identity.
+ *
+ * Reassembles an {@link ActorTrustContext} (mirroring `resolveActorTrust`) and
+ * routes it through {@link toTrustContext}, so the output is byte-identical to
+ * the local resolution path.
+ */
+export function trustContextFromVerdict(
+  verdict: TrustVerdict,
+  input: TrustVerdictTransport,
+): TrustContext {
   const context = toTrustContext(
-    actorTrustContext,
+    actorTrustContextFromVerdict(verdict, input),
     input.conversationExternalId,
   );
 

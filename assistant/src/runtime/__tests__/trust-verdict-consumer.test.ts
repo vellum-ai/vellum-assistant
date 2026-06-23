@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { TrustVerdict } from "@vellumai/gateway-client";
 
+import { channelStatusToMemberStatus } from "../../contacts/member-status.js";
 import type {
   ContactChannel,
   ContactWithChannels,
@@ -9,6 +10,7 @@ import type {
 import type { ActorTrustContext } from "../actor-trust-resolver.js";
 import { toTrustContext } from "../actor-trust-resolver.js";
 import {
+  actorTrustContextFromVerdict,
   resolvedMemberFromVerdict,
   trustContextFromVerdict,
 } from "../trust-verdict-consumer.js";
@@ -160,6 +162,139 @@ describe("trustContextFromVerdict", () => {
       // Non-guardian without binding -> no guardian chat id.
       expect(result.guardianChatId).toBeUndefined();
     }
+  });
+});
+
+describe("actorTrustContextFromVerdict", () => {
+  test("maps guardian verdict fields", () => {
+    const verdict = {
+      trustClass: "guardian",
+      canonicalSenderId: "+15550100",
+      guardianExternalUserId: "+15550100",
+      guardianDeliveryChatId: "chat-9",
+      guardianPrincipalId: "vellum-principal-abc",
+      memberDisplayName: "Alice",
+    } satisfies TrustVerdict;
+
+    const ctx = actorTrustContextFromVerdict(verdict, {
+      sourceChannel: "phone",
+      conversationExternalId: CONV,
+      actorUsername: "alice",
+      actorDisplayName: "Alice Sender",
+    });
+
+    expect(ctx).toEqual({
+      canonicalSenderId: "+15550100",
+      guardianBindingMatch: {
+        guardianExternalUserId: "+15550100",
+        guardianDeliveryChatId: "chat-9",
+      },
+      guardianPrincipalId: "vellum-principal-abc",
+      memberRecord: null,
+      trustClass: "guardian",
+      actorMetadata: {
+        identifier: "@alice",
+        displayName: "Alice",
+        senderDisplayName: "Alice Sender",
+        memberDisplayName: "Alice",
+        username: "alice",
+        channel: "phone",
+        trustStatus: "guardian",
+      },
+    });
+  });
+
+  test("guardianBindingMatch is null without guardianExternalUserId", () => {
+    const verdict = {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "+15550101",
+      memberDisplayName: "Bob",
+    } satisfies TrustVerdict;
+
+    const ctx = actorTrustContextFromVerdict(verdict, {
+      sourceChannel: "phone",
+      conversationExternalId: CONV,
+    });
+
+    expect(ctx.guardianBindingMatch).toBeNull();
+    expect(ctx.trustClass).toBe("trusted_contact");
+    // identifier falls back to canonicalSenderId when no username.
+    expect(ctx.actorMetadata.identifier).toBe("+15550101");
+    // displayName uses memberDisplayName when present.
+    expect(ctx.actorMetadata.displayName).toBe("Bob");
+    expect(ctx.actorMetadata.channel).toBe("phone");
+    expect(ctx.memberRecord).toBeNull();
+  });
+
+  test("displayName falls back to actorDisplayName; identifier uses @username", () => {
+    const verdict = {
+      trustClass: "unverified_contact",
+      canonicalSenderId: "u-1",
+    } satisfies TrustVerdict;
+
+    const ctx = actorTrustContextFromVerdict(verdict, {
+      sourceChannel: "slack",
+      conversationExternalId: CONV,
+      actorUsername: "carol",
+      actorDisplayName: "Carol Display",
+    });
+
+    expect(ctx.trustClass).toBe("unverified_contact");
+    expect(ctx.actorMetadata.identifier).toBe("@carol");
+    expect(ctx.actorMetadata.displayName).toBe("Carol Display");
+    expect(ctx.actorMetadata.memberDisplayName).toBeUndefined();
+    expect(ctx.actorMetadata.trustStatus).toBe("unverified_contact");
+  });
+
+  test("maps unknown verdict with no identity overrides", () => {
+    const verdict = {
+      trustClass: "unknown",
+      canonicalSenderId: "u-2",
+    } satisfies TrustVerdict;
+
+    const ctx = actorTrustContextFromVerdict(verdict, {
+      sourceChannel: "slack",
+      conversationExternalId: CONV,
+    });
+
+    expect(ctx.trustClass).toBe("unknown");
+    expect(ctx.guardianBindingMatch).toBeNull();
+    expect(ctx.guardianPrincipalId).toBeUndefined();
+    expect(ctx.memberRecord).toBeNull();
+    expect(ctx.actorMetadata.identifier).toBe("u-2");
+    expect(ctx.actorMetadata.displayName).toBeUndefined();
+  });
+
+  test("trustContextFromVerdict equals member stamp applied to toTrustContext(actorTrustContextFromVerdict)", () => {
+    const verdict = {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "u-1",
+      contactId: "contact-1",
+      channelId: "channel-1",
+      type: "slack",
+      address: "u-1",
+      status: "unverified",
+      policy: "escalate",
+      memberDisplayName: "Dora",
+    } satisfies TrustVerdict;
+    const input = {
+      sourceChannel: "slack",
+      conversationExternalId: CONV,
+      actorUsername: "dora",
+      actorDisplayName: "Dora Display",
+    } as const;
+
+    const expected = toTrustContext(
+      actorTrustContextFromVerdict(verdict, input),
+      input.conversationExternalId,
+    );
+    const member = resolvedMemberFromVerdict(verdict);
+    expect(member).not.toBeNull();
+    expected.requesterContactId = member!.contact.id;
+    expected.memberStatus = channelStatusToMemberStatus(member!.channel.status);
+    expected.memberPolicy = member!.channel.policy;
+
+    expect(trustContextFromVerdict(verdict, input)).toEqual(expected);
   });
 });
 
