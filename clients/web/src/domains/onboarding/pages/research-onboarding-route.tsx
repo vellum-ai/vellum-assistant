@@ -30,6 +30,9 @@ import {
   type PreChatOnboardingContext,
 } from "@/domains/onboarding/prechat";
 import { buildResearchPrompt } from "@/domains/onboarding/research-prompt";
+import { useBackgroundHatch } from "@/domains/onboarding/use-background-hatch";
+import { useResearchRunner } from "@/domains/onboarding/research-runner";
+import { scheduleCheckin } from "@/domains/onboarding/checkin-scheduler";
 import { useOnboardingFocusStore } from "@/stores/onboarding-focus-store";
 import {
   ResearchOnboardingScreen,
@@ -120,12 +123,34 @@ export function ResearchOnboardingRoute() {
   // carousel advances, then stays for the results/suggestions steps.
   const [edgeAvatars, setEdgeAvatars] = useState(0);
 
+  // Provision the assistant in the background the moment the user lands here,
+  // so it's (usually) healthy by the time they finish the intro/pitch steps —
+  // and run the "research me" turn against it, surfacing real claims +
+  // suggestions for the in-flow result steps. The research turn is gated on the
+  // LATER of the details submit (subject) and hatch readiness: `start()` is
+  // called on submit and internally awaits the hatch.
+  const {
+    start: startHatch,
+    ready: hatchReady,
+    assistantId: hatchedAssistantId,
+    awaitReady: awaitHatchReady,
+  } = useBackgroundHatch();
+  const research = useResearchRunner();
+  const researchLoading =
+    research.status === "idle" || research.status === "running";
+
   // Landing on the form means a fresh run — clear any stale focus state left
   // behind by an abandoned previous attempt so the form itself never renders
-  // chrome-less.
+  // chrome-less — and kick off the background hatch (idempotent).
+  //
+  // Gate the hatch on the flag: a cold visit starts with `researchOnboarding`
+  // defaulting to false until LD hydrates, and this effect runs before the
+  // `!enabled` redirect below. Without the gate a flag-off visitor would
+  // provision + poll an assistant before being bounced away.
   useEffect(() => {
     exitFocus();
-  }, [exitFocus]);
+    if (enabled && flagsHydrated) startHatch();
+  }, [exitFocus, startHatch, enabled, flagsHydrated]);
 
   // Build the pre-chat context and hand off to the chat pipeline. The chosen
   // name is applied via `assistantName`; the avatar traits are applied to the
@@ -182,14 +207,50 @@ export function ResearchOnboardingRoute() {
     // from a suggestion is a normal chat, so only focus for the research path.
     if (!entryPrompt) enterFocus();
     lifecycleService.markExpectingFirstMessage();
-    void lifecycleService.checkAssistant().finally(() => {
-      void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
-    });
+    // Pin the refresh to the background-hatched assistant so the handoff targets
+    // it (not a previously-selected one) and doesn't trigger a second hatch.
+    void lifecycleService
+      .checkAssistant(hatchedAssistantId ?? undefined)
+      .finally(() => {
+        void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
+      });
   }
 
   function handleFormSubmit(values: ResearchOnboardingValues) {
     setFormValues(values);
+    // Fire the research turn now; the runner awaits hatch readiness internally,
+    // so it starts at the later of this submit and the background hatch.
+    const trimmedFirst = values.firstName.trim();
+    research.start({
+      awaitAssistantId: awaitHatchReady,
+      subject: {
+        firstName: values.firstName,
+        lastName: values.lastName,
+        occupation: values.role,
+        hobby: values.hobbies.join(", "),
+      },
+      conversationTitle: trimmedFirst
+        ? `Getting to know ${trimmedFirst}`
+        : "Getting to know you",
+    });
     goForwardTo("face");
+  }
+
+  // Day-2 check-in: once the Google Calendar grant lands, fire the check-in
+  // prompt into its own conversation (best-effort, never blocks) and advance to
+  // the "Meeting Created!" confirmation.
+  function handleCheckinConnected() {
+    if (hatchedAssistantId && formValues) {
+      const fullName = [formValues.firstName.trim(), formValues.lastName.trim()]
+        .filter(Boolean)
+        .join(" ");
+      void scheduleCheckin({
+        assistantId: hatchedAssistantId,
+        userName: fullName || undefined,
+        assistantName: faceValues?.name?.trim() || undefined,
+      });
+    }
+    goForwardTo("meeting");
   }
 
   if (!enabled) {
@@ -253,7 +314,9 @@ export function ResearchOnboardingRoute() {
         )}
         {step === "letschat" && (
           <LetsChatTomorrowStep
-            onConnect={() => goForwardTo("meeting")}
+            assistantId={hatchedAssistantId}
+            assistantReady={hatchReady}
+            onConnected={handleCheckinConnected}
             onSkip={() => goForwardTo("looking")}
             onBack={() => goBackTo("integration")}
             onForward={onForward}
@@ -276,8 +339,8 @@ export function ResearchOnboardingRoute() {
         )}
         {step === "results" && (
           <ResearchResultsStep
-            firstName={formValues.firstName}
-            role={formValues.role}
+            claims={research.claims}
+            loading={researchLoading}
             onContinue={() => goForwardTo("suggestions")}
             onBack={() => goBackTo("looking")}
             onForward={onForward}
@@ -285,6 +348,8 @@ export function ResearchOnboardingRoute() {
         )}
         {step === "suggestions" && (
           <SuggestionsStep
+            suggestions={research.suggestions}
+            loading={researchLoading}
             onSuggestionClick={(prompt) =>
               enterAssistant(formValues, faceValues, prompt)
             }
