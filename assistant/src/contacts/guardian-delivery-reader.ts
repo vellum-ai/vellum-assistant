@@ -74,22 +74,32 @@ async function fetchGuardianDelivery(
  * Resolve active guardian deliveries, optionally filtered by channel type.
  * Returns the cached list when fresh, otherwise fetches (single-flight) and
  * caches on success. Returns `null` on failure without caching.
+ *
+ * Pass `forceRefresh` to bypass the cached entry and fetch fresh — still
+ * single-flight, and still populates the cache with the fresh result. Used by
+ * existence guards, since gateway-side binding writes don't invalidate the
+ * daemon cache.
  */
 export async function getGuardianDelivery(
-  input?: { channelTypes?: string[] },
+  input?: { channelTypes?: string[]; forceRefresh?: boolean },
 ): Promise<GuardianDelivery[] | null> {
   const key = cacheKey(input?.channelTypes);
 
-  const cached = cache.get(key);
-  if (cached && Date.now() - cached.fetchedAt < GUARDIAN_DELIVERY_CACHE_TTL_MS) {
-    return cached.guardians;
+  if (!input?.forceRefresh) {
+    const cached = cache.get(key);
+    if (
+      cached &&
+      Date.now() - cached.fetchedAt < GUARDIAN_DELIVERY_CACHE_TTL_MS
+    ) {
+      return cached.guardians;
+    }
   }
 
   const pending = inFlight.get(key);
   if (pending) return pending;
 
   const startGen = cacheGeneration;
-  const promise = fetchGuardianDelivery(input ?? {})
+  const promise = fetchGuardianDelivery({ channelTypes: input?.channelTypes })
     .then((guardians) => {
       // Skip the write if an invalidation fired during the fetch: the result
       // may predate the change. Return it to this caller (freshest it has) but
@@ -105,6 +115,16 @@ export async function getGuardianDelivery(
 
   inFlight.set(key, promise);
   return promise;
+}
+
+/**
+ * Fresh (uncached) variant of {@link getGuardianDelivery}. Existence guards read
+ * fresh because gateway-side binding writes don't invalidate the daemon cache.
+ */
+export async function getGuardianDeliveryFresh(
+  input?: { channelTypes?: string[] },
+): Promise<GuardianDelivery[] | null> {
+  return getGuardianDelivery({ ...input, forceRefresh: true });
 }
 
 /**
