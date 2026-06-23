@@ -3,6 +3,8 @@ import { RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { useLocalAssistantHealth } from "@/assistant/local-health";
+import { useAssistantOperationalStatus } from "@/assistant/operational-status";
 import {
   StatusBannerNotice,
   type StatusBannerPlacement,
@@ -53,6 +55,7 @@ export function RuntimeUpgradeBanner({
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [dismissedScope, setDismissedScope] = useState<string | null>(null);
   const assistantState = useAssistantLifecycleStore((s) => s.assistantState);
+  const localHealth = useLocalAssistantHealth();
   const fallbackAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const fallbackCurrentVersion = useAssistantIdentityStore.use.version();
   const previewChannelEnabled = useClientFeatureFlagStore.use.previewChannel();
@@ -77,6 +80,9 @@ export function RuntimeUpgradeBanner({
     : isPlatformAssistant
       ? "platform"
       : null;
+  const { data: platformOperationalStatus } = useAssistantOperationalStatus(
+    isPlatformAssistant ? (assistantId ?? null) : null,
+  );
   const effectiveCurrentVersion =
     mode === "local"
       ? localCurrentVersion
@@ -93,18 +99,23 @@ export function RuntimeUpgradeBanner({
         ? assistantState.reachable !== false &&
           (!assistantState.health || assistantState.health === "healthy")
         : false;
+  const isLocalHealthReadyForUpgrade =
+    !localHealth || localHealth === "healthy";
   const isHealthyPlatformRuntimeState =
     assistantState.kind === "active" &&
     !assistantState.isLocal &&
     assistantState.reachable !== false &&
     !assistantState.maintenanceMode?.enabled &&
-    (!assistantState.health || assistantState.health === "healthy");
+    (!assistantState.health || assistantState.health === "healthy") &&
+    (!platformOperationalStatus ||
+      platformOperationalStatus.state === "active");
   const shouldCheckLocal =
     !!assistantId &&
     !!effectiveCurrentVersion &&
     !!activeAssistant?.isLocal &&
     canUpgradeActiveBunLocalAssistant &&
     isHealthyLocalRuntimeState &&
+    isLocalHealthReadyForUpgrade &&
     isLocalModeHostAvailable();
   const shouldCheckPlatform =
     !!assistantId &&
