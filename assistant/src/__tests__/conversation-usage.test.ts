@@ -23,6 +23,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
   updateConversationUsage: (
     conversationId: string,
     inputTokens: number,

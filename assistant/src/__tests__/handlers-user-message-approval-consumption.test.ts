@@ -91,6 +91,7 @@ mock.module("../runtime/pending-interactions.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
   addMessage: mock(async () => ({ id: "persisted-message-id" })),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));

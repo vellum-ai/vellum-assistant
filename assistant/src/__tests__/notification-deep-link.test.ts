@@ -42,6 +42,7 @@ mock.module("../notifications/deliveries-store.js", () => ({
 // can be driven from tests without DB access.
 let mockExistingConversations: Record<string, { id: string }> = {};
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
   getConversation: (id: string) => mockExistingConversations[id] ?? null,
 }));
 

@@ -30,6 +30,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
   getMessages: () => [],
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));

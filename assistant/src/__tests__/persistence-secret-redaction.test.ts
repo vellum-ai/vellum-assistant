@@ -48,6 +48,7 @@ interface AddMessageCall {
 }
 const addMessageCalls: AddMessageCall[] = [];
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
   addMessage: (
     conversationId: string,
     role: string,

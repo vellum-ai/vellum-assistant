@@ -43,6 +43,7 @@ mock.module("../memory/conversation-key-store.js", () => ({
 const mockAddMessage = mock(() => {});
 
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
   addMessage: mockAddMessage,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));

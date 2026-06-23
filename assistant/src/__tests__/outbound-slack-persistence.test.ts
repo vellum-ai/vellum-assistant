@@ -72,6 +72,7 @@ const persistedRows: Array<{
   metadata: string | null;
 }> = [];
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
   addMessage: (
     conversationId: string,
     role: string,

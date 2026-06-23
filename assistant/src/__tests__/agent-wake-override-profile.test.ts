@@ -31,6 +31,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 let mockOverrideProfile: string | undefined = undefined;
 
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
   getConversationOverrideProfile: (_id: string) => mockOverrideProfile,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));

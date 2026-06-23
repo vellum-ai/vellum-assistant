@@ -21,6 +21,7 @@ import type {
 import type { Message } from "../providers/types.js";
 
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
   getConversationOverrideProfile: () => undefined,
 }));
 

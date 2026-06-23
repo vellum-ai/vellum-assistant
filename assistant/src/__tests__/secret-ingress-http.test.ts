@@ -96,6 +96,7 @@ const addMessageMock = mock(
 );
 
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
   addMessage: (
     conversationId: string,
     role: string,

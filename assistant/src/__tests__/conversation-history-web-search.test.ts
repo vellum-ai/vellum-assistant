@@ -36,6 +36,7 @@ let deletedMessageIds: string[] = [];
 let updatedMessages: Array<{ id: string; content: string }> = [];
 
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
   getMessages: (conversationId: string) =>
     dbMessages.filter((m) => m.conversationId === conversationId),
   deleteMessageById: (messageId: string) => {

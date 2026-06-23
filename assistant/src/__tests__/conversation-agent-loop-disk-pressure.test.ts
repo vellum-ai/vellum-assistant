@@ -87,6 +87,7 @@ mock.module("../daemon/disk-pressure-guard.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
   getConversation: () => ({
     id: "conv-123",
     conversationType: "background",

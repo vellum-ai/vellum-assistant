@@ -94,6 +94,7 @@ mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
   addMessage: (
     conversationId: string,
     role: string,

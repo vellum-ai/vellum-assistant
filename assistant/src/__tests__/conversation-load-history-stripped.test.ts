@@ -70,6 +70,7 @@ let mockDbMessages: Array<{
 let mockConversation: Record<string, unknown> | null = null;
 
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
   updateConversationTitle: () => {},

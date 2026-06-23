@@ -384,6 +384,7 @@ describe("SubagentManager.spawn — overrideProfile inheritance", () => {
 // inheritance chain breaks at the second nesting level.
 
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
   // Always return undefined for the row read so the test fails fast unless
   // executeSubagentSpawn reads from context.overrideProfile first.
   getConversationOverrideProfile: () => undefined,

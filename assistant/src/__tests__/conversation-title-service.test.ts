@@ -34,6 +34,7 @@ mock.module("../runtime/btw-sidechain.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
   getConversation: mockGetConversation,
   getMessages: mockGetMessages,
   updateConversationTitle: mockUpdateConversationTitle,
