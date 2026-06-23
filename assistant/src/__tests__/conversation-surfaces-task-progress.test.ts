@@ -576,3 +576,99 @@ describe("task_progress surface compatibility", () => {
     expect(sent.some((m) => m.type === "ui_surface_show")).toBe(true);
   });
 });
+
+describe("ui_show card content recovery", () => {
+  function shownCard(sent: ServerMessage[]): CardSurfaceData | undefined {
+    const show = sent.find(
+      (m): m is UiSurfaceShow => m.type === "ui_surface_show",
+    );
+    if (!show || show.surfaceType !== "card") return undefined;
+    return show.data;
+  }
+
+  test("recovers body from a copy_block-style `text` field", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    const result = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      title: "Inbox cleaned",
+      data: { text: "Archived 1,240 emails" },
+    });
+
+    expect(result.isError).toBe(false);
+    const card = shownCard(sent);
+    expect(card?.body).toBe("Archived 1,240 emails");
+    // The alias key is not a card field; it must not survive on the surface.
+    expect((card as Record<string, unknown>).text).toBeUndefined();
+  });
+
+  test("recovers body from a confirmation-style `message` field", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      data: { title: "Heads up", message: "The server will restart." },
+    });
+
+    expect(shownCard(sent)?.body).toBe("The server will restart.");
+  });
+
+  test("recovers top-level subtitle and metadata into the card", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      subtitle: "saved just now",
+      metadata: [{ label: "Total", value: "$10" }],
+      data: { body: "Done" },
+    });
+
+    const card = shownCard(sent);
+    expect(card?.subtitle).toBe("saved just now");
+    expect(card?.metadata).toEqual([{ label: "Total", value: "$10" }]);
+  });
+
+  test("renders a title-only card instead of rejecting it", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    const result = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      title: "Restart the server?",
+      actions: [{ id: "yes", label: "Yes" }],
+      data: {},
+    });
+
+    expect(result.isError).toBe(false);
+    expect(shownCard(sent)?.title).toBe("Restart the server?");
+  });
+
+  test("a card with a real body broadcasts unchanged", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      data: { title: "Plain", body: "hi" },
+    });
+
+    expect(shownCard(sent)?.body).toBe("hi");
+  });
+
+  test("a task_progress card with empty data broadcasts (template renders a shell)", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    const result = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      template: "task_progress",
+      templateData: { status: "in_progress", steps: [] },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(shownCard(sent)?.template).toBe("task_progress");
+  });
+});

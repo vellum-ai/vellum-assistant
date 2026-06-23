@@ -200,4 +200,38 @@ describe("CardSurface", () => {
     expect(rendered).not.toContain("%");
     expect(rendered).toContain("Details");
   });
+
+  test("a body-less card renders its title (no loading spinner)", () => {
+    const rendered = renderToStaticMarkup(
+      <CardSurface
+        surface={surface({
+          title: "Heads up",
+          data: { title: "Heads up" },
+          actions: [],
+        })}
+        onAction={() => undefined}
+      />,
+    );
+
+    // A title-only card is a valid card (the daemon recovers misplaced content
+    // before it gets here); render the title, not a fake loading affordance.
+    expect(rendered).toContain("Heads up");
+    expect(rendered).not.toContain("animate-spin");
+  });
+
+  test("a sparse card with actions renders its title and the button", () => {
+    const rendered = renderToStaticMarkup(
+      <CardSurface
+        surface={surface({
+          title: "Restart the server?",
+          data: { title: "Restart the server?" },
+          actions: [{ id: "yes", label: "Yes", style: "primary" }],
+        })}
+        onAction={() => undefined}
+      />,
+    );
+
+    expect(rendered).toContain("Restart the server?");
+    expect(rendered).toContain("Yes");
+  });
 });

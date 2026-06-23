@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 
+import { CardSurfaceDataSchema } from "../api/surfaces.js";
 import { isActivationSession } from "../memory/activation-session-store.js";
 import {
   addAppConversationId,
@@ -472,6 +473,16 @@ function normalizeDynamicPageShowData(
   return normalized as unknown as DynamicPageSurfaceData;
 }
 
+/** First entry that is a non-empty (trimmed) string, else undefined. */
+function firstNonEmptyString(values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
 function normalizeCardShowData(
   input: Record<string, unknown>,
   rawData: Record<string, unknown>,
@@ -507,6 +518,39 @@ function normalizeCardShowData(
     normalized.body = input.body;
   }
 
+  // The model frequently puts the card's text under a sibling surface's field
+  // name — copy_block's `text`, confirmation's `message` — or a generic
+  // `content`. Recover those into `body` when no body was given, then drop the
+  // alias, so content the model actually provided renders instead of being
+  // silently swallowed by a key the card contract doesn't model.
+  if (typeof normalized.body !== "string" || normalized.body.trim() === "") {
+    const aliased = firstNonEmptyString([
+      normalized.text,
+      normalized.message,
+      normalized.content,
+      input.text,
+      input.message,
+      input.content,
+    ]);
+    if (aliased !== undefined) {
+      normalized.body = aliased;
+    }
+  }
+  delete normalized.text;
+  delete normalized.message;
+  delete normalized.content;
+
+  // Recover top-level subtitle/metadata, mirroring the title/body recovery.
+  if (
+    typeof normalized.subtitle !== "string" &&
+    typeof input.subtitle === "string"
+  ) {
+    normalized.subtitle = input.subtitle;
+  }
+  if (!Array.isArray(normalized.metadata) && Array.isArray(input.metadata)) {
+    normalized.metadata = input.metadata;
+  }
+
   // task_progress cards: additional fallbacks for title from templateData.
   if (
     normalized.template === "task_progress" &&
@@ -533,7 +577,34 @@ function normalizeCardShowData(
     ensureTaskProgressTemplateData(normalized);
   }
 
-  return normalized as unknown as CardSurfaceData;
+  // Parse, don't assert. The old `as unknown as CardSurfaceData` accepted any
+  // shape, so anything the model nested under an unmodelled key was carried
+  // through unread. Parsing draws the boundary; the dropped-key log surfaces
+  // the shapes we still don't recover, so the recovery list above can grow from
+  // real traffic rather than guesswork.
+  const droppedKeys = Object.keys(normalized).filter(
+    (key) => !(key in CardSurfaceDataSchema.shape),
+  );
+  if (droppedKeys.length > 0) {
+    log.warn(
+      { droppedKeys },
+      "ui_show card data carried keys the card contract does not model; their content will not render",
+    );
+  }
+  const parsed = CardSurfaceDataSchema.safeParse(normalized);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  log.warn(
+    { issues: parsed.error.issues },
+    "ui_show card data failed CardSurfaceDataSchema; rendering only the fields that validated",
+  );
+  return CardSurfaceDataSchema.parse({
+    title: typeof normalized.title === "string" ? normalized.title : undefined,
+    subtitle:
+      typeof normalized.subtitle === "string" ? normalized.subtitle : undefined,
+    body: typeof normalized.body === "string" ? normalized.body : undefined,
+  });
 }
 
 function normalizeTaskProgressCardPatch(
