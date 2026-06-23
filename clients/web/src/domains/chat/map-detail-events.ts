@@ -55,7 +55,7 @@ export function mapDetailEvents(
       isError: evt.isError,
       // Carry the tool id + raw input through so history/reloaded subagents'
       // tool pills are clickable and the nested detail shows real input.
-      // `result` rides in `content`, which `buildSubagentToolDetails` already
+      // `result` rides in `content`, which `buildSubagentStepDetails` already
       // falls back to.
       toolUseId: evt.toolUseId,
       input: evt.input,

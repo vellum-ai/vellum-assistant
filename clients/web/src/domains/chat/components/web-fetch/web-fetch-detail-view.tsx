@@ -19,6 +19,7 @@ import { Typography } from "@vellumai/design-library";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { CodeBlock } from "@/domains/chat/components/tool-detail-panel";
 import { SiteFavicon } from "@/domains/chat/components/web-search/site-favicon";
+import { extractDomain } from "@/domains/chat/utils/web-search-result-text";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 const CONTENT_MARKER = "\nContent:\n";
@@ -36,11 +37,9 @@ export interface ParsedWebFetch {
 
 /** Hostname (minus a leading `www.`) for display, or the raw url on parse failure. */
 export function hostnameOf(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return url;
-  }
+  // Reuse the canonical chat-domain parser (`new URL().hostname` minus `www.`);
+  // it returns "" on parse failure, so fall back to the raw url for display.
+  return extractDomain(url) || url;
 }
 
 /**

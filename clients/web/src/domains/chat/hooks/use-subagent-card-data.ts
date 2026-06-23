@@ -221,7 +221,7 @@ export function mapToolEventToStep(
 
 /**
  * Core in-flight matching predicate, shared by `findMatchingInFlightToolIndex`
- * (which drives `computeSubagentCardData`) and `buildSubagentToolDetails` so
+ * (which drives `computeSubagentCardData`) and `buildSubagentStepDetails` so
  * the two projections can't drift. Walks `candidates` newest-first and returns
  * the index of the first still-`running` tool that matches the follow-up
  * `event`. Match precedence:
@@ -725,13 +725,10 @@ export function buildSubagentStepDetails(
       if (matchIndex === -1) continue;
       const target = payloads[matchIndex]!;
       const start = meta[matchIndex]!.startTs;
-      // Same non-positive-delta suppression as `computeSubagentCardData`:
-      // synthetic equal-timestamp history events → "".
-      const delta =
-        Number.isFinite(start) && event.timestamp > start
-          ? event.timestamp - start
-          : 0;
-      const durationLabel = delta > 0 ? formatMs(delta) : "";
+      // Shared with `computeSubagentCardData` so the non-positive-delta
+      // suppression (synthetic equal-timestamp history events → "") can't drift
+      // between the two projections.
+      const durationLabel = durationLabelBetween(start, event.timestamp);
       // Web search → parse the raw result text into the same source chips the
       // timeline renders; everything else keeps the raw `result` for the
       // technical-details body.
@@ -759,5 +756,14 @@ export function buildSubagentStepDetails(
     }
   }
 
-  return new Map(payloads.map((payload) => [payload.toolCallId, payload]));
+  // A failed web_search renders in the timeline as a `web_search_error` step
+  // (see `computeSubagentCardData`), which carries no `detailKey` — so a payload
+  // for it here could never be opened. Drop it rather than leave a dead entry
+  // the two projections disagree on. A failed non-web tool keeps its payload:
+  // its timeline pill stays clickable to surface the error.
+  return new Map(
+    payloads
+      .filter((p) => !(p.kind === "web_search" && p.status === "error"))
+      .map((payload) => [payload.toolCallId, payload]),
+  );
 }

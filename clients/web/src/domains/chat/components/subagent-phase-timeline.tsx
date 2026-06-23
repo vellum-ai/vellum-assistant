@@ -14,7 +14,7 @@
  */
 
 import { Brain, Globe } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { Typography } from "@vellumai/design-library";
 
@@ -171,8 +171,12 @@ export function SubagentPhaseTimeline({
     [expanded, onExpandedKeysChange],
   );
 
-  if (steps.length === 0) return null;
-  const sections = groupStepsByPhase(steps);
+  // Memoized so the O(n) grouping + fresh section allocations don't re-run on
+  // renders driven purely by expand/collapse (`expandedKeys`) — only when the
+  // step list itself changes. `groupStepsByPhase([])` is `[]`, so the empty
+  // check below is equivalent to the prior `steps.length === 0`.
+  const sections = useMemo(() => groupStepsByPhase(steps), [steps]);
+  if (sections.length === 0) return null;
 
   return (
     <div className="flex w-full flex-col">
