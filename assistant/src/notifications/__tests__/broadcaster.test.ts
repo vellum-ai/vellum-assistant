@@ -27,6 +27,10 @@ mock.module("../copy-composer.js", () => ({
   composeFallbackCopy: () => composeFallbackReturn,
 }));
 
+mock.module("../../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => null,
+}));
+
 mock.module("../destination-resolver.js", () => ({
   resolveDestinations: (channels: string[]) => {
     const map = new Map<string, ChannelDestination>();
