@@ -55,6 +55,7 @@ const mockStore = makeMockStore();
 
 mock.module("../memory/app-store.js", () => ({
   ...mockStore,
+  listAppsByConversation: () => [makeApp({ id: "active-app" })],
   getAppsDir: () => "/tmp/test-apps",
   getAppDirPath: (appId: string) => `/tmp/test-apps/${appId}`,
   resolveAppDir: (id: string) => ({
@@ -171,6 +172,15 @@ describe("app-builder skill tool scripts", () => {
       expect(parsed.refreshed).toBe(true);
       expect(parsed.appId).toBe("app-1");
     });
+
+    test("infers the active app when app_id is missing", async () => {
+      const result = await appRefreshScript.run({}, makeContext());
+
+      expect(result.isError).toBe(false);
+      const parsed = JSON.parse(result.content);
+      expect(parsed.refreshed).toBe(true);
+      expect(parsed.appId).toBe("active-app");
+    });
   });
 
   // ---- app-update --------------------------------------------------------
@@ -190,6 +200,19 @@ describe("app-builder skill tool scripts", () => {
       expect(parsed.updated).toBe(true);
       expect(parsed.appId).toBe("app-1");
       expect(parsed.name).toBe("Renamed");
+    });
+
+    test("infers the active app when app_id is missing", async () => {
+      const result = await appUpdateScript.run(
+        { name: "Renamed Active App" },
+        makeContext(),
+      );
+
+      expect(result.isError).toBe(false);
+      const parsed = JSON.parse(result.content);
+      expect(parsed.updated).toBe(true);
+      expect(parsed.appId).toBe("active-app");
+      expect(parsed.name).toBe("Renamed Active App");
     });
   });
 });

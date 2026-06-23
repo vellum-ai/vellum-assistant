@@ -111,6 +111,7 @@ import {
 } from "../providers/openai/chat-completions-provider.js";
 import { OpenAIProvider } from "../providers/openai/client.js";
 import { OpenRouterProvider } from "../providers/openrouter/client.js";
+import { TogetherProvider } from "../providers/together/client.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -282,6 +283,63 @@ describe("OpenAIChatCompletionsProvider extraction", () => {
 
     const ol = new OllamaProvider("llama3.2");
     expect(ol).toBeInstanceOf(OpenAIChatCompletionsProvider);
+  });
+
+  test("Together MiniMax round-trips object tool args as JSON strings", async () => {
+    fakeChunks = [
+      ...toolCallChunks([
+        {
+          id: "call-1",
+          name: "skill_execute",
+          args: JSON.stringify({
+            tool: "app_refresh",
+            input: JSON.stringify({ app_id: "app-1" }),
+            activity: "Compile app",
+          }),
+        },
+      ]),
+      usageChunk(10, 5),
+    ];
+
+    const provider = new TogetherProvider("tg-key", "MiniMaxAI/MiniMax-M3");
+    const response = await provider.sendMessage([userMsg("compile")], {
+      tools: [
+        {
+          name: "skill_execute",
+          description: "Execute a loaded skill tool",
+          input_schema: {
+            type: "object",
+            properties: {
+              tool: { type: "string" },
+              input: { type: "object" },
+              activity: { type: "string" },
+            },
+            required: ["tool", "input", "activity"],
+          },
+        },
+      ],
+    });
+
+    const sentTools = lastCreateParams!.tools as Array<{
+      function: {
+        parameters: { properties: Record<string, { type: string }> };
+      };
+    }>;
+    expect(sentTools[0].function.parameters.properties.input.type).toBe(
+      "string",
+    );
+    expect(response.content).toEqual([
+      {
+        type: "tool_use",
+        id: "call-1",
+        name: "skill_execute",
+        input: {
+          tool: "app_refresh",
+          input: { app_id: "app-1" },
+          activity: "Compile app",
+        },
+      },
+    ]);
   });
 });
 

@@ -17,6 +17,25 @@ async function readAllSkillMarkdown(): Promise<string> {
 }
 
 describe("app-builder skill instructions", () => {
+  test("lets app tools infer the active app before schema validation", async () => {
+    const manifest = JSON.parse(
+      await readFile(new URL("TOOLS.json", skillDir), "utf8"),
+    ) as {
+      tools: Array<{
+        name: string;
+        input_schema?: { required?: string[] };
+      }>;
+    };
+    const requiredFor = (name: string) =>
+      manifest.tools.find((tool) => tool.name === name)?.input_schema
+        ?.required ?? [];
+
+    expect(requiredFor("app_update")).not.toContain("app_id");
+    expect(requiredFor("app_refresh")).not.toContain("app_id");
+    expect(requiredFor("app_generate_icon")).not.toContain("app_id");
+    expect(requiredFor("app_delete")).toContain("app_id");
+  });
+
   test("uses non-CLI UI confirmation for optional profile switch", async () => {
     const skillText = await readFile(new URL("SKILL.md", skillDir), "utf8");
     const preflightStart = skillText.indexOf("### 0. Preflight");

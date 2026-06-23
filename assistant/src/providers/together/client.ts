@@ -10,9 +10,7 @@ const DEFAULT_TOGETHER_BASE_URL = "https://api.together.ai/v1";
 
 /**
  * Together AI exposes an OpenAI-compatible endpoint. Used as the managed route
- * for MiniMax M3. Together serializes object-typed tool args correctly, so —
- * unlike {@link FireworksProvider} — no `coerceObjectArgsToJsonString`
- * workaround is needed.
+ * for MiniMax M3.
  */
 export class TogetherProvider extends OpenAIChatCompletionsProvider {
   constructor(
@@ -30,6 +28,9 @@ export class TogetherProvider extends OpenAIChatCompletionsProvider {
       // blocks and replays on multi-turn requests.
       assistantReasoningField: "reasoning_content",
       maxReasoningEffort: "high",
+      // MiniMax M3 can collapse object-typed function-call args to `{}` even
+      // on Together. Present those args as JSON strings and decode them back.
+      coerceObjectArgsToJsonString: /minimax/i.test(model),
     });
   }
 }

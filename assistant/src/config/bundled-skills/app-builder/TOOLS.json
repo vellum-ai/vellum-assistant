@@ -128,7 +128,7 @@
             "description": "Short summary of what changed, using git conventional commit format (e.g. 'fix: correct totals', 'feat: add dark mode'). Used as the version history entry."
           }
         },
-        "required": ["app_id"]
+        "required": []
       },
       "executor": "tools/app-update.ts",
       "execution_target": "host"
@@ -172,7 +172,7 @@
             "description": "Short summary of what changed, using git conventional commit format (e.g. 'feat: add dark mode toggle', 'fix: form validation'). Used as the version history entry."
           }
         },
-        "required": ["app_id"]
+        "required": []
       },
       "executor": "tools/app-refresh.ts",
       "execution_target": "host"
@@ -198,7 +198,7 @@
             "description": "Short summary of what changed, using git conventional commit format (e.g. 'feat: generate app icon'). Used as the version history entry."
           }
         },
-        "required": ["app_id"]
+        "required": []
       },
       "executor": "tools/app-generate-icon.ts",
       "execution_target": "host"
