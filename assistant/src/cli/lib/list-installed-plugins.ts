@@ -186,8 +186,17 @@ function readPluginEntry(
  * directory. For default plugins, it lives in a stub directory at
  * `<workspace>/plugins/<manifest-name>/` (created by `plugins disable`).
  *
- * Results are sorted alphabetically by name, with default plugins appearing
- * after user plugins (sorted within their group).
+ * Stub directories created by `plugins disable <default-name>` are excluded
+ * from the user listing so a disabled default plugin appears only once (as a
+ * default entry, not a duplicate user entry with "missing package.json").
+ *
+ * Sort order:
+ * 1. Enabled user plugins (by install date, oldest first — matches
+ *    hook/tool resolution order)
+ * 2. Disabled user plugins (by install date)
+ * 3. Enabled default plugins (by repo array order — matches registration
+ *    order which fixes hook-chain order)
+ * 4. Disabled default plugins (by repo array order)
  */
 export function listAllPlugins(
   opts: ListInstalledPluginsOptions = {},
@@ -195,11 +204,18 @@ export function listAllPlugins(
   const pluginsDir = opts.workspacePluginsDir ?? getWorkspacePluginsDir();
 
   // ── User plugins ───────────────────────────────────────────────────────
-  const userPlugins = listInstalledPlugins(opts).map((entry) => ({
-    ...entry,
-    source: "user" as const,
-    disabled: existsSync(join(entry.target, ".disabled")),
-  }));
+  // Filter out default-plugin stub directories (created by `plugins disable
+  // default-<name>`) so they don't show up as duplicate user entries.
+  const defaultNames = new Set(
+    readDefaultPluginManifests().map((m) => m.name),
+  );
+  const userPlugins: AllPluginInfo[] = listInstalledPlugins(opts)
+    .filter((entry) => !defaultNames.has(entry.name))
+    .map((entry) => ({
+      ...entry,
+      source: "user" as const,
+      disabled: existsSync(join(entry.target, ".disabled")),
+    }));
 
   // ── Default plugins ────────────────────────────────────────────────────
   // Default plugins live in the source tree at src/plugins/defaults/<name>/.
@@ -207,6 +223,7 @@ export function listAllPlugins(
   // importing hook/tool implementations (which would create circular
   // dependencies in test environments). The .disabled sentinel lives in a
   // stub directory at <workspace>/plugins/<manifest-name>/.
+  // readDefaultPluginManifests returns in repo array (registration) order.
   const defaultPlugins: AllPluginInfo[] = readDefaultPluginManifests().map(
     (manifest) => {
       const target = join(pluginsDir, manifest.name);
@@ -225,11 +242,25 @@ export function listAllPlugins(
     },
   );
 
-  // Sort each group alphabetically, user plugins first.
-  userPlugins.sort((a, b) => a.name.localeCompare(b.name));
-  defaultPlugins.sort((a, b) => a.name.localeCompare(b.name));
+  // Sort: enabled user (install date), disabled user (install date),
+  // enabled default (repo order), disabled default (repo order).
+  const enabledUser = userPlugins.filter((p) => !p.disabled);
+  const disabledUser = userPlugins.filter((p) => p.disabled);
+  const enabledDefault = defaultPlugins.filter((p) => !p.disabled);
+  const disabledDefault = defaultPlugins.filter((p) => p.disabled);
 
-  return [...userPlugins, ...defaultPlugins];
+  enabledUser.sort((a, b) => getPluginInstallDate(a) - getPluginInstallDate(b));
+  disabledUser.sort(
+    (a, b) => getPluginInstallDate(a) - getPluginInstallDate(b),
+  );
+  // enabledDefault and disabledDefault keep repo array order (no sort).
+
+  return [...enabledUser, ...disabledUser, ...enabledDefault, ...disabledDefault];
+}
+
+interface DefaultPluginManifest {
+  readonly name: string;
+  readonly version?: string;
 }
 
 /**
@@ -239,7 +270,7 @@ export function listAllPlugins(
  * (which would pull in hook/tool implementations and create circular
  * dependencies in test environments).
  */
-function readDefaultPluginManifests(): readonly PluginPackageMetadata[] {
+function readDefaultPluginManifests(): readonly DefaultPluginManifest[] {
   if (!existsSync(DEFAULT_PLUGINS_DIR)) return [];
 
   const entries = readdirSync(DEFAULT_PLUGINS_DIR, { withFileTypes: true })
@@ -247,7 +278,7 @@ function readDefaultPluginManifests(): readonly PluginPackageMetadata[] {
     .map((e) => e.name)
     .sort();
 
-  const manifests: PluginPackageMetadata[] = [];
+  const manifests: DefaultPluginManifest[] = [];
   for (const name of entries) {
     const pkgJsonPath = join(DEFAULT_PLUGINS_DIR, name, "package.json");
     if (!existsSync(pkgJsonPath)) continue;
@@ -266,4 +297,30 @@ function readDefaultPluginManifests(): readonly PluginPackageMetadata[] {
     }
   }
   return manifests;
+}
+
+/**
+ * Resolve the install date for a user plugin directory, in epoch ms.
+ * Reads `install-meta.json`'s `installedAt` field first, falling back to
+ * the directory's birthtime. Mirrors the logic in mtime-cache's
+ * `getInstallDate` so the sort order matches hook/tool resolution order.
+ */
+function getPluginInstallDate(plugin: AllPluginInfo): number {
+  const metaPath = join(plugin.target, "install-meta.json");
+  try {
+    if (existsSync(metaPath)) {
+      const raw = JSON.parse(readFileSync(metaPath, "utf8")) as Record<string, unknown>;
+      if (typeof raw.installedAt === "string") {
+        const ms = Date.parse(raw.installedAt);
+        if (Number.isFinite(ms)) return ms;
+      }
+    }
+  } catch {
+    // Fall through to birthtime.
+  }
+  try {
+    return statSync(plugin.target).birthtimeMs;
+  } catch {
+    return 0;
+  }
 }

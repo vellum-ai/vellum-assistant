@@ -246,7 +246,7 @@ Examples:
       plugins
         .command("list")
         .description(
-          "List plugins installed under <workspaceDir>/plugins/",
+          "List plugins installed in your workspace.",
         )
         .option("--json", "Emit machine-readable JSON instead of a table")
         .option(
@@ -825,7 +825,7 @@ function formatAllPluginStatus(p: AllPluginInfo): string {
   const parts: string[] = [];
   if (p.disabled) parts.push("disabled");
   if (p.issues.length > 0) parts.push(p.issues.join("; "));
-  if (parts.length === 0) parts.push("ok");
+  if (parts.length === 0) parts.push("enabled");
   return parts.join(", ");
 }
 
