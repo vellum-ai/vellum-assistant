@@ -42,7 +42,12 @@ interface CacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>();
-const inFlight = new Map<string, Promise<GuardianDelivery[] | null>>();
+// Tracks whether the in-flight fetch was a force-refresh, so a fresh read never
+// coalesces with an older non-force fetch that may predate a gateway-side write.
+const inFlight = new Map<
+  string,
+  { promise: Promise<GuardianDelivery[] | null>; fresh: boolean }
+>();
 
 // Bumped on every invalidation. A fetch captures the generation when it starts
 // and only writes its result to the cache if the generation is unchanged on
@@ -91,8 +96,11 @@ async function readGuardianDelivery(
     }
   }
 
+  // A non-force read may coalesce with any in-flight fetch. A force read may
+  // only coalesce with another force fetch — never with a non-force fetch that
+  // could have started before a gateway-side binding write and resolve stale.
   const pending = inFlight.get(key);
-  if (pending) return pending;
+  if (pending && (!input.forceRefresh || pending.fresh)) return pending.promise;
 
   const startGen = cacheGeneration;
   const promise = fetchGuardianDelivery({ channelTypes: input.channelTypes })
@@ -106,10 +114,12 @@ async function readGuardianDelivery(
       return guardians;
     })
     .finally(() => {
-      inFlight.delete(key);
+      // Only clear the slot if it still holds this fetch — a concurrent force
+      // read may have replaced a non-force entry (or vice versa).
+      if (inFlight.get(key)?.promise === promise) inFlight.delete(key);
     });
 
-  inFlight.set(key, promise);
+  inFlight.set(key, { promise, fresh: !!input.forceRefresh });
   return promise;
 }
 

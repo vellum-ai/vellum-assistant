@@ -263,6 +263,32 @@ describe("getGuardianDelivery", () => {
 
     expect(countCalls(METHOD)).toBe(1);
   });
+
+  test("a fresh read does NOT coalesce with an in-flight non-force fetch (issues its own IPC)", async () => {
+    // A normal read starts a fetch that will resolve to the pre-write empty
+    // list and is still in flight when the fresh read arrives.
+    let resolveStale: ((value: unknown) => void) | undefined;
+    ipcHandlers.set(
+      METHOD,
+      () =>
+        new Promise((resolve) => {
+          resolveStale = resolve;
+        }),
+    );
+    const stale = getGuardianDelivery();
+
+    // The gateway-side write lands (not reflected in the in-flight fetch). The
+    // fresh read must NOT reuse the stale in-flight promise — it issues its own
+    // IPC observing the post-write guardian.
+    ipcHandlers.set(METHOD, () => ({ guardians: [telegramGuardian] }));
+    const fresh = await getGuardianDeliveryFresh();
+    expect(fresh).toEqual([telegramGuardian]);
+
+    // Release the stale fetch last; it must not have masked the fresh result.
+    resolveStale?.({ guardians: [] });
+    expect(await stale).toEqual([]);
+    expect(countCalls(METHOD)).toBe(2);
+  });
 });
 
 describe("selectors", () => {
