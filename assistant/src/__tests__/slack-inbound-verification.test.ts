@@ -55,6 +55,35 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
+// Guardian identity resolves via the gateway delivery reader, not the local
+// contacts DB. Seed it to mirror the createGuardianBinding calls below.
+interface GatewayGuardian {
+  channelType: string;
+  contactId: string;
+  principalId?: string | null;
+  displayName?: string | null;
+  address: string;
+  externalChatId?: string | null;
+  status: string;
+  verifiedAt?: number | null;
+}
+let gatewayGuardians: GatewayGuardian[] = [];
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => gatewayGuardians,
+  guardianForChannel: (list: GatewayGuardian[], channelType: string) =>
+    list.find((g) => g.channelType === channelType && g.status === "active"),
+}));
+
+function seedGatewayGuardian(
+  g: Partial<GatewayGuardian> & { channelType: string; address: string },
+): void {
+  gatewayGuardians.push({
+    contactId: `c-${g.channelType}`,
+    status: "active",
+    ...g,
+  });
+}
+
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { findActiveSession } from "../runtime/channel-verification-service.js";
@@ -80,7 +109,16 @@ function resetState(): void {
   db.run("DELETE FROM canonical_guardian_deliveries");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
-  // Seed the vellum guardian binding (gateway does this at startup in production)
+  gatewayGuardians = [];
+  // Seed the vellum guardian binding (gateway does this at startup in
+  // production). The gateway list is the source of truth for guardian
+  // resolution; the DB write mirrors it for any local INFO reads.
+  seedGatewayGuardian({
+    channelType: "vellum",
+    address: "guardian-principal",
+    principalId: "guardian-principal",
+    displayName: "guardian-principal",
+  });
   createGuardianBinding({
     channel: "vellum",
     guardianExternalUserId: "guardian-principal",
@@ -162,7 +200,14 @@ describe("Slack inbound trusted contact verification", () => {
   });
 
   test("guardian is notified of the access attempt alongside verification", async () => {
-    // Set up a guardian binding so the notification can target it
+    // Set up a guardian binding so the notification can target it. The gateway
+    // list resolves guardian identity; the DB write mirrors it.
+    seedGatewayGuardian({
+      channelType: "slack",
+      address: "U_GUARDIAN",
+      externalChatId: "D_GUARDIAN_DM",
+      principalId: "guardian-principal",
+    });
     createGuardianBinding({
       channel: "slack",
       guardianExternalUserId: "U_GUARDIAN",
