@@ -20,6 +20,7 @@ import {
 import { isLocalModeHostAvailable } from "@/runtime/local-mode-host";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { cn } from "@/utils/misc";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -157,39 +158,45 @@ export function LocalRuntimeUpgradeBanner({
 
   return (
     <>
-      <StatusBannerNotice
-        tone="info"
-        title={`New assistant version available: ${targetVersion}`}
-        placement={placement}
-        className={className}
-        icon={
-          upgrade.isPending ? (
-            <Loader2 className="animate-spin" aria-hidden="true" />
-          ) : (
-            <RefreshCw aria-hidden="true" />
-          )
-        }
-        actions={
-          <>
-            <Button
-              variant="ghost"
-              size="compact"
-              onClick={() => setShowConfirmation(true)}
-              disabled={upgrade.isPending}
-            >
-              Update
-            </Button>
-            <Button
-              variant="ghost"
-              size="compact"
-              onClick={handleDismiss}
-              disabled={upgrade.isPending}
-            >
-              Later
-            </Button>
-          </>
-        }
-      />
+      <div
+        className={cn(
+          placement === "electron" ? "px-4 pt-2" : "px-0 pt-0",
+          className,
+        )}
+      >
+        <StatusBannerNotice
+          tone="info"
+          title={`New assistant version available: ${targetVersion}`}
+          placement={placement}
+          icon={
+            upgrade.isPending ? (
+              <Loader2 className="animate-spin" aria-hidden="true" />
+            ) : (
+              <RefreshCw aria-hidden="true" />
+            )
+          }
+          actions={
+            <>
+              <Button
+                variant="ghost"
+                size="compact"
+                onClick={() => setShowConfirmation(true)}
+                disabled={upgrade.isPending}
+              >
+                Update
+              </Button>
+              <Button
+                variant="ghost"
+                size="compact"
+                onClick={handleDismiss}
+                disabled={upgrade.isPending}
+              >
+                Later
+              </Button>
+            </>
+          }
+        />
+      </div>
       <ConfirmDialog
         open={showConfirmation}
         title="Update assistant runtime"
