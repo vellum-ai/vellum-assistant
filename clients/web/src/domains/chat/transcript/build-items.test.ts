@@ -581,5 +581,59 @@ describe("buildTranscriptItems", () => {
     expect(items[0]!.kind).toBe("message");
     expect((items[0] as MessageItem).message).toBe(assistant);
   });
+
+  // ---------------------------------------------------------------------------
+  // MessageItem memoization (WeakMap cache)
+  // ---------------------------------------------------------------------------
+
+  test("returns stable MessageItem references for unchanged message objects across calls", () => {
+    const m1 = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
+    const m2 = makeMessage({ id: "m2", role: "assistant", ...textBody("Hi") });
+
+    const first = buildTranscriptItems({ ...emptyInput(), messages: [m1, m2] });
+    const second = buildTranscriptItems({ ...emptyInput(), messages: [m1, m2] });
+
+    expect(first[0]).toBe(second[0]);
+    expect(first[1]).toBe(second[1]);
+  });
+
+  test("returns a new MessageItem only for the message whose object changed", () => {
+    const m1 = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
+    const m2 = makeMessage({ id: "m2", role: "assistant", ...textBody("Hi") });
+
+    const first = buildTranscriptItems({ ...emptyInput(), messages: [m1, m2] });
+
+    // Simulate a streaming token appending to m2 — creates a new object
+    const m2Updated = { ...m2, content: "Hi there" };
+    const second = buildTranscriptItems({ ...emptyInput(), messages: [m1, m2Updated] });
+
+    // m1's item is still the same reference (cache hit)
+    expect(second[0]).toBe(first[0]);
+    // m2's item is a new reference (cache miss — different object)
+    expect(second[1]).not.toBe(first[1]);
+    expect((second[1] as MessageItem).message).toBe(m2Updated);
+  });
+
+  test("uses clientMessageId as key when available, falls back to id", () => {
+    const withClientId = makeMessage({
+      id: "server-id-123",
+      role: "user",
+      ...textBody("Hello"),
+      clientMessageId: "client-id-abc",
+    });
+    const withoutClientId = makeMessage({
+      id: "server-id-456",
+      role: "assistant",
+      ...textBody("Hi"),
+    });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [withClientId, withoutClientId],
+    });
+
+    expect(items[0]!.key).toBe("client-id-abc");
+    expect(items[1]!.key).toBe("server-id-456");
+  });
 });
 
