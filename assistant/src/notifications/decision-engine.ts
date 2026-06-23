@@ -12,7 +12,11 @@
 import { v4 as uuid } from "uuid";
 
 import { getDeliverableChannels } from "../channels/config.js";
-import { listGuardianChannels } from "../contacts/contact-store.js";
+import { findContactInfoById } from "../contacts/contact-store.js";
+import {
+  anyGuardian,
+  getGuardianDelivery,
+} from "../contacts/guardian-delivery-reader.js";
 import { buildCoreIdentityContext } from "../prompts/system-prompt.js";
 import {
   createTimeout,
@@ -963,15 +967,19 @@ async function classifyWithLLM(
     ? truncate(rawIdentityContext, MAX_IDENTITY_CONTEXT_CHARS, "\n…[truncated]")
     : undefined;
 
-  // Resolve guardian contact notes for recipient context. Use the channel-
-  // agnostic guardian lookup so notes are available even when the only
-  // deliverable channel is "vellum" (which has no contact channel type).
+  // Resolve guardian contact notes for recipient context. The guardian's
+  // identity (ACL) comes from the gateway pull, channel-agnostic so notes are
+  // available even when the only deliverable channel is "vellum". Notes (INFO)
+  // stay local and are joined by contactId.
   let recipientNotes: string | undefined;
   try {
-    const guardianResult = listGuardianChannels();
-    if (guardianResult?.contact.notes) {
+    const guardian = anyGuardian((await getGuardianDelivery()) ?? []);
+    const notes = guardian
+      ? findContactInfoById(guardian.contactId)?.notes
+      : undefined;
+    if (notes) {
       recipientNotes = truncate(
-        guardianResult.contact.notes,
+        notes,
         MAX_IDENTITY_CONTEXT_CHARS,
         "\n…[truncated]",
       );
