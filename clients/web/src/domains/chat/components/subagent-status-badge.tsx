@@ -13,7 +13,7 @@ export function StatusBadge({ status }: { status: SubagentStatus }) {
   // line-height + padding determine it.
   return (
     <span
-      className="inline-flex h-[23px] shrink-0 items-center gap-1 rounded-[6px] px-2 text-label-small-default"
+      className="inline-flex h-[23px] shrink-0 items-center gap-1 rounded-[6px] px-2 text-body-small-emphasised"
       style={{
         color,
         backgroundColor: `color-mix(in srgb, ${color} 15%, transparent)`,
