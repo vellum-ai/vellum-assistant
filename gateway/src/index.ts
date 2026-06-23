@@ -217,6 +217,7 @@ function generateTraceId(): string {
 }
 
 let draining = false;
+let postAssistantReadyComplete = false;
 
 /**
  * Detect which services had credential changes and log them.
@@ -307,13 +308,6 @@ async function main() {
   await initGatewayDb();
   initTrustRuleCache();
   initAdmissionPolicyCache();
-
-  // Wait for the assistant runtime to be healthy before serving traffic.
-  // Data migrations (e.g. m0002 actor-token-tables-to-gateway) must
-  // complete before the HTTP server starts accepting auth requests —
-  // otherwise newly minted tokens can be overwritten by stale rows
-  // migrated from the assistant DB.
-  await runPostAssistantReady();
 
   // ── TTL caches ──
   // Instantiate caches for credential and config file reads.
@@ -1784,6 +1778,9 @@ async function main() {
       if (draining) {
         return Response.json({ status: "draining" }, { status: 503 });
       }
+      if (!postAssistantReadyComplete) {
+        return Response.json({ status: "starting" }, { status: 503 });
+      }
       // Check that the upstream assistant is also reachable so callers
       // know the full stack is ready, not just the gateway process.
       try {
@@ -1804,6 +1801,10 @@ async function main() {
         );
       }
       return Response.json({ status: "ok" });
+    }
+
+    if (!postAssistantReadyComplete) {
+      return Response.json({ status: "starting" }, { status: 503 });
     }
 
     // Per-request IP resolver — scoped to this request so it remains
@@ -1914,6 +1915,12 @@ async function main() {
   }
 
   log.info({ port: server.port }, "Gateway HTTP server listening");
+
+  // Complete post-assistant-ready startup work after binding /healthz.
+  // /readyz and regular routes stay closed until this finishes.
+  await runPostAssistantReady();
+  postAssistantReadyComplete = true;
+
   logAuthBypassState();
 
   // Start periodic background cleanup for dedup caches

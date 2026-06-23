@@ -21,6 +21,7 @@ const config = await loadConfig();
 const { handler: handleTelegramWebhook } = createTelegramWebhookHandler(config);
 
 let draining = false;
+let postAssistantReadyComplete = true;
 
 async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
@@ -33,7 +34,14 @@ async function handleRequest(req: Request): Promise<Response> {
     if (draining) {
       return Response.json({ status: "draining" }, { status: 503 });
     }
+    if (!postAssistantReadyComplete) {
+      return Response.json({ status: "starting" }, { status: 503 });
+    }
     return Response.json({ status: "ok" });
+  }
+
+  if (!postAssistantReadyComplete) {
+    return Response.json({ status: "starting" }, { status: 503 });
   }
 
   if (url.pathname === "/webhooks/telegram") {
@@ -57,6 +65,20 @@ describe("/healthz", () => {
     const body = await res.json();
     expect(body.status).toBe("ok");
   });
+
+  test("returns 200 while post-assistant-ready startup work is incomplete", async () => {
+    postAssistantReadyComplete = false;
+    try {
+      const res = await handleRequest(
+        new Request("http://gateway.test/healthz"),
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.status).toBe("ok");
+    } finally {
+      postAssistantReadyComplete = true;
+    }
+  });
 });
 
 describe("/readyz", () => {
@@ -78,6 +100,34 @@ describe("/readyz", () => {
       expect(body.status).toBe("draining");
     } finally {
       draining = false;
+    }
+  });
+
+  test("returns 503 while post-assistant-ready startup work is incomplete", async () => {
+    postAssistantReadyComplete = false;
+    try {
+      const res = await handleRequest(
+        new Request("http://gateway.test/readyz"),
+      );
+      expect(res.status).toBe(503);
+      const body = await res.json();
+      expect(body.status).toBe("starting");
+    } finally {
+      postAssistantReadyComplete = true;
+    }
+  });
+
+  test("blocks regular traffic while post-assistant-ready startup work is incomplete", async () => {
+    postAssistantReadyComplete = false;
+    try {
+      const res = await handleRequest(
+        new Request("http://gateway.test/webhooks/telegram"),
+      );
+      expect(res.status).toBe(503);
+      const body = await res.json();
+      expect(body.status).toBe("starting");
+    } finally {
+      postAssistantReadyComplete = true;
     }
   });
 });
