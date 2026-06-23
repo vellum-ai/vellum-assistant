@@ -17,6 +17,7 @@ import {
 } from "../contacts/contact-store.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import { addMessage } from "../memory/conversation-crud.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
@@ -26,6 +27,10 @@ import {
   resolveActorTrust,
   toTrustContext,
 } from "../runtime/actor-trust-resolver.js";
+import {
+  resolvedMemberFromVerdict,
+  trustContextFromVerdict,
+} from "../runtime/trust-verdict-consumer.js";
 import {
   composeVerificationVoice,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
@@ -885,13 +890,53 @@ export class RelayConnection {
   }
 
   /**
+   * Re-resolve caller trust after a mid-call verification/activation. Prefers
+   * the gateway verdict (authoritative right after the gateway updated the
+   * binding); falls back to local resolution on a missing/failed/unusable
+   * verdict so a blip never drops the call. Mirrors the setup path's
+   * verdict-first-with-fallback condition.
+   */
+  private async resolveMidCallTrustContext(
+    assistantId: string,
+    fromNumber: string,
+  ): Promise<TrustContext> {
+    const verdict = await getInboundTrustVerdict({
+      channelType: "phone",
+      actorExternalId: fromNumber,
+    });
+
+    const hasMemberIdentity = !!(verdict?.contactId || verdict?.channelId);
+    const memberUnresolvable =
+      hasMemberIdentity && resolvedMemberFromVerdict(verdict!) === null;
+    const usable =
+      verdict && !verdict.resolutionFailed && !memberUnresolvable;
+
+    if (usable) {
+      return trustContextFromVerdict(verdict, {
+        sourceChannel: "phone",
+        conversationExternalId: fromNumber,
+      });
+    }
+
+    return toTrustContext(
+      resolveActorTrust({
+        assistantId,
+        sourceChannel: "phone",
+        conversationExternalId: fromNumber,
+        actorExternalId: fromNumber,
+      }),
+      fromNumber,
+    );
+  }
+
+  /**
    * Shared post-activation handoff for all trusted-contact success paths
    * (access-request approval, invite redemption, verification code).
    * Activates the caller, updates guardian context, delivers deterministic
    * transition copy, and marks the next utterance as opening-ack so the
    * LLM continues naturally.
    */
-  private continueCallAfterTrustedContactActivation(params: {
+  private async continueCallAfterTrustedContactActivation(params: {
     assistantId: string;
     fromNumber: string;
     activationReason?:
@@ -906,21 +951,16 @@ export class RelayConnection {
      * address.
      */
     inviteeName?: string | null;
-  }): void {
+  }): Promise<void> {
     const { assistantId, fromNumber } = params;
 
     // Contact activation is handled by the gateway — the assistant no
     // longer writes contact/channel records on inbound voice calls.
 
-    const updatedTrust = resolveActorTrust({
-      assistantId,
-      sourceChannel: "phone",
-      conversationExternalId: fromNumber,
-      actorExternalId: fromNumber,
-    });
-
     if (this.controller) {
-      this.controller.setTrustContext(toTrustContext(updatedTrust, fromNumber));
+      this.controller.setTrustContext(
+        await this.resolveMidCallTrustContext(assistantId, fromNumber),
+      );
     }
 
     this.connectionState = "connected";
@@ -1104,14 +1144,8 @@ export class RelayConnection {
 
         // Update trust context on the controller so the LLM knows this is the guardian
         if (this.controller) {
-          const verifiedActorTrust = resolveActorTrust({
-            assistantId,
-            sourceChannel: "phone",
-            conversationExternalId: fromNumber,
-            actorExternalId: fromNumber,
-          });
           this.controller.setTrustContext(
-            toTrustContext(verifiedActorTrust, fromNumber),
+            await this.resolveMidCallTrustContext(assistantId, fromNumber),
           );
         }
 
@@ -1129,7 +1163,7 @@ export class RelayConnection {
             );
         }
       } else if (result.verificationType === "trusted_contact") {
-        this.continueCallAfterTrustedContactActivation({
+        await this.continueCallAfterTrustedContactActivation({
           assistantId,
           fromNumber,
           activationReason: "trusted_contact_verified",
@@ -1138,14 +1172,8 @@ export class RelayConnection {
         // Inbound guardian verification: binding already handled above,
         // proceed to normal call flow.
         if (this.controller) {
-          const verifiedActorTrust = resolveActorTrust({
-            assistantId,
-            sourceChannel: "phone",
-            conversationExternalId: fromNumber,
-            actorExternalId: fromNumber,
-          });
           this.controller.setTrustContext(
-            toTrustContext(verifiedActorTrust, fromNumber),
+            await this.resolveMidCallTrustContext(assistantId, fromNumber),
           );
           this.startNormalCallFlow(this.controller, true);
         }
@@ -1423,7 +1451,7 @@ export class RelayConnection {
       }
 
       if (request.status === "approved") {
-        this.handleAccessRequestApproved();
+        void this.handleAccessRequestApproved();
       } else if (request.status === "denied") {
         void this.handleAccessRequestDenied();
       }
@@ -1475,7 +1503,7 @@ export class RelayConnection {
    * Handle an approved access request: activate the caller as a trusted
    * contact, update runtime context, and continue with normal call flow.
    */
-  private handleAccessRequestApproved(): void {
+  private async handleAccessRequestApproved(): Promise<void> {
     this.clearAccessRequestWait();
 
     const assistantId = this.accessRequestAssistantId!;
@@ -1493,7 +1521,7 @@ export class RelayConnection {
       "Access request approved — caller activated and continuing call",
     );
 
-    this.continueCallAfterTrustedContactActivation({
+    await this.continueCallAfterTrustedContactActivation({
       assistantId,
       fromNumber,
       activationReason: "access_approved",
@@ -1701,7 +1729,7 @@ export class RelayConnection {
         "Voice invite redemption succeeded",
       );
 
-      this.continueCallAfterTrustedContactActivation({
+      await this.continueCallAfterTrustedContactActivation({
         assistantId: this.inviteRedemptionAssistantId,
         fromNumber: this.inviteRedemptionFromNumber,
         activationReason: "invite_redeemed",
