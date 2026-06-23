@@ -2835,9 +2835,13 @@ export async function surfaceProxyResolver(
     // the rest pass through raw until migrated (LUM-2134 scope). The per-type
     // normalizers validate+recover; the union cast at the end is only for the
     // unmigrated branches that still return hand-written interfaces.
-    const data: SurfaceData =
+    const cardData =
       surfaceType === "card"
         ? normalizeCardShowData(input, rawData)
+        : undefined;
+    const data: SurfaceData =
+      cardData !== undefined
+        ? cardData
         : surfaceType === "choice"
           ? normalizeChoiceShowData(rawData)
           : surfaceType === "copy_block"
@@ -2872,6 +2876,31 @@ export async function surfaceProxyResolver(
           "choice surfaces require at least one option with both id and title.",
         isError: true,
       };
+    }
+    if (cardData !== undefined) {
+      const hasTitle = typeof title === "string" && title.trim().length > 0;
+      const hasBody =
+        typeof cardData.body === "string" && cardData.body.trim().length > 0;
+      const hasSubtitle =
+        typeof cardData.subtitle === "string" &&
+        cardData.subtitle.trim().length > 0;
+      const hasMetadata =
+        Array.isArray(cardData.metadata) && cardData.metadata.length > 0;
+      const hasTemplate = typeof cardData.template === "string";
+      if (
+        !hasTitle &&
+        !hasBody &&
+        !hasSubtitle &&
+        !hasMetadata &&
+        !hasTemplate &&
+        !hasActions
+      ) {
+        return {
+          content:
+            "Error: ui_show card requires content — provide `data.body`, a `template` (e.g. task_progress with steps), `data.metadata`, `data.subtitle`, a `title`, or `actions`. The surface was not displayed because it carried no renderable content. Resend ui_show with populated card content.",
+          isError: true,
+        };
+      }
     }
     const oauthProviderKey =
       surfaceType === "oauth_connect"

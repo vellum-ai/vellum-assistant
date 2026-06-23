@@ -868,6 +868,20 @@ describe("ui_show card content recovery", () => {
     expect(show.actions![0].label).toBe("Top-level");
   });
 
+  test("genuinely empty card (no title, body, subtitle, metadata, template, or actions) is rejected", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    const result = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      data: {},
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("requires content");
+    expect(sent.filter((m) => m.type === "ui_surface_show")).toHaveLength(0);
+  });
+
   test("a card with a real body broadcasts unchanged", async () => {
     const sent: ServerMessage[] = [];
     const ctx = makeContext(sent);
