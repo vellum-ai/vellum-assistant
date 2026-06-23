@@ -30,7 +30,15 @@ describe("feature flag registry availability", () => {
       expect(typeof flag.key).toBe("string");
       expect(typeof flag.label).toBe("string");
       expect(typeof flag.description).toBe("string");
-      expect(typeof flag.defaultEnabled).toBe("boolean");
+      // Flags are boolean or multivariate string (e.g.
+      // managed-minimax-m3-provider). String flags must enumerate their
+      // variations and the default must be one of them.
+      expect(["boolean", "string"]).toContain(typeof flag.defaultEnabled);
+      if (typeof flag.defaultEnabled === "string") {
+        expect(Array.isArray(flag.values)).toBe(true);
+        expect(flag.values.length).toBeGreaterThanOrEqual(2);
+        expect(flag.values).toContain(flag.defaultEnabled);
+      }
       expect(flag.scope).toBe("assistant");
     }
   });
