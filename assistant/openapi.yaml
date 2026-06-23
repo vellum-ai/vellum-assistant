@@ -3959,6 +3959,59 @@ paths:
                         - trusted_contacts
                         - any_contact
                         - strangers
+                    trustVerdict:
+                      type: object
+                      properties:
+                        trustClass:
+                          type: string
+                          enum:
+                            - guardian
+                            - trusted_contact
+                            - unverified_contact
+                            - unknown
+                        canonicalSenderId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        guardianExternalUserId:
+                          type: string
+                        guardianDeliveryChatId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        guardianPrincipalId:
+                          type: string
+                        guardianDisplayName:
+                          type: string
+                        contactId:
+                          type: string
+                        channelId:
+                          type: string
+                        type:
+                          type: string
+                        address:
+                          type: string
+                        externalChatId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        status:
+                          type: string
+                        policy:
+                          type: string
+                        verifiedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        verifiedVia:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        memberDisplayName:
+                          type: string
+                      required:
+                        - trustClass
+                        - canonicalSenderId
                     emailSubject:
                       type: string
                     emailRecipient:
