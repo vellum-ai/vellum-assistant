@@ -153,7 +153,7 @@ function stampTrustVerdict(body: Record<string, unknown>): void {
 }
 
 /** Local mirror of the gateway resolver, reading the daemon contact store. */
-function resolveLocalTrustVerdict(input: {
+export function resolveLocalTrustVerdict(input: {
   channelType: string;
   actorExternalId?: string;
   externalChatId?: string;
