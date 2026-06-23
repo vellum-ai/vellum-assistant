@@ -18,7 +18,6 @@ import {
   markScheduledCleanupEnqueued,
 } from "./cleanup-schedule-state.js";
 import { conversationAnalyzeJob } from "./conversation-analyze-job.js";
-import { resetStaleProcessingState } from "./conversation-crud.js";
 import { maybeRunDbMaintenance } from "./db-maintenance.js";
 import {
   EmbeddingBillingBlockError,
@@ -166,17 +165,6 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
   const recovered = resetRunningJobsToPending();
   if (recovered > 0) {
     log.info({ recovered }, "Recovered stale running memory jobs");
-  }
-
-  // Clear stale `processing_started_at` from conversations left mid-turn by
-  // a daemon crash. Without this, out-of-process callers (retrospective CLI)
-  // would see those conversations as still processing indefinitely.
-  const clearedProcessing = resetStaleProcessingState();
-  if (clearedProcessing > 0) {
-    log.info(
-      { cleared: clearedProcessing },
-      "Cleared stale processing_started_at from crashed conversations",
-    );
   }
 
   // After running-job recovery (so legitimate in-flight retries aren't

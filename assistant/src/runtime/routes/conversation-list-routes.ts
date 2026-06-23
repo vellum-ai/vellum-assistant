@@ -10,7 +10,6 @@
 
 import { z } from "zod";
 
-import { findConversation } from "../../daemon/conversation-registry.js";
 import {
   type Confidence,
   getAttentionStateByConversationIds,
@@ -271,12 +270,9 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
         attentionState: attentionStates.get(conversation.id),
         displayMeta: displayMeta.get(conversation.id),
         parentCache,
-        // Hot (resident) conversations use the in-memory flag; cold
-        // (evicted / never-loaded) rows fall back to the persisted
-        // `processing_started_at` column.
-        isProcessing:
-          findConversation(conversation.id)?.isProcessing() ??
-          isConversationProcessing(conversation.id),
+        // Checks in-memory flag first (hot path), falls back to the
+        // persisted `processing_started_at` column for cold conversations.
+        isProcessing: isConversationProcessing(conversation.id),
       }),
     ),
     nextOffset,

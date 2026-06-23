@@ -9,7 +9,6 @@
 import { v4 as uuid } from "uuid";
 import { z } from "zod";
 
-import { findConversation } from "../../daemon/conversation-registry.js";
 import { clearAllConversations as clearAllActive } from "../../daemon/handlers/conversations.js";
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
 import { ipcCall as ipcCallGateway } from "../../ipc/gateway-client.js";
@@ -54,13 +53,9 @@ function handleListCli({ body = {} }: RouteHandlerArgs) {
       id: c.id,
       title: c.title,
       updatedAt: c.updatedAt,
-      // `isProcessing` mirrors `Conversation.isProcessing()` from the
-      // in-memory daemon store — true when the agent loop is mid-turn.
-      // Cold (evicted / never-loaded) rows fall back to the persisted
-      // `processing_started_at` column.
-      isProcessing:
-        findConversation(c.id)?.isProcessing() ??
-        isConversationProcessing(c.id),
+      // Checks in-memory flag first (hot path), falls back to the
+      // persisted `processing_started_at` column for cold conversations.
+      isProcessing: isConversationProcessing(c.id),
     })),
   };
 }

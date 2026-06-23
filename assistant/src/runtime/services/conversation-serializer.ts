@@ -9,7 +9,6 @@
 
 import { parseChannelId } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
-import { findConversation } from "../../daemon/conversation-registry.js";
 import { normalizeConversationType } from "../../daemon/message-types/shared.js";
 import {
   type AttentionState,
@@ -197,9 +196,9 @@ export function serializeConversationSummary(params: {
   parentCache: Map<string, ConversationRow | null>;
   /**
    * Whether the agent loop is currently mid-turn for this conversation.
-   * Sourced from the in-memory daemon `Conversation.isProcessing()` flag
-   * — callers resolve via `findConversation(id)?.isProcessing() ?? false`
-   * so cold (evicted / never-loaded) rows report `false`. Plumbed in
+   * Resolved by `isConversationProcessing(id)`, which checks the in-memory
+   * daemon flag first and falls back to the persisted
+   * `processing_started_at` column for cold conversations. Plumbed in
    * rather than read here so the serializer stays a pure shape mapper
    * with no daemon-store coupling.
    */
@@ -287,13 +286,9 @@ export function buildConversationDetailResponse(
       attentionState: attentionStates.get(conversation.id),
       displayMeta: displayMeta.get(conversation.id),
       parentCache,
-      // Hot (resident) conversations use the in-memory flag; cold
-      // (evicted / never-loaded) rows fall back to the persisted
-      // `processing_started_at` column so a mid-turn conversation
-      // that was evicted from memory still reports correctly.
-      isProcessing:
-        findConversation(conversation.id)?.isProcessing() ??
-        isConversationProcessing(conversation.id),
+      // Checks in-memory flag first (hot path), falls back to the
+      // persisted `processing_started_at` column for cold conversations.
+      isProcessing: isConversationProcessing(conversation.id),
     }),
   };
 }
