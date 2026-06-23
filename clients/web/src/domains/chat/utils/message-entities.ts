@@ -69,18 +69,49 @@ function indexRow(index: Record<string, string>, rowKey: string, m: DisplayMessa
 }
 
 /**
+ * The rowKey a message takes during a bulk rebuild.
+ *
+ * When `prior` already indexes one of the message's server ids, that existing
+ * rowKey wins — so a nonce-born assistant row that adopts its server id keeps
+ * the key the mounted row renders under when a snapshot reapplies it under the
+ * server id. Otherwise the key comes from the message (`deriveRowKey`).
+ */
+function resolveRowKey(m: DisplayMessage, prior: MessageEntityState | undefined): string {
+  if (prior !== undefined) {
+    for (const sid of serverIdsOf(m)) {
+      const existing = prior.serverIdToRowKey[sid];
+      if (existing !== undefined) return existing;
+    }
+  }
+  return deriveRowKey(m);
+}
+
+/**
  * Rebuild the whole entity state from a flat message array — the bulk path
  * for a history load / reconcile snapshot apply (Phase 1 keeps these going
- * through the store; Phase 2 moves history to the Query cache). Deterministic:
- * a re-applied snapshot of the same rows yields the same rowKeys, so a refetch
- * does not remount stable rows.
+ * through the store; Phase 2 moves history to the Query cache).
+ *
+ * Pass `prior` (the state being replaced) on a mid-turn reapply so a row keeps
+ * the rowKey it already has: a nonce-born optimistic row that adopts its server
+ * id is reapplied under that server id, and `prior` maps it back to the nonce
+ * key the mounted row renders under — without it the row re-keys and remounts.
+ * A cold load passes no `prior` and derives keys from the messages, which is
+ * deterministic: the same rows yield the same keys, so a refetch does not
+ * remount stable rows.
+ *
+ * Resets `liveAssistantRowKey` to null (a fresh build has no live turn);
+ * callers that rebuild mid-turn (`setMessages`) re-preserve it when the live
+ * row survives.
  */
-export function rebuildFromArray(messages: DisplayMessage[]): MessageEntityState {
+export function rebuildFromArray(
+  messages: DisplayMessage[],
+  prior?: MessageEntityState,
+): MessageEntityState {
   const byId: Record<string, DisplayMessage> = {};
   const order: string[] = [];
   const serverIdToRowKey: Record<string, string> = {};
   for (const m of messages) {
-    const rowKey = deriveRowKey(m);
+    const rowKey = resolveRowKey(m, prior);
     if (byId[rowKey] === undefined) order.push(rowKey);
     byId[rowKey] = m;
     indexRow(serverIdToRowKey, rowKey, m);

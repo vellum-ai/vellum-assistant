@@ -36,6 +36,24 @@ describe("rebuildFromArray / toArray", () => {
     expect(rowKeyForServerId(s, "a1")).toBe("a1");
     expect(rowKeyForServerId(s, "a1b")).toBe("a1"); // folded alias
   });
+
+  test("reuses a prior rowKey when a snapshot reapplies an adopted server id (no remount)", () => {
+    // A nonce-born optimistic assistant row that adopted its server id mid-turn:
+    // prior maps the server id back to the nonce key the mounted row uses.
+    let prior = appendRow(emptyEntityState(), msg({ id: "nonce-1", role: "assistant", isOptimistic: true }));
+    prior = patch(prior, "nonce-1", (row) => ({ ...row, id: "srv-9", isOptimistic: false }));
+
+    // The reconcile / history snapshot carries the row under its server id.
+    const snapshot = [msg({ id: "srv-9", role: "assistant" })];
+
+    const withPrior = rebuildFromArray(snapshot, prior);
+    expect(withPrior.order).toEqual(["nonce-1"]); // keeps the mounted key → no remount
+    expect(rowKeyForServerId(withPrior, "srv-9")).toBe("nonce-1");
+
+    // A cold load (no prior) derives the key straight from the message.
+    const cold = rebuildFromArray(snapshot);
+    expect(cold.order).toEqual(["srv-9"]);
+  });
 });
 
 describe("patch — the no-remount invariant", () => {
