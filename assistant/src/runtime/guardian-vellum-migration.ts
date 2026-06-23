@@ -36,8 +36,11 @@ const log = getLogger("guardian-vellum-migration");
  *
  * Returns true if healing occurred, false otherwise.
  *
- * The heal decision reads the bound guardian from the gateway binding; the
- * local repair write resolves the assistant-mirror row to update.
+ * The gateway binding supplies the authoritative principal; the local
+ * assistant-mirror row is repaired whenever it diverges from the JWT
+ * principal — even when the gateway binding already matches — because the
+ * /v1/messages trust path still resolves against the local mirror in this
+ * plan. A stale mirror must be repaired or valid guardians stay `unknown`.
  */
 export async function healGuardianBindingDrift(
   incomingPrincipalId: string,
@@ -53,11 +56,16 @@ export async function healGuardianBindingDrift(
 
   const currentPrincipalId = guardian.principalId;
   if (!currentPrincipalId?.startsWith("vellum-principal-")) return false;
-  if (currentPrincipalId === incomingPrincipalId) return false;
 
-  // Resolve the assistant-mirror row for the repair write.
+  // Resolve the assistant-mirror row whose principal drives local trust.
   const guardianResult = findGuardianForChannel("vellum");
   if (!guardianResult) return false;
+
+  const localPrincipalId = guardianResult.contact.principalId;
+  // Only repair auto-generated local principals — never overwrite a real one.
+  if (!localPrincipalId?.startsWith("vellum-principal-")) return false;
+  // No-op when the local mirror already matches the JWT principal.
+  if (localPrincipalId === incomingPrincipalId) return false;
 
   const updated = updateContactPrincipalAndChannel(
     guardianResult.contact.id,
@@ -68,7 +76,7 @@ export async function healGuardianBindingDrift(
   if (!updated) {
     log.warn(
       {
-        oldPrincipalId: currentPrincipalId,
+        oldPrincipalId: localPrincipalId,
         newPrincipalId: incomingPrincipalId,
       },
       "Skipped guardian binding drift heal — address collision on contact_channels",
@@ -78,10 +86,10 @@ export async function healGuardianBindingDrift(
 
   log.info(
     {
-      oldPrincipalId: currentPrincipalId,
+      oldPrincipalId: localPrincipalId,
       newPrincipalId: incomingPrincipalId,
     },
-    "Healed vellum guardian binding drift — updated principalId to match JWT actor",
+    "Healed vellum guardian binding drift — updated local mirror principalId to match JWT actor",
   );
 
   return true;

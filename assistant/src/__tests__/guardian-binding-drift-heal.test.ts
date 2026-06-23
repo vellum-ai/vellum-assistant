@@ -70,6 +70,30 @@ describe("healGuardianBindingDrift", () => {
     expect(guardian!.channel.address).toBe("vellum-principal-old-uuid");
   });
 
+  test("repairs the stale local mirror even when the gateway already matches the JWT", async () => {
+    // Gateway binding already matches the incoming JWT principal, but the
+    // local mirror is stale — the gateway-source-of-truth drift mode. The
+    // /v1/messages trust path still reads the local mirror in this plan, so
+    // a stale row must be repaired or the actor stays classified `unknown`.
+    createGuardianBinding({
+      channel: "vellum",
+      guardianExternalUserId: "vellum-principal-stale-local",
+      guardianDeliveryChatId: "local",
+      guardianPrincipalId: "vellum-principal-stale-local",
+      verifiedVia: "startup-migration",
+    });
+    mockGuardians = [gatewayGuardian("vellum-principal-jwt")];
+
+    const healed = await healGuardianBindingDrift("vellum-principal-jwt");
+    expect(healed).toBe(true);
+
+    // Local mirror now matches the JWT, so a subsequent local trust
+    // resolution classifies the actor as guardian rather than unknown.
+    const guardian = findGuardianForChannel("vellum");
+    expect(guardian!.contact.principalId).toBe("vellum-principal-jwt");
+    expect(guardian!.channel.address).toBe("vellum-principal-jwt");
+  });
+
   test("no-op when principals already match", async () => {
     createGuardianBinding({
       channel: "vellum",
