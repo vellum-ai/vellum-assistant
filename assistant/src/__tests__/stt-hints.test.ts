@@ -13,6 +13,15 @@ let mockRecentContacts: ContactWithChannels[] = [];
 let mockFindContactByAddressThrows = false;
 let mockListContactsThrows = false;
 
+// Guardian deliveries returned by the mocked gateway reader. resolveGuardianName
+// is mocked to echo mockGuardianName, so the displayName here is captured below.
+let mockGuardianDelivery: Array<{
+  channelType: string;
+  status: string;
+  displayName: string | null;
+}> | null = null;
+let lastGuardianDisplayNameSeen: string | null | undefined;
+
 const logWarnFn = mock(() => {});
 
 // ---------------------------------------------------------------------------
@@ -25,7 +34,10 @@ mock.module("../daemon/identity-helpers.js", () => ({
 
 mock.module("../prompts/user-reference.js", () => ({
   DEFAULT_USER_REFERENCE: "my human",
-  resolveGuardianName: () => mockGuardianName,
+  resolveGuardianName: (displayName?: string | null) => {
+    lastGuardianDisplayNameSeen = displayName;
+    return mockGuardianName;
+  },
 }));
 
 mock.module("../contacts/contact-store.js", () => ({
@@ -35,14 +47,21 @@ mock.module("../contacts/contact-store.js", () => ({
     }
     return mockTargetContact;
   },
-  findGuardianForChannel: () => null,
-  listGuardianChannels: () => null,
   listContacts: (_limit?: number) => {
     if (mockListContactsThrows) {
       throw new Error("DB error: listContacts");
     }
     return mockRecentContacts;
   },
+}));
+
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => mockGuardianDelivery,
+  guardianForChannel: (
+    list: Array<{ channelType: string; status: string }>,
+    channelType: string,
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
+  anyGuardian: (list: unknown[]) => list[0],
 }));
 
 // Bun's mock.module for "../util/logger.js" doesn't intercept the transitive
@@ -319,10 +338,22 @@ describe("resolveCallHints", () => {
     mockRecentContacts = [];
     mockFindContactByAddressThrows = false;
     mockListContactsThrows = false;
+    mockGuardianDelivery = null;
+    lastGuardianDisplayNameSeen = undefined;
     logWarnFn.mockClear();
   });
 
-  test("happy path wires all sources correctly", () => {
+  test("guardian displayName for hints comes from the gateway binding", async () => {
+    mockGuardianDelivery = [
+      { channelType: "phone", status: "active", displayName: "GatewayGuardian" },
+    ];
+
+    await resolveCallHints(null, []);
+
+    expect(lastGuardianDisplayNameSeen).toBe("GatewayGuardian");
+  });
+
+  test("happy path wires all sources correctly", async () => {
     mockTargetContact = makeContact("Alice");
     mockRecentContacts = [makeContact("Bob"), makeContact("Charlie")];
 
@@ -335,7 +366,7 @@ describe("resolveCallHints", () => {
       inviteGuardianName: "Eve",
     };
 
-    const result = resolveCallHints(session, ["StaticHint"]);
+    const result = await resolveCallHints(session, ["StaticHint"]);
     const parts = result.split(",");
 
     expect(parts).toContain("StaticHint");
@@ -351,7 +382,7 @@ describe("resolveCallHints", () => {
     expect(logWarnFn).not.toHaveBeenCalled();
   });
 
-  test("findContactByAddress failure is caught and logged without throwing", () => {
+  test("findContactByAddress failure is caught and logged without throwing", async () => {
     mockFindContactByAddressThrows = true;
     mockRecentContacts = [makeContact("Bob")];
 
@@ -365,7 +396,7 @@ describe("resolveCallHints", () => {
     };
 
     // Should not throw
-    const result = resolveCallHints(session, []);
+    const result = await resolveCallHints(session, []);
     const parts = result.split(",");
 
     // Target contact should be absent (lookup failed)
@@ -376,7 +407,7 @@ describe("resolveCallHints", () => {
     expect(logWarnFn).toHaveBeenCalled();
   });
 
-  test("listContacts failure is caught and logged without throwing", () => {
+  test("listContacts failure is caught and logged without throwing", async () => {
     mockListContactsThrows = true;
     mockTargetContact = makeContact("Alice");
 
@@ -390,7 +421,7 @@ describe("resolveCallHints", () => {
     };
 
     // Should not throw
-    const result = resolveCallHints(session, []);
+    const result = await resolveCallHints(session, []);
     const parts = result.split(",");
 
     // Recent contacts should be absent (listing failed)
@@ -401,7 +432,7 @@ describe("resolveCallHints", () => {
     expect(logWarnFn).toHaveBeenCalled();
   });
 
-  test("inbound call resolves caller contact from fromNumber", () => {
+  test("inbound call resolves caller contact from fromNumber", async () => {
     mockTargetContact = makeContact("Alice");
     mockRecentContacts = [makeContact("Bob")];
 
@@ -414,7 +445,7 @@ describe("resolveCallHints", () => {
       inviteGuardianName: null,
     };
 
-    const result = resolveCallHints(session, []);
+    const result = await resolveCallHints(session, []);
     const parts = result.split(",");
 
     // For inbound, the contact found via fromNumber should appear as caller, not target
@@ -425,10 +456,10 @@ describe("resolveCallHints", () => {
     expect(logWarnFn).not.toHaveBeenCalled();
   });
 
-  test("null session produces hints from assistant name, guardian name, and recent contacts", () => {
+  test("null session produces hints from assistant name, guardian name, and recent contacts", async () => {
     mockRecentContacts = [makeContact("RecentOne"), makeContact("RecentTwo")];
 
-    const result = resolveCallHints(null, ["Static"]);
+    const result = await resolveCallHints(null, ["Static"]);
     const parts = result.split(",");
 
     expect(parts).toContain("Static");

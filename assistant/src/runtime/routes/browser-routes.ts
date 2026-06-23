@@ -92,7 +92,7 @@ async function handleBrowserExecute({
   // register with (dev-bypass otherwise mismatches).
   const headerActor =
     headers["x-vellum-actor-principal-id"]?.trim() || undefined;
-  const sourceActorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
+  const sourceActorPrincipalId = await resolveActorPrincipalIdForLocalGuardian(
     conversation?.getTurnActorPrincipalId() ?? headerActor,
   );
 

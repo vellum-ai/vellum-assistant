@@ -39,7 +39,7 @@ afterAll(() => {
 
 const handleHostBrowserResult = ROUTES.find(
   (r) => r.endpoint === "host-browser-result",
-)!.handler;
+)!.handler as (args: Record<string, unknown>) => Promise<unknown>;
 
 // ── Tests ────────────────────────────────────────────────────────────
 
@@ -212,7 +212,7 @@ describe("handleHostBrowserResult — same-actor guard", () => {
       ).toThrow(BadRequestError);
     });
 
-    test("interaction is NOT consumed on 400 (still pending)", () => {
+    test("interaction is NOT consumed on 400 (still pending)", async () => {
       const requestId = "browser-req-targeted-no-header-stays";
       pendingInteractions.register(requestId, {
         conversationId: "conv-1",
@@ -221,13 +221,11 @@ describe("handleHostBrowserResult — same-actor guard", () => {
         targetActorPrincipalId: "user-1",
       });
 
-      try {
-        handleHostBrowserResult({
-          body: { requestId, content: "ok", isError: false },
-        });
-      } catch {
+      await handleHostBrowserResult({
+        body: { requestId, content: "ok", isError: false },
+      }).catch(() => {
         // expected
-      }
+      });
 
       expect(pendingInteractions.get(requestId)).toBeDefined();
     });
@@ -256,7 +254,7 @@ describe("handleHostBrowserResult — same-actor guard", () => {
       ).toThrow(ForbiddenError);
     });
 
-    test("ForbiddenError message names both submitting and expected client", () => {
+    test("ForbiddenError message names both submitting and expected client", async () => {
       const requestId = "browser-req-targeted-mismatch-msg";
       pendingInteractions.register(requestId, {
         conversationId: "conv-1",
@@ -267,7 +265,7 @@ describe("handleHostBrowserResult — same-actor guard", () => {
 
       let caught: unknown;
       try {
-        handleHostBrowserResult({
+        await handleHostBrowserResult({
           body: { requestId, content: "ok", isError: false },
           headers: {
             "x-vellum-client-id": "client-B",
@@ -284,7 +282,7 @@ describe("handleHostBrowserResult — same-actor guard", () => {
       expect(msg).toContain("client-B");
     });
 
-    test("interaction is NOT consumed on 403 (still pending)", () => {
+    test("interaction is NOT consumed on 403 (still pending)", async () => {
       const requestId = "browser-req-targeted-mismatch-stays";
       pendingInteractions.register(requestId, {
         conversationId: "conv-1",
@@ -293,17 +291,15 @@ describe("handleHostBrowserResult — same-actor guard", () => {
         targetActorPrincipalId: "user-1",
       });
 
-      try {
-        handleHostBrowserResult({
-          body: { requestId, content: "ok", isError: false },
-          headers: {
-            "x-vellum-client-id": "client-B",
-            "x-vellum-actor-principal-id": "user-1",
-          },
-        });
-      } catch {
+      await handleHostBrowserResult({
+        body: { requestId, content: "ok", isError: false },
+        headers: {
+          "x-vellum-client-id": "client-B",
+          "x-vellum-actor-principal-id": "user-1",
+        },
+      }).catch(() => {
         // expected
-      }
+      });
 
       expect(pendingInteractions.get(requestId)).toBeDefined();
     });
@@ -369,7 +365,7 @@ describe("handleHostBrowserResult — same-actor guard", () => {
       ).toThrow(ForbiddenError);
     });
 
-    test("interaction NOT consumed on actor-mismatch 403", () => {
+    test("interaction NOT consumed on actor-mismatch 403", async () => {
       const requestId = "browser-req-actor-mismatch-stays";
       pendingInteractions.register(requestId, {
         conversationId: "conv-1",
@@ -378,17 +374,15 @@ describe("handleHostBrowserResult — same-actor guard", () => {
         targetActorPrincipalId: "user-1",
       });
 
-      try {
-        handleHostBrowserResult({
-          body: { requestId, content: "ok", isError: false },
-          headers: {
-            "x-vellum-client-id": "client-A",
-            "x-vellum-actor-principal-id": "user-2",
-          },
-        });
-      } catch {
+      await handleHostBrowserResult({
+        body: { requestId, content: "ok", isError: false },
+        headers: {
+          "x-vellum-client-id": "client-A",
+          "x-vellum-actor-principal-id": "user-2",
+        },
+      }).catch(() => {
         // expected
-      }
+      });
 
       expect(pendingInteractions.get(requestId)).toBeDefined();
     });

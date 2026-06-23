@@ -1,17 +1,18 @@
 /**
  * Floating popover that appears when the user selects text inside an
- * assistant message bubble. Offers a single "Quote & Reply" action that
- * opens the reply bubble for the selected passage.
+ * assistant message bubble. Offers a single reply action for the selected
+ * passage.
  *
  * Desktop-only — `isPointerCoarse()` gates the entire listener so touch
  * devices never see the popover (OS text selection UX conflicts).
  */
 
 import { MessageSquareQuote } from "lucide-react";
-import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
+import { type RefObject, useCallback, useEffect, useState } from "react";
 
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { isPointerCoarse } from "@/utils/pointer";
+import { Button, Popover } from "@vellumai/design-library";
 
 /**
  * Selector: the transcript container ref whose descendants contain
@@ -31,7 +32,6 @@ export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps
     left: number;
   } | null>(null);
 
-  const popoverRef = useRef<HTMLDivElement | null>(null);
   const openReplyBubble = useQuoteReplyStore.use.openReplyBubble();
 
   const handleMouseUp = useCallback(() => {
@@ -84,7 +84,7 @@ export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps
     });
   }, []);
 
-  // Dismiss the popover when the selection is cleared or clicking outside.
+  // Dismiss the popover when the selection is cleared.
   useEffect(() => {
     if (!popover) {
       return;
@@ -97,18 +97,9 @@ export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps
       }
     };
 
-    const handlePointerDown = (e: PointerEvent) => {
-      const target = e.target as Node | null;
-      if (target && popoverRef.current && !popoverRef.current.contains(target)) {
-        setPopover(null);
-      }
-    };
-
     document.addEventListener("selectionchange", handleSelectionChange);
-    document.addEventListener("pointerdown", handlePointerDown);
     return () => {
       document.removeEventListener("selectionchange", handleSelectionChange);
-      document.removeEventListener("pointerdown", handlePointerDown);
     };
   }, [popover]);
 
@@ -154,23 +145,43 @@ export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps
   };
 
   return (
-    <div
-      ref={popoverRef}
-      className="fixed z-50 -translate-x-1/2 animate-in fade-in zoom-in-95 duration-150"
-      style={{
-        top: popover.top - 40,
-        left: popover.left,
+    <Popover.Root
+      open
+      onOpenChange={(open) => {
+        if (!open) {
+          setPopover(null);
+        }
       }}
     >
-      <button
-        type="button"
-        onClick={handleQuoteReply}
-        className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--border-default)] bg-[var(--surface-base)] px-2.5 py-1.5 text-body-small-default text-[var(--content-default)] shadow-md transition-colors hover:bg-[var(--surface-active)]"
+      <Popover.Anchor asChild>
+        <span
+          aria-hidden="true"
+          className="fixed h-0 w-0"
+          style={{
+            top: popover.top,
+            left: popover.left,
+          }}
+        />
+      </Popover.Anchor>
+      <Popover.Content
+        side="top"
+        align="center"
+        sideOffset={8}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        className="rounded-md bg-transparent p-0 shadow-none"
       >
-        <MessageSquareQuote className="h-3.5 w-3.5" />
-        <span>Quote &amp; Reply</span>
-      </button>
-    </div>
+        <Button
+          variant="outlined"
+          size="regular"
+          onClick={handleQuoteReply}
+          leftIcon={<MessageSquareQuote />}
+          className="bg-[var(--surface-base)] shadow-md"
+        >
+          Reply
+        </Button>
+      </Popover.Content>
+    </Popover.Root>
   );
 }
 

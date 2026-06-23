@@ -1,11 +1,16 @@
-import type { ReleaseListItem } from "@/generated/api/types.gen";
+import type {
+  ReleaseChannelEnum,
+  ReleaseListItem,
+} from "@/generated/api/types.gen";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { compareParsed, parseSemver } from "@/utils/semver";
 
-export const LOCAL_RUNTIME_RELEASES_REFETCH_INTERVAL_MS = 20 * 60 * 1000;
+export const RUNTIME_RELEASES_REFETCH_INTERVAL_MS = 20 * 60 * 1000;
 export const LOCAL_RUNTIME_RELEASES_FETCH_LIMIT = 100;
 
-const DISMISSED_KEY_PREFIX = "vellum:localRuntimeUpgradeDismissed";
+const DISMISSED_KEY_PREFIX = "vellum:runtimeUpgradeDismissed";
+const LEGACY_LOCAL_DISMISSED_KEY_PREFIX =
+  "vellum:localRuntimeUpgradeDismissed";
 
 export function isLocalBuildVersion(
   version: string | null | undefined,
@@ -36,20 +41,45 @@ export function isRuntimeUpgradeAvailable(
   return compareParsed(target, current) > 0;
 }
 
-function dismissedKey(assistantId: string, targetVersion: string): string {
-  return `${DISMISSED_KEY_PREFIX}:${assistantId}:${targetVersion}`;
+export function getVisibleReleaseChannel(
+  releaseChannel: ReleaseChannelEnum | undefined,
+  previewChannelEnabled: boolean,
+): ReleaseChannelEnum {
+  return previewChannelEnabled && releaseChannel === "preview"
+    ? "preview"
+    : "stable";
 }
 
-export function isLocalRuntimeUpgradeDismissed(
+function dismissedKey(
+  prefix: string,
+  assistantId: string,
+  targetVersion: string,
+): string {
+  return `${prefix}:${assistantId}:${targetVersion}`;
+}
+
+export function isRuntimeUpgradeDismissed(
   assistantId: string,
   targetVersion: string,
 ): boolean {
-  return getLocalSetting(dismissedKey(assistantId, targetVersion), "") === "true";
+  return (
+    getLocalSetting(
+      dismissedKey(DISMISSED_KEY_PREFIX, assistantId, targetVersion),
+      "",
+    ) === "true" ||
+    getLocalSetting(
+      dismissedKey(LEGACY_LOCAL_DISMISSED_KEY_PREFIX, assistantId, targetVersion),
+      "",
+    ) === "true"
+  );
 }
 
-export function dismissLocalRuntimeUpgrade(
+export function dismissRuntimeUpgrade(
   assistantId: string,
   targetVersion: string,
 ): void {
-  setLocalSetting(dismissedKey(assistantId, targetVersion), "true");
+  setLocalSetting(
+    dismissedKey(DISMISSED_KEY_PREFIX, assistantId, targetVersion),
+    "true",
+  );
 }

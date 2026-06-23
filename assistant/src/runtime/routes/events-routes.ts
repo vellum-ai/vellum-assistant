@@ -43,7 +43,7 @@ import type { ReplaySubscriber } from "../assistant-stream-state.js";
 import { getReplayWindow } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { DEFAULT_HEARTBEAT_INTERVAL_MS } from "../client-health.js";
-import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
+import { resolveActorPrincipalIdForLocalGuardianSync } from "../local-actor-identity.js";
 import {
   BadRequestError,
   NotFoundError,
@@ -311,7 +311,7 @@ export function handleSubscribeAssistantEvents(
   // bearer token's AuthContext. May be absent for legacy / service-token
   // connections that have no principal. See `resolveActorPrincipalId` for the
   // dev-bypass translation rationale.
-  const actorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
+  const actorPrincipalId = resolveActorPrincipalIdForLocalGuardianSync(
     rawActorPrincipalId?.trim() || undefined,
   );
 

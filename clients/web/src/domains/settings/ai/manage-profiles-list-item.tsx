@@ -5,6 +5,10 @@ import { Tag } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Typography } from "@vellumai/design-library/components/typography";
 
+import {
+  getModelsForProvider,
+  PROVIDER_DISPLAY_NAMES,
+} from "@/assistant/llm-model-catalog";
 import type { ProfileWithName } from "@/domains/settings/ai/utils";
 
 // ---------------------------------------------------------------------------
@@ -31,6 +35,46 @@ interface ProfileListItemProps {
   onEditClick: () => void;
   onDeleteClick: () => void;
   onStatusToggle: (active: boolean) => void;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function resolveModelDisplayName(
+  provider: string | undefined,
+  modelId: string,
+): string {
+  if (provider) {
+    const match = getModelsForProvider(provider).find((m) => m.id === modelId);
+    if (match) return match.displayName;
+  }
+  // Fallback: strip common path prefixes for readability
+  const lastSlash = modelId.lastIndexOf("/");
+  return lastSlash >= 0 ? modelId.slice(lastSlash + 1) : modelId;
+}
+
+function formatProfileSubtitle(profile: ProfileWithName): string {
+  const parts: string[] = [];
+
+  if (profile.description) {
+    parts.push(profile.description);
+  }
+
+  const modelProvider: string[] = [];
+  if (profile.model) {
+    modelProvider.push(resolveModelDisplayName(profile.provider, profile.model));
+  }
+  if (profile.provider) {
+    const providerLabel = PROVIDER_DISPLAY_NAMES[profile.provider] ?? profile.provider;
+    modelProvider.push(`hosted by ${providerLabel}`);
+  }
+
+  if (modelProvider.length > 0) {
+    parts.push(modelProvider.join(" "));
+  }
+
+  return parts.join(" \u2013 ");
 }
 
 // ---------------------------------------------------------------------------
@@ -94,22 +138,13 @@ export function ProfileListItem({
               </Tag>
             )}
           </div>
-          {profile.description ? (
+          {(profile.description || profile.model || profile.provider) ? (
             <Typography
               variant="body-medium-lighter"
               as="p"
               className="mt-0.5 text-(--content-tertiary)"
             >
-              {profile.description}
-            </Typography>
-          ) : null}
-          {(profile.model ?? profile.provider) ? (
-            <Typography
-              variant="body-medium-lighter"
-              as="p"
-              className="mt-0.5 text-(--content-tertiary)"
-            >
-              {profile.model ?? profile.provider}
+              {formatProfileSubtitle(profile)}
             </Typography>
           ) : null}
         </div>

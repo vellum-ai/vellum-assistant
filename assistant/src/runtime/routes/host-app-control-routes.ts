@@ -39,7 +39,7 @@ const VALID_STATES: ReadonlySet<HostAppControlState> = new Set([
 // POST /v1/host-app-control-result
 // ---------------------------------------------------------------------------
 
-function handleHostAppControlResult({ body, headers }: RouteHandlerArgs) {
+async function handleHostAppControlResult({ body, headers }: RouteHandlerArgs) {
   if (!body || typeof body !== "object") {
     throw new BadRequestError("Request body is required");
   }
@@ -95,9 +95,10 @@ function handleHostAppControlResult({ body, headers }: RouteHandlerArgs) {
         `Client "${submittingClientId}" is not the target for this request (expected "${peeked.targetClientId}"). The targeted client must submit the result.`,
       );
     }
-    const submittingActorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
-      headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
-    );
+    const submittingActorPrincipalId =
+      await resolveActorPrincipalIdForLocalGuardian(
+        headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
+      );
     enforceSameActorOrThrow({
       sourceActorPrincipalId: submittingActorPrincipalId,
       targetActorPrincipalId: peeked.targetActorPrincipalId,

@@ -1,9 +1,8 @@
+import { findContactByAddress, listContacts } from "../contacts/contact-store.js";
 import {
-  findContactByAddress,
-  findGuardianForChannel,
-  listContacts,
-  listGuardianChannels,
-} from "../contacts/contact-store.js";
+  getGuardianDelivery,
+  voiceGuardianDisplayName,
+} from "../contacts/guardian-delivery-reader.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import { DEFAULT_USER_REFERENCE, resolveGuardianName } from "../prompts/user-reference.js";
 import { getLogger } from "../util/logger.js";
@@ -119,7 +118,7 @@ export function buildSttHints(input: SttHintsInput): string {
  * {@link buildSttHints}. All DB lookups are best-effort — errors are
  * logged but never propagate so hints can never fail a call.
  */
-export function resolveCallHints(
+export async function resolveCallHints(
   session: {
     task: string | null;
     toNumber: string;
@@ -129,16 +128,14 @@ export function resolveCallHints(
     inviteGuardianName: string | null;
   } | null,
   staticHints: string[],
-): string {
+): Promise<string> {
   const assistantName = getAssistantName();
 
-  // Look up the guardian contact for a displayName fallback (mirrors relay-server pattern)
+  // Resolve the guardian displayName from the gateway binding for STT vocabulary.
   let guardianDisplayName: string | undefined;
   try {
-    const voiceGuardian = findGuardianForChannel("phone");
-    const guardianChannels = voiceGuardian ? null : listGuardianChannels();
-    const guardianContact = voiceGuardian?.contact ?? guardianChannels?.contact;
-    guardianDisplayName = guardianContact?.displayName;
+    const list = await getGuardianDelivery();
+    guardianDisplayName = voiceGuardianDisplayName(list);
   } catch (err) {
     logger.warn({ err }, "Failed to look up guardian contact for STT hints");
   }
