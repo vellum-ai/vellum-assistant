@@ -8,8 +8,8 @@ import type { AdmissionPolicy, SourceMetadata } from "@vellumai/gateway-client";
 import { isInviteCodeRedemptionEnabled } from "../../../channels/config.js";
 import type { ChannelId } from "../../../channels/types.js";
 import { findGuardianForChannel } from "../../../contacts/contact-store.js";
+import { channelStatusToMemberStatus } from "../../../contacts/member-status.js";
 import type {
-  ChannelStatus,
   ContactChannel,
   ContactWithChannels,
 } from "../../../contacts/types.js";
@@ -120,14 +120,6 @@ export interface AclResult {
   isValidatedBootstrap?: boolean;
 }
 
-/** Map ChannelStatus to the API-facing member status (excludes "unverified"). */
-export function channelStatusToMemberStatus(
-  status: ChannelStatus,
-): Exclude<ChannelStatus, "unverified"> {
-  if (status === "unverified") return "pending";
-  return status;
-}
-
 /**
  * Enforce ingress ACL rules: member lookup, non-member/inactive denial,
  * policy enforcement (allow/deny/escalate bypass), invite token intercepts,
@@ -184,6 +176,23 @@ export async function enforceIngressAcl(
   // Member resolved from the gateway verdict (ACL + identity only); null for a
   // stranger verdict, which falls through to the non-member intercepts.
   const resolvedMember: ResolvedMember | null = resolvedMemberFromVerdict(verdict);
+
+  // A verdict carrying member identity but no resolvable member
+  // (malformed/unknown ACL) fails closed, not treated as a stranger.
+  if (!resolvedMember && (verdict.contactId || verdict.channelId)) {
+    log.info(
+      { sourceChannel, externalUserId: canonicalSenderId },
+      "Ingress ACL: member verdict with unresolvable ACL, denying fail-closed",
+    );
+    return {
+      resolvedMember: null,
+      earlyResponse: {
+        accepted: true,
+        denied: true,
+        reason: "not_a_member",
+      },
+    };
+  }
 
   // /start gv_<token> bootstrap commands must also bypass ACL — the user
   // hasn't been verified yet and needs to complete the bootstrap handshake.

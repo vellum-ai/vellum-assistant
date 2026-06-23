@@ -13,6 +13,7 @@
 import type { TrustVerdict } from "@vellumai/gateway-client";
 
 import type { ChannelId } from "../channels/types.js";
+import { channelStatusToMemberStatus } from "../contacts/member-status.js";
 import type {
   ChannelPolicy,
   ChannelStatus,
@@ -22,10 +23,7 @@ import type {
 import type { TrustContext } from "../daemon/trust-context.js";
 import type { ActorTrustContext } from "./actor-trust-resolver.js";
 import { toTrustContext } from "./actor-trust-resolver.js";
-import {
-  channelStatusToMemberStatus,
-  type ResolvedMember,
-} from "./routes/inbound-stages/acl-enforcement.js";
+import type { ResolvedMember } from "./routes/inbound-stages/acl-enforcement.js";
 
 export interface TrustVerdictTransport {
   sourceChannel: ChannelId;
