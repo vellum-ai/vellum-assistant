@@ -4,10 +4,11 @@
  * `SubagentDetailPanel` shell (outer container, header with leading icon /
  * title / risk badge / close, scrollable body with sections).
  *
- * Driven by the `ToolDetailPayload` opened into `viewer-store`. The tool
- * variant is purely presentational; the thinking variant additionally
- * subscribes to the chat-session store so the reasoning text streams live
- * (see `ThinkingDetailBody`).
+ * Driven by the `ToolDetailPayload` opened into `viewer-store`. Both variants
+ * subscribe to the chat-session store so an open drawer streams live: the tool
+ * variant mirrors `tool_output_chunk` output and the final result via
+ * `useLiveToolCall` (see `ToolDetailBody`), the thinking variant the reasoning
+ * text via `useLiveThinkingText` (see `ThinkingDetailBody`).
  */
 
 import {
@@ -17,6 +18,7 @@ import {
   Code,
   Copy,
   FileText,
+  Globe,
   Monitor,
   Pen,
   Plug,
@@ -34,11 +36,11 @@ import { RiskBadge } from "@/domains/chat/components/risk-badge";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
 import { useLiveThinkingText } from "@/domains/chat/hooks/use-live-thinking-text";
 import { useLiveToolCall } from "@/domains/chat/hooks/use-live-tool-call";
-import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import {
     deriveStepLabelFromName,
     type IconName,
 } from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 /**
@@ -49,6 +51,7 @@ import type { ToolDetailPayload } from "@/stores/viewer-store";
 const ICON_MAP: Record<IconName, LucideIcon> = {
   code: Code,
   file: FileText,
+  globe: Globe,
   pen: Pen,
   monitor: Monitor,
   plug: Plug,
@@ -95,7 +98,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 /** A `<pre>` code block with a copy button positioned in the top-right. */
-function CodeBlock({ text }: { text: string }) {
+export function CodeBlock({ text }: { text: string }) {
   return (
     <div className="relative">
       <pre className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3 font-mono text-xs whitespace-pre-wrap break-words text-[var(--content-default)]">
@@ -202,6 +205,104 @@ function ThinkingDetailBody({
   );
 }
 
+/**
+ * Tool-variant detail sections — the risk-reason note, "Technical details"
+ * (input `CodeBlock`), and "Output" — with no surrounding shell, header, or
+ * close button. Composed by `ToolDetailPanel` inside its own `DetailShell`, and
+ * reused by `SubagentDetailPanel` to show a nested tool call under the
+ * subagent's own header.
+ *
+ * Subscribes to the chat-session store via `useLiveToolCall` so an open drawer
+ * streams `tool_output_chunk` output while the call runs and flips to the final
+ * `result` when it lands, falling back to the open-time snapshot on `detail`
+ * when the call can't be resolved live (e.g. paged out).
+ */
+export function ToolDetailBody({
+  detail,
+  showTechnicalDetailsLabel = true,
+}: {
+  detail: ToolDetailPayload;
+  /**
+   * Render the "Technical details" section label above the tool name + input.
+   * Defaults to true (main-chat `ToolDetailPanel`). `SubagentDetailPanel` passes
+   * false — its nested view already sits under the subagent header and a "Back
+   * to timeline" affordance, so the extra label reads as redundant there.
+   */
+  showTechnicalDetailsLabel?: boolean;
+}) {
+  const liveTc = useLiveToolCall(detail.toolCallId);
+  const result = liveTc?.result ?? detail.result;
+  const streamedOutput = liveTc?.streamedOutput ?? detail.streamedOutput;
+
+  const hasResult = result !== undefined && result !== "";
+  const isRunning = liveTc
+    ? isToolCallRunning(liveTc)
+    : detail.status === "running";
+  const hasStreamedOutput = !!streamedOutput;
+  const inputJson = JSON.stringify(detail.input, null, 2);
+
+  return (
+    <>
+      {detail.riskReason && (
+        <Typography
+          variant="body-small-default"
+          as="p"
+          className="mb-4 text-[var(--content-tertiary)]"
+        >
+          {detail.riskReason}
+        </Typography>
+      )}
+
+      {/* Technical details section */}
+      <div>
+        {showTechnicalDetailsLabel && (
+          <SectionLabel>Technical details</SectionLabel>
+        )}
+        <Typography
+          variant="body-medium-default"
+          as="div"
+          className="text-[var(--content-default)]"
+        >
+          {titleCaseToolName(detail.toolName)}
+        </Typography>
+        {detail.activity && (
+          <Typography
+            variant="body-small-default"
+            as="p"
+            className="mt-0.5 text-[var(--content-secondary)]"
+          >
+            {detail.activity}
+          </Typography>
+        )}
+        <div className="mt-2">
+          <CodeBlock text={inputJson} />
+        </div>
+      </div>
+
+      {/* Output — the final result once present, else the live streamed tail
+          while running, else a bare running placeholder. */}
+      {(hasResult || isRunning) && (
+        <div className="mt-5">
+          <SectionLabel>Output</SectionLabel>
+          {hasResult ? (
+            <CodeBlock text={result as string} />
+          ) : hasStreamedOutput ? (
+            <CodeBlock text={streamedOutput as string} />
+          ) : (
+            <Typography
+              variant="body-small-default"
+              as="p"
+              className="text-[var(--content-tertiary)]"
+            >
+              Running…
+            </Typography>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 export function ToolDetailPanel({
   detail,
   onClose,
@@ -216,48 +317,11 @@ export function ToolDetailPanel({
   if (detail.kind === "thinking") {
     return <ThinkingDetailBody detail={detail} onClose={onClose} />;
   }
-  // Tool variant lives in its own component so its store-subscribing hook
-  // (`useLiveToolCall`) is called unconditionally, never gated behind the
-  // thinking early-return above (Rules of Hooks).
-  return (
-    <ToolDetailBody
-      detail={detail}
-      onClose={onClose}
-      onRiskBadgeClick={onRiskBadgeClick}
-    />
-  );
-}
 
-/**
- * Tool-call variant body. Reuses the shared shell and renders technical
- * details + output. Subscribes to the chat-session store via `useLiveToolCall`
- * so an open drawer streams `tool_output_chunk` output while the call runs and
- * flips to the final `result` when it lands, falling back to the open-time
- * snapshot when the call can't be resolved live (e.g. paged out).
- */
-function ToolDetailBody({
-  detail,
-  onClose,
-  onRiskBadgeClick,
-}: {
-  detail: ToolDetailPayload;
-  onClose: () => void;
-  onRiskBadgeClick?: () => void;
-}) {
   const { iconName } = deriveStepLabelFromName(detail.toolName, detail.input);
   const Glyph = ICON_MAP[iconName] ?? Bolt;
 
-  const liveTc = useLiveToolCall(detail.toolCallId);
-  const result = liveTc?.result ?? detail.result;
-  const streamedOutput = liveTc?.streamedOutput ?? detail.streamedOutput;
-
   const title = detail.activity || detail.title;
-  const hasResult = result !== undefined && result !== "";
-  const isRunning = liveTc
-    ? isToolCallRunning(liveTc)
-    : detail.status === "running";
-  const hasStreamedOutput = !!streamedOutput;
-  const inputJson = JSON.stringify(detail.input, null, 2);
 
   return (
     <DetailShell
@@ -268,62 +332,7 @@ function ToolDetailBody({
         <RiskBadge level={detail.riskLevel} onClick={onRiskBadgeClick} />
       }
     >
-      <>
-        {detail.riskReason && (
-          <Typography
-            variant="body-small-default"
-            as="p"
-            className="mb-4 text-[var(--content-tertiary)]"
-          >
-            {detail.riskReason}
-          </Typography>
-        )}
-
-        {/* Technical details section */}
-        <div>
-          <SectionLabel>Technical details</SectionLabel>
-          <Typography
-            variant="body-medium-default"
-            as="div"
-            className="text-[var(--content-default)]"
-          >
-            {titleCaseToolName(detail.toolName)}
-          </Typography>
-          {detail.activity && (
-            <Typography
-              variant="body-small-default"
-              as="p"
-              className="mt-0.5 text-[var(--content-secondary)]"
-            >
-              {detail.activity}
-            </Typography>
-          )}
-          <div className="mt-2">
-            <CodeBlock text={inputJson} />
-          </div>
-        </div>
-
-        {/* Output — the final result once present, else the live streamed
-            tail while running, else a bare running placeholder. */}
-        {(hasResult || isRunning) && (
-          <div className="mt-5">
-            <SectionLabel>Output</SectionLabel>
-            {hasResult ? (
-              <CodeBlock text={result as string} />
-            ) : hasStreamedOutput ? (
-              <CodeBlock text={streamedOutput as string} />
-            ) : (
-              <Typography
-                variant="body-small-default"
-                as="p"
-                className="text-[var(--content-tertiary)]"
-              >
-                Running…
-              </Typography>
-            )}
-          </div>
-        )}
-      </>
+      <ToolDetailBody detail={detail} />
     </DetailShell>
   );
 }

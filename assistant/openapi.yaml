@@ -25994,6 +25994,13 @@ paths:
                           type: boolean
                         messageId:
                           type: string
+                        toolUseId:
+                          type: string
+                        input:
+                          type: object
+                          propertyNames:
+                            type: string
+                          additionalProperties: {}
                       required:
                         - type
                         - content
