@@ -517,6 +517,8 @@ export function TranscriptMessageBody({
     return (
       <div
         ref={wrapperRef}
+        data-message-id={message.id || undefined}
+        data-message-role={message.role}
         onClick={handleBubbleClick}
         data-revealed={revealed}
         className={wrapperClass}
@@ -533,6 +535,8 @@ export function TranscriptMessageBody({
     <div
       ref={wrapperRef}
       id={message.id ? `msg-${message.id}` : undefined}
+      data-message-id={message.id || undefined}
+      data-message-role={message.role}
       onClick={handleBubbleClick}
       data-revealed={revealed}
       className={wrapperClass}

@@ -3,6 +3,7 @@ import { type DragEventHandler, type ReactNode } from "react";
 import { Eye, Paperclip, Square, X } from "lucide-react";
 
 import { QuestionPromptSlot } from "@/domains/chat/components/question-prompt-slot";
+import { StagedQuotesStrip } from "@/domains/chat/components/staged-quotes-strip";
 import { ChatScrollArea, type ChatScrollAreaProps } from "@/domains/chat/components/chat-scroll-area";
 import { ScrollToLatestButton } from "@/domains/chat/components/scroll-to-latest-button";
 import {
@@ -297,6 +298,7 @@ export function ChatBody({
           {queuedDrawerSlot}
           <QuestionPromptSlot />
           {channelFooterSlot}
+          <StagedQuotesStrip />
           {isChannelReadonly ? (
             readonlyBannerSlot ? (
               <div className="flex items-center gap-2">

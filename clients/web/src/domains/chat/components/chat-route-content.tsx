@@ -17,7 +17,7 @@
  * - `useChatBannerSlots` — nudge/queued/slack banner assembly
  */
 
-import { type Dispatch, type MutableRefObject, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo } from "react";
+import { type Dispatch, type MutableRefObject, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
 import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
 import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
@@ -26,6 +26,9 @@ import { useComposerSubmit } from "@/domains/chat/hooks/use-composer-submit";
 import { DiskPressureBannerSlot } from "@/domains/chat/components/disk-pressure-banner-slot";
 import { useRuleEditorBridge } from "@/domains/chat/hooks/use-rule-editor-bridge";
 import { useChatBannerSlots } from "@/domains/chat/hooks/use-chat-banner-slots";
+import { QuoteReplyBubble } from "@/domains/chat/components/quote-reply-bubble";
+import { TextSelectionPopover } from "@/domains/chat/components/text-selection-popover";
+import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
@@ -196,6 +199,7 @@ export function ChatMainPanel({
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const assistantName = useAssistantIdentityStore.use.name();
   const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
+  const quoteReplyEnabled = useClientFeatureFlagStore.use.quoteReply();
 
   // -------------------------------------------------------------------------
   // Store reads — per-conversation state
@@ -311,6 +315,26 @@ export function ChatMainPanel({
     [checkAssistant],
   );
 
+  // -------------------------------------------------------------------------
+  // Quote & Reply — transcript container ref for text selection detection
+  // -------------------------------------------------------------------------
+  const transcriptContainerRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const el = transcriptRef.current?.getScrollElement() ?? null;
+    transcriptContainerRef.current = el;
+  });
+
+  // Clear staged quotes and dismiss the reply bubble when the active
+  // conversation changes to prevent quotes from one conversation leaking
+  // into another.
+  useEffect(() => {
+    const store = useQuoteReplyStore.getState();
+    if (store.stagedQuotes.length > 0 || store.replyBubble) {
+      store.clearStagedQuotes();
+      store.closeReplyBubble();
+    }
+  }, [activeConversationId]);
+
   const handleClearContext = useCallback(
     () => void sendMessage("/clean"),
     [sendMessage],
@@ -419,6 +443,20 @@ export function ChatMainPanel({
     isChannelReadonly;
 
   const sendDisabled = isSendDisabledFromTurn || typingDisabled;
+
+  const handleQuoteReplyNow = useCallback(
+    (quotedText: string, replyText: string) => {
+      if (sendDisabled || isChannelReadonly) {
+        return;
+      }
+      const blockquote = quotedText
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n");
+      void sendMessage(`${blockquote}\n\n${replyText}`);
+    },
+    [sendMessage, sendDisabled, isChannelReadonly],
+  );
 
   const isEmptyConversation =
     !!activeConversationId &&
@@ -814,6 +852,12 @@ export function ChatMainPanel({
       />
       {sendErrorModalNode}
       {ruleEditorModalNode}
+      {quoteReplyEnabled && !isChannelReadonly && (
+        <>
+          <TextSelectionPopover containerRef={transcriptContainerRef} />
+          <QuoteReplyBubble onSendNow={handleQuoteReplyNow} />
+        </>
+      )}
     </>
   );
 }
