@@ -453,9 +453,15 @@ td .row-link { display: block; }
 .status { border: 1px solid currentColor; border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 800; text-transform: uppercase; }
 .transcript { display: flex; flex-direction: column; gap: 12px; }
 .transcript-wrap { display: flex; flex-direction: column; gap: 12px; }
-.transcript-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.transcript-header { display: flex; align-items: center; justify-content: center; gap: 12px; }
 .transcript-header h2 { margin: 0; }
-.conversation-select { font-size: 13px; font-weight: 600; padding: 4px 12px; border: 1px solid var(--border); border-radius: 8px; background: rgba(0,0,0,.18); color: var(--text); cursor: pointer; }
+.conversation-switcher { display: flex; flex-direction: column; gap: 12px; }
+.conv-tab-input { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.conversation-tablist { display: inline-flex; gap: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: rgba(0,0,0,.18); }
+.conv-tab-label { padding: 6px 18px; font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; transition: .15s ease; user-select: none; border-right: 1px solid var(--border); }
+.conv-tab-label:last-child { border-right: 0; }
+.conv-tab-label:hover { color: var(--text); background: rgba(139,92,246,.1); }
+.conversation-panel { display: none; }
 .turn { padding: 14px 16px; border-radius: 18px; border: 1px solid var(--border); background: rgba(255,255,255,.045); }
 .turn.assistant { border-color: rgba(34,211,238,.22); }
 .turn.simulator { border-color: rgba(139,92,246,.24); }
@@ -577,6 +583,7 @@ pre.log { max-height: 480px; overflow: auto; padding: 16px; border-radius: 16px;
 .phase-ingest { background: #22d3ee; }
 .phase-question { background: #a78bfa; }
 .phase-grading { background: #34d399; }
+.phase-other { background: #64748b; }
 .phase-timing-labels { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
 .phase-timing-item { display: inline-flex; align-items: center; gap: 6px; }
 .phase-timing-item strong { color: var(--text); font-variant-numeric: tabular-nums; }
@@ -1538,48 +1545,77 @@ function Transcript({
     );
   }
 
-  // Multiple conversations — a <select> dropdown inline with the header
-  // toggles which panel is visible. Because this is static HTML (no React
-  // runtime), a small inline script handles the show/hide.
+  // Multiple conversations — a segmented control inline with the header
+  // toggles which panel is visible. Built with hidden radio inputs +
+  // `:checked` sibling selectors, exactly like the run's main tabs, so it
+  // stays fully interactive in the static, no-JS report bundle (and under
+  // a CSP that blocks inline scripts). The earlier <select> + inline
+  // <script> version silently no-op'd in those contexts — the script
+  // never ran, so switching Ingest → Question left the first conversation
+  // visible.
+  //
+  // All radios must be siblings of the panels (inside one wrapper) for the
+  // `~` selector to reach them; the header + tablist sit between, also as
+  // siblings, so the active-label highlight rules can target them too.
   return (
     <>
-      <div className="transcript-header">
-        <h2>{headerText}</h2>
-        <select
-          className="conversation-select"
+      <div className="conversation-switcher">
+        {groups.map((group, index) => (
+          <input
+            key={`input-${group.key}`}
+            className="conv-tab-input"
+            type="radio"
+            name="conversation-tab"
+            id={`conversation-tab-${index}`}
+            defaultChecked={index === 0}
+          />
+        ))}
+        <div className="transcript-header">
+          <h2>{headerText}</h2>
+          <div className="conversation-tablist" role="tablist">
+            {groups.map((group, index) => (
+              <label
+                key={`label-${group.key}`}
+                className="conv-tab-label"
+                htmlFor={`conversation-tab-${index}`}
+              >
+                {group.label}
+              </label>
+            ))}
+          </div>
+        </div>
+        <p className="section-subtle">{subText}</p>
+        <div className="transcript-wrap">
+          {groups.map((group, index) => (
+            <div
+              key={group.key}
+              className="transcript conversation-panel"
+              data-conv-index={index}
+            >
+              {group.items.map((item, i) => (
+                <TranscriptItem
+                  key={`${item.emittedAt ?? ""}-${i}`}
+                  item={item}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+        {/* CSS rules generated per-render so the :checked selectors match
+            the exact number of conversations (the report is static HTML,
+            so a fixed rule count would cap the supported group count). */}
+        <style
           dangerouslySetInnerHTML={{
             __html: groups
               .map(
-                (g, i) =>
-                  `<option value="${g.key}"${i === 0 ? " selected" : ""}>${g.label}</option>`,
+                (_g, i) =>
+                  `#conversation-tab-${i}:checked ~ .transcript-wrap .conversation-panel[data-conv-index="${i}"]{display:flex;}` +
+                  `#conversation-tab-${i}:checked ~ .transcript-header .conversation-tablist label[for="conversation-tab-${i}"]{border-color:rgba(139,92,246,.7);background:linear-gradient(180deg,rgba(139,92,246,.22),rgba(34,211,238,.08));color:var(--text);}`,
               )
               .join(""),
           }}
         />
       </div>
-      <p className="section-subtle">{subText}</p>
-      <div className="transcript-wrap">
-        {groups.map((group, index) => (
-          <div
-            key={group.key}
-            className="transcript conversation-panel"
-            data-conv-key={group.key}
-            style={index === 0 ? undefined : { display: "none" }}
-          >
-            {group.items.map((item, i) => (
-              <TranscriptItem
-                key={`${item.emittedAt ?? ""}-${i}`}
-                item={item}
-              />
-            ))}
-          </div>
-        ))}
-      </div>
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `(function(){var s=document.querySelector('.conversation-select');if(!s)return;var panels=document.querySelectorAll('[data-conv-key]');s.addEventListener('change',function(){panels.forEach(function(p){p.style.display=p.getAttribute('data-conv-key')===s.value?'':'none';});});})();`,
-        }}
-      />
     </>
   );
 }
@@ -2084,19 +2120,38 @@ function PhaseTiming({ run }: { run: ReportRunDetail }) {
     return null;
   }
 
+  // The four labeled phases only cover the moments we can attribute to a
+  // specific activity. A real run also spends wall-clock between them —
+  // adapter handshakes after setup, the gap between ingest ending and the
+  // question starting, process teardown before grading. That gap can be
+  // minutes on a long run, so without an explicit "Other" segment the
+  // labeled phases sum to far less than the total and the breakdown reads
+  // as broken (e.g. Setup 91ms + Ingest 1m53s + Question 3m59s + Grading
+  // 4s = 5m56s, but Total 9m06s). Other = wall-clock − Σphases tiles the
+  // bar to the real total so the numbers add up.
+  const wallClockMs = span(run.startedAt, run.completedAt);
+  const phaseSumMs =
+    (setupMs ?? 0) + (ingestMs ?? 0) + (questionMs ?? 0) + (metricsMs ?? 0);
+  const otherMs =
+    wallClockMs !== undefined ? Math.max(0, wallClockMs - phaseSumMs) : undefined;
+
   const phases: { label: string; ms: number | undefined }[] = [
     { label: "Setup", ms: setupMs },
     { label: "Ingest", ms: ingestMs },
     { label: "Question", ms: questionMs },
     { label: "Grading", ms: metricsMs },
+    // Only surface Other when there's a wall-clock total to subtract
+    // from AND a positive gap — otherwise it's zero/undefined and would
+    // render an empty label. When the run lacks timestamps the total
+    // falls back to the phase sum, so Other is correctly absent there.
+    ...(otherMs !== undefined && otherMs > 0
+      ? [{ label: "Other", ms: otherMs as number }]
+      : []),
   ];
-  // Total wall-clock from run start to completion — includes setup,
-  // ingest, question, AND grading. Falls back to summing the phase
-  // durations when run timestamps are unavailable.
-  const totalMs =
-    span(run.startedAt, run.completedAt) ??
-    ((setupMs ?? 0) + (ingestMs ?? 0) + (questionMs ?? 0) + (metricsMs ?? 0) ||
-      undefined);
+  // Total wall-clock from run start to completion — the real end-to-end
+  // duration the labeled phases + Other must sum to. Falls back to
+  // summing the phase durations only when run timestamps are unavailable.
+  const totalMs = wallClockMs ?? (phaseSumMs || undefined);
 
   return (
     <div className="phase-timing">

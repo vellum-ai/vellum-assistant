@@ -214,7 +214,14 @@ function buildRunUsageEvents(
     message: { type: "usage", usage },
   }));
   if (judgeUsage) {
-    events.push({ message: { type: "usage", usage: judgeUsage } });
+    // Tag the record so the shared summarizer excludes it from the
+    // assistant cost breakdown — judge traffic is harness grading overhead,
+    // not the agent's own model spend, so it must not land in the run's
+    // `totalCostUsd` or the per-request Cost tab (where it would otherwise
+    // show up as a stray gpt-5.2 row inflating the agent's bill).
+    events.push({
+      message: { type: "usage", usage: { ...judgeUsage, origin: "metric" } },
+    });
   }
   return events;
 }
