@@ -190,3 +190,67 @@ describe("resolveDestinations — null list falls back to local read", () => {
     });
   });
 });
+
+describe("resolveDestinations — gateway yields no channel match falls back to local", () => {
+  beforeEach(() => {
+    localGuardian = null;
+  });
+
+  test("empty gateway list falls back to local telegram binding", () => {
+    localGuardian = {
+      contact: {},
+      channel: { address: "tg-user", externalChatId: "12345" },
+    };
+    const result = resolveDestinations(["telegram"], []);
+    expect(result.get("telegram")).toEqual({
+      channel: "telegram",
+      endpoint: "12345",
+      metadata: { externalUserId: "tg-user" },
+      bindingContext: {
+        sourceChannel: "telegram",
+        externalChatId: "12345",
+        externalUserId: "tg-user",
+      },
+    });
+  });
+
+  test("gateway list missing the channel falls back to local slack DM", () => {
+    localGuardian = {
+      contact: {},
+      channel: { address: "slack-user", externalChatId: "D123" },
+    };
+    // Gateway returns a telegram guardian but no slack entry.
+    const list = [
+      guardian({ channelType: "telegram", address: "tg", externalChatId: "999" }),
+    ];
+    const result = resolveDestinations(["slack"], list);
+    expect(result.get("slack")).toEqual({
+      channel: "slack",
+      endpoint: "D123",
+      metadata: { externalUserId: "slack-user" },
+      bindingContext: {
+        sourceChannel: "slack",
+        externalChatId: "D123",
+        externalUserId: "slack-user",
+      },
+    });
+  });
+
+  test("empty gateway list falls back to local vellum principalId", () => {
+    localGuardian = {
+      contact: { principalId: "prin-1" },
+      channel: { address: "user@example.com" },
+    };
+    const result = resolveDestinations(["vellum"], []);
+    expect(result.get("vellum")).toEqual({
+      channel: "vellum",
+      metadata: { guardianPrincipalId: "prin-1" },
+    });
+  });
+
+  test("empty gateway list with no local binding omits telegram", () => {
+    localGuardian = null;
+    const result = resolveDestinations(["telegram"], []);
+    expect(result.has("telegram")).toBe(false);
+  });
+});

@@ -30,17 +30,20 @@ interface ResolvedGuardian {
 }
 
 /**
- * Resolve the guardian delivery endpoint for a channel from the gateway list
- * when available, falling back to the local contacts read when the list is
- * null (gateway unreachable). The local read is removed in Combo 11.
+ * Resolve the guardian delivery endpoint for a channel: gateway list first,
+ * else the local contacts read. The local read is the transitional
+ * dual-written mirror and covers a transient gateway failure (null list) or a
+ * gateway list missing this channel, so a soft-failed gateway read does not
+ * drop a binding the local store still holds. Removed in Combo 11.
  */
 function resolveGuardian(
   guardians: GuardianDelivery[] | null,
   channelType: string,
 ): ResolvedGuardian | undefined {
-  if (guardians) {
-    const g = guardianForChannel(guardians, channelType);
-    if (!g) return undefined;
+  const g = guardians
+    ? guardianForChannel(guardians, channelType)
+    : undefined;
+  if (g) {
     return {
       principalId: g.principalId ?? undefined,
       address: g.address,
@@ -64,8 +67,9 @@ function resolveGuardian(
  * Returns a map keyed by `NotificationChannel`. Channels that cannot be
  * resolved (e.g. no Telegram binding configured) are omitted from the result.
  *
- * `guardians` is the gateway-resolved guardian list; pass `null` to fall back
- * to the local contacts read for this release.
+ * `guardians` is the gateway-resolved guardian list; per channel, a missing
+ * match (null list or no entry for the channel) falls back to the local
+ * contacts read for this release.
  */
 export function resolveDestinations(
   channels: readonly (ChannelId | NotificationChannel)[],
