@@ -4,10 +4,11 @@
  * `SubagentDetailPanel` shell (outer container, header with leading icon /
  * title / risk badge / close, scrollable body with sections).
  *
- * Driven by the `ToolDetailPayload` opened into `viewer-store`. The tool
- * variant is purely presentational; the thinking variant additionally
- * subscribes to the chat-session store so the reasoning text streams live
- * (see `ThinkingDetailBody`).
+ * Driven by the `ToolDetailPayload` opened into `viewer-store`. Both variants
+ * subscribe to the chat-session store so an open drawer streams live: the tool
+ * variant mirrors `tool_output_chunk` output and the final result via
+ * `useLiveToolCall` (see `ToolDetailBody`), the thinking variant the reasoning
+ * text via `useLiveThinkingText` (see `ThinkingDetailBody`).
  */
 
 import {
@@ -34,10 +35,12 @@ import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-mes
 import { RiskBadge } from "@/domains/chat/components/risk-badge";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
 import { useLiveThinkingText } from "@/domains/chat/hooks/use-live-thinking-text";
+import { useLiveToolCall } from "@/domains/chat/hooks/use-live-tool-call";
 import {
     deriveStepLabelFromName,
     type IconName,
 } from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 /**
@@ -204,10 +207,15 @@ function ThinkingDetailBody({
 
 /**
  * Tool-variant detail sections — the risk-reason note, "Technical details"
- * (input `CodeBlock`), and "Output" (result or running-state fallback) — with
- * no surrounding shell, header, or close button. Composed by `ToolDetailPanel`
- * inside its own `DetailShell`, and reused by `SubagentDetailPanel` to show a
- * nested tool call under the subagent's own header.
+ * (input `CodeBlock`), and "Output" — with no surrounding shell, header, or
+ * close button. Composed by `ToolDetailPanel` inside its own `DetailShell`, and
+ * reused by `SubagentDetailPanel` to show a nested tool call under the
+ * subagent's own header.
+ *
+ * Subscribes to the chat-session store via `useLiveToolCall` so an open drawer
+ * streams `tool_output_chunk` output while the call runs and flips to the final
+ * `result` when it lands, falling back to the open-time snapshot on `detail`
+ * when the call can't be resolved live (e.g. paged out).
  */
 export function ToolDetailBody({
   detail,
@@ -222,8 +230,15 @@ export function ToolDetailBody({
    */
   showTechnicalDetailsLabel?: boolean;
 }) {
-  const hasResult = detail.result !== undefined && detail.result !== "";
-  const isRunning = detail.status === "running";
+  const liveTc = useLiveToolCall(detail.toolCallId);
+  const result = liveTc?.result ?? detail.result;
+  const streamedOutput = liveTc?.streamedOutput ?? detail.streamedOutput;
+
+  const hasResult = result !== undefined && result !== "";
+  const isRunning = liveTc
+    ? isToolCallRunning(liveTc)
+    : detail.status === "running";
+  const hasStreamedOutput = !!streamedOutput;
   const inputJson = JSON.stringify(detail.input, null, 2);
 
   return (
@@ -264,12 +279,15 @@ export function ToolDetailBody({
         </div>
       </div>
 
-      {/* Output section — omitted entirely when there's no result */}
+      {/* Output — the final result once present, else the live streamed tail
+          while running, else a bare running placeholder. */}
       {(hasResult || isRunning) && (
         <div className="mt-5">
           <SectionLabel>Output</SectionLabel>
           {hasResult ? (
-            <CodeBlock text={detail.result as string} />
+            <CodeBlock text={result as string} />
+          ) : hasStreamedOutput ? (
+            <CodeBlock text={streamedOutput as string} />
           ) : (
             <Typography
               variant="body-small-default"

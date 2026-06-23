@@ -8,12 +8,19 @@ let sendMessageArgs: Record<string, unknown> | null = null;
 let responseText = "Use a channel-based worker pool; drain on shutdown.";
 let sendMessageError: Error | null = null;
 let providerResolves = true;
+let streamDeltas: string[] = [];
 
 const fakeProvider = {
   name: "mock-advisor-provider",
   async sendMessage(messages: unknown, options: unknown) {
     sendMessageArgs = { messages, options } as Record<string, unknown>;
     if (sendMessageError) throw sendMessageError;
+    const onEvent = (
+      options as { onEvent?: (e: { type: string; text?: string }) => void }
+    ).onEvent;
+    if (onEvent) {
+      for (const text of streamDeltas) onEvent({ type: "text_delta", text });
+    }
     return {
       content: [{ type: "text", text: responseText }],
       model: "mock-model",
@@ -49,6 +56,7 @@ beforeEach(() => {
   responseText = "Use a channel-based worker pool; drain on shutdown.";
   sendMessageError = null;
   providerResolves = true;
+  streamDeltas = [];
   resetAdvisorStateForTests();
 });
 
@@ -123,6 +131,29 @@ describe("consultAdvisor", () => {
     });
     expect(advice).toContain("no guidance");
   });
+
+  test("streams the model's text deltas to `onText` as it generates", async () => {
+    streamDeltas = ["Use a ", "channel-based ", "worker pool."];
+    const chunks: string[] = [];
+
+    const advice = await consultAdvisor({
+      systemPrompt: null,
+      messages: [userMsg("hi")],
+      onText: (c) => chunks.push(c),
+    });
+
+    // Each visible delta is forwarded live...
+    expect(chunks).toEqual(["Use a ", "channel-based ", "worker pool."]);
+    // ...and the complete guidance is still returned.
+    expect(advice).toBe(responseText);
+  });
+
+  test("registers no `onEvent` sink when `onText` is absent", async () => {
+    streamDeltas = ["x"];
+    await consultAdvisor({ systemPrompt: null, messages: [userMsg("hi")] });
+    const options = sendMessageArgs?.options as { onEvent?: unknown };
+    expect(options.onEvent).toBeUndefined();
+  });
 });
 
 describe("advisor tool.execute", () => {
@@ -149,5 +180,20 @@ describe("advisor tool.execute", () => {
     expect(result?.isError).toBe(false);
     expect(result?.content).toContain("advisor unavailable");
     expect(result?.content).toContain("kaboom");
+  });
+
+  test("streams the consult live via `ctx.onOutput`", async () => {
+    recordMessages("c3", [userMsg("hi")]);
+    streamDeltas = ["plan: ", "do X"];
+    const out: string[] = [];
+
+    const result = await advisorTool.execute?.({}, {
+      conversationId: "c3",
+      onOutput: (c: string) => out.push(c),
+    } as never);
+
+    expect(out).toEqual(["plan: ", "do X"]);
+    expect(result?.isError).toBe(false);
+    expect(result?.content).toBe(responseText);
   });
 });

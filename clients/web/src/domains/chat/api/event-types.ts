@@ -36,6 +36,15 @@ export interface ChatMessageToolCall extends ConversationMessageToolCall {
    * Drop this narrowing once the wire `id` graduates to non-optional.
    */
   id: string;
+  /**
+   * Live, incremental tool output accumulated from `tool_output_chunk` events
+   * while the call is running (e.g. foreground bash stdout/stderr). Web-local
+   * and live-only: it is never part of the wire schema or re-ingested history,
+   * is bounded to a tail (see `appendToolOutputChunk`), and is cleared once the
+   * final `result` arrives via `applyToolResult`. The drawer renders it as a
+   * streaming preview; the complete output still arrives once in `result`.
+   */
+  streamedOutput?: string;
 }
 
 // ---------------------------------------------------------------------------
