@@ -357,6 +357,11 @@ export function computeSubagentCardData(
             kind: "thinking",
             durationLabel: "",
             text: webFetchReadingText(event),
+            // Key the step to its tool id so the timeline pill opens the nested
+            // web_fetch detail (source card + extracted content) — matching the
+            // `toolUseId`-keyed payload `buildSubagentStepDetails` emits, the
+            // same way the `web_search` branch below keys its pill.
+            detailKey: event.toolUseId,
           });
           toolMeta.push(undefined);
         } else {

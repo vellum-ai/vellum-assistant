@@ -789,9 +789,42 @@ describe("computeSubagentCardData — web tools match main-chat group labels", (
     if (step.kind === "thinking") {
       // Scheme + leading www. stripped, matching main chat's web_fetch label.
       expect(step.text).toBe("Reading example.com");
+      // Keyed to its tool id so the timeline pill is clickable (opens the
+      // nested web_fetch detail), matching the payload built below.
+      expect(step.detailKey).toBe("tu-wf");
     }
     // web_fetch maps to the "Thinking" group, exactly as main chat does.
     expect(phaseFromStep(step)).toBe("Thinking");
+  });
+
+  test("web_fetch step's detailKey resolves to a buildSubagentStepDetails payload (clickable)", () => {
+    // Regression: the "Reading <domain>" pill must open a detail. The timeline
+    // step and the detail map both key on `toolUseId`, so the pill's detailKey
+    // has to exist in the payload map or clicking it is a no-op.
+    const entry = makeEntry({
+      events: [
+        makeEvent({
+          type: "tool_call",
+          toolName: "web_fetch",
+          toolUseId: "tu-wf",
+          content: "https://www.example.com/article",
+        }),
+        makeEvent({
+          type: "tool_result",
+          toolName: "web_fetch",
+          toolUseId: "tu-wf",
+          content: "Final URL: https://www.example.com/article\nStatus: 200 OK",
+        }),
+      ],
+    });
+    const step = computeSubagentCardData(entry).steps[0]!;
+    const details = buildSubagentStepDetails(entry);
+    if (step.kind === "thinking") {
+      expect(step.detailKey).toBe("tu-wf");
+      expect(details.has(step.detailKey!)).toBe(true);
+      // The payload routes to the web_fetch view (kind "tool" + toolName).
+      expect(details.get(step.detailKey!)?.toolName).toBe("web_fetch");
+    }
   });
 
   test("web_fetch prefers the raw input url over the content summary", () => {
