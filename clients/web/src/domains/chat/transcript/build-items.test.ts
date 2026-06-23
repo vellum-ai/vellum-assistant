@@ -59,6 +59,27 @@ describe("buildTranscriptItems", () => {
     expectDistinctNonEmptyKeys(items);
   });
 
+  test("reuses the MessageItem ref for an unchanged message, mints a new one for a changed message (row isolation)", () => {
+    const user = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
+    const assistant = makeMessage({ id: "m2", role: "assistant", ...textBody("Hi") });
+
+    const first = buildTranscriptItems({ ...emptyInput(), messages: [user, assistant] });
+
+    // Mirror an entity patch: only the assistant row gets a new ref (a token
+    // landed); the user row keeps its ref.
+    const assistantPatched = { ...assistant, ...textBody("Hi there") };
+    const second = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [user, assistantPatched],
+    });
+
+    // Unchanged message -> same item ref -> the memoized TranscriptRow skips it.
+    expect(second[0]).toBe(first[0]);
+    // Changed message -> new item ref -> only that row re-renders.
+    expect(second[1]).not.toBe(first[1]);
+    expect((second[1] as MessageItem).message).toBe(assistantPatched);
+  });
+
   test("emits empty list when there is no state", () => {
     const items = buildTranscriptItems(emptyInput());
     expect(items).toEqual([]);

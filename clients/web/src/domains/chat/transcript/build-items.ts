@@ -35,6 +35,24 @@ export interface BuildTranscriptItemsInput {
 }
 
 /**
+ * Cache of `MessageItem`s keyed by their `DisplayMessage` ref, so an unchanged
+ * message yields the **same** item ref across builds. This is what isolates a
+ * streaming token to its own row: the normalized store replaces only the
+ * patched message's ref, so every other message reuses its cached item and the
+ * memoized `TranscriptRow` skips re-rendering. A `WeakMap` keeps it leak-free —
+ * entries drop when a message object is garbage-collected.
+ */
+const messageItemCache = new WeakMap<DisplayMessage, MessageItem>();
+
+function messageItemFor(message: DisplayMessage): MessageItem {
+  const cached = messageItemCache.get(message);
+  if (cached !== undefined) return cached;
+  const item: MessageItem = { kind: "message", key: message.id, message };
+  messageItemCache.set(message, item);
+  return item;
+}
+
+/**
  * Project the chat state into an ordered flat list of transcript items.
  *
  * Rules:
@@ -78,12 +96,7 @@ export function buildTranscriptItems(
       continue;
     }
 
-    const messageItem: MessageItem = {
-      kind: "message",
-      key: message.id,
-      message,
-    };
-    items.push(messageItem);
+    items.push(messageItemFor(message));
   }
 
   for (const result of input.ephemeralMetaResults ?? []) {
