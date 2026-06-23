@@ -1,14 +1,6 @@
 /**
- * Local-principal trust mapper.
- *
- * Derives a local principal's runtime {@link TrustContext} from the gateway
- * guardian binding instead of the assistant DB. A `vellum` principal is the
- * guardian (owner) or nobody, so "trust of this principal on the vellum
- * channel" reduces to "does `actorPrincipalId` match the gateway guardian's
- * principalId?" — which {@link getGuardianDelivery} answers.
- *
- * The mapper is pure: it does not heal binding drift or read local ACL. The
- * routes own the heal/re-resolve loop and call this mapper.
+ * Derives a local principal's {@link TrustContext} from the gateway guardian
+ * binding. Fails closed to unknown on a missing or null read.
  */
 
 import type { ChannelId } from "../channels/types.js";
@@ -22,11 +14,7 @@ export interface ResolveLocalPrincipalTrustInput {
   conversationExternalId: string;
 }
 
-/**
- * Resolve the trust context for a local principal from the gateway guardian
- * binding. Guardian match → guardian ctx; otherwise → unknown. A null gateway
- * read fails closed to unknown rather than granting guardian on a miss.
- */
+/** Guardian match → guardian ctx; miss or null read → unknown (fail closed). */
 export async function resolveLocalPrincipalTrustContext(
   input: ResolveLocalPrincipalTrustInput,
 ): Promise<TrustContext> {

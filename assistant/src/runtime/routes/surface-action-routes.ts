@@ -11,22 +11,13 @@ import { z } from "zod";
 
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { findGuardianForChannel } from "../../contacts/contact-store.js";
-import {
-  getGuardianDelivery,
-  guardianForChannel,
-} from "../../contacts/guardian-delivery-reader.js";
 import type { TrustContext } from "../../daemon/trust-context.js";
 import { getLogger } from "../../util/logger.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { processGuardianDecision } from "../guardian-action-service.js";
-import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
+import { reResolveTrustOnResetDrift } from "../guardian-vellum-migration.js";
 import { findLocalGuardianPrincipalId } from "../local-actor-identity.js";
 import { resolveLocalPrincipalTrustContext } from "../local-principal-trust.js";
-import {
-  resolveTrustContext,
-  withSourceChannel,
-} from "../trust-context-resolver.js";
 import { parseCallbackData } from "./channel-route-shared.js";
 import {
   BadRequestError,
@@ -77,29 +68,9 @@ async function applyTrustContext(
     conversationExternalId: "local",
   });
   if (trustCtx.trustClass === "unknown") {
-    const guardians = await getGuardianDelivery({ channelTypes: ["vellum"] });
-    const gatewayPrincipal = guardians
-      ? guardianForChannel(guardians, sourceChannel)?.principalId
-      : undefined;
-    // Narrow drift only: a DB reset rebound the gateway to a fresh
-    // vellum-principal while the client holds a valid JWT for the old one. Both
-    // are daemon-minted vellum-principal-* ids, so a genuine revocation or rebind
-    // to a real identity fails closed instead of re-granting from a stale mirror.
-    const isResetDrift =
-      principalId.startsWith("vellum-principal-") &&
-      !!gatewayPrincipal?.startsWith("vellum-principal-") &&
-      gatewayPrincipal !== principalId;
-    if (isResetDrift) {
-      await healGuardianBindingDrift(principalId);
-      trustCtx = withSourceChannel(
-        sourceChannel,
-        resolveTrustContext({
-          assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-          sourceChannel,
-          conversationExternalId: "local",
-          actorExternalId: principalId,
-        }),
-      );
+    const healed = await reResolveTrustOnResetDrift(principalId, sourceChannel);
+    if (healed) {
+      trustCtx = healed;
       log.info(
         { actorPrincipalId: principalId, trustClass: trustCtx.trustClass },
         "Trust re-resolved from local mirror after gateway reset drift (surface action)",
