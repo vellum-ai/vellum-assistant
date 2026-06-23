@@ -130,3 +130,35 @@ describe("steerOnEnqueuedMessageIfQuestionParked", () => {
     expect(conv.abortCount()).toBe(0);
   });
 });
+
+describe("removeByConversation preserves question interactions", () => {
+  // The enqueue path's confirmation auto-deny calls removeByConversation before
+  // the steer runs. Questions must survive it — they are settled instead by the
+  // steer's turn abort — or, when an ask_question and a confirmation are pending
+  // concurrently, the queued message would strand behind a question whose entry
+  // was cleared (and whose Promise was never settled) before the steer fired.
+  const CONV = "remove-by-conv-preserve-question";
+  const ids: string[] = [];
+  function register(kind: "question" | "confirmation"): void {
+    const requestId = `rbc-${kind}`;
+    pendingInteractions.register(requestId, { conversationId: CONV, kind });
+    ids.push(requestId);
+  }
+
+  afterEach(() => {
+    for (const id of ids) pendingInteractions.resolve(id, "cancelled");
+    ids.length = 0;
+  });
+
+  test("removes confirmations but leaves questions registered", () => {
+    register("confirmation");
+    register("question");
+
+    pendingInteractions.removeByConversation(CONV);
+
+    const remaining = pendingInteractions
+      .getByConversation(CONV)
+      .map((interaction) => interaction.kind);
+    expect(remaining).toEqual(["question"]);
+  });
+});
