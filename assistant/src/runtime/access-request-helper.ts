@@ -12,11 +12,7 @@
  */
 
 import type { ChannelId } from "../channels/types.js";
-import { findGuardianForChannel } from "../contacts/contact-store.js";
-import {
-  getGuardianDelivery,
-  guardianForChannel,
-} from "../contacts/guardian-delivery-reader.js";
+import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
 import type { ChannelStatus } from "../contacts/types.js";
 import {
   createCanonicalGuardianRequest,
@@ -29,6 +25,7 @@ import {
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { GuardianResolutionSource } from "../notifications/signal.js";
 import { getLogger } from "../util/logger.js";
+import { resolveAnchoredGuardian } from "./anchored-guardian.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "./routes/channel-route-shared.js";
 
 const log = getLogger("access-request-helper");
@@ -98,65 +95,19 @@ export async function notifyGuardianOfAccessRequest(
     return { notified: false, reason: "no_sender_id" };
   }
 
-  // Resolve guardian identity with assistant-anchored strategy:
-  // 1. Ensure the assistant has a vellum guardian principal (trust anchor)
-  // 2. Use source-channel guardian only when principal matches anchor
-  // 3. Fallback to vellum guardian identity for this assistant principal
-  let guardianExternalUserId: string | null = null;
-  let guardianPrincipalId: string | null = null;
-  let guardianBindingChannel: string | null = null;
-  let guardianResolutionSource: GuardianResolutionSource = "none";
-
-  const guardians = (await getGuardianDelivery()) ?? [];
-  const vellumGuardian = guardianForChannel(guardians, "vellum");
-  const assistantGuardianPrincipalId = vellumGuardian?.principalId;
-
-  // Try source-channel guardian, but only if it maps to the assistant's
-  // anchored principal. This blocks cross-assistant/stale binding selection.
-  const sourceGuardian = guardianForChannel(guardians, sourceChannel);
-  if (
-    assistantGuardianPrincipalId &&
-    sourceGuardian &&
-    sourceGuardian.principalId === assistantGuardianPrincipalId
-  ) {
-    guardianExternalUserId = sourceGuardian.address;
-    guardianPrincipalId = sourceGuardian.principalId;
-    guardianBindingChannel = sourceGuardian.channelType;
-    guardianResolutionSource = "source-channel-contact";
-  }
-
-  // Access requests always require a principal. If source-channel resolution
-  // did not match the assistant anchor, use the anchored vellum identity.
-  if (!guardianPrincipalId && vellumGuardian) {
-    guardianExternalUserId = vellumGuardian.address;
-    guardianPrincipalId = assistantGuardianPrincipalId ?? null;
-    guardianBindingChannel = guardianBindingChannel ?? "vellum";
-    guardianResolutionSource = "vellum-anchor";
-  }
-
-  // Fallback: gateway delivery read was empty/unavailable (restart, timeout,
-  // malformed IPC), so resolve from the LOCAL dual-written binding to avoid an
-  // undecidable request. Removed in Combo 11.
-  if (!guardianPrincipalId) {
-    const localVellum = findGuardianForChannel("vellum");
-    const localAnchorPrincipalId = localVellum?.contact.principalId;
-    const localSource = findGuardianForChannel(sourceChannel);
-    if (
-      localAnchorPrincipalId &&
-      localSource &&
-      localSource.contact.principalId === localAnchorPrincipalId
-    ) {
-      guardianExternalUserId = localSource.channel.address;
-      guardianPrincipalId = localSource.contact.principalId;
-      guardianBindingChannel = localSource.channel.type;
-      guardianResolutionSource = "source-channel-contact";
-    } else if (localVellum) {
-      guardianExternalUserId = localVellum.channel.address;
-      guardianPrincipalId = localAnchorPrincipalId ?? null;
-      guardianBindingChannel = guardianBindingChannel ?? "vellum";
-      guardianResolutionSource = "vellum-anchor";
-    }
-  }
+  // Resolve guardian identity with the assistant-anchored strategy (gateway
+  // source-channel match validated against the vellum anchor, else the vellum
+  // anchor), with a LOCAL-store fallback when the gateway read is empty.
+  const anchored = resolveAnchoredGuardian({
+    guardians: await getGuardianDelivery(),
+    sourceChannel,
+    useLocalFallback: true,
+  });
+  const guardianExternalUserId = anchored?.address ?? null;
+  const guardianPrincipalId = anchored?.principalId ?? null;
+  const guardianBindingChannel = anchored?.channelType ?? null;
+  const guardianResolutionSource: GuardianResolutionSource =
+    anchored?.source ?? "none";
 
   log.debug(
     {
