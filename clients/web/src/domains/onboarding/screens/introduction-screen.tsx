@@ -31,16 +31,6 @@ interface IntroductionScreenProps {
   onForward?: () => void;
 }
 
-/** Multiply each channel of a #rrggbb hex by `factor` (clamped). */
-function darkenHex(hex: string, factor: number): string {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
-  if (!m) return hex;
-  const n = parseInt(m[1]!, 16);
-  const ch = (shift: number) =>
-    Math.max(0, Math.min(255, Math.round(((n >> shift) & 0xff) * factor)));
-  return `#${((1 << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).slice(1)}`;
-}
-
 /** The body grow starts from the picker's centered size / position. */
 const PICKER_SIZE = 200;
 const PICKER_CENTER_VH = 40;
@@ -97,8 +87,6 @@ export function IntroductionScreen({
       />
     );
   }
-
-  const headingDark = darkenHex(art.color, 0.6);
 
   // Body grows to cover the screen end to end, starting from the picker size.
   const coverSize = 1.25 * Math.max(w, h);
@@ -171,7 +159,7 @@ export function IntroductionScreen({
         >
           <span
             className="block text-[clamp(2.5rem,6vw,5rem)]"
-            style={{ color: headingDark }}
+            style={{ color: tone.fgDeep }}
           >
             {greeting}
           </span>

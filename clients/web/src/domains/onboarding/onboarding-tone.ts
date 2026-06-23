@@ -26,6 +26,12 @@ export interface OnboardingTone {
   isLight: boolean;
   /** Foreground color: black on light bg, white otherwise. */
   fg: string;
+  /**
+   * A deeper heading foreground: the background color itself, darkened. Shared
+   * by the "Hey {name}" greeting and the pitch setup line so they read as the
+   * same secondary tone.
+   */
+  fgDeep: string;
   /** Muted/secondary foreground at the matching tone. */
   fgMuted: string;
   /** A subtle hover/fill wash at the matching tone. */
@@ -46,6 +52,16 @@ function brightness(hex: string): number {
   return (r * 299 + g * 587 + b * 114) / 1000 / 255;
 }
 
+/** Multiply each channel of a #rrggbb hex by `factor` (clamped 0–255). */
+function darkenHex(hex: string, factor: number): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return hex;
+  const n = parseInt(m[1]!, 16);
+  const ch = (shift: number) =>
+    Math.max(0, Math.min(255, Math.round(((n >> shift) & 0xff) * factor)));
+  return `#${((1 << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).slice(1)}`;
+}
+
 /** Build a tone object from a background hex. */
 export function toneForBg(bg: string): OnboardingTone {
   const isLight = brightness(bg) > 0.6;
@@ -53,6 +69,7 @@ export function toneForBg(bg: string): OnboardingTone {
     bg,
     isLight,
     fg: isLight ? FG_DARK : FG_LIGHT,
+    fgDeep: darkenHex(bg, 0.6),
     fgMuted: isLight ? "rgba(0,0,0,0.6)" : "rgba(255,255,255,0.65)",
     wash: isLight ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.12)",
   };

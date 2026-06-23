@@ -52,6 +52,12 @@ export function OnboardingEdgeCharacters() {
   const size = edgeSize(w, h);
   const positions = useMemo(() => edgeSlots(w, h, size / 2), [w, h, size]);
 
+  // On mobile the form is full-width with left-aligned labels, so a left-edge
+  // avatar sits right behind them. Drop the mid-left slot there and keep the
+  // cast to the top, right, and bottom. (Slot 7 is the left-mid sprout.)
+  const isMobile = w < 640;
+  const HIDDEN_ON_MOBILE = new Set([7]);
+
   if (!components || characters.length === 0) return null;
 
   // Indices 1–9 sit at edge slots 0–8 (same mapping as the picker); index 0 is
@@ -64,6 +70,7 @@ export function OnboardingEdgeCharacters() {
       {characters.map((traits, i) => {
         if (i === 0) return null;
         const slot = i - 1;
+        if (isMobile && HIDDEN_ON_MOBILE.has(slot)) return null;
         const p = positions[slot];
         if (!p) return null;
         const rotation = SLOT_ROTATIONS[slot % SLOT_ROTATIONS.length] ?? 0;
