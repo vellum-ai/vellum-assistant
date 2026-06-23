@@ -26,16 +26,48 @@ function isPlatformMode(raw: string | undefined): boolean {
  *
  * Only used in local mode — platform mode proxies without rewriting.
  */
-function forwardSessionCookie(proxy: { on: (event: string, cb: (...args: unknown[]) => void) => void }): void {
+function forwardSessionCookie(proxy: {
+  on: (event: string, cb: (...args: unknown[]) => void) => void;
+}): void {
   proxy.on("proxyReq", (...args: unknown[]) => {
     const proxyReq = args[0] as http.ClientRequest;
     const req = args[1] as http.IncomingMessage;
     const cookie = req.headers.cookie ?? "";
     const match = /sessionid=([^;]+)/.exec(cookie);
     if (match?.[1]) {
-      proxyReq.setHeader("Cookie", `sessionid=${match[1]}; __Secure-sessionid=${match[1]}`);
+      proxyReq.setHeader(
+        "Cookie",
+        `sessionid=${match[1]}; __Secure-sessionid=${match[1]}`,
+      );
     }
   });
+}
+
+/**
+ * Drop the platform's own `sessionid`/`__Secure-sessionid` `Set-Cookie` from
+ * proxied responses so it can't clobber the loopback-managed session cookie.
+ * Local mode only — in platform mode those cookies are first-party and must
+ * pass through.
+ */
+function stripUpstreamSessionCookie(proxy: {
+  on: (event: string, cb: (...args: unknown[]) => void) => void;
+}): void {
+  proxy.on("proxyRes", (...args: unknown[]) => {
+    const proxyRes = args[0] as http.IncomingMessage;
+    const setCookie = proxyRes.headers["set-cookie"];
+    if (Array.isArray(setCookie)) {
+      proxyRes.headers["set-cookie"] = setCookie.filter(
+        (cookie) => !/^\s*(sessionid|__Secure-sessionid)=/i.test(cookie),
+      );
+    }
+  });
+}
+
+function configureLocalApiProxy(proxy: {
+  on: (event: string, cb: (...args: unknown[]) => void) => void;
+}): void {
+  forwardSessionCookie(proxy);
+  stripUpstreamSessionCookie(proxy);
 }
 
 // Reference: https://vite.dev/config/#using-environment-variables-in-config
@@ -46,17 +78,22 @@ export default defineConfig(({ mode }) => {
   // Server-only proxy targets — never embedded in the client bundle.
   // Reference: https://vite.dev/config/server-options#server-proxy
   const apiProxyTarget = env.API_PROXY_TARGET || "http://localhost:8000";
-  const gatewayProxyTarget = env.GATEWAY_PROXY_TARGET || "http://localhost:7830";
+  const gatewayProxyTarget =
+    env.GATEWAY_PROXY_TARGET || "http://localhost:7830";
 
   // Only enable Sentry source map upload for deploy builds.
   // Reference: https://docs.sentry.io/platforms/javascript/guides/react/sourcemaps/uploading/vite/
   const sentryUploadEnabled = env.SENTRY_UPLOAD_SOURCE_MAPS === "true";
   if (sentryUploadEnabled && !env.SENTRY_AUTH_TOKEN) {
-    throw new Error("SENTRY_AUTH_TOKEN is required to upload Sentry source maps.");
+    throw new Error(
+      "SENTRY_AUTH_TOKEN is required to upload Sentry source maps.",
+    );
   }
   if (sentryUploadEnabled) {
     if (!env.VITE_APP_VERSION) {
-      throw new Error("VITE_APP_VERSION is required to upload Sentry source maps.");
+      throw new Error(
+        "VITE_APP_VERSION is required to upload Sentry source maps.",
+      );
     }
   }
 
@@ -129,14 +166,29 @@ export default defineConfig(({ mode }) => {
         allow: [import.meta.dirname, DESIGN_LIBRARY_SRC],
       },
       proxy: {
-        ...(isPlatformMode(env.VITE_PLATFORM_MODE) ? {
-          "/v1": { target: apiProxyTarget, changeOrigin: true },
-          "/_allauth": { target: apiProxyTarget, changeOrigin: true },
-        } : {
-          "/v1": { target: apiProxyTarget, changeOrigin: true, configure: forwardSessionCookie },
-          "/_allauth": { target: apiProxyTarget, changeOrigin: true, configure: forwardSessionCookie },
-        }),
-        "/accounts": { target: apiProxyTarget, changeOrigin: true },
+        ...(isPlatformMode(env.VITE_PLATFORM_MODE)
+          ? {
+              "/v1": { target: apiProxyTarget, changeOrigin: true },
+              "/_allauth": { target: apiProxyTarget, changeOrigin: true },
+              "/accounts": { target: apiProxyTarget, changeOrigin: true },
+            }
+          : {
+              "/v1": {
+                target: apiProxyTarget,
+                changeOrigin: true,
+                configure: configureLocalApiProxy,
+              },
+              "/_allauth": {
+                target: apiProxyTarget,
+                changeOrigin: true,
+                configure: configureLocalApiProxy,
+              },
+              "/accounts": {
+                target: apiProxyTarget,
+                changeOrigin: true,
+                configure: stripUpstreamSessionCookie,
+              },
+            }),
         "/auth": { target: gatewayProxyTarget, changeOrigin: true },
       },
     },

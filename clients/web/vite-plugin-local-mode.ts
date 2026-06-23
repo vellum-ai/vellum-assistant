@@ -82,9 +82,17 @@ function rejectUnlessLocalEndpointRequest(
   res: http.ServerResponse,
 ): boolean {
   const peer = req.socket.remoteAddress ?? "";
-  const host = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host;
-  const origin = Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin;
-  if (!isLoopbackAddr(peer) || !headerHostIsLoopback(host) || !originIsAllowed(origin)) {
+  const host = Array.isArray(req.headers.host)
+    ? req.headers.host[0]
+    : req.headers.host;
+  const origin = Array.isArray(req.headers.origin)
+    ? req.headers.origin[0]
+    : req.headers.origin;
+  if (
+    !isLoopbackAddr(peer) ||
+    !headerHostIsLoopback(host) ||
+    !originIsAllowed(origin)
+  ) {
     res.statusCode = 403;
     res.setHeader("Content-Type", "application/json");
     res.end(JSON.stringify({ error: "Forbidden" }));
@@ -97,7 +105,20 @@ function loopbackCallbackMiddleware(): Connect.NextHandleFunction {
   return (req, res, next) => {
     if (req.url?.startsWith("/callback")) {
       const qs = req.url.slice("/callback".length);
-      res.writeHead(302, { Location: `/account/platform-callback${qs}` });
+      const headers: Record<string, string> = {
+        Location: `/account/platform-callback${qs}`,
+      };
+      // Install the session cookie server-side: a server Set-Cookie overwrites
+      // a stale HttpOnly `sessionid` squatter (e.g. left by the local platform)
+      // that the SPA's document.cookie write cannot touch.
+      const token = new URLSearchParams(qs.replace(/^\?/, "")).get(
+        "session_token",
+      );
+      if (token && /^[A-Za-z0-9]+$/.test(token)) {
+        headers["Set-Cookie"] =
+          `sessionid=${token}; Path=/; SameSite=Lax; Max-Age=1209600`;
+      }
+      res.writeHead(302, headers);
       res.end();
       return;
     }
@@ -254,22 +275,27 @@ function hatchMiddleware(baseDir: string): Connect.NextHandleFunction {
         return;
       }
 
-      runHatch(invocation, species, remote ? { remote } : undefined).then((result) => {
-        res.statusCode = result.ok ? 200 : result.status;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify(
-            result.ok
-              ? { ok: true, assistantId: result.assistantId }
-              : { ok: false, error: result.error },
-          ),
-        );
-      });
+      runHatch(invocation, species, remote ? { remote } : undefined).then(
+        (result) => {
+          res.statusCode = result.ok ? 200 : result.status;
+          res.setHeader("Content-Type", "application/json");
+          res.end(
+            JSON.stringify(
+              result.ok
+                ? { ok: true, assistantId: result.assistantId }
+                : { ok: false, error: result.error },
+            ),
+          );
+        },
+      );
     });
   };
 }
 
-function retireMiddleware(baseDir: string, lockfilePaths: string[]): Connect.NextHandleFunction {
+function retireMiddleware(
+  baseDir: string,
+  lockfilePaths: string[],
+): Connect.NextHandleFunction {
   return (req, res, next) => {
     if (
       req.url !== "/assistant/__local/retire" &&
@@ -313,7 +339,12 @@ function retireMiddleware(baseDir: string, lockfilePaths: string[]): Connect.Nex
       if (!isActiveAssistant(lockfilePaths, assistantId)) {
         res.statusCode = 403;
         res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ ok: false, error: "Can only retire the active local assistant" }));
+        res.end(
+          JSON.stringify({
+            ok: false,
+            error: "Can only retire the active local assistant",
+          }),
+        );
         return;
       }
 

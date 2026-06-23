@@ -4,6 +4,7 @@ import { useSearchParams, useNavigate } from "react-router";
 import { listAssistants } from "@/assistant/api";
 import { syncPlatformAssistantsToLockfile } from "@/lib/local-mode";
 import { setMenuPlatformSession } from "@/runtime/menu";
+import { getSessionTokenFromCookies } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { routes } from "@/utils/routes";
@@ -19,10 +20,11 @@ const LOOPBACK_RETURN_TO_KEY = "vellum:loopback:returnTo";
  *      and navigates to the platform login with
  *      `returnTo=/accounts/cli/callback?port={localPort}&state={nonce}`
  *   2. After authentication, the platform redirects to
- *      `http://127.0.0.1:{port}/callback?state={nonce}&session_token={token}`
- *   3. The local web server redirects `/callback` → this SPA page
- *   4. This page validates the state, installs the session cookie,
- *      checks for existing assistants, and navigates accordingly
+ *      `http://localhost:{port}/callback?state={nonce}&session_token={token}`
+ *   3. The local web server installs the session cookie (server-side, so it
+ *      overrides any stale HttpOnly squatter) and redirects `/callback` → here
+ *   4. This page validates the state, confirms the cookie, checks for existing
+ *      assistants, and navigates accordingly
  */
 export function PlatformLoopbackPage() {
   const [searchParams] = useSearchParams();
@@ -33,7 +35,8 @@ export function PlatformLoopbackPage() {
     const state = searchParams.get("state");
     const sessionToken = searchParams.get("session_token");
     const expectedState = sessionStorage.getItem(LOOPBACK_STATE_KEY);
-    const returnTo = sessionStorage.getItem(LOOPBACK_RETURN_TO_KEY) || routes.assistant;
+    const returnTo =
+      sessionStorage.getItem(LOOPBACK_RETURN_TO_KEY) || routes.assistant;
 
     sessionStorage.removeItem(LOOPBACK_STATE_KEY);
     sessionStorage.removeItem(LOOPBACK_RETURN_TO_KEY);
@@ -53,7 +56,19 @@ export function PlatformLoopbackPage() {
       return;
     }
 
+    // The local web server already installed this cookie server-side on the
+    // `/callback` redirect (which can overwrite an HttpOnly squatter). Re-write
+    // it as a fallback, then verify it actually took — a stale HttpOnly
+    // `sessionid` left by the local platform would silently block both writes.
     document.cookie = `sessionid=${sessionToken}; path=/; samesite=lax; max-age=1209600`;
+    if (getSessionTokenFromCookies() !== sessionToken) {
+      setError(
+        "Login failed: a stale 'sessionid' cookie from the local platform is " +
+          "blocking the session. Clear site data for this site (DevTools → " +
+          "Application → Clear storage) and try again.",
+      );
+      return;
+    }
 
     void (async () => {
       // Re-run session init now that the cookie is set — this moves

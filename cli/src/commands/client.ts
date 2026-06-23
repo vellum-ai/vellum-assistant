@@ -57,6 +57,7 @@ import {
 } from "../lib/platform-client";
 import { tuiLog } from "../lib/tui-log";
 import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
+import { probePort } from "../lib/port-probe.js";
 
 const SUPPORTED_INTERFACES = ["cli", "web"] as const;
 type SupportedInterface = (typeof SUPPORTED_INTERFACES)[number];
@@ -101,8 +102,10 @@ export function parseArgs(): ParsedArgs {
   const { envVars: cliFlagVars, remaining: argsWithoutFlags } =
     parseFeatureFlagArgs(process.argv.slice(3));
   const flagEnvVars = { ...readAmbientFlagEnvVars(), ...cliFlagVars };
-  const disablePlatformAmbient = process.env.VELLUM_DISABLE_PLATFORM?.trim().toLowerCase();
-  let disablePlatform = disablePlatformAmbient === "true" || disablePlatformAmbient === "1";
+  const disablePlatformAmbient =
+    process.env.VELLUM_DISABLE_PLATFORM?.trim().toLowerCase();
+  let disablePlatform =
+    disablePlatformAmbient === "true" || disablePlatformAmbient === "1";
   const args = argsWithoutFlags;
 
   // Build parsedFlagOverrides from the extracted env vars:
@@ -658,6 +661,109 @@ function getBaseDir(): string {
   return path.resolve(import.meta.dir, "..", "..", "..");
 }
 
+// Minimal structural view of a Bun server — kept as a supertype of Bun's
+// `Server` (rather than importing it) so the shared `fetchHandler` only
+// depends on what it actually uses, matching `handleLocalEndpoints`'s arg.
+type LoopbackServer = {
+  hostname: string;
+  port: number;
+  requestIP(req: Request): { address: string } | null;
+  stop(closeActiveConnections?: boolean): void;
+};
+
+const WEB_PORT_SCAN_LIMIT = 50;
+
+function isAddrInUse(err: unknown): boolean {
+  const e = err as { code?: string; message?: string } | undefined;
+  return (
+    e?.code === "EADDRINUSE" ||
+    /EADDRINUSE|address already in use/i.test(e?.message ?? "")
+  );
+}
+
+/**
+ * Bind the local web server on BOTH loopback families (`127.0.0.1` and `::1`)
+ * so the app can be reached at `http://localhost:<port>` regardless of whether
+ * the browser resolves `localhost` to IPv4 or IPv6 — matching the host the
+ * platform hardcodes in its loopback login callback.
+ *
+ * IPv4 is mandatory. IPv6 is best-effort: if `::1` is already taken (e.g. the
+ * local platform's `vel up` edge-proxy owns `[::]:<port>`), the port is
+ * contested and we advance — otherwise `localhost` would resolve to that other
+ * server. If IPv6 is simply unavailable on the host, we proceed IPv4-only.
+ *
+ * Never binds wildcard interfaces (`0.0.0.0`/`::`): the server exposes
+ * `/__local/*` control endpoints, so it must stay loopback-only.
+ */
+function serveLoopback(
+  preferredPort: number,
+  fetchHandler: (req: Request, server: LoopbackServer) => Promise<Response>,
+): { port: number; servers: LoopbackServer[] } {
+  for (
+    let port = preferredPort;
+    port < preferredPort + WEB_PORT_SCAN_LIMIT;
+    port++
+  ) {
+    let primary: LoopbackServer;
+    try {
+      primary = Bun.serve({ port, hostname: "127.0.0.1", fetch: fetchHandler });
+    } catch (err) {
+      if (isAddrInUse(err)) continue;
+      throw err;
+    }
+
+    let secondary: LoopbackServer | null = null;
+    try {
+      secondary = Bun.serve({ port, hostname: "::1", fetch: fetchHandler });
+    } catch (err) {
+      if (isAddrInUse(err)) {
+        primary.stop(true);
+        continue;
+      }
+      // IPv6 unavailable (e.g. EADDRNOTAVAIL) — IPv4-only is acceptable since
+      // `localhost` then resolves to 127.0.0.1 anyway.
+    }
+
+    return { port, servers: secondary ? [primary, secondary] : [primary] };
+  }
+  throw new Error(
+    `Could not bind a free loopback port in [${preferredPort}, ${preferredPort + WEB_PORT_SCAN_LIMIT - 1}]`,
+  );
+}
+
+/**
+ * Find the first port at/above `preferred` with nothing listening on either
+ * loopback family. Used for the Vite dev server, which binds the port itself
+ * (via the `PORT` env). Connect-probe based, so there's a small TOCTOU window
+ * before Vite binds — acceptable for dev.
+ */
+async function findFreeDualLoopbackPort(preferred: number): Promise<number> {
+  for (let port = preferred; port < preferred + WEB_PORT_SCAN_LIMIT; port++) {
+    const [busyV4, busyV6] = await Promise.all([
+      probePort(port, "127.0.0.1"),
+      probePort(port, "::1"),
+    ]);
+    if (!busyV4 && !busyV6) return port;
+  }
+  return preferred;
+}
+
+/**
+ * Drop `Set-Cookie` headers for the Django session cookie from a proxied
+ * upstream response so the loopback-managed session cookie stays authoritative
+ * (the platform must not clobber the cookie the `/callback` handler installed).
+ */
+function stripSessionSetCookies(headers: Headers): void {
+  const setCookies = headers.getSetCookie?.() ?? [];
+  if (setCookies.length === 0) return;
+  headers.delete("set-cookie");
+  for (const cookie of setCookies) {
+    if (!/^\s*(sessionid|__Secure-sessionid)=/i.test(cookie)) {
+      headers.append("set-cookie", cookie);
+    }
+  }
+}
+
 async function runWebInterface(
   flagEnvVars: Record<string, string>,
   parsedFlagOverrides: Record<string, boolean | string>,
@@ -699,120 +805,139 @@ async function runWebInterface(
     `<script>window.__VELLUM_CONFIG__=${configJson}${flagOverridesSnippet}</script></head>`,
   );
 
-  const server = Bun.serve({
-    port: 3000,
-    hostname: "127.0.0.1",
-    fetch: async (req) => {
-      const url = new URL(req.url);
-      const { pathname } = url;
+  const fetchHandler = async (
+    req: Request,
+    server: LoopbackServer,
+  ): Promise<Response> => {
+    const url = new URL(req.url);
+    const { pathname } = url;
 
-      if (pathname === "/" || pathname === "/assistant") {
-        return Response.redirect(SPA_BASE, 302);
-      }
+    if (pathname === "/" || pathname === "/assistant") {
+      return Response.redirect(SPA_BASE, 302);
+    }
 
-      // Loopback auth: the platform redirects here after login with
-      // ?state=...&session_token=... — forward into the SPA.
-      if (pathname === "/callback") {
-        return Response.redirect(
-          `/account/platform-callback${url.search}`,
-          302,
+    // Loopback auth: the platform redirects here after login with
+    // ?state=...&session_token=... — install the session cookie server-side
+    // (a server Set-Cookie overwrites an HttpOnly squatter that the SPA's
+    // document.cookie write cannot) and forward into the SPA.
+    if (pathname === "/callback") {
+      const headers = new Headers({
+        Location: `/account/platform-callback${url.search}`,
+      });
+      const token = url.searchParams.get("session_token");
+      if (token && /^[A-Za-z0-9]+$/.test(token)) {
+        // Loopback http:// → no Secure; SameSite=Lax survives the cross-site
+        // login redirect. The proxy below mirrors sessionid →
+        // __Secure-sessionid when forwarding upstream, so the single cookie
+        // is sufficient locally.
+        headers.append(
+          "Set-Cookie",
+          `sessionid=${token}; Path=/; SameSite=Lax; Max-Age=1209600`,
         );
       }
+      return new Response(null, { status: 302, headers });
+    }
 
-      // Expose environment config to the SPA.
-      if (pathname === "/assistant/__config" || pathname === "/__config") {
-        return new Response(configJson, {
-          headers: { "Content-Type": "application/json" },
+    // Expose environment config to the SPA.
+    if (pathname === "/assistant/__config" || pathname === "/__config") {
+      return new Response(configJson, {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // __local endpoints for local-mode (lockfile, hatch, retire, guardian-token, gateway-proxy).
+    const localResponse = await handleLocalEndpoints(req, url, server);
+    if (localResponse) return localResponse;
+
+    // Reverse-proxy platform API requests.
+    if (
+      pathname.startsWith("/v1/") ||
+      pathname.startsWith("/_allauth/") ||
+      pathname.startsWith("/accounts/")
+    ) {
+      const target = new URL(pathname + url.search, platformUrl);
+      const headers = new Headers(req.headers);
+      headers.set("Host", new URL(platformUrl).host);
+      headers.delete("Origin");
+      headers.delete("Referer");
+
+      // Forward the session token — the loopback flow stores it in
+      // the browser cookie jar for localhost, but the platform backend
+      // expects it on its own domain. Set both the Cookie (for Django
+      // session middleware / allauth) and X-Session-Token (for DRF
+      // views that accept header-based auth).
+      const sessionToken = /sessionid=([^;]+)/.exec(
+        req.headers.get("Cookie") ?? "",
+      )?.[1];
+      if (sessionToken) {
+        headers.set(
+          "Cookie",
+          `sessionid=${sessionToken}; __Secure-sessionid=${sessionToken}`,
+        );
+        headers.set("X-Session-Token", sessionToken);
+      }
+
+      try {
+        const hasBody = req.method !== "GET" && req.method !== "HEAD";
+        const body = hasBody ? await req.arrayBuffer() : undefined;
+        const proxyRes = await loopbackSafeFetch(target.toString(), {
+          method: req.method,
+          headers,
+          body,
+          redirect: "manual",
         });
-      }
-
-      // __local endpoints for local-mode (lockfile, hatch, retire, guardian-token, gateway-proxy).
-      const localResponse = await handleLocalEndpoints(req, url, server);
-      if (localResponse) return localResponse;
-
-      // Reverse-proxy platform API requests.
-      if (
-        pathname.startsWith("/v1/") ||
-        pathname.startsWith("/_allauth/") ||
-        pathname.startsWith("/accounts/")
-      ) {
-        const target = new URL(pathname + url.search, platformUrl);
-        const headers = new Headers(req.headers);
-        headers.set("Host", new URL(platformUrl).host);
-        headers.delete("Origin");
-        headers.delete("Referer");
-
-        // Forward the session token — the loopback flow stores it in
-        // the browser cookie jar for localhost, but the platform backend
-        // expects it on its own domain. Set both the Cookie (for Django
-        // session middleware / allauth) and X-Session-Token (for DRF
-        // views that accept header-based auth).
-        const sessionToken = /sessionid=([^;]+)/.exec(
-          req.headers.get("Cookie") ?? "",
-        )?.[1];
-        if (sessionToken) {
-          headers.set(
-            "Cookie",
-            `sessionid=${sessionToken}; __Secure-sessionid=${sessionToken}`,
-          );
-          headers.set("X-Session-Token", sessionToken);
-        }
-
-        try {
-          const hasBody = req.method !== "GET" && req.method !== "HEAD";
-          const body = hasBody ? await req.arrayBuffer() : undefined;
-          const proxyRes = await loopbackSafeFetch(target.toString(), {
-            method: req.method,
-            headers,
-            body,
-            redirect: "manual",
-          });
-          const resHeaders = new Headers(proxyRes.headers);
-          resHeaders.delete("transfer-encoding");
-          return new Response(proxyRes.body, {
-            status: proxyRes.status,
-            statusText: proxyRes.statusText,
-            headers: resHeaders,
-          });
-        } catch (err) {
-          return new Response(
-            JSON.stringify({ error: `Platform proxy error: ${err}` }),
-            { status: 502, headers: { "Content-Type": "application/json" } },
-          );
-        }
-      }
-
-      if (pathname.startsWith(SPA_BASE)) {
-        const relPath = pathname.slice(SPA_BASE.length);
-        if (relPath) {
-          const filePath = path.join(distDir, relPath);
-          const file = Bun.file(filePath);
-          if (await file.exists()) {
-            return new Response(file);
-          }
-        }
-        return new Response(indexHtml, {
-          headers: { "Content-Type": "text/html; charset=utf-8" },
+        const resHeaders = new Headers(proxyRes.headers);
+        resHeaders.delete("transfer-encoding");
+        // Keep the loopback-managed session cookie authoritative.
+        stripSessionSetCookies(resHeaders);
+        return new Response(proxyRes.body, {
+          status: proxyRes.status,
+          statusText: proxyRes.statusText,
+          headers: resHeaders,
         });
+      } catch (err) {
+        return new Response(
+          JSON.stringify({ error: `Platform proxy error: ${err}` }),
+          { status: 502, headers: { "Content-Type": "application/json" } },
+        );
       }
+    }
 
-      // SPA fallback for /account/* routes (login, callback, etc.)
-      if (pathname.startsWith("/account/")) {
-        return new Response(indexHtml, {
-          headers: { "Content-Type": "text/html; charset=utf-8" },
-        });
+    if (pathname.startsWith(SPA_BASE)) {
+      const relPath = pathname.slice(SPA_BASE.length);
+      if (relPath) {
+        const filePath = path.join(distDir, relPath);
+        const file = Bun.file(filePath);
+        if (await file.exists()) {
+          return new Response(file);
+        }
       }
+      return new Response(indexHtml, {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
 
-      return new Response("Not Found", { status: 404 });
-    },
-  });
+    // SPA fallback for /account/* routes (login, callback, etc.)
+    if (pathname.startsWith("/account/")) {
+      return new Response(indexHtml, {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
 
-  console.log(
-    `Vellum web interface: http://${server.hostname}:${server.port}${SPA_BASE}`,
-  );
+    return new Response("Not Found", { status: 404 });
+  };
+
+  const { port, servers } = serveLoopback(3000, fetchHandler);
+  if (port !== 3000) {
+    console.log(`Port 3000 in use; using ${port}.`);
+  }
+  // Advertise `localhost` (not `127.0.0.1`) so the app origin matches the host
+  // the platform hardcodes in its loopback callback. We bind both loopback
+  // families above so `localhost` reaches us whichever one it resolves to.
+  console.log(`Vellum web interface: http://localhost:${port}${SPA_BASE}`);
 
   const shutdown = (): void => {
-    server.stop();
+    for (const server of servers) server.stop();
     process.exit(0);
   };
   process.on("SIGINT", shutdown);
@@ -834,6 +959,14 @@ async function runViteDevServer(
     viteFlagVars[`VITE_${envName}`] = value;
   }
 
+  // Auto-pick a free port (Vite uses strictPort) so a running `vel up` stack
+  // on :3000 doesn't wedge dev. The loopback callback port follows
+  // window.location.port, so a non-3000 port propagates automatically.
+  const port = await findFreeDualLoopbackPort(3000);
+  if (port !== 3000) {
+    console.log(`Port 3000 in use; using ${port}.`);
+  }
+
   const child = spawn("bun", ["run", "dev"], {
     cwd: webSourceDir,
     stdio: "inherit",
@@ -846,7 +979,7 @@ async function runViteDevServer(
       API_PROXY_TARGET: platformUrl,
       VELLUM_WEB_URL: getWebUrl(),
       VELLUM_PLATFORM_URL: platformUrl,
-      PORT: "3000",
+      PORT: String(port),
     },
   });
 
