@@ -84,12 +84,16 @@ async function handleBrowserExecute({
     : browserCliConversationKey(sessionId);
 
   // Actor principal lets host-browser routing enforce same-actor ownership.
-  // Resolve through the local-guardian translation so the value matches the
-  // actorPrincipalId host_browser clients register with (dev-bypass otherwise
-  // mismatches). Falls back to the conversation actor for nested-bash callers.
+  // A live conversation's authContext owns the turn (e.g. a nested-bash browser
+  // call inherits the conversation's actor), so it wins over the request header
+  // — which over IPC may carry a synthetic local-guardian id injected for
+  // header-less local callers. Resolve through the local-guardian translation
+  // so the value matches the actorPrincipalId host_browser clients register
+  // with (dev-bypass otherwise mismatches).
+  const headerActor =
+    headers["x-vellum-actor-principal-id"]?.trim() || undefined;
   const sourceActorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
-    headers["x-vellum-actor-principal-id"]?.trim() ||
-      conversation?.authContext?.actorPrincipalId,
+    conversation?.authContext?.actorPrincipalId ?? headerActor,
   );
 
   const result = await executeBrowserOperation(

@@ -251,6 +251,29 @@ describe("browser_execute route", () => {
     });
   });
 
+  test("prefers live conversation actor over the request header", async () => {
+    mockConversation = {
+      trustContext: { trustClass: "trusted" },
+      transportInterface: "macos",
+      authContext: { actorPrincipalId: "conversation-actor" },
+    };
+
+    await callHandler(
+      {
+        operation: "status",
+        input: {},
+        sessionId: "unused",
+        conversationId: "conv-live-actor",
+      },
+      { "x-vellum-actor-principal-id": "header-actor" },
+    );
+
+    expect(mockOperationCalls).toHaveLength(1);
+    expect(mockOperationCalls[0].sourceActorPrincipalId).toBe(
+      "conversation-actor",
+    );
+  });
+
   test("does not call findConversation when no conversationId provided", async () => {
     await callHandler({
       operation: "snapshot",
