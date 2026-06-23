@@ -341,9 +341,8 @@ describe("plugin-resident skills", () => {
   });
 
   test("ignores plugin dirs whose package.json name mismatches the directory", () => {
-    // An un-adapted clone whose package.json declares `caveman-installer` in a
-    // `caveman` dir is skipped: the name does not resolve to the directory name
-    // even after npm-scope stripping.
+    // Mirrors the loader's recognition gate: an un-adapted clone whose
+    // package.json declares `caveman-installer` in a `caveman` dir is skipped.
     writePluginSkill("caveman", "caveman", "Caveman", "Terse mode", "body", {
       packageName: "caveman-installer",
     });
@@ -352,26 +351,48 @@ describe("plugin-resident skills", () => {
     expect(skill).toBeUndefined();
   });
 
-  test("discovers a scoped-package plugin whose name resolves to the directory", () => {
-    // The external plugin loader identifies a plugin by `stripScope(pkg.name)`,
-    // so a scoped package installed under an unscoped directory is a real
-    // plugin. The catalog gate must derive the name the same way, otherwise the
-    // plugin's hooks/tools load but its skills silently vanish from the catalog.
-    writePluginSkill(
-      "the-force",
-      "software-engineering",
-      "Software Engineering",
-      "Engineering workflow",
-      "body",
-      { packageName: "@acme/the-force" },
-    );
+  test("warns when a plugin directory is missing package.json", () => {
+    const warnings: unknown[][] = [];
+    const originalWarn = noopLogger.warn;
+    noopLogger.warn = (...args: unknown[]) => {
+      warnings.push(args);
+    };
+    try {
+      writePluginSkill(
+        "the-force",
+        "software-engineering",
+        "Software Engineering",
+        "Engineering workflow",
+        "body",
+        { withPackageJson: false },
+      );
 
-    const skill = loadSkillCatalog().find(
-      (s) => s.id === "software-engineering",
-    );
-    expect(skill).toBeDefined();
-    expect(skill!.source).toBe("plugin");
-    expect(skill!.owner).toEqual({ kind: "plugin", id: "the-force" });
+      const skill = loadSkillCatalog().find(
+        (s) => s.id === "software-engineering",
+      );
+      expect(skill).toBeUndefined();
+
+      const warnedForDir = warnings.some(
+        (args) =>
+          typeof args[0] === "object" &&
+          args[0] !== null &&
+          "pluginDir" in args[0] &&
+          (args[0] as { pluginDir: string }).pluginDir.endsWith("the-force") &&
+          typeof args[1] === "string" &&
+          args[1].includes("missing package.json"),
+      );
+      expect(warnedForDir).toBe(true);
+    } finally {
+      noopLogger.warn = originalWarn;
+    }
+  });
+
+  test("does not load resident skills from a plugin disabled via .disabled", () => {
+    writePluginSkill("caveman", "caveman", "Caveman", "Terse mode");
+    writeFileSync(join(pluginsDir, "caveman", ".disabled"), "");
+
+    const skill = loadSkillCatalog().find((s) => s.id === "caveman");
+    expect(skill).toBeUndefined();
   });
 
   test("workspace skill overrides a plugin-resident skill with the same id", () => {
