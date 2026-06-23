@@ -92,7 +92,7 @@ import { truncate } from "../../util/truncate.js";
 import { notifyGuardianOfAccessRequest } from "../access-request-helper.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { deliverChannelReply } from "../gateway-client.js";
-import { resolveTrustContext } from "../trust-context-resolver.js";
+import { trustContextFromVerdict } from "../trust-verdict-consumer.js";
 import { canonicalChannelAssistantId } from "./channel-route-shared.js";
 import { BadRequestError } from "./errors.js";
 import { handleApprovalInterception } from "./guardian-approval-interception.js";
@@ -717,17 +717,24 @@ export async function handleChannelInbound({
   }
 
   // ── Actor role resolution ──
-  // Uses shared channel-agnostic resolution so all ingress paths classify
-  // guardian vs non-guardian actors the same way.
+  // Built from the gateway-stamped trust verdict (ACL + identity). An absent
+  // verdict is already hard-denied upstream in enforceIngressAcl; the synthetic
+  // unknown ctx here only guards non-ACL metadata use on that unreachable path.
+  const inboundVerdict = sourceMetadata?.trustVerdict;
   const trustCtx: TrustContext = attachSlackRequesterTimezone(
-    resolveTrustContext({
-      assistantId: canonicalAssistantId,
-      sourceChannel,
-      conversationExternalId,
-      actorExternalId: rawSenderId,
-      actorUsername: body.actorUsername,
-      actorDisplayName: body.actorDisplayName,
-    }),
+    inboundVerdict
+      ? trustContextFromVerdict(inboundVerdict, {
+          sourceChannel,
+          conversationExternalId,
+          actorUsername: body.actorUsername,
+          actorDisplayName: body.actorDisplayName,
+        })
+      : {
+          sourceChannel,
+          trustClass: "unknown",
+          requesterExternalUserId: canonicalSenderId ?? undefined,
+          requesterChatId: conversationExternalId,
+        },
     slackActorTimezone,
   );
 
