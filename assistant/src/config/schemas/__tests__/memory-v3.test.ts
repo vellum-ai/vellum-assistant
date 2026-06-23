@@ -22,6 +22,7 @@ describe("MemoryV3ConfigSchema", () => {
       needleK: 100,
       denseK: 100,
       replyQueryK: 12,
+      selectorPromptPath: null,
       edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },
     });
   });
