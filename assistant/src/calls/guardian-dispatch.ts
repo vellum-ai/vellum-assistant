@@ -8,10 +8,6 @@
  */
 
 import {
-  getGuardianDelivery,
-  guardianForChannel,
-} from "../contacts/guardian-delivery-reader.js";
-import {
   createCanonicalGuardianRequest,
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
@@ -21,6 +17,7 @@ import {
   recordGuardianRequestDeliveries,
 } from "../notifications/canonical-delivery-recorder.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import { findLocalGuardianPrincipalId } from "../runtime/local-actor-identity.js";
 import { getLogger } from "../util/logger.js";
 import { getUserConsultationTimeoutMs } from "./call-constants.js";
 import type { CallPendingQuestion } from "./types.js";
@@ -89,12 +86,14 @@ async function dispatchGuardianQuestionInner(
   try {
     const expiresAt = Date.now() + getUserConsultationTimeoutMs();
 
-    // Voice decisions are handled in guardian conversations tied to the assistant-
-    // level guardian identity. Resolve the principal from the gateway binding.
-    const guardianList = await getGuardianDelivery();
-    const guardianPrincipalId = guardianList
-      ? (guardianForChannel(guardianList, "vellum")?.principalId ?? undefined)
-      : undefined;
+    // Stamp the request with the SAME principal the Vellum actor will submit.
+    // The actor resolves its guardianPrincipalId via findLocalGuardianPrincipalId
+    // (gateway-first, local fallback); applyCanonicalGuardianDecision requires
+    // strict equality with request.guardianPrincipalId. Resolving here through
+    // the identical source guarantees the stamped principal == the submitting
+    // principal, so decisions can't be rejected as identity_mismatch when the
+    // gateway and local bindings drift during migration.
+    const guardianPrincipalId = await findLocalGuardianPrincipalId();
 
     if (!guardianPrincipalId) {
       log.error(

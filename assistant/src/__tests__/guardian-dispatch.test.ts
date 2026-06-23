@@ -24,23 +24,15 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-// The guardian principalId for the pending_question request is sourced from the
-// gateway binding reader. Seed it with the vellum guardian.
-const mockGuardianDelivery: Array<{
-  channelType: string;
-  status: string;
-  principalId: string | null;
-}> = [
-  { channelType: "vellum", status: "active", principalId: "test-principal-id" },
-];
+// The pending_question request principal is resolved via the SAME source the
+// Vellum actor uses — findLocalGuardianPrincipalId — so the stamped principal
+// always equals the submitting actor principal. Stub it so we can model drift
+// (gateway != local) and empty-gateway fallback independently of the binding
+// row seeded for the actor-side resolution below.
+let mockLocalGuardianPrincipalId: string | undefined = "test-principal-id";
 
-mock.module("../contacts/guardian-delivery-reader.js", () => ({
-  getGuardianDelivery: async () => mockGuardianDelivery,
-  guardianForChannel: (
-    list: Array<{ channelType: string; status: string }>,
-    channelType: string,
-  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
-  anyGuardian: (list: unknown[]) => list[0],
+mock.module("../runtime/local-actor-identity.js", () => ({
+  findLocalGuardianPrincipalId: () => mockLocalGuardianPrincipalId,
 }));
 
 const emitCalls: unknown[] = [];
@@ -125,6 +117,7 @@ function resetTables(): void {
   });
   emitCalls.length = 0;
   conversationCreatedFromMock = null;
+  mockLocalGuardianPrincipalId = "test-principal-id";
   mockEmitResult = {
     signalId: "sig-1",
     deduplicated: false,
@@ -199,6 +192,79 @@ describe("guardian-dispatch", () => {
 
     const signalParams = emitCalls[0] as Record<string, unknown>;
     expect(typeof signalParams.onConversationCreated).toBe("function");
+  });
+
+  test("stamps the request principal from the actor resolver, not the (possibly drifted) gateway binding", async () => {
+    // Simulate gateway/local binding drift: the actor resolver returns a
+    // different principal than any direct gateway read would. The request must
+    // be stamped with the actor resolver's value so a later actor submission
+    // matches (no identity_mismatch under drift).
+    mockLocalGuardianPrincipalId = "actor-resolver-principal";
+
+    const convId = "conv-dispatch-drift";
+    ensureConversation(convId);
+
+    const session = createCallSession({
+      conversationId: convId,
+      provider: "twilio",
+      fromNumber: "+15550001111",
+      toNumber: "+15550002222",
+    });
+    const pq = createPendingQuestion(session.id, "Drifted bindings?");
+
+    await dispatchGuardianQuestion({
+      callSessionId: session.id,
+      conversationId: convId,
+      assistantId: "self",
+      pendingQuestion: pq,
+    });
+
+    const db = getDb();
+    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
+      .$client;
+    const request = raw
+      .query(
+        "SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?",
+      )
+      .get(session.id) as
+      | { guardian_principal_id: string | null }
+      | undefined;
+    expect(request).toBeDefined();
+    expect(request!.guardian_principal_id).toBe("actor-resolver-principal");
+  });
+
+  test("skips dispatch when the actor resolver yields no principal (empty gateway, no local fallback)", async () => {
+    mockLocalGuardianPrincipalId = undefined;
+
+    const convId = "conv-dispatch-no-principal";
+    ensureConversation(convId);
+
+    const session = createCallSession({
+      conversationId: convId,
+      provider: "twilio",
+      fromNumber: "+15550001111",
+      toNumber: "+15550002222",
+    });
+    const pq = createPendingQuestion(session.id, "No principal available");
+
+    await dispatchGuardianQuestion({
+      callSessionId: session.id,
+      conversationId: convId,
+      assistantId: "self",
+      pendingQuestion: pq,
+    });
+
+    // No request is created and the pipeline is never invoked.
+    const db = getDb();
+    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
+      .$client;
+    const request = raw
+      .query(
+        "SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?",
+      )
+      .get(session.id) as { id: string } | null;
+    expect(request).toBeNull();
+    expect(emitCalls).toHaveLength(0);
   });
 
   test("creates a telegram guardian delivery with binding metadata when pipeline sends telegram", async () => {
