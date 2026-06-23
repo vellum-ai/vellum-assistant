@@ -69,6 +69,18 @@ export const TrustVerdictSchema = z.object({
 export type TrustVerdict = z.infer<typeof TrustVerdictSchema>;
 
 /**
+ * Sentinel for a gateway resolver failure; consumers treat it as
+ * could-not-vouch (distinct from a real `unknown` stranger). Takes the
+ * already-canonicalized sender id so this module stays free of the gateway's
+ * canonicalization util.
+ */
+export function makeResolutionFailedVerdict(
+  canonicalSenderId: string | null,
+): TrustVerdict {
+  return { trustClass: "unknown", canonicalSenderId, resolutionFailed: true };
+}
+
+/**
  * IPC request for `resolve_inbound_trust`. Per-actor identity keys the
  * gateway resolver needs to classify the inbound sender. The response reuses
  * {@link TrustVerdictSchema}.

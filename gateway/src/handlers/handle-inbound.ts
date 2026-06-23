@@ -1,5 +1,9 @@
 import { existsSync } from "node:fs";
-import type { SourceMetadata, TrustVerdict } from "@vellumai/gateway-client";
+import {
+  makeResolutionFailedVerdict,
+  type SourceMetadata,
+  type TrustVerdict,
+} from "@vellumai/gateway-client";
 import type { GatewayConfig } from "../config.js";
 import { ipcCallAssistant } from "../ipc/assistant-client.js";
 import { resolveIpcSocketPath } from "../ipc/socket-path.js";
@@ -7,7 +11,10 @@ import { ContactStore } from "../db/contact-store.js";
 import { getLogger } from "../logger.js";
 import { resolveAdmissionPolicy } from "../risk/admission-policy-cache.js";
 import { resolveTrustVerdict } from "../risk/trust-verdict-resolver.js";
-import { canonicalizeInboundIdentity } from "../verification/identity.js";
+import {
+  canonicalizeInboundIdentity,
+  canonicalSenderIdFor,
+} from "../verification/identity.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 import type { RouteResult } from "../routing/types.js";
 import {
@@ -169,14 +176,9 @@ export async function handleInbound(
     // Producer fails soft — resolution never breaks ingress. Stamp a sentinel
     // so the consumer can tell a resolver failure from a real stranger.
     log.warn({ err }, "trust verdict resolution failed; stamping sentinel");
-    trustVerdict = {
-      trustClass: "unknown",
-      canonicalSenderId: canonicalizeInboundIdentity(
-        event.sourceChannel,
-        event.actor.actorExternalId,
-      ),
-      resolutionFailed: true,
-    };
+    trustVerdict = makeResolutionFailedVerdict(
+      canonicalSenderIdFor(event.sourceChannel, event.actor.actorExternalId),
+    );
   }
 
   try {

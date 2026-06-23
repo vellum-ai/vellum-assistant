@@ -301,4 +301,22 @@ describe("handle-inbound trust verdict stamping", () => {
       "trusted_contacts",
     );
   });
+
+  test("resolver throw with whitespace-only actor id → sentinel canonicalSenderId is null", async () => {
+    resetGatewayDb();
+
+    await handleInbound(
+      makeConfig(),
+      makeEvent({
+        actor: { actorExternalId: "   ", displayName: "Blank", username: "" },
+      }),
+      ROUTING,
+    );
+
+    const verdict = runtimePayloads[0]!.sourceMetadata!.trustVerdict!;
+    expect(verdict.resolutionFailed).toBe(true);
+    expect(verdict.trustClass).toBe("unknown");
+    // Matches a real resolve: whitespace-only id normalizes to absent.
+    expect(verdict.canonicalSenderId).toBeNull();
+  });
 });
