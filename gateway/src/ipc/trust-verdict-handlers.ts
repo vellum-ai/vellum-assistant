@@ -11,6 +11,7 @@
 import { ResolveInboundTrustRequestSchema } from "@vellumai/gateway-client";
 
 import { resolveTrustVerdict } from "../risk/trust-verdict-resolver.js";
+import { canonicalizeInboundIdentity } from "../verification/identity.js";
 import type { IpcRoute } from "./server.js";
 
 export const trustVerdictRoutes: IpcRoute[] = [
@@ -19,7 +20,24 @@ export const trustVerdictRoutes: IpcRoute[] = [
     schema: ResolveInboundTrustRequestSchema,
     handler: async (params?: Record<string, unknown>) => {
       const input = ResolveInboundTrustRequestSchema.parse(params);
-      return { verdict: await resolveTrustVerdict(input) };
+      try {
+        return { verdict: await resolveTrustVerdict(input) };
+      } catch {
+        // Sentinel lets the daemon distinguish a resolver failure from a real
+        // stranger.
+        return {
+          verdict: {
+            trustClass: "unknown",
+            canonicalSenderId: input.actorExternalId
+              ? canonicalizeInboundIdentity(
+                  input.channelType,
+                  input.actorExternalId,
+                )
+              : null,
+            resolutionFailed: true,
+          },
+        };
+      }
     },
   },
 ];

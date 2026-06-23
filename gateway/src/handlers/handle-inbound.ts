@@ -166,9 +166,17 @@ export async function handleInbound(
       actorExternalId: event.actor.actorExternalId,
     });
   } catch (err) {
-    // Producer fails soft — resolution never breaks ingress. trustVerdict
-    // stays undefined so the stamp is omitted; the consumer owns deny policy.
-    log.warn({ err }, "trust verdict resolution failed; omitting stamp");
+    // Producer fails soft — resolution never breaks ingress. Stamp a sentinel
+    // so the consumer can tell a resolver failure from a real stranger.
+    log.warn({ err }, "trust verdict resolution failed; stamping sentinel");
+    trustVerdict = {
+      trustClass: "unknown",
+      canonicalSenderId: canonicalizeInboundIdentity(
+        event.sourceChannel,
+        event.actor.actorExternalId,
+      ),
+      resolutionFailed: true,
+    };
   }
 
   try {
