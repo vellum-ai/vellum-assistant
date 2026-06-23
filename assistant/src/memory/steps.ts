@@ -251,6 +251,7 @@ import { migrateMoveLlmRequestLogsToLogsDb } from "./migrations/297-move-llm-req
 import { migrateMoveMemoryJobsToMemoryDb } from "./migrations/298-move-memory-jobs-to-memory-db.js";
 import { migrateCanonicalGuardianDeliveriesConversationIndex } from "./migrations/299-canonical-guardian-deliveries-conversation-index.js";
 import { migrateAddProcessingStartedAt } from "./migrations/300-add-processing-started-at.js";
+import { createWatchdogEventsTable } from "./migrations/301-create-watchdog-events.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -567,5 +568,6 @@ export const migrationSteps: MigrationStep[] = [
     migrateMoveLlmRequestLogsToLogsDb,
     migrateMoveMemoryJobsToMemoryDb,
     migrateCanonicalGuardianDeliveriesConversationIndex,
-    migrateAddProcessingStartedAt
+    migrateAddProcessingStartedAt,
+    createWatchdogEventsTable
 ];

@@ -28,6 +28,7 @@ import {
   getDb,
   getLogsSqlite,
   getMemorySqlite,
+  getTelemetrySqlite,
   resetDb,
 } from "../../memory/db-connection.js";
 import { validateMigrationState } from "../../memory/migrations/validate-migration-state.js";
@@ -181,6 +182,7 @@ async function checkpointDbsForExport(): Promise<void> {
   for (const [label, sqlite] of [
     ["logs", getLogsSqlite()],
     ["memory", getMemorySqlite()],
+    ["telemetry", getTelemetrySqlite()],
   ] as const) {
     if (!sqlite) {
       log.warn(
