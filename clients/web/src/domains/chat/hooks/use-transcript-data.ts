@@ -1,6 +1,6 @@
 /**
  * Transcript data derivation — sanitises messages and projects them into
- * the flat `TranscriptItem[]` list the virtualised transcript renders.
+ * the flat `TranscriptItem[]` list the transcript renders.
  *
  * Reads messages from `useChatSessionStore` and interaction prompts from
  * `useInteractionStore`. UI-level flags (`showThinking`, `thinkingLabel`) are

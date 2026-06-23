@@ -257,6 +257,52 @@ describe("buildTranscriptItems", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Wrapper identity stability
+  //
+  // Message-item wrappers are memoized by message identity: an unchanged row
+  // hands back the same `MessageItem` reference across the rebuild that fires
+  // on every streaming token, so the memoized `TranscriptRow` skips history
+  // while only the streaming row updates. A new `DisplayMessage` (a content
+  // delta produces one) gets a fresh wrapper, so that row re-renders.
+  // ---------------------------------------------------------------------------
+
+  test("returns the same wrapper for an unchanged message across rebuilds", () => {
+    const user = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
+    const assistant = makeMessage({ id: "m2", role: "assistant", ...textBody("Hi") });
+
+    const first = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [user, assistant],
+    });
+
+    // A later delta replaces the array and mints a new assistant object, but
+    // leaves the earlier user row's identity intact.
+    const assistant2 = makeMessage({ id: "m2", role: "assistant", ...textBody("Hi there") });
+    const second = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [user, assistant2],
+    });
+
+    // Unchanged row → same wrapper reference (the memoized row skips it).
+    expect(second[0]).toBe(first[0]);
+    // Changed row → new wrapper, carrying the new message.
+    expect(second[1]).not.toBe(first[1]);
+    expect((second[1] as MessageItem).message).toBe(assistant2);
+  });
+
+  test("a new DisplayMessage with the same id gets a distinct wrapper", () => {
+    const v1 = makeMessage({ id: "m1", role: "assistant", ...textBody("partial") });
+    const v2 = makeMessage({ id: "m1", role: "assistant", ...textBody("partial complete") });
+
+    const first = buildTranscriptItems({ ...emptyInput(), messages: [v1] });
+    const second = buildTranscriptItems({ ...emptyInput(), messages: [v2] });
+
+    expect(second[0]).not.toBe(first[0]);
+    expect((first[0] as MessageItem).message).toBe(v1);
+    expect((second[0] as MessageItem).message).toBe(v2);
+  });
+
+  // ---------------------------------------------------------------------------
   // Phantom tool-only message filter (ATL-659) — pass-through behaviour only
   //
   // The drop-the-phantom logic now lives in `sanitizeDisplayMessages` and is

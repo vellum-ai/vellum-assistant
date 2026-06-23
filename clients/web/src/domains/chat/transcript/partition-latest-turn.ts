@@ -1,7 +1,7 @@
 // Split a flat `TranscriptItem[]` into stable history + the
 // currently-in-progress turn. The scroll coordinator uses this to pin
 // the viewport to the anchor user message while the response renders,
-// and to allow the history half to be virtualized independently of the
+// and to let the history half render independently of the
 // actively-streaming response half.
 
 import type { LatestTurnPartition, MessageItem, TranscriptItem } from "@/domains/chat/transcript/types";

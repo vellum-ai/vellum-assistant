@@ -1,7 +1,12 @@
-// Pure projection from chat state onto the flat `TranscriptItem[]` list
-// the virtualized transcript consumes. No React, no DOM — takes chat
-// messages + interaction state and emits a flat item array that the
-// Transcript component renders via a virtualised list.
+// Projection from chat state onto the flat, ordered `TranscriptItem[]` list
+// the transcript renders. No React, no DOM — takes chat messages + interaction
+// state and emits the flat item array, unit-testable in isolation.
+//
+// `buildTranscriptItems` re-runs on every streaming token (the messages array
+// is replaced on each delta), so message-item wrappers are memoized by message
+// identity: an unchanged row hands back the *same* `MessageItem` reference,
+// which lets the memoized `TranscriptRow` skip it while the streaming row
+// updates. See `messageItemFor`.
 
 import type {
   DisplayMessage,
@@ -32,6 +37,34 @@ export interface BuildTranscriptItemsInput {
    *  the transcript tail. Not persisted; cleared on the next send/switch. */
   ephemeralMetaResults?: EphemeralMetaResult[];
   showOnboardingChoice?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Message-item identity cache
+// ---------------------------------------------------------------------------
+
+/**
+ * Message-item wrappers keyed by the `DisplayMessage` they wrap.
+ *
+ * The transcript re-derives its item list on every streaming token, but
+ * `sanitizeDisplayMessages` preserves the identity of rows it does not change.
+ * Returning the same wrapper for an unchanged message keeps the `MessageItem`
+ * reference (and so the `TranscriptRow` `item` prop) stable across that
+ * rebuild, so the memoized row skips it — only the row whose `DisplayMessage`
+ * actually changed (the streaming one) re-renders.
+ *
+ * A `WeakMap` keyed by object identity is idempotent and safe under React's
+ * concurrent re-renders (no render-phase ref writes), and an entry is collected
+ * once its message drops out of state.
+ */
+const messageItemCache = new WeakMap<DisplayMessage, MessageItem>();
+
+function messageItemFor(message: DisplayMessage): MessageItem {
+  const cached = messageItemCache.get(message);
+  if (cached) return cached;
+  const item: MessageItem = { kind: "message", key: message.id, message };
+  messageItemCache.set(message, item);
+  return item;
 }
 
 /**
@@ -78,12 +111,7 @@ export function buildTranscriptItems(
       continue;
     }
 
-    const messageItem: MessageItem = {
-      kind: "message",
-      key: message.id,
-      message,
-    };
-    items.push(messageItem);
+    items.push(messageItemFor(message));
   }
 
   for (const result of input.ephemeralMetaResults ?? []) {
