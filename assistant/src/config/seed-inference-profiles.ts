@@ -88,13 +88,17 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     // profile there's nothing stronger to consult, so the advisor defaults off.
     advisorEnabled: false,
   },
+  // Served by DeepSeek V4 Flash on Fireworks via managed platform inference: a
+  // fast, low-cost open model. `model` is pinned explicitly rather than
+  // resolved via the `latency-optimized` intent (which still maps to Kimi K2.5
+  // on Fireworks and Anthropic Haiku elsewhere).
   "cost-optimized": {
-    intent: "latency-optimized",
-    provider: "anthropic",
-    connectionName: "anthropic-managed",
+    model: "accounts/fireworks/models/deepseek-v4-flash",
+    provider: "fireworks",
+    connectionName: "fireworks-managed",
     source: "managed",
     label: "Speed",
-    description: "Fastest responses at lower cost",
+    description: "Fastest responses at lower cost (DeepSeek V4 Flash)",
     maxTokens: 8192,
     effort: "low",
     thinking: { enabled: false, streamThinking: false },
