@@ -51,6 +51,7 @@ const ALLOWED_PREFIXES = {
     "../../config/schema",
     "../../config/env",
     "../../util/platform",
+    "../../../util/platform",
     // Memory retrospective — the retrospective CLI runs the fork-based
     // retrospective in-process (no daemon, no IPC), so it imports the
     // job handler directly. Depth-2 for commands/memory/ nesting.
