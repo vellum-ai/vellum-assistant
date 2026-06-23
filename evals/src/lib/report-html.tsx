@@ -2133,7 +2133,9 @@ function PhaseTiming({ run }: { run: ReportRunDetail }) {
   const phaseSumMs =
     (setupMs ?? 0) + (ingestMs ?? 0) + (questionMs ?? 0) + (metricsMs ?? 0);
   const otherMs =
-    wallClockMs !== undefined ? Math.max(0, wallClockMs - phaseSumMs) : undefined;
+    wallClockMs !== undefined
+      ? Math.max(0, wallClockMs - phaseSumMs)
+      : undefined;
 
   const phases: { label: string; ms: number | undefined }[] = [
     { label: "Setup", ms: setupMs },
