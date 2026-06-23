@@ -19,6 +19,7 @@ import {
 import { findConversation } from "../../daemon/conversation-registry.js";
 import type { ContentBlock } from "../../providers/types.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
+import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Param validation ─────────────────────────────────────────────────
@@ -64,7 +65,10 @@ function extractScreenshots(
 
 // ── Handler ──────────────────────────────────────────────────────────
 
-async function handleBrowserExecute({ body = {} }: RouteHandlerArgs) {
+async function handleBrowserExecute({
+  body = {},
+  headers = {},
+}: RouteHandlerArgs) {
   const { operation, input, sessionId, conversationId } =
     BrowserExecuteParams.parse(body);
 
@@ -79,6 +83,15 @@ async function handleBrowserExecute({ body = {} }: RouteHandlerArgs) {
     ? conversationId!
     : browserCliConversationKey(sessionId);
 
+  // Actor principal lets host-browser routing enforce same-actor ownership.
+  // Resolve through the local-guardian translation so the value matches the
+  // actorPrincipalId host_browser clients register with (dev-bypass otherwise
+  // mismatches). Falls back to the conversation actor for nested-bash callers.
+  const sourceActorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
+    headers["x-vellum-actor-principal-id"]?.trim() ||
+      conversation?.authContext?.actorPrincipalId,
+  );
+
   const result = await executeBrowserOperation(
     operation as BrowserOperation,
     input,
@@ -87,6 +100,7 @@ async function handleBrowserExecute({ body = {} }: RouteHandlerArgs) {
       conversationId: resolvedConversationId,
       trustClass: conversation?.trustContext?.trustClass ?? "unknown",
       transportInterface: conversation?.transportInterface,
+      sourceActorPrincipalId,
     },
   );
 
