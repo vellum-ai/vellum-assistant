@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/node";
 import { v4 as uuid } from "uuid";
 import { z } from "zod";
 
@@ -495,6 +496,17 @@ function firstNonEmptyString(values: unknown[]): string | undefined {
   return undefined;
 }
 
+/** All non-empty (trimmed) strings from the values list. */
+function allNonEmptyStrings(values: unknown[]): string[] {
+  const result: string[] = [];
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      result.push(value);
+    }
+  }
+  return result;
+}
+
 function normalizeCardShowData(
   input: Record<string, unknown>,
   rawData: Record<string, unknown>,
@@ -533,59 +545,70 @@ function normalizeCardShowData(
   // The model sees every surface type's schema in the ui_show tool description,
   // so it frequently borrows keys from sibling surfaces when emitting a card.
   // Recover those into the canonical card fields, checking both data-level and
-  // top-level (input) placement. First non-empty match wins; all alias keys are
-  // deleted afterward so they don't appear as droppedKeys noise.
+  // top-level (input) placement. Multiple matches are concatenated (body) or
+  // first-wins (title/subtitle); all alias keys are deleted afterward so they
+  // don't appear as droppedKeys noise.
   //
   // body aliases: copy_block's `text`, confirmation's `message`, generic
   // `content`, and cross-surface `description` (choice/form/oauth/work_result/
   // dynamic_page — 5 types use it), work_result's `summary`, confirmation's
   // `detail`.
-  if (typeof normalized.body !== "string" || normalized.body.trim() === "") {
-    const aliased = firstNonEmptyString([
-      normalized.text,
-      normalized.message,
-      normalized.content,
-      normalized.description,
-      normalized.summary,
-      normalized.detail,
-      input.text,
-      input.message,
-      input.content,
-      input.description,
-      input.summary,
-      input.detail,
-    ]);
-    if (aliased !== undefined) {
-      normalized.body = aliased;
-    }
-  }
-  for (const key of [
+  const bodyAliasKeys = [
     "text",
     "message",
     "content",
     "description",
     "summary",
     "detail",
-  ]) {
+  ] as const;
+  if (typeof normalized.body !== "string" || normalized.body.trim() === "") {
+    const candidates = allNonEmptyStrings([
+      ...bodyAliasKeys.map((k) => normalized[k]),
+      ...bodyAliasKeys.map((k) => input[k]),
+    ]);
+    if (candidates.length > 0) {
+      // Temporary: concatenate all matching aliases so no content is lost.
+      // A future pass should define per-alias semantic roles (e.g. summary
+      // as a subtitle, detail as supplementary) once production telemetry
+      // reveals which combinations actually occur.
+      normalized.body = candidates.join("\n\n");
+      const usedAliases = bodyAliasKeys.filter(
+        (k) =>
+          (typeof normalized[k] === "string" &&
+            (normalized[k] as string).trim().length > 0) ||
+          (typeof input[k] === "string" &&
+            (input[k] as string).trim().length > 0),
+      );
+      Sentry.addBreadcrumb({
+        category: "card-normalization",
+        message: `alias recovery: ${usedAliases.join(", ")} → body`,
+        level: "info",
+        data: { usedAliases, candidateCount: candidates.length },
+      });
+    }
+  }
+  for (const key of bodyAliasKeys) {
     delete normalized[key];
   }
 
   // title aliases: natural synonyms the model reaches for when it doesn't
   // use `title` verbatim.
+  const titleAliasKeys = ["heading", "header", "name"] as const;
   if (typeof normalized.title !== "string" || normalized.title.trim() === "") {
     const aliased = firstNonEmptyString([
-      normalized.heading,
-      normalized.header,
-      normalized.name,
-      input.heading,
-      input.header,
-      input.name,
+      ...titleAliasKeys.map((k) => normalized[k]),
+      ...titleAliasKeys.map((k) => input[k]),
     ]);
     if (aliased !== undefined) {
       normalized.title = aliased;
+      Sentry.addBreadcrumb({
+        category: "card-normalization",
+        message: `alias recovery: title`,
+        level: "info",
+      });
     }
   }
-  for (const key of ["heading", "header", "name"]) {
+  for (const key of titleAliasKeys) {
     delete normalized[key];
   }
 
@@ -596,21 +619,25 @@ function normalizeCardShowData(
   ) {
     normalized.subtitle = input.subtitle;
   }
+  const subtitleAliasKeys = ["subheading", "caption"] as const;
   if (
     typeof normalized.subtitle !== "string" ||
     normalized.subtitle.trim() === ""
   ) {
     const aliased = firstNonEmptyString([
-      normalized.subheading,
-      normalized.caption,
-      input.subheading,
-      input.caption,
+      ...subtitleAliasKeys.map((k) => normalized[k]),
+      ...subtitleAliasKeys.map((k) => input[k]),
     ]);
     if (aliased !== undefined) {
       normalized.subtitle = aliased;
+      Sentry.addBreadcrumb({
+        category: "card-normalization",
+        message: `alias recovery: subtitle`,
+        level: "info",
+      });
     }
   }
-  for (const key of ["subheading", "caption"]) {
+  for (const key of subtitleAliasKeys) {
     delete normalized[key];
   }
 
@@ -657,6 +684,12 @@ function normalizeCardShowData(
       { droppedKeys },
       "ui_show card data carried keys the card contract does not model; their content will not render",
     );
+    Sentry.addBreadcrumb({
+      category: "card-normalization",
+      message: `dropped keys: ${droppedKeys.join(", ")}`,
+      level: "warning",
+      data: { droppedKeys },
+    });
   }
   const parsed = CardSurfaceDataSchema.safeParse(normalized);
   if (parsed.success) {
@@ -2862,6 +2895,14 @@ export async function surfaceProxyResolver(
     const parsedActions = rawActions
       ? z.array(ModelActionSchema).safeParse(rawActions)
       : undefined;
+    if (parsedActions && !parsedActions.success) {
+      Sentry.addBreadcrumb({
+        category: "card-normalization",
+        message: "action parse failure",
+        level: "warning",
+        data: { issues: parsedActions.error.issues },
+      });
+    }
     const inputActions = parsedActions?.success
       ? parsedActions.data
       : undefined;
@@ -2895,6 +2936,11 @@ export async function surfaceProxyResolver(
         !hasTemplate &&
         !hasActions
       ) {
+        Sentry.addBreadcrumb({
+          category: "card-normalization",
+          message: "empty card rejected",
+          level: "warning",
+        });
         return {
           content:
             "Error: ui_show card requires content — provide `data.body`, a `template` (e.g. task_progress with steps), `data.metadata`, `data.subtitle`, a `title`, or `actions`. The surface was not displayed because it carried no renderable content. Resend ui_show with populated card content.",

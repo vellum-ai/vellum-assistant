@@ -740,6 +740,26 @@ describe("ui_show card content recovery", () => {
     expect(shownCard(sent)?.body).toBe("Top-level description text");
   });
 
+  test("concatenates multiple body aliases when they co-occur", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      title: "Multi-alias",
+      data: {
+        description: "Found 12 documents.",
+        summary: "Search complete.",
+        detail: "Checked 3 sources.",
+      },
+    });
+
+    const body = shownCard(sent)?.body;
+    expect(body).toContain("Found 12 documents.");
+    expect(body).toContain("Search complete.");
+    expect(body).toContain("Checked 3 sources.");
+  });
+
   // ── Title alias recovery ────────────────────────────────────────────
 
   test("recovers title from `heading` alias", async () => {
