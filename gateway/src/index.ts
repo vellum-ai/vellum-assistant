@@ -1918,8 +1918,14 @@ async function main() {
 
   // Complete post-assistant-ready startup work after binding /healthz.
   // /readyz and regular routes stay closed until this finishes.
-  await runPostAssistantReady();
-  postAssistantReadyComplete = true;
+  try {
+    await runPostAssistantReady();
+    postAssistantReadyComplete = true;
+  } catch (err) {
+    log.error({ err }, "Post-assistant-ready startup work failed");
+    server.stop(true);
+    process.exit(1);
+  }
 
   logAuthBypassState();
 
