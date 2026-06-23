@@ -3,8 +3,8 @@
  *
  * Reads ONLY the gateway ACL DB to produce a {@link TrustVerdict} for an
  * inbound actor. Mirrors the daemon's classification precedence
- * (`actor-trust-resolver.ts`) and the Combo-7 `(type,address)` COLLATE NOCASE
- * read pattern. Read-only — no writes, no assistant DB, no IPC.
+ * (`actor-trust-resolver.ts`) and resolves channels by `(type,address)`
+ * COLLATE NOCASE. Read-only — no writes, no assistant DB, no IPC.
  *
  * Blocked/revoked member channels classify as `unknown` (mirroring the
  * daemon), while their raw `status`/`policy` are surfaced verbatim so the

@@ -6,8 +6,8 @@
  * is per-actor, NOT per-channel, so there is NO caching.
  *
  * Returns `null` on ANY failure (transport failure, `undefined`, malformed
- * shape, or thrown error). The Combo 9/10 consumer decides fail-open vs
- * fail-closed — this reader does not.
+ * shape, or thrown error). The caller owns the deny policy (fail-open vs
+ * fail-closed); this reader only reports the verdict or `null`.
  */
 
 import { type TrustVerdict, TrustVerdictSchema } from "@vellumai/gateway-client";
