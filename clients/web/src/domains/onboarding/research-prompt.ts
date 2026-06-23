@@ -27,17 +27,52 @@ export interface ResearchSubject {
   hobby?: string;
 }
 
-export function buildResearchPrompt({
-  firstName,
-  lastName,
-  occupation,
-  hobby,
-}: ResearchSubject): string {
+/**
+ * A specialized capability (marketplace plugin) the assistant can offer to
+ * invoke on the user's behalf. `name` is the install name (e.g.
+ * "marketing-expert"); `description` is a one-line summary. The runner compacts
+ * the live catalog into these before injecting them so the prompt never bloats.
+ */
+export interface AvailableCapability {
+  name: string;
+  description: string;
+}
+
+/** Cap on injected capabilities so a growing marketplace can't bloat the turn. */
+const MAX_INJECTED_CAPABILITIES = 12;
+
+/**
+ * Render the "capabilities you can offer" block. Compact by construction: one
+ * short line per capability (`- name — description`), capped. Returns "" when
+ * nothing was passed so the prompt is byte-for-byte unchanged for callers that
+ * don't inject a catalog (e.g. the route's fallback kickoff message).
+ */
+function renderCapabilitiesBlock(capabilities: AvailableCapability[]): string {
+  const lines = capabilities
+    .slice(0, MAX_INJECTED_CAPABILITIES)
+    .map((c) => `- ${c.name} — ${c.description}`)
+    .join("\n");
+  if (!lines) return "";
+  return `
+Capabilities you can offer me. Each is a specialized skillset you can invoke on my behalf via your skills — not generic chat:
+${lines}
+
+If one of these capabilities genuinely fits my situation, make AT LEAST ONE of your suggestions invoke it, and set that suggestion's "plugin" field to the capability's exact name from the list above. The "suggestion" and "prompt" must describe the concrete work that capability would do for ME — grounded in what you researched (my actual product, stack, market, and the rivals/tools by name) — so clicking it puts the skillset to work on my real situation, not a generic version.
+Match on my IMPLIED needs, not just my stated role — use everything you researched. A technical founder very likely needs marketing-expert and admin-copilot help even though they never said "marketing" or "operations"; a solo builder shipping product still benefits from go-to-market help. Infer the capabilities that would genuinely move the needle for someone in my situation. It's fine for more than one suggestion to carry a "plugin". A suggestion with no fitting capability simply omits "plugin".
+A capability-backed suggestion is shaped like the others plus a "plugin" key: { "suggestion": "<offer in your voice>", "prompt": "<the request in my voice>", "plugin": "<exact name from the list above>" }. The angle-bracketed parts are PLACEHOLDERS — replace them with specifics about me. Do NOT copy this example wording into a real suggestion.
+`;
+}
+
+export function buildResearchPrompt(
+  { firstName, lastName, occupation, hobby }: ResearchSubject,
+  availableCapabilities: AvailableCapability[] = [],
+): string {
   const fullName = [firstName.trim(), lastName.trim()]
     .filter(Boolean)
     .join(" ");
   const role = occupation.trim();
   const hobbyText = hobby?.trim() ?? "";
+  const capabilitiesBlock = renderCapabilitiesBlock(availableCapabilities);
 
   const identity =
     [
@@ -77,5 +112,6 @@ Role (occupation-driven). Anchor on their day-to-day function (SWE, PM, designer
 Life admin (always present). Target the home and personal side. Anchor on the app builder or scheduled monitor capability. The opening should be a flexible conversation opener ("Tell me what admin eats your week" / "Tell me how your household runs and..."). The menu of items should be tuned to occupation when relevant (medical: rotations / CME / expense; founder: tax deadlines / subscriptions / finances; family-heavy: groceries / school pickup / meal planning; default: meal planning / errands / recurring bills). Specific artifact per item ("weekly grocery list", "live view of subscriptions").
 Each suggestion should be spoken in your voice, offering a service. First-person "I" in the suggestion refers to you, regardless of your name. Core sentence pattern: "I'll [verb] [specific artifact]" or "Connect me to [integration] and I'll [verb] [artifact]." An intake question can lead ("Tell me about your next trip. I'll build a training plan") as long as the offer is preserved. Suggestions render as clickable; clicking indicates the user wants to proceed. Refinement happens in follow-up conversation, not through the click itself.
 Use what you learned about me during research to make each suggestion feel specific to my stack, role, and industry, not generic LLM-assistant stuff. Avoid "summarize" or "draft a post" as standalone suggestions. Favor the surprising, specific capabilities (apps, monitors, doc editor, integrations).
+${capabilitiesBlock}
 Don't include anything sensitive or private. If you found very little, lean on "guessing" claims and broadly useful suggestions for my role. Output ONLY the JSON object. No code fence, no extra text.`;
 }

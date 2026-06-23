@@ -51,6 +51,16 @@ export interface ResearchSuggestion {
    * talking to itself.
    */
   prompt: string;
+  /**
+   * Optional marketplace plugin (install name, e.g. "marketing-expert") whose
+   * skills this suggestion's prompt is designed to trigger. Set by the model
+   * when it matches a capability from the injected catalog to the user's
+   * situation. The runner background-installs any tagged plugin so its skills
+   * are discoverable in the fresh conversation the click opens (plugin-resident
+   * skills load per-conversation from disk — no daemon restart needed). Absent
+   * for ordinary suggestions.
+   */
+  plugin?: string;
 }
 
 /** Bare registrable domain from a URL (www stripped), or null if unparseable. */
@@ -145,7 +155,12 @@ function toSuggestion(entry: unknown): ResearchSuggestion | null {
     typeof rawPrompt === "string" && rawPrompt.trim()
       ? rawPrompt.trim()
       : suggestion.trim();
-  return { suggestion: suggestion.trim(), prompt };
+  const rawPlugin = (entry as { plugin?: unknown }).plugin;
+  const plugin =
+    typeof rawPlugin === "string" && rawPlugin.trim()
+      ? rawPlugin.trim()
+      : undefined;
+  return { suggestion: suggestion.trim(), prompt, ...(plugin ? { plugin } : {}) };
 }
 
 /** Body after a `"key": [` opening, or null if that array isn't present yet. */
