@@ -13,7 +13,6 @@ import {
   type StagedQuote,
   useQuoteReplyStore,
 } from "@/domains/chat/quote-reply-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { Button, Card, Typography } from "@vellumai/design-library";
 
 function truncate(text: string, maxLen: number): string {
@@ -65,10 +64,9 @@ function StagedQuoteChip({ quote }: { quote: StagedQuote }) {
 }
 
 export function StagedQuotesStrip() {
-  const quoteReplyEnabled = useClientFeatureFlagStore.use.quoteReply();
   const stagedQuotes = useQuoteReplyStore.use.stagedQuotes();
 
-  if (!quoteReplyEnabled || stagedQuotes.length === 0) {
+  if (stagedQuotes.length === 0) {
     return null;
   }
 

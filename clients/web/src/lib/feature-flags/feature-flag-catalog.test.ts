@@ -10,9 +10,11 @@ import {
   scopeIncludes,
 } from "@/lib/feature-flags/feature-flag-catalog";
 
+const originalWindow = (globalThis as Record<string, unknown>).window;
+
 afterEach(() => {
   resetEnvOverridesCache();
-  delete (globalThis as Record<string, unknown>).window;
+  (globalThis as Record<string, unknown>).window = originalWindow;
 });
 
 describe("feature flag catalog", () => {
@@ -36,6 +38,11 @@ describe("feature flag catalog", () => {
   test("does not expose GA empty-state greetings as a feature flag", () => {
     expect("emptyStateDynamicGreetings" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
     expect("emptyStateDynamicGreetings" in CLIENT_FLAG_DEFAULTS).toBe(false);
+  });
+
+  test("does not expose GA quote reply as a feature flag", () => {
+    expect("quoteReply" in CLIENT_FLAG_DEFAULTS).toBe(false);
+    expect("quoteReply" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
   });
 
   test("exposes web remote ingress as an assistant flag defaulted off", () => {

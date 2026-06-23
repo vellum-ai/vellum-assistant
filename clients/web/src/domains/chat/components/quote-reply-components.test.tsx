@@ -12,14 +12,12 @@ import { QuoteReplyBubble } from "@/domains/chat/components/quote-reply-bubble";
 import { StagedQuotesStrip } from "@/domains/chat/components/staged-quotes-strip";
 import { TextSelectionPopover } from "@/domains/chat/components/text-selection-popover";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 function resetQuoteReplyState() {
   useQuoteReplyStore.setState({
     stagedQuotes: [],
     replyBubble: null,
   });
-  useClientFeatureFlagStore.setState({ quoteReply: false });
 }
 
 function installFinePointer() {
@@ -166,7 +164,6 @@ describe("QuoteReplyBubble", () => {
 
 describe("StagedQuotesStrip", () => {
   test("renders staged quote previews with shared card and button primitives", () => {
-    useClientFeatureFlagStore.setState({ quoteReply: true });
     useQuoteReplyStore.setState({
       stagedQuotes: [
         {
