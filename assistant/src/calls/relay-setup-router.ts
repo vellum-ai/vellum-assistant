@@ -23,7 +23,7 @@ import {
 } from "../runtime/routes/inbound-stages/admission-policy.js";
 import {
   actorTrustContextFromVerdict,
-  resolvedMemberFromVerdict,
+  verdictMemberUnresolvable,
 } from "../runtime/trust-verdict-consumer.js";
 import { getLogger } from "../util/logger.js";
 import type { CallSession } from "./types.js";
@@ -132,24 +132,22 @@ export function routeSetup(ctx: SetupContext): {
   // resolution, so voice never trusts a member it cannot ACL-check. A real
   // stranger verdict (no member identity) still takes the verdict path —
   // memberRecord null is correct there.
-  const hasMemberIdentity = !!(
-    ctx.verdict?.contactId || ctx.verdict?.channelId
-  );
-  const memberUnresolvable =
-    hasMemberIdentity && resolvedMemberFromVerdict(ctx.verdict!) === null;
-  const actorTrust =
-    ctx.verdict && !ctx.verdict.resolutionFailed && !memberUnresolvable
-      ? actorTrustContextFromVerdict(ctx.verdict, {
-          sourceChannel: "phone",
-          conversationExternalId: otherPartyNumber,
-          actorDisplayName: undefined,
-        })
-      : resolveActorTrust({
-          assistantId,
-          sourceChannel: "phone",
-          conversationExternalId: otherPartyNumber,
-          actorExternalId: otherPartyNumber || undefined,
-        });
+  const usable =
+    ctx.verdict &&
+    !ctx.verdict.resolutionFailed &&
+    !verdictMemberUnresolvable(ctx.verdict);
+  const actorTrust = usable
+    ? actorTrustContextFromVerdict(ctx.verdict!, {
+        sourceChannel: "phone",
+        conversationExternalId: otherPartyNumber,
+        actorDisplayName: undefined,
+      })
+    : resolveActorTrust({
+        assistantId,
+        sourceChannel: "phone",
+        conversationExternalId: otherPartyNumber,
+        actorExternalId: otherPartyNumber || undefined,
+      });
 
   const resolved: SetupResolved = {
     assistantId,

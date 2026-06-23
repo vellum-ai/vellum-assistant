@@ -60,20 +60,21 @@ const CHANNEL_STATUS_VALUES = [
   "unverified",
 ];
 const CHANNEL_POLICY_VALUES = ["allow", "deny", "escalate"];
-const resolvedMemberFromVerdictMock = mock((verdict: TrustVerdict) => {
-  if (!verdict.contactId || !verdict.channelId) return null;
-  if (!verdict.status || !verdict.policy) return null;
-  if (
-    !CHANNEL_STATUS_VALUES.includes(verdict.status) ||
-    !CHANNEL_POLICY_VALUES.includes(verdict.policy)
-  ) {
-    return null;
-  }
-  return { contact: {}, channel: {} };
-});
+function resolvesMember(verdict: TrustVerdict): boolean {
+  if (!verdict.contactId || !verdict.channelId) return false;
+  if (!verdict.status || !verdict.policy) return false;
+  return (
+    CHANNEL_STATUS_VALUES.includes(verdict.status) &&
+    CHANNEL_POLICY_VALUES.includes(verdict.policy)
+  );
+}
+const verdictMemberUnresolvableMock = mock(
+  (verdict: TrustVerdict) =>
+    !!(verdict.contactId || verdict.channelId) && !resolvesMember(verdict),
+);
 mock.module("../../runtime/trust-verdict-consumer.js", () => ({
   actorTrustContextFromVerdict: actorTrustContextFromVerdictMock,
-  resolvedMemberFromVerdict: resolvedMemberFromVerdictMock,
+  verdictMemberUnresolvable: verdictMemberUnresolvableMock,
 }));
 
 // Controllable pending verification challenge.
@@ -203,7 +204,7 @@ beforeEach(() => {
   boundContact = null;
   resolveActorTrustMock.mockClear();
   actorTrustContextFromVerdictMock.mockClear();
-  resolvedMemberFromVerdictMock.mockClear();
+  verdictMemberUnresolvableMock.mockClear();
 });
 
 // ---------------------------------------------------------------------------

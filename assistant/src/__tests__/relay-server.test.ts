@@ -5901,4 +5901,160 @@ describe("relay-server", () => {
 
     relay.destroy();
   });
+
+  test("invite redemption: a prompt buffered during re-resolution runs as a real turn after activation (not dropped)", async () => {
+    ensureConversation("conv-midcall-invite-flush");
+    const session = createCallSession({
+      conversationId: "conv-midcall-invite-flush",
+      provider: "twilio",
+      fromNumber: "+15558887777",
+      toNumber: "+15551111111",
+    });
+
+    const code = generateVoiceCode(6);
+    createInvite({
+      sourceChannel: "phone",
+      contactId: createTargetContact("Alice"),
+      maxUses: 1,
+      expectedExternalUserId: "+15558887777",
+      voiceCodeHash: hashVoiceCode(code),
+      voiceCodeDigits: 6,
+    });
+
+    const turnCountBefore = mockSendMessage.mock.calls.length;
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Sure, here you go."]),
+    );
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_midcall_invite_flush",
+        from: "+15558887777",
+        to: "+15551111111",
+      }),
+    );
+    expect(relay.getConnectionState()).toBe("verification_pending");
+
+    // Gate the mid-call verdict so the prompt lands inside the re-resolution
+    // await, after activation flips connectionState to "connected".
+    let releaseVerdict!: () => void;
+    mockMidCallVerdictGate = new Promise<void>((resolve) => {
+      releaseVerdict = resolve;
+    });
+
+    const digits = code.split("");
+    for (const digit of digits.slice(0, -1)) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+    const redemptionDone = relay.handleMessage(
+      JSON.stringify({ type: "dtmf", digit: digits[digits.length - 1] }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Activation already reached the terminal state before re-resolution.
+    expect(relay.getConnectionState()).toBe("connected");
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "prompt",
+        voicePrompt: "What's on my calendar today?",
+        lang: "en-US",
+        last: true,
+      }),
+    );
+    // Buffered, not yet run (verdict gated).
+    expect(mockSendMessage.mock.calls.length).toBe(turnCountBefore);
+
+    releaseVerdict();
+    await redemptionDone;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Flushed onto the real-turn path: the prompt produced an LLM turn rather
+    // than being dropped by the verification-pending branch.
+    expect(mockSendMessage.mock.calls.length).toBeGreaterThan(turnCountBefore);
+
+    relay.destroy();
+  });
+
+  test("access-request approval: a prompt buffered during re-resolution runs as a real turn (not misrouted to wait-state)", async () => {
+    ensureConversation("conv-midcall-access-flush");
+    const session = createCallSession({
+      conversationId: "conv-midcall-access-flush",
+      provider: "twilio",
+      fromNumber: "+15557770003",
+      toNumber: "+15551111111",
+    });
+
+    const turnCountBefore = mockSendMessage.mock.calls.length;
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Sure, here you go."]),
+    );
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_midcall_access_flush",
+        from: "+15557770003",
+        to: "+15551111111",
+      }),
+    );
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "prompt",
+        voicePrompt: "Bob Smith",
+        lang: "en-US",
+        last: true,
+      }),
+    );
+    expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
+
+    // Gate the mid-call verdict so the prompt lands inside the re-resolution
+    // await triggered by the approval poll.
+    let releaseVerdict!: () => void;
+    mockMidCallVerdictGate = new Promise<void>((resolve) => {
+      releaseVerdict = resolve;
+    });
+
+    const pending = listCanonicalGuardianRequests({
+      status: "pending",
+      requesterExternalUserId: "+15557770003",
+      sourceChannel: "phone",
+      kind: "access_request",
+    });
+    expect(pending.length).toBe(1);
+    resolveCanonicalGuardianRequest(pending[0].id, "pending", {
+      status: "approved",
+      answerText: undefined,
+      decidedByExternalUserId: undefined,
+    });
+
+    // Let the poll detect approval and enter the gated re-resolution.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(relay.getConnectionState()).toBe("connected");
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "prompt",
+        voicePrompt: "What's on my calendar today?",
+        lang: "en-US",
+        last: true,
+      }),
+    );
+    // Buffered, not yet run (verdict gated).
+    expect(mockSendMessage.mock.calls.length).toBe(turnCountBefore);
+
+    releaseVerdict();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Flushed onto the real-turn path rather than the awaiting-guardian-decision
+    // wait-state classifier: the prompt produced an LLM turn.
+    expect(mockSendMessage.mock.calls.length).toBeGreaterThan(turnCountBefore);
+
+    relay.destroy();
+  });
 });
