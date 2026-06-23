@@ -197,9 +197,6 @@ export function RuntimeUpgradeBanner({
           toast.warning(result.detail);
           return;
         }
-        toast.success(
-          result.detail || `Update to ${targetVersion} initiated.`,
-        );
       } else {
         await localUpgrade.upgrade();
         toast.success("Update complete — assistant is healthy.");
