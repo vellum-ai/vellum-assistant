@@ -14,42 +14,6 @@ const AUTH_OPTIONS: { value: AuthType; label: string }[] = [
   { value: "api-key", label: "API Key" },
 ];
 
-function detectAuthType(headers?: Record<string, string>): AuthType {
-  if (!headers) {
-    return "none";
-  }
-  const authHeader = headers["Authorization"] ?? headers["authorization"];
-  if (authHeader?.startsWith("Bearer ")) {
-    return "bearer";
-  }
-  const keys = Object.keys(headers);
-  if (keys.length > 0) {
-    return "api-key";
-  }
-  return "none";
-}
-
-function extractBearerToken(headers?: Record<string, string>): string {
-  if (!headers) {
-    return "";
-  }
-  const authHeader = headers["Authorization"] ?? headers["authorization"];
-  return authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : "";
-}
-
-function extractApiKey(headers?: Record<string, string>): { header: string; value: string } {
-  if (!headers) {
-    return { header: "X-API-Key", value: "" };
-  }
-  const entries = Object.entries(headers).filter(
-    ([k]) => k.toLowerCase() !== "authorization",
-  );
-  if (entries.length > 0) {
-    return { header: entries[0][0], value: entries[0][1] };
-  }
-  return { header: "X-API-Key", value: "" };
-}
-
 const RISK_LEVELS = ["low", "medium", "high"] as const;
 
 interface McpServerDetailModalProps {
@@ -81,12 +45,11 @@ export function McpServerDetailModal({
   useEffect(() => {
     if (server) {
       setRiskLevel(server.defaultRiskLevel);
-      const detected = detectAuthType(server.transport.headers);
-      setAuthType(detected);
-      setBearerToken(extractBearerToken(server.transport.headers));
-      const apiKey = extractApiKey(server.transport.headers);
-      setApiKeyHeader(apiKey.header);
-      setApiKeyValue(apiKey.value);
+      setAuthType(server.authType);
+      // Credential store never returns raw values — reset fields
+      setBearerToken("");
+      setApiKeyHeader("X-API-Key");
+      setApiKeyValue("");
     }
   }, [server]);
 
@@ -95,13 +58,12 @@ export function McpServerDetailModal({
       return;
     }
 
-    const initialAuthType = detectAuthType(server.transport.headers);
-    const authChanged = authType !== initialAuthType
-      || (authType === "bearer" && bearerToken.trim() !== extractBearerToken(server.transport.headers))
-      || (authType === "api-key" && (
-        apiKeyHeader.trim() !== extractApiKey(server.transport.headers).header
-        || apiKeyValue.trim() !== extractApiKey(server.transport.headers).value
-      ));
+    // Determine if auth was changed: type switched, or new values entered
+    const typeChanged = authType !== server.authType;
+    const hasNewBearerValue = authType === "bearer" && bearerToken.trim() !== "";
+    const hasNewApiKeyValue =
+      authType === "api-key" && apiKeyHeader.trim() !== "" && apiKeyValue.trim() !== "";
+    const authChanged = typeChanged || hasNewBearerValue || hasNewApiKeyValue;
 
     let headers: Record<string, string> | null | undefined;
     if (!authChanged) {
@@ -193,7 +155,7 @@ export function McpServerDetailModal({
                       type="password"
                       value={bearerToken}
                       onChange={(e) => setBearerToken(e.target.value)}
-                      placeholder="tok_..."
+                      placeholder={server.hasStaticAuth && server.authType === "bearer" ? "••••••••  (leave blank to keep current)" : "tok_..."}
                       fullWidth
                     />
                   </div>
@@ -223,7 +185,7 @@ export function McpServerDetailModal({
                         type="password"
                         value={apiKeyValue}
                         onChange={(e) => setApiKeyValue(e.target.value)}
-                        placeholder="sk_..."
+                        placeholder={server.hasStaticAuth && server.authType === "api-key" ? "••••••••  (leave blank to keep current)" : "sk_..."}
                         fullWidth
                       />
                     </div>
