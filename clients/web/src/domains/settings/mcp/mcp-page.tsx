@@ -3,6 +3,7 @@ import { Cable, Loader2, Plus, RefreshCw } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { McpAddServerModal } from "./mcp-add-server-modal";
 import {
   addMcpServer,
@@ -28,6 +29,7 @@ const MCP_TOOLS_KEY = "mcp-tools-summary";
 function McpPageInner() {
   const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
+  const mcpAddServerEnabled = useAssistantFeatureFlagStore.use.mcpAddServer();
 
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [configureServerId, setConfigureServerId] = useState<string | null>(null);
@@ -233,14 +235,16 @@ function McpPageInner() {
             tooltip="Reload all servers"
             aria-label="Reload MCP servers"
           />
-          <Button
-            variant="primary"
-            size="compact"
-            leftIcon={<Plus />}
-            onClick={() => setAddModalOpen(true)}
-          >
-            Add Server
-          </Button>
+          {mcpAddServerEnabled ? (
+            <Button
+              variant="primary"
+              size="compact"
+              leftIcon={<Plus />}
+              onClick={() => setAddModalOpen(true)}
+            >
+              Add Server
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -286,12 +290,14 @@ function McpPageInner() {
         </div>
       )}
 
-      <McpAddServerModal
-        open={addModalOpen}
-        onClose={() => setAddModalOpen(false)}
-        onAdd={handleAdd}
-        isPending={isAdding}
-      />
+      {mcpAddServerEnabled ? (
+        <McpAddServerModal
+          open={addModalOpen}
+          onClose={() => setAddModalOpen(false)}
+          onAdd={handleAdd}
+          isPending={isAdding}
+        />
+      ) : null}
 
       <McpServerDetailModal
         server={configureServer}
