@@ -318,24 +318,39 @@ export function ResearchResultsStep({
 // Suggestions
 // ---------------------------------------------------------------------------
 
-/** `#rrggbb` → `rgba()` string at the given alpha (for the chip's colored glow). */
-function hexToRgba(hex: string, alpha: number): string {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
-  if (!m) return `rgba(255,255,255,${alpha})`;
-  const n = parseInt(m[1]!, 16);
-  return `rgba(${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff}, ${alpha})`;
+/**
+ * A distinct, stable badge color per plugin: the plugin id is hashed into this
+ * vibrant palette so a given plugin always reads as the same color, while
+ * different plugins read as different ones.
+ */
+const PLUGIN_CHIP_PALETTE = [
+  "#6366F1", // indigo
+  "#EC4899", // pink
+  "#10B981", // emerald
+  "#F59E0B", // amber
+  "#06B6D4", // cyan
+  "#A855F7", // violet
+  "#EF4444", // red
+  "#14B8A6", // teal
+];
+
+function pluginChipBg(plugin: string): string {
+  let h = 0;
+  for (let i = 0; i < plugin.length; i += 1) {
+    h = (h * 31 + plugin.charCodeAt(i)) | 0;
+  }
+  return PLUGIN_CHIP_PALETTE[Math.abs(h) % PLUGIN_CHIP_PALETTE.length]!;
 }
 
-/** Mix a `#rrggbb` toward white by `amount` (0–1) — the shimmer highlight band. */
-function lightenHex(hex: string, amount: number): string {
+/** Black or white text for legibility on a given `#rrggbb` chip color (YIQ). */
+function chipTextColor(hex: string): string {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex);
-  if (!m) return hex;
+  if (!m) return "#FFFFFF";
   const n = parseInt(m[1]!, 16);
-  const ch = (shift: number) => {
-    const c = (n >> shift) & 0xff;
-    return Math.round(c + (255 - c) * amount);
-  };
-  return `#${((1 << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).slice(1)}`;
+  const yiq =
+    (((n >> 16) & 0xff) * 299 + ((n >> 8) & 0xff) * 587 + (n & 0xff) * 114) /
+    1000;
+  return yiq > 150 ? "#1A1A1A" : "#FFFFFF";
 }
 
 /**
@@ -429,32 +444,18 @@ export function SuggestionsStep({
             >
               <span>{s.suggestion}</span>
               {s.plugin && (
-                // Colored, shimmering badge straddling the card's top-right edge.
-                // The avatar color pops against the dark backdrop; an animated
-                // gradient sweep (lightened highlight band) gives it the shine.
-                <motion.span
+                // Solid per-plugin colored badge straddling the card's
+                // top-right edge — each plugin gets its own stable color.
+                <span
                   className="absolute -top-2.5 right-4 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold leading-none"
                   style={{
-                    color: tone.fg,
-                    backgroundImage: `linear-gradient(110deg, ${tone.bg} 0%, ${tone.bg} 38%, ${lightenHex(tone.bg, 0.55)} 50%, ${tone.bg} 62%, ${tone.bg} 100%)`,
-                    backgroundSize: "220% 100%",
-                    boxShadow: `0 2px 12px ${hexToRgba(tone.bg, 0.5)}, inset 0 1px 0 rgba(255,255,255,0.35)`,
+                    backgroundColor: pluginChipBg(s.plugin),
+                    color: chipTextColor(pluginChipBg(s.plugin)),
+                    boxShadow: "0 1px 4px rgba(0,0,0,0.25)",
                   }}
-                  initial={reduce ? false : { backgroundPosition: "180% 0" }}
-                  animate={reduce ? undefined : { backgroundPosition: "-80% 0" }}
-                  transition={
-                    reduce
-                      ? undefined
-                      : {
-                          duration: 2.2,
-                          ease: "easeInOut",
-                          repeat: Infinity,
-                          repeatDelay: 1.4,
-                        }
-                  }
                 >
                   {pluginDisplayName(s.plugin)}
-                </motion.span>
+                </span>
               )}
             </motion.button>
           ))}
