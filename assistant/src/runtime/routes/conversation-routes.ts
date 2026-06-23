@@ -25,7 +25,10 @@ import {
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
-import { getGuardianDelivery } from "../../contacts/guardian-delivery-reader.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../../contacts/guardian-delivery-reader.js";
 import {
   mergeConsecutiveAssistantMessages,
   mergeToolResultsIntoAssistantMessages,
@@ -1477,14 +1480,20 @@ export async function handleSendMessage(
         }),
       );
       if (trustCtx.trustClass === "unknown") {
-        // Guardian binding drift: a DB reset rebinds to a new
-        // vellum-principal-* UUID while the client holds a valid JWT for the
-        // old one. The signing key survives, so the JWT is authentic but
-        // stale. Re-resolve from the local mirror only when the gateway read
-        // is non-null; a null read means the gateway is unreachable and must
-        // fail closed (stay unknown) rather than fall open to the mirror.
         const guardians = await getGuardianDelivery({ channelTypes: ["vellum"] });
-        if (guardians) {
+        const gatewayPrincipal = guardians
+          ? guardianForChannel(guardians, "vellum")?.principalId
+          : undefined;
+        // Narrow drift only: a DB reset rebound the gateway to a fresh
+        // vellum-principal while the client holds a valid JWT for the old one.
+        // Both are daemon-minted vellum-principal-* ids, so a genuine
+        // revocation or rebind to a real identity fails closed instead of
+        // re-granting from a stale mirror.
+        const isResetDrift =
+          actorPrincipalId.startsWith("vellum-principal-") &&
+          !!gatewayPrincipal?.startsWith("vellum-principal-") &&
+          gatewayPrincipal !== actorPrincipalId;
+        if (isResetDrift) {
           await healGuardianBindingDrift(actorPrincipalId);
           trustCtx = withSourceChannel(
             sourceChannel,
