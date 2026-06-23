@@ -106,6 +106,7 @@ export function ResearchOnboardingScreen({
               value={firstName}
               onChange={(e) => setFirstName(e.target.value)}
               autoFocus
+              required
               fullWidth
             />
           </div>
@@ -127,6 +128,7 @@ export function ResearchOnboardingScreen({
               value={role}
               onChange={setRole}
               suggestions={ROLE_SUGGESTIONS}
+              required
             />
           </div>
 

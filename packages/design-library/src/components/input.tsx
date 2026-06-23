@@ -68,6 +68,7 @@ interface FieldWrapperProps {
   readonly errorText?: ReactNode;
   readonly fullWidth: boolean;
   readonly disabled: boolean;
+  readonly required?: boolean;
   readonly className?: string;
   readonly children: ReactNode;
 }
@@ -79,6 +80,7 @@ function FieldWrapper({
   errorText,
   fullWidth,
   disabled,
+  required,
   className,
   children,
 }: FieldWrapperProps) {
@@ -108,6 +110,11 @@ function FieldWrapper({
           )}
         >
           {label}
+          {required ? (
+            <span aria-hidden className="text-[var(--system-negative-strong)]">
+              {" *"}
+            </span>
+          ) : null}
         </Typography>
       ) : null}
       {children}
@@ -158,6 +165,7 @@ function Input({
   className,
   id,
   disabled,
+  required,
   ref,
   "aria-invalid": ariaInvalid,
   "aria-describedby": ariaDescribedBy,
@@ -180,6 +188,7 @@ function Input({
       errorText={errorText}
       fullWidth={fullWidth}
       disabled={disabled === true}
+      required={required}
       className={wrapperClassName}
     >
       <div className="relative flex items-center">
@@ -197,6 +206,7 @@ function Input({
           ref={ref}
           id={inputId}
           disabled={disabled}
+          required={required}
           aria-invalid={isInvalid || undefined}
           aria-describedby={ariaDescribedBy ?? describedBy}
           data-slot="input"
