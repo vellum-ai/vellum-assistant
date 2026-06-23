@@ -17,7 +17,7 @@ mock.module("@/generated/daemon/client.gen", () => ({
   },
 }));
 
-import { streamEmptyStateGreeting } from "@/domains/chat/api/stream-greeting";
+import { fetchGreetingPool, streamEmptyStateGreeting } from "@/domains/chat/api/stream-greeting";
 
 function sseStream(frames: string[]): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -108,5 +108,48 @@ describe("streamEmptyStateGreeting", () => {
 
     const result = await streamEmptyStateGreeting({ assistantId: "asst-1" });
     expect(result).toBe("split works");
+  });
+});
+
+describe("fetchGreetingPool", () => {
+  test("parses a JSON array response into an array of strings", async () => {
+    const json = JSON.stringify(["Hey!", "What's up", "Hi there", "Hello", "Yo"]);
+    postImpl = async () => ({
+      data: sseStream([deltaFrame(json), COMPLETE_FRAME]),
+      response: new Response(null, { status: 200 }),
+    });
+
+    const result = await fetchGreetingPool({ assistantId: "asst-1" });
+    expect(result).toEqual(["Hey!", "What's up", "Hi there", "Hello", "Yo"]);
+  });
+
+  test("handles markdown code fences around the JSON", async () => {
+    const fenced = "```json\n" + JSON.stringify(["One", "Two"]) + "\n```";
+    postImpl = async () => ({
+      data: sseStream([deltaFrame(fenced), COMPLETE_FRAME]),
+      response: new Response(null, { status: 200 }),
+    });
+
+    const result = await fetchGreetingPool({ assistantId: "asst-1" });
+    expect(result).toEqual(["One", "Two"]);
+  });
+
+  test("falls back to single-element array when response is not valid JSON", async () => {
+    postImpl = async () => ({
+      data: sseStream([deltaFrame("Just a plain greeting"), COMPLETE_FRAME]),
+      response: new Response(null, { status: 200 }),
+    });
+
+    const result = await fetchGreetingPool({ assistantId: "asst-1" });
+    expect(result).toEqual(["Just a plain greeting"]);
+  });
+
+  test("rejects on a non-OK response", async () => {
+    postImpl = async () => ({
+      data: null,
+      response: new Response(null, { status: 503 }),
+    });
+
+    await expect(fetchGreetingPool({ assistantId: "asst-1" })).rejects.toThrow();
   });
 });
