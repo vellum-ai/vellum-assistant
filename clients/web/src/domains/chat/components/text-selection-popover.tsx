@@ -169,14 +169,15 @@ export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps
         sideOffset={8}
         onOpenAutoFocus={(event) => event.preventDefault()}
         onCloseAutoFocus={(event) => event.preventDefault()}
-        className="rounded-md bg-transparent p-0 shadow-none"
+        className="rounded-lg p-0"
       >
         <Button
-          variant="outlined"
-          size="regular"
+          variant="ghost"
+          size="compact"
           onClick={handleQuoteReply}
-          leftIcon={<MessageSquareQuote />}
-          className="bg-[var(--surface-base)] shadow-md"
+          leftIcon={<MessageSquareQuote className="h-3 w-3" />}
+          tintColor="var(--content-default)"
+          className="rounded-lg px-2.5"
         >
           Reply
         </Button>
