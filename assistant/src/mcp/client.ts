@@ -117,7 +117,7 @@ export class McpClient {
       if (storedHeaders) {
         effectiveConfig = {
           ...transportConfig,
-          headers: { ...storedHeaders, ...transportConfig.headers },
+          headers: { ...transportConfig.headers, ...storedHeaders },
         } as McpTransport;
       }
     }

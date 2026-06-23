@@ -8,6 +8,7 @@
  * Key format: mcp:{serverId}:headers — stores JSON-serialized Record<string, string>.
  */
 
+import { loadRawConfig, saveRawConfig } from "../config/loader.js";
 import {
   deleteSecureKeyAsync,
   getSecureKeyAsync,
@@ -60,9 +61,74 @@ export async function setMcpHeaders(
 /**
  * Delete stored static auth headers for an MCP server.
  */
-export async function deleteMcpHeaders(serverId: string): Promise<void> {
+export async function deleteMcpHeaders(serverId: string): Promise<boolean> {
   const result = await deleteSecureKeyAsync(headersKey(serverId));
   if (result === "error") {
     log.warn({ serverId }, "Failed to delete MCP headers from secure storage");
+    return false;
+  }
+  return true;
+}
+
+/**
+ * One-time lazy migration: move any plaintext headers from config.json
+ * transport entries into the credential store and strip them from config.
+ * Safe to call on every MCP reload — no-ops when no legacy headers remain.
+ */
+export async function migrateLegacyMcpHeaders(): Promise<void> {
+  const raw = loadRawConfig();
+  const mcpConfig = raw.mcp as
+    | { servers?: Record<string, Record<string, unknown>> }
+    | undefined;
+  const servers = mcpConfig?.servers;
+  if (!servers) {
+    return;
+  }
+
+  let configDirty = false;
+  for (const [id, server] of Object.entries(servers)) {
+    const transport = server?.transport as Record<string, unknown> | undefined;
+    if (
+      !transport ||
+      (transport.type !== "sse" && transport.type !== "streamable-http")
+    ) {
+      continue;
+    }
+    const legacyHeaders = transport.headers as
+      | Record<string, string>
+      | undefined;
+    if (!legacyHeaders || Object.keys(legacyHeaders).length === 0) {
+      continue;
+    }
+
+    // Only migrate if credential store doesn't already have headers for
+    // this server (idempotent — safe to re-run after partial failure).
+    const existing = await getMcpHeaders(id);
+    if (existing) {
+      // Credential store already has headers; just strip the config copy.
+      delete transport.headers;
+      configDirty = true;
+      continue;
+    }
+
+    const ok = await setMcpHeaders(id, legacyHeaders);
+    if (ok) {
+      delete transport.headers;
+      configDirty = true;
+      log.info(
+        { serverId: id },
+        "Migrated legacy MCP headers to credential store",
+      );
+    } else {
+      log.warn(
+        { serverId: id },
+        "Skipping legacy header migration — credential store write failed; will retry on next reload",
+      );
+    }
+  }
+
+  if (configDirty) {
+    saveRawConfig(raw);
+    log.info("Config updated: legacy MCP headers removed after migration");
   }
 }

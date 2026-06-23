@@ -180,6 +180,7 @@ interface McpServerEntry {
   defaultRiskLevel: string;
   hasStaticAuth: boolean;
   authType: "none" | "bearer" | "api-key";
+  authHeaderName?: string;
   allowedTools?: string[];
   blockedTools?: string[];
 }
@@ -223,6 +224,14 @@ async function handleMcpList(_args: {
         const authType: "none" | "bearer" | "api-key" = hasStaticAuth
           ? detectAuthType(effectiveHeaders!)
           : "none";
+        // For API-key auth, expose the non-secret header name so the UI
+        // can pre-fill it during credential rotation.
+        const authHeaderName =
+          authType === "api-key" && effectiveHeaders
+            ? Object.keys(effectiveHeaders).find(
+                (k) => k.toLowerCase() !== "authorization",
+              )
+            : undefined;
 
         // Strip headers from transport — never return secrets
         const { headers: _stripped, ...safeTransport } =
@@ -236,6 +245,7 @@ async function handleMcpList(_args: {
           defaultRiskLevel: config.defaultRiskLevel ?? "high",
           hasStaticAuth,
           authType,
+          ...(authHeaderName && { authHeaderName }),
           ...(config.allowedTools && { allowedTools: config.allowedTools }),
           ...(config.blockedTools && { blockedTools: config.blockedTools }),
         };
@@ -373,9 +383,19 @@ async function handleMcpUpdate({
 
       // Store in credential store (or delete if clearing)
       if (headers === null || Object.keys(headers).length === 0) {
-        await deleteMcpHeaders(name);
+        const ok = await deleteMcpHeaders(name);
+        if (!ok) {
+          throw new InternalError(
+            "Failed to clear auth headers from credential store",
+          );
+        }
       } else {
-        await setMcpHeaders(name, headers);
+        const ok = await setMcpHeaders(name, headers);
+        if (!ok) {
+          throw new InternalError(
+            "Failed to persist auth headers to credential store",
+          );
+        }
       }
     }
   }
@@ -457,7 +477,12 @@ async function handleMcpAdd({
 
   // Store auth headers in credential store, not config
   if (headers && Object.keys(headers).length > 0) {
-    await setMcpHeaders(name, headers);
+    const ok = await setMcpHeaders(name, headers);
+    if (!ok) {
+      throw new InternalError(
+        "Failed to persist auth headers to credential store",
+      );
+    }
   }
 
   saveRawConfig(raw);
