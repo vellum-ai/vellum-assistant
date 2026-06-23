@@ -128,7 +128,7 @@ export function SubagentDetailPanel({
 
   // Measure overflow against the collapsed clamp. While collapsed the clamp is
   // the source of truth, so `scrollHeight` exceeds `clientHeight` only when the
-  // body is taller than the visible 3 lines. Skip measuring while expanded
+  // body is taller than the visible 5 lines. Skip measuring while expanded
   // (the clamp is removed, which would otherwise report no overflow) so the
   // "Show less" affordance stays visible.
   //
@@ -273,7 +273,7 @@ export function SubagentDetailPanel({
                   variant="body-medium-lighter"
                   as="p"
                   className={`whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)] ${
-                    objectiveExpanded ? "" : "line-clamp-3"
+                    objectiveExpanded ? "" : "line-clamp-5"
                   }`}
                 >
                   {entry.objective}

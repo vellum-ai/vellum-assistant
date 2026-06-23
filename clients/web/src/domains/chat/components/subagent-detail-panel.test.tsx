@@ -287,14 +287,14 @@ describe("SubagentDetailPanel — objective", () => {
 
       const body = screen.getByText(longObjective);
       // Collapsed by default: clamped and offering "Show more".
-      expect(body.className).toContain("line-clamp-3");
+      expect(body.className).toContain("line-clamp-5");
       const toggle = screen.getByText("Show more");
 
       fireEvent.click(toggle);
       // Expanded: clamp removed and the affordance flips to "Show less".
       expect(screen.getByText("Show less")).toBeDefined();
       expect(screen.getByText(longObjective).className).not.toContain(
-        "line-clamp-3",
+        "line-clamp-5",
       );
 
       fireEvent.click(screen.getByText("Show less"));
@@ -341,7 +341,7 @@ describe("SubagentDetailPanel — objective", () => {
       fireEvent.click(screen.getByText("Show more"));
       expect(screen.getByText("Show less")).toBeDefined();
       expect(screen.getByText(longObjective).className).not.toContain(
-        "line-clamp-3",
+        "line-clamp-5",
       );
 
       // Switch to a different subagent with a short objective. Same instance,
@@ -355,7 +355,7 @@ describe("SubagentDetailPanel — objective", () => {
 
       // State reset + re-measured: collapsed, no stale "Show less"/toggle.
       const shortBody = screen.getByText("Short");
-      expect(shortBody.className).toContain("line-clamp-3");
+      expect(shortBody.className).toContain("line-clamp-5");
       expect(screen.queryByText("Show less")).toBeNull();
       expect(screen.queryByText("Show more")).toBeNull();
     } finally {
@@ -395,7 +395,7 @@ describe("SubagentDetailPanel — objective", () => {
       // Re-measured despite identical text: the toggle is still present.
       expect(screen.getByText("Show more")).toBeDefined();
       expect(screen.getByText(longObjective).className).toContain(
-        "line-clamp-3",
+        "line-clamp-5",
       );
     } finally {
       restore();
