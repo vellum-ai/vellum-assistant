@@ -346,6 +346,10 @@ export function HatchingScreen() {
               }
             }
             if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
+              // The hatch succeeded but the gateway never went healthy. We never
+              // reached connectLocalAssistant(), so no remount occurred — release
+              // the guards so "Try again" runs a genuinely fresh hatch.
+              releaseHatchGuards();
               setError("Your assistant is taking longer than expected. Please try again.");
               return;
             }
