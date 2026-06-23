@@ -248,3 +248,38 @@ describe("enforceIngressAcl — fail-closed on absent verdict", () => {
     expect(result.resolvedMember).toBeNull();
   });
 });
+
+describe("enforceIngressAcl — fail-closed on malformed member verdict", () => {
+  test("member identity + unknown policy → not_a_member deny even under strangers", async () => {
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict(
+          memberVerdict({ policy: "bogus" as TrustVerdict["policy"] }),
+        ),
+        effectiveAdmissionPolicy: "strangers",
+      }),
+    );
+
+    // Carries contactId/channelId but no resolvable member → fail closed,
+    // NOT admitted as a stranger by the floor.
+    expect(result.earlyResponse).toBeDefined();
+    expect(result.earlyResponse!.reason).toBe("not_a_member");
+    expect(result.resolvedMember).toBeNull();
+    expect(deliverReplyCalls.length).toBe(0);
+    expect(accessRequestCalls.length).toBe(0);
+  });
+
+  test("member identity + missing status → not_a_member deny even under strangers", async () => {
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict(
+          memberVerdict({ status: undefined as unknown as TrustVerdict["status"] }),
+        ),
+        effectiveAdmissionPolicy: "strangers",
+      }),
+    );
+
+    expect(result.earlyResponse!.reason).toBe("not_a_member");
+    expect(result.resolvedMember).toBeNull();
+  });
+});

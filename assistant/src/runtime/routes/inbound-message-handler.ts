@@ -24,6 +24,7 @@ import {
 } from "../../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
+import { channelStatusToMemberStatus } from "../../contacts/member-status.js";
 import {
   createApprovalConversationGenerator,
   createApprovalCopyGenerator,
@@ -96,10 +97,7 @@ import { trustContextFromVerdict } from "../trust-verdict-consumer.js";
 import { canonicalChannelAssistantId } from "./channel-route-shared.js";
 import { BadRequestError } from "./errors.js";
 import { handleApprovalInterception } from "./guardian-approval-interception.js";
-import {
-  channelStatusToMemberStatus,
-  enforceIngressAcl,
-} from "./inbound-stages/acl-enforcement.js";
+import { enforceIngressAcl } from "./inbound-stages/acl-enforcement.js";
 import { enforceAdmissionPolicy } from "./inbound-stages/admission-policy.js";
 import { processChannelMessageInBackground } from "./inbound-stages/background-dispatch.js";
 import { handleBootstrapIntercept } from "./inbound-stages/bootstrap-intercept.js";

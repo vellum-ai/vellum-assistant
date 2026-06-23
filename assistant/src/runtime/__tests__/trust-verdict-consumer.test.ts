@@ -2,6 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import type { TrustVerdict } from "@vellumai/gateway-client";
 
+import type {
+  ContactChannel,
+  ContactWithChannels,
+} from "../../contacts/types.js";
 import type { ActorTrustContext } from "../actor-trust-resolver.js";
 import { toTrustContext } from "../actor-trust-resolver.js";
 import {
@@ -156,6 +160,114 @@ describe("trustContextFromVerdict", () => {
       // Non-guardian without binding -> no guardian chat id.
       expect(result.guardianChatId).toBeUndefined();
     }
+  });
+});
+
+describe("toTrustContext member grounding", () => {
+  function memberChannel(
+    overrides: Partial<ContactChannel> = {},
+  ): ContactChannel {
+    return {
+      id: "channel-1",
+      contactId: "contact-1",
+      type: "phone",
+      address: "+15550100",
+      isPrimary: true,
+      externalChatId: null,
+      status: "unverified",
+      policy: "escalate",
+      verifiedAt: null,
+      verifiedVia: null,
+      inviteId: null,
+      revokedReason: null,
+      blockedReason: null,
+      lastSeenAt: null,
+      interactionCount: 0,
+      lastInteraction: null,
+      updatedAt: null,
+      createdAt: 0,
+      ...overrides,
+    };
+  }
+
+  function memberContact(): ContactWithChannels {
+    return {
+      id: "contact-1",
+      displayName: "Frank",
+      notes: null,
+      lastInteraction: null,
+      interactionCount: 0,
+      createdAt: 0,
+      updatedAt: 0,
+      role: "contact",
+      contactType: "human",
+      principalId: null,
+      userFile: null,
+      channels: [memberChannel()],
+    };
+  }
+
+  function ctxWithMember(
+    channel: ContactChannel,
+  ): ActorTrustContext {
+    return {
+      canonicalSenderId: "+15550100",
+      guardianBindingMatch: null,
+      guardianPrincipalId: undefined,
+      memberRecord: { contact: memberContact(), channel },
+      trustClass: "trusted_contact",
+      actorMetadata: {
+        identifier: "+15550100",
+        displayName: "Frank",
+        senderDisplayName: "Frank",
+        memberDisplayName: "Frank",
+        username: undefined,
+        channel: "phone",
+        trustStatus: "trusted_contact",
+      },
+    };
+  }
+
+  test("populates member fields from memberRecord (voice path)", () => {
+    const context = toTrustContext(ctxWithMember(memberChannel()), CONV);
+    expect(context.requesterContactId).toBe("contact-1");
+    // "unverified" maps to the API-facing "pending" member status.
+    expect(context.memberStatus).toBe("pending");
+    expect(context.memberPolicy).toBe("escalate");
+  });
+
+  test("passes through active status + allow policy", () => {
+    const context = toTrustContext(
+      ctxWithMember(memberChannel({ status: "active", policy: "allow" })),
+      CONV,
+    );
+    expect(context.memberStatus).toBe("active");
+    expect(context.memberPolicy).toBe("allow");
+  });
+
+  test("leaves member fields undefined when memberRecord is null", () => {
+    const context = toTrustContext(
+      {
+        canonicalSenderId: "u-2",
+        guardianBindingMatch: null,
+        guardianPrincipalId: undefined,
+        memberRecord: null,
+        trustClass: "unknown",
+        actorMetadata: {
+          identifier: "u-2",
+          displayName: undefined,
+          senderDisplayName: undefined,
+          memberDisplayName: undefined,
+          username: undefined,
+          channel: "slack",
+          trustStatus: "unknown",
+        },
+      },
+      CONV,
+    );
+    expect(context.requesterContactId).toBeUndefined();
+    expect(context.memberStatus).toBeUndefined();
+    expect(context.memberPolicy).toBeUndefined();
   });
 });
 

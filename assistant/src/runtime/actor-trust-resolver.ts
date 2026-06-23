@@ -21,6 +21,7 @@ import {
   findContactByAddress,
   findGuardianForChannel,
 } from "../contacts/contact-store.js";
+import { channelStatusToMemberStatus } from "../contacts/member-status.js";
 import type { ContactChannel, ContactWithChannels } from "../contacts/types.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
@@ -322,5 +323,12 @@ export function toTrustContext(
     requesterMemberDisplayName: ctx.actorMetadata.memberDisplayName,
     requesterExternalUserId: ctx.canonicalSenderId ?? undefined,
     requesterChatId: conversationExternalId,
+    // Member grounding from a real memberRecord (voice path); the verdict path
+    // (memberRecord=null) stamps these from the verdict instead.
+    requesterContactId: ctx.memberRecord?.contact.id,
+    memberStatus: ctx.memberRecord
+      ? channelStatusToMemberStatus(ctx.memberRecord.channel.status)
+      : undefined,
+    memberPolicy: ctx.memberRecord?.channel.policy,
   };
 }
