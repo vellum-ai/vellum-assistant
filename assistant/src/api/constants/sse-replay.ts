@@ -21,3 +21,21 @@
  * outside the ring entirely and is genuinely non-contiguous.
  */
 export const SSE_REPLAY_RING_COUNT_LIMIT = 200;
+
+/**
+ * Maximum age (in milliseconds) an event may reach in the daemon's SSE
+ * replay ring before it is evicted, regardless of count or byte usage.
+ * The daemon-side definition and eviction live in
+ * `assistant/src/runtime/assistant-stream-state.ts`.
+ *
+ * Exposed alongside the count bound so the web client can reason about
+ * the age dimension of the ring too. A small live seq gap is only safe to
+ * treat as benign when the client has been continuously receiving events
+ * — live delivery is concurrent with stamping, so a connected subscriber
+ * never relies on the ring. Once the connection has been quiet for longer
+ * than this window (a disconnect/resume), events the client missed may
+ * have aged out of the ring and become unrecoverable by replay, so even a
+ * small seq gap must trigger an authoritative reconcile rather than be
+ * waved through.
+ */
+export const SSE_REPLAY_RING_AGE_LIMIT_MS = 30_000;

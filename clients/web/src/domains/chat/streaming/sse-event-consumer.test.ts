@@ -56,6 +56,7 @@ const makeDeps = (override: {
   activeConversationId?: string | null;
   reconcileActive?: () => Promise<unknown>;
   handleStreamEvent?: (event: AssistantEvent, epoch: number) => void;
+  now?: () => number;
 } = {}) => {
   const activeConversationIdRef = {
     current: override.activeConversationId ?? "conv-1",
@@ -70,6 +71,7 @@ const makeDeps = (override: {
       activeConversationIdRef,
       reconcileActive,
       handleStreamEvent,
+      now: override.now,
     },
   };
 };
@@ -322,6 +324,71 @@ describe("sse-event-consumer — seq-gap detection", () => {
     expect(reconcileActive).not.toHaveBeenCalled();
     expect(globalCursor).toBe(7);
     expect(handleStreamEvent).toHaveBeenCalledTimes(2);
+  });
+
+  test("a small gap after the connection has been quiet past the ring age window heals authoritatively", async () => {
+    /**
+     * The replay ring also evicts by age (30s), so a small seq delta is
+     * NOT proof the hole is recoverable: after a quiet stretch longer than
+     * the age window (a disconnect/resume), the few skipped events may have
+     * aged out of the ring and become unreplayable. In that case even a
+     * tiny gap must heal authoritatively rather than be waved through.
+     */
+    // GIVEN a clock we control and a seeded cursor at t=0
+    let clock = 0;
+    const { deps, reconcileActive } = makeDeps({ now: () => clock });
+    const consumer = createSseEventConsumer(deps);
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 5,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+
+    // WHEN the connection goes quiet past the ring's age window and then a
+    // small seq gap arrives
+    clock = 30_000;
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 7,
+        message: { type: "assistant_text_delta", text: "b" },
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // THEN the gap is treated as a potential out-of-ring loss and healed
+    expect(reconcileActive).toHaveBeenCalledTimes(1);
+  });
+
+  test("a small gap within the ring age window stays benign", () => {
+    // GIVEN a clock we control and a seeded cursor at t=0
+    let clock = 0;
+    const { deps, reconcileActive } = makeDeps({ now: () => clock });
+    const consumer = createSseEventConsumer(deps);
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 5,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+
+    // WHEN a small seq gap arrives while the stream is still actively
+    // delivering (just under the age window)
+    clock = 29_999;
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 7,
+        message: { type: "assistant_text_delta", text: "b" },
+      }),
+    );
+
+    // THEN it is benign — the cursor advances with no reconcile
+    expect(reconcileActive).not.toHaveBeenCalled();
+    expect(globalCursor).toBe(7);
   });
 
   test("a ring-exceeding seq gap fires an authoritative reconcile and advances the cursor once it resolves", async () => {

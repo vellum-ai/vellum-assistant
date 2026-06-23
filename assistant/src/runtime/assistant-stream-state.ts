@@ -50,18 +50,21 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { SSE_REPLAY_RING_COUNT_LIMIT } from "../api/constants/sse-replay.js";
+import {
+  SSE_REPLAY_RING_AGE_LIMIT_MS,
+  SSE_REPLAY_RING_COUNT_LIMIT,
+} from "../api/constants/sse-replay.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import type { AssistantEvent } from "./assistant-event.js";
 
 // ── Tunables ─────────────────────────────────────────────────────────
 
-// Count bound on the replay ring. Shared with the web client (via
-// `@vellumai/assistant-api`) so its seq-gap tolerance is sized against
-// the same number the daemon buffers against.
+// Count and age bounds on the replay ring. Shared with the web client
+// (via `@vellumai/assistant-api`) so its seq-gap tolerance is sized
+// against the same numbers the daemon buffers against.
 const RING_COUNT_LIMIT = SSE_REPLAY_RING_COUNT_LIMIT;
 const RING_SIZE_LIMIT_BYTES = 256 * 1024;
-const RING_AGE_LIMIT_MS = 30_000;
+const RING_AGE_LIMIT_MS = SSE_REPLAY_RING_AGE_LIMIT_MS;
 
 /**
  * Cap on how many conversations retain a persisted-seq entry. Unlike the
