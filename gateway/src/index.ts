@@ -218,6 +218,7 @@ function generateTraceId(): string {
 }
 
 let draining = false;
+let postAssistantReadyComplete = false;
 
 /**
  * Detect which services had credential changes and log them.
@@ -308,13 +309,6 @@ async function main() {
   await initGatewayDb();
   initTrustRuleCache();
   initAdmissionPolicyCache();
-
-  // Wait for the assistant runtime to be healthy before serving traffic.
-  // Data migrations (e.g. m0002 actor-token-tables-to-gateway) must
-  // complete before the HTTP server starts accepting auth requests —
-  // otherwise newly minted tokens can be overwritten by stale rows
-  // migrated from the assistant DB.
-  await runPostAssistantReady();
 
   // ── TTL caches ──
   // Instantiate caches for credential and config file reads.
@@ -1725,23 +1719,9 @@ async function main() {
   ): Promise<Response | undefined> {
     const url = new URL(req.url);
 
-    // ── CORS: webview preflight & origin tracking ──
-    // The macOS WKWebView loads pages from https://{appId}.vellum.local/
-    // which is cross-origin to the gateway at http://127.0.0.1:{port}.
-    // Reflect the origin back on matched requests so window.vellum.fetch
-    // calls succeed.
-    const extensionOrigin = resolveExtensionOrigin(req);
-    if (extensionOrigin && req.method === "OPTIONS") {
-      return handleExtensionPreflight(extensionOrigin);
-    }
-
-    const webviewOrigin = resolveWebviewOrigin(req);
-    if (webviewOrigin && req.method === "OPTIONS") {
-      return handlePreflight(webviewOrigin);
-    }
-
-    // ── Pre-router: health/readiness probes ──
-    // These bypass rate limiting and tracing for minimal overhead.
+    // ── Pre-router: health probe ──
+    // This stays available during post-assistant-ready startup work so
+    // Kubernetes startup/liveness probes can observe the bound process.
     if (url.pathname === "/healthz") {
       const includeMigrations =
         url.searchParams.get("include") === "migrations";
@@ -1775,6 +1755,25 @@ async function main() {
         // Daemon unreachable — graceful degradation, still return ok
       }
       return Response.json({ status: "ok" });
+    }
+
+    if (!postAssistantReadyComplete) {
+      return Response.json({ status: "starting" }, { status: 503 });
+    }
+
+    // ── CORS: webview preflight & origin tracking ──
+    // The macOS WKWebView loads pages from https://{appId}.vellum.local/
+    // which is cross-origin to the gateway at http://127.0.0.1:{port}.
+    // Reflect the origin back on matched requests so window.vellum.fetch
+    // calls succeed.
+    const extensionOrigin = resolveExtensionOrigin(req);
+    if (extensionOrigin && req.method === "OPTIONS") {
+      return handleExtensionPreflight(extensionOrigin);
+    }
+
+    const webviewOrigin = resolveWebviewOrigin(req);
+    if (webviewOrigin && req.method === "OPTIONS") {
+      return handlePreflight(webviewOrigin);
     }
 
     if (url.pathname === "/schema") {
@@ -1915,6 +1914,18 @@ async function main() {
   }
 
   log.info({ port: server.port }, "Gateway HTTP server listening");
+
+  // Complete post-assistant-ready startup work after binding /healthz.
+  // All non-health routes stay closed until this finishes.
+  try {
+    await runPostAssistantReady();
+    postAssistantReadyComplete = true;
+  } catch (err) {
+    log.error({ err }, "Post-assistant-ready startup work failed");
+    server.stop(true);
+    process.exit(1);
+  }
+
   logAuthBypassState();
 
   // Start periodic background cleanup for dedup caches
