@@ -1,4 +1,3 @@
-import { AUTO_PROFILE_KEY } from "../../api/constants/inference-profiles.js";
 import { validateInferenceProfileKey } from "../../config/inference-profile-validation.js";
 import { resolveDefaultProfileKey } from "../../config/llm-resolver.js";
 import { getConfig } from "../../config/loader.js";
@@ -128,12 +127,7 @@ export async function executeSubagentSpawn(
         context.invokingCallSite ?? "mainAgent",
         getConfig().llm,
       );
-    // Skip the metadata-only "auto" key: forwarding it collapses the child to
-    // `llm.default`, whereas the invoker's own auto base IS the `subagentSpawn`
-    // default — so leaving this undefined keeps the child on that default.
-    if (inheritedCandidate !== AUTO_PROFILE_KEY) {
-      inheritedOverrideProfile = inheritedCandidate;
-    }
+    inheritedOverrideProfile = inheritedCandidate;
   }
 
   try {

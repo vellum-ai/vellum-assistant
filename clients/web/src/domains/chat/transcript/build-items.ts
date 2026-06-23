@@ -28,8 +28,6 @@ export interface BuildTranscriptItemsInput {
   isThinking: boolean;
   /** Daemon-provided activity label for the thinking indicator. */
   thinkingLabel?: string | null;
-  /** Human-readable label when the daemon auto-routed to a different inference profile. */
-  autoRoutedProfileLabel?: string | null;
   /** Ephemeral local meta-command results (e.g. /clean, /status), rendered at
    *  the transcript tail. Not persisted; cleared on the next send/switch. */
   ephemeralMetaResults?: EphemeralMetaResult[];
@@ -93,14 +91,6 @@ export function buildTranscriptItems(
       kind: "ephemeralMeta",
       key: `meta-${result.id}`,
       result,
-    });
-  }
-
-  if (input.autoRoutedProfileLabel) {
-    items.push({
-      kind: "profileAutoRouted",
-      key: "profile-auto-routed",
-      profileLabel: input.autoRoutedProfileLabel,
     });
   }
 

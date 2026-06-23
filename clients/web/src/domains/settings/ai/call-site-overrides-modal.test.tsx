@@ -15,7 +15,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
-import * as daemonQueryGen from "@/generated/daemon/@tanstack/react-query.gen";
+import * as daemonSdk from "@/generated/daemon/sdk.gen";
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -29,7 +29,6 @@ mock.module("@/stores/assistant-feature-flag-store", () => {
   const store = () => null;
   store.use = {
     analyzeConversation: () => flags.analyzeConversation ?? false,
-    queryComplexityRouting: () => false,
   };
   return { useAssistantFeatureFlagStore: store };
 });
@@ -54,29 +53,23 @@ const CATALOG = {
   ],
 };
 
-mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
-  ...daemonQueryGen,
-  configLlmCallsitesGetOptions: () => ({
-    queryKey: [{ _id: "configLlmCallsitesGet" }],
-    queryFn: () => Promise.resolve(CATALOG),
-  }),
-  configGetOptions: () => ({
-    queryKey: [{ _id: "configGet" }],
-    queryFn: () =>
-      Promise.resolve({
-        llm: {
-          profiles: {},
-          profileOrder: [],
-          activeProfile: null,
-          callSites: {},
-        },
-      }),
-  }),
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  ...daemonSdk,
+  configLlmCallsitesGet: mock(async () => ({ data: CATALOG })),
+  configGet: mock(async () => ({
+    data: {
+      llm: {
+        profiles: {},
+        profileOrder: [],
+        activeProfile: null,
+        callSites: {},
+      },
+    },
+  })),
 }));
 
-const { CallSiteOverridesModal } = await import(
-  "@/domains/settings/ai/call-site-overrides-modal"
-);
+const { CallSiteOverridesModal } =
+  await import("@/domains/settings/ai/call-site-overrides-modal");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -110,7 +103,11 @@ describe("CallSiteOverridesModal — call-site flag gating", () => {
     flags = { analyzeConversation: false };
     render(
       <Wrapper>
-        <CallSiteOverridesModal isOpen assistantId="asst-1" onClose={() => {}} />
+        <CallSiteOverridesModal
+          isOpen
+          assistantId="asst-1"
+          onClose={() => {}}
+        />
       </Wrapper>,
     );
     await waitFor(() => {
@@ -122,7 +119,11 @@ describe("CallSiteOverridesModal — call-site flag gating", () => {
     flags = { analyzeConversation: false };
     render(
       <Wrapper>
-        <CallSiteOverridesModal isOpen assistantId="asst-1" onClose={() => {}} />
+        <CallSiteOverridesModal
+          isOpen
+          assistantId="asst-1"
+          onClose={() => {}}
+        />
       </Wrapper>,
     );
     await waitFor(() => {
@@ -137,7 +138,11 @@ describe("CallSiteOverridesModal — call-site flag gating", () => {
     flags = { analyzeConversation: true };
     render(
       <Wrapper>
-        <CallSiteOverridesModal isOpen assistantId="asst-1" onClose={() => {}} />
+        <CallSiteOverridesModal
+          isOpen
+          assistantId="asst-1"
+          onClose={() => {}}
+        />
       </Wrapper>,
     );
     await waitFor(() => {

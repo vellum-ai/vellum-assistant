@@ -7,11 +7,7 @@
  * its trigger label and the user has a visible recovery path. Without
  * this carve-out, disabling the active profile leaves the trigger with
  * an empty label and the user wondering what's still in effect.
- *
- * (See Codex post-merge P2 on PR #6413.)
  */
-
-import { AUTO_PROFILE_KEY } from "@vellumai/assistant-api";
 
 export interface ProfilePickerEntry {
   readonly name: string;
@@ -20,43 +16,16 @@ export interface ProfilePickerEntry {
 }
 
 /**
- * Hides the meta-"auto" profile when the `query-complexity-routing`
- * feature flag is off. The daemon seeds `"auto"` into `llm.profiles`
- * unconditionally, so every list-style profile UI must run its source
- * array through this gate before render, or `Auto` shows up in the
- * picker for users whose workspace has the flag disabled.
- *
- * The key constant is imported from `@vellumai/assistant-api` so the
- * backend (config seeder, plugin API) and the UI share a single source
- * of truth.
- */
-export function gateAutoProfile<T extends ProfilePickerEntry>(
-  profiles: ReadonlyArray<T>,
-  queryComplexityRoutingEnabled: boolean,
-): T[] {
-  if (queryComplexityRoutingEnabled) return [...profiles];
-  return profiles.filter((p) => p.name !== AUTO_PROFILE_KEY);
-}
-
-/**
  * Chooses the profile used when a call-site override is toggled on.
- * The optional preferred profile is used only when it is active and visible
- * under the current feature-flag gate; otherwise the first active visible
- * profile is used.
+ * The optional preferred profile is used only when it is active; otherwise the
+ * first active profile is used.
  */
 export function selectSeedProfileForOverride<T extends ProfilePickerEntry>(
   profiles: ReadonlyArray<T>,
   preferredProfile: string | null | undefined,
-  queryComplexityRoutingEnabled: boolean,
 ): string | undefined {
-  const candidates = gateAutoProfile(
-    profiles.filter((p) => p.status !== "disabled"),
-    queryComplexityRoutingEnabled,
-  );
-  if (
-    preferredProfile &&
-    candidates.some((p) => p.name === preferredProfile)
-  ) {
+  const candidates = profiles.filter((p) => p.status !== "disabled");
+  if (preferredProfile && candidates.some((p) => p.name === preferredProfile)) {
     return preferredProfile;
   }
   return candidates[0]?.name;

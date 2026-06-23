@@ -92,7 +92,7 @@ function printHelp(): void {
     "  $ vellum flags                                              # list flags for active assistant",
   );
   console.log(
-    "  $ vellum flags get query-complexity-routing                  # inspect one flag",
+    "  $ vellum flags get voice-mode                                 # inspect one flag",
   );
   console.log(
     "  $ vellum flags set voice-mode true                           # enable a flag",

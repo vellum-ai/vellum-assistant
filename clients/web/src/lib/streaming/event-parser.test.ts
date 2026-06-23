@@ -1568,51 +1568,6 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  describe("turn_profile_auto_routed", () => {
-    test("parses an auto-routed profile notification", () => {
-      const event = parseEvent({
-        type: "turn_profile_auto_routed",
-        conversationId: "conv-1",
-        profile: "quality-optimized",
-        profileLabel: "Quality",
-      });
-      expect(event).toEqual({
-        type: "turn_profile_auto_routed",
-        conversationId: "conv-1",
-        profile: "quality-optimized",
-        profileLabel: "Quality",
-      });
-    });
-
-    test("strips the legacy conversationKey field (strip-mode)", () => {
-      // GIVEN a payload still carrying the legacy conversationKey field
-      // the daemon no longer emits
-      const event = parseEvent({
-        type: "turn_profile_auto_routed",
-        conversationId: "conv-1",
-        profile: "quality-optimized",
-        profileLabel: "Quality",
-        conversationKey: "legacy-key",
-      });
-      // THEN it is discarded by strip-mode
-      expect(event).toEqual({
-        type: "turn_profile_auto_routed",
-        conversationId: "conv-1",
-        profile: "quality-optimized",
-        profileLabel: "Quality",
-      });
-    });
-
-    test("falls through to unknown when profileLabel is missing", () => {
-      const event = parseEvent({
-        type: "turn_profile_auto_routed",
-        conversationId: "conv-1",
-        profile: "quality-optimized",
-      });
-      expect(event.type).toBe("unknown");
-    });
-  });
-
   describe("tool_result", () => {
     test("keeps daemon risk* option names (canonical schema does not rename)", () => {
       const event = parseEvent({

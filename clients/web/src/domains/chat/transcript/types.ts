@@ -12,7 +12,6 @@ import type { RuntimeSubagentNotification } from "@/domains/chat/api/messages";
 export type TranscriptItemKind =
   | "message"
   | "thinking"
-  | "profileAutoRouted"
   | "pendingSecret"
   | "pendingConfirmation"
   | "pendingContactRequest"
@@ -63,11 +62,6 @@ export interface SurfaceItem extends TranscriptItemBase {
   surface: Surface;
 }
 
-export interface ProfileAutoRoutedItem extends TranscriptItemBase {
-  kind: "profileAutoRouted";
-  profileLabel: string;
-}
-
 export interface OnboardingChoiceItem extends TranscriptItemBase {
   kind: "onboardingChoice";
 }
@@ -80,7 +74,6 @@ export interface EphemeralMetaItem extends TranscriptItemBase {
 export type TranscriptItem =
   | MessageItem
   | ThinkingItem
-  | ProfileAutoRoutedItem
   | PendingSecretItem
   | PendingConfirmationItem
   | PendingContactRequestItem

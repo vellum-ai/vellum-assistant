@@ -1,4 +1,3 @@
-import { AUTO_PROFILE_KEY } from "../api/constants/inference-profiles.js";
 import type { DrizzleDb } from "../memory/db-connection.js";
 import {
   createConnection,
@@ -12,6 +11,7 @@ import type { ModelIntent } from "../providers/types.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getLogger } from "../util/logger.js";
 import { loadRawConfig, saveRawConfig } from "./loader.js";
+import { isDispatchableProfile } from "./profile-dispatchability.js";
 import {
   DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
   type ProfileEntry,
@@ -148,17 +148,6 @@ const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   },
 };
 
-/**
- * The "auto" profile key. When active, the daemon injects the
- * `switch_inference_profile` tool and lets the model self-select a profile
- * per query. No provider/model — the resolver falls through to the call-site
- * default (balanced or custom-balanced for BYOK).
- *
- * Defined in `@vellumai/assistant-api` (assistant/src/api/constants/
- * inference-profiles.ts) so the backend, plugin API, and UI share a single
- * source of truth.
- */
-
 export const OS_BETA_PROFILE_KEY = "os-beta";
 export const OS_BETA_FEATURE_FLAG_KEY = "os-beta";
 
@@ -190,7 +179,6 @@ export const OS_BETA_PROFILE_TEMPLATE: ManagedProfileTemplate = {
 export const MANAGED_PROFILE_NAMES = new Set([
   ...Object.keys(MANAGED_PROFILE_TEMPLATES),
   OS_BETA_PROFILE_KEY,
-  AUTO_PROFILE_KEY,
 ]);
 
 // Managed names introduced after profile-ownership metadata existed, so any
@@ -202,6 +190,7 @@ export const MANAGED_PROFILE_NAMES = new Set([
 // predate ownership metadata — migration 052 seeded them source-less — so they
 // are NOT listed here and always reseed, even when source is absent.
 const NEWLY_RESERVED_MANAGED_NAMES = new Set(["frontier"]);
+const MIX_MIN_ARMS = 2;
 
 export type SeedInferenceProfilesOptions = {
   /**
@@ -379,25 +368,6 @@ export function seedInferenceProfiles(
     profiles[name] = next as ProfileEntry;
   }
 
-  // 1b. Auto profile — a metadata-only profile with no provider/model. When
-  //     the user selects "Auto", the resolver falls through to the call-site
-  //     default (balanced or custom-balanced), and the agent loop injects the
-  //     switch_inference_profile tool so the model can self-select per query.
-  if (!preservedProfileNames.has(AUTO_PROFILE_KEY)) {
-    const previousAuto = readObject(profiles[AUTO_PROFILE_KEY]);
-    const autoEntry: Record<string, unknown> = {
-      source: "managed",
-      label: "Auto",
-      description:
-        "Automatically routes each query to the best profile — fast for simple questions, capable for complex ones",
-    };
-    if (previousAuto) {
-      if ("label" in previousAuto) autoEntry.label = previousAuto.label;
-      if ("status" in previousAuto) autoEntry.status = previousAuto.status;
-    }
-    profiles[AUTO_PROFILE_KEY] = autoEntry as ProfileEntry;
-  }
-
   // 2. User profiles — only at hatch time for off-platform installations.
   let userConnectionName: string | undefined;
   if (options.isHatch && !isPlatform) {
@@ -439,6 +409,8 @@ export function seedInferenceProfiles(
     }
   }
 
+  pruneNonDispatchableProfiles(llm, profiles);
+
   // Active profile resolution.
   const requestedActiveProfile = readString(llm.activeProfile);
   const requestedActiveEntry =
@@ -475,15 +447,10 @@ export function seedInferenceProfiles(
   }
 
   // Profile ordering — ensure all seeded profiles appear in the order array.
-  // "auto" is prepended so it appears first in the picker.
   const profileOrder = Array.isArray(llm.profileOrder)
     ? (llm.profileOrder as string[])
     : [];
   const orderSet = new Set(profileOrder);
-  if (!orderSet.has(AUTO_PROFILE_KEY)) {
-    profileOrder.unshift(AUTO_PROFILE_KEY);
-    orderSet.add(AUTO_PROFILE_KEY);
-  }
   for (const name of Object.keys(MANAGED_PROFILE_TEMPLATES)) {
     if (!orderSet.has(name)) {
       profileOrder.push(name);
@@ -538,6 +505,77 @@ export function readObject(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function pruneNonDispatchableProfiles(
+  llm: Record<string, unknown>,
+  profiles: Record<string, Record<string, unknown>>,
+): void {
+  const removed = new Set<string>();
+  for (const [name, profile] of Object.entries(profiles)) {
+    if (!isDispatchableProfile(profile)) {
+      delete profiles[name];
+      removed.add(name);
+    }
+  }
+  pruneRemovedProfileReferences(llm, profiles, removed);
+}
+
+function pruneRemovedProfileReferences(
+  llm: Record<string, unknown>,
+  profiles: Record<string, Record<string, unknown>>,
+  removed: Set<string>,
+): void {
+  if (removed.size === 0) return;
+
+  let cascading = true;
+  while (cascading) {
+    cascading = false;
+    for (const [name, profile] of Object.entries(profiles)) {
+      if (removed.has(name)) continue;
+      if (!Array.isArray(profile.mix)) continue;
+      const arms = profile.mix as unknown[];
+      const kept = arms.filter((arm) => {
+        const armProfile = readObject(arm)?.profile;
+        return typeof armProfile !== "string" || !removed.has(armProfile);
+      });
+      if (kept.length === arms.length) continue;
+      if (kept.length >= MIX_MIN_ARMS) {
+        profile.mix = kept;
+      } else {
+        delete profiles[name];
+        removed.add(name);
+      }
+      cascading = true;
+    }
+  }
+
+  if (Array.isArray(llm.profileOrder)) {
+    llm.profileOrder = (llm.profileOrder as unknown[]).filter(
+      (name) => typeof name !== "string" || !removed.has(name),
+    );
+  }
+
+  if (
+    typeof llm.advisorProfile === "string" &&
+    removed.has(llm.advisorProfile)
+  ) {
+    delete llm.advisorProfile;
+  }
+
+  const callSites = readObject(llm.callSites);
+  if (callSites) {
+    for (const entry of Object.values(callSites)) {
+      const site = readObject(entry);
+      if (
+        site &&
+        typeof site.profile === "string" &&
+        removed.has(site.profile)
+      ) {
+        delete site.profile;
+      }
+    }
+  }
 }
 
 function readString(value: unknown): string | undefined {

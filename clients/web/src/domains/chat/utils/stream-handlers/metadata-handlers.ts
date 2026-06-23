@@ -4,7 +4,6 @@ import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/
 import type {
   CompactionCircuitClosedEvent,
   CompactionCircuitOpenEvent,
-  TurnProfileAutoRoutedEvent,
   UsageUpdateEvent,
 } from "@vellumai/assistant-api";
 
@@ -51,11 +50,4 @@ export function handleCompactionCircuitClosed(
   ctx: StreamHandlerContext,
 ): void {
   ctx.setCompactionCircuitOpenUntil(null);
-}
-
-export function handleTurnProfileAutoRouted(
-  event: TurnProfileAutoRoutedEvent,
-  ctx: StreamHandlerContext,
-): void {
-  ctx.turnActions.onProfileAutoRouted(event.profileLabel);
 }

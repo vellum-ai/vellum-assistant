@@ -18,7 +18,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
-import type { ProfileEntry, ProviderConnection } from "@/generated/daemon/types.gen";
+import type {
+  ProfileEntry,
+  ProviderConnection,
+} from "@/generated/daemon/types.gen";
 import * as daemonQueryGen from "@/generated/daemon/@tanstack/react-query.gen";
 
 // ---------------------------------------------------------------------------
@@ -66,15 +69,6 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-// Feature-flag store: `.use.<flag>()` accessors return booleans.
-mock.module("@/stores/assistant-feature-flag-store", () => {
-  const store = () => null;
-  store.use = {
-    queryComplexityRouting: () => false,
-  };
-  return { useAssistantFeatureFlagStore: store };
-});
-
 // Connections query — supply a single Anthropic connection so the provider-
 // first picker offers "Anthropic" without needing the inline create path.
 const connection: ProviderConnection = {
@@ -96,10 +90,10 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   ],
 }));
 
-const { configGetQueryKey } = await import("@/generated/daemon/@tanstack/react-query.gen");
-const { ManageProfilesModal } = await import(
-  "@/domains/settings/ai/manage-profiles-modal"
-);
+const { configGetQueryKey } =
+  await import("@/generated/daemon/@tanstack/react-query.gen");
+const { ManageProfilesModal } =
+  await import("@/domains/settings/ai/manage-profiles-modal");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -111,10 +105,9 @@ function Wrapper({ children }: { children: ReactNode }) {
   });
   // Seed the connections cache so the provider-first picker has options on
   // first render (the modal reads from this query).
-  client.setQueryData(
-    [{ _id: "inferenceProviderconnectionsGet" }],
-    { connections: [connection] },
-  );
+  client.setQueryData([{ _id: "inferenceProviderconnectionsGet" }], {
+    connections: [connection],
+  });
   // Seed the config cache
   const queryKey = configGetQueryKey({ path: { assistant_id: "asst-1" } });
   client.setQueryData(queryKey, {
