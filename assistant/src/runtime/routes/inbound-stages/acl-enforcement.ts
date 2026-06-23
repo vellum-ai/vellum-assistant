@@ -7,10 +7,7 @@ import type { AdmissionPolicy, SourceMetadata } from "@vellumai/gateway-client";
 
 import { isInviteCodeRedemptionEnabled } from "../../../channels/config.js";
 import type { ChannelId } from "../../../channels/types.js";
-import {
-  getGuardianDelivery,
-  guardianForChannel,
-} from "../../../contacts/guardian-delivery-reader.js";
+import { getGuardianDelivery } from "../../../contacts/guardian-delivery-reader.js";
 import { channelStatusToMemberStatus } from "../../../contacts/member-status.js";
 import type {
   ContactChannel,
@@ -28,6 +25,7 @@ import { getLogger } from "../../../util/logger.js";
 import { truncate } from "../../../util/truncate.js";
 import { hashVoiceCode } from "../../../util/voice-code.js";
 import { notifyGuardianOfAccessRequest } from "../../access-request-helper.js";
+import { resolveAnchoredGuardian } from "../../anchored-guardian.js";
 import { getInviteAdapterRegistry } from "../../channel-invite-transport.js";
 import {
   createOutboundSession,
@@ -55,22 +53,14 @@ const log = getLogger("runtime-http");
  * gracefully to the default reference.
  */
 async function resolveGuardianLabel(sourceChannel: ChannelId): Promise<string> {
-  const guardians = await getGuardianDelivery();
-  const vellumGuardian = guardianForChannel(guardians ?? [], "vellum");
-  const anchoredPrincipalId = vellumGuardian?.principalId;
-
-  if (!anchoredPrincipalId) {
-    return resolveGuardianName(undefined);
-  }
-
-  // Try source-channel guardian, but only accept it when the principal
-  // matches the assistant's anchor.
-  const sourceGuardian = guardianForChannel(guardians ?? [], sourceChannel);
-  if (sourceGuardian && sourceGuardian.principalId === anchoredPrincipalId) {
-    return resolveGuardianName(sourceGuardian.displayName);
-  }
-
-  return resolveGuardianName(vellumGuardian.displayName);
+  // Cosmetic copy, not an admission decision: no local-store fallback, and a
+  // missing anchor principal degrades to the default reference.
+  const anchored = resolveAnchoredGuardian({
+    guardians: await getGuardianDelivery(),
+    sourceChannel,
+    requireAnchorPrincipal: true,
+  });
+  return resolveGuardianName(anchored?.displayName);
 }
 
 // ---------------------------------------------------------------------------
