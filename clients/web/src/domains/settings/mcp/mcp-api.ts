@@ -27,6 +27,7 @@ export interface McpServerEntry {
   defaultRiskLevel: string;
   hasStaticAuth: boolean;
   authType: "none" | "bearer" | "api-key";
+  authHeaderName?: string;
   allowedTools?: string[];
   blockedTools?: string[];
 }

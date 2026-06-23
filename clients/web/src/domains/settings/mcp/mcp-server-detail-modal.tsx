@@ -46,9 +46,10 @@ export function McpServerDetailModal({
     if (server) {
       setRiskLevel(server.defaultRiskLevel);
       setAuthType(server.authType);
-      // Credential store never returns raw values — reset fields
+      // Credential store never returns raw values — reset secret fields.
+      // Preserve the non-secret header name for API-key auth rotations.
       setBearerToken("");
-      setApiKeyHeader("X-API-Key");
+      setApiKeyHeader(server.authHeaderName ?? "X-API-Key");
       setApiKeyValue("");
     }
   }, [server]);
