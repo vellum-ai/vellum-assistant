@@ -17,7 +17,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { ArrowRight, Sparkles, X } from "lucide-react";
+import { ArrowRight, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
@@ -318,6 +318,26 @@ export function ResearchResultsStep({
 // Suggestions
 // ---------------------------------------------------------------------------
 
+/** `#rrggbb` → `rgba()` string at the given alpha (for the chip's colored glow). */
+function hexToRgba(hex: string, alpha: number): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return `rgba(255,255,255,${alpha})`;
+  const n = parseInt(m[1]!, 16);
+  return `rgba(${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff}, ${alpha})`;
+}
+
+/** Mix a `#rrggbb` toward white by `amount` (0–1) — the shimmer highlight band. */
+function lightenHex(hex: string, amount: number): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return hex;
+  const n = parseInt(m[1]!, 16);
+  const ch = (shift: number) => {
+    const c = (n >> shift) & 0xff;
+    return Math.round(c + (255 - c) * amount);
+  };
+  return `#${((1 << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).slice(1)}`;
+}
+
 /**
  * Generic fallbacks shown only if the research turn produced no suggestions
  * (failure / sparse subject) so the step is never empty once it's done loading.
@@ -400,30 +420,42 @@ export function SuggestionsStep({
               initial={reduce ? false : { opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={reduce ? { duration: 0 } : { duration: 0.3, delay: i * 0.06 }}
-              className="flex items-center gap-3 rounded-2xl px-5 py-4 text-left text-[15px] transition-transform duration-150 hover:scale-[1.01] active:scale-[0.99]"
+              className="relative rounded-2xl px-5 py-4 text-left text-[15px] transition-transform duration-150 hover:scale-[1.01] active:scale-[0.99]"
               style={{
                 backgroundColor: tone.isLight
                   ? "rgba(0,0,0,0.06)"
                   : "rgba(255,255,255,0.1)",
               }}
             >
-              <Sparkles className="h-4 w-4 shrink-0" style={{ color: tone.fgMuted }} />
-              <div className="flex flex-col items-start gap-2">
-                <span>{s.suggestion}</span>
-                {s.plugin && (
-                  <span
-                    className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium leading-none"
-                    style={{
-                      backgroundColor: tone.isLight
-                        ? "rgba(0,0,0,0.08)"
-                        : "rgba(255,255,255,0.16)",
-                      color: tone.fgMuted,
-                    }}
-                  >
-                    {pluginDisplayName(s.plugin)}
-                  </span>
-                )}
-              </div>
+              <span>{s.suggestion}</span>
+              {s.plugin && (
+                // Colored, shimmering badge straddling the card's top-right edge.
+                // The avatar color pops against the dark backdrop; an animated
+                // gradient sweep (lightened highlight band) gives it the shine.
+                <motion.span
+                  className="absolute -top-2.5 right-4 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold leading-none"
+                  style={{
+                    color: tone.fg,
+                    backgroundImage: `linear-gradient(110deg, ${tone.bg} 0%, ${tone.bg} 38%, ${lightenHex(tone.bg, 0.55)} 50%, ${tone.bg} 62%, ${tone.bg} 100%)`,
+                    backgroundSize: "220% 100%",
+                    boxShadow: `0 2px 12px ${hexToRgba(tone.bg, 0.5)}, inset 0 1px 0 rgba(255,255,255,0.35)`,
+                  }}
+                  initial={reduce ? false : { backgroundPosition: "180% 0" }}
+                  animate={reduce ? undefined : { backgroundPosition: "-80% 0" }}
+                  transition={
+                    reduce
+                      ? undefined
+                      : {
+                          duration: 2.2,
+                          ease: "easeInOut",
+                          repeat: Infinity,
+                          repeatDelay: 1.4,
+                        }
+                  }
+                >
+                  {pluginDisplayName(s.plugin)}
+                </motion.span>
+              )}
             </motion.button>
           ))}
         </div>
