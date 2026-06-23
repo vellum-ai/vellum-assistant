@@ -68,7 +68,12 @@ export interface StartResearchOptions {
 }
 
 export interface UseResearchRunner extends ResearchRunnerState {
-  /** Fire the research turn. Idempotent — only the first call runs. */
+  /**
+   * Fire the research turn. Keyed by subject: calling again with the same
+   * subject is a no-op, but resubmitting with EDITED details (e.g. the user
+   * stepped back and changed their name/role) restarts the run and cancels the
+   * stale poll loop so the results reflect the corrected subject.
+   */
   start: (options: StartResearchOptions) => void;
 }
 
@@ -102,17 +107,26 @@ export function useResearchRunner(): UseResearchRunner {
     claims: [],
     suggestions: [],
   });
-  const startedRef = useRef(false);
+  // Monotonic run id: every fresh run claims the next id; in-flight loops bail
+  // the moment a newer run supersedes them. Paired with the last subject key so
+  // an identical resubmit is a no-op but an edited one restarts.
+  const runIdRef = useRef(0);
+  const subjectKeyRef = useRef<string | null>(null);
 
   const start = useCallback(
     ({ awaitAssistantId, subject, conversationTitle }: StartResearchOptions) => {
-      if (startedRef.current) return;
-      startedRef.current = true;
-      setState((s) => ({ ...s, status: "running" }));
+      const subjectKey = JSON.stringify(subject);
+      if (subjectKeyRef.current === subjectKey) return;
+      subjectKeyRef.current = subjectKey;
+      const runId = runIdRef.current + 1;
+      runIdRef.current = runId;
+      const isStale = () => runIdRef.current !== runId;
+      setState({ status: "running", claims: [], suggestions: [] });
 
       void (async () => {
         try {
           const assistantId = await awaitAssistantId();
+          if (isStale()) return;
 
           const conversation = await conversationsPost({
             path: { assistant_id: assistantId },
@@ -122,6 +136,7 @@ export function useResearchRunner(): UseResearchRunner {
             },
             throwOnError: false,
           });
+          if (isStale()) return;
           const conversationId = conversation.data?.id;
           if (!conversation.response?.ok || !conversationId) {
             setState((s) => ({ ...s, status: "error" }));
@@ -149,6 +164,7 @@ export function useResearchRunner(): UseResearchRunner {
             body,
             throwOnError: false,
           });
+          if (isStale()) return;
           if (!posted.response?.ok) {
             setState((s) => ({ ...s, status: "error" }));
             return;
@@ -162,11 +178,13 @@ export function useResearchRunner(): UseResearchRunner {
           let stableReads = 0;
           while (Date.now() < deadline) {
             await sleep(POLL_INTERVAL_MS);
+            if (isStale()) return;
             const listed = await messagesGet({
               path: { assistant_id: assistantId },
               query: { conversationId },
               throwOnError: false,
             });
+            if (isStale()) return;
             const messages = listed.data?.messages ?? [];
             const text = latestAssistantText(messages);
             if (text) {
@@ -178,8 +196,10 @@ export function useResearchRunner(): UseResearchRunner {
             }
           }
 
+          if (isStale()) return;
           setState((s) => ({ ...s, status: "done" }));
         } catch (err) {
+          if (isStale()) return;
           captureError(err, { context: "research_onboarding_runner" });
           setState((s) => ({ ...s, status: "error" }));
         }

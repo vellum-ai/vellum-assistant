@@ -131,6 +131,7 @@ export function ResearchOnboardingRoute() {
   // called on submit and internally awaits the hatch.
   const {
     start: startHatch,
+    ready: hatchReady,
     assistantId: hatchedAssistantId,
     awaitReady: awaitHatchReady,
   } = useBackgroundHatch();
@@ -141,10 +142,15 @@ export function ResearchOnboardingRoute() {
   // Landing on the form means a fresh run — clear any stale focus state left
   // behind by an abandoned previous attempt so the form itself never renders
   // chrome-less — and kick off the background hatch (idempotent).
+  //
+  // Gate the hatch on the flag: a cold visit starts with `researchOnboarding`
+  // defaulting to false until LD hydrates, and this effect runs before the
+  // `!enabled` redirect below. Without the gate a flag-off visitor would
+  // provision + poll an assistant before being bounced away.
   useEffect(() => {
     exitFocus();
-    startHatch();
-  }, [exitFocus, startHatch]);
+    if (enabled && flagsHydrated) startHatch();
+  }, [exitFocus, startHatch, enabled, flagsHydrated]);
 
   // Build the pre-chat context and hand off to the chat pipeline. The chosen
   // name is applied via `assistantName`; the avatar traits are applied to the
@@ -309,6 +315,7 @@ export function ResearchOnboardingRoute() {
         {step === "letschat" && (
           <LetsChatTomorrowStep
             assistantId={hatchedAssistantId}
+            assistantReady={hatchReady}
             onConnected={handleCheckinConnected}
             onSkip={() => goForwardTo("looking")}
             onBack={() => goBackTo("integration")}

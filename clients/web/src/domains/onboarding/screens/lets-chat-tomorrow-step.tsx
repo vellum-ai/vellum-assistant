@@ -10,8 +10,10 @@
  * real managed Google Calendar OAuth (calendar.events + identity scopes only)
  * via `useGoogleCalendarConnect`; on a successful grant the parent route fires
  * the Day-2 check-in prompt (`scheduleCheckin`) and advances. "Skip for now"
- * just advances. The connect button waits on the background hatch — it's
- * disabled until the assistant id is available.
+ * just advances. The connect button waits on the background hatch being fully
+ * READY (active + healthz-passed), not just having an id — `scheduleCheckin`
+ * talks to the daemon, so an OAuth completed against a not-yet-reachable daemon
+ * would silently no-op while the flow advanced to "Meeting Created!".
  */
 
 import { Loader2 } from "lucide-react";
@@ -21,8 +23,10 @@ import { useGoogleCalendarConnect } from "@/domains/onboarding/hooks/use-google-
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
 
 interface LetsChatTomorrowStepProps {
-  /** Hatched assistant id; null until the background hatch is ready. */
+  /** Hatched assistant id; null until the background hatch resolves. */
   assistantId: string | null;
+  /** True once the hatch is fully healthy (daemon reachable), not just hatched. */
+  assistantReady: boolean;
   /** Fired once the Google Calendar grant lands, with the scopes granted. */
   onConnected: (scopes: string[]) => void;
   onSkip: () => void;
@@ -33,6 +37,7 @@ interface LetsChatTomorrowStepProps {
 
 export function LetsChatTomorrowStep({
   assistantId,
+  assistantReady,
   onConnected,
   onSkip,
   onBack,
@@ -43,8 +48,9 @@ export function LetsChatTomorrowStep({
     assistantId: assistantId ?? "",
     onConnect: onConnected,
   });
-  // The assistant must be hatched before we can start its OAuth flow.
-  const connectDisabled = !assistantId || oauthInProgress;
+  // Wait for full readiness (not just an id): the post-OAuth `scheduleCheckin`
+  // hits the daemon, which may not be reachable until healthz passes.
+  const connectDisabled = !assistantId || !assistantReady || oauthInProgress;
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
