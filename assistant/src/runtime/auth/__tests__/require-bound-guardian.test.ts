@@ -7,6 +7,9 @@ let authDisabled = false;
 
 mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
   getGuardianDelivery: async () => mockGuardians,
+  // Real active-status selector so the auth gate enforces status==="active".
+  guardianForChannel: (list: GuardianDelivery[], channelType: string) =>
+    list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
 mock.module("../../../config/env.js", () => ({
@@ -73,6 +76,15 @@ describe("requireBoundGuardian", () => {
 
   test("denies when no vellum guardian is bound", async () => {
     mockGuardians = [];
+    const result = await requireBoundGuardian(ctx("vellum-principal-abc"));
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe(403);
+  });
+
+  test("denies a non-active (revoked) vellum row matching the actor", async () => {
+    mockGuardians = [
+      { ...guardian("vellum-principal-abc"), status: "revoked" },
+    ];
     const result = await requireBoundGuardian(ctx("vellum-principal-abc"));
     expect(result).not.toBeNull();
     expect(result!.status).toBe(403);

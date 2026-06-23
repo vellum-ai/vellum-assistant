@@ -26,6 +26,12 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
   guardianForChannel: () => undefined,
 }));
 
+// connectivity falls back to the local contacts read on a per-channel gateway
+// no-match; no local binding ⇒ telegram stays disconnected.
+mock.module("../contacts/contact-store.js", () => ({
+  findGuardianForChannel: () => null,
+}));
+
 mock.module("../notifications/adapters/macos.js", () => ({
   VellumAdapter: class {
     constructor(_broadcastFn: unknown) {}

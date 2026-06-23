@@ -2,9 +2,10 @@
  * Tests for getConnectedChannels connectivity resolution.
  *
  * Connectivity must mirror destination-resolver's `resolveGuardian`:
- * gateway-first, with a LOCAL contacts fallback only when the gateway list is
- * null (unreachable). This keeps a channel from being marked connected when it
- * can't be delivered (and vice-versa).
+ * gateway-first, with a LOCAL contacts fallback on ANY per-channel no-match
+ * (gateway list null OR no active gateway entry for the channel). This keeps a
+ * channel from being marked connected when it can't be delivered (and
+ * vice-versa).
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -82,14 +83,15 @@ describe("getConnectedChannels gateway-first-then-local connectivity", () => {
     expect(await getConnectedChannels()).not.toContain("telegram");
   });
 
-  test("does not fall back to local when the gateway responds without that channel", async () => {
-    // Gateway present but empty for telegram ⇒ gateway is authoritative, no
-    // per-channel local fallback (mirrors destination-resolver).
+  test("falls back to local when the gateway responds without that channel", async () => {
+    // Gateway present but with no active telegram entry ⇒ per-channel no-match,
+    // so connectivity falls back to the local mirror (mirrors
+    // destination-resolver's per-channel fallback).
     deliverableChannels = ["telegram"];
     gatewayGuardians = [];
     localChatId = "789";
 
-    expect(await getConnectedChannels()).not.toContain("telegram");
+    expect(await getConnectedChannels()).toContain("telegram");
   });
 
   test("only marks slack connected for D-prefixed (DM) chat IDs", async () => {
