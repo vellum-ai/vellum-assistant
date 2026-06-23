@@ -8,7 +8,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  buildSubagentToolDetails,
+  buildSubagentStepDetails,
   computeSubagentCardData,
   mapToolEventToStep,
 } from "@/domains/chat/hooks/use-subagent-card-data";
@@ -660,12 +660,12 @@ describe("computeSubagentCardData — error event toolUseId correlation", () => 
 });
 
 // ---------------------------------------------------------------------------
-// buildSubagentToolDetails — nested tool-detail payload map
+// buildSubagentStepDetails — nested tool-detail payload map
 // ---------------------------------------------------------------------------
 
-describe("buildSubagentToolDetails", () => {
+describe("buildSubagentStepDetails", () => {
   test("tool_call + tool_result → one completed payload with raw input/result + duration", () => {
-    const details = buildSubagentToolDetails(
+    const details = buildSubagentStepDetails(
       makeEntry({
         events: [
           makeEvent(
@@ -704,8 +704,32 @@ describe("buildSubagentToolDetails", () => {
     expect(payload.kind).toBe("tool");
   });
 
+  test("text event → thinking payload with the full, un-truncated content", () => {
+    const content = "Line one.\n\nLine two with   many   spaces preserved.";
+    const details = buildSubagentStepDetails(
+      makeEntry({
+        events: [makeEvent({ type: "text", content }, 0)],
+      }),
+    );
+    expect(details.size).toBe(1);
+    const payload = details.get("te-0")!;
+    expect(payload.kind).toBe("thinking");
+    expect(payload.status).toBe("completed");
+    // Full content verbatim — NOT the collapsed/truncated timeline preview.
+    expect(payload.thinkingText).toBe(content);
+  });
+
+  test("whitespace-only text event produces no thinking payload", () => {
+    const details = buildSubagentStepDetails(
+      makeEntry({
+        events: [makeEvent({ type: "text", content: "   \n  " }, 0)],
+      }),
+    );
+    expect(details.size).toBe(0);
+  });
+
   test("falls back to event.content for result when result is absent", () => {
-    const details = buildSubagentToolDetails(
+    const details = buildSubagentStepDetails(
       makeEntry({
         events: [
           makeEvent(
@@ -728,7 +752,7 @@ describe("buildSubagentToolDetails", () => {
   });
 
   test("in-flight tool_call with no result → running payload, result undefined", () => {
-    const details = buildSubagentToolDetails(
+    const details = buildSubagentStepDetails(
       makeEntry({
         events: [
           makeEvent(
@@ -752,7 +776,7 @@ describe("buildSubagentToolDetails", () => {
   });
 
   test("tool_call with empty toolUseId is skipped (can't be keyed/clicked)", () => {
-    const details = buildSubagentToolDetails(
+    const details = buildSubagentStepDetails(
       makeEntry({
         events: [makeEvent({ type: "tool_call", toolName: "bash" })],
       }),
@@ -761,7 +785,7 @@ describe("buildSubagentToolDetails", () => {
   });
 
   test("parallel calls to the same tool with distinct ids → two payloads matched by id", () => {
-    const details = buildSubagentToolDetails(
+    const details = buildSubagentStepDetails(
       makeEntry({
         events: [
           makeEvent(
@@ -807,7 +831,7 @@ describe("buildSubagentToolDetails", () => {
   });
 
   test("isError result → error status with the result preserved", () => {
-    const details = buildSubagentToolDetails(
+    const details = buildSubagentStepDetails(
       makeEntry({
         events: [
           makeEvent(
@@ -836,7 +860,7 @@ describe("buildSubagentToolDetails", () => {
     // When a tool fails, the store maps the inner event to type `"error"`
     // (not `"tool_result"`) but preserves `result` + `isError`. The matcher
     // must catch it regardless of the mapped type.
-    const details = buildSubagentToolDetails(
+    const details = buildSubagentStepDetails(
       makeEntry({
         events: [
           makeEvent(
@@ -862,7 +886,7 @@ describe("buildSubagentToolDetails", () => {
   });
 
   test("equal timestamps (synthetic history) yield no durationLabel", () => {
-    const details = buildSubagentToolDetails(
+    const details = buildSubagentStepDetails(
       makeEntry({
         status: "completed",
         events: [

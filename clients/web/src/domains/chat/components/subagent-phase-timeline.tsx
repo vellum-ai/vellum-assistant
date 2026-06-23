@@ -59,19 +59,32 @@ function runningActivity(section: PhaseSection): string {
   return section.label;
 }
 
+/**
+ * Detail-map key for a step that can open a nested detail view: a tool step's
+ * `toolCallId`, or a thinking step's `detailKey` (stamped by the subagent
+ * projection). `undefined` for steps with no detail / no key, which stay
+ * non-interactive. Mirrors the keys `buildSubagentStepDetails` emits.
+ */
+function stepDetailKey(step: ToolCallCardStep): string | undefined {
+  if (step.kind === "tool") return step.toolCallId || undefined;
+  if (step.kind === "thinking") return step.detailKey;
+  return undefined;
+}
+
 export function SubagentPhaseTimeline({
   steps,
-  onToolStepClick,
+  onStepDetailClick,
   expandedKeys,
   onExpandedKeysChange,
 }: {
   steps: ToolCallCardStep[];
   /**
-   * When supplied, expanded tool steps render as clickable `ToolStepPill`
-   * buttons; clicking one calls back with the step's `toolCallId`. Optional so
-   * this component is deploy-safe without a consumer wired up.
+   * When supplied, expanded steps that have a detail (tool calls and thinking
+   * segments) render as clickable `ToolStepPill` buttons; clicking one calls
+   * back with that step's detail key (see `stepDetailKey`). Optional so this
+   * component is deploy-safe without a consumer wired up.
    */
-  onToolStepClick?: (toolCallId: string) => void;
+  onStepDetailClick?: (detailKey: string) => void;
   /**
    * Controlled expand/collapse state — the set of currently-expanded section
    * keys. When supplied (with `onExpandedKeysChange`), the parent owns this
@@ -123,7 +136,7 @@ export function SubagentPhaseTimeline({
             expanded={expanded.has(key)}
             sectionKeyValue={key}
             onToggle={toggle}
-            onToolStepClick={onToolStepClick}
+            onStepDetailClick={onStepDetailClick}
           />
         );
       })}
@@ -137,14 +150,14 @@ function SubagentPhaseRow({
   expanded,
   sectionKeyValue,
   onToggle,
-  onToolStepClick,
+  onStepDetailClick,
 }: {
   section: PhaseSection;
   isLast: boolean;
   expanded: boolean;
   sectionKeyValue: string;
   onToggle: (key: string) => void;
-  onToolStepClick?: (toolCallId: string) => void;
+  onStepDetailClick?: (detailKey: string) => void;
 }) {
   const status = phaseHeaderStatus(section.steps);
   const isThinking = section.steps[0]?.kind === "thinking";
@@ -153,21 +166,18 @@ function SubagentPhaseRow({
   // The "N steps" pill only makes sense for a multi-step phase.
   const showStepCount = stepCount >= 2;
   // A row is interactive (the whole row is a pointer-cursor toggle) when at
-  // least one step actually renders a pill in the expanded body, so expanding
-  // can never reveal an empty body. That happens two ways: the step renders a
-  // `DefaultStepPill` (`stepRendersPill`, `DefaultStepPill`'s own predicate),
-  // OR it renders a clickable `ToolStepPill`. A clickable tool step renders
-  // even when its labeler left `info` empty (the pill falls back to
-  // `step.title`), so it counts toward expandability too — otherwise a
-  // tool-only phase whose tool produced no `info` would be wrongly
-  // non-expandable and its nested tool detail unreachable. The clickable arm
-  // mirrors the expanded body's render condition below.
+  // least one step renders a pill in the expanded body, so expanding can never
+  // reveal an empty body. That happens two ways: the step renders a
+  // `DefaultStepPill` (`stepRendersPill`, its own predicate), OR it renders a
+  // clickable `ToolStepPill`. A step with a detail key (a tool call or a
+  // thinking segment, with a handler wired) renders a clickable pill even when
+  // `stepRendersPill` is false for it — e.g. an info-less tool call, whose pill
+  // falls back to `step.title` — so it counts toward expandability too. The
+  // clickable arm mirrors the expanded body's render condition below.
   const isExpandable = section.steps.some(
     (step) =>
       stepRendersPill(step) ||
-      (step.kind === "tool" &&
-        Boolean(step.toolCallId) &&
-        Boolean(onToolStepClick)),
+      (Boolean(onStepDetailClick) && Boolean(stepDetailKey(step))),
   );
 
   const totalDuration =
@@ -298,26 +308,43 @@ function SubagentPhaseRow({
       {isExpandable && expanded && (
         <div className="flex flex-col items-start gap-1 pl-[22px]">
           {section.steps.map((step, stepIdx) => {
-            // Clickable only for tool steps with a real `toolCallId` AND a
-            // consumer wired up; everything else keeps the non-interactive
-            // `DefaultStepPill` (thinking detail is intentionally out of scope).
-            if (step.kind === "tool" && step.toolCallId && onToolStepClick) {
-              return (
-                <ToolStepPill
-                  key={stepKey(step, stepIdx)}
-                  variant="tool"
-                  iconName={step.iconName}
-                  label={step.activity || step.info || step.title}
-                  riskLevel={step.riskLevel}
-                  tone={
-                    step.status === "error" || step.status === "denied"
-                      ? "error"
-                      : "default"
-                  }
-                  ariaLabel="View tool details"
-                  onClick={() => onToolStepClick(step.toolCallId)}
-                />
-              );
+            // A step with a detail key + a wired handler renders a clickable
+            // `ToolStepPill` that opens its nested detail; everything else keeps
+            // the non-interactive `DefaultStepPill`.
+            const detailKey = onStepDetailClick
+              ? stepDetailKey(step)
+              : undefined;
+            if (detailKey && onStepDetailClick) {
+              if (step.kind === "tool") {
+                return (
+                  <ToolStepPill
+                    key={stepKey(step, stepIdx)}
+                    variant="tool"
+                    iconName={step.iconName}
+                    label={step.activity || step.info || step.title}
+                    riskLevel={step.riskLevel}
+                    tone={
+                      step.status === "error" || step.status === "denied"
+                        ? "error"
+                        : "default"
+                    }
+                    ariaLabel="View tool details"
+                    onClick={() => onStepDetailClick(detailKey)}
+                  />
+                );
+              }
+              if (step.kind === "thinking") {
+                return (
+                  <ToolStepPill
+                    key={stepKey(step, stepIdx)}
+                    variant="tool"
+                    iconName="brain"
+                    label={step.text}
+                    ariaLabel="View reasoning"
+                    onClick={() => onStepDetailClick(detailKey)}
+                  />
+                );
+              }
             }
             return <DefaultStepPill key={stepKey(step, stepIdx)} step={step} />;
           })}

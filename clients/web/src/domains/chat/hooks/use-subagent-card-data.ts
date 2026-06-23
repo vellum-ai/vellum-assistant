@@ -244,7 +244,10 @@ export function computeSubagentCardData(
       const text = trimTextPreview(event.content);
       // Skip empty text events — they'd render as a blank thinking step.
       if (text.length === 0) continue;
-      steps.push({ kind: "thinking", durationLabel: "", text });
+      // `detailKey` (the source event id) lets the timeline pill open the full,
+      // un-truncated reasoning via `buildSubagentStepDetails` — the pill itself
+      // only carries the collapsed `text` preview.
+      steps.push({ kind: "thinking", durationLabel: "", text, detailKey: event.id });
       toolMeta.push(undefined);
       continue;
     }
@@ -435,21 +438,24 @@ export function useSubagentCardData(
 }
 
 /**
- * Pure projection of (entry) → a `toolCallId`-keyed map of nested tool-detail
- * payloads. Separate from `computeSubagentCardData` (whose `ToolCallCardStep`s
- * carry only label/duration, not the raw `input`/`result`) so the clickable
- * timeline pills can open the full tool-detail drawer (`ToolDetailBody`) for
- * the tool whose id they emit.
+ * Pure projection of (entry) → a map of nested detail payloads, keyed by the
+ * id a clickable timeline pill emits. Separate from `computeSubagentCardData`
+ * (whose `ToolCallCardStep`s carry only label/duration + a truncated text
+ * preview, not the raw `input`/`result` or full reasoning) so the pills can
+ * open the full detail view:
+ *  - tool steps → `ToolDetailBody` (technical details + output), keyed by
+ *    `toolUseId`; `tool_call` events with an empty id are skipped.
+ *  - text/thinking steps → a `kind: "thinking"` payload carrying the FULL,
+ *    un-truncated reasoning markdown, keyed by the text event's id (matching
+ *    the `detailKey` `computeSubagentCardData` stamps on the thinking step).
  *
- * Walks `entry.events` in order, tracking in-flight payloads and resolving
+ * Walks `entry.events` in order, tracking in-flight tool payloads and resolving
  * `tool_result` / `error` follow-ups against them with `matchInFlightTool` —
  * the same precedence `computeSubagentCardData` uses, so the two stay aligned.
- *
- * Keyed by `toolUseId`; `tool_call` events with an empty id are skipped (they
- * can't be keyed or clicked). Risk fields (`riskLevel`/`riskReason`) are
- * omitted — subagent timeline events don't carry them.
+ * Risk fields (`riskLevel`/`riskReason`) are omitted — subagent timeline events
+ * don't carry them.
  */
-export function buildSubagentToolDetails(
+export function buildSubagentStepDetails(
   entry: SubagentEntry,
 ): Map<string, ToolDetailPayload> {
   const payloads: ToolDetailPayload[] = [];
@@ -458,6 +464,27 @@ export function buildSubagentToolDetails(
   const meta: Array<{ startTs: number; running: boolean }> = [];
 
   for (const event of entry.events) {
+    // Text events become clickable "thinking" pills. Carry the FULL content
+    // (the timeline pill shows only a collapsed preview) and key by the event
+    // id to match the step's `detailKey`. Skip whitespace-only text exactly as
+    // `computeSubagentCardData` does so steps and payloads stay aligned.
+    if (event.type === "text") {
+      if ((event.content ?? "").trim().length === 0) continue;
+      payloads.push({
+        toolCallId: event.id,
+        toolName: "",
+        title: "Thought",
+        activity: "",
+        input: {},
+        status: "completed",
+        durationLabel: "",
+        kind: "thinking",
+        thinkingText: event.content,
+      });
+      meta.push({ startTs: event.timestamp, running: false });
+      continue;
+    }
+
     if (event.type === "tool_call") {
       const toolCallId = event.toolUseId ?? "";
       // Skip calls without an id — they can't be keyed or clicked.

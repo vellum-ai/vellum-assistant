@@ -70,6 +70,13 @@ export type ToolCallCardStep =
        * have no backing reasoning item and keep the snapshot path.
        */
       thinkingItemIndex?: number;
+      /**
+       * Opaque key into a parent-built detail-payload map, letting a clickable
+       * thinking pill open its full reasoning in a detail view. Set by the
+       * subagent timeline (the source text event's id); unset elsewhere, where
+       * thinking pills stay non-interactive.
+       */
+      detailKey?: string;
     }
   | {
       kind: "web_search";

@@ -23,22 +23,22 @@ mock.module("@/domains/chat/components/subagent-status-badge", () => ({
 
 // The real timeline is exercised in its own test; here we stub it so the panel
 // tests stay focused on the panel's own behavior. The stub renders a button
-// that forwards a fixed tool-call id to the panel's `onToolStepClick`, letting
+// that forwards a fixed tool-call id to the panel's `onStepDetailClick`, letting
 // us drive the nested tool-detail swap without depending on the timeline's
 // expand/pill internals.
 mock.module("@/domains/chat/components/subagent-phase-timeline", () => ({
   SubagentPhaseTimeline: ({
-    onToolStepClick,
+    onStepDetailClick,
     expandedKeys,
     onExpandedKeysChange,
   }: {
-    onToolStepClick?: (toolCallId: string) => void;
+    onStepDetailClick?: (detailKey: string) => void;
     expandedKeys?: Set<string>;
     onExpandedKeysChange?: (next: Set<string>) => void;
   }) => (
     <div data-testid="timeline">
       {/* Surfaces the controlled expand state so a test can assert the panel
-          preserves it across the tool-detail view swap. */}
+          preserves it across the detail view swap. */}
       <button
         type="button"
         data-testid="timeline-expand"
@@ -51,9 +51,16 @@ mock.module("@/domains/chat/components/subagent-phase-timeline", () => ({
       <button
         type="button"
         data-testid="timeline-pill"
-        onClick={() => onToolStepClick?.("tool-1")}
+        onClick={() => onStepDetailClick?.("tool-1")}
       >
         pill
+      </button>
+      <button
+        type="button"
+        data-testid="timeline-thinking-pill"
+        onClick={() => onStepDetailClick?.("think-1")}
+      >
+        thinking
       </button>
     </div>
   ),
@@ -398,7 +405,7 @@ describe("SubagentDetailPanel — objective", () => {
 
 /**
  * A `tool_call`/`tool_result` pair whose `toolUseId` matches the id the stubbed
- * timeline forwards (`tool-1`), so `buildSubagentToolDetails(entry)` produces a
+ * timeline forwards (`tool-1`), so `buildSubagentStepDetails(entry)` produces a
  * payload the panel can swap into. `completed` overrides whether the call has a
  * result (closed) or is still in flight (running output state).
  */
@@ -428,6 +435,24 @@ function entryWithTool(completed: boolean): SubagentEntry {
             },
           ]
         : []),
+    ],
+  });
+}
+
+/**
+ * A single `text` event whose id matches the key the stubbed thinking pill
+ * forwards (`think-1`), so `buildSubagentStepDetails(entry)` produces a
+ * `kind: "thinking"` payload carrying the full reasoning markdown.
+ */
+function entryWithThinking(): SubagentEntry {
+  return makeEntry({
+    events: [
+      {
+        id: "think-1",
+        type: "text",
+        content: "Full reasoning the pill preview truncates.",
+        timestamp: Date.now(),
+      },
     ],
   });
 }
@@ -524,5 +549,24 @@ describe("SubagentDetailPanel — nested tool detail", () => {
     expect(screen.getByTestId("timeline-expand").textContent).toBe(
       "group-closed",
     );
+  });
+
+  test("clicking a thinking pill shows its full reasoning, no tool sections", () => {
+    render(<SubagentDetailPanel entry={entryWithThinking()} onClose={noop} />);
+
+    fireEvent.click(screen.getByTestId("timeline-thinking-pill"));
+
+    // The full (un-truncated) reasoning is rendered as markdown, with none of
+    // the tool-detail sections.
+    expect(
+      screen.getByText("Full reasoning the pill preview truncates."),
+    ).toBeDefined();
+    expect(screen.queryByText("Technical details")).toBeNull();
+    expect(screen.queryByText("Output")).toBeNull();
+
+    // Back returns to the timeline.
+    fireEvent.click(screen.getByText("Back"));
+    expect(screen.getByTestId("timeline")).toBeDefined();
+    expect(screen.queryByText("Back")).toBeNull();
   });
 });

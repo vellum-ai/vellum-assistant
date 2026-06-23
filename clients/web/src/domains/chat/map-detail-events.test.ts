@@ -104,7 +104,7 @@ describe("mapDetailEvents", () => {
     expect(events[0]!.input).toEqual({ command: "ls -la" });
     expect(events[1]!.type).toBe("tool_result");
     expect(events[1]!.toolUseId).toBe("toolu_1");
-    // result rides in content; buildSubagentToolDetails falls back to it.
+    // result rides in content; buildSubagentStepDetails falls back to it.
     expect(events[1]!.content).toBe("total 0");
   });
 

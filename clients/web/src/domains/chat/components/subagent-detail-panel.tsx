@@ -23,10 +23,11 @@ import { isActiveStatus } from "@/utils/subagent-status";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { Button, Typography } from "@vellumai/design-library";
 
+import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { SubagentPhaseTimeline } from "@/domains/chat/components/subagent-phase-timeline";
 import { ToolDetailBody } from "@/domains/chat/components/tool-detail-panel";
 import {
-    buildSubagentToolDetails,
+    buildSubagentStepDetails,
     computeSubagentCardData,
 } from "@/domains/chat/hooks/use-subagent-card-data";
 
@@ -75,18 +76,20 @@ export function SubagentDetailPanel({
   // panel body to a tool's input/output when its timeline pill is clicked —
   // without ever touching the global viewer-store / main view.
   //
-  // A tool step is clickable only when its event carries a `toolUseId` (the
-  // key) — true for both live streaming events and reloaded/history subagents
-  // hydrated via `onRequestDetail` from `GET /subagents/:id` (the route emits
-  // the tool id + raw input, and `mapDetailEvents` carries them through). Steps
-  // without a `toolUseId` simply have no entry here and render as non-clickable
-  // pills — a graceful fallback, not an error.
-  const toolDetails = useMemo(() => buildSubagentToolDetails(entry), [entry]);
+  // Detail payloads for clickable timeline steps, keyed by the id a pill emits.
+  // Tool steps key on their `toolUseId` (present for both live streaming events
+  // and reloaded/history subagents hydrated via `onRequestDetail` from
+  // `GET /subagents/:id`, which emits the tool id + raw input that
+  // `mapDetailEvents` carries through); thinking/text steps key on the source
+  // event id and carry the full, un-truncated reasoning. Steps with no entry
+  // here render as non-clickable pills — a graceful fallback, not an error.
+  const stepDetails = useMemo(() => buildSubagentStepDetails(entry), [entry]);
 
-  // Which tool call's detail (if any) is shown nested inside this panel. `null`
-  // shows the timeline. Reset on subagent switch via the render-phase block
-  // below so a detail opened for one subagent doesn't leak onto the next.
-  const [selectedToolCallId, setSelectedToolCallId] = useState<string | null>(
+  // Which step's detail (if any) is shown nested inside this panel — the key
+  // into `stepDetails` (a tool call or a thinking segment), or `null` to show
+  // the timeline. Reset on subagent switch via the render-phase block below so
+  // a detail opened for one subagent doesn't leak onto the next.
+  const [selectedDetailKey, setSelectedDetailKey] = useState<string | null>(
     null,
   );
 
@@ -119,7 +122,7 @@ export function SubagentDetailPanel({
     setObjectiveOverflows(false);
     // Switching subagents returns the panel to the timeline view and clears
     // the previous subagent's expanded groups.
-    setSelectedToolCallId(null);
+    setSelectedDetailKey(null);
     setExpandedSectionKeys(new Set());
   }
 
@@ -154,8 +157,8 @@ export function SubagentDetailPanel({
 
   // The selected tool's nested payload, or `undefined` when nothing is selected
   // or the id has no payload (defensive — fall back to the timeline view).
-  const activeDetail = selectedToolCallId
-    ? toolDetails.get(selectedToolCallId)
+  const activeDetail = selectedDetailKey
+    ? stepDetails.get(selectedDetailKey)
     : undefined;
 
   return (
@@ -203,23 +206,33 @@ export function SubagentDetailPanel({
         />
       </div>
 
-      {/* Scrollable body — swaps to a tool's nested detail when one is selected,
+      {/* Scrollable body — swaps to a step's nested detail when one is selected,
           keeping the header above mounted in both views. */}
       <div className="flex-1 overflow-y-auto px-5 py-5">
         {activeDetail ? (
           <>
             <button
               type="button"
-              onClick={() => setSelectedToolCallId(null)}
+              onClick={() => setSelectedDetailKey(null)}
               className="mb-4 flex cursor-pointer items-center gap-1.5 text-[var(--content-secondary)] transition-colors hover:text-[var(--content-default)]"
             >
               <ChevronLeft className="h-4 w-4" aria-hidden />
               <Typography variant="label-medium-default">Back</Typography>
             </button>
-            <ToolDetailBody
-              detail={activeDetail}
-              showTechnicalDetailsLabel={false}
-            />
+            {/* Thinking steps render their full reasoning markdown statically
+                (subagent detail isn't a live chat-session source); tool steps
+                use the shared technical-details/output body. */}
+            {activeDetail.kind === "thinking" ? (
+              <ChatMarkdownMessage
+                content={activeDetail.thinkingText ?? ""}
+                hardLineBreaks
+              />
+            ) : (
+              <ToolDetailBody
+                detail={activeDetail}
+                showTechnicalDetailsLabel={false}
+              />
+            )}
           </>
         ) : (
           <>
@@ -319,8 +332,8 @@ export function SubagentDetailPanel({
                   steps={cardData.steps}
                   expandedKeys={expandedSectionKeys}
                   onExpandedKeysChange={setExpandedSectionKeys}
-                  onToolStepClick={(id) => {
-                    if (toolDetails.has(id)) setSelectedToolCallId(id);
+                  onStepDetailClick={(key) => {
+                    if (stepDetails.has(key)) setSelectedDetailKey(key);
                   }}
                 />
               ) : (
