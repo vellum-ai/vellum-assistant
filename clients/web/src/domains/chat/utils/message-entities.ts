@@ -88,8 +88,7 @@ function resolveRowKey(m: DisplayMessage, prior: MessageEntityState | undefined)
 
 /**
  * Rebuild the whole entity state from a flat message array — the bulk path
- * for a history load / reconcile snapshot apply (Phase 1 keeps these going
- * through the store; Phase 2 moves history to the Query cache).
+ * for a history load / reconcile snapshot apply.
  *
  * Pass `prior` (the state being replaced) on a mid-turn reapply so a row keeps
  * the rowKey it already has: a nonce-born optimistic row that adopts its server
