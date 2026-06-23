@@ -300,14 +300,20 @@ function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
   }
 
   // Strip invalid fields by setting them to undefined so Zod defaults apply,
-  // then re-parse. We walk the error paths and delete the offending keys.
+  // then re-parse. We walk the error paths and delete the offending keys,
+  // pruning any ancestor object the deletion leaves empty. Pruning matters for
+  // nested overrides like `llm.callSites.<id>.profile`: stripping just the
+  // invalid `.profile` leaf would leave `llm.callSites.<id> = {}`, which the
+  // resolver treats as a present (non-default) override and so skips the
+  // shipped call-site default — silently downgrading the call site to the
+  // active profile. Removing the emptied object lets that default apply.
   const cleaned = structuredClone(raw);
   for (const issue of result.error.issues) {
     if (issue.path.length === 0) {
       // Top-level error — return full defaults
       return cloneDefaultConfig();
     }
-    deleteNestedKey(cleaned, issue.path as (string | number)[]);
+    deleteNestedKey(cleaned, issue.path as (string | number)[], true);
   }
 
   const retry = AssistantConfigSchema.safeParse(cleaned);
@@ -320,17 +326,42 @@ function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
   return cloneDefaultConfig();
 }
 
+/**
+ * Delete the key at `path` from `obj`. When `pruneEmptyAncestors` is set, also
+ * remove any ancestor object the deletion leaves empty, walking up until the
+ * first ancestor that still holds other keys. Only empty plain objects are
+ * pruned (arrays are left alone), and a still-populated ancestor stops the walk
+ * so a container holding other config is never removed.
+ */
 function deleteNestedKey(
   obj: Record<string, unknown>,
   path: (string | number)[],
+  pruneEmptyAncestors = false,
 ): void {
+  // Record each (container, key) hop on the way down so we can prune upward
+  // after deleting the leaf.
+  const chain: Array<{ container: Record<string, unknown>; key: string }> = [];
   let current: unknown = obj;
   for (let i = 0; i < path.length - 1; i++) {
     if (current == null || typeof current !== "object") return;
-    current = (current as Record<string, unknown>)[String(path[i])];
+    const key = String(path[i]);
+    chain.push({ container: current as Record<string, unknown>, key });
+    current = (current as Record<string, unknown>)[key];
   }
-  if (current != null && typeof current === "object") {
-    delete (current as Record<string, unknown>)[String(path[path.length - 1])];
+  if (current == null || typeof current !== "object") return;
+  delete (current as Record<string, unknown>)[String(path[path.length - 1])];
+
+  if (!pruneEmptyAncestors) return;
+  // Remove ancestors emptied by the deletion, deepest first; stop at the first
+  // that still has keys.
+  for (let i = chain.length - 1; i >= 0; i--) {
+    const { container, key } = chain[i];
+    const child = container[key];
+    if (isPlainObject(child) && Object.keys(child).length === 0) {
+      delete container[key];
+    } else {
+      break;
+    }
   }
 }
 
