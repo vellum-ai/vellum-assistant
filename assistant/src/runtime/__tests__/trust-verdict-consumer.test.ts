@@ -265,6 +265,62 @@ describe("actorTrustContextFromVerdict", () => {
     expect(ctx.actorMetadata.displayName).toBeUndefined();
   });
 
+  test("member verdict populates memberRecord from the verdict (voice ACL)", () => {
+    const verdict = {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "u-1",
+      contactId: "contact-1",
+      channelId: "channel-1",
+      type: "slack",
+      address: "u-1",
+      status: "blocked",
+      policy: "deny",
+    } satisfies TrustVerdict;
+
+    const ctx = actorTrustContextFromVerdict(verdict, {
+      sourceChannel: "slack",
+      conversationExternalId: CONV,
+    });
+
+    expect(ctx.memberRecord).not.toBeNull();
+    expect(ctx.memberRecord!.contact.id).toBe("contact-1");
+    expect(ctx.memberRecord!.channel.id).toBe("channel-1");
+    expect(ctx.memberRecord!.channel.status).toBe("blocked");
+    expect(ctx.memberRecord!.channel.policy).toBe("deny");
+  });
+
+  test("stranger verdict (no contactId/channelId) leaves memberRecord null", () => {
+    const verdict = {
+      trustClass: "unknown",
+      canonicalSenderId: "u-9",
+    } satisfies TrustVerdict;
+
+    const ctx = actorTrustContextFromVerdict(verdict, {
+      sourceChannel: "slack",
+      conversationExternalId: CONV,
+    });
+
+    expect(ctx.memberRecord).toBeNull();
+  });
+
+  test("malformed member verdict (unknown status) leaves memberRecord null (fail-closed)", () => {
+    const verdict = {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "u-10",
+      contactId: "contact-10",
+      channelId: "channel-10",
+      status: "quarantined",
+      policy: "allow",
+    } satisfies TrustVerdict;
+
+    const ctx = actorTrustContextFromVerdict(verdict, {
+      sourceChannel: "slack",
+      conversationExternalId: CONV,
+    });
+
+    expect(ctx.memberRecord).toBeNull();
+  });
+
   test("trustContextFromVerdict equals member stamp applied to toTrustContext(actorTrustContextFromVerdict)", () => {
     const verdict = {
       trustClass: "trusted_contact",

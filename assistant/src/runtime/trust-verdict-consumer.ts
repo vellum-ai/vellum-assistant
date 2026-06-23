@@ -61,7 +61,12 @@ export function actorTrustContextFromVerdict(
         }
       : null,
     guardianPrincipalId: verdict.guardianPrincipalId,
-    memberRecord: null,
+    // Populate from the verdict so the voice path's ACL gates (which read
+    // actorTrust.memberRecord.channel status/policy) enforce blocked/revoked/
+    // deny/escalate. Null for memberless verdicts. Text path is unaffected:
+    // toTrustContext derives the same member fields trustContextFromVerdict
+    // already stamps.
+    memberRecord: resolvedMemberFromVerdict(verdict),
     trustClass: verdict.trustClass,
     actorMetadata: {
       identifier,

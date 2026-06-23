@@ -462,3 +462,74 @@ describe("routeSetup — caller-trust source", () => {
     expect(outcome.action).toBe("deny");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Verdict-path ACL: blocked / revoked / deny enforced from the verdict-derived
+// memberRecord (no local fallback). Guards the P1 where a verdict member with
+// no memberRecord bypassed these gates.
+// ---------------------------------------------------------------------------
+
+describe("routeSetup — verdict path enforces member ACL", () => {
+  test("blocked member via verdict is denied (not normal_call) under permissive floor", () => {
+    verdictTrust = makeTrust("unknown", { status: "blocked" });
+    const { outcome } = route("strangers", makeVerdict());
+
+    expect(actorTrustContextFromVerdictMock).toHaveBeenCalledTimes(1);
+    expect(resolveActorTrustMock).not.toHaveBeenCalled();
+    expect(outcome.action).toBe("deny");
+  });
+
+  test("revoked member via verdict is denied under permissive floor", () => {
+    verdictTrust = makeTrust("unknown", { status: "revoked" });
+    const { outcome } = route("strangers", makeVerdict());
+
+    expect(actorTrustContextFromVerdictMock).toHaveBeenCalledTimes(1);
+    expect(resolveActorTrustMock).not.toHaveBeenCalled();
+    expect(outcome.action).toBe("deny");
+  });
+
+  test("policy deny member via verdict is denied (not normal_call)", () => {
+    verdictTrust = makeTrust("trusted_contact", {
+      status: "active",
+      policy: "deny",
+    });
+    const { outcome } = route(null, makeVerdict());
+
+    expect(actorTrustContextFromVerdictMock).toHaveBeenCalledTimes(1);
+    expect(resolveActorTrustMock).not.toHaveBeenCalled();
+    expect(outcome.action).toBe("deny");
+  });
+
+  test("policy escalate member via verdict is denied (live call can't await approval)", () => {
+    verdictTrust = makeTrust("trusted_contact", {
+      status: "active",
+      policy: "escalate",
+    });
+    const { outcome } = route(null, makeVerdict());
+
+    expect(actorTrustContextFromVerdictMock).toHaveBeenCalledTimes(1);
+    expect(outcome.action).toBe("deny");
+  });
+
+  test("trusted/active member via verdict still admits to normal_call", () => {
+    verdictTrust = makeTrust("trusted_contact", {
+      status: "active",
+      policy: "allow",
+    });
+    const { outcome } = route(null, makeVerdict());
+
+    expect(actorTrustContextFromVerdictMock).toHaveBeenCalledTimes(1);
+    expect(outcome.action).toBe("normal_call");
+  });
+
+  test("guardian via verdict still admits to normal_call", () => {
+    verdictTrust = makeTrust("guardian", {
+      status: "active",
+      role: "guardian",
+    });
+    const { outcome } = route(null, makeVerdict());
+
+    expect(actorTrustContextFromVerdictMock).toHaveBeenCalledTimes(1);
+    expect(outcome.action).toBe("normal_call");
+  });
+});
