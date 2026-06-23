@@ -11,7 +11,10 @@ import { z } from "zod";
 
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { findGuardianForChannel } from "../../contacts/contact-store.js";
-import { getGuardianDelivery } from "../../contacts/guardian-delivery-reader.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../../contacts/guardian-delivery-reader.js";
 import type { TrustContext } from "../../daemon/trust-context.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
@@ -74,10 +77,19 @@ async function applyTrustContext(
     conversationExternalId: "local",
   });
   if (trustCtx.trustClass === "unknown") {
-    // Only fall back for genuine drift: a readable gateway whose binding doesn't
-    // match the principal. A null read (gateway unreachable) fails closed.
     const guardians = await getGuardianDelivery({ channelTypes: ["vellum"] });
-    if (guardians) {
+    const gatewayPrincipal = guardians
+      ? guardianForChannel(guardians, sourceChannel)?.principalId
+      : undefined;
+    // Narrow drift only: a DB reset rebound the gateway to a fresh
+    // vellum-principal while the client holds a valid JWT for the old one. Both
+    // are daemon-minted vellum-principal-* ids, so a genuine revocation or rebind
+    // to a real identity fails closed instead of re-granting from a stale mirror.
+    const isResetDrift =
+      principalId.startsWith("vellum-principal-") &&
+      !!gatewayPrincipal?.startsWith("vellum-principal-") &&
+      gatewayPrincipal !== principalId;
+    if (isResetDrift) {
       await healGuardianBindingDrift(principalId);
       trustCtx = withSourceChannel(
         sourceChannel,
@@ -90,7 +102,7 @@ async function applyTrustContext(
       );
       log.info(
         { actorPrincipalId: principalId, trustClass: trustCtx.trustClass },
-        "Trust re-resolved from local mirror after gateway drift (surface action)",
+        "Trust re-resolved from local mirror after gateway reset drift (surface action)",
       );
     }
   }
