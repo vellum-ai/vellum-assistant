@@ -25,6 +25,8 @@ import {
   conversationsPost,
   messagesGet,
   messagesPost,
+  pluginsInstallPost,
+  pluginsSearchGet,
 } from "@/generated/daemon/sdk.gen";
 import type {
   MessagesGetResponses,
@@ -33,6 +35,7 @@ import type {
 import { captureError } from "@/lib/sentry/capture-error";
 import {
   buildResearchPrompt,
+  type AvailableCapability,
   type ResearchSubject,
 } from "@/domains/onboarding/research-prompt";
 import {
@@ -50,6 +53,86 @@ const MAX_POLL_MS = 120_000;
  * persists the assistant message incrementally or only on completion.
  */
 const STABLE_READS_TO_SETTLE = 2;
+
+/**
+ * Marketplace plugins that are infrastructure/meta rather than a capability the
+ * assistant would ever offer a new user as a suggestion (compression modes,
+ * model routers, reference/memory samples, UI shells). Filtered out of the
+ * catalog before injection so the prompt only ever lists recommendable
+ * skillsets. Anything NOT on this list — including future persona plugins like a
+ * developer/PM kit — flows through automatically.
+ */
+const NON_RECOMMENDABLE_PLUGINS = new Set<string>([
+  "caveman",
+  "model-router",
+  "simple-memory",
+  "dynamic-notch",
+  "level-up",
+]);
+
+/** Keep injected descriptions to one short clause so the prompt stays compact. */
+function compactDescription(raw: string): string {
+  const firstSentence = raw.trim().split(/(?<=\.)\s/)[0]?.trim() ?? raw.trim();
+  return firstSentence.length > 100
+    ? `${firstSentence.slice(0, 97).trimEnd()}…`
+    : firstSentence;
+}
+
+/**
+ * Pull the live marketplace catalog and compact it into the capability list the
+ * research prompt advertises. Best-effort: any failure yields an empty list, in
+ * which case the prompt simply omits the capabilities block (unchanged from the
+ * pre-plugin behavior). Returns the recommendable entries plus the set of valid
+ * install names, used to gate background installs against model hallucination.
+ */
+async function fetchAvailableCapabilities(
+  assistantId: string,
+): Promise<{ capabilities: AvailableCapability[]; validNames: Set<string> }> {
+  try {
+    const res = await pluginsSearchGet({
+      path: { assistant_id: assistantId },
+      throwOnError: false,
+    });
+    const matches = res.data?.matches ?? [];
+    const capabilities: AvailableCapability[] = [];
+    const validNames = new Set<string>();
+    for (const m of matches) {
+      const name = m.name?.trim();
+      const description = m.description?.trim();
+      if (!name || !description) continue;
+      if (NON_RECOMMENDABLE_PLUGINS.has(name)) continue;
+      validNames.add(name);
+      capabilities.push({ name, description: compactDescription(description) });
+    }
+    return { capabilities, validNames };
+  } catch (err) {
+    captureError(err, { context: "research_onboarding_catalog" });
+    return { capabilities: [], validNames: new Set<string>() };
+  }
+}
+
+/**
+ * Materialize a matched plugin under the assistant's workspace so the fresh
+ * conversation the suggestion click opens can discover its skills (plugin-
+ * resident skills load per-conversation from disk — no restart needed; the
+ * plugin's hooks/persona would need a later restart, but the skills carry the
+ * value). Best-effort and idempotent: an already-installed plugin returns 409,
+ * which we ignore.
+ */
+async function installCapabilityBestEffort(
+  assistantId: string,
+  name: string,
+): Promise<void> {
+  try {
+    await pluginsInstallPost({
+      path: { assistant_id: assistantId },
+      body: { name },
+      throwOnError: false,
+    });
+  } catch (err) {
+    captureError(err, { context: "research_onboarding_install" });
+  }
+}
 
 export type ResearchStatus = "idle" | "running" | "done" | "error";
 
@@ -128,6 +211,13 @@ export function useResearchRunner(): UseResearchRunner {
           const assistantId = await awaitAssistantId();
           if (isStale()) return;
 
+          // Advertise the live marketplace catalog to the research turn so it can
+          // tag a suggestion with a plugin whose skills the prompt would trigger.
+          // Best-effort: an empty list just omits the capabilities block.
+          const { capabilities, validNames } =
+            await fetchAvailableCapabilities(assistantId);
+          if (isStale()) return;
+
           const conversation = await conversationsPost({
             path: { assistant_id: assistantId },
             body: {
@@ -145,7 +235,7 @@ export function useResearchRunner(): UseResearchRunner {
 
           const body: MessagesPostData["body"] = {
             conversationId,
-            content: buildResearchPrompt(subject),
+            content: buildResearchPrompt(subject, capabilities),
             sourceChannel: "vellum",
             interface: "vellum",
             clientMessageId: crypto.randomUUID(),
@@ -176,6 +266,11 @@ export function useResearchRunner(): UseResearchRunner {
           const deadline = Date.now() + MAX_POLL_MS;
           let lastText = "";
           let stableReads = 0;
+          // Plugins we've already kicked off an install for — installs fire the
+          // moment a tagged suggestion first streams in (overlapping the user's
+          // results-review screens) so the plugin is materialized before the
+          // click opens the chat. Idempotent, so racing the same name is fine.
+          const installing = new Set<string>();
           while (Date.now() < deadline) {
             await sleep(POLL_INTERVAL_MS);
             if (isStale()) return;
@@ -190,6 +285,18 @@ export function useResearchRunner(): UseResearchRunner {
             if (text) {
               const { claims, suggestions } = parseResearchResultStreaming(text);
               setState({ status: "running", claims, suggestions });
+              for (const s of suggestions) {
+                // Gate on the fetched catalog so a hallucinated name never hits
+                // the install route; skip ones already in flight.
+                if (
+                  s.plugin &&
+                  validNames.has(s.plugin) &&
+                  !installing.has(s.plugin)
+                ) {
+                  installing.add(s.plugin);
+                  void installCapabilityBestEffort(assistantId, s.plugin);
+                }
+              }
               stableReads = text === lastText ? stableReads + 1 : 0;
               lastText = text;
               if (stableReads >= STABLE_READS_TO_SETTLE) break;
