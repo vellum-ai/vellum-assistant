@@ -188,11 +188,10 @@ export const getContactInternal = getContact;
 export interface ContactInfo {
   notes: string | null;
   interactionCount: number;
-  userFile: string | null;
 }
 
 /**
- * Look up a contact's INFO fields (notes, interaction count, user file) by ID.
+ * Look up a contact's INFO fields (notes, interaction count) by ID.
  *
  * Carries no ACL state (status/policy/verification) — those are owned by the
  * gateway-stamped trust verdict. Returns null when the contact does not exist.
@@ -203,7 +202,6 @@ export function findContactInfoById(contactId: string): ContactInfo | null {
   return {
     notes: contact.notes,
     interactionCount: contact.interactionCount,
-    userFile: contact.userFile,
   };
 }
 
