@@ -1,11 +1,12 @@
 import { existsSync } from "node:fs";
-import type { SourceMetadata } from "@vellumai/gateway-client";
+import type { SourceMetadata, TrustVerdict } from "@vellumai/gateway-client";
 import type { GatewayConfig } from "../config.js";
 import { ipcCallAssistant } from "../ipc/assistant-client.js";
 import { resolveIpcSocketPath } from "../ipc/socket-path.js";
 import { ContactStore } from "../db/contact-store.js";
 import { getLogger } from "../logger.js";
 import { resolveAdmissionPolicy } from "../risk/admission-policy-cache.js";
+import { resolveTrustVerdict } from "../risk/trust-verdict-resolver.js";
 import { canonicalizeInboundIdentity } from "../verification/identity.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 import type { RouteResult } from "../routing/types.js";
@@ -155,6 +156,24 @@ export async function handleInbound(
   const transportUxBrief = options?.transportMetadata?.uxBrief?.trim();
   const sourceChannelName = event.source.channelName?.trim();
 
+  // ── Per-actor trust verdict ──
+  // Resolved from the gateway ACL DB and stamped on sourceMetadata for the
+  // runtime. Additive — the daemon does not consume it yet (Combo 9).
+  let trustVerdict: TrustVerdict | undefined;
+  try {
+    trustVerdict = await resolveTrustVerdict({
+      channelType: event.sourceChannel,
+      actorExternalId: event.actor.actorExternalId,
+      actorUsername: event.actor.username,
+      actorDisplayName: displayName,
+      conversationExternalId: event.message.conversationExternalId,
+    });
+  } catch (err) {
+    // Producer fails SOFT — never break ingress. Fail-closed is a Combo 9
+    // consumer concern. Leaves trustVerdict undefined so the stamp is omitted.
+    log.warn({ err }, "trust verdict resolution failed; omitting stamp");
+  }
+
   try {
     const response = await forwardToRuntime(
       config,
@@ -194,6 +213,7 @@ export async function handleInbound(
           // admits unconditionally. Non-exempt channels always carry the
           // cache value (default `trusted_contacts` when the row is absent).
           ...(admissionPolicy ? { admissionPolicy } : {}),
+          ...(trustVerdict ? { trustVerdict } : {}),
           ...(options?.sourceMetadata ?? {}),
         },
         ...(options?.attachmentIds?.length
