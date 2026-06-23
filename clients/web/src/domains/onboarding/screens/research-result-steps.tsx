@@ -253,7 +253,7 @@ export function ResearchResultsStep({
         <div className="flex items-center gap-3">
           <MiniAssistant />
           <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
-            Alright, this is what I got:
+            This is what I found about you on the internet
           </h1>
         </div>
         <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
