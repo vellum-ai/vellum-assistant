@@ -132,7 +132,7 @@ describe("resolve_inbound_trust route", () => {
     );
   });
 
-  test("unknown actor → unknown verdict matching the resolver", async () => {
+  test("unknown actor → unknown verdict matching the resolver, not resolutionFailed", async () => {
     const params = { channelType: CHANNEL, actorExternalId: "U_STRANGER" };
     const result = (await route.handler(params)) as { verdict: unknown };
     const expected = await resolveTrustVerdict(params);
@@ -141,5 +141,28 @@ describe("resolve_inbound_trust route", () => {
     expect((result.verdict as { trustClass: string }).trustClass).toBe(
       "unknown",
     );
+    // A real stranger is NOT flagged as a resolver failure.
+    expect(
+      (result.verdict as { resolutionFailed?: boolean }).resolutionFailed,
+    ).toBeUndefined();
+  });
+
+  test("resolver throw → resolutionFailed sentinel verdict", async () => {
+    // Drop the gateway DB connection so resolveTrustVerdict's getGatewayDb()
+    // throws.
+    resetGatewayDb();
+
+    const params = { channelType: CHANNEL, actorExternalId: "U_STRANGER" };
+    const result = (await route.handler(params)) as {
+      verdict: {
+        trustClass: string;
+        canonicalSenderId: string | null;
+        resolutionFailed?: boolean;
+      };
+    };
+
+    expect(result.verdict.resolutionFailed).toBe(true);
+    expect(result.verdict.trustClass).toBe("unknown");
+    expect(result.verdict.canonicalSenderId).toBe("U_STRANGER");
   });
 });
