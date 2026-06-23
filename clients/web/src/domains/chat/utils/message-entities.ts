@@ -28,9 +28,14 @@ export interface MessageEntityState {
   serverIdToRowKey: Record<string, string>;
   /**
    * rowKey of the assistant row currently being streamed into, or `null`.
-   * Set synchronously by the streaming producer (replacing the async
-   * `currentAssistantMessageIdRef` mirror) so `subagent_spawned` can read its
-   * parent before React commits; cleared at turn end.
+   * The streaming producer sets it synchronously as each assistant delta
+   * lands, so a `subagent_spawned` event can resolve its parent row before
+   * React commits; it is cleared at turn end.
+   *
+   * Per-build invariant: `rebuildFromArray` resets this to `null` (a bulk
+   * snapshot apply carries no in-flight turn), so a caller that rebuilds
+   * mid-turn must re-derive and reattach it rather than read it back from the
+   * rebuilt state.
    */
   liveAssistantRowKey: string | null;
 }
