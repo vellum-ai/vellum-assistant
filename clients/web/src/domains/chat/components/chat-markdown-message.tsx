@@ -80,8 +80,10 @@ export interface ChatMarkdownMessageProps extends Omit<MarkdownMessageProps, "li
 }
 
 export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
+  content,
+  className,
+  hardLineBreaks,
   onVellumLinkClick,
-  ...markdownProps
 }: ChatMarkdownMessageProps) {
   const LinkComponent = useCallback(
     ({
@@ -112,8 +114,8 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
   );
 
   if (!onVellumLinkClick) {
-    return <MarkdownMessage {...markdownProps} linkComponent={OAuthAwareLink} urlTransform={vellumUrlTransform} />;
+    return <MarkdownMessage content={content} className={className} hardLineBreaks={hardLineBreaks} linkComponent={OAuthAwareLink} urlTransform={vellumUrlTransform} />;
   }
 
-  return <MarkdownMessage {...markdownProps} linkComponent={LinkComponent} urlTransform={vellumUrlTransform} />;
+  return <MarkdownMessage content={content} className={className} hardLineBreaks={hardLineBreaks} linkComponent={LinkComponent} urlTransform={vellumUrlTransform} />;
 });
