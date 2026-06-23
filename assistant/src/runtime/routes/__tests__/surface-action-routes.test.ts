@@ -481,6 +481,30 @@ describe("triggerSurfaceAction trust context", () => {
     expect(live.trustContext?.trustClass).toBe("guardian");
   });
 
+  test("drift second request: heal no-ops (false) but local mirror already matches → guardian", async () => {
+    // Later requests in the drift window reuse the same stale JWT: the gateway
+    // binding still mismatches, and heal returns false because the local mirror
+    // was already repaired on the first request. The local re-resolve must run
+    // regardless of heal's return and recover guardian trust.
+    mockGuardianList = [guardianDelivery("principal-stale")];
+    mockGuardianRecord = localGuardianRecord(GUARDIAN_PRINCIPAL);
+    healResult = false;
+    const live = makeStub("conv-drift-2");
+    memoryBySurface = live;
+
+    const handler = findHandler("triggerSurfaceAction");
+    await handler({
+      body: { surfaceId: "surf-d2", actionId: "act-d2" },
+      headers: { "x-vellum-actor-principal-id": GUARDIAN_PRINCIPAL },
+    });
+
+    expect(healCalls).toEqual([GUARDIAN_PRINCIPAL]);
+    // Gateway binding never matched; guardian comes from the local mirror even
+    // though no heal write occurred.
+    expect(mockGuardianList).toEqual([guardianDelivery("principal-stale")]);
+    expect(live.trustContext?.trustClass).toBe("guardian");
+  });
+
   test("dev-bypass resolves the real guardian principal from the gateway", async () => {
     httpAuthDisabled = true;
     mockGuardianList = [guardianDelivery(GUARDIAN_PRINCIPAL)];

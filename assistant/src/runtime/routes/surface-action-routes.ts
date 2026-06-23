@@ -73,24 +73,26 @@ async function applyTrustContext(
     conversationExternalId: "local",
   });
   if (trustCtx.trustClass === "unknown") {
-    const healed = await healGuardianBindingDrift(principalId);
-    if (healed) {
-      // Heal repairs the local mirror, not the gateway binding, so re-resolve
-      // from the local mirror. Transitional; removed in Combo 11.
-      trustCtx = withSourceChannel(
+    // Best-effort: repair the local mirror if it drifted from the JWT principal.
+    await healGuardianBindingDrift(principalId);
+    // Re-resolve from the dual-written local mirror whenever the gateway mapper
+    // yields unknown, since the gateway mismatch persists across requests while
+    // heal writes once. Safe on the vellum channel: only the daemon mints
+    // signature-valid vellum-principal JWTs, so a valid principal is the owner.
+    // Transitional; removed once the gateway binding is authoritative.
+    trustCtx = withSourceChannel(
+      sourceChannel,
+      resolveTrustContext({
+        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
         sourceChannel,
-        resolveTrustContext({
-          assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-          sourceChannel,
-          conversationExternalId: "local",
-          actorExternalId: principalId,
-        }),
-      );
-      log.info(
-        { actorPrincipalId: principalId, trustClass: trustCtx.trustClass },
-        "Trust re-resolved after guardian binding drift heal (surface action)",
-      );
-    }
+        conversationExternalId: "local",
+        actorExternalId: principalId,
+      }),
+    );
+    log.info(
+      { actorPrincipalId: principalId, trustClass: trustCtx.trustClass },
+      "Trust re-resolved from local mirror after gateway returned unknown (surface action)",
+    );
   }
   conversation.setTrustContext(trustCtx);
 }
