@@ -50,6 +50,7 @@ import {
   getCannedFirstGreeting,
   isWakeUpGreeting,
 } from "../../daemon/first-greeting.js";
+import { steerOnEnqueuedMessageIfQuestionParked } from "../../daemon/handlers/conversations.js";
 import {
   collectAttachmentRefs,
   type HistoryAttachmentRef,
@@ -946,25 +947,28 @@ export function handleListMessages({
         .filter((block) => block.type !== "text" || block.text.length > 0);
     }
 
-  // Ensure every hydrated attachment has a corresponding content block.
-  // renderHistoryContent inlines attachment blocks only when it has
-  // file-block refs with matching DB rows; directives (assistant-authored
-  // <vellum-attachment/> tags) don't leave a file block after stripping,
-  // so their attachments end up in the flat `attachments` array but not in
-  // `contentBlocks`. Append any that are missing so the canonical
-  // projection is complete.
-  const existingAttachmentIds = new Set(
-    contentBlocks
-      .filter((b): b is Extract<ConversationContentBlock, { type: "attachment" }> => b.type === "attachment")
-      .map((b) => b.attachment.id),
-  );
-  for (const att of msgAttachments) {
-    if (!existingAttachmentIds.has(att.id)) {
-      contentBlocks.push({ type: "attachment", attachment: att });
+    // Ensure every hydrated attachment has a corresponding content block.
+    // renderHistoryContent inlines attachment blocks only when it has
+    // file-block refs with matching DB rows; directives (assistant-authored
+    // <vellum-attachment/> tags) don't leave a file block after stripping,
+    // so their attachments end up in the flat `attachments` array but not in
+    // `contentBlocks`. Append any that are missing so the canonical
+    // projection is complete.
+    const existingAttachmentIds = new Set(
+      contentBlocks
+        .filter(
+          (b): b is Extract<ConversationContentBlock, { type: "attachment" }> =>
+            b.type === "attachment",
+        )
+        .map((b) => b.attachment.id),
+    );
+    for (const att of msgAttachments) {
+      if (!existingAttachmentIds.has(att.id)) {
+        contentBlocks.push({ type: "attachment", attachment: att });
+      }
     }
-  }
 
-  const alignedContentOrder = aligned.rewriteContentOrder(contentOrder);
+    const alignedContentOrder = aligned.rewriteContentOrder(contentOrder);
 
     // Use sentAt (actual event time) for the display timestamp when available,
     // falling back to createdAt (persistence time). Clients use this display
@@ -1837,6 +1841,13 @@ export async function handleSendMessage(
         conversation.denyAllPendingConfirmations();
         pendingInteractions.removeByConversation(mapping.conversationId);
       }
+
+      // A queued chat message while a clarification question is open means the
+      // user chose to move on rather than answer it; steer to it instead of
+      // stranding it behind a prompt no one will answer. A turn parks on at most
+      // one interactive tool, so this and the confirmation auto-deny above are
+      // mutually exclusive in practice.
+      steerOnEnqueuedMessageIfQuestionParked(mapping.conversationId, requestId);
 
       // Expire any orphaned canonical requests that survived without a
       // matching in-memory pending interaction (e.g. prompter timeouts).

@@ -5,6 +5,7 @@ import { clearAll, getConversation } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { resolveCapabilities } from "../../runtime/capabilities.js";
+import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { createAbortReason } from "../../util/abort-reasons.js";
 import { UserError } from "../../util/errors.js";
@@ -387,6 +388,32 @@ export function steerToMessage(
   conversation.denyAllPendingConfirmations();
 
   return { steered: true };
+}
+
+/**
+ * Supersede an open `ask_question` prompt when a new chat message is enqueued
+ * for the same conversation.
+ *
+ * A queued message while a clarification question is open means the user chose
+ * to move on rather than answer it. Steering to that message aborts the parked
+ * turn — which settles the open question via its turn-abort signal — repairs
+ * the dangling `tool_use`, and drains the message, instead of stranding it
+ * behind a prompt no one is going to answer. Only `ask_question` prompts
+ * (`kind: "question"`) trigger this; pending confirmations are handled
+ * separately by the enqueue path's auto-deny.
+ *
+ * Returns `true` when a parked question was found and a steer was issued.
+ */
+export function steerOnEnqueuedMessageIfQuestionParked(
+  conversationId: string,
+  enqueuedRequestId: string,
+): boolean {
+  const hasParkedQuestion = pendingInteractions
+    .getByConversation(conversationId)
+    .some((interaction) => interaction.kind === "question");
+  if (!hasParkedQuestion) return false;
+  steerToMessage(conversationId, enqueuedRequestId);
+  return true;
 }
 
 // ---------------------------------------------------------------------------
