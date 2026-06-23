@@ -8,7 +8,7 @@
 
 import { randomInt } from "node:crypto";
 
-import type { AdmissionPolicy } from "@vellumai/gateway-client";
+import type { AdmissionPolicy, TrustVerdict } from "@vellumai/gateway-client";
 import type { ServerWebSocket } from "bun";
 
 import {
@@ -50,6 +50,7 @@ import {
 import { ConversationRelayTransport } from "./call-transport.js";
 import { getChannelAdmissionPolicy } from "./channel-admission-reader.js";
 import { finalizeCall } from "./finalize-call.js";
+import { getInboundTrustVerdict } from "./inbound-trust-reader.js";
 import {
   classifyWaitUtterance,
   emitAccessRequestCallbackHandoff,
@@ -585,8 +586,18 @@ export class RelayConnection {
     // open to `null` by contract, so a transport hiccup admits the caller.
     const admissionPolicy = await getChannelAdmissionPolicy("phone");
 
+    // Verdict-first caller trust. routeSetup uses it when present and not
+    // resolutionFailed, else falls back to local resolution. The reader
+    // returns null on failure, so a gateway blip keeps the local path.
+    const isInbound = session?.initiatedFromConversationId == null;
+    const otherPartyNumber = isInbound ? msg.from : msg.to;
+    const verdict = await getInboundTrustVerdict({
+      channelType: "phone",
+      actorExternalId: otherPartyNumber || undefined,
+    });
+
     try {
-      await this.routeSetupOutcome(msg, session, admissionPolicy);
+      await this.routeSetupOutcome(msg, session, admissionPolicy, verdict);
     } catch (err) {
       // Never leave the connection stranded in "setting_up": a setup that
       // throws before reaching a terminal outcome would otherwise drop every
@@ -615,6 +626,7 @@ export class RelayConnection {
     msg: RelaySetupMessage,
     session: ReturnType<typeof getCallSession>,
     admissionPolicy: AdmissionPolicy | null,
+    verdict: TrustVerdict | null,
   ): Promise<void> {
     const { outcome, resolved } = routeSetup({
       callSessionId: this.callSessionId,
@@ -623,6 +635,7 @@ export class RelayConnection {
       to: msg.to,
       customParameters: msg.customParameters,
       admissionPolicy,
+      verdict,
     });
 
     const initialTrustContext = toTrustContext(
