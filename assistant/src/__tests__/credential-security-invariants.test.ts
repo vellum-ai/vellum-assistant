@@ -182,6 +182,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/handlers/config-slack-channel.ts", // Slack channel config credential management
       "providers/platform-proxy/context.ts", // managed proxy API key lookup for provider initialization
       "platform/client.ts", // platform client credential store fallback for standalone CLI auth
+      "mcp/mcp-header-store.ts", // MCP static auth header persistence (credential store CRUD + legacy migration)
       "mcp/mcp-oauth-provider.ts", // MCP OAuth token/client/discovery persistence
       "runtime/routes/integrations/slack/token.ts", // shared Slack token resolver (bot/user token lookup for CLI use routes)
       "mcp/client.ts", // MCP client cached-token lookup
