@@ -138,16 +138,11 @@ function stampTrustVerdict(body: Record<string, unknown>): void {
   const channelType = String(body.sourceChannel ?? "");
   const actorExternalId =
     typeof body.actorExternalId === "string" ? body.actorExternalId : undefined;
-  const externalChatId =
-    typeof body.conversationExternalId === "string"
-      ? body.conversationExternalId
-      : undefined;
   if (!channelType) return;
 
   const verdict = resolveLocalTrustVerdict({
     channelType,
     actorExternalId,
-    externalChatId,
   });
   body.sourceMetadata = { ...(meta ?? {}), trustVerdict: verdict };
 }
@@ -156,15 +151,14 @@ function stampTrustVerdict(body: Record<string, unknown>): void {
 export function resolveLocalTrustVerdict(input: {
   channelType: string;
   actorExternalId?: string;
-  externalChatId?: string;
 }): TrustVerdict {
   const canonicalSenderId = input.actorExternalId ?? null;
 
+  // Match the gateway's address-only member resolution (no externalChatId).
   const member = input.actorExternalId
     ? findContactChannel({
         channelType: input.channelType,
         address: input.actorExternalId,
-        externalChatId: input.externalChatId,
       })
     : null;
   const guardian = findGuardianForChannel(input.channelType);
