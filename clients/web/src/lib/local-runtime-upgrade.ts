@@ -3,6 +3,7 @@ import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { compareParsed, parseSemver } from "@/utils/semver";
 
 export const LOCAL_RUNTIME_RELEASES_REFETCH_INTERVAL_MS = 20 * 60 * 1000;
+export const LOCAL_RUNTIME_RELEASES_FETCH_LIMIT = 100;
 
 const DISMISSED_KEY_PREFIX = "vellum:localRuntimeUpgradeDismissed";
 

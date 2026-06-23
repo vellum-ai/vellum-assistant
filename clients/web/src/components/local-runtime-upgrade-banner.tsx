@@ -15,6 +15,7 @@ import {
   getLatestRuntimeRelease,
   isLocalRuntimeUpgradeDismissed,
   isRuntimeUpgradeAvailable,
+  LOCAL_RUNTIME_RELEASES_FETCH_LIMIT,
   LOCAL_RUNTIME_RELEASES_REFETCH_INTERVAL_MS,
 } from "@/lib/local-runtime-upgrade";
 import { isLocalModeHostAvailable } from "@/runtime/local-mode-host";
@@ -72,7 +73,7 @@ export function LocalRuntimeUpgradeBanner({
 
   const { data: releases, refetch: refetchReleases } = useQuery({
     ...releasesListOptions({
-      query: { channel: "stable" },
+      query: { stable: true, limit: LOCAL_RUNTIME_RELEASES_FETCH_LIMIT },
     }),
     enabled: shouldCheck,
     refetchInterval: LOCAL_RUNTIME_RELEASES_REFETCH_INTERVAL_MS,

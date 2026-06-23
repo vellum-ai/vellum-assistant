@@ -19,6 +19,7 @@ import { useLocalRuntimeUpgrade } from "@/hooks/use-local-runtime-upgrade";
 import {
   getLatestRuntimeRelease,
   isRuntimeUpgradeAvailable,
+  LOCAL_RUNTIME_RELEASES_FETCH_LIMIT,
 } from "@/lib/local-runtime-upgrade";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -380,7 +381,7 @@ export function LocalAssistantUpgrades({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const { data: releases, isLoading: releasesLoading } = useQuery(
     releasesListOptions({
-      query: { channel: "stable" },
+      query: { stable: true, limit: LOCAL_RUNTIME_RELEASES_FETCH_LIMIT },
     }),
   );
 
