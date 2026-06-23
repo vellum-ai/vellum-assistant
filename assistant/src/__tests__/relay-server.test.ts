@@ -163,6 +163,59 @@ mock.module("../calls/channel-admission-reader.js", () => ({
   },
 }));
 
+// ── Inbound trust verdict reader mock ───────────────────────────────
+//
+// Mid-call re-resolution (post verification/activation) prefers the gateway
+// verdict via getInboundTrustVerdict, falling back to local resolution on a
+// missing/failed/unusable verdict. Tests drive the verdict through
+// `mockMidCallVerdict`; null (the default) exercises the local fallback. As
+// with the admission reader, delegate to the real module for sibling files
+// that load later in the same worker.
+let mockMidCallVerdict:
+  | import("@vellumai/gateway-client").TrustVerdict
+  | null = null;
+// When set, the mid-call verdict reader blocks on this gate before returning,
+// simulating a slow gateway round-trip so a test can drive a prompt into the
+// re-resolution await window.
+let mockMidCallVerdictGate: Promise<void> | null = null;
+const realInboundTrustReaderModule = {
+  ...(await import("../calls/inbound-trust-reader.js")),
+};
+let inboundTrustMockActive = false;
+mock.module("../calls/inbound-trust-reader.js", () => ({
+  ...realInboundTrustReaderModule,
+  getInboundTrustVerdict: async (input: {
+    channelType: import("../channels/types.js").ChannelId;
+    actorExternalId?: string;
+  }) => {
+    if (!inboundTrustMockActive) {
+      return realInboundTrustReaderModule.getInboundTrustVerdict(input);
+    }
+    if (mockMidCallVerdictGate) await mockMidCallVerdictGate;
+    return mockMidCallVerdict;
+  },
+}));
+
+// ── Trust verdict consumer spy ──────────────────────────────────────
+//
+// Tracks whether the verdict mapper produced the final mid-call context, so a
+// test can assert the local resolver was used instead (verdict not consumed).
+let trustVerdictMapperUsed = false;
+const realTrustVerdictConsumerModule = {
+  ...(await import("../runtime/trust-verdict-consumer.js")),
+};
+mock.module("../runtime/trust-verdict-consumer.js", () => ({
+  ...realTrustVerdictConsumerModule,
+  trustContextFromVerdict: (
+    ...args: Parameters<
+      typeof realTrustVerdictConsumerModule.trustContextFromVerdict
+    >
+  ) => {
+    trustVerdictMapperUsed = true;
+    return realTrustVerdictConsumerModule.trustContextFromVerdict(...args);
+  },
+}));
+
 // ── TTS provider mocks (for call-speech-output) ─────────────────────
 
 let mockTtsProviderId: string = "elevenlabs";
@@ -308,10 +361,12 @@ await initializeDb();
 // sibling files that load later in the same worker.
 beforeAll(() => {
   admissionMockActive = true;
+  inboundTrustMockActive = true;
 });
 
 afterAll(() => {
   admissionMockActive = false;
+  inboundTrustMockActive = false;
   resetDbForTesting();
 });
 
@@ -479,6 +534,9 @@ describe("relay-server", () => {
     mockAssistantName = "Vellum";
     mockAdmissionPolicy = null;
     mockAdmissionGate = null;
+    mockMidCallVerdict = null;
+    mockMidCallVerdictGate = null;
+    trustVerdictMapperUsed = false;
     mockSendMessage.mockImplementation(createMockProviderResponse(["Hello"]));
     mockConfig.calls.verification.enabled = false;
     mockConfig.calls.verification.maxAttempts = 3;
@@ -5439,5 +5497,564 @@ describe("relay-server", () => {
 
       relay.destroy();
     });
+  });
+
+  // ── Mid-call trust re-resolution from the gateway verdict ───────────
+  //
+  // After a verification/activation success the relay re-resolves caller trust.
+  // It prefers the gateway verdict (authoritative right after the gateway
+  // updated the binding) and falls back to local resolution on a missing/
+  // failed/unusable verdict so a blip never drops the call.
+
+  function readControllerTrustClass(relay: RelayConnection): string | undefined {
+    return (
+      relay.getController() as unknown as {
+        trustContext?: { trustClass?: string };
+      }
+    )?.trustContext?.trustClass;
+  }
+
+  test("inbound guardian verification: re-resolves trust from the gateway verdict", async () => {
+    ensureConversation("conv-midcall-verdict-guardian");
+    const session = createCallSession({
+      conversationId: "conv-midcall-verdict-guardian",
+      provider: "twilio",
+      fromNumber: "+15559999999",
+      toNumber: "+15551111111",
+    });
+
+    const secret = createPendingVoiceGuardianChallenge();
+
+    // The gateway verdict upgrades the caller to guardian post-verification.
+    mockMidCallVerdict = {
+      trustClass: "guardian",
+      canonicalSenderId: "+15559999999",
+      guardianExternalUserId: "+15559999999",
+      guardianPrincipalId: "+15559999999",
+    };
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Hello, verified guardian!"]),
+    );
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_midcall_verdict_guardian",
+        from: "+15559999999",
+        to: "+15551111111",
+      }),
+    );
+
+    for (const digit of secret) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(relay.getConnectionState()).toBe("connected");
+    // Controller trust reflects the gateway verdict's upgraded class.
+    expect(readControllerTrustClass(relay)).toBe("guardian");
+
+    relay.destroy();
+  });
+
+  test("inbound guardian verification: resolutionFailed verdict falls back to local resolution without dropping the call", async () => {
+    ensureConversation("conv-midcall-verdict-failed");
+    const session = createCallSession({
+      conversationId: "conv-midcall-verdict-failed",
+      provider: "twilio",
+      fromNumber: "+15559999999",
+      toNumber: "+15551111111",
+    });
+
+    const secret = createPendingVoiceGuardianChallenge();
+
+    // A failed verdict must fall back to local resolution — the call stays up.
+    mockMidCallVerdict = {
+      trustClass: "unknown",
+      canonicalSenderId: null,
+      resolutionFailed: true,
+    };
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Hello, how can I help you?"]),
+    );
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_midcall_verdict_failed",
+        from: "+15559999999",
+        to: "+15551111111",
+      }),
+    );
+
+    for (const digit of secret) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Fail-soft: verification still completes and the call connects.
+    expect(relay.isVerificationSessionActive()).toBe(false);
+    expect(relay.getConnectionState()).toBe("connected");
+    expect(readControllerTrustClass(relay)).toBeDefined();
+
+    relay.destroy();
+  });
+
+  test("inbound guardian verification: member-claiming but unusable verdict falls back to local resolution", async () => {
+    ensureConversation("conv-midcall-verdict-unusable");
+    const session = createCallSession({
+      conversationId: "conv-midcall-verdict-unusable",
+      provider: "twilio",
+      fromNumber: "+15559999999",
+      toNumber: "+15551111111",
+    });
+
+    const secret = createPendingVoiceGuardianChallenge();
+
+    // Claims a member (contactId/channelId) but the ACL can't be reassembled
+    // (missing status/policy) — mirrors the setup path's unusable condition.
+    mockMidCallVerdict = {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "+15559999999",
+      contactId: "ct_unusable",
+      channelId: "ch_unusable",
+    };
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Hello there."]),
+    );
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_midcall_verdict_unusable",
+        from: "+15559999999",
+        to: "+15551111111",
+      }),
+    );
+
+    for (const digit of secret) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Fail-soft: unusable verdict does not drop the call; local fallback fires.
+    expect(relay.getConnectionState()).toBe("connected");
+    expect(readControllerTrustClass(relay)).toBeDefined();
+
+    relay.destroy();
+  });
+
+  test("inbound guardian verification: memberless unknown verdict falls back to local resolution (just-activated invitee not downgraded)", async () => {
+    ensureConversation("conv-midcall-verdict-unknown");
+    const session = createCallSession({
+      conversationId: "conv-midcall-verdict-unknown",
+      provider: "twilio",
+      fromNumber: "+15559999999",
+      toNumber: "+15551111111",
+    });
+
+    const secret = createPendingVoiceGuardianChallenge();
+
+    // Invite redemption writes the channel assistant-side, so right after
+    // activation the gateway has no member and returns a memberless unknown
+    // verdict. Mid-call re-resolution must treat it as a stale gateway view
+    // and fall back to local resolution (which has the fresh channel) rather
+    // than downgrade the just-activated invitee to unknown.
+    mockMidCallVerdict = {
+      trustClass: "unknown",
+      canonicalSenderId: "+15559999999",
+    };
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Hello there."]),
+    );
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_midcall_verdict_unknown",
+        from: "+15559999999",
+        to: "+15551111111",
+      }),
+    );
+
+    for (const digit of secret) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(relay.getConnectionState()).toBe("connected");
+    // Local resolver produced the final context; the unknown verdict was not
+    // consumed as authoritative.
+    expect(trustVerdictMapperUsed).toBe(false);
+    expect(readControllerTrustClass(relay)).toBeDefined();
+
+    relay.destroy();
+  });
+
+  function readControllerMemberStatus(
+    relay: RelayConnection,
+  ): string | undefined {
+    return (
+      relay.getController() as unknown as {
+        trustContext?: { memberStatus?: string };
+      }
+    )?.trustContext?.memberStatus;
+  }
+
+  test("inbound guardian verification: memberful blocked unknown verdict is honored (verdict path enforces blocked status)", async () => {
+    ensureConversation("conv-midcall-verdict-blocked");
+    const session = createCallSession({
+      conversationId: "conv-midcall-verdict-blocked",
+      provider: "twilio",
+      fromNumber: "+15559999999",
+      toNumber: "+15551111111",
+    });
+
+    const secret = createPendingVoiceGuardianChallenge();
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Hello there."]),
+    );
+
+    const { relay } = createMockWs(session.id);
+
+    // Setup resolves locally (no verdict) so the pending guardian challenge
+    // drives verification rather than denying at the door.
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_midcall_verdict_blocked",
+        from: "+15559999999",
+        to: "+15551111111",
+      }),
+    );
+
+    // The gateway classifies a blocked member as trustClass "unknown" but still
+    // carries contactId/channelId and the deny ACL. This memberful unknown must
+    // take the verdict path on mid-call re-resolution so its blocked status is
+    // enforced — not fall back to local, which could miss a stale block.
+    mockMidCallVerdict = {
+      trustClass: "unknown",
+      canonicalSenderId: "+15559999999",
+      contactId: "ct_blocked",
+      channelId: "ch_blocked",
+      status: "blocked",
+      policy: "deny",
+    };
+
+    for (const digit of secret) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(relay.getConnectionState()).toBe("connected");
+    // Verdict path consumed the memberful unknown verdict; blocked status lands.
+    expect(trustVerdictMapperUsed).toBe(true);
+    expect(readControllerMemberStatus(relay)).toBe("blocked");
+
+    relay.destroy();
+  });
+
+  test("inbound guardian verification: memberful revoked unknown verdict is honored (verdict path enforces revoked status)", async () => {
+    ensureConversation("conv-midcall-verdict-revoked");
+    const session = createCallSession({
+      conversationId: "conv-midcall-verdict-revoked",
+      provider: "twilio",
+      fromNumber: "+15559999999",
+      toNumber: "+15551111111",
+    });
+
+    const secret = createPendingVoiceGuardianChallenge();
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Hello there."]),
+    );
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_midcall_verdict_revoked",
+        from: "+15559999999",
+        to: "+15551111111",
+      }),
+    );
+
+    mockMidCallVerdict = {
+      trustClass: "unknown",
+      canonicalSenderId: "+15559999999",
+      contactId: "ct_revoked",
+      channelId: "ch_revoked",
+      status: "revoked",
+      policy: "deny",
+    };
+
+    for (const digit of secret) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(relay.getConnectionState()).toBe("connected");
+    expect(trustVerdictMapperUsed).toBe(true);
+    expect(readControllerMemberStatus(relay)).toBe("revoked");
+
+    relay.destroy();
+  });
+
+  test("a prompt arriving during the mid-call re-resolution await is deferred and runs under the upgraded trust", async () => {
+    ensureConversation("conv-midcall-race");
+    const session = createCallSession({
+      conversationId: "conv-midcall-race",
+      provider: "twilio",
+      fromNumber: "+15559999999",
+      toNumber: "+15551111111",
+    });
+
+    const secret = createPendingVoiceGuardianChallenge();
+
+    // Capture the controller's trust class at the moment a turn actually fires,
+    // so we can prove the deferred prompt did not run under the stale context.
+    const trustClassAtTurn: Array<string | undefined> = [];
+    mockSendMessage.mockImplementation((...args: unknown[]) => {
+      trustClassAtTurn.push(readControllerTrustClass(relay));
+      return createMockProviderResponse(["Hello, verified guardian!"])(
+        ...(args as Parameters<ReturnType<typeof createMockProviderResponse>>),
+      );
+    });
+
+    const { relay } = createMockWs(session.id);
+
+    // Setup resolves locally (no verdict) so the pending challenge drives
+    // verification; the gated guardian verdict is armed only for the mid-call
+    // re-resolution below.
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_midcall_race",
+        from: "+15559999999",
+        to: "+15551111111",
+      }),
+    );
+
+    // The gateway verdict upgrades the caller to guardian, but the round-trip is
+    // slow — gate it so a prompt can land in the re-resolution await window.
+    mockMidCallVerdict = {
+      trustClass: "guardian",
+      canonicalSenderId: "+15559999999",
+      guardianExternalUserId: "+15559999999",
+      guardianPrincipalId: "+15559999999",
+    };
+    let releaseVerdict!: () => void;
+    mockMidCallVerdictGate = new Promise<void>((resolve) => {
+      releaseVerdict = resolve;
+    });
+
+    // Enter the gated re-resolution: the final DTMF digit triggers
+    // handleVerificationCodeResult, which awaits the slow verdict.
+    const digits = secret.split("");
+    for (const digit of digits.slice(0, -1)) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+    const verificationDone = relay.handleMessage(
+      JSON.stringify({ type: "dtmf", digit: digits[digits.length - 1] }),
+    );
+    // Let the verdict await begin (connectionState is now "connected", guard set).
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(relay.getConnectionState()).toBe("connected");
+    // Trust is still stale (verdict gated) — caller is not yet guardian.
+    expect(readControllerTrustClass(relay)).not.toBe("guardian");
+
+    // Prompt arrives mid-await: it must be deferred, not processed under stale trust.
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "prompt",
+        voicePrompt: "Are my appointments confirmed?",
+        lang: "en-US",
+        last: true,
+      }),
+    );
+    // No turn yet — the prompt was buffered, not run under the stale context.
+    expect(trustClassAtTurn).toHaveLength(0);
+
+    // Release the verdict; re-resolution installs the upgraded context, then the
+    // deferred prompt is flushed and its turn runs under guardian trust.
+    releaseVerdict();
+    await verificationDone;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(readControllerTrustClass(relay)).toBe("guardian");
+    expect(trustClassAtTurn.length).toBeGreaterThan(0);
+    expect(trustClassAtTurn.every((c) => c === "guardian")).toBe(true);
+
+    relay.destroy();
+  });
+
+  test("invite redemption: a prompt buffered during re-resolution runs as a real turn after activation (not dropped)", async () => {
+    ensureConversation("conv-midcall-invite-flush");
+    const session = createCallSession({
+      conversationId: "conv-midcall-invite-flush",
+      provider: "twilio",
+      fromNumber: "+15558887777",
+      toNumber: "+15551111111",
+    });
+
+    const code = generateVoiceCode(6);
+    createInvite({
+      sourceChannel: "phone",
+      contactId: createTargetContact("Alice"),
+      maxUses: 1,
+      expectedExternalUserId: "+15558887777",
+      voiceCodeHash: hashVoiceCode(code),
+      voiceCodeDigits: 6,
+    });
+
+    const turnCountBefore = mockSendMessage.mock.calls.length;
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Sure, here you go."]),
+    );
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_midcall_invite_flush",
+        from: "+15558887777",
+        to: "+15551111111",
+      }),
+    );
+    expect(relay.getConnectionState()).toBe("verification_pending");
+
+    // Gate the mid-call verdict so the prompt lands inside the re-resolution
+    // await, after activation flips connectionState to "connected".
+    let releaseVerdict!: () => void;
+    mockMidCallVerdictGate = new Promise<void>((resolve) => {
+      releaseVerdict = resolve;
+    });
+
+    const digits = code.split("");
+    for (const digit of digits.slice(0, -1)) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+    const redemptionDone = relay.handleMessage(
+      JSON.stringify({ type: "dtmf", digit: digits[digits.length - 1] }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Activation already reached the terminal state before re-resolution.
+    expect(relay.getConnectionState()).toBe("connected");
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "prompt",
+        voicePrompt: "What's on my calendar today?",
+        lang: "en-US",
+        last: true,
+      }),
+    );
+    // Buffered, not yet run (verdict gated).
+    expect(mockSendMessage.mock.calls.length).toBe(turnCountBefore);
+
+    releaseVerdict();
+    await redemptionDone;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Flushed onto the real-turn path: the prompt produced an LLM turn rather
+    // than being dropped by the verification-pending branch.
+    expect(mockSendMessage.mock.calls.length).toBeGreaterThan(turnCountBefore);
+
+    relay.destroy();
+  });
+
+  test("access-request approval: a prompt buffered during re-resolution runs as a real turn (not misrouted to wait-state)", async () => {
+    ensureConversation("conv-midcall-access-flush");
+    const session = createCallSession({
+      conversationId: "conv-midcall-access-flush",
+      provider: "twilio",
+      fromNumber: "+15557770003",
+      toNumber: "+15551111111",
+    });
+
+    const turnCountBefore = mockSendMessage.mock.calls.length;
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Sure, here you go."]),
+    );
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_midcall_access_flush",
+        from: "+15557770003",
+        to: "+15551111111",
+      }),
+    );
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "prompt",
+        voicePrompt: "Bob Smith",
+        lang: "en-US",
+        last: true,
+      }),
+    );
+    expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
+
+    // Gate the mid-call verdict so the prompt lands inside the re-resolution
+    // await triggered by the approval poll.
+    let releaseVerdict!: () => void;
+    mockMidCallVerdictGate = new Promise<void>((resolve) => {
+      releaseVerdict = resolve;
+    });
+
+    const pending = listCanonicalGuardianRequests({
+      status: "pending",
+      requesterExternalUserId: "+15557770003",
+      sourceChannel: "phone",
+      kind: "access_request",
+    });
+    expect(pending.length).toBe(1);
+    resolveCanonicalGuardianRequest(pending[0].id, "pending", {
+      status: "approved",
+      answerText: undefined,
+      decidedByExternalUserId: undefined,
+    });
+
+    // Let the poll detect approval and enter the gated re-resolution.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(relay.getConnectionState()).toBe("connected");
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "prompt",
+        voicePrompt: "What's on my calendar today?",
+        lang: "en-US",
+        last: true,
+      }),
+    );
+    // Buffered, not yet run (verdict gated).
+    expect(mockSendMessage.mock.calls.length).toBe(turnCountBefore);
+
+    releaseVerdict();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Flushed onto the real-turn path rather than the awaiting-guardian-decision
+    // wait-state classifier: the prompt produced an LLM turn.
+    expect(mockSendMessage.mock.calls.length).toBeGreaterThan(turnCountBefore);
+
+    relay.destroy();
   });
 });

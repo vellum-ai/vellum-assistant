@@ -249,6 +249,47 @@ describe("enforceIngressAcl — fail-closed on absent verdict", () => {
   });
 });
 
+describe("enforceIngressAcl — fail-closed on resolutionFailed verdict", () => {
+  test("resolutionFailed verdict → not_a_member deny, does not flow to intercepts", async () => {
+    inviteTokenForTest = "iv_token123";
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict({
+          trustClass: "unknown",
+          canonicalSenderId: "sender-1",
+          resolutionFailed: true,
+        }),
+        effectiveAdmissionPolicy: "strangers",
+      }),
+    );
+
+    expect(result.earlyResponse).toBeDefined();
+    expect(result.earlyResponse!.reason).toBe("not_a_member");
+    expect(result.resolvedMember).toBeNull();
+    // Distinct from a stranger: no invite redemption, onboarding, or
+    // guardian notification fires.
+    expect(result.earlyResponse!.inviteRedemption).toBeUndefined();
+    expect(deliverReplyCalls.length).toBe(0);
+    expect(accessRequestCalls.length).toBe(0);
+    expect(findContactChannelCalls.length).toBe(0);
+  });
+
+  test("real unknown stranger (no resolutionFailed) still redeems via intercept", async () => {
+    inviteTokenForTest = "iv_token123";
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict({
+          trustClass: "unknown",
+          canonicalSenderId: "sender-1",
+        }),
+      }),
+    );
+
+    expect(result.earlyResponse!.inviteRedemption).toBe("redeemed");
+    expect(result.resolvedMember).toBeNull();
+  });
+});
+
 describe("enforceIngressAcl — fail-closed on malformed member verdict", () => {
   test("member identity + unknown policy → not_a_member deny even under strangers", async () => {
     const result = await enforceIngressAcl(

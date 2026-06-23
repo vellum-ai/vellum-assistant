@@ -5,7 +5,8 @@
  *    actor's gateway-DB ACL (guardian / trusted_contact / unknown).
  *  - The `admissionPolicy` floor stamp coexists unchanged with the new verdict.
  *  - The verification-code intercept short-circuits — no forward, no stamp.
- *  - A resolver failure omits the stamp and still forwards (fail-soft).
+ *  - A resolver failure stamps a `resolutionFailed` sentinel and still forwards
+ *    (fail-soft).
  *
  * Module mocks isolate the test from the live runtime client. The
  * verification intercept is mocked per-test so the default path forwards.
@@ -244,13 +245,15 @@ describe("handle-inbound trust verdict stamping", () => {
     expect(verdict.memberDisplayName).toBe("Trusted Member");
   });
 
-  test("unknown actor (no rows) → trustVerdict 'unknown', canonicalSenderId set", async () => {
+  test("unknown actor (no rows) → trustVerdict 'unknown', canonicalSenderId set, not resolutionFailed", async () => {
     await handleInbound(makeConfig(), makeEvent(), ROUTING);
 
     const verdict = runtimePayloads[0]!.sourceMetadata!.trustVerdict!;
     expect(verdict.trustClass).toBe("unknown");
     expect(verdict.canonicalSenderId).toBe("U_USER_1");
     expect(verdict.contactId).toBeUndefined();
+    // A real stranger is NOT flagged as a resolver failure.
+    expect(verdict.resolutionFailed).toBeUndefined();
   });
 
   test("admissionPolicy stamp present and unchanged alongside the new trustVerdict", async () => {
@@ -278,7 +281,7 @@ describe("handle-inbound trust verdict stamping", () => {
     expect(forwardToRuntimeMock).toHaveBeenCalledTimes(0);
   });
 
-  test("resolver throw → inbound still forwards, trustVerdict absent (fail-soft)", async () => {
+  test("resolver throw → inbound forwards with a resolutionFailed sentinel (fail-soft)", async () => {
     // Drop the gateway DB connection so resolveTrustVerdict's getGatewayDb()
     // throws. The admission cache is in-memory and unaffected, so its floor
     // stamp still flows.
@@ -288,10 +291,32 @@ describe("handle-inbound trust verdict stamping", () => {
 
     expect(result.forwarded).toBe(true);
     expect(forwardToRuntimeMock).toHaveBeenCalledTimes(1);
-    expect(runtimePayloads[0]!.sourceMetadata!.trustVerdict).toBeUndefined();
+    const verdict = runtimePayloads[0]!.sourceMetadata!.trustVerdict!;
+    expect(verdict.resolutionFailed).toBe(true);
+    expect(verdict.trustClass).toBe("unknown");
+    expect(verdict.canonicalSenderId).toBe("U_USER_1");
+    expect(verdict.contactId).toBeUndefined();
     // The floor stamp still flows even when verdict resolution fails.
     expect(runtimePayloads[0]!.sourceMetadata!.admissionPolicy).toBe(
       "trusted_contacts",
     );
+  });
+
+  test("resolver throw with whitespace-only actor id → sentinel canonicalSenderId is null", async () => {
+    resetGatewayDb();
+
+    await handleInbound(
+      makeConfig(),
+      makeEvent({
+        actor: { actorExternalId: "   ", displayName: "Blank", username: "" },
+      }),
+      ROUTING,
+    );
+
+    const verdict = runtimePayloads[0]!.sourceMetadata!.trustVerdict!;
+    expect(verdict.resolutionFailed).toBe(true);
+    expect(verdict.trustClass).toBe("unknown");
+    // Matches a real resolve: whitespace-only id normalizes to absent.
+    expect(verdict.canonicalSenderId).toBeNull();
   });
 });

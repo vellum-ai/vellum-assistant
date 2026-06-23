@@ -323,8 +323,8 @@ export function toTrustContext(
     requesterMemberDisplayName: ctx.actorMetadata.memberDisplayName,
     requesterExternalUserId: ctx.canonicalSenderId ?? undefined,
     requesterChatId: conversationExternalId,
-    // Member grounding from a real memberRecord (voice path); the verdict path
-    // (memberRecord=null) stamps these from the verdict instead.
+    // Member grounding from the resolved memberRecord (voice + verdict paths
+    // both populate it).
     requesterContactId: ctx.memberRecord?.contact.id,
     memberStatus: ctx.memberRecord
       ? channelStatusToMemberStatus(ctx.memberRecord.channel.status)

@@ -33,16 +33,17 @@ export interface TrustVerdictTransport {
 }
 
 /**
- * Build a {@link TrustContext} from a gateway verdict + transport identity.
+ * Reassemble an {@link ActorTrustContext} from a gateway verdict + transport
+ * identity (mirroring `resolveActorTrust`), without any local DB/IPC reads.
  *
- * Reassembles an {@link ActorTrustContext} (mirroring `resolveActorTrust`) and
- * routes it through {@link toTrustContext}, so the output is byte-identical to
- * the local resolution path.
+ * Pure: the voice path consumes this directly for routing on
+ * `actorTrust.trustClass`; {@link trustContextFromVerdict} routes it through
+ * {@link toTrustContext}.
  */
-export function trustContextFromVerdict(
+export function actorTrustContextFromVerdict(
   verdict: TrustVerdict,
   input: TrustVerdictTransport,
-): TrustContext {
+): ActorTrustContext {
   const canonicalSenderId = verdict.canonicalSenderId;
   const memberDisplayName = verdict.memberDisplayName;
   const senderDisplayName = input.actorDisplayName;
@@ -51,7 +52,7 @@ export function trustContextFromVerdict(
     ? `@${username}`
     : (canonicalSenderId ?? undefined);
 
-  const actorTrustContext: ActorTrustContext = {
+  return {
     canonicalSenderId,
     guardianBindingMatch: verdict.guardianExternalUserId
       ? {
@@ -60,7 +61,12 @@ export function trustContextFromVerdict(
         }
       : null,
     guardianPrincipalId: verdict.guardianPrincipalId,
-    memberRecord: null,
+    // Populate from the verdict so the voice path's ACL gates (which read
+    // actorTrust.memberRecord.channel status/policy) enforce blocked/revoked/
+    // deny/escalate. Null for memberless verdicts. Text path is unaffected:
+    // toTrustContext derives the same member fields trustContextFromVerdict
+    // already stamps.
+    memberRecord: resolvedMemberFromVerdict(verdict),
     trustClass: verdict.trustClass,
     actorMetadata: {
       identifier,
@@ -72,9 +78,21 @@ export function trustContextFromVerdict(
       trustStatus: verdict.trustClass,
     },
   };
+}
 
+/**
+ * Build a {@link TrustContext} from a gateway verdict + transport identity.
+ *
+ * Reassembles an {@link ActorTrustContext} (mirroring `resolveActorTrust`) and
+ * routes it through {@link toTrustContext}, so the output is byte-identical to
+ * the local resolution path.
+ */
+export function trustContextFromVerdict(
+  verdict: TrustVerdict,
+  input: TrustVerdictTransport,
+): TrustContext {
   const context = toTrustContext(
-    actorTrustContext,
+    actorTrustContextFromVerdict(verdict, input),
     input.conversationExternalId,
   );
 
@@ -89,6 +107,26 @@ export function trustContextFromVerdict(
   }
 
   return context;
+}
+
+/**
+ * True when the verdict carries a member identity (contactId or channelId),
+ * regardless of whether that member resolves to a usable {@link ResolvedMember}.
+ */
+export function verdictHasMemberIdentity(verdict: TrustVerdict): boolean {
+  return !!(verdict.contactId || verdict.channelId);
+}
+
+/**
+ * True when the verdict claims a member identity but that member can't be
+ * synthesized (partial/mixed-version verdict). Such a verdict is unusable —
+ * callers fall back to local resolution.
+ */
+export function verdictMemberUnresolvable(verdict: TrustVerdict): boolean {
+  return (
+    verdictHasMemberIdentity(verdict) &&
+    resolvedMemberFromVerdict(verdict) === null
+  );
 }
 
 // Allowed ACL enum values, kept in sync with the ContactChannel union types.
