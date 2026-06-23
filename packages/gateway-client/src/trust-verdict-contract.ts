@@ -62,3 +62,20 @@ export const TrustVerdictSchema = z.object({
 });
 
 export type TrustVerdict = z.infer<typeof TrustVerdictSchema>;
+
+/**
+ * IPC request for `resolve_inbound_trust`. Per-actor identity keys the
+ * gateway resolver needs to classify the inbound sender. The response reuses
+ * {@link TrustVerdictSchema}.
+ */
+export const ResolveInboundTrustRequestSchema = z.object({
+  channelType: z.string().min(1),
+  actorExternalId: z.string().optional(),
+  actorUsername: z.string().optional(),
+  actorDisplayName: z.string().optional(),
+  conversationExternalId: z.string().optional(),
+});
+
+export type ResolveInboundTrustRequest = z.infer<
+  typeof ResolveInboundTrustRequestSchema
+>;
