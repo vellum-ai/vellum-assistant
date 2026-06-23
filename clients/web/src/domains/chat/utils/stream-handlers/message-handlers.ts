@@ -1,12 +1,10 @@
 import { recordDiagnostic } from "@/lib/diagnostics";
 import {
-  applyUserMessageEcho,
-  finalizeMessageComplete,
-  finalizeOnIdle,
-} from "@/domains/chat/utils/stream-updaters/message-updaters";
-import {
+  applyMessageComplete,
   applyTextDelta,
   applyThinkingDelta,
+  applyUserMessageEcho,
+  finalizeOnIdle,
 } from "@/domains/chat/utils/stream-updaters/entity-updaters";
 import type { MessageEntityState } from "@/domains/chat/utils/message-entities";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
@@ -213,7 +211,7 @@ export function handleAssistantActivityState(
     return;
   }
 
-  ctx.setMessages(finalizeOnIdle);
+  ctx.updateMessages(finalizeOnIdle);
   if (convId) {
     // Mirrors the cache patch in `handleMessageComplete` /
     // `handleGenerationCancelled` — see those handlers for the
@@ -236,7 +234,7 @@ export function handleMessageComplete(
   event: MessageCompleteEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.setMessages((prev) => finalizeMessageComplete(prev, event));
+  ctx.updateMessages((s) => applyMessageComplete(s, event));
 
   // Re-anchor subagents spawned in this turn from the optimistic streaming
   // bubble id (`currentAssistantMessageIdRef`, the same id used as
@@ -292,7 +290,7 @@ export function handleUserMessageEcho(
   event: UserMessageEchoEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.setMessages((prev) => applyUserMessageEcho(prev, event));
+  ctx.updateMessages((s) => applyUserMessageEcho(s, event));
 }
 
 export function handleGenerationHandoff(

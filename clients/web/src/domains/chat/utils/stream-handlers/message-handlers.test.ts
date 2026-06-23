@@ -157,7 +157,7 @@ describe("handleAssistantActivityState", () => {
       ctx,
     );
     expect(ctx.lastActivityVersionRef.current.get("conv-1")).toBe(1);
-    expect(ctx.setMessages).toHaveBeenCalled();
+    expect(ctx.updateMessages).toHaveBeenCalled();
     expect(ctx.endTurn).toHaveBeenCalledWith({
       conversationId: "conv-1",
       reason: "complete",
@@ -233,7 +233,7 @@ describe("handleMessageComplete", () => {
       { type: "message_complete", messageId: "msg-1" },
       ctx,
     );
-    expect(ctx.setMessages).toHaveBeenCalled();
+    expect(ctx.updateMessages).toHaveBeenCalled();
     expect(ctx.endTurn).toHaveBeenCalledWith({
       conversationId: "conv-1",
       reason: "complete",

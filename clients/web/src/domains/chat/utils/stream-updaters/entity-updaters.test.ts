@@ -9,9 +9,12 @@ import {
   toArray,
 } from "@/domains/chat/utils/message-entities";
 import {
+  applyMessageComplete,
   applyTextDelta,
   applyThinkingDelta,
+  applyUserMessageEcho,
 } from "@/domains/chat/utils/stream-updaters/entity-updaters";
+import type { MessageCompleteEvent } from "@vellumai/assistant-api";
 
 const userRow = (id: string): DisplayMessage => ({ id, role: "user", textSegments: ["hi"] });
 
@@ -75,5 +78,50 @@ describe("history rows are addressable by the same routing", () => {
     const s1 = applyTextDelta(s0, "streamed", "a1");
     expect(s1.order).toEqual(["u1", "a1"]); // no duplicate bubble
     expect(toArray(s1)[1]!.textSegments).toEqual(["streamed"]);
+  });
+});
+
+describe("applyMessageComplete — the swap no-remount", () => {
+  test("adopting the server id on an optimistic bubble keeps rowKey + order stable", () => {
+    // An optimistic streaming bubble (no messageId on the delta).
+    let s = applyTextDelta(emptyEntityState(), "answer");
+    const rowKey = s.order[0]!;
+    expect(s.byId[rowKey]!.isOptimistic).toBe(true);
+
+    const event = { type: "message_complete", messageId: "srv-1" } as MessageCompleteEvent;
+    s = applyMessageComplete(s, event);
+
+    expect(s.order).toEqual([rowKey]); // React key unchanged -> no remount at completion
+    expect(s.byId[rowKey]!.id).toBe("srv-1");
+    expect(s.byId[rowKey]!.isOptimistic).toBe(false);
+    expect(rowKeyForServerId(s, "srv-1")).toBe(rowKey);
+  });
+});
+
+describe("applyUserMessageEcho", () => {
+  test("swaps an optimistic user row's id by clientMessageId, keeping its rowKey", () => {
+    let s = appendRow(
+      emptyEntityState(),
+      { id: "tmp", role: "user", clientMessageId: "n1", isOptimistic: true, textSegments: ["hi"] },
+    );
+    expect(s.order).toEqual(["n1"]);
+
+    s = applyUserMessageEcho(s, { text: "hi", messageId: "srv-u", clientMessageId: "n1" });
+
+    expect(s.order).toEqual(["n1"]); // rowKey unchanged
+    expect(s.byId.n1!.id).toBe("srv-u");
+    expect(s.byId.n1!.isOptimistic).toBe(false);
+  });
+
+  test("dedupes an echo whose server id is already present", () => {
+    const before = appendRow(emptyEntityState(), { id: "srv-u", role: "user", textSegments: ["hi"] });
+    const after = applyUserMessageEcho(before, { text: "hi", messageId: "srv-u" });
+    expect(after).toBe(before); // no-op
+  });
+
+  test("appends a passive-viewer user row when there is no optimistic row", () => {
+    const s = applyUserMessageEcho(emptyEntityState(), { text: "yo", messageId: "srv-x" });
+    expect(s.order).toEqual(["srv-x"]);
+    expect(s.byId["srv-x"]!.role).toBe("user");
   });
 });
