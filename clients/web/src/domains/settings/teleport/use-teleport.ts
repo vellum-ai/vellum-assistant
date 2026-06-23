@@ -11,8 +11,12 @@
 import { type MutableRefObject, useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
-import { getAssistant, hatchAssistant, retireAssistantById } from "@/assistant/api";
-import { assistantsOperationalStatusDetailRead } from "@/generated/api/sdk.gen";
+import { hatchAssistant } from "@/assistant/api";
+import { retireAssistant } from "@/assistant/retire-service";
+import {
+  assistantsList,
+  assistantsOperationalStatusDetailRead,
+} from "@/generated/api/sdk.gen";
 import {
   getLocalAssistants,
   getPlatformRuntimeUrl,
@@ -25,7 +29,6 @@ import { getAppVersionInfo } from "@/runtime/app-info";
 import type { LockfileAssistant } from "@/runtime/local-mode-host";
 import {
   hatchLocalAssistant,
-  retireLocalAssistantHost,
   wakeLocalAssistantHost,
 } from "@/runtime/local-mode-host";
 import { useAuthStore } from "@/stores/auth-store";
@@ -178,10 +181,16 @@ export function useTeleport(): TeleportController {
 
       // Fire-and-forget retirement of the source — mirrors the Swift flow,
       // which never blocks the switch on the old assistant going away.
+      // `retireAssistant` (the retire service) also reconciles the lockfile +
+      // resolved-assistants store, so the retired source stops being selectable.
       if (original) {
-        void retireRef(original).catch((error) =>
-          captureError(error, { context: "teleport-retire-source" }),
-        );
+        void retireAssistant(original.id).then((result) => {
+          if (!result.ok) {
+            captureError(new Error(result.error), {
+              context: "teleport-retire-source",
+            });
+          }
+        });
       }
 
       reset();
@@ -194,13 +203,17 @@ export function useTeleport(): TeleportController {
     const original = originalRef.current;
     void (async () => {
       // The transfer already created the target (and the lockfile may have
-      // briefly pointed at it). Restore the original as the active assistant and
-      // retire the target if the teleport created it — otherwise a cancelled
-      // teleport leaves a stray (possibly active) assistant behind.
+      // briefly pointed at it). Retire the target if the teleport created it,
+      // then restore the original as the active assistant — otherwise a
+      // cancelled teleport leaves a stray (possibly active) assistant behind.
+      // `retireAssistant` reconciles the lockfile + resolved-assistants store.
       if (target?.createdFresh) {
-        await retireRef(target).catch((error) =>
-          captureError(error, { context: "teleport-cancel-retire-target" }),
-        );
+        const result = await retireAssistant(target.id);
+        if (!result.ok) {
+          captureError(new Error(result.error), {
+            context: "teleport-cancel-retire-target",
+          });
+        }
       }
       if (original) await setActiveLockfileAssistant(original.id);
       reset();
@@ -220,14 +233,6 @@ export function useTeleport(): TeleportController {
   };
 }
 
-async function retireRef(original: AssistantRef): Promise<void> {
-  if (original.kind === "managed") {
-    await retireAssistantById(original.id);
-  } else {
-    await retireLocalAssistantHost(original.id);
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Local → Platform
 // ---------------------------------------------------------------------------
@@ -245,13 +250,19 @@ async function teleportToPlatform(
   const organizationId = await resolveOrganizationId();
 
   // Pre-check before the expensive upload: block if a platform assistant
-  // already exists for this account.
+  // already exists for this account. Query the platform directly rather than
+  // `getAssistant()` — that helper short-circuits to the (local) selected
+  // assistant while a local source is active, which would bypass this guard.
   setStep("Checking for existing assistant...");
-  const existing = await getAssistant();
-  if (existing.ok && existing.data && existing.data.is_local === false) {
+  const platformList = await assistantsList({
+    query: { hosting: "platform" },
+    throwOnError: false,
+  });
+  const existingPlatform = platformList.data?.results?.[0];
+  if (existingPlatform) {
     throw new TeleportError(
       "existing_platform_assistant",
-      `You already have a platform assistant '${existing.data.id}'. Retire it first, then retry the teleport.`,
+      `You already have a platform assistant '${existingPlatform.id}'. Retire it first, then retry the teleport.`,
     );
   }
 
@@ -457,8 +468,22 @@ async function resolveLocalTarget(): Promise<{
 }> {
   let local = getLocalAssistants()[0];
   if (local) {
-    await wakeLocalAssistantHost(local.assistantId);
-    return { assistant: local, createdFresh: false };
+    // Wake is the repair path — it can populate a fresh gateway port for a
+    // stopped/legacy assistant. Fail loudly on a failed wake, and reload the
+    // lockfile afterwards so the import uses the repaired entry (with its
+    // resolved gateway) rather than the stale pre-wake object.
+    const wake = await wakeLocalAssistantHost(local.assistantId);
+    if (!wake.ok) {
+      throw new TeleportError(
+        "local_assistant_not_found",
+        wake.error ?? "Could not wake the local assistant.",
+      );
+    }
+    await loadLockfile();
+    const refreshed = getLocalAssistants().find(
+      (a) => a.assistantId === local!.assistantId,
+    );
+    return { assistant: refreshed ?? local, createdFresh: false };
   }
 
   const hatched = await hatchLocalAssistant(undefined, undefined);
