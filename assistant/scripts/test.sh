@@ -169,6 +169,7 @@ printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
 
   safe_name="$(echo "${test_file}" | tr "/" "_")"
   out_file="${results_dir}/${safe_name}.out"
+  base="$(basename "${test_file}")"
 
   coverage_args=""
   if [[ "${coverage_enabled}" == "true" ]]; then
@@ -185,27 +186,47 @@ printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
     timeout_cmd="gtimeout"
   fi
 
+  # Run the test file in its own bun process. Wrapped in a function so a
+  # transient infrastructure crash can be retried without duplicating the
+  # four-way (timeout × experimental-filter) invocation.
+  run_bun_test() {
+    if [[ -n "${timeout_cmd}" ]]; then
+      if [[ "${exclude_exp}" == "true" ]]; then
+        "${timeout_cmd}" -k 10 "${per_test_timeout}" bun test ${coverage_args} --test-name-pattern "^(?!.*\\[experimental\\])" "${test_file}" > "${out_file}" 2>&1
+      else
+        "${timeout_cmd}" -k 10 "${per_test_timeout}" bun test ${coverage_args} "${test_file}" > "${out_file}" 2>&1
+      fi
+    else
+      if [[ "${exclude_exp}" == "true" ]]; then
+        bun test ${coverage_args} --test-name-pattern "^(?!.*\\[experimental\\])" "${test_file}" > "${out_file}" 2>&1
+      else
+        bun test ${coverage_args} "${test_file}" > "${out_file}" 2>&1
+      fi
+    fi
+  }
+
   start_ms=$(perl -MTime::HiRes=time -e "printf \"%d\", time*1000")
 
-  if [[ -n "${timeout_cmd}" ]]; then
-    if [[ "${exclude_exp}" == "true" ]]; then
-      "${timeout_cmd}" -k 10 "${per_test_timeout}" bun test ${coverage_args} --test-name-pattern "^(?!.*\\[experimental\\])" "${test_file}" > "${out_file}" 2>&1
-    else
-      "${timeout_cmd}" -k 10 "${per_test_timeout}" bun test ${coverage_args} "${test_file}" > "${out_file}" 2>&1
-    fi
-  else
-    if [[ "${exclude_exp}" == "true" ]]; then
-      bun test ${coverage_args} --test-name-pattern "^(?!.*\\[experimental\\])" "${test_file}" > "${out_file}" 2>&1
-    else
-      bun test ${coverage_args} "${test_file}" > "${out_file}" 2>&1
-    fi
-  fi
+  run_bun_test
   exit_code=$?
+
+  # Retry once on a transient bun loader/runtime crash. Bun occasionally aborts
+  # a worker before its tests run — e.g. "# Unhandled error between tests" with
+  # "error: ENOENT reading <corrupted path>" — failing the whole job even though
+  # the file is green on a clean process. Such a crash truncates the run before
+  # any assertion executes, so it prints no "(fail)" line; genuine assertion
+  # failures do, and are reported immediately without a retry (fast feedback, no
+  # masking of intermittent real failures). Timeouts (124/137) are handled by the
+  # hang branch below, not here.
+  if [[ ${exit_code} -ne 0 && ${exit_code} -ne 124 && ${exit_code} -ne 137 ]] \
+     && ! grep -q "^(fail)" "${out_file}" 2>/dev/null; then
+    echo "  ↻ ${base} (transient crash, exit ${exit_code} — retrying once)"
+    run_bun_test
+    exit_code=$?
+  fi
 
   end_ms=$(perl -MTime::HiRes=time -e "printf \"%d\", time*1000")
   elapsed=$(( end_ms - start_ms ))
-
-  base="$(basename "${test_file}")"
 
   # Record duration for longest-first scheduling in future runs.
   # Write the repo-relative path (not the basename) so the lookup in future
