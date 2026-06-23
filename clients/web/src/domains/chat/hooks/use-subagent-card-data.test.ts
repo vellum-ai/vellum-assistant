@@ -1382,6 +1382,65 @@ describe("buildSubagentStepDetails", () => {
     expect(details.get("tu-1")!.result).toBe("fallback output");
   });
 
+  // Codex review (P2): a FAILED tool's error output must stay inspectable in
+  // the nested detail. `buildSubagentStepDetails` carries the error content into
+  // the payload's `result` (status "error"), and `ToolDetailBody` renders
+  // `result` in its Output section regardless of status — so clicking the pill
+  // surfaces WHY the tool failed, not just that it did. Both the fetched-history
+  // shape (`tool_result` + `isError`) and the live shape (a raw `error` event
+  // carrying the content) resolve through the same branch, so both are covered.
+  test("failed tool_result (isError) → payload preserves the error output, status error", () => {
+    const details = buildSubagentStepDetails(
+      makeEntry({
+        events: [
+          makeEvent(
+            { type: "tool_call", toolName: "bash", toolUseId: "tu-1" },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "bash",
+              toolUseId: "tu-1",
+              isError: true,
+              result: "bash: command not found: foo",
+            },
+            1,
+          ),
+        ],
+      }),
+    );
+    const payload = details.get("tu-1")!;
+    expect(payload.status).toBe("error");
+    expect(payload.result).toBe("bash: command not found: foo");
+  });
+
+  test("failed tool delivered as a raw error event → payload preserves the content", () => {
+    const details = buildSubagentStepDetails(
+      makeEntry({
+        events: [
+          makeEvent(
+            { type: "tool_call", toolName: "bash", toolUseId: "tu-1" },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "error",
+              toolName: "bash",
+              toolUseId: "tu-1",
+              isError: true,
+              content: "permission denied",
+            },
+            1,
+          ),
+        ],
+      }),
+    );
+    const payload = details.get("tu-1")!;
+    expect(payload.status).toBe("error");
+    expect(payload.result).toBe("permission denied");
+  });
+
   test("in-flight tool_call with no result → running payload, result undefined", () => {
     const details = buildSubagentStepDetails(
       makeEntry({
