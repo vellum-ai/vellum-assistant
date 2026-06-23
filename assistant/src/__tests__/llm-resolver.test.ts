@@ -1555,6 +1555,84 @@ describe("resolveCallSiteConfig sampling-param provenance (temperature / top_p)"
     expect(resolved.model).toBe("claude-opus-4-7");
     expect(resolved.topP).toBeNull();
   });
+
+  test("forceOverrideProfile: an explicit call-site temperature survives a forced profile silent on sampling", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        active: { verbosity: "low" },
+        sitep: { provider: "anthropic", model: "claude-haiku-4-5-20251001" },
+        forced: { model: "claude-opus-4-7", effort: "high" },
+      },
+      callSites: {
+        memoryExtraction: {
+          profile: "sitep",
+          temperature: 0.7,
+          maxTokens: 1000,
+        },
+      },
+      activeProfile: "active",
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm, {
+      overrideProfile: "forced",
+      forceOverrideProfile: true,
+    });
+    // The forced profile floats to the top for fields it sets.
+    expect(resolved.model).toBe("claude-opus-4-7");
+    expect(resolved.effort).toBe("high");
+    // It is silent on temperature, so the deliberate call-site value survives —
+    // consistent with sibling call-site fields like maxTokens (which flow
+    // through the deep-merge).
+    expect(resolved.temperature).toBe(0.7);
+    expect(resolved.maxTokens).toBe(1000);
+  });
+
+  test("forceOverrideProfile: a forced profile that sets temperature wins over the call-site override", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        sitep: { provider: "anthropic", model: "claude-haiku-4-5-20251001" },
+        forced: { model: "claude-opus-4-7", temperature: 0.1 },
+      },
+      callSites: {
+        memoryExtraction: { profile: "sitep", temperature: 0.7 },
+      },
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm, {
+      overrideProfile: "forced",
+      forceOverrideProfile: true,
+    });
+    // The forced profile explicitly sets temperature, so it floats above the
+    // call-site override.
+    expect(resolved.temperature).toBe(0.1);
+  });
+
+  test("mainAgent: an explicit call-site temperature survives an active profile silent on sampling", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: { active: { model: "claude-sonnet-4-7" } },
+      callSites: { mainAgent: { temperature: 0.5 } },
+      activeProfile: "active",
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm);
+    // The active profile floats above the call-site for mainAgent but is silent
+    // on temperature, so the deliberate call-site value survives.
+    expect(resolved.model).toBe("claude-sonnet-4-7");
+    expect(resolved.temperature).toBe(0.5);
+  });
+
+  test("mainAgent: the active profile's explicit temperature wins over a call-site temperature", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: { active: { model: "claude-sonnet-4-7", temperature: 0.2 } },
+      callSites: { mainAgent: { temperature: 0.5 } },
+      activeProfile: "active",
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm);
+    // For mainAgent the active profile floats above the call-site override, so
+    // its explicit temperature wins.
+    expect(resolved.temperature).toBe(0.2);
+  });
 });
 
 describe("resolveCallSiteConfig — workflowLeaf default", () => {
