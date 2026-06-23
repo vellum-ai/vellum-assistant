@@ -409,6 +409,17 @@ function currentPlatformToken(): string | null {
   return platformSessionToken;
 }
 
+// Whether to attach the platform credential to a proxied request. Only
+// same-origin (SPA) traffic qualifies — a cross-site page must not be able to
+// use the local proxy as a confused deputy for authenticated platform calls.
+// Cross-origin fetches always send an Origin; `Sec-Fetch-Site` is a belt-and-
+// braces check for browsers that send it.
+function isSameOriginRequest(req: Request): boolean {
+  if (!originIsAllowed(req.headers.get("origin") ?? undefined)) return false;
+  const site = req.headers.get("sec-fetch-site");
+  return !site || site === "same-origin" || site === "none";
+}
+
 function getEnvRecord(): Record<string, string> {
   const result: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
@@ -886,8 +897,11 @@ async function runWebInterface(
 
       // Authenticate with the loopback session token the SPA registered. The
       // platform expects it both as the Django session cookie and as
-      // X-Session-Token (for DRF views that accept header-based auth).
-      const sessionToken = currentPlatformToken();
+      // X-Session-Token (for DRF views that accept header-based auth). Only
+      // same-origin SPA traffic gets the credential — never a cross-site caller.
+      const sessionToken = isSameOriginRequest(req)
+        ? currentPlatformToken()
+        : null;
       if (sessionToken) {
         headers.set(
           "Cookie",

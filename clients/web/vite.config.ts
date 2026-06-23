@@ -5,7 +5,11 @@ import { rmSync } from "node:fs";
 import type http from "node:http";
 import path from "node:path";
 import { defineConfig, loadEnv } from "vite";
-import { localModePlugin, getDevPlatformToken } from "./vite-plugin-local-mode";
+import {
+  localModePlugin,
+  getDevPlatformToken,
+  isSameOriginProxyRequest,
+} from "./vite-plugin-local-mode";
 
 const DESIGN_LIBRARY_SRC = path.resolve(
   import.meta.dirname,
@@ -28,6 +32,8 @@ function injectPlatformToken(proxy: {
 }): void {
   proxy.on("proxyReq", (...args: unknown[]) => {
     const proxyReq = args[0] as http.ClientRequest;
+    const req = args[1] as http.IncomingMessage;
+    if (!isSameOriginProxyRequest(req)) return;
     const token = getDevPlatformToken();
     if (token) {
       proxyReq.setHeader(

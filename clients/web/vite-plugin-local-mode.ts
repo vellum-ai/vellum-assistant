@@ -41,6 +41,21 @@ export function getDevPlatformToken(): string | null {
   return devPlatformToken;
 }
 
+/**
+ * Whether a proxied request is same-origin SPA traffic that may carry the
+ * platform credential. A cross-site page must not be able to use the dev proxy
+ * as a confused deputy. Mirrors the Bun server's check.
+ */
+export function isSameOriginProxyRequest(req: http.IncomingMessage): boolean {
+  const origin = Array.isArray(req.headers.origin)
+    ? req.headers.origin[0]
+    : req.headers.origin;
+  if (!originIsAllowed(origin)) return false;
+  const site = req.headers["sec-fetch-site"];
+  const siteValue = Array.isArray(site) ? site[0] : site;
+  return !siteValue || siteValue === "same-origin" || siteValue === "none";
+}
+
 export function localModePlugin(env: Record<string, string>): Plugin {
   const config = resolveLocalConfigFromEnv(env);
   const baseDir = path.resolve(import.meta.dirname, "..", "..");
