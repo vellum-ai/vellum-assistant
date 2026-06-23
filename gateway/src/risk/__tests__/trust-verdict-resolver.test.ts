@@ -193,7 +193,7 @@ describe("resolveTrustVerdict", () => {
     expect(verdict.canonicalSenderId).toBeNull();
   });
 
-  test("blocked member → status/policy surfaced verbatim, no reclassification", async () => {
+  test("blocked member → unknown, status/policy surfaced verbatim", async () => {
     insertContact({ id: "c-blocked", displayName: "Blocked Member" });
     insertChannel({
       id: "ch-blocked",
@@ -208,13 +208,33 @@ describe("resolveTrustVerdict", () => {
       actorExternalId: "U_BLOCKED",
     });
 
-    // Per status rules: a member channel that is not active falls into the
-    // unverified_contact tier — but the raw status/policy carry through so the
-    // consumer enforces. Proves the resolver never reclassifies.
-    expect(verdict.trustClass).toBe("unverified_contact");
+    // Mirrors the canonical resolver: blocked → unknown. Raw status/policy
+    // still carry through so the consumer enforces member_blocked hard-deny.
+    expect(verdict.trustClass).toBe("unknown");
     expect(verdict.status).toBe("blocked");
     expect(verdict.policy).toBe("deny");
     expect(verdict.contactId).toBe("c-blocked");
+  });
+
+  test("revoked member → unknown, status/policy surfaced verbatim", async () => {
+    insertContact({ id: "c-revoked", displayName: "Revoked Member" });
+    insertChannel({
+      id: "ch-revoked",
+      contactId: "c-revoked",
+      address: "U_REVOKED",
+      status: "revoked",
+      policy: "deny",
+    });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "U_REVOKED",
+    });
+
+    expect(verdict.trustClass).toBe("unknown");
+    expect(verdict.status).toBe("revoked");
+    expect(verdict.policy).toBe("deny");
+    expect(verdict.contactId).toBe("c-revoked");
   });
 
   test("id-divergent row resolves by (type,address)", async () => {
@@ -256,9 +276,7 @@ describe("resolveTrustVerdict", () => {
     expect(verdict.channelId).toBe("ch-member");
   });
 
-  test("guardian classification by member contact role, even without channel binding row match", async () => {
-    // Guardian's own member channel has role=guardian; even if address differs
-    // from the (separately-resolved) channel guardian binding, role wins.
+  test("sender matching the active guardian binding address → guardian", async () => {
     insertContact({
       id: "c-guardian",
       displayName: "Guardian",
@@ -268,15 +286,44 @@ describe("resolveTrustVerdict", () => {
     insertChannel({
       id: "ch-guardian",
       contactId: "c-guardian",
-      address: "U_GUARDIAN_ROLE",
+      address: "U_GUARDIAN_ACTIVE",
       status: "active",
     });
 
     const verdict = await resolveTrustVerdict({
       channelType: CHANNEL,
-      actorExternalId: "U_GUARDIAN_ROLE",
+      actorExternalId: "U_GUARDIAN_ACTIVE",
     });
 
     expect(verdict.trustClass).toBe("guardian");
+  });
+
+  test("revoked guardian channel does NOT confer guardian → unknown", async () => {
+    // P1 regression: a guardian contact whose only channel is revoked must not
+    // re-acquire guardian privileges by code-match. The status='active' filter
+    // on the guardian binding excludes it, so the sender resolves to unknown.
+    insertContact({
+      id: "c-old-guardian",
+      displayName: "Former Guardian",
+      role: "guardian",
+      principalId: "principal-old",
+    });
+    insertChannel({
+      id: "ch-old-guardian",
+      contactId: "c-old-guardian",
+      address: "U_OLD_GUARDIAN",
+      status: "revoked",
+      policy: "deny",
+    });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "U_OLD_GUARDIAN",
+    });
+
+    expect(verdict.trustClass).toBe("unknown");
+    expect(verdict.status).toBe("revoked");
+    // No active guardian binding exists, so guardian label fields are absent.
+    expect(verdict.guardianExternalUserId).toBeUndefined();
   });
 });

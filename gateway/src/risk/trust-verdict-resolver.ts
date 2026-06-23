@@ -6,8 +6,9 @@
  * (`actor-trust-resolver.ts`) and the Combo-7 `(type,address)` COLLATE NOCASE
  * read pattern. Read-only — no writes, no assistant DB, no IPC.
  *
- * Blocked/revoked channels are NOT reclassified: their raw `status`/`policy`
- * are surfaced verbatim so the consumer enforces hard-deny semantics.
+ * Blocked/revoked member channels classify as `unknown` (mirroring the
+ * daemon), while their raw `status`/`policy` are surfaced verbatim so the
+ * consumer enforces the member_blocked / member_revoked hard-deny.
  */
 
 import type { TrustClass, TrustVerdict } from "@vellumai/gateway-client";
@@ -88,7 +89,6 @@ export async function resolveTrustVerdict(
           policy: gwContactChannels.policy,
           verifiedAt: gwContactChannels.verifiedAt,
           verifiedVia: gwContactChannels.verifiedVia,
-          role: gwContacts.role,
           memberDisplayName: gwContacts.displayName,
         })
         .from(gwContactChannels)
@@ -104,22 +104,30 @@ export async function resolveTrustVerdict(
     : undefined;
 
   // --- Classification (mirrors resolveActorTrust precedence) ---
+  // The guardian binding is the ACTIVE guardian channel for this channel type
+  // (the status='active' filter above excludes revoked/blocked guardian
+  // channels). A sender is the guardian only when their canonical id matches
+  // that active address — a stale revoked channel never confers guardian.
   const isGuardian =
-    !!memberRow &&
-    (memberRow.role === "guardian" ||
-      (!!guardianRow &&
-        guardianRow.address.toLowerCase() ===
-          memberRow.address.toLowerCase()));
+    !!guardianRow &&
+    !!canonicalSenderId &&
+    guardianRow.address.toLowerCase() === canonicalSenderId.toLowerCase();
 
   let trustClass: TrustClass;
   if (isGuardian) {
     trustClass = "guardian";
-  } else if (memberRow && memberRow.status === "active") {
-    trustClass = "trusted_contact";
   } else if (memberRow) {
-    // Any other status (pending/unverified/blocked/revoked) — never
-    // reclassified; raw status/policy below let the consumer enforce.
-    trustClass = "unverified_contact";
+    const status = memberRow.status;
+    if (status === "active") {
+      trustClass = "trusted_contact";
+    } else if (status === "unverified" || status === "pending") {
+      trustClass = "unverified_contact";
+    } else {
+      // blocked/revoked → unknown, matching the canonical resolver. Raw
+      // status/policy are still surfaced below so the consumer enforces the
+      // member_blocked / member_revoked hard-deny.
+      trustClass = "unknown";
+    }
   } else {
     trustClass = "unknown";
   }
