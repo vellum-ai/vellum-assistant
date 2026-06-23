@@ -19,6 +19,7 @@ import {
   getSelectedAssistant,
   loadLockfile,
   saveLockfileAssistant,
+  setActiveLockfileAssistant,
 } from "@/lib/local-mode";
 import { getAppVersionInfo } from "@/runtime/app-info";
 import type { LockfileAssistant } from "@/runtime/local-mode-host";
@@ -61,6 +62,13 @@ import {
 interface AssistantRef {
   id: string;
   kind: "managed" | "local";
+  /**
+   * Whether this assistant was created by the teleport itself (a hatched
+   * managed assistant, or a freshly-hatched local target). Only freshly-created
+   * targets are retired when the user cancels — never a pre-existing assistant
+   * the import wrote into.
+   */
+  createdFresh: boolean;
 }
 
 const POLL_INTERVAL_MS = 5_000;
@@ -108,6 +116,7 @@ export function useTeleport(): TeleportController {
     originalRef.current = {
       id: source.assistantId,
       kind: classifyHosting(source.cloud) === "managed" ? "managed" : "local",
+      createdFresh: false,
     };
     try {
       if (destination === "platform") {
@@ -160,7 +169,7 @@ export function useTeleport(): TeleportController {
       // Fire-and-forget retirement of the source — mirrors the Swift flow,
       // which never blocks the switch on the old assistant going away.
       if (original) {
-        void retireSource(original).catch((error) =>
+        void retireRef(original).catch((error) =>
           captureError(error, { context: "teleport-retire-source" }),
         );
       }
@@ -171,7 +180,21 @@ export function useTeleport(): TeleportController {
   }, [navigate, reset]);
 
   const cancelTeleport = useCallback(() => {
-    reset();
+    const target = targetRef.current;
+    const original = originalRef.current;
+    void (async () => {
+      // The transfer already created the target (and the lockfile may have
+      // briefly pointed at it). Restore the original as the active assistant and
+      // retire the target if the teleport created it — otherwise a cancelled
+      // teleport leaves a stray (possibly active) assistant behind.
+      if (target?.createdFresh) {
+        await retireRef(target).catch((error) =>
+          captureError(error, { context: "teleport-cancel-retire-target" }),
+        );
+      }
+      if (original) await setActiveLockfileAssistant(original.id);
+      reset();
+    })();
   }, [reset]);
 
   return {
@@ -187,7 +210,7 @@ export function useTeleport(): TeleportController {
   };
 }
 
-async function retireSource(original: AssistantRef): Promise<void> {
+async function retireRef(original: AssistantRef): Promise<void> {
   if (original.kind === "managed") {
     await retireAssistantById(original.id);
   } else {
@@ -196,7 +219,7 @@ async function retireSource(original: AssistantRef): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Local / Docker → Platform
+// Local → Platform
 // ---------------------------------------------------------------------------
 
 async function teleportToPlatform(
@@ -251,6 +274,10 @@ async function teleportToPlatform(
     hatchedAt: hatch.data.created ?? new Date().toISOString(),
     organizationId,
   });
+  // `saveLockfileAssistant` marks the new entry active; keep the source active
+  // until the user confirms the switch so a cancel/restart never lands on the
+  // half-built target.
+  await setActiveLockfileAssistant(source.assistantId);
 
   // Wait for post-hatch provisioning to finish before importing — otherwise the
   // import's workspace swap can race the runtime's secret provisioning.
@@ -277,7 +304,7 @@ async function teleportToPlatform(
     await awaitPlatformJob(jobId);
   }
 
-  targetRef.current = { id: managedId, kind: "managed" };
+  targetRef.current = { id: managedId, kind: "managed", createdFresh: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -312,12 +339,16 @@ async function teleportToLocal(
   const bundle = await downloadFromSignedUrl(downloadUrl, setProgress);
 
   setStep("Preparing local assistant...");
-  const local = await resolveLocalTarget();
+  const { assistant: local, createdFresh } = await resolveLocalTarget();
 
   setStep("Importing data...");
   await importWithRetry(local, bundle);
 
-  targetRef.current = { id: local.assistantId, kind: "local" };
+  // Hatching/waking the local target may have flipped the active assistant;
+  // keep the source active until the user confirms the switch.
+  await setActiveLockfileAssistant(source.assistantId);
+
+  targetRef.current = { id: local.assistantId, kind: "local", createdFresh };
 }
 
 // ---------------------------------------------------------------------------
@@ -407,29 +438,35 @@ async function awaitManagedExportJob(
 /**
  * Resolve (or hatch, or wake) the local assistant that will receive the
  * imported bundle. Mirrors the Swift "newest local, else hatch, else wake".
+ * `createdFresh` is true only when a new local assistant was hatched here, so
+ * the cancel path knows it's safe to retire (a pre-existing local must not be).
  */
-async function resolveLocalTarget(): Promise<LockfileAssistant> {
+async function resolveLocalTarget(): Promise<{
+  assistant: LockfileAssistant;
+  createdFresh: boolean;
+}> {
   let local = getLocalAssistants()[0];
-  if (!local) {
-    const hatched = await hatchLocalAssistant(undefined, undefined);
-    if (!hatched.ok) {
-      throw new TeleportError(
-        "local_assistant_not_found",
-        hatched.error ?? "Could not create a local assistant.",
-      );
-    }
-    await loadLockfile();
-    local = getLocalAssistants()[0];
-  } else {
+  if (local) {
     await wakeLocalAssistantHost(local.assistantId);
+    return { assistant: local, createdFresh: false };
   }
+
+  const hatched = await hatchLocalAssistant(undefined, undefined);
+  if (!hatched.ok) {
+    throw new TeleportError(
+      "local_assistant_not_found",
+      hatched.error ?? "Could not create a local assistant.",
+    );
+  }
+  await loadLockfile();
+  local = getLocalAssistants()[0];
   if (!local) {
     throw new TeleportError(
       "local_assistant_not_found",
       "Could not find or create a local assistant.",
     );
   }
-  return local;
+  return { assistant: local, createdFresh: true };
 }
 
 /** Import with a short readiness retry, in lieu of an explicit healthz gate. */

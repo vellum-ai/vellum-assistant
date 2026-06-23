@@ -68,18 +68,22 @@ export function classifyHosting(cloud: string | undefined): AssistantHosting {
 }
 
 /**
- * The single destination the picker offers for an assistant, mirroring the
- * Swift `destinationPicker`:
+ * The single destination the picker offers for an assistant:
  *   - managed (cloud)            → move to local
- *   - local or docker            → move to cloud (platform)
+ *   - local                      → move to cloud (platform)
  *   - anything else              → no teleport offered
+ *
+ * Docker is intentionally excluded: the web client only reaches local-kind
+ * assistants over the local gateway proxy (`getLocalGatewayUrl` resolves
+ * `cloud === "local"` only), so there is no transport to export a Docker
+ * assistant. Offering it would fail before export.
  */
 export function resolveDestination(
   cloud: string | undefined,
 ): TeleportDestination | null {
   const hosting = classifyHosting(cloud);
   if (hosting === "managed") return "local";
-  if (hosting === "local" || hosting === "docker") return "platform";
+  if (hosting === "local") return "platform";
   return null;
 }
 

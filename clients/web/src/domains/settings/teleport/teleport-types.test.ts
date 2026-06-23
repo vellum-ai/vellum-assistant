@@ -28,12 +28,13 @@ describe("resolveDestination", () => {
     expect(resolveDestination("vellum")).toBe("local");
   });
 
-  it("offers platform for local and docker assistants", () => {
+  it("offers platform for local assistants", () => {
     expect(resolveDestination("local")).toBe("platform");
-    expect(resolveDestination("docker")).toBe("platform");
   });
 
-  it("offers nothing for out-of-scope assistants", () => {
+  it("offers nothing for assistants without a local-gateway transport", () => {
+    // Docker has no web export transport; apple-container/unknown are out of scope.
+    expect(resolveDestination("docker")).toBeNull();
     expect(resolveDestination("apple-container")).toBeNull();
     expect(resolveDestination(undefined)).toBeNull();
   });
