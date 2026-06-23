@@ -13,7 +13,7 @@
  *   - PitchTogetherStep   a team forms; the eyes act out "smarter" and "faster"
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import {
   animate,
@@ -23,12 +23,17 @@ import {
   useTransform,
 } from "motion/react";
 
+import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import {
   MotionEyes,
   useOnboardingEyes,
 } from "@/domains/onboarding/components/onboarding-motion-eyes";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
+import { pickOverlayColors } from "@/domains/onboarding/onboarding-avatar-colors";
+import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
+import { ONBOARDING_STEP_CONTENT } from "@/domains/onboarding/onboarding-step-layout";
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
+import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 
 const SETUP_LINE = "You’ve used AI that just answers questions";
 const PUNCH_LINE = "I’m different";
@@ -161,7 +166,7 @@ export function PitchDifferentStep({
         />
       )}
 
-      <div className="absolute left-1/2 top-[32%] z-10 flex w-full max-w-3xl -translate-x-1/2 flex-col items-center gap-10 px-6 text-center">
+      <div className={`${ONBOARDING_STEP_CONTENT} max-w-3xl`}>
         <h1
           className="text-[clamp(2.25rem,5.5vw,4.5rem)] leading-[1.15]"
           style={{ fontFamily: "var(--font-serif)" }}
@@ -174,9 +179,9 @@ export function PitchDifferentStep({
           >
             {SETUP_LINE}
           </motion.span>
-          {/* Payoff — the full-strength foreground, with extra space above it. */}
+          {/* Payoff — the full-strength foreground. */}
           <motion.span
-            className="mt-8 block"
+            className="block"
             style={{ color: tone.fg, clipPath: clip2 }}
           >
             {PUNCH_LINE}
@@ -202,51 +207,77 @@ export function PitchDifferentStep({
   );
 }
 
-const TOGETHER_HEADING = "The more we work together";
+const HELP_LINE = "The more I help";
 const SMARTER_LINE = "The smarter I get";
-const FASTER_LINE = "The faster I can take things off your plate";
+const LESS_LINE = "The less you have to do";
 
 /**
- * The payoff: the relationship compounds. The heading lands and a little team of
- * avatars forms beneath it (and stays). Then the eyes act out each benefit — they
- * swell to "get smarter", then dash side to side to show how "fast" things move.
+ * The payoff: three benefits, each with its own beat —
+ *   - "The more I help"        a helper peeks down from the top-left, then back
+ *   - "The smarter I get"      the eyes swell to get smarter, then settle
+ *   - "The less you have to do" the team drops in from the top-right (and stays)
  */
 export function PitchTogetherStep({
   onContinue,
   onBack,
   onForward,
+  onRevealTeam,
 }: {
   onContinue: () => void;
   onBack: () => void;
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
+  /** Reveal the persistent top-right team (fires on the third line). */
+  onRevealTeam: () => void;
 }) {
   const tone = useOnboardingTone();
   const reduce = useReducedMotion();
+  const components = useBundledAvatarComponents();
+  const characters = useOnboardingAvatarPoolStore.use.characters();
+  const selectedIndex = useOnboardingAvatarPoolStore.use.selectedIndex();
+  const chosen = characters.length > 0 ? characters[selectedIndex] : undefined;
   const { art, eyesW, eyesH, restCy, centerX, w, h } = useOnboardingEyes();
+
+  // A lone helper that peeks down from the top-left on the first line.
+  const helperColor = useMemo(() => {
+    if (!components || !chosen) return "orange";
+    return (
+      pickOverlayColors(chosen.color, components.colors.map((c) => c.id), 1)[0] ??
+      "orange"
+    );
+  }, [components, chosen]);
+  const helperSize = Math.min(220, Math.max(150, w * 0.16));
+  const helperHidden = -helperSize; // fully above the top edge
+  const helperPeek = -helperSize * 0.4; // ~40% cut off, peeking down
 
   const eyeCy = useMotionValue(0);
   const eyeScale = useMotionValue(1);
-  const eyeX = useMotionValue(0);
+  const helperY = useMotionValue(-220);
 
   const [ready, setReady] = useState(false);
   const [blinking, setBlinking] = useState(false);
-  const [showSmarter, setShowSmarter] = useState(reduce);
-  const [showFaster, setShowFaster] = useState(reduce);
+  const [show1, setShow1] = useState(reduce);
+  const [show2, setShow2] = useState(reduce);
+  const [show3, setShow3] = useState(reduce);
   const [landed, setLanded] = useState(reduce);
 
-  // Park the eyes at rest (and short-circuit for reduced motion).
+  // Park the eyes at rest.
   useEffect(() => {
     eyeCy.set(restCy);
     setReady(true);
   }, [restCy, eyeCy]);
+
+  // Reduced motion: show the team straight away.
+  useEffect(() => {
+    if (reduce) onRevealTeam();
+  }, [reduce, onRevealTeam]);
 
   useEffect(() => {
     if (reduce || !art) return;
 
     eyeCy.set(restCy);
     eyeScale.set(1);
-    eyeX.set(0);
+    helperY.set(helperHidden);
 
     const controls: ReturnType<typeof animate>[] = [];
     const timeouts: ReturnType<typeof setTimeout>[] = [];
@@ -265,17 +296,25 @@ export function PitchTogetherStep({
       if (!cancelled) setBlinking(false);
     };
 
-    // A subtle side-to-side dart (kept small — was too much before).
-    const dash = Math.min(42, w * 0.026);
-
     const run = async () => {
-      // Let the heading + team settle in (briefly).
-      await wait(550);
+      await wait(450);
       if (cancelled) return;
 
-      // "The smarter I get" — the eyes swell up a bit to get smarter, then ease
-      // back down.
-      setShowSmarter(true);
+      // "The more I help" — a helper peeks down from the top-left, then retracts.
+      setShow1(true);
+      await track(
+        animate(helperY, [helperHidden, helperPeek, helperPeek, helperHidden], {
+          duration: 1.5,
+          times: [0, 0.28, 0.62, 1],
+          ease: "easeInOut",
+        }),
+      );
+      if (cancelled) return;
+      await wait(120);
+      if (cancelled) return;
+
+      // "The smarter I get" — the eyes swell, then ease back down.
+      setShow2(true);
       await wait(60);
       if (cancelled) return;
       await track(
@@ -288,19 +327,10 @@ export function PitchTogetherStep({
       await wait(160);
       if (cancelled) return;
 
-      // "The faster..." — a quick, subtle side-to-side dart to show speed.
-      setShowFaster(true);
-      await wait(60);
-      if (cancelled) return;
-      await track(
-        animate(eyeX, [0, dash, -dash, 0], {
-          duration: 0.42,
-          ease: "easeInOut",
-          times: [0, 0.33, 0.66, 1],
-        }),
-      );
-      if (cancelled) return;
-      await wait(120);
+      // "The less you have to do" — the team drops in from the top-right.
+      setShow3(true);
+      onRevealTeam();
+      await wait(700);
       if (cancelled) return;
       setLanded(true);
     };
@@ -311,13 +341,31 @@ export function PitchTogetherStep({
       controls.forEach((c) => c.stop());
       timeouts.forEach(clearTimeout);
     };
-  }, [reduce, art, w, h, restCy, eyeCy, eyeScale, eyeX]);
+  }, [
+    reduce,
+    art,
+    w,
+    h,
+    restCy,
+    eyeCy,
+    eyeScale,
+    helperY,
+    helperHidden,
+    helperPeek,
+    onRevealTeam,
+  ]);
+
+  const lineClass = "text-[clamp(1.85rem,3.8vw,2.9rem)] leading-snug";
+  const lineStyle = { fontFamily: "var(--font-serif)" } as const;
+  const lineTransition = reduce
+    ? { duration: 0 }
+    : { duration: 0.3, ease: "easeOut" as const };
 
   return (
     <div className="absolute inset-0 z-10 overflow-hidden" style={{ color: tone.fg }}>
       <OnboardingTopBar onBack={onBack} onNext={onForward} />
 
-      {/* The assistant's eyes, peeking from the bottom — they act out each line. */}
+      {/* The assistant's eyes, peeking from the bottom — they swell on "smarter". */}
       {ready && art && (
         <MotionEyes
           art={art}
@@ -326,46 +374,62 @@ export function PitchTogetherStep({
           centerX={centerX}
           eyeCy={eyeCy}
           eyeScale={eyeScale}
-          eyeX={eyeX}
           blinking={blinking}
         />
       )}
 
-      <div className="absolute left-1/2 top-[30%] z-10 flex w-full max-w-4xl -translate-x-1/2 flex-col items-center gap-8 px-6 text-center">
-        {/* Drops down from the top with the team — teamwork carrying the line in. */}
-        <motion.h1
-          className="whitespace-nowrap text-[clamp(2.25rem,5.5vw,4.25rem)] leading-[1.1]"
-          style={{ fontFamily: "var(--font-serif)", color: tone.fgDeep }}
-          initial={reduce ? false : { opacity: 0, y: -Math.round(h * 0.26) }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={
-            reduce
-              ? { duration: 0 }
-              : { type: "spring", stiffness: 130, damping: 17, delay: 0.1 }
-          }
+      {/* The helper that peeks down from the top-left on the first line. */}
+      {ready && !reduce && components && (
+        <motion.div
+          aria-hidden="true"
+          className="pointer-events-none absolute z-[1]"
+          style={{
+            left: Math.max(16, w * 0.05),
+            top: 0,
+            y: helperY,
+            width: helperSize,
+            height: helperSize,
+          }}
         >
-          {TOGETHER_HEADING}
-        </motion.h1>
+          <AnimatedAvatar
+            components={components}
+            traits={{ bodyShape: "blob", eyeStyle: "goofy", color: helperColor }}
+            size={helperSize}
+            breathe={false}
+          />
+        </motion.div>
+      )}
 
-        {/* Two benefits, each acted out by the eyes as it appears. */}
+      <div className={`${ONBOARDING_STEP_CONTENT} max-w-3xl`}>
+        {/* Three benefits, each revealed with its own beat. */}
         <div className="flex flex-col gap-4">
           <motion.p
-            className="text-[clamp(1.75rem,3.4vw,2.75rem)] leading-snug"
-            style={{ fontFamily: "var(--font-serif)" }}
+            className={lineClass}
+            style={lineStyle}
             initial={reduce ? false : { opacity: 0, y: 10 }}
-            animate={showSmarter ? { opacity: 1, y: 0 } : { opacity: 0, y: 10 }}
-            transition={reduce ? { duration: 0 } : { duration: 0.3, ease: "easeOut" }}
+            animate={show1 ? { opacity: 1, y: 0 } : { opacity: 0, y: 10 }}
+            transition={lineTransition}
+          >
+            {HELP_LINE}
+          </motion.p>
+          {/* Middle line in the darker secondary tone (matches other screens). */}
+          <motion.p
+            className={lineClass}
+            style={{ ...lineStyle, color: tone.fgDeep }}
+            initial={reduce ? false : { opacity: 0, y: 10 }}
+            animate={show2 ? { opacity: 1, y: 0 } : { opacity: 0, y: 10 }}
+            transition={lineTransition}
           >
             {SMARTER_LINE}
           </motion.p>
           <motion.p
-            className="text-[clamp(1.75rem,3.4vw,2.75rem)] leading-snug"
-            style={{ fontFamily: "var(--font-serif)" }}
+            className={lineClass}
+            style={lineStyle}
             initial={reduce ? false : { opacity: 0, y: 10 }}
-            animate={showFaster ? { opacity: 1, y: 0 } : { opacity: 0, y: 10 }}
-            transition={reduce ? { duration: 0 } : { duration: 0.3, ease: "easeOut" }}
+            animate={show3 ? { opacity: 1, y: 0 } : { opacity: 0, y: 10 }}
+            transition={lineTransition}
           >
-            {FASTER_LINE}
+            {LESS_LINE}
           </motion.p>
         </div>
 

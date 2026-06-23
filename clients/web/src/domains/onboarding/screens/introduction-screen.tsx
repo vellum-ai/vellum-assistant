@@ -15,6 +15,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 
+import { ONBOARDING_STEP_CONTENT } from "@/domains/onboarding/onboarding-step-layout";
 import { OnboardingPeekingEyes } from "@/domains/onboarding/components/onboarding-peeking-eyes";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
@@ -145,7 +146,7 @@ export function IntroductionScreen({
       </motion.div>
 
       {/* Greeting + Continue, grouped so the button sits just under the text. */}
-      <div className="absolute left-1/2 top-[30%] z-10 flex -translate-x-1/2 flex-col items-center gap-8">
+      <div className={ONBOARDING_STEP_CONTENT}>
         <motion.h1
           className="text-center leading-[1.05]"
           style={{ fontFamily: "var(--font-serif)" }}

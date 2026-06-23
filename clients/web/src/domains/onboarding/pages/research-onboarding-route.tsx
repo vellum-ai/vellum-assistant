@@ -17,7 +17,7 @@
  * then clicks "Continue" to drop into the full workspace on the same conversation.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
@@ -94,22 +94,28 @@ export function ResearchOnboardingRoute() {
   // (any Continue/Skip) clears it, browser-style.
   const [forwardStack, setForwardStack] = useState<ResearchStep[]>([]);
 
+  // Re-entering "together" replays its sequence, so the team should drop in
+  // again on the third line — hide it on the way in.
+  function navTo(next: ResearchStep) {
+    if (next === "together") setTeamRevealed(false);
+    setStep(next);
+  }
   // Forward (Continue/Skip): a fresh forward move invalidates the redo stack.
   function goForwardTo(next: ResearchStep) {
     setForwardStack([]);
-    setStep(next);
+    navTo(next);
   }
   // Back: remember where we were so the forward chevron can return there.
   function goBackTo(prev: ResearchStep) {
     setForwardStack((s) => [...s, step]);
-    setStep(prev);
+    navTo(prev);
   }
   // Redo: pop the most-recently-backed-from step.
   function goForward() {
     const next = forwardStack[forwardStack.length - 1];
     if (!next) return;
     setForwardStack((s) => s.slice(0, -1));
-    setStep(next);
+    navTo(next);
   }
   // Passed to the step screens' header; undefined hides the forward chevron.
   const onForward = forwardStack.length > 0 ? goForward : undefined;
@@ -122,6 +128,10 @@ export function ResearchOnboardingRoute() {
   // Extra edge characters revealed so far — grows as the looking-you-up
   // carousel advances, then stays for the results/suggestions steps.
   const [edgeAvatars, setEdgeAvatars] = useState(0);
+  // The top-right team is revealed on the "together" step's third line, then
+  // persists for the rest of the flow.
+  const [teamRevealed, setTeamRevealed] = useState(false);
+  const revealTeam = useCallback(() => setTeamRevealed(true), []);
 
   // Provision the assistant in the background the moment the user lands here,
   // so it's (usually) healthy by the time they finish the intro/pitch steps —
@@ -297,8 +307,15 @@ export function ResearchOnboardingRoute() {
           showBottomEyes={
             !postCalendar && step !== "different" && step !== "together"
           }
-          // The team forms on "together" and rides along for the rest of the flow.
-          showTopTeam={step !== "different"}
+          // On "together" the team is gated on the third-line reveal (so it
+          // replays on back); on every later step it's simply present.
+          showTopTeam={
+            step === "together"
+              ? teamRevealed
+              : ["integration", "letschat", "meeting", "looking", "results", "suggestions"].includes(
+                  step,
+                )
+          }
         />
         {step === "different" && (
           <PitchDifferentStep
@@ -312,6 +329,7 @@ export function ResearchOnboardingRoute() {
             onContinue={() => goForwardTo("integration")}
             onBack={() => goBackTo("different")}
             onForward={onForward}
+            onRevealTeam={revealTeam}
           />
         )}
         {step === "integration" && (
