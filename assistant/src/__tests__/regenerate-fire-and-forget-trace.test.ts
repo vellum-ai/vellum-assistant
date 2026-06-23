@@ -24,6 +24,7 @@ let dbMessages: Array<{
 
 mock.module("../memory/conversation-crud.js", () => ({
     setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   getMessages: (conversationId: string) =>
     dbMessages.filter((m) => m.conversationId === conversationId),
   deleteMessageById: (messageId: string) => {

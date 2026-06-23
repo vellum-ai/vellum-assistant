@@ -71,6 +71,7 @@ mock.module("../schedule/recurrence-engine.js", () => ({
 const createdConversations: Array<{ conversationType: string }> = [];
 mock.module("../memory/conversation-crud.js", () => ({
     setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   getConversation: () => null,
   getMessages: () => [],
   createConversation: (opts: { conversationType: string }) => {

@@ -18,6 +18,7 @@ mock.module("../util/logger.js", () => ({
 // build its manifest; with no images these return empty.
 mock.module("../memory/conversation-crud.js", () => ({
     setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   getMessages: () => [],
 }));
 mock.module("../memory/attachments-store.js", () => ({

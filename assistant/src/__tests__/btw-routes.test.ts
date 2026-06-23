@@ -44,6 +44,7 @@ const mockAddMessage = mock(() => {});
 
 mock.module("../memory/conversation-crud.js", () => ({
     setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   addMessage: mockAddMessage,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));

@@ -43,6 +43,7 @@ mock.module("../notifications/deliveries-store.js", () => ({
 let mockExistingConversations: Record<string, { id: string }> = {};
 mock.module("../memory/conversation-crud.js", () => ({
     setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   getConversation: (id: string) => mockExistingConversations[id] ?? null,
 }));
 

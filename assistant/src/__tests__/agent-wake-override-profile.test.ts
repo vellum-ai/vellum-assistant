@@ -32,6 +32,7 @@ let mockOverrideProfile: string | undefined = undefined;
 
 mock.module("../memory/conversation-crud.js", () => ({
     setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   getConversationOverrideProfile: (_id: string) => mockOverrideProfile,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));

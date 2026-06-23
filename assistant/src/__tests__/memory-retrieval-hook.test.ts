@@ -20,6 +20,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 const updateMessageMetadataMock = mock((_id: string, _updates: unknown) => {});
 mock.module("../memory/conversation-crud.js", () => ({
     setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   updateMessageMetadata: updateMessageMetadataMock,
 }));
 

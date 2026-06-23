@@ -20,6 +20,7 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 
 mock.module("../memory/conversation-crud.js", () => ({
     setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   addMessage: async () => ({ id: "message-id" }),
   getConversation: () => null,
   provenanceFromTrustContext: () => ({}),

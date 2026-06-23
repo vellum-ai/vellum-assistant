@@ -56,6 +56,7 @@ const updates: Array<{ id: string; content: string }> = [];
 
 mock.module("../memory/conversation-crud.js", () => ({
     setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   addMessage: () => ({ id: "mock-msg-id" }),
   getMessageById: (id: string) =>
     mockedRowContent ? { id, content: mockedRowContent } : null,
