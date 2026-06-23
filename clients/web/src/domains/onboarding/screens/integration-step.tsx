@@ -159,7 +159,7 @@ export function IntegrationStep({
               color: tone.isLight ? "#FFFFFF" : "#1A1A1A",
             }}
           >
-            Claim free credits
+            Connect to claim
             <ArrowRight className="h-4 w-4" />
           </button>
         )}
