@@ -27,10 +27,7 @@ import {
   setActiveLockfileAssistant,
 } from "@/lib/local-mode";
 import type { LockfileAssistant } from "@/runtime/local-mode-host";
-import {
-  hatchLocalAssistant,
-  wakeLocalAssistantHost,
-} from "@/runtime/local-mode-host";
+import { hatchLocalAssistant } from "@/runtime/local-mode-host";
 import { useAuthStore } from "@/stores/auth-store";
 import {
   getActiveOrganizationIdForRequests,
@@ -491,12 +488,11 @@ async function awaitPlatformJob(jobId: string): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < JOB_TIMEOUT_MS) {
     await sleep(POLL_INTERVAL_MS);
-    let status;
-    try {
-      status = await pollJobStatus(jobId);
-    } catch {
-      continue; // transient — retry
-    }
+    // `pollJobStatus` already retries transient 5xx via `requestWithRetry`, so a
+    // thrown error here is a permanent failure (expired session, 4xx, missing
+    // job) — let it propagate and fail the teleport promptly rather than
+    // swallowing it and grinding to the 60-minute timeout.
+    const status = await pollJobStatus(jobId);
     if (status.status === "complete") return;
     if (status.status === "failed") {
       throw new TeleportError(
@@ -523,35 +519,18 @@ async function awaitManagedExportJob(
 }
 
 /**
- * Resolve (or hatch, or wake) the local assistant that will receive the
- * imported bundle. Mirrors the Swift "newest local, else hatch, else wake".
- * `createdFresh` is true only when a new local assistant was hatched here, so
- * the cancel path knows it's safe to retire (a pre-existing local must not be).
+ * Hatch a fresh local assistant to receive the imported bundle.
+ *
+ * The import is destructive — it overwrites the target's workspace — and the
+ * verification step doesn't undo it, so we never import into a pre-existing
+ * local assistant (that would silently destroy data the user never chose to
+ * replace). Always hatch a new local: it's `createdFresh`, so Cancel cleanly
+ * retires it and the user's existing locals are left untouched.
  */
 async function resolveLocalTarget(): Promise<{
   assistant: LockfileAssistant;
   createdFresh: boolean;
 }> {
-  let local = newestLocalAssistant();
-  if (local) {
-    // Wake is the repair path — it can populate a fresh gateway port for a
-    // stopped/legacy assistant. Fail loudly on a failed wake, and reload the
-    // lockfile afterwards so the import uses the repaired entry (with its
-    // resolved gateway) rather than the stale pre-wake object.
-    const wake = await wakeLocalAssistantHost(local.assistantId);
-    if (!wake.ok) {
-      throw new TeleportError(
-        "local_assistant_not_found",
-        wake.error ?? "Could not wake the local assistant.",
-      );
-    }
-    await loadLockfile();
-    const refreshed = getLocalAssistants().find(
-      (a) => a.assistantId === local!.assistantId,
-    );
-    return { assistant: refreshed ?? local, createdFresh: false };
-  }
-
   const hatched = await hatchLocalAssistant(undefined, undefined);
   if (!hatched.ok) {
     throw new TeleportError(
@@ -560,7 +539,10 @@ async function resolveLocalTarget(): Promise<{
     );
   }
   await loadLockfile();
-  local = newestLocalAssistant();
+  // The just-hatched assistant is the newest local entry.
+  const local = hatched.assistantId
+    ? getLocalAssistants().find((a) => a.assistantId === hatched.assistantId)
+    : newestLocalAssistant();
   if (!local) {
     throw new TeleportError(
       "local_assistant_not_found",
@@ -573,8 +555,8 @@ async function resolveLocalTarget(): Promise<{
 /**
  * The newest local assistant by `hatchedAt`. `getLocalAssistants()` preserves
  * lockfile order, which appends newly-hatched entries at the end — so a naive
- * `[0]` would target the *oldest* local and risk importing into the wrong
- * assistant's workspace. Sort newest-first to honor the "newest local" target.
+ * `[0]` would target the *oldest* local. Sort newest-first to find the
+ * just-hatched target when its id isn't reported back.
  */
 function newestLocalAssistant(): LockfileAssistant | undefined {
   return getLocalAssistants()
