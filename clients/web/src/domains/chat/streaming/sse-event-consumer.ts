@@ -3,7 +3,8 @@
  *
  * The bus delivers every event from a single unfiltered SSE
  * connection. This module runs connection-wide seq-gap detection (and
- * triggers an authoritative reconcile when a gap is observed), applies
+ * triggers an authoritative reconcile only when a gap large enough to
+ * prove ring eviction is observed), applies
  * the cross-conversation filter that keeps other conversations' events
  * from leaking into the active view, and dispatches the surviving
  * events to the caller's handler.
@@ -38,19 +39,30 @@
  *     reconciling.
  *   - An event whose seq < cursor: the daemon's counter restarted
  *     (daemon restart). Replace the stale cursor and reconcile.
- *   - An event whose seq > cursor + 1: events were missed on the
- *     connection — the consumer fell outside the daemon's bounded
- *     replay ring. Fire an authoritative reconcile of the active
- *     conversation: it reloads `/messages` and takes the durable server
- *     snapshot wholesale, because the live suffix is known to be missing
- *     the evicted events. The reconcile is debounced while one is in
- *     flight so a burst of gap events fires a single fetch. The cursor
- *     advance is deferred until the reconcile resolves: on success it
- *     jumps to the live frontier (the hole is healed by the snapshot,
+ *   - An event whose seq >= cursor + `SSE_REPLAY_RING_COUNT_LIMIT`:
+ *     enough seqs are missing to exceed the daemon's replay-ring count
+ *     bound, so the skipped events have certainly been evicted and the
+ *     consumer fell outside the ring. Fire an authoritative reconcile of
+ *     the active conversation: it reloads `/messages` and takes the
+ *     durable server snapshot wholesale, because the live suffix is known
+ *     to be missing the evicted events. The reconcile is debounced while
+ *     one is in flight so a burst of gap events fires a single fetch. The
+ *     cursor advance is deferred until the reconcile resolves: on success
+ *     it jumps to the live frontier (the hole is healed by the snapshot,
  *     not replayed) so the same gap is not re-detected on every following
  *     event; on failure it stays pinned so the next event re-detects the
  *     gap and retries the heal rather than stranding the hole until the
  *     next reconnect.
+ *   - An event whose seq is between cursor + 1 and the ring bound
+ *     (exclusive): a benign small gap. The global seq is stamped before
+ *     fanout but the hub withholds some events from a given subscriber
+ *     (self-echo-suppressed `sync_changed`, capability-targeted host-proxy
+ *     events), so the cursor legitimately skips a few seqs this client was
+ *     never going to receive. These are not data loss, so the stream is
+ *     treated as contiguous: the event dispatches and the cursor advances
+ *     normally, with no reconcile. Firing an authoritative heal here would
+ *     race debounced `/messages` persistence and could clobber
+ *     freshly-streamed content.
  *   - On the normal (no-gap) path the cursor advances AFTER the
  *     handler returns. A thrown handler keeps the cursor pinned so the
  *     next event re-triggers the gap path. The generation-reset path
@@ -75,6 +87,8 @@
  *   daemon goes live from a higher seq and gap detection reconciles
  *   authoritatively from `/messages`.
  */
+
+import { SSE_REPLAY_RING_COUNT_LIMIT } from "@vellumai/assistant-api";
 
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
@@ -160,12 +174,13 @@ export function createSseEventConsumer(
           // seq space is meaningless after a restart). Swallow rejection
           // to prevent unhandled-promise warnings.
           deps.reconcileActive().catch(() => {});
-        } else if (eventSeq > stored + 1) {
-          // Events between `stored` and `eventSeq` were evicted from the
-          // daemon's replay ring before this reconnect, so the live
-          // suffix is non-contiguous. Heal the hole with an authoritative
-          // reconcile that reloads `/messages` and takes the server
-          // snapshot wholesale.
+        } else if (eventSeq - stored >= SSE_REPLAY_RING_COUNT_LIMIT) {
+          // Out-of-ring gap: at least `SSE_REPLAY_RING_COUNT_LIMIT` seqs
+          // are missing, which exceeds the daemon's replay-ring count
+          // bound, so the skipped events have certainly been evicted and
+          // the live suffix is genuinely non-contiguous. Heal the hole
+          // with an authoritative reconcile that reloads `/messages` and
+          // takes the server snapshot wholesale.
           //
           // The cursor advance is deferred to the reconcile's outcome
           // (`gapDeferred` skips the post-dispatch advance below): on
@@ -199,6 +214,31 @@ export function createSseEventConsumer(
                 reconcileInFlight = false;
               });
           }
+        } else if (eventSeq > stored + 1) {
+          // Small gap (smaller than the ring's count bound): benign. The
+          // global per-assistant `seq` is stamped before fanout, but the
+          // hub deliberately withholds some events from this subscriber —
+          // self-echo-suppressed `sync_changed` (the client's own mutation
+          // echo) and capability-targeted host-proxy events — so the
+          // cursor legitimately skips a few seqs this client was never
+          // going to receive. Such a hole is not data loss: the missing
+          // seqs are either undeliverable to us, or still inside the ring
+          // where a reconnect would replay them. Record it for visibility,
+          // then fall through (no `gapDeferred`) so the cursor advances and
+          // the event dispatches as contiguous.
+          //
+          // Crucially, do NOT fire an authoritative reconcile here. A
+          // snapshot heal races the daemon's debounced `/messages`
+          // persistence and, taking the lagging snapshot wholesale, can
+          // clobber freshly-streamed content — the "last message only
+          // appears after a refresh" bug. Only a proven out-of-ring gap
+          // (the branch above) justifies that risk.
+          recordDiagnostic("sse_seq_gap_benign", {
+            conversationId: eventConversationId,
+            stored,
+            observed: eventSeq,
+            gap: eventSeq - stored,
+          });
         }
       }
 

@@ -264,7 +264,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
     expect(handleStreamEvent).toHaveBeenCalledTimes(2);
   });
 
-  test("a gap caused by an event on a background conversation is still detected", () => {
+  test("a ring-exceeding gap caused by an event on a background conversation is still detected", () => {
     // GIVEN a consumer scoped to conv-1 with a seeded cursor
     const { deps, reconcileActive } = makeDeps({ activeConversationId: "conv-1" });
     const consumer = createSseEventConsumer(deps);
@@ -276,11 +276,12 @@ describe("sse-event-consumer — seq-gap detection", () => {
       }),
     );
 
-    // WHEN a background conversation's event jumps the global seq
+    // WHEN a background conversation's event jumps the global seq past the
+    // replay-ring bound (events have certainly been evicted)
     consumer.handleSseEvent(
       makeEnvelope({
         conversationId: "conv-2",
-        seq: 10,
+        seq: 5 + 200,
         message: { type: "assistant_text_delta", text: "b" },
       }),
     );
@@ -290,14 +291,47 @@ describe("sse-event-consumer — seq-gap detection", () => {
     expect(reconcileActive).toHaveBeenCalledTimes(1);
   });
 
-  test("a seq gap fires an authoritative reconcile and advances the cursor once it resolves", async () => {
+  test("a small gap within the ring bound is benign — no reconcile, cursor advances, event dispatches", () => {
+    // GIVEN a consumer scoped to conv-1 with a seeded cursor
+    const { deps, reconcileActive, handleStreamEvent } = makeDeps({
+      activeConversationId: "conv-1",
+    });
+    const consumer = createSseEventConsumer(deps);
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 5,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+
+    // WHEN the seq skips by a small amount — e.g. the client's own
+    // self-echo-suppressed `sync_changed` burned a seq it never receives,
+    // so its next event lands at stored + 2.
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 7,
+        message: { type: "assistant_text_delta", text: "b" },
+      }),
+    );
+
+    // THEN the gap is treated as benign: no destructive authoritative
+    // reconcile, the cursor advances past the skipped seq, and the event
+    // still dispatches as part of a contiguous stream.
+    expect(reconcileActive).not.toHaveBeenCalled();
+    expect(globalCursor).toBe(7);
+    expect(handleStreamEvent).toHaveBeenCalledTimes(2);
+  });
+
+  test("a ring-exceeding seq gap fires an authoritative reconcile and advances the cursor once it resolves", async () => {
     /**
-     * A gap means events were evicted from the daemon's replay ring, so the
-     * live suffix is non-contiguous. The consumer reconciles (the wiring
-     * makes it authoritative) and, once the snapshot heal resolves, advances
-     * the cursor to the live frontier — the hole is healed by the snapshot,
-     * not by replaying it, so the cursor follows the frontier rather than
-     * wedging on the gap.
+     * A gap at or beyond the replay-ring count bound means events were
+     * evicted, so the live suffix is non-contiguous. The consumer
+     * reconciles (the wiring makes it authoritative) and, once the snapshot
+     * heal resolves, advances the cursor to the live frontier — the hole is
+     * healed by the snapshot, not by replaying it, so the cursor follows the
+     * frontier rather than wedging on the gap.
      */
     // GIVEN a consumer with a seeded cursor and a resolving reconcile
     const reconcileActive = mock(() => Promise.resolve());
@@ -311,11 +345,11 @@ describe("sse-event-consumer — seq-gap detection", () => {
       }),
     );
 
-    // WHEN an event jumps the global seq past the next contiguous value
+    // WHEN an event jumps the global seq past the ring's count bound
     consumer.handleSseEvent(
       makeEnvelope({
         conversationId: "conv-1",
-        seq: 10,
+        seq: 5 + 200,
         message: { type: "assistant_text_delta", text: "b" },
       }),
     );
@@ -324,7 +358,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
 
     // THEN a single reconcile fired and the cursor follows the frontier
     expect(reconcileActive).toHaveBeenCalledTimes(1);
-    expect(globalCursor).toBe(10);
+    expect(globalCursor).toBe(205);
   });
 
   test("a burst of gaps fires a single debounced reconcile and advances to the latest frontier once it settles", async () => {
@@ -351,18 +385,19 @@ describe("sse-event-consumer — seq-gap detection", () => {
       }),
     );
 
-    // WHEN a gap fires a reconcile and a second gap arrives before it resolves
+    // WHEN a ring-exceeding gap fires a reconcile and a second such gap
+    // arrives before it resolves
     consumer.handleSseEvent(
       makeEnvelope({
         conversationId: "conv-1",
-        seq: 10,
+        seq: 5 + 200,
         message: { type: "assistant_text_delta", text: "b" },
       }),
     );
     consumer.handleSseEvent(
       makeEnvelope({
         conversationId: "conv-1",
-        seq: 20,
+        seq: 5 + 220,
         message: { type: "assistant_text_delta", text: "c" },
       }),
     );
@@ -375,20 +410,20 @@ describe("sse-event-consumer — seq-gap detection", () => {
     // AND once it settles the cursor jumps to the latest frontier seen
     resolveReconcile();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(globalCursor).toBe(20);
+    expect(globalCursor).toBe(225);
 
-    // AND the debounce releases so a later gap reconciles again
+    // AND the debounce releases so a later ring-exceeding gap reconciles again
     reconcilePromise = Promise.resolve();
     consumer.handleSseEvent(
       makeEnvelope({
         conversationId: "conv-1",
-        seq: 30,
+        seq: 225 + 200,
         message: { type: "assistant_text_delta", text: "d" },
       }),
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(reconcileActive).toHaveBeenCalledTimes(2);
-    expect(globalCursor).toBe(30);
+    expect(globalCursor).toBe(425);
   });
 
   test("a failed gap reconcile keeps the cursor pinned and retries on the next event", async () => {
@@ -411,11 +446,11 @@ describe("sse-event-consumer — seq-gap detection", () => {
       }),
     );
 
-    // WHEN a gap fires the reconcile and it rejects
+    // WHEN a ring-exceeding gap fires the reconcile and it rejects
     consumer.handleSseEvent(
       makeEnvelope({
         conversationId: "conv-1",
-        seq: 10,
+        seq: 5 + 200,
         message: { type: "assistant_text_delta", text: "b" },
       }),
     );
@@ -425,11 +460,12 @@ describe("sse-event-consumer — seq-gap detection", () => {
     expect(reconcileActive).toHaveBeenCalledTimes(1);
     expect(globalCursor).toBe(5);
 
-    // AND the next live event re-detects the gap and retries the reconcile
+    // AND the next live event (still far past the pinned cursor) re-detects
+    // the gap and retries the reconcile
     consumer.handleSseEvent(
       makeEnvelope({
         conversationId: "conv-1",
-        seq: 11,
+        seq: 5 + 201,
         message: { type: "assistant_text_delta", text: "c" },
       }),
     );
