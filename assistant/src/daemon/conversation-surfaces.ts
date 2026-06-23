@@ -562,10 +562,14 @@ function normalizeCardShowData(
     "detail",
   ] as const;
   if (typeof normalized.body !== "string" || normalized.body.trim() === "") {
-    const candidates = allNonEmptyStrings([
-      ...bodyAliasKeys.map((k) => normalized[k]),
-      ...bodyAliasKeys.map((k) => input[k]),
-    ]);
+    const candidates = allNonEmptyStrings(
+      bodyAliasKeys.map((k) => {
+        const dataVal = normalized[k];
+        if (typeof dataVal === "string" && dataVal.trim().length > 0)
+          return dataVal;
+        return input[k];
+      }),
+    );
     if (candidates.length > 0) {
       // Temporary: concatenate all matching aliases so no content is lost.
       // A future pass should define per-alias semantic roles (e.g. summary
@@ -2892,20 +2896,24 @@ export async function surfaceProxyResolver(
       : Array.isArray(rawData.actions)
         ? rawData.actions
         : undefined;
-    const parsedActions = rawActions
-      ? z.array(ModelActionSchema).safeParse(rawActions)
-      : undefined;
-    if (parsedActions && !parsedActions.success) {
-      Sentry.addBreadcrumb({
-        category: "card-normalization",
-        message: "action parse failure",
-        level: "warning",
-        data: { issues: parsedActions.error.issues },
-      });
+    let inputActions: z.infer<typeof ModelActionSchema>[] | undefined;
+    if (rawActions) {
+      const valid: z.infer<typeof ModelActionSchema>[] = [];
+      for (const raw of rawActions) {
+        const result = ModelActionSchema.safeParse(raw);
+        if (result.success) {
+          valid.push(result.data);
+        } else {
+          Sentry.addBreadcrumb({
+            category: "card-normalization",
+            message: "action parse failure (individual)",
+            level: "warning",
+            data: { issues: result.error.issues, raw },
+          });
+        }
+      }
+      inputActions = valid.length > 0 ? valid : undefined;
     }
-    const inputActions = parsedActions?.success
-      ? parsedActions.data
-      : undefined;
     const actions =
       surfaceType === "choice"
         ? buildChoiceActions(data as ChoiceSurfaceData)
@@ -2919,7 +2927,10 @@ export async function surfaceProxyResolver(
       };
     }
     if (cardData !== undefined) {
-      const hasTitle = typeof title === "string" && title.trim().length > 0;
+      const hasTitle =
+        (typeof title === "string" && title.trim().length > 0) ||
+        (typeof cardData.title === "string" &&
+          cardData.title.trim().length > 0);
       const hasBody =
         typeof cardData.body === "string" && cardData.body.trim().length > 0;
       const hasSubtitle =
