@@ -188,12 +188,13 @@ describe("authMiddleware — app-access admit gate", () => {
     });
   }
 
-  test("admits a local-only user (no platform identity) instead of redirecting to login", async () => {
+  test("admits a local-only user (no platform session) instead of redirecting to login", async () => {
     makeLocalUserReachable();
-    // No platform identity: the session probe settled with no live session and
-    // the status is not 'authenticated'.
+    // A local desktop user with no platform identity: the gateway is the sole
+    // session authority (#35152), so the local session is 'authenticated' even
+    // though the platform probe settled absent.
     useAuthStore.setState({
-      sessionStatus: "unauthenticated",
+      sessionStatus: "authenticated",
       user: null,
       platformSession: "absent",
     });
@@ -202,7 +203,7 @@ describe("authMiddleware — app-access admit gate", () => {
     expect(outcome.admitted).toBe(true);
   });
 
-  test("a simulated platform 401 mid-session does not redirect a local user", async () => {
+  test("a platform 401 mid-session does not redirect a local user", async () => {
     makeLocalUserReachable();
     // Start admitted as a local user.
     useAuthStore.setState({
@@ -213,10 +214,10 @@ describe("authMiddleware — app-access admit gate", () => {
     expect((await runMiddlewareOutcome(routes.home)).admitted).toBe(true);
 
     // Platform getSession() returns 401 mid-session: platformSession flips to
-    // absent and the status flips to unauthenticated, but the gateway
-    // connection to the selected local assistant is unchanged.
+    // absent, but the local gateway keeps sessionStatus 'authenticated' (the
+    // sole session authority, #35152 — asserted in auth-store.test.ts). So the
+    // user is not evicted.
     useAuthStore.setState({
-      sessionStatus: "unauthenticated",
       platformSession: "absent",
     });
 

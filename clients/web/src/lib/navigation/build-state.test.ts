@@ -1,35 +1,21 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { LockfileAssistant } from "@/lib/local-mode";
-
-// Spread the real `@/lib/local-mode` so every other export the dependency
-// graph pulls in stays available; override only the hosting-mode flags and the
-// selected-assistant resolver the route fork branches on.
+// Spread the real `@/lib/local-mode` so every other export the dependency graph
+// pulls in stays available; override only the hosting-mode flags build-state
+// branches on.
 let mockIsLocalMode = true;
 let mockIsRemoteGatewayMode = false;
-let mockSelectedAssistant: LockfileAssistant | undefined;
 
 const localModeActual = await import("@/lib/local-mode");
-
 mock.module("@/lib/local-mode", () => ({
   ...localModeActual,
   isLocalMode: () => mockIsLocalMode,
   isRemoteGatewayMode: () => mockIsRemoteGatewayMode,
-  isLocalAssistant: (a: {
-    cloud?: string;
-    resources?: { gatewayPort?: number };
-  }) => a.cloud !== "vellum" && a.resources?.gatewayPort != null,
-  isPlatformAssistant: (a: { cloud?: string }) => a.cloud === "vellum",
-  getSelectedAssistant: () => mockSelectedAssistant,
-  getActiveAssistant: () => mockSelectedAssistant,
 }));
 
-// The gateway token is non-reactive module state; drive it off a flag.
-let mockGatewayTokenPresent = false;
 const gatewaySessionActual = await import("@/lib/auth/gateway-session");
 mock.module("@/lib/auth/gateway-session", () => ({
   ...gatewaySessionActual,
-  getGatewayToken: () => (mockGatewayTokenPresent ? "gw-token" : null),
   isGatewayAuthMode: () => false,
 }));
 
@@ -47,116 +33,32 @@ const { useResolvedAssistantsStore } = await import(
   "@/stores/resolved-assistants-store"
 );
 
-const localAssistant: LockfileAssistant = {
-  assistantId: "local-a",
-  cloud: "local",
-  resources: { gatewayPort: 51234, daemonPort: 51235 },
-};
-const platformAssistant: LockfileAssistant = {
-  assistantId: "platform-a",
-  cloud: "vellum",
-};
-
 const initialAuthState = useAuthStore.getState();
 
 beforeEach(() => {
   mockIsLocalMode = true;
   mockIsRemoteGatewayMode = false;
-  mockSelectedAssistant = undefined;
-  mockGatewayTokenPresent = false;
   useAuthStore.setState(initialAuthState, true);
-  useResolvedAssistantsStore.setState({ assistants: [], activeAssistantId: null });
+  useResolvedAssistantsStore.setState({
+    assistants: [],
+    activeAssistantId: null,
+  });
 });
 
 afterEach(() => {
   useAuthStore.setState(initialAuthState, true);
 });
 
-describe("buildNavigationState — app-access admit predicate", () => {
-  test("a local-only user (no platform session, gateway-reachable assistant) is admitted", () => {
-    // No platform identity at all: the probe settled absent and the session
-    // status is not 'authenticated'.
-    mockSelectedAssistant = localAssistant;
-    mockGatewayTokenPresent = true;
-    // The selected local assistant is the one the lifecycle activated, so its
-    // gateway token counts as a per-assistant reachability signal.
-    useResolvedAssistantsStore.setState({ activeAssistantId: "local-a" });
-    useAuthStore.setState({
-      sessionStatus: "unauthenticated",
-      platformSession: "absent",
-    });
+describe("buildNavigationState — isAuthenticated mirrors sessionStatus", () => {
+  // App access is decided entirely by `sessionStatus`. The earlier
+  // `|| canAccessApp` reachability OR was removed as value-redundant: the local
+  // gateway is the sole session authority (#35152), so a reachable local user is
+  // already `sessionStatus: "authenticated"`. The "a platform 401 does not evict
+  // a local user" guarantee is asserted at the store layer — see
+  // auth-store.test.ts, "refreshSession keeps the local gateway session but
+  // clears stale platform state on a settled 401".
 
-    expect(buildNavigationState().isAuthenticated).toBe(true);
-  });
-
-  test("a platform 401 mid-session does not evict a local user (session flips, token stays)", () => {
-    // Simulate the platform getSession() 401: platformSession drops to absent
-    // and sessionStatus flips to unauthenticated, but the gateway connection to
-    // the selected local assistant is still live.
-    mockSelectedAssistant = localAssistant;
-    mockGatewayTokenPresent = true;
-    useResolvedAssistantsStore.setState({ activeAssistantId: "local-a" });
-    useAuthStore.setState({
-      sessionStatus: "unauthenticated",
-      platformSession: "absent",
-    });
-
-    expect(buildNavigationState().isAuthenticated).toBe(true);
-  });
-
-  test("a non-active local assistant is not reachable off the active assistant's gateway token", () => {
-    // The gateway token is global; the selected local assistant is NOT the one
-    // the lifecycle activated, so a token minted for "local-b" must not make
-    // "local-a" report reachable. Without a real platform identity, that means
-    // no app access.
-    mockSelectedAssistant = localAssistant; // assistantId "local-a"
-    mockGatewayTokenPresent = true;
-    useResolvedAssistantsStore.setState({ activeAssistantId: "local-b" });
-    useAuthStore.setState({
-      sessionStatus: "unauthenticated",
-      platformSession: "absent",
-    });
-
-    expect(buildNavigationState().isAuthenticated).toBe(false);
-  });
-
-  test("a logged-out user with no reachable assistant is not admitted", () => {
-    // No platform identity, no gateway token, and no resolvable assistant.
-    mockSelectedAssistant = undefined;
-    mockGatewayTokenPresent = false;
-    useAuthStore.setState({
-      sessionStatus: "unauthenticated",
-      platformSession: "absent",
-    });
-
-    expect(buildNavigationState().isAuthenticated).toBe(false);
-  });
-
-  test("a logged-out user whose only assistant is platform-hosted (no live session) is not admitted", () => {
-    mockSelectedAssistant = platformAssistant;
-    mockGatewayTokenPresent = true; // gateway token irrelevant for platform host
-    useAuthStore.setState({
-      sessionStatus: "unauthenticated",
-      platformSession: "absent",
-    });
-
-    expect(buildNavigationState().isAuthenticated).toBe(false);
-  });
-
-  test("a local user without a gateway token yet is not admitted on reachability alone", () => {
-    mockSelectedAssistant = localAssistant;
-    mockGatewayTokenPresent = false;
-    useAuthStore.setState({
-      sessionStatus: "unauthenticated",
-      platformSession: "absent",
-    });
-
-    expect(buildNavigationState().isAuthenticated).toBe(false);
-  });
-
-  test("a platform user with a live session is admitted exactly as today", () => {
-    mockIsLocalMode = false;
-    mockSelectedAssistant = platformAssistant;
+  test("an authenticated session is admitted", () => {
     useAuthStore.setState({
       sessionStatus: "authenticated",
       platformSession: "present",
@@ -165,22 +67,38 @@ describe("buildNavigationState — app-access admit predicate", () => {
     expect(buildNavigationState().isAuthenticated).toBe(true);
   });
 
-  test("a platform user whose session has not settled keeps today's authenticated read", () => {
-    // sessionStatus authenticated but probe unsettled: bare identity still
-    // admits, so the OR must not regress this to a redirect.
-    mockIsLocalMode = false;
-    mockSelectedAssistant = platformAssistant;
+  test("a local-only user (authenticated via the gateway, no platform session) is admitted", () => {
+    // The realistic post-probe state for a local desktop user: the gateway
+    // authenticated the session and the platform probe settled absent.
     useAuthStore.setState({
       sessionStatus: "authenticated",
-      platformSession: "unknown",
+      platformSession: "absent",
     });
 
     expect(buildNavigationState().isAuthenticated).toBe(true);
   });
 
-  test("platformSession is still surfaced verbatim for the onboarding fork", () => {
+  test("an unauthenticated session is not admitted", () => {
+    useAuthStore.setState({
+      sessionStatus: "unauthenticated",
+      platformSession: "absent",
+    });
+
+    expect(buildNavigationState().isAuthenticated).toBe(false);
+  });
+
+  test("an initializing session is not yet admitted", () => {
+    useAuthStore.setState({
+      sessionStatus: "initializing",
+      platformSession: "unknown",
+    });
+
+    expect(buildNavigationState().isAuthenticated).toBe(false);
+  });
+
+  test("platformSession is surfaced verbatim for the onboarding fork", () => {
     // The route fork's onboarding wait keys off platformSession === 'unknown';
-    // folding app-access into isAuthenticated must not disturb that field.
+    // surfacing isAuthenticated must not disturb that field.
     useAuthStore.setState({
       sessionStatus: "authenticated",
       platformSession: "unknown",
