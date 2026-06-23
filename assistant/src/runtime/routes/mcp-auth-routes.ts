@@ -281,6 +281,7 @@ async function handleMcpUpdate({
     maxTools,
     allowedTools,
     blockedTools,
+    headers,
   } = body as {
     name: string;
     enabled?: boolean;
@@ -288,6 +289,7 @@ async function handleMcpUpdate({
     maxTools?: number;
     allowedTools?: string[] | null;
     blockedTools?: string[] | null;
+    headers?: Record<string, string> | null;
   };
 
   const raw = loadRawConfig();
@@ -326,6 +328,19 @@ async function handleMcpUpdate({
       server.blockedTools = blockedTools;
     }
   }
+  if (headers !== undefined) {
+    const transport = server.transport as Record<string, unknown> | undefined;
+    if (
+      transport &&
+      (transport.type === "sse" || transport.type === "streamable-http")
+    ) {
+      if (headers === null || Object.keys(headers).length === 0) {
+        delete transport.headers;
+      } else {
+        transport.headers = headers;
+      }
+    }
+  }
 
   saveRawConfig(raw);
   triggerReload("internal_mcp_update");
@@ -342,15 +357,17 @@ async function handleMcpAdd({
 }: {
   body?: Record<string, unknown>;
 }): Promise<{ added: true }> {
-  const { name, transportType, url, command, args, risk, disabled } = body as {
-    name: string;
-    transportType: string;
-    url?: string;
-    command?: string;
-    args?: string[];
-    risk?: string;
-    disabled?: boolean;
-  };
+  const { name, transportType, url, command, args, risk, disabled, headers } =
+    body as {
+      name: string;
+      transportType: string;
+      url?: string;
+      command?: string;
+      args?: string[];
+      risk?: string;
+      disabled?: boolean;
+      headers?: Record<string, string>;
+    };
 
   const riskLevel = risk ?? "high";
   if (!["low", "medium", "high"].includes(riskLevel)) {
@@ -374,7 +391,11 @@ async function handleMcpAdd({
           `--url is required for ${transportType} transport`,
         );
       }
-      transport = { type: transportType, url };
+      transport = {
+        type: transportType,
+        url,
+        ...(headers && Object.keys(headers).length > 0 ? { headers } : {}),
+      };
       break;
     default:
       throw new BadRequestError(
@@ -579,6 +600,7 @@ export const ROUTES: RouteDefinition[] = [
       maxTools: z.number().optional(),
       allowedTools: z.array(z.string()).nullable().optional(),
       blockedTools: z.array(z.string()).nullable().optional(),
+      headers: z.record(z.string(), z.string()).nullable().optional(),
     }),
     handler: handleMcpUpdate,
   },
@@ -602,6 +624,7 @@ export const ROUTES: RouteDefinition[] = [
       args: z.array(z.string()).optional(),
       risk: z.string().optional(),
       disabled: z.boolean().optional(),
+      headers: z.record(z.string(), z.string()).optional(),
     }),
     handler: handleMcpAdd,
   },
