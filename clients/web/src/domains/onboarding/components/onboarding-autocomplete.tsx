@@ -117,13 +117,26 @@ function SuggestionList({
 }
 
 /** Shared label markup matching the design-library `Input` label. */
-function FieldLabel({ htmlFor, children }: { htmlFor: string; children: string }) {
+function FieldLabel({
+  htmlFor,
+  required,
+  children,
+}: {
+  htmlFor: string;
+  required?: boolean;
+  children: string;
+}) {
   return (
     <label
       htmlFor={htmlFor}
       className="text-body-small-default text-[var(--content-secondary)]"
     >
       {children}
+      {required ? (
+        <span aria-hidden className="text-[var(--system-negative-strong)]">
+          {" *"}
+        </span>
+      ) : null}
     </label>
   );
 }
@@ -153,6 +166,7 @@ export interface AutocompleteInputProps {
   onChange: (value: string) => void;
   suggestions: readonly string[];
   autoFocus?: boolean;
+  required?: boolean;
 }
 
 export function AutocompleteInput({
@@ -162,6 +176,7 @@ export function AutocompleteInput({
   onChange,
   suggestions,
   autoFocus,
+  required,
 }: AutocompleteInputProps) {
   const reactId = useId();
   const inputId = `ac-${reactId}`;
@@ -209,11 +224,14 @@ export function AutocompleteInput({
 
   return (
     <div ref={wrapperRef} className="relative flex flex-col gap-1.5">
-      <FieldLabel htmlFor={inputId}>{label}</FieldLabel>
+      <FieldLabel htmlFor={inputId} required={required}>
+        {label}
+      </FieldLabel>
       <div className={cn(FIELD_BOX, "h-9")}>
         <input
           id={inputId}
           role="combobox"
+          aria-required={required}
           aria-expanded={showList}
           aria-controls={listId}
           aria-autocomplete="list"

@@ -208,14 +208,12 @@ export function PitchDifferentStep({
 }
 
 const HELP_LINE = "The more I help";
-const SMARTER_LINE = "The smarter I get";
-const LESS_LINE = "The less you have to do";
+const LESS_LINE = "The less you do";
 
 /**
- * The payoff: three benefits, each with its own beat —
- *   - "The more I help"        a helper peeks down from the top-left, then back
- *   - "The smarter I get"      the eyes swell to get smarter, then settle
- *   - "The less you have to do" the team drops in from the top-right (and stays)
+ * The payoff: two benefits, each with its own beat —
+ *   - "The more I help"  a helper peeks down from the top-left, then back
+ *   - "The less you do"  the team drops in from the top-right (and stays)
  */
 export function PitchTogetherStep({
   onContinue,
@@ -236,7 +234,7 @@ export function PitchTogetherStep({
   const characters = useOnboardingAvatarPoolStore.use.characters();
   const selectedIndex = useOnboardingAvatarPoolStore.use.selectedIndex();
   const chosen = characters.length > 0 ? characters[selectedIndex] : undefined;
-  const { art, eyesW, eyesH, restCy, centerX, w, h } = useOnboardingEyes();
+  const { w } = useOnboardingEyes();
 
   // A lone helper that peeks down from the top-left on the first line.
   const helperColor = useMemo(() => {
@@ -250,22 +248,11 @@ export function PitchTogetherStep({
   const helperHidden = -helperSize; // fully above the top edge
   const helperPeek = -helperSize * 0.4; // ~40% cut off, peeking down
 
-  const eyeCy = useMotionValue(0);
-  const eyeScale = useMotionValue(1);
   const helperY = useMotionValue(-220);
 
-  const [ready, setReady] = useState(false);
-  const [blinking, setBlinking] = useState(false);
   const [show1, setShow1] = useState(reduce);
   const [show2, setShow2] = useState(reduce);
-  const [show3, setShow3] = useState(reduce);
   const [landed, setLanded] = useState(reduce);
-
-  // Park the eyes at rest.
-  useEffect(() => {
-    eyeCy.set(restCy);
-    setReady(true);
-  }, [restCy, eyeCy]);
 
   // Reduced motion: show the team straight away.
   useEffect(() => {
@@ -273,10 +260,8 @@ export function PitchTogetherStep({
   }, [reduce, onRevealTeam]);
 
   useEffect(() => {
-    if (reduce || !art) return;
+    if (reduce) return;
 
-    eyeCy.set(restCy);
-    eyeScale.set(1);
     helperY.set(helperHidden);
 
     const controls: ReturnType<typeof animate>[] = [];
@@ -290,11 +275,6 @@ export function PitchTogetherStep({
       new Promise<void>((res) => {
         timeouts.push(setTimeout(res, ms));
       });
-    const blink = async (hold = 120) => {
-      setBlinking(true);
-      await wait(hold);
-      if (!cancelled) setBlinking(false);
-    };
 
     const run = async () => {
       await wait(450);
@@ -310,25 +290,11 @@ export function PitchTogetherStep({
         }),
       );
       if (cancelled) return;
-      await wait(120);
+      await wait(280);
       if (cancelled) return;
 
-      // "The smarter I get" — the eyes swell, then ease back down.
+      // "The less you do" — the team drops in from the top-right.
       setShow2(true);
-      await wait(60);
-      if (cancelled) return;
-      await track(
-        animate(eyeScale, 1.9, { duration: 0.4, ease: [0.34, 1.3, 0.64, 1] }),
-      );
-      if (cancelled) return;
-      await blink(90);
-      await track(animate(eyeScale, 1, { duration: 0.32, ease: "easeInOut" }));
-      if (cancelled) return;
-      await wait(160);
-      if (cancelled) return;
-
-      // "The less you have to do" — the team drops in from the top-right.
-      setShow3(true);
       onRevealTeam();
       await wait(700);
       if (cancelled) return;
@@ -341,19 +307,7 @@ export function PitchTogetherStep({
       controls.forEach((c) => c.stop());
       timeouts.forEach(clearTimeout);
     };
-  }, [
-    reduce,
-    art,
-    w,
-    h,
-    restCy,
-    eyeCy,
-    eyeScale,
-    helperY,
-    helperHidden,
-    helperPeek,
-    onRevealTeam,
-  ]);
+  }, [reduce, helperY, helperHidden, helperPeek, onRevealTeam]);
 
   const lineClass = "text-[clamp(1.85rem,3.8vw,2.9rem)] leading-snug";
   const lineStyle = { fontFamily: "var(--font-serif)" } as const;
@@ -365,21 +319,8 @@ export function PitchTogetherStep({
     <div className="absolute inset-0 z-10 overflow-hidden" style={{ color: tone.fg }}>
       <OnboardingTopBar onBack={onBack} onNext={onForward} />
 
-      {/* The assistant's eyes, peeking from the bottom — they swell on "smarter". */}
-      {ready && art && (
-        <MotionEyes
-          art={art}
-          eyesW={eyesW}
-          eyesH={eyesH}
-          centerX={centerX}
-          eyeCy={eyeCy}
-          eyeScale={eyeScale}
-          blinking={blinking}
-        />
-      )}
-
       {/* The helper that peeks down from the top-left on the first line. */}
-      {ready && !reduce && components && (
+      {!reduce && components && (
         <motion.div
           aria-hidden="true"
           className="pointer-events-none absolute z-[1]"
@@ -401,7 +342,7 @@ export function PitchTogetherStep({
       )}
 
       <div className={`${ONBOARDING_STEP_CONTENT} max-w-3xl`}>
-        {/* Three benefits, each revealed with its own beat. */}
+        {/* Two benefits, each revealed with its own beat. */}
         <div className="flex flex-col gap-4">
           <motion.p
             className={lineClass}
@@ -412,21 +353,11 @@ export function PitchTogetherStep({
           >
             {HELP_LINE}
           </motion.p>
-          {/* Middle line in the darker secondary tone (matches other screens). */}
-          <motion.p
-            className={lineClass}
-            style={{ ...lineStyle, color: tone.fgDeep }}
-            initial={reduce ? false : { opacity: 0, y: 10 }}
-            animate={show2 ? { opacity: 1, y: 0 } : { opacity: 0, y: 10 }}
-            transition={lineTransition}
-          >
-            {SMARTER_LINE}
-          </motion.p>
           <motion.p
             className={lineClass}
             style={lineStyle}
             initial={reduce ? false : { opacity: 0, y: 10 }}
-            animate={show3 ? { opacity: 1, y: 0 } : { opacity: 0, y: 10 }}
+            animate={show2 ? { opacity: 1, y: 0 } : { opacity: 0, y: 10 }}
             transition={lineTransition}
           >
             {LESS_LINE}
