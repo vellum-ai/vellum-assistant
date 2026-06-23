@@ -29,7 +29,7 @@ import { setDeviceBool } from "@/utils/device-settings";
 export interface ResolvedDiagnosticsConsent {
   /** The server's `share_diagnostics` value; `null` when unknown/absent. */
   shareDiagnostics: boolean | null;
-  /** Whether the server's accepted version equals `PRIVACY_CONSENT_VERSION`. */
+  /** Whether the server's accepted version is at least `DIAGNOSTICS_CONSENT_VERSION`. */
   diagnosticsVersionCurrent: boolean;
   /** Whether the server returned a real consent record (not API defaults). */
   hasServerRecord: boolean;

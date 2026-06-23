@@ -32,6 +32,9 @@ import { setDiagnosticsReportingGate } from "@/lib/consent/diagnostics-consent";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import { patchConsent, type UserConsent } from "@/domains/account/profile";
 
+// Consent versions must be zero-padded ISO dates (YYYY-MM-DD): currency is a
+// monotonic comparison (`resolveServerConsent` uses `>=`), which requires a
+// lexicographically sortable, chronological format.
 export const TOS_CONSENT_VERSION = "2026-06-08";
 export const PRIVACY_CONSENT_VERSION = "2026-06-22";
 
@@ -164,6 +167,17 @@ export function clearConsentForUser(userId: string | null): void {
 // Server consent resolution
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether a server-recorded `accepted` version satisfies the `required` build
+ * version. Monotonic (`>=`): a version at or newer than the build's constant is
+ * current, so a build never treats a newer client's acceptance as stale. `""`
+ * (never accepted) sorts below any real version and stays stale. Relies on the
+ * ISO-date version format (see the version constants above).
+ */
+function versionIsCurrent(accepted: string, required: string): boolean {
+  return accepted >= required;
+}
+
 export function resolveServerConsent(
   consent: UserConsent | null | undefined,
 ): {
@@ -205,14 +219,21 @@ export function resolveServerConsent(
   return {
     // The ToS checkbox covers only the Terms of Service. The privacy checkbox
     // covers both the Privacy Policy and the AI Data Sharing Policy, so it is
-    // current only when BOTH versions match.
-    tos: consent.tos_accepted_version === TOS_CONSENT_VERSION,
-    privacy: consent.privacy_policy_accepted_version === PRIVACY_CONSENT_VERSION
-      && consent.ai_data_sharing_accepted_version === PRIVACY_CONSENT_VERSION,
+    // current only when BOTH versions are at or past the current version.
+    tos: versionIsCurrent(consent.tos_accepted_version, TOS_CONSENT_VERSION),
+    privacy:
+      versionIsCurrent(consent.privacy_policy_accepted_version, PRIVACY_CONSENT_VERSION) &&
+      versionIsCurrent(consent.ai_data_sharing_accepted_version, PRIVACY_CONSENT_VERSION),
     shareAnalytics: consent.share_analytics,
     shareDiagnostics: consent.share_diagnostics,
-    analyticsCurrent: consent.share_analytics_accepted_version === ANALYTICS_CONSENT_VERSION,
-    diagnosticsCurrent: consent.share_diagnostics_accepted_version === DIAGNOSTICS_CONSENT_VERSION,
+    analyticsCurrent: versionIsCurrent(
+      consent.share_analytics_accepted_version,
+      ANALYTICS_CONSENT_VERSION,
+    ),
+    diagnosticsCurrent: versionIsCurrent(
+      consent.share_diagnostics_accepted_version,
+      DIAGNOSTICS_CONSENT_VERSION,
+    ),
     hasServerRecord,
   };
 }

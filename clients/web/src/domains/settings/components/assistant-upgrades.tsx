@@ -18,6 +18,7 @@ import type {
 import { useLocalRuntimeUpgrade } from "@/hooks/use-local-runtime-upgrade";
 import {
   getLatestRuntimeRelease,
+  getVisibleReleaseChannel,
   isRuntimeUpgradeAvailable,
   LOCAL_RUNTIME_RELEASES_FETCH_LIMIT,
 } from "@/lib/local-runtime-upgrade";
@@ -42,15 +43,6 @@ function releaseLabel(
 }
 
 const POLL_INTERVAL_MS = 3000;
-
-function getVisibleReleaseChannel(
-  releaseChannel: ReleaseChannelEnum | undefined,
-  previewChannelEnabled: boolean,
-): ReleaseChannelEnum {
-  return previewChannelEnabled && releaseChannel === "preview"
-    ? "preview"
-    : "stable";
-}
 
 interface AssistantUpgradesProps {
   assistantId: string;

@@ -34,7 +34,7 @@ const SENSITIVE_HEADERS = new Set([
 // String redaction
 // ---------------------------------------------------------------------------
 
-function redactString(value: string): string {
+export function redactLogString(value: string): string {
   let result = value;
 
   // Redact bearer tokens
@@ -57,7 +57,7 @@ function redactValue(value: unknown, depth: number): unknown {
   if (depth > 8) return value;
 
   if (typeof value === "string") {
-    return redactString(value);
+    return redactLogString(value);
   }
 
   if (Array.isArray(value)) {
@@ -159,5 +159,3 @@ export const logSerializers: Record<string, (value: unknown) => unknown> = {
   req: reqSerializer,
   res: resSerializer,
 };
-
-// Exported for testing

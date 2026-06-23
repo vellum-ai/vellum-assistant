@@ -302,6 +302,7 @@ describe("resolveOAuthConnection", () => {
 
 describe("resolveOAuthConnection scope-awareness", () => {
   const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+  const GMAIL_FULL_ACCESS_SCOPE = "https://mail.google.com/";
   const CALENDAR_ONLY = [
     "https://www.googleapis.com/auth/calendar.events",
     "https://www.googleapis.com/auth/userinfo.email",
@@ -335,6 +336,21 @@ describe("resolveOAuthConnection scope-awareness", () => {
   test("managed: resolves when a connection carries the required Gmail scope", async () => {
     mockPlatformClient = clientReturning([
       { id: "full", account_label: null, scopes_granted: FULL_BUNDLE },
+    ]);
+
+    const result = await resolveOAuthConnection("google", {
+      requiredScopes: [GMAIL_SCOPE],
+    });
+    expect(result).toBeInstanceOf(PlatformOAuthConnection);
+  });
+
+  test("managed: treats full Gmail access as covering Gmail read access", async () => {
+    mockPlatformClient = clientReturning([
+      {
+        id: "full-gmail-access",
+        account_label: null,
+        scopes_granted: [GMAIL_FULL_ACCESS_SCOPE],
+      },
     ]);
 
     const result = await resolveOAuthConnection("google", {
@@ -389,6 +405,18 @@ describe("resolveOAuthConnection scope-awareness", () => {
     await expect(
       resolveOAuthConnection("google", { requiredScopes: [GMAIL_SCOPE] }),
     ).rejects.toThrow(/missing required access/);
+  });
+
+  test("BYO: treats full Gmail access as covering Gmail read access", async () => {
+    (mockConfig.services as Record<string, unknown>)["google-oauth"] = {
+      mode: "your-own",
+    };
+    mockConnection!.grantedScopes = JSON.stringify([GMAIL_FULL_ACCESS_SCOPE]);
+
+    const result = await resolveOAuthConnection("google", {
+      requiredScopes: [GMAIL_SCOPE],
+    });
+    expect(result).toBeInstanceOf(BYOOAuthConnection);
   });
 
   test("BYO: unknown granted scopes never block", async () => {
