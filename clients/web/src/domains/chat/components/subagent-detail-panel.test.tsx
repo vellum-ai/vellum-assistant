@@ -475,9 +475,10 @@ describe("SubagentDetailPanel — nested tool detail", () => {
   test("clicking a timeline tool pill swaps the body to the tool detail while keeping the header", () => {
     render(<SubagentDetailPanel entry={entryWithTool(true)} onClose={noop} />);
 
-    // Timeline view first.
+    // Timeline view first — the subagent avatar leads the header.
     expect(screen.getByTestId("timeline")).toBeDefined();
     expect(screen.queryByLabelText("Back to timeline")).toBeNull();
+    expect(screen.getByTestId("avatar")).toBeDefined();
 
     fireEvent.click(screen.getByTestId("timeline-pill"));
 
@@ -494,6 +495,10 @@ describe("SubagentDetailPanel — nested tool detail", () => {
     expect(screen.getByText("Research agent")).toBeDefined();
     expect(screen.getByLabelText("Back to timeline")).toBeDefined();
     expect(screen.getByLabelText("Close subagent detail")).toBeDefined();
+    // The avatar is replaced by the step's own icon; a settled (completed) tool
+    // shows the icon, not the running indicator.
+    expect(screen.queryByTestId("avatar")).toBeNull();
+    expect(screen.queryByTestId("nested-detail-running")).toBeNull();
   });
 
   test("'Back' restores the timeline view", () => {
@@ -513,6 +518,10 @@ describe("SubagentDetailPanel — nested tool detail", () => {
     fireEvent.click(screen.getByTestId("timeline-pill"));
     expect(screen.getByText("Output")).toBeDefined();
     expect(screen.getByText("Running…")).toBeDefined();
+    // A still-running step leads the header with the running indicator in place
+    // of both the avatar and the static step icon.
+    expect(screen.getByTestId("nested-detail-running")).toBeDefined();
+    expect(screen.queryByTestId("avatar")).toBeNull();
   });
 
   test("returning via 'Back' preserves the expanded timeline group", () => {

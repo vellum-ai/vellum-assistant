@@ -3,6 +3,7 @@ import {
     ArrowDownToLine,
     ArrowLeft,
     ArrowUpFromLine,
+    Bolt,
     ChevronDown,
     ChevronRight,
     DollarSign,
@@ -26,12 +27,19 @@ import { Button, Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { SubagentPhaseTimeline } from "@/domains/chat/components/subagent-phase-timeline";
+import {
+    deriveStepLabelFromName,
+    type IconName,
+} from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
+import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
 import { ToolDetailBody } from "@/domains/chat/components/tool-detail-panel";
 import { WebSearchDetailView } from "@/domains/chat/components/web-search/web-search-detail-view";
 import {
     buildSubagentStepDetails,
     computeSubagentCardData,
 } from "@/domains/chat/hooks/use-subagent-card-data";
+import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 /** Format a cost value (e.g. 0.68 -> "0.68"). */
 function formatCost(cost: number): string {
@@ -42,6 +50,41 @@ function formatCost(cost: number): string {
     return cost.toFixed(4);
   }
   return cost.toFixed(2);
+}
+
+/**
+ * The icon name for a nested step detail — the same glyph its timeline pill
+ * shows: a globe for web search, a brain for a thinking segment, otherwise the
+ * tool-type icon `deriveStepLabelFromName` resolves (e.g. code brackets for
+ * bash). Resolved through the shared `ICON_MAP` so header and pills never drift.
+ */
+function iconNameForDetail(detail: ToolDetailPayload): IconName {
+  if (detail.kind === "web_search") return "globe";
+  if (detail.kind === "thinking") return "brain";
+  return deriveStepLabelFromName(detail.toolName, detail.input).iconName;
+}
+
+/**
+ * Leading glyph for the nested-detail header — replaces the subagent avatar: the
+ * running indicator while the step is still in flight, otherwise the step's own
+ * icon (matching the pill that opened it).
+ */
+function NestedHeaderGlyph({ detail }: { detail: ToolDetailPayload }) {
+  if (detail.status === "running") {
+    return (
+      <ThreeDotIndicator
+        className="shrink-0"
+        data-testid="nested-detail-running"
+      />
+    );
+  }
+  const Glyph = ICON_MAP[iconNameForDetail(detail)] ?? Bolt;
+  return (
+    <Glyph
+      aria-hidden
+      className="h-5 w-5 shrink-0 text-[var(--content-secondary)]"
+    />
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -225,7 +268,9 @@ export function SubagentDetailPanel({
             className="shrink-0 rounded-lg"
           />
         )}
-        {components ? (
+        {activeDetail ? (
+          <NestedHeaderGlyph detail={activeDetail} />
+        ) : components ? (
           <AvatarRenderer
             components={components}
             bodyShapeId={traits.bodyShape}
