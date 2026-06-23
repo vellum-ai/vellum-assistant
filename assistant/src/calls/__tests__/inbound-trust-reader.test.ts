@@ -70,9 +70,6 @@ describe("getInboundTrustVerdict", () => {
     const input = {
       channelType: "telegram" as const,
       actorExternalId: "U_MEMBER",
-      actorUsername: "member",
-      actorDisplayName: "Member",
-      conversationExternalId: "C_CHAT",
     };
     await getInboundTrustVerdict(input);
 

@@ -71,9 +71,6 @@ export type TrustVerdict = z.infer<typeof TrustVerdictSchema>;
 export const ResolveInboundTrustRequestSchema = z.object({
   channelType: z.string().min(1),
   actorExternalId: z.string().optional(),
-  actorUsername: z.string().optional(),
-  actorDisplayName: z.string().optional(),
-  conversationExternalId: z.string().optional(),
 });
 
 export type ResolveInboundTrustRequest = z.infer<

@@ -24,9 +24,6 @@ import { canonicalizeInboundIdentity } from "../verification/identity.js";
 export interface ResolveTrustVerdictInput {
   channelType: string;
   actorExternalId?: string;
-  actorUsername?: string;
-  actorDisplayName?: string;
-  conversationExternalId?: string;
 }
 
 /**

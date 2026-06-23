@@ -164,9 +164,6 @@ export async function handleInbound(
     trustVerdict = await resolveTrustVerdict({
       channelType: event.sourceChannel,
       actorExternalId: event.actor.actorExternalId,
-      actorUsername: event.actor.username,
-      actorDisplayName: displayName,
-      conversationExternalId: event.message.conversationExternalId,
     });
   } catch (err) {
     // Producer fails soft — resolution never breaks ingress. trustVerdict
