@@ -93,6 +93,7 @@ import {
   memoryV2ConsolidateJob,
 } from "./v2/consolidation-job.js";
 import { memoryV2SweepJob } from "./v2/sweep-job.js";
+import { spawnMemoryWorkerProcess } from "./worker-control.js";
 
 const log = getLogger("memory-jobs-worker");
 
@@ -161,7 +162,60 @@ export interface MemoryJobsWorker {
   stop(): void;
 }
 
+/**
+ * Start the memory jobs worker using the configured implementation.
+ *
+ * `memory.worker.enabled` selects between two implementations:
+ *   - enabled: spawn the worker as a separate OS process (the same path as
+ *     `assistant memory worker start`), keeping long-running jobs off the
+ *     caller's event loop.
+ *   - disabled (default): run the worker in-process on the caller's event
+ *     loop.
+ *
+ * The flag is read here so callers don't branch on it themselves. It only
+ * governs which implementation starts; shutdown stops whichever worker is
+ * actually running (see daemon/shutdown-handlers.ts), so the handle returned
+ * for the out-of-process implementation has a no-op `stop()`.
+ *
+ * This dispatcher must not be used as the standalone worker process's entry —
+ * that would recurse and fork-bomb. `worker-process.ts` calls
+ * {@link startInProcessMemoryJobsWorker} directly.
+ */
 export function startMemoryJobsWorker(): MemoryJobsWorker {
+  if (getConfig().memory.worker?.enabled === true) {
+    void spawnMemoryWorkerProcess()
+      .then(({ pid, alreadyRunning }) =>
+        log.info(
+          { pid, alreadyRunning },
+          alreadyRunning
+            ? "Memory worker process already running — reusing it"
+            : "Memory worker process started",
+        ),
+      )
+      .catch((err) =>
+        log.warn(
+          { err },
+          "Failed to start memory worker process — memory jobs will not be processed",
+        ),
+      );
+    return {
+      async runOnce(): Promise<number> {
+        return 0;
+      },
+      stop(): void {},
+    };
+  }
+
+  return startInProcessMemoryJobsWorker();
+}
+
+/**
+ * Run the memory jobs worker in-process on the caller's event loop: poll for
+ * claimable jobs with adaptive backoff until {@link MemoryJobsWorker.stop} is
+ * called. This is the worker loop itself — used directly by the daemon (when
+ * `memory.worker.enabled` is off) and by the standalone worker process.
+ */
+export function startInProcessMemoryJobsWorker(): MemoryJobsWorker {
   const recovered = resetRunningJobsToPending();
   if (recovered > 0) {
     log.info({ recovered }, "Recovered stale running memory jobs");
