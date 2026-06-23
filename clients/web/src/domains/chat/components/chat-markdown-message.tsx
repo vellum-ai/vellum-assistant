@@ -5,6 +5,7 @@
 
 import {
   type AnchorHTMLAttributes,
+  memo,
   useCallback,
 } from "react";
 
@@ -78,7 +79,7 @@ export interface ChatMarkdownMessageProps extends Omit<MarkdownMessageProps, "li
   onVellumLinkClick?: (href: string, linkText: string) => void;
 }
 
-export function ChatMarkdownMessage({
+export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
   onVellumLinkClick,
   ...markdownProps
 }: ChatMarkdownMessageProps) {
@@ -115,4 +116,4 @@ export function ChatMarkdownMessage({
   }
 
   return <MarkdownMessage {...markdownProps} linkComponent={LinkComponent} urlTransform={vellumUrlTransform} />;
-}
+});
