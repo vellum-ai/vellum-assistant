@@ -7,6 +7,7 @@
  * 3. Records guardian_action_delivery rows from pipeline delivery results
  */
 
+import { findGuardianForChannel } from "../contacts/contact-store.js";
 import {
   createCanonicalGuardianRequest,
   listCanonicalGuardianDeliveries,
@@ -17,7 +18,6 @@ import {
   recordGuardianRequestDeliveries,
 } from "../notifications/canonical-delivery-recorder.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
-import { findLocalGuardianPrincipalId } from "../runtime/local-actor-identity.js";
 import { getLogger } from "../util/logger.js";
 import { getUserConsultationTimeoutMs } from "./call-constants.js";
 import type { CallPendingQuestion } from "./types.js";
@@ -86,14 +86,16 @@ async function dispatchGuardianQuestionInner(
   try {
     const expiresAt = Date.now() + getUserConsultationTimeoutMs();
 
-    // Stamp the request with the SAME principal the Vellum actor will submit.
-    // The actor resolves its guardianPrincipalId via findLocalGuardianPrincipalId
-    // (gateway-first, local fallback); applyCanonicalGuardianDecision requires
-    // strict equality with request.guardianPrincipalId. Resolving here through
-    // the identical source guarantees the stamped principal == the submitting
-    // principal, so decisions can't be rejected as identity_mismatch when the
-    // gateway and local bindings drift during migration.
-    const guardianPrincipalId = await findLocalGuardianPrincipalId();
+    // Resolve the request principal from the same local source as the
+    // submitting actor (guardian-action-routes / actor-trust-resolver both read
+    // findGuardianForChannel("vellum")?.contact.principalId), so they cannot
+    // diverge. applyCanonicalGuardianDecision requires strict equality with
+    // request.guardianPrincipalId; sharing this local source guarantees the
+    // stamped principal == the submitting principal even when the gateway and
+    // local bindings drift during migration. This pair converts to the gateway
+    // together with the actor-trust path.
+    const guardianPrincipalId =
+      findGuardianForChannel("vellum")?.contact.principalId ?? undefined;
 
     if (!guardianPrincipalId) {
       log.error(
