@@ -700,6 +700,7 @@ function makeCtx(
       mockConversationRow?.slackContextCompactionWatermarkTs ?? null,
     lastNotifiedInferenceProfile:
       mockConversationRow?.lastNotifiedInferenceProfile ?? null,
+    processingStartedAt: mockConversationRow?.processingStartedAt ?? null,
 
     memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
 
