@@ -62,6 +62,12 @@ mock.module("../runtime/guardian-reply-router.js", () => ({
   routeGuardianReply: routeGuardianReplyMock,
 }));
 
+let healDriftReturn = false;
+const healGuardianBindingDriftMock = mock(async () => healDriftReturn);
+mock.module("../runtime/guardian-vellum-migration.js", () => ({
+  healGuardianBindingDrift: healGuardianBindingDriftMock,
+}));
+
 mock.module("../memory/canonical-guardian-store.js", () => ({
   createCanonicalGuardianRequest: () => ({
     id: "canonical-id",
@@ -110,9 +116,35 @@ mock.module("../runtime/local-actor-identity.js", () => ({
   }),
 }));
 
+let mockGuardians: Array<Record<string, unknown>> | null = [
+  {
+    channelType: "vellum",
+    contactId: "guardian-contact",
+    principalId: "test-user",
+    address: "test-user",
+    status: "active",
+  },
+];
+
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => mockGuardians,
+  guardianForChannel: (
+    list: Array<Record<string, unknown>>,
+    channelType: string,
+  ) =>
+    list.find((g) => g.channelType === channelType && g.status === "active"),
+}));
+
+// The local mirror grants guardian only to principals present in this set;
+// everyone else resolves unknown. Models the dual-written local mirror that
+// the gateway-first resolve falls back to.
+let localMirrorGuardians = new Set<string>(["test-user"]);
 mock.module("../runtime/trust-context-resolver.js", () => ({
-  resolveTrustContext: () => ({
-    trustClass: "guardian",
+  resolveTrustContext: (input: { actorExternalId?: string }) => ({
+    trustClass:
+      input.actorExternalId && localMirrorGuardians.has(input.actorExternalId)
+        ? "guardian"
+        : "unknown",
     sourceChannel: "vellum",
   }),
   withSourceChannel: (sourceChannel: unknown, ctx: unknown) => ({
@@ -452,5 +484,191 @@ describe("HTTP POST /v1/messages clientTimezone transport metadata", () => {
     });
     expect(persistUserMessage).toHaveBeenCalledTimes(1);
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ============================================================================
+// TRUST CONTEXT — derived from the gateway guardian binding
+// ============================================================================
+describe("HTTP POST /v1/messages trust context from the gateway binding", () => {
+  beforeEach(() => {
+    mockGuardians = [
+      {
+        channelType: "vellum",
+        contactId: "guardian-contact",
+        principalId: "test-user",
+        address: "test-user",
+        status: "active",
+      },
+    ];
+    healDriftReturn = false;
+    localMirrorGuardians = new Set<string>(["test-user"]);
+    healGuardianBindingDriftMock.mockClear();
+  });
+
+  function requestAs(principalId: string, sourceChannel = "vellum") {
+    return new Request("http://localhost/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-vellum-actor-principal-id": principalId,
+        "x-vellum-principal-type": "actor",
+      },
+      body: JSON.stringify({
+        conversationKey: "trust-test-key",
+        content: "hi",
+        sourceChannel,
+        interface: "macos",
+      }),
+    });
+  }
+
+  async function trustContextFor(
+    principalId: string,
+    sourceChannel = "vellum",
+  ): Promise<Record<string, unknown>> {
+    let captured: Record<string, unknown> | undefined;
+    const conversation = makeConversation({
+      setTrustContext: (ctx: Record<string, unknown>) => {
+        captured = ctx;
+      },
+    });
+    const res = await callHandler(
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async () => conversation,
+            assistantEventHub: { publish: async () => {} } as any,
+            resolveAttachments: () => [],
+          },
+        }),
+      requestAs(principalId, sourceChannel),
+      undefined,
+      202,
+    );
+    expect(res.status).toBe(202);
+    return captured ?? {};
+  }
+
+  async function trustClassFor(principalId: string): Promise<string> {
+    return (await trustContextFor(principalId)).trustClass as string;
+  }
+
+  test("guardian principal resolves to guardian context", async () => {
+    expect(await trustClassFor("test-user")).toBe("guardian");
+  });
+
+  test("non-guardian principal resolves to unknown", async () => {
+    expect(await trustClassFor("vellum-principal-stranger")).toBe("unknown");
+    expect(healGuardianBindingDriftMock).not.toHaveBeenCalled();
+  });
+
+  test("re-resolves to guardian from the local mirror after a drift heal", async () => {
+    healDriftReturn = true;
+    // The gateway binding mismatches the JWT throughout — heal repairs the
+    // local mirror, not the gateway. Post-heal trust comes from the local
+    // resolver (resolveTrustContext), not a still-mismatched gateway read.
+    mockGuardians = [
+      {
+        channelType: "vellum",
+        contactId: "guardian-contact",
+        principalId: "vellum-principal-stale",
+        address: "vellum-principal-stale",
+        status: "active",
+      },
+    ];
+    localMirrorGuardians = new Set<string>(["vellum-principal-healed"]);
+
+    expect(await trustClassFor("vellum-principal-healed")).toBe("guardian");
+    expect(healGuardianBindingDriftMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("re-resolves to guardian on later drift requests where heal is a no-op", async () => {
+    // Second-request drift window: the gateway binding still mismatches the
+    // JWT, so heal is a no-op and returns false. The local re-resolve must
+    // still run (gated on the gateway returning unknown, not on a heal write)
+    // and keep guardian trust from the already-repaired local mirror.
+    healDriftReturn = false;
+    mockGuardians = [
+      {
+        channelType: "vellum",
+        contactId: "guardian-contact",
+        principalId: "vellum-principal-stale",
+        address: "vellum-principal-stale",
+        status: "active",
+      },
+    ];
+    localMirrorGuardians = new Set<string>(["vellum-principal-healed"]);
+
+    expect(await trustClassFor("vellum-principal-healed")).toBe("guardian");
+    expect(healGuardianBindingDriftMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("dev-bypass maps the gateway guardian principal to guardian", async () => {
+    expect(await trustClassFor("dev-bypass")).toBe("guardian");
+  });
+
+  test("fails closed to unknown when the gateway is unreachable", async () => {
+    // Gateway read returns null (unreachable) while the local mirror WOULD
+    // grant guardian. The drift fallback must not fall open to the mirror.
+    mockGuardians = null;
+    localMirrorGuardians = new Set<string>(["vellum-principal-healed"]);
+
+    expect(await trustClassFor("vellum-principal-healed")).toBe("unknown");
+    expect(healGuardianBindingDriftMock).not.toHaveBeenCalled();
+  });
+
+  test("fails closed to unknown when the gateway guardian is revoked", async () => {
+    // Empty active guardian list (revoked/rebind in flight) while the local
+    // mirror WOULD grant guardian. No active gateway principal means no
+    // narrow-drift heal — re-granting revoked trust is a security regression.
+    mockGuardians = [];
+    localMirrorGuardians = new Set<string>(["vellum-principal-healed"]);
+
+    expect(await trustClassFor("vellum-principal-healed")).toBe("unknown");
+    expect(healGuardianBindingDriftMock).not.toHaveBeenCalled();
+  });
+
+  test("fails closed to unknown when only a non-active guardian remains", async () => {
+    // A revoked binding lingers with status !== "active"; guardianForChannel
+    // skips it, so there is no active gateway principal to drift against.
+    mockGuardians = [
+      {
+        channelType: "vellum",
+        contactId: "guardian-contact",
+        principalId: "vellum-principal-stale",
+        address: "vellum-principal-stale",
+        status: "revoked",
+      },
+    ];
+    localMirrorGuardians = new Set<string>(["vellum-principal-healed"]);
+
+    expect(await trustClassFor("vellum-principal-healed")).toBe("unknown");
+    expect(healGuardianBindingDriftMock).not.toHaveBeenCalled();
+  });
+
+  test("fails closed to unknown on rebind to a real external identity", async () => {
+    // The gateway's active guardian is a real identity (not a daemon-minted
+    // vellum-principal-*), so a stale vellum-principal JWT must not re-grant
+    // from the mirror — a genuine rebind, not DB-reset drift.
+    mockGuardians = [
+      {
+        channelType: "vellum",
+        contactId: "guardian-contact",
+        principalId: "user@example.com",
+        address: "user@example.com",
+        status: "active",
+      },
+    ];
+    localMirrorGuardians = new Set<string>(["vellum-principal-healed"]);
+
+    expect(await trustClassFor("vellum-principal-healed")).toBe("unknown");
+    expect(healGuardianBindingDriftMock).not.toHaveBeenCalled();
+  });
+
+  test("preserves the request body channel on the guardian-match happy path", async () => {
+    const ctx = await trustContextFor("test-user", "telegram");
+    expect(ctx.trustClass).toBe("guardian");
+    expect(ctx.sourceChannel).toBe("telegram");
   });
 });
