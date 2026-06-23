@@ -1462,7 +1462,7 @@ export async function handleSendMessage(
         // guardian binding gets a new vellum-principal-* UUID while the
         // client still holds a valid JWT with the old one. The signing
         // key survives the reset, so the JWT is authentic — just stale.
-        const healed = healGuardianBindingDrift(actorPrincipalId);
+        const healed = await healGuardianBindingDrift(actorPrincipalId);
         if (healed) {
           trustCtx = resolveTrustContext({
             assistantId,

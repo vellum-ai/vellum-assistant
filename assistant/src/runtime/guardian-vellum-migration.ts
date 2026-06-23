@@ -11,6 +11,10 @@ import {
   findGuardianForChannel,
   updateContactPrincipalAndChannel,
 } from "../contacts/contact-store.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../contacts/guardian-delivery-reader.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("guardian-vellum-migration");
@@ -31,18 +35,29 @@ const log = getLogger("guardian-vellum-migration");
  * minted by this daemon's signing key.
  *
  * Returns true if healing occurred, false otherwise.
+ *
+ * The heal decision reads the bound guardian from the gateway binding; the
+ * local repair write resolves the assistant-mirror row to update.
  */
-export function healGuardianBindingDrift(incomingPrincipalId: string): boolean {
+export async function healGuardianBindingDrift(
+  incomingPrincipalId: string,
+): Promise<boolean> {
   if (!incomingPrincipalId.startsWith("vellum-principal-")) {
     return false;
   }
 
-  const guardianResult = findGuardianForChannel("vellum");
-  if (!guardianResult) return false;
+  const guardians = await getGuardianDelivery({ channelTypes: ["vellum"] });
+  if (!guardians) return false;
+  const guardian = guardianForChannel(guardians, "vellum");
+  if (!guardian) return false;
 
-  const currentPrincipalId = guardianResult.contact.principalId;
+  const currentPrincipalId = guardian.principalId;
   if (!currentPrincipalId?.startsWith("vellum-principal-")) return false;
   if (currentPrincipalId === incomingPrincipalId) return false;
+
+  // Resolve the assistant-mirror row for the repair write.
+  const guardianResult = findGuardianForChannel("vellum");
+  if (!guardianResult) return false;
 
   const updated = updateContactPrincipalAndChannel(
     guardianResult.contact.id,
