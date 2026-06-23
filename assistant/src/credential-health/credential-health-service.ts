@@ -24,6 +24,7 @@ import {
   type OAuthConnectionRow,
   type OAuthProviderRow,
 } from "../oauth/oauth-store.js";
+import { scopeDifference } from "../oauth/scope-utils.js";
 import {
   TokenExpiredError,
   withValidToken,
@@ -75,11 +76,6 @@ function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
   } catch {
     return fallback;
   }
-}
-
-function scopeDifference(required: string[], granted: string[]): string[] {
-  const grantedSet = new Set(granted);
-  return required.filter((s) => !grantedSet.has(s));
 }
 
 // ── Liveness ping ─────────────────────────────────────────────────────

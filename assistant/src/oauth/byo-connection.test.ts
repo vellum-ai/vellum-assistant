@@ -113,6 +113,15 @@ mock.module("./oauth-store.js", () => ({
     if (opts?.account && conn.accountInfo !== opts.account) return undefined;
     return conn;
   },
+  getActiveConnections: (
+    service: string,
+    opts?: { clientId?: string; account?: string },
+  ) => {
+    const conn = mockConnections.get(service);
+    if (!conn) return [];
+    if (opts?.account && conn.accountInfo !== opts.account) return [];
+    return [conn];
+  },
   getConnection: (id: string) => {
     for (const conn of mockConnections.values()) {
       if (conn.id === id) return conn;
