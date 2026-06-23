@@ -99,13 +99,16 @@ export async function importLocalBundle(
 ): Promise<void> {
   const base = localGatewayBase(assistant);
   const token = await mintLocalGatewayToken(assistant, base);
+  // Send the body as a Blob, not a raw ArrayBuffer. The local gateway proxy
+  // runs over plain HTTP, and Chromium streams an ArrayBuffer body through a
+  // fixed-capacity (~1-2 MB) renderer data pipe — a larger `.vbundle` stalls
+  // forever when the local consumer drains it slowly, hanging on "Importing
+  // data...". A Blob is passed by handle and read directly, with no pipe to
+  // block on (the same fix `api-interceptors.ts` applies to local-mode bodies).
   const response = await fetch(`${base}/v1/migrations/import`, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/octet-stream",
-    },
-    body: bundle,
+    headers: { Authorization: `Bearer ${token}` },
+    body: new Blob([bundle], { type: "application/octet-stream" }),
   });
   if (!response.ok) {
     throw new TeleportError(
