@@ -173,6 +173,24 @@ export async function enforceIngressAcl(
     };
   }
 
+  // Gateway attempted resolution but failed (DB error) → fail-closed deny,
+  // distinct from an absent verdict and from a real stranger. TEXT does not
+  // fall back to local ACL reads; the sender can retry.
+  if (verdict.resolutionFailed === true) {
+    log.warn(
+      { sourceChannel, externalUserId: canonicalSenderId },
+      "Ingress ACL: gateway trust resolution failed, denying fail-closed",
+    );
+    return {
+      resolvedMember: null,
+      earlyResponse: {
+        accepted: true,
+        denied: true,
+        reason: "not_a_member",
+      },
+    };
+  }
+
   // Member resolved from the gateway verdict (ACL + identity only); null for a
   // stranger verdict, which falls through to the non-member intercepts.
   const resolvedMember: ResolvedMember | null = resolvedMemberFromVerdict(verdict);
