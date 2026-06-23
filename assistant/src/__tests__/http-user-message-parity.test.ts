@@ -543,27 +543,23 @@ describe("HTTP POST /v1/messages trust context from the gateway binding", () => 
     expect(healGuardianBindingDriftMock).toHaveBeenCalledTimes(1);
   });
 
-  test("re-resolves to guardian after a drift heal", async () => {
+  test("re-resolves to guardian from the local mirror after a drift heal", async () => {
     healDriftReturn = true;
-    // First read misses; heal "repairs" the binding so the second read matches.
-    let call = 0;
-    mockGuardians = [];
-    healGuardianBindingDriftMock.mockImplementation(async () => {
-      mockGuardians = [
-        {
-          channelType: "vellum",
-          contactId: "guardian-contact",
-          principalId: "vellum-principal-healed",
-          address: "vellum-principal-healed",
-          status: "active",
-        },
-      ];
-      call += 1;
-      return true;
-    });
+    // The gateway binding mismatches the JWT throughout — heal repairs the
+    // local mirror, not the gateway. Post-heal trust comes from the local
+    // resolver (resolveTrustContext), not a still-mismatched gateway read.
+    mockGuardians = [
+      {
+        channelType: "vellum",
+        contactId: "guardian-contact",
+        principalId: "vellum-principal-stale",
+        address: "vellum-principal-stale",
+        status: "active",
+      },
+    ];
 
     expect(await trustClassFor("vellum-principal-healed")).toBe("guardian");
-    expect(call).toBe(1);
+    expect(healGuardianBindingDriftMock).toHaveBeenCalledTimes(1);
   });
 
   test("dev-bypass maps the gateway guardian principal to guardian", async () => {

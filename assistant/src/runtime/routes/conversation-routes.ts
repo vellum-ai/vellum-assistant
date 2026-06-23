@@ -122,6 +122,7 @@ import {
 } from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { getPersistedSeq } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
@@ -142,6 +143,10 @@ import {
   publishConversationListAndMetadataChanged,
   publishConversationMessagesChanged,
 } from "../sync/resource-sync-events.js";
+import {
+  resolveTrustContext,
+  withSourceChannel,
+} from "../trust-context-resolver.js";
 import {
   BadRequestError,
   InternalError,
@@ -1472,11 +1477,17 @@ export async function handleSendMessage(
         // key survives the reset, so the JWT is authentic — just stale.
         const healed = await healGuardianBindingDrift(actorPrincipalId);
         if (healed) {
-          trustCtx = await resolveLocalPrincipalTrustContext({
-            actorPrincipalId,
-            sourceChannel: "vellum",
-            conversationExternalId: "local",
-          });
+          // Heal repairs the local mirror, not the gateway binding, so
+          // re-resolve trust from the local mirror.
+          trustCtx = withSourceChannel(
+            sourceChannel,
+            resolveTrustContext({
+              assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+              sourceChannel: "vellum",
+              conversationExternalId: "local",
+              actorExternalId: actorPrincipalId,
+            }),
+          );
           log.info(
             {
               actorPrincipalId: actorPrincipalId,
