@@ -3,11 +3,11 @@
  *
  * These route a streaming event to its target row in the normalized store and
  * apply a row-level transform via `patch` — so a per-token delta touches one
- * entity (O(1)) instead of replacing the whole array. The row-level transforms
- * themselves are the same ones the legacy array updaters use
- * (`appendTextSegmentToRow`, …), lifted unchanged; only the routing + storage
- * differ. They also maintain the `liveAssistantRowKey` pointer the way the old
- * `currentAssistantMessageIdRef` mirror did, but synchronously in the store.
+ * entity (O(1)) instead of replacing the whole array. The transforms call the
+ * shared row helpers (`appendTextSegmentToRow`, …); this module owns the
+ * routing and storage around them. They maintain `liveAssistantRowKey`
+ * synchronously in the store so subagent attribution can resolve the live
+ * assistant row.
  */
 
 import {
