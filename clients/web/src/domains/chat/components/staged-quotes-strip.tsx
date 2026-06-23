@@ -14,6 +14,7 @@ import {
   useQuoteReplyStore,
 } from "@/domains/chat/quote-reply-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { Button, Card, Typography } from "@vellumai/design-library";
 
 function truncate(text: string, maxLen: number): string {
   if (text.length <= maxLen) {
@@ -26,25 +27,40 @@ function StagedQuoteChip({ quote }: { quote: StagedQuote }) {
   const removeStagedQuote = useQuoteReplyStore.use.removeStagedQuote();
 
   return (
-    <div className="group/quote flex items-start gap-2 rounded-lg border border-[var(--border-default)] bg-[var(--surface-lift)] px-3 py-2">
-      <MessageSquareQuote className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]" />
-      <div className="min-w-0 flex-1">
-        <div className="text-body-small-default text-[var(--content-tertiary)]">
-          &ldquo;{truncate(quote.quotedText, 80)}&rdquo;
+    <Card.Root
+      padding="sm"
+      bordered
+      className="group/quote bg-[var(--surface-lift)]"
+    >
+      <Card.Body padding="sm" className="flex items-start gap-2">
+        <MessageSquareQuote className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]" />
+        <div className="min-w-0 flex-1">
+          <Typography
+            as="div"
+            variant="body-small-default"
+            className="text-[var(--content-tertiary)]"
+          >
+            &ldquo;{truncate(quote.quotedText, 80)}&rdquo;
+          </Typography>
+          <Typography
+            as="div"
+            variant="body-small-default"
+            className="mt-0.5 text-[var(--content-default)]"
+          >
+            {truncate(quote.replyText, 120)}
+          </Typography>
         </div>
-        <div className="mt-0.5 text-body-small-default text-[var(--content-default)]">
-          {truncate(quote.replyText, 120)}
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={() => removeStagedQuote(quote.id)}
-        className="flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded text-[var(--content-tertiary)] opacity-0 transition-opacity group-hover/quote:opacity-100"
-        aria-label="Remove quote"
-      >
-        <X className="h-3 w-3" />
-      </button>
-    </div>
+        <Button
+          variant="ghost"
+          size="compact"
+          iconOnly={<X />}
+          expandOnMobile={false}
+          onClick={() => removeStagedQuote(quote.id)}
+          className="shrink-0 opacity-0 transition-opacity group-hover/quote:opacity-100 focus-visible:opacity-100"
+          aria-label="Remove quote"
+        />
+      </Card.Body>
+    </Card.Root>
   );
 }
 
