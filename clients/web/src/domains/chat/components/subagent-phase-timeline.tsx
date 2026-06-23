@@ -97,6 +97,22 @@ function mostRecentSearchQuery(section: PhaseSection): string | undefined {
 }
 
 /**
+ * The most recent thinking step's text in a phase, walked newest-first. A
+ * "Thinking" phase carries no per-step running status, so when it's the active
+ * tail this is the line the subagent is currently on (e.g. "Reading
+ * adidas-group.com" — a web_fetch step renders as `thinking`). Drives the
+ * trailing carousel for a running Thinking phase, mirroring how a search phase
+ * surfaces its query. `undefined` when no thinking step carries text.
+ */
+function latestThinkingText(section: PhaseSection): string | undefined {
+  for (let i = section.steps.length - 1; i >= 0; i--) {
+    const step = section.steps[i]!;
+    if (step.kind === "thinking" && step.text) return step.text;
+  }
+  return undefined;
+}
+
+/**
  * Detail-map key for a step that can open a nested detail view: a tool step's
  * `toolCallId`, or a thinking step's `detailKey` (stamped by the subagent
  * projection). `undefined` for steps with no detail / no key, which stay
@@ -290,10 +306,24 @@ function SubagentPhaseRow({
   const showSearchTrailing =
     isSearch && (status === "running" || Boolean(searchQuery));
   const searchTrailing = searchQuery ?? section.label;
-  // Whether a trailing detail (activity, search query, or duration) follows the
-  // label — the faint `|` separator only renders when one does.
+  // A "Thinking" phase carries no per-step running status, so the active tail is
+  // the only signal its latest line is still in progress. While it's the tail,
+  // surface that line (e.g. "Reading adidas-group.com") in the trailing slot —
+  // mirroring how a search phase surfaces its query — and let the node pulse
+  // (see `isThinking && !nodePulses` on the node below). Falls back to the label
+  // in the brief window before the first line lands.
+  const isThinkingTail = isThinking && nodePulses;
+  const thinkingTrailing = isThinkingTail
+    ? (latestThinkingText(section) ?? section.label)
+    : undefined;
+  // Whether a trailing detail (activity, search query, thinking line, or
+  // duration) follows the label — the faint `|` separator only renders when one
+  // does.
   const hasTrailingDetail =
-    status === "running" || showSearchTrailing || Boolean(totalDuration);
+    status === "running" ||
+    showSearchTrailing ||
+    isThinkingTail ||
+    Boolean(totalDuration);
   const stepCountLabel = `${stepCount} step${stepCount === 1 ? "" : "s"}`;
 
   return (
@@ -347,7 +377,10 @@ function SubagentPhaseRow({
 
         <TimelineNode
           status={nodePulses ? "running" : status}
-          isThinking={isThinking}
+          // A thinking phase normally shows a static brain; while it's the
+          // active (pulsing) tail, fall through to the running node so it shows
+          // the three-dot indicator like every other in-progress phase.
+          isThinking={isThinking && !nodePulses}
         />
         <Typography
           variant="body-medium-default"
@@ -381,6 +414,21 @@ function SubagentPhaseRow({
             <HeaderStepCarousel
               currentStepTitle=""
               currentStepInfo={searchTrailing}
+            />
+          </span>
+        ) : isThinkingTail ? (
+          // Running "Thinking" tail: its latest line in the trailing slot, with
+          // a brain glyph, animated via the same carousel as search/tools. The
+          // node renders the three-dot indicator (the brain moves here), so the
+          // row reads as actively in progress — e.g. "Reading adidas-group.com".
+          <span className="flex min-w-0 flex-1 items-center gap-1">
+            <Brain
+              aria-hidden="true"
+              className="h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]"
+            />
+            <HeaderStepCarousel
+              currentStepTitle=""
+              currentStepInfo={thinkingTrailing ?? section.label}
             />
           </span>
         ) : status === "running" ? (

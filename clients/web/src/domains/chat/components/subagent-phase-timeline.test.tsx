@@ -226,6 +226,62 @@ describe("SubagentPhaseTimeline — running tail", () => {
   });
 });
 
+describe("SubagentPhaseTimeline — running Thinking tail", () => {
+  test("a running Thinking tail pulses (ThreeDotIndicator) instead of the static brain", () => {
+    const steps: ToolCallCardStep[] = [
+      thinking("Planning the research"),
+      thinking("Reading adidas-group.com"),
+    ];
+    const { getByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} isRunning />,
+    );
+    // The node is the three-dot indicator — no `data-status`, 3 dot children —
+    // NOT the static brain (which stamps `data-status="thinking"`).
+    const node = getByTestId("phase-header-status-icon");
+    expect(node.getAttribute("data-status")).toBeNull();
+    expect(node.children.length).toBe(3);
+  });
+
+  test("a running Thinking tail surfaces its latest line in the trailing slot", () => {
+    const steps: ToolCallCardStep[] = [
+      thinking("Planning the research"),
+      thinking("Reading adidas-group.com"),
+    ];
+    const { getByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} isRunning />,
+    );
+    const header = getByTestId("subagent-phase-header");
+    // The carousel carries the most recent thinking line, like a search row
+    // carries its query.
+    expect(header.textContent).toContain("Reading adidas-group.com");
+  });
+
+  test("a Thinking phase keeps the static brain when the subagent is NOT running", () => {
+    const steps: ToolCallCardStep[] = [thinking("Done reasoning")];
+    const { getByTestId } = render(<SubagentPhaseTimeline steps={steps} />);
+    // Not the active tail → the brain (data-status="thinking"), not a pulse.
+    expect(
+      getByTestId("phase-header-status-icon").getAttribute("data-status"),
+    ).toBe("thinking");
+  });
+
+  test("a non-tail Thinking phase keeps its brain; only the running tail pulses", () => {
+    const steps: ToolCallCardStep[] = [
+      thinking("Mid thought"),
+      bash("ls", "running", "", "tc-a"),
+    ];
+    const { getAllByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} isRunning />,
+    );
+    const nodes = getAllByTestId("phase-header-status-icon");
+    // The earlier Thinking phase stays a brain; the bash tail is the pulse.
+    expect(nodes[0]!.getAttribute("data-status")).toBe("thinking");
+    const last = nodes[nodes.length - 1]!;
+    expect(last.getAttribute("data-status")).toBeNull();
+    expect(last.children.length).toBe(3);
+  });
+});
+
 describe("SubagentPhaseTimeline — step-count pill", () => {
   test("renders the 'N steps' pill for a 3-step phase", () => {
     const steps: ToolCallCardStep[] = [
