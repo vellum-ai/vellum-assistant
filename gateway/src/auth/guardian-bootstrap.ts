@@ -237,9 +237,6 @@ export async function createGuardianBinding(
   const displayName = params.displayName ?? params.externalUserId;
   const verifiedVia = params.verifiedVia ?? "challenge";
 
-  let contactId: string;
-  let channelId: string;
-
   // --- Id resolution (reads the gateway DB; ids feed the dual-write) ---
   const gwReadDb = getGatewayDb();
 
@@ -277,7 +274,7 @@ export async function createGuardianBinding(
     .limit(1)
     .all() as ExistingChannelRow[];
 
-  contactId =
+  const contactId =
     existingContacts[0]?.id ?? claimableChannels[0]?.contactId ?? uuid();
 
   let existingChannels: { id: string }[] = [];
@@ -295,7 +292,8 @@ export async function createGuardianBinding(
       .all();
   }
 
-  channelId = claimableChannels[0]?.id ?? existingChannels[0]?.id ?? uuid();
+  const channelId =
+    claimableChannels[0]?.id ?? existingChannels[0]?.id ?? uuid();
 
   // --- Assistant DB write (primary, via IPC proxy) ---
   await assistantDbExec("BEGIN IMMEDIATE");
