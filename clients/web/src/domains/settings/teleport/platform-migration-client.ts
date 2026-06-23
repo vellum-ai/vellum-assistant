@@ -73,13 +73,25 @@ async function requestWithRetry(
 /**
  * Request a signed upload URL: `POST /v1/migrations/signed-url/` with
  * `{operation:"upload"}`. The returned URL is suitable for a direct GCS PUT.
+ *
+ * `sourceRuntimeVersion` stamps the bundle's compat band (`min_runtime_version`
+ * with no upper bound) so the later download-side `target_runtime_version`
+ * check can enforce a real version-mismatch guard — matching the CLI teleport
+ * path, which sends the source runtime version before upload.
  */
-export async function requestSignedUploadUrl(): Promise<SignedUrlResponse> {
+export async function requestSignedUploadUrl(
+  sourceRuntimeVersion?: string,
+): Promise<SignedUrlResponse> {
+  const body: Record<string, unknown> = { operation: "upload" };
+  if (sourceRuntimeVersion) {
+    body.min_runtime_version = sourceRuntimeVersion;
+    body.max_runtime_version = null;
+  }
   const { status, data } = await requestWithRetry(
     () =>
       client.post<unknown, unknown, false>({
         url: "/v1/migrations/signed-url/",
-        body: { operation: "upload" },
+        body,
         throwOnError: false,
       }),
     new Set([404, 503]),

@@ -267,7 +267,9 @@ async function teleportToPlatform(
   }
 
   setStep("Uploading data to cloud...");
-  const upload = await requestSignedUploadUrl();
+  // Stamp the upload with the source runtime version so the platform records
+  // the bundle's compat band for the download-side version-mismatch guard.
+  const upload = await requestSignedUploadUrl(source.resources?.runtimeVersion);
   await uploadToSignedUrl(upload.url, bundle, setProgress);
 
   setStep("Setting up cloud assistant...");
@@ -345,10 +347,16 @@ async function teleportToLocal(
   const jobId = await exportManagedToGcs(source.assistantId, upload.url);
   await awaitManagedExportJob(source.assistantId, jobId);
 
-  // The bundled app version is the local runtime version that will perform the
-  // import — used to enforce the bundle's compat range.
-  const versionInfo = await getAppVersionInfo();
-  const targetRuntimeVersion = versionInfo?.version ?? "0.0.0";
+  // Resolve the local target BEFORE requesting the download so the version
+  // check runs against the local *runtime* version, not the Electron shell —
+  // local runtimes upgrade independently of the app, so the shell version can
+  // wrongly block a newer runtime or wrongly pass a stale one.
+  setStep("Preparing local assistant...");
+  const { assistant: local, createdFresh } = await resolveLocalTarget();
+  const targetRuntimeVersion =
+    local.resources?.runtimeVersion ??
+    (await getAppVersionInfo())?.version ??
+    "0.0.0";
 
   setStep("Preparing import...");
   const downloadUrl = await requestSignedDownloadUrl(
@@ -358,9 +366,6 @@ async function teleportToLocal(
 
   setStep("Downloading data...");
   const bundle = await downloadFromSignedUrl(downloadUrl, setProgress);
-
-  setStep("Preparing local assistant...");
-  const { assistant: local, createdFresh } = await resolveLocalTarget();
 
   setStep("Importing data...");
   await importWithRetry(local, bundle);
@@ -466,7 +471,7 @@ async function resolveLocalTarget(): Promise<{
   assistant: LockfileAssistant;
   createdFresh: boolean;
 }> {
-  let local = getLocalAssistants()[0];
+  let local = newestLocalAssistant();
   if (local) {
     // Wake is the repair path — it can populate a fresh gateway port for a
     // stopped/legacy assistant. Fail loudly on a failed wake, and reload the
@@ -494,7 +499,7 @@ async function resolveLocalTarget(): Promise<{
     );
   }
   await loadLockfile();
-  local = getLocalAssistants()[0];
+  local = newestLocalAssistant();
   if (!local) {
     throw new TeleportError(
       "local_assistant_not_found",
@@ -502,6 +507,18 @@ async function resolveLocalTarget(): Promise<{
     );
   }
   return { assistant: local, createdFresh: true };
+}
+
+/**
+ * The newest local assistant by `hatchedAt`. `getLocalAssistants()` preserves
+ * lockfile order, which appends newly-hatched entries at the end — so a naive
+ * `[0]` would target the *oldest* local and risk importing into the wrong
+ * assistant's workspace. Sort newest-first to honor the "newest local" target.
+ */
+function newestLocalAssistant(): LockfileAssistant | undefined {
+  return getLocalAssistants()
+    .slice()
+    .sort((a, b) => (b.hatchedAt ?? "").localeCompare(a.hatchedAt ?? ""))[0];
 }
 
 /** Import with a short readiness retry, in lieu of an explicit healthz gate. */
