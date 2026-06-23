@@ -16,7 +16,10 @@ import {
   deleteConversation,
   setConversation,
 } from "../daemon/conversation-registry.js";
-import { steerOnEnqueuedMessageIfQuestionParked } from "../daemon/handlers/conversations.js";
+import {
+  steerOnEnqueuedMessageIfQuestionParked,
+  supersedePendingInteractionsOnEnqueue,
+} from "../daemon/handlers/conversations.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 
 interface ParkedTurn {
@@ -43,6 +46,7 @@ function registerParkedTurn(id: string): ParkedTurn {
         abortCount += 1;
       },
     },
+    hasAnyPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
   };
   setConversation(id, fake as unknown as Conversation);
@@ -128,6 +132,19 @@ describe("steerOnEnqueuedMessageIfQuestionParked", () => {
 
     expect(steered).toBe(false);
     expect(conv.abortCount()).toBe(0);
+  });
+
+  test("supersedePendingInteractionsOnEnqueue steers a parked question", () => {
+    // The centralized routine is invoked by both the HTTP send handler and the
+    // CLI signal path. With no pending confirmation it steers a parked question
+    // — the behavior the CLI signal path previously lacked.
+    const conv = registerParkedTurn(QUESTION_CONV);
+    registerInteraction(QUESTION_CONV, "question");
+
+    supersedePendingInteractionsOnEnqueue(QUESTION_CONV, "msg-1");
+
+    expect(conv.abortCount()).toBe(1);
+    expect(conv.fake.pendingSteerRepair).toBe(true);
   });
 });
 

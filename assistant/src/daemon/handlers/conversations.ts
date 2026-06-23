@@ -1,6 +1,7 @@
 import { v4 as uuid } from "uuid";
 
 import { peekAcpSessionManager } from "../../acp/index.js";
+import { resolveCanonicalGuardianRequest } from "../../memory/canonical-guardian-store.js";
 import { clearAll, getConversation } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
@@ -414,6 +415,55 @@ export function steerOnEnqueuedMessageIfQuestionParked(
   if (!hasParkedQuestion) return false;
   steerToMessage(conversationId, enqueuedRequestId);
   return true;
+}
+
+/**
+ * Supersede interactions left pending by an in-flight turn when a new message
+ * is enqueued for a busy conversation. Centralized so every ingress path (the
+ * HTTP send handler and the CLI signal path) gets identical handling:
+ *
+ *  1. Auto-deny pending confirmations — notify the client and sync the
+ *     canonical guardian record *before* clearing the prompter-owned
+ *     confirmations, so a later guardian reply can't match a stale "pending"
+ *     record and fail with `pending_interaction_not_found`.
+ *  2. Supersede a parked ask_question by steering to the enqueued message.
+ *
+ * Order matters: the steer aborts the turn, which denies the prompter's
+ * confirmations as a side effect, so the canonical/notification sync must run
+ * first. `removeByConversation` preserves `question` entries, so the parked
+ * question is still registered for the steer even after the confirmation sweep.
+ */
+export function supersedePendingInteractionsOnEnqueue(
+  conversationId: string,
+  enqueuedRequestId: string,
+): void {
+  const conversation = findConversation(conversationId);
+  if (!conversation) return;
+
+  if (conversation.hasAnyPendingConfirmation()) {
+    for (const interaction of pendingInteractions.getByConversation(
+      conversationId,
+    )) {
+      if (interaction.kind === "confirmation") {
+        // sendToClient (wired to the SSE hub) delivers the denial to clients.
+        conversation.emitConfirmationStateChanged({
+          conversationId,
+          requestId: interaction.requestId,
+          state: "denied" as const,
+          source: "auto_deny" as const,
+        });
+        // Sync the canonical guardian record so stale "pending" rows aren't
+        // matched by later guardian reply routing.
+        resolveCanonicalGuardianRequest(interaction.requestId, "pending", {
+          status: "denied",
+        });
+      }
+    }
+    conversation.denyAllPendingConfirmations();
+    pendingInteractions.removeByConversation(conversationId);
+  }
+
+  steerOnEnqueuedMessageIfQuestionParked(conversationId, enqueuedRequestId);
 }
 
 // ---------------------------------------------------------------------------

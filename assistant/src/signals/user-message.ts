@@ -15,6 +15,7 @@ import { readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
+import { supersedePendingInteractionsOnEnqueue } from "../daemon/handlers/conversations.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
 import {
   processMessageInBackground,
@@ -131,6 +132,12 @@ async function dispatchUserMessage(params: {
         assistantMessageInterface: resolvedInterface,
       },
     });
+    if (!result.rejected) {
+      // Mirror the HTTP send path: a follow-up enqueued while the turn is busy
+      // auto-denies pending confirmations and supersedes a parked ask_question
+      // so it isn't stranded behind the prompt until the response backstop.
+      supersedePendingInteractionsOnEnqueue(conversationId, requestId);
+    }
     return { accepted: !result.rejected };
   }
 

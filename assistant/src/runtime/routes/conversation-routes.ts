@@ -50,7 +50,7 @@ import {
   getCannedFirstGreeting,
   isWakeUpGreeting,
 } from "../../daemon/first-greeting.js";
-import { steerOnEnqueuedMessageIfQuestionParked } from "../../daemon/handlers/conversations.js";
+import { supersedePendingInteractionsOnEnqueue } from "../../daemon/handlers/conversations.js";
 import {
   collectAttachmentRefs,
   type HistoryAttachmentRef,
@@ -1818,38 +1818,11 @@ export async function handleSendMessage(
     // the client showing "Failed to send" for a message the daemon will
     // process from the queue.
     try {
-      if (conversation.hasAnyPendingConfirmation()) {
-        // Emit authoritative denial state for each pending request.
-        // sendToClient (wired to the SSE hub) delivers these to the client.
-        for (const interaction of pendingInteractions.getByConversation(
-          mapping.conversationId,
-        )) {
-          if (interaction.kind === "confirmation") {
-            conversation.emitConfirmationStateChanged({
-              conversationId: mapping.conversationId,
-              requestId: interaction.requestId,
-              state: "denied" as const,
-              source: "auto_deny" as const,
-            });
-            // Sync canonical guardian request status so stale "pending" DB
-            // records don't get matched by later guardian reply routing.
-            resolveCanonicalGuardianRequest(interaction.requestId, "pending", {
-              status: "denied",
-            });
-          }
-        }
-        conversation.denyAllPendingConfirmations();
-        pendingInteractions.removeByConversation(mapping.conversationId);
-      }
-
-      // A queued chat message while a clarification question is open means the
-      // user chose to move on rather than answer it; steer to it instead of
-      // stranding it behind a prompt no one will answer. This runs after the
-      // confirmation auto-deny: removeByConversation() preserves `question`
-      // entries (one model response can open an ask_question and a confirmation
-      // concurrently via Promise.all), so the parked question is still
-      // registered here for the steer to abort and drain.
-      steerOnEnqueuedMessageIfQuestionParked(mapping.conversationId, requestId);
+      // Supersede interactions left pending by the in-flight turn: auto-deny
+      // confirmations (with canonical/client sync) and steer to the enqueued
+      // message if an ask_question is parked. Centralized so the CLI signal
+      // path (signals/user-message.ts) gets identical handling.
+      supersedePendingInteractionsOnEnqueue(mapping.conversationId, requestId);
 
       // Expire any orphaned canonical requests that survived without a
       // matching in-memory pending interaction (e.g. prompter timeouts).
