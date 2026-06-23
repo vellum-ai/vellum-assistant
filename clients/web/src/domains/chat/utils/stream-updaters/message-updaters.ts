@@ -225,12 +225,10 @@ export function appendTextDelta(
 // ---------------------------------------------------------------------------
 
 /**
- * Create a new streaming assistant bubble whose first content entry is a
- * thinking block. Reasoning-heavy models (e.g. Kimi) emit their entire
- * chain of thought before any `assistant_text_delta`, so the row is often
- * born from a thinking delta rather than a text one.
+ * A fresh streaming assistant bubble whose first content entry is thinking.
+ * Reasoning-heavy models (e.g. Kimi) emit their full chain of thought before
+ * any `assistant_text_delta`, so the row is often born from a thinking delta.
  */
-/** A fresh streaming assistant bubble whose first content entry is thinking. */
 export function newAssistantThinkingBubble(
   thinking: string,
   messageId?: string,
