@@ -85,12 +85,12 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
   hardLineBreaks,
   onVellumLinkClick,
 }: ChatMarkdownMessageProps) {
-  const LinkComponent = useCallback(
+  const linkComponent = useCallback(
     ({
       href,
       children,
     }: Pick<AnchorHTMLAttributes<HTMLAnchorElement>, "href" | "children">) => {
-      if (isVellumLink(href)) {
+      if (onVellumLinkClick && isVellumLink(href)) {
         return (
           <a
             href={href}
@@ -98,7 +98,7 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
               event.preventDefault();
               if (href) {
                 const text = event.currentTarget.textContent ?? "";
-                onVellumLinkClick?.(href, text);
+                onVellumLinkClick(href, text);
               }
             }}
             className="text-[var(--system-positive-strong)] underline hover:opacity-80 cursor-pointer"
@@ -113,9 +113,13 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
     [onVellumLinkClick],
   );
 
-  if (!onVellumLinkClick) {
-    return <MarkdownMessage content={content} className={className} hardLineBreaks={hardLineBreaks} linkComponent={OAuthAwareLink} urlTransform={vellumUrlTransform} />;
-  }
-
-  return <MarkdownMessage content={content} className={className} hardLineBreaks={hardLineBreaks} linkComponent={LinkComponent} urlTransform={vellumUrlTransform} />;
+  return (
+    <MarkdownMessage
+      content={content}
+      className={className}
+      hardLineBreaks={hardLineBreaks}
+      linkComponent={linkComponent}
+      urlTransform={vellumUrlTransform}
+    />
+  );
 });
