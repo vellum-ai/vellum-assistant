@@ -170,6 +170,29 @@ describe("getGuardianDelivery", () => {
     ]);
   });
 
+  test("an invalidation DURING an in-flight fetch is not masked — the next call re-fetches", async () => {
+    let resolveIpc: ((value: unknown) => void) | undefined;
+    ipcHandlers.set(
+      METHOD,
+      () =>
+        new Promise((resolve) => {
+          resolveIpc = resolve;
+        }),
+    );
+
+    // Start a cold fetch, invalidate before it resolves, then resolve it.
+    const inFlight = getGuardianDelivery();
+    invalidateGuardianDeliveryCache();
+    resolveIpc?.({ guardians: [telegramGuardian] });
+    expect(await inFlight).toEqual([telegramGuardian]);
+
+    // The pre-invalidation result must NOT have been cached: the next read
+    // issues a fresh IPC rather than serving the now-stale value.
+    ipcHandlers.set(METHOD, () => ({ guardians: [emailGuardian] }));
+    expect(await getGuardianDelivery()).toEqual([emailGuardian]);
+    expect(countCalls(METHOD)).toBe(2);
+  });
+
   test("a failure does NOT poison the cache — the next call retries", async () => {
     ipcHandlers.set(METHOD, () => undefined);
     expect(await getGuardianDelivery()).toBeNull();

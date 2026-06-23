@@ -41,6 +41,12 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 const inFlight = new Map<string, Promise<GuardianDelivery[] | null>>();
 
+// Bumped on every invalidation. A fetch captures the generation when it starts
+// and only writes its result to the cache if the generation is unchanged on
+// resolve, so an invalidation mid-flight can't repopulate a stale pre-change
+// result and mask a guardian-binding change.
+let cacheGeneration = 0;
+
 function cacheKey(channelTypes?: string[]): string {
   if (!channelTypes || channelTypes.length === 0) return "ALL";
   return [...channelTypes].sort().join(",");
@@ -82,9 +88,13 @@ export async function getGuardianDelivery(
   const pending = inFlight.get(key);
   if (pending) return pending;
 
+  const startGen = cacheGeneration;
   const promise = fetchGuardianDelivery(input ?? {})
     .then((guardians) => {
-      if (guardians) {
+      // Skip the write if an invalidation fired during the fetch: the result
+      // may predate the change. Return it to this caller (freshest it has) but
+      // leave the cache empty so the next call re-fetches.
+      if (guardians && cacheGeneration === startGen) {
         cache.set(key, { guardians, fetchedAt: Date.now() });
       }
       return guardians;
@@ -103,7 +113,9 @@ export async function getGuardianDelivery(
  * (gateway onboarding / verification / revocation) so the next read refetches.
  */
 export function invalidateGuardianDeliveryCache(): void {
+  cacheGeneration += 1;
   cache.clear();
+  inFlight.clear();
 }
 
 onContactChange(invalidateGuardianDeliveryCache);
@@ -129,4 +141,5 @@ export function anyGuardian(
 export function __resetGuardianDeliveryCacheForTest(): void {
   cache.clear();
   inFlight.clear();
+  cacheGeneration = 0;
 }
