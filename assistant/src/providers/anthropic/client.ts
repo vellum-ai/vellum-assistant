@@ -786,6 +786,11 @@ export class AnthropicProvider implements Provider {
     this.useNativeWebSearch = options.useNativeWebSearch ?? false;
   }
 
+  /** See {@link Provider.supportsNativeWebSearch}. */
+  get supportsNativeWebSearch(): boolean {
+    return this.useNativeWebSearch;
+  }
+
   async sendMessage(
     messages: Message[],
     options?: SendMessageOptions,

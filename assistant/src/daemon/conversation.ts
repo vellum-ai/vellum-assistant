@@ -91,7 +91,7 @@ import {
   isActivationMomentParam,
 } from "../telemetry/activation-funnel.js";
 import { ToolExecutor } from "../tools/executor.js";
-import { getAllToolDefinitions } from "../tools/registry.js";
+import { getAllToolDefinitions, getTool } from "../tools/registry.js";
 import type { ToolLifecycleEvent } from "../tools/types.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import type { AbortReason } from "../util/abort-reasons.js";
@@ -702,6 +702,9 @@ export class Conversation {
       tools: toolDefs.length > 0 ? toolDefs : undefined,
       toolExecutor: toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
+      // A tool the registry marks exclusive (e.g. `advisor`) runs alone in its
+      // turn; the loop defers any sibling calls until the next turn.
+      isExclusiveTool: (name) => getTool(name)?.exclusive === true,
       resolveConversationDir: () => {
         const conv = getConversation(this.conversationId);
         if (!conv) return null;

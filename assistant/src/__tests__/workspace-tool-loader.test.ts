@@ -94,6 +94,9 @@ function makeFakeCoreTool(name: string): Tool {
     category: "test",
     defaultRiskLevel: RiskLevel.Low,
     executionTarget: "sandbox",
+    // Match the finalized shape the registry stores (defaults filled), so
+    // `getCoreToolOverride(name)` toEqual comparisons hold after registration.
+    exclusive: false,
     input_schema: { type: "object", properties: {}, required: [] },
     async execute(
       _input: Record<string, unknown>,
