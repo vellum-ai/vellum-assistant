@@ -458,12 +458,26 @@ function entryWithThinking(): SubagentEntry {
 }
 
 describe("SubagentDetailPanel — nested tool detail", () => {
+  test("the top-level timeline view shows no breadcrumb", () => {
+    render(<SubagentDetailPanel entry={entryWithTool(true)} onClose={noop} />);
+
+    // Top-level: no Back button and no breadcrumb. The subagent's clickable
+    // breadcrumb crumb is a button, so its absence here proves the breadcrumb
+    // bar is not rendered on the timeline view.
+    expect(screen.queryByLabelText("Back to timeline")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Research agent" })).toBeNull();
+
+    // Drilling into a step reveals the breadcrumb's clickable subagent crumb.
+    fireEvent.click(screen.getByTestId("timeline-pill"));
+    expect(screen.getByRole("button", { name: "Research agent" })).toBeDefined();
+  });
+
   test("clicking a timeline tool pill swaps the body to the tool detail while keeping the header", () => {
     render(<SubagentDetailPanel entry={entryWithTool(true)} onClose={noop} />);
 
     // Timeline view first.
     expect(screen.getByTestId("timeline")).toBeDefined();
-    expect(screen.queryByText("Back")).toBeNull();
+    expect(screen.queryByLabelText("Back to timeline")).toBeNull();
 
     fireEvent.click(screen.getByTestId("timeline-pill"));
 
@@ -475,8 +489,10 @@ describe("SubagentDetailPanel — nested tool detail", () => {
     expect(screen.getByText("file-listing-output")).toBeDefined();
     // Timeline is no longer rendered (body swapped, not stacked).
     expect(screen.queryByTestId("timeline")).toBeNull();
-    // The subagent header stays mounted in the detail view.
+    // The subagent stays present as the breadcrumb's parent crumb, and the
+    // header gains a Back button while the close (X) stays mounted.
     expect(screen.getByText("Research agent")).toBeDefined();
+    expect(screen.getByLabelText("Back to timeline")).toBeDefined();
     expect(screen.getByLabelText("Close subagent detail")).toBeDefined();
   });
 
@@ -486,9 +502,9 @@ describe("SubagentDetailPanel — nested tool detail", () => {
     fireEvent.click(screen.getByTestId("timeline-pill"));
     expect(screen.getByText("Output")).toBeDefined();
 
-    fireEvent.click(screen.getByText("Back"));
+    fireEvent.click(screen.getByLabelText("Back to timeline"));
     expect(screen.getByTestId("timeline")).toBeDefined();
-    expect(screen.queryByText("Back")).toBeNull();
+    expect(screen.queryByLabelText("Back to timeline")).toBeNull();
   });
 
   test("selecting a still-running tool shows the 'Running…' output state", () => {
@@ -514,7 +530,7 @@ describe("SubagentDetailPanel — nested tool detail", () => {
     // Open a tool's detail (the timeline unmounts) then return via "Back".
     fireEvent.click(screen.getByTestId("timeline-pill"));
     expect(screen.getByText("Output")).toBeDefined();
-    fireEvent.click(screen.getByText("Back"));
+    fireEvent.click(screen.getByLabelText("Back to timeline"));
 
     // The group the user had open is still expanded — the lifted expand state
     // survived the timeline unmounting.
@@ -545,7 +561,7 @@ describe("SubagentDetailPanel — nested tool detail", () => {
     // Reset to the timeline for the new subagent, with no leaked detail or
     // expansion.
     expect(screen.getByTestId("timeline")).toBeDefined();
-    expect(screen.queryByText("Back")).toBeNull();
+    expect(screen.queryByLabelText("Back to timeline")).toBeNull();
     expect(screen.getByTestId("timeline-expand").textContent).toBe(
       "group-closed",
     );
@@ -565,8 +581,29 @@ describe("SubagentDetailPanel — nested tool detail", () => {
     expect(screen.queryByText("Output")).toBeNull();
 
     // Back returns to the timeline.
-    fireEvent.click(screen.getByText("Back"));
+    fireEvent.click(screen.getByLabelText("Back to timeline"));
     expect(screen.getByTestId("timeline")).toBeDefined();
-    expect(screen.queryByText("Back")).toBeNull();
+    expect(screen.queryByLabelText("Back to timeline")).toBeNull();
+  });
+
+  test("clicking the subagent breadcrumb returns to the timeline, preserving expanded groups", () => {
+    render(<SubagentDetailPanel entry={entryWithTool(true)} onClose={noop} />);
+
+    // Expand a group, then drill into a tool detail.
+    fireEvent.click(screen.getByTestId("timeline-expand"));
+    expect(screen.getByTestId("timeline-expand").textContent).toBe(
+      "group-open",
+    );
+    fireEvent.click(screen.getByTestId("timeline-pill"));
+    expect(screen.queryByTestId("timeline")).toBeNull();
+
+    // In the nested view the subagent is the breadcrumb's parent crumb;
+    // clicking it navigates back to the timeline (same as the header Back
+    // button), and the previously expanded group survives the round trip.
+    fireEvent.click(screen.getByText("Research agent"));
+    expect(screen.getByTestId("timeline")).toBeDefined();
+    expect(screen.getByTestId("timeline-expand").textContent).toBe(
+      "group-open",
+    );
   });
 });

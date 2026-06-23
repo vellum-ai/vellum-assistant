@@ -1,15 +1,16 @@
 
 import {
     ArrowDownToLine,
+    ArrowLeft,
     ArrowUpFromLine,
     ChevronDown,
-    ChevronLeft,
+    ChevronRight,
     DollarSign,
     Square,
     X,
 } from "lucide-react";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
 import {
@@ -162,10 +163,68 @@ export function SubagentDetailPanel({
     ? stepDetails.get(selectedDetailKey)
     : undefined;
 
+  // Returns from a nested step detail to the subagent timeline. Clearing only
+  // `selectedDetailKey` preserves `expandedSectionKeys` (and the objective
+  // collapse state), so the timeline reopens exactly as the user left it.
+  // Shared by the header Back button and the breadcrumb's subagent crumb.
+  const handleBack = useCallback(() => setSelectedDetailKey(null), []);
+
+  // The nested step's label — the breadcrumb tail and the header title while a
+  // detail is open. Mirrors the main-chat tool detail panel's `activity ||
+  // title` precedence.
+  const detailTitle = activeDetail
+    ? activeDetail.activity || activeDetail.title
+    : "";
+  // The header title tracks the breadcrumb's deepest crumb: the subagent at the
+  // timeline, the drilled-into step once a detail is open.
+  const headerTitle = activeDetail ? detailTitle : entry.label;
+
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
+      {/* Breadcrumb — only shown once a nested step detail is open; the
+          top-level subagent timeline has no breadcrumb. The subagent crumb is a
+          button that returns to the timeline (retaining expanded groups),
+          mirroring the header Back button; the step crumb is the current
+          (deepest) level. */}
+      {activeDetail && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-base)] px-5 py-3">
+          <button
+            type="button"
+            onClick={handleBack}
+            title={entry.label}
+            className="min-w-0 shrink cursor-pointer truncate text-left text-[var(--content-default)] hover:underline"
+          >
+            <Typography variant="body-small-default" as="span">
+              {entry.label}
+            </Typography>
+          </button>
+          <ChevronRight
+            className="h-2.5 w-2.5 shrink-0 text-[var(--content-tertiary)]"
+            aria-hidden
+          />
+          <Typography
+            variant="body-small-default"
+            as="span"
+            title={detailTitle}
+            className="min-w-0 shrink truncate text-[var(--content-secondary)]"
+          >
+            {detailTitle}
+          </Typography>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-base)] px-5 py-4">
+        {activeDetail && (
+          <Button
+            variant="outlined"
+            iconOnly={<ArrowLeft />}
+            onClick={handleBack}
+            aria-label="Back to timeline"
+            tooltip="Back"
+            className="shrink-0 rounded-lg"
+          />
+        )}
         {components ? (
           <AvatarRenderer
             components={components}
@@ -179,10 +238,10 @@ export function SubagentDetailPanel({
         )}
         <Typography
           variant="title-medium"
-          title={entry.label}
+          title={headerTitle}
           className="min-w-0 shrink truncate text-[var(--content-default)]"
         >
-          {entry.label}
+          {headerTitle}
         </Typography>
         <StatusBadge status={entry.status} />
         <span className="flex-1" />
@@ -212,15 +271,9 @@ export function SubagentDetailPanel({
       <div className="flex-1 overflow-y-auto px-5 py-5">
         {activeDetail ? (
           <>
-            <button
-              type="button"
-              onClick={() => setSelectedDetailKey(null)}
-              className="mb-4 flex cursor-pointer items-center gap-1.5 text-[var(--content-secondary)] transition-colors hover:text-[var(--content-default)]"
-            >
-              <ChevronLeft className="h-4 w-4" aria-hidden />
-              <Typography variant="label-medium-default">Back</Typography>
-            </button>
-            {/* Thinking steps render their full reasoning markdown statically
+            {/* Navigation back to the timeline lives in the header (Back button)
+                and the breadcrumb; this body only renders the step's detail.
+                Thinking steps render their full reasoning markdown statically
                 (subagent detail isn't a live chat-session source); web_search
                 steps render their query + source links; tool steps use the
                 shared technical-details/output body. */}
