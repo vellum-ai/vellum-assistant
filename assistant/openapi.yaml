@@ -8378,6 +8378,36 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        error:
+                          anyOf:
+                            - type: object
+                              properties:
+                                name:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                message:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                code:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                provider:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                statusCode:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                retryAfterMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                              additionalProperties: false
+                            - type: "null"
                       required:
                         - id
                         - createdAt
@@ -15278,6 +15308,36 @@ paths:
                     anyOf:
                       - type: string
                       - type: "null"
+                  error:
+                    anyOf:
+                      - type: object
+                        properties:
+                          name:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          message:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          code:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          provider:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          statusCode:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          retryAfterMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                        additionalProperties: false
+                      - type: "null"
                 required:
                   - id
                   - createdAt
@@ -17704,6 +17764,36 @@ paths:
                         callSite:
                           anyOf:
                             - type: string
+                            - type: "null"
+                        error:
+                          anyOf:
+                            - type: object
+                              properties:
+                                name:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                message:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                code:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                provider:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                statusCode:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                retryAfterMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                              additionalProperties: false
                             - type: "null"
                       required:
                         - id
