@@ -1877,7 +1877,7 @@ describe("normalizeLlmContextPayloads", () => {
       expect(normalized.summary?.provider).toBe("openai");
     });
 
-    test("carries statusCode 0 and retryAfterMs through", () => {
+    test("carries statusCode 0, retryAfterMs, and upstream metadata through", () => {
       const normalized = normalizeLlmContextPayloads({
         createdAt: 1_742_400_000_000,
         requestPayload: null,
@@ -1888,6 +1888,10 @@ describe("normalizeLlmContextPayloads", () => {
             provider: "anthropic",
             statusCode: 0,
             retryAfterMs: 1500,
+            apiErrorCode: "rate_limit_error",
+            apiErrorType: "overloaded_error",
+            apiErrorParam: "model",
+            requestId: "req_abc123",
           },
         },
       });
@@ -1898,6 +1902,10 @@ describe("normalizeLlmContextPayloads", () => {
         provider: "anthropic",
         statusCode: 0,
         retryAfterMs: 1500,
+        apiErrorCode: "rate_limit_error",
+        apiErrorType: "overloaded_error",
+        apiErrorParam: "model",
+        requestId: "req_abc123",
       });
     });
 

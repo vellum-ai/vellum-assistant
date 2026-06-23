@@ -111,6 +111,18 @@ export function buildProviderErrorResponsePayload(err: Error): {
     if (err.retryAfterMs !== undefined) {
       payload.retryAfterMs = err.retryAfterMs;
     }
+    if (err.apiErrorCode !== undefined) {
+      payload.apiErrorCode = err.apiErrorCode;
+    }
+    if (err.apiErrorType !== undefined) {
+      payload.apiErrorType = err.apiErrorType;
+    }
+    if (err.apiErrorParam !== undefined) {
+      payload.apiErrorParam = err.apiErrorParam;
+    }
+    if (err.requestId !== undefined) {
+      payload.requestId = err.requestId;
+    }
   } else if (err instanceof AssistantError) {
     payload.code = err.code;
   }

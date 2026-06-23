@@ -16,6 +16,11 @@ import type {
 } from "../types.js";
 import { ContextOverflowError } from "../types.js";
 import { wrapUnparseableToolArgs } from "../unparseable-tool-args.js";
+import {
+  formatNormalizedOpenAIAPIError,
+  normalizeOpenAIAPIError,
+  readOpenAIRawErrorBody,
+} from "./api-error-normalization.js";
 import { detectOpenAICompatibleContextOverflow } from "./chat-completions-provider.js";
 
 const log = getLogger("openai-responses");
@@ -148,7 +153,7 @@ export class OpenAIResponsesProvider implements Provider {
   private streamTimeoutMs: number;
   private useNativeWebSearch: boolean;
   private codexSubscription: boolean;
-  private lastCodexErrorBody: string | undefined;
+  private lastRawErrorBody: string | undefined;
 
   constructor(
     apiKey: string,
@@ -168,27 +173,21 @@ export class OpenAIResponsesProvider implements Provider {
         ? "https://chatgpt.com/backend-api/codex"
         : options.baseURL,
       timeout: sdkTimeoutMs,
-      ...(this.codexSubscription
-        ? {
-            fetch: async (url: RequestInfo | URL, init?: RequestInit) => {
-              const res = await globalThis.fetch(url, init);
-              if (!res.ok) {
-                const body = await res.text();
-                this.lastCodexErrorBody = body;
-                log.warn(
-                  { status: res.status, body, url: String(url) },
-                  "Codex endpoint raw error response",
-                );
-                return new Response(body, {
-                  status: res.status,
-                  statusText: res.statusText,
-                  headers: res.headers,
-                });
-              }
-              return res;
+      fetch: async (url: RequestInfo | URL, init?: RequestInit) => {
+        const res = await globalThis.fetch(url, init);
+        this.lastRawErrorBody = await readOpenAIRawErrorBody(res);
+        if (!res.ok && this.codexSubscription) {
+          log.warn(
+            {
+              status: res.status,
+              body: this.lastRawErrorBody,
+              url: String(url),
             },
-          }
-        : {}),
+            "Codex endpoint raw error response",
+          );
+        }
+        return res;
+      },
     });
     this.model = model;
     this.useNativeWebSearch = options.useNativeWebSearch ?? false;
@@ -207,6 +206,7 @@ export class OpenAIResponsesProvider implements Provider {
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
       | Record<string, string>
       | undefined;
+    this.lastRawErrorBody = undefined;
 
     try {
       const input = this.toResponsesInput(messages);
@@ -510,43 +510,48 @@ export class OpenAIResponsesProvider implements Provider {
           ? signal.reason
           : undefined;
       if (error instanceof OpenAI.APIError) {
-        const overflow = detectOpenAICompatibleContextOverflow(error);
+        const normalized = normalizeOpenAIAPIError(
+          error,
+          this.consumeRawErrorBody(),
+        );
+        const formattedMessage = formatNormalizedOpenAIAPIError(
+          this.providerLabel,
+          error.status,
+          normalized,
+        );
+        const overflow = detectOpenAICompatibleContextOverflow(
+          error,
+          normalized.message,
+        );
         if (overflow) {
-          throw new ContextOverflowError(
-            `${this.providerLabel} API error (${error.status}): ${error.message}`,
-            this.name,
-            {
-              actualTokens: overflow.actualTokens,
-              maxTokens: overflow.maxTokens,
-              statusCode: error.status,
-              cause: error,
-            },
-          );
+          throw new ContextOverflowError(formattedMessage, this.name, {
+            actualTokens: overflow.actualTokens,
+            maxTokens: overflow.maxTokens,
+            statusCode: error.status,
+            cause: error,
+          });
         }
         const retryAfterMs = extractRetryAfterMs(error.headers);
         const errorOptions: {
           retryAfterMs?: number;
           abortReason?: unknown;
+          apiErrorCode?: string;
+          apiErrorType?: string;
+          apiErrorParam?: string;
+          requestId?: string;
         } = {};
         if (retryAfterMs !== undefined)
           errorOptions.retryAfterMs = retryAfterMs;
         if (abortReason) errorOptions.abortReason = abortReason;
-        let errorDetail = error.message;
-        if (this.lastCodexErrorBody) {
-          try {
-            const parsed = JSON.parse(this.lastCodexErrorBody);
-            if (parsed.detail) errorDetail = parsed.detail;
-          } catch {
-            errorDetail = this.lastCodexErrorBody.slice(0, 200);
-          }
-          this.lastCodexErrorBody = undefined;
-        }
-        const extras = [error.code, error.type, error.param]
-          .filter(Boolean)
-          .join(", ");
-        const extraSuffix = extras ? ` [${extras}]` : "";
+        if (normalized.apiErrorCode)
+          errorOptions.apiErrorCode = normalized.apiErrorCode;
+        if (normalized.apiErrorType)
+          errorOptions.apiErrorType = normalized.apiErrorType;
+        if (normalized.apiErrorParam)
+          errorOptions.apiErrorParam = normalized.apiErrorParam;
+        if (normalized.requestId) errorOptions.requestId = normalized.requestId;
         throw new ProviderError(
-          `${this.providerLabel} API error (${error.status}): ${errorDetail}${extraSuffix}`,
+          formattedMessage,
           this.name,
           error.status,
           Object.keys(errorOptions).length > 0 ? errorOptions : undefined,
@@ -561,6 +566,12 @@ export class OpenAIResponsesProvider implements Provider {
         abortReason ? { cause: error, abortReason } : { cause: error },
       );
     }
+  }
+
+  private consumeRawErrorBody(): string | undefined {
+    const body = this.lastRawErrorBody;
+    this.lastRawErrorBody = undefined;
+    return body;
   }
 
   /**
