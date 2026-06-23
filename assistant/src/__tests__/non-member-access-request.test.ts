@@ -61,6 +61,36 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
+// Guardian identity for the access request resolves via the gateway delivery
+// reader, not the local contacts DB. Seed it per-test via seedGatewayGuardian.
+interface GatewayGuardian {
+  channelType: string;
+  contactId: string;
+  principalId?: string | null;
+  displayName?: string | null;
+  address: string;
+  externalChatId?: string | null;
+  status: string;
+  verifiedAt?: number | null;
+}
+let gatewayGuardians: GatewayGuardian[] = [];
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => gatewayGuardians,
+  guardianForChannel: (list: GatewayGuardian[], channelType: string) =>
+    list.find((g) => g.channelType === channelType && g.status === "active"),
+}));
+
+function seedGatewayGuardian(g: Partial<GatewayGuardian> & {
+  channelType: string;
+  address: string;
+}): void {
+  gatewayGuardians.push({
+    contactId: `c-${g.channelType}`,
+    status: "active",
+    ...g,
+  });
+}
+
 import {
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
@@ -95,6 +125,7 @@ function resetState(): string {
   db.run("DELETE FROM contacts");
   emitSignalCalls.length = 0;
   deliverReplyCalls.length = 0;
+  gatewayGuardians = [];
   mockEmitResult = {
     signalId: "mock-signal-id",
     deduplicated: false,
@@ -102,8 +133,15 @@ function resetState(): string {
     reason: "mock",
     deliveryResults: [],
   };
-  // Seed the vellum anchor binding (gateway does this at startup in production)
+  // Seed the vellum anchor binding in the gateway list (gateway does this at
+  // startup in production). The DB write mirrors it for any local INFO reads.
   const principalId = `vellum-principal-${crypto.randomUUID()}`;
+  seedGatewayGuardian({
+    channelType: "vellum",
+    address: principalId,
+    principalId,
+    displayName: principalId,
+  });
   createGuardianBinding({
     channel: "vellum",
     guardianExternalUserId: principalId,
@@ -172,6 +210,12 @@ describe("non-member access request notification", () => {
 
   test("guardian is notified when a non-member messages and a guardian binding exists", async () => {
     // Set up a guardian binding for this channel using the anchor principal
+    seedGatewayGuardian({
+      channelType: "telegram",
+      address: "guardian-user-789",
+      externalChatId: "guardian-chat-789",
+      principalId: anchorPrincipalId,
+    });
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
@@ -217,6 +261,12 @@ describe("non-member access request notification", () => {
   });
 
   test("no duplicate approval requests for repeated messages from same non-member", async () => {
+    seedGatewayGuardian({
+      channelType: "telegram",
+      address: "guardian-user-789",
+      externalChatId: "guardian-chat-789",
+      principalId: anchorPrincipalId,
+    });
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
@@ -289,6 +339,12 @@ describe("non-member access request notification", () => {
     // Only a voice guardian binding exists — no Telegram binding.
     // Since cross-channel fallback was removed, the access request resolves
     // to the assistant's vellum anchor identity instead.
+    seedGatewayGuardian({
+      channelType: "phone",
+      address: "guardian-voice-user",
+      externalChatId: "guardian-voice-chat",
+      principalId: anchorPrincipalId,
+    });
     createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "guardian-voice-user",
@@ -351,8 +407,8 @@ describe("access-request-helper unit tests", () => {
     anchorPrincipalId = resetState();
   });
 
-  test("notifyGuardianOfAccessRequest returns no_sender_id when actorExternalId is absent", () => {
-    const result = notifyGuardianOfAccessRequest({
+  test("notifyGuardianOfAccessRequest returns no_sender_id when actorExternalId is absent", async () => {
+    const result = await notifyGuardianOfAccessRequest({
       canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "chat-123",
@@ -372,8 +428,8 @@ describe("access-request-helper unit tests", () => {
     expect(pending.length).toBe(0);
   });
 
-  test("notifyGuardianOfAccessRequest creates request with self-healed principal when no binding exists", () => {
-    const result = notifyGuardianOfAccessRequest({
+  test("notifyGuardianOfAccessRequest creates request with self-healed principal when no binding exists", async () => {
+    const result = await notifyGuardianOfAccessRequest({
       canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "chat-123",
@@ -400,8 +456,14 @@ describe("access-request-helper unit tests", () => {
     expect(emitSignalCalls.length).toBe(1);
   });
 
-  test("notifyGuardianOfAccessRequest falls back to assistant-anchored vellum identity when source-channel binding is missing", () => {
+  test("notifyGuardianOfAccessRequest falls back to assistant-anchored vellum identity when source-channel binding is missing", async () => {
     // Only voice binding exists
+    seedGatewayGuardian({
+      channelType: "phone",
+      address: "guardian-voice",
+      externalChatId: "voice-chat",
+      principalId: "test-principal-id",
+    });
     createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "guardian-voice",
@@ -410,7 +472,7 @@ describe("access-request-helper unit tests", () => {
       verifiedVia: "test",
     });
 
-    const result = notifyGuardianOfAccessRequest({
+    const result = await notifyGuardianOfAccessRequest({
       canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "tg-chat",
@@ -435,8 +497,20 @@ describe("access-request-helper unit tests", () => {
     expect(payload.guardianBindingChannel).toBe("vellum");
   });
 
-  test("notifyGuardianOfAccessRequest prefers source-channel binding over vellum anchor", () => {
+  test("notifyGuardianOfAccessRequest prefers source-channel binding over vellum anchor", async () => {
     // Both Telegram and voice bindings exist with the anchor principal
+    seedGatewayGuardian({
+      channelType: "telegram",
+      address: "guardian-tg",
+      externalChatId: "tg-chat",
+      principalId: anchorPrincipalId,
+    });
+    seedGatewayGuardian({
+      channelType: "phone",
+      address: "guardian-voice",
+      externalChatId: "voice-chat",
+      principalId: anchorPrincipalId,
+    });
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-tg",
@@ -452,7 +526,7 @@ describe("access-request-helper unit tests", () => {
       verifiedVia: "test",
     });
 
-    const result = notifyGuardianOfAccessRequest({
+    const result = await notifyGuardianOfAccessRequest({
       canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "chat-123",
@@ -477,8 +551,100 @@ describe("access-request-helper unit tests", () => {
     expect(payload.guardianBindingChannel).toBe("telegram");
   });
 
-  test("notifyGuardianOfAccessRequest for voice channel includes actorDisplayName in contextPayload", () => {
-    const result = notifyGuardianOfAccessRequest({
+  test("notifyGuardianOfAccessRequest falls back to local source-channel binding when gateway delivery is empty", async () => {
+    // Gateway delivery read yields nothing (restart/timeout/malformed IPC).
+    gatewayGuardians = [];
+    // Local dual-written mirror still has the vellum anchor + telegram binding.
+    createGuardianBinding({
+      channel: "telegram",
+      guardianExternalUserId: "guardian-tg",
+      guardianDeliveryChatId: "tg-chat",
+      guardianPrincipalId: anchorPrincipalId,
+      verifiedVia: "test",
+    });
+
+    const result = await notifyGuardianOfAccessRequest({
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      conversationExternalId: "chat-123",
+      actorExternalId: "unknown-user",
+    });
+
+    expect(result.notified).toBe(true);
+
+    const pending = listCanonicalGuardianRequests({
+      status: "pending",
+      requesterExternalUserId: "unknown-user",
+      kind: "access_request",
+    });
+    expect(pending.length).toBe(1);
+    // Request is decidable: local read supplied the principal + source binding.
+    expect(pending[0].guardianPrincipalId).toBe(anchorPrincipalId);
+    expect(pending[0].guardianExternalUserId).toBe("guardian-tg");
+
+    const payload = emitSignalCalls[0].contextPayload as Record<
+      string,
+      unknown
+    >;
+    expect(payload.guardianBindingChannel).toBe("telegram");
+  });
+
+  test("notifyGuardianOfAccessRequest falls back to local vellum anchor when gateway delivery is empty", async () => {
+    // Gateway empty; only the local vellum anchor from resetState remains.
+    gatewayGuardians = [];
+
+    const result = await notifyGuardianOfAccessRequest({
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      conversationExternalId: "chat-123",
+      actorExternalId: "unknown-user",
+    });
+
+    expect(result.notified).toBe(true);
+
+    const pending = listCanonicalGuardianRequests({
+      status: "pending",
+      requesterExternalUserId: "unknown-user",
+      kind: "access_request",
+    });
+    expect(pending.length).toBe(1);
+    // Decidable via the local vellum anchor principal.
+    expect(pending[0].guardianPrincipalId).toBe(anchorPrincipalId);
+
+    const payload = emitSignalCalls[0].contextPayload as Record<
+      string,
+      unknown
+    >;
+    expect(payload.guardianBindingChannel).toBe("vellum");
+  });
+
+  test("notifyGuardianOfAccessRequest does not create a decisionable request when both gateway and local reads are empty", async () => {
+    // Genuinely unbound assistant: gateway empty AND no local binding. Prior
+    // behavior rejects creation of a decisionable request without a principal.
+    gatewayGuardians = [];
+    const db = getDb();
+    db.run("DELETE FROM contact_channels");
+    db.run("DELETE FROM contacts");
+
+    await expect(
+      notifyGuardianOfAccessRequest({
+        canonicalAssistantId: "self",
+        sourceChannel: "telegram",
+        conversationExternalId: "chat-123",
+        actorExternalId: "unknown-user",
+      }),
+    ).rejects.toThrow();
+
+    const pending = listCanonicalGuardianRequests({
+      status: "pending",
+      requesterExternalUserId: "unknown-user",
+      kind: "access_request",
+    });
+    expect(pending.length).toBe(0);
+  });
+
+  test("notifyGuardianOfAccessRequest for voice channel includes actorDisplayName in contextPayload", async () => {
+    const result = await notifyGuardianOfAccessRequest({
       canonicalAssistantId: "self",
       sourceChannel: "phone",
       conversationExternalId: "+15559998888",
@@ -508,8 +674,8 @@ describe("access-request-helper unit tests", () => {
     expect(pending.length).toBe(1);
   });
 
-  test("notifyGuardianOfAccessRequest includes requestCode in contextPayload", () => {
-    const result = notifyGuardianOfAccessRequest({
+  test("notifyGuardianOfAccessRequest includes requestCode in contextPayload", async () => {
+    const result = await notifyGuardianOfAccessRequest({
       canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "chat-123",
@@ -529,8 +695,8 @@ describe("access-request-helper unit tests", () => {
     expect((payload.requestCode as string).length).toBe(6);
   });
 
-  test("notifyGuardianOfAccessRequest includes previousMemberStatus in contextPayload", () => {
-    const result = notifyGuardianOfAccessRequest({
+  test("notifyGuardianOfAccessRequest includes previousMemberStatus in contextPayload", async () => {
+    const result = await notifyGuardianOfAccessRequest({
       canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "chat-123",
@@ -570,7 +736,7 @@ describe("access-request-helper unit tests", () => {
       ],
     };
 
-    const result = notifyGuardianOfAccessRequest({
+    const result = await notifyGuardianOfAccessRequest({
       canonicalAssistantId: "self",
       sourceChannel: "phone",
       conversationExternalId: "+15556667777",
@@ -603,6 +769,12 @@ describe("access-request-helper unit tests", () => {
     // Set up a telegram guardian binding with the anchor principal so
     // guardianResolutionSource resolves to "source-channel-contact" and
     // sameChannelOnly is true.
+    seedGatewayGuardian({
+      channelType: "telegram",
+      address: "guardian-user-456",
+      externalChatId: "guardian-chat-456",
+      principalId: anchorPrincipalId,
+    });
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-user-456",
@@ -625,7 +797,7 @@ describe("access-request-helper unit tests", () => {
       ],
     };
 
-    const result = notifyGuardianOfAccessRequest({
+    const result = await notifyGuardianOfAccessRequest({
       canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "chat-123",

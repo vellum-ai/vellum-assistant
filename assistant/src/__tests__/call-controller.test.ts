@@ -168,6 +168,25 @@ mock.module("../notifications/emit-signal.js", () => ({
   }),
 }));
 
+// Guardian principalId is resolved from the gateway binding reader. Mirror the
+// vellum binding seeded by resetTables so guardian dispatch can resolve it.
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => [
+    {
+      channelType: "vellum",
+      contactId: "guardian-vellum",
+      principalId: "test-principal-id",
+      address: "local",
+      status: "active",
+    },
+  ],
+  guardianForChannel: (
+    list: Array<{ channelType: string; status: string }>,
+    channelType: string,
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
+  anyGuardian: (list: unknown[]) => list[0],
+}));
+
 mock.module("../calls/voice-session-bridge.js", () => {
   mockStartVoiceTurn = mock(createMockVoiceTurn(["Hello", " there"]));
   return {

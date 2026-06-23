@@ -14,6 +14,11 @@
 import type { ChannelId } from "../channels/types.js";
 import { isHttpAuthDisabled } from "../config/env.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+  peekCachedGuardianDelivery,
+} from "../contacts/guardian-delivery-reader.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
@@ -45,13 +50,48 @@ export function buildLocalAuthContext(conversationId: string): AuthContext {
 }
 
 /**
- * Look up the local vellum guardian's principalId from the contacts table.
+ * Resolve the local vellum guardian's principalId from the gateway.
  *
- * Returns `undefined` when no vellum guardian binding exists (e.g. fresh
- * install before bootstrap). Callers should treat that case as
+ * The gateway owns guardian binding; this reads it through the cached
+ * `getGuardianDelivery` reader (PR-3 TTL + single-flight) so hot paths don't
+ * storm the IPC. Falls back to the local contacts table for the bootstrap /
+ * first-run window where the gateway has no guardian yet or is unreachable
+ * (the reader returns `null`).
+ *
+ * Returns `undefined` when no vellum guardian binding exists in either source
+ * (e.g. fresh install before bootstrap). Callers should treat that case as
  * "not yet available" and either fall back or proceed without a principalId.
  */
-export function findLocalGuardianPrincipalId(): string | undefined {
+export async function findLocalGuardianPrincipalId(): Promise<
+  string | undefined
+> {
+  const list = await getGuardianDelivery({ channelTypes: ["vellum"] });
+  if (list) {
+    const principalId = guardianForChannel(list, "vellum")?.principalId;
+    if (principalId) return principalId;
+  }
+
+  return findLocalGuardianPrincipalIdFromStore();
+}
+
+/**
+ * Synchronous read of the vellum guardian's principalId for paths that cannot
+ * await {@link findLocalGuardianPrincipalId} — namely the SSE eager-subscribe
+ * path (`events-routes`), which registers before the stream is created.
+ *
+ * Reads the same gateway-owned binding as the async path via a sync, IO-free
+ * snapshot of the guardian-delivery cache (kept fresh by the async hot paths
+ * and event-driven invalidation), so SSE registers the SAME principal the
+ * send/result routes resolve. Falls back to the local store when the cache is
+ * cold — the same fallback the async path lands on during bootstrap.
+ */
+export function findLocalGuardianPrincipalIdFromStore(): string | undefined {
+  const cached = peekCachedGuardianDelivery({ channelTypes: ["vellum"] });
+  if (cached) {
+    const principalId = guardianForChannel(cached, "vellum")?.principalId;
+    if (principalId) return principalId;
+  }
+
   return findGuardianForChannel("vellum")?.contact.principalId ?? undefined;
 }
 
@@ -76,12 +116,35 @@ export function findLocalGuardianPrincipalId(): string | undefined {
  * yet (e.g. fresh install before bootstrap); callers must treat this the
  * same as a missing principal.
  */
-export function resolveActorPrincipalIdForLocalGuardian(
+export async function resolveActorPrincipalIdForLocalGuardian(
+  rawHeader: string | undefined,
+): Promise<string | undefined> {
+  if (rawHeader !== "dev-bypass" || !isHttpAuthDisabled()) return rawHeader;
+
+  const guardianPrincipalId = await findLocalGuardianPrincipalId();
+  if (guardianPrincipalId) return guardianPrincipalId;
+
+  log.warn(
+    "dev-bypass actor principal received but no vellum guardian binding found; returning undefined",
+  );
+  return undefined;
+}
+
+/**
+ * Synchronous variant of {@link resolveActorPrincipalIdForLocalGuardian} for
+ * the SSE eager-subscribe path, which registers before the response stream is
+ * created and cannot await. Resolves the guardian from the IO-free gateway
+ * cache snapshot first (same source the async path reads), falling back to the
+ * local store when the cache is cold — so SSE registers the SAME principal the
+ * send/result routes resolve and host-proxy targeting matches the same-user
+ * client even when the local contact row is stale.
+ */
+export function resolveActorPrincipalIdForLocalGuardianSync(
   rawHeader: string | undefined,
 ): string | undefined {
   if (rawHeader !== "dev-bypass" || !isHttpAuthDisabled()) return rawHeader;
 
-  const guardianPrincipalId = findLocalGuardianPrincipalId();
+  const guardianPrincipalId = findLocalGuardianPrincipalIdFromStore();
   if (guardianPrincipalId) return guardianPrincipalId;
 
   log.warn(
@@ -102,12 +165,12 @@ export function resolveActorPrincipalIdForLocalGuardian(
  * bootstrap), falls back to a minimal guardian context so the local
  * user is not incorrectly denied.
  */
-export function resolveLocalTrustContext(
+export async function resolveLocalTrustContext(
   sourceChannel: ChannelId = "vellum",
-): TrustContext {
+): Promise<TrustContext> {
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
 
-  const guardianPrincipalId = findLocalGuardianPrincipalId();
+  const guardianPrincipalId = await findLocalGuardianPrincipalId();
   if (guardianPrincipalId) {
     const trustCtx = resolveTrustContext({
       assistantId,
@@ -139,10 +202,12 @@ export function resolveLocalTrustContext(
  * downstream code to resolve guardian context using the same
  * `authContext.actorPrincipalId` path as HTTP sessions.
  */
-export function resolveLocalAuthContext(conversationId: string): AuthContext {
+export async function resolveLocalAuthContext(
+  conversationId: string,
+): Promise<AuthContext> {
   const authContext = buildLocalAuthContext(conversationId);
 
-  const guardianPrincipalId = findLocalGuardianPrincipalId();
+  const guardianPrincipalId = await findLocalGuardianPrincipalId();
   if (guardianPrincipalId) {
     return { ...authContext, actorPrincipalId: guardianPrincipalId };
   }

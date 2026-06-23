@@ -61,14 +61,14 @@ export type HostBrowserResultResolution =
  * already authenticated the caller (the HTTP route uses
  * `requireBoundGuardian`).
  */
-export function resolveHostBrowserResultByRequestId(
+export async function resolveHostBrowserResultByRequestId(
   frame: {
     requestId?: unknown;
     content?: unknown;
     isError?: unknown;
   },
   headers?: Record<string, string | undefined>,
-): HostBrowserResultResolution {
+): Promise<HostBrowserResultResolution> {
   const { requestId, content, isError } = frame;
 
   if (!requestId || typeof requestId !== "string") {
@@ -127,9 +127,10 @@ export function resolveHostBrowserResultByRequestId(
     // stream. This prevents a different authenticated user with knowledge of
     // both the requestId and target clientId from submitting a result on
     // behalf of the targeted client.
-    const submittingActorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
-      headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
-    );
+    const submittingActorPrincipalId =
+      await resolveActorPrincipalIdForLocalGuardian(
+        headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
+      );
     try {
       enforceSameActorOrThrow({
         sourceActorPrincipalId: submittingActorPrincipalId,
@@ -260,12 +261,12 @@ export function resolveHostBrowserSessionInvalidated(frame: {
 // POST /v1/host-browser-result
 // ---------------------------------------------------------------------------
 
-function handleHostBrowserResult({ body, headers }: RouteHandlerArgs) {
+async function handleHostBrowserResult({ body, headers }: RouteHandlerArgs) {
   if (!body || typeof body !== "object") {
     throw new BadRequestError("Request body is required");
   }
 
-  const resolution = resolveHostBrowserResultByRequestId(
+  const resolution = await resolveHostBrowserResultByRequestId(
     body,
     headers as Record<string, string | undefined> | undefined,
   );
@@ -399,10 +400,7 @@ export const ROUTES: RouteDefinition[] = [
       "Marks the target as invalidated in the runtime-side browser session registry.",
     tags: ["host"],
     requestBody: z.object({
-      targetId: z
-        .string()
-        .optional()
-        .describe("CDP target that was detached"),
+      targetId: z.string().optional().describe("CDP target that was detached"),
       reason: z.string().optional().describe("Detach reason"),
       clientId: z
         .string()
