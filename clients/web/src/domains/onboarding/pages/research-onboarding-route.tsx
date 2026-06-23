@@ -334,7 +334,10 @@ export function ResearchOnboardingRoute() {
         )}
         {step === "integration" && (
           <IntegrationStep
-            onClaim={() => goForwardTo("letschat")}
+            assistantId={hatchedAssistantId}
+            assistantReady={hatchReady}
+            onConnected={handleCheckinConnected}
+            onSkip={() => goForwardTo("looking")}
             onBumpEyes={() => setEyesBump((n) => n + 1)}
             onBack={() => goBackTo("together")}
             onForward={onForward}
@@ -353,14 +356,14 @@ export function ResearchOnboardingRoute() {
         {step === "meeting" && (
           <MeetingCreatedStep
             onDone={() => goForwardTo("looking")}
-            onBack={() => goBackTo("letschat")}
+            onBack={() => goBackTo("integration")}
             onForward={onForward}
           />
         )}
         {step === "looking" && (
           <LookingYouUpStep
             onDone={() => goForwardTo("results")}
-            onBack={() => goBackTo("letschat")}
+            onBack={() => goBackTo("integration")}
             onAdvance={(i) => setEdgeAvatars(Math.min(i + 1, 4))}
             onForward={onForward}
           />
