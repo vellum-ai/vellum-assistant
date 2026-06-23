@@ -314,7 +314,8 @@ describe("StatusBanner", () => {
     }
   });
 
-  test("renders a failed operation as an error instead of a spinner", () => {
+  test("renders a failed operation as an error with Doctor and Dismiss actions", () => {
+    // GIVEN the assistant upgrade has failed
     operationalStatusQueryMock = {
       data: {
         state: "upgrading_assistant_version",
@@ -324,15 +325,20 @@ describe("StatusBanner", () => {
       isError: false,
     };
 
+    // WHEN the banner renders
     const html = renderToStaticMarkup(<StatusBanner />);
 
+    // THEN it shows the failed title with error styling
     expect(html).toContain("Assistant upgrade failed");
     expect(html).not.toContain("Assistant is upgrading");
     expect(html).toContain('data-tone="error"');
     expect(html).toContain("bg-[var(--system-negative-weak)]");
     expect(html).toContain("lucide-triangle-alert");
     expect(html).not.toContain("animate-spin");
+
+    // AND it shows both Doctor and Dismiss actions
     expect(html).toContain("Go to Doctor");
+    expect(html).toContain("Dismiss");
   });
 
   test("surfaces the failure detail message when present", () => {
@@ -352,7 +358,8 @@ describe("StatusBanner", () => {
     expect(html).toContain('data-tone="error"');
   });
 
-  test("does not render Doctor action for local assistant failed operations", () => {
+  test("does not render Doctor action for local assistant failed operations but still shows Dismiss", () => {
+    // GIVEN a local assistant whose upgrade has failed
     assistantStateMock = { kind: "active", isLocal: true };
     operationalStatusQueryMock = {
       data: {
@@ -363,10 +370,40 @@ describe("StatusBanner", () => {
       isError: false,
     };
 
+    // WHEN the banner renders
     const html = renderToStaticMarkup(<StatusBanner />);
 
+    // THEN it shows the failed title with Dismiss but no Doctor
     expect(html).toContain("Assistant upgrade failed");
     expect(html).not.toContain("Go to Doctor");
+    expect(html).toContain("Dismiss");
+  });
+
+  test("dismiss button hides the failed operation banner", async () => {
+    /**
+     * Clicking Dismiss on a failed-operation banner hides it until the
+     * operational state changes.
+     */
+
+    // GIVEN a failed upgrade banner is visible
+    operationalStatusQueryMock = {
+      data: {
+        state: "upgrading_assistant_version",
+        detail_state: "failed",
+        detail: { reason: "readiness_poll", message: null },
+      },
+      isError: false,
+    };
+    render(<StatusBanner />);
+    expect(screen.getByText("Assistant upgrade failed")).toBeTruthy();
+
+    // WHEN the user clicks Dismiss
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+
+    // THEN the banner is hidden
+    await waitFor(() => {
+      expect(screen.queryByText("Assistant upgrade failed")).toBeNull();
+    });
   });
 
   test("uses a blue pulsing dot for waking", () => {
