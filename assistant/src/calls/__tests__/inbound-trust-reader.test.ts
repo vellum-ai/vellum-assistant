@@ -34,6 +34,8 @@ mock.module("../../ipc/gateway-client.js", () => ({
   resetPersistentClient: () => {},
 }));
 
+import type { TrustVerdict } from "@vellumai/gateway-client";
+
 import { getInboundTrustVerdict } from "../inbound-trust-reader.js";
 
 const METHOD = "resolve_inbound_trust";
@@ -43,7 +45,7 @@ const VALID_VERDICT = {
   canonicalSenderId: "U_MEMBER",
   contactId: "c-member",
   status: "active",
-};
+} satisfies TrustVerdict;
 
 describe("getInboundTrustVerdict", () => {
   beforeEach(() => {
