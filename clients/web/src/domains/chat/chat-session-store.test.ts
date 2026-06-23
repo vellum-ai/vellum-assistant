@@ -19,3 +19,28 @@ describe("chat-session-store — live pointer across setMessages", () => {
     expect(useChatSessionStore.getState().entities.liveAssistantRowKey).toBeNull();
   });
 });
+
+describe("chat-session-store — rowKey continuity across the reconcile rebuild", () => {
+  test("a nonce-born row keeps its rowKey + live pointer after adopting its server id", () => {
+    useChatSessionStore.getState().setMessages(() => []); // isolate from other tests
+
+    // A delta with no messageId opens a nonce-keyed optimistic assistant row.
+    useChatSessionStore.getState().updateMessages((e) => applyTextDelta(e, "hi"));
+    const nonceKey = useChatSessionStore.getState().entities.liveAssistantRowKey!;
+    expect(useChatSessionStore.getState().entities.byId[nonceKey]!.id).toBe(nonceKey);
+
+    // Completion adopts the durable server id; the rowKey is frozen at the nonce.
+    useChatSessionStore
+      .getState()
+      .patchMessage(nonceKey, (row) => ({ ...row, id: "srv-9", isOptimistic: false }));
+    expect(useChatSessionStore.getState().entities.order).toEqual([nonceKey]);
+
+    // A reconcile / history snapshot reapplies the row (now under its server id)
+    // through the bulk path. `prior` maps the server id back to the mounted nonce
+    // key, so the row keeps its key (no remount) and the live pointer survives.
+    useChatSessionStore.getState().setMessages((prev) => prev.map((m) => ({ ...m })));
+    const after = useChatSessionStore.getState().entities;
+    expect(after.order).toEqual([nonceKey]);
+    expect(after.liveAssistantRowKey).toBe(nonceKey);
+  });
+});

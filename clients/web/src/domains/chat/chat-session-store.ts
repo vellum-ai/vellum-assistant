@@ -276,7 +276,10 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
   setMessages: (updater) =>
     set((s) => {
       const messages = applyUpdater(s.messages, updater);
-      const rebuilt = rebuildFromArray(messages);
+      // Pass the current entities as `prior` so a row keeps its rowKey across
+      // the rebuild: a nonce-born row that adopted its server id is reapplied
+      // under that id, which `prior` maps back to the mounted key (no remount).
+      const rebuilt = rebuildFromArray(messages, s.entities);
       // `rebuildFromArray` resets `liveAssistantRowKey` (a fresh build has no
       // live turn), but `setMessages` is also the mid-turn bulk path (tool /
       // surface / reconcile). Carry the live pointer across the rebuild when
