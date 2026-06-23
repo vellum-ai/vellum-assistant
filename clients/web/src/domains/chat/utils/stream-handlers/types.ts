@@ -96,4 +96,17 @@ export interface StreamHandlerContext {
    *  subagent_spawned can read the correct parent without waiting for
    *  React's batched render. Mirrors macOS `currentAssistantMessageId`. */
   currentAssistantMessageIdRef: MutableRefObject<string | undefined>;
+
+  // --- Tool output streaming (coalesced) ---
+  /**
+   * Per-`toolUseId` buffer of pending `tool_output_chunk` text (with the row
+   * `messageId` anchor), drained by a single coalesced flush per animation
+   * frame. Keying by id keeps interleaved chunks from different running tools
+   * separate. See `handleToolOutputChunk` / `flushToolOutput`.
+   */
+  toolOutputBufferRef: MutableRefObject<
+    Map<string, { conversationId?: string; messageId?: string; text: string }>
+  >;
+  /** rAF handle for the pending coalesced flush, or `null` when idle. */
+  toolOutputFlushHandleRef: MutableRefObject<number | null>;
 }
