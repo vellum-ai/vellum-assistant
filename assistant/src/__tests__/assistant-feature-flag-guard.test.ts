@@ -40,7 +40,9 @@ interface RegistryFlag {
   key: string;
   label: string;
   description: string;
-  defaultEnabled: boolean;
+  // Boolean flags, or multivariate string flags whose value is one of `values`.
+  defaultEnabled: boolean | string;
+  values?: string[];
 }
 
 interface Registry {
@@ -175,8 +177,21 @@ describe("assistant feature flag guard", () => {
     const violations: string[] = [];
 
     for (const flag of assistantFlags) {
-      if (typeof flag.defaultEnabled !== "boolean") {
-        violations.push(`${flag.key}: missing or non-boolean 'defaultEnabled'`);
+      // Flags are boolean or multivariate string (e.g.
+      // managed-minimax-m3-provider). A string flag must enumerate its
+      // variations and the default must be one of them.
+      if (typeof flag.defaultEnabled === "string") {
+        if (
+          !Array.isArray(flag.values) ||
+          flag.values.length < 2 ||
+          !flag.values.includes(flag.defaultEnabled)
+        ) {
+          violations.push(
+            `${flag.key}: string 'defaultEnabled' must be one of a 'values' list of >= 2`,
+          );
+        }
+      } else if (typeof flag.defaultEnabled !== "boolean") {
+        violations.push(`${flag.key}: missing or invalid 'defaultEnabled'`);
       }
       if (
         typeof flag.description !== "string" ||
