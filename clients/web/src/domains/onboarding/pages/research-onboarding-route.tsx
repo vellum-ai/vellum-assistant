@@ -301,12 +301,10 @@ export function ResearchOnboardingRoute() {
           eyesBumpNonce={eyesBump}
           peekLevel={peekLevel}
           darkBg={postCalendar}
-          // The pitch steps choreograph their own eyes (rising to speak the
-          // line in, or acting out "smarter"/"faster"), so hide the backdrop's
-          // resting pair there to avoid doubling.
-          showBottomEyes={
-            !postCalendar && step !== "different" && step !== "together"
-          }
+          // The "different" step choreographs its own eyes (rising to speak the
+          // line in), so hide the backdrop's resting pair there to avoid
+          // doubling. "together" now just uses the backdrop's resting eyes.
+          showBottomEyes={!postCalendar && step !== "different"}
           // On "together" the team is gated on the third-line reveal (so it
           // replays on back); on every later step it's simply present.
           showTopTeam={
