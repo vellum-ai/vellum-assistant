@@ -20,8 +20,8 @@ function isPlatformMode(raw: string | undefined): boolean {
 
 /**
  * Proxy configure hook (local mode) that authenticates upstream requests with
- * the loopback platform session token the SPA registered — as both the Django
- * session cookie and `X-Session-Token`. No browser cookie is involved.
+ * the loopback platform session token the SPA registered, as the Django session
+ * cookie. No browser cookie is involved.
  */
 function injectPlatformToken(proxy: {
   on: (event: string, cb: (...args: unknown[]) => void) => void;
@@ -34,7 +34,6 @@ function injectPlatformToken(proxy: {
         "Cookie",
         `sessionid=${token}; __Secure-sessionid=${token}`,
       );
-      proxyReq.setHeader("X-Session-Token", token);
     }
   });
 }
