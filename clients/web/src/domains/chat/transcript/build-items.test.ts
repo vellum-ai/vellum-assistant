@@ -59,6 +59,30 @@ describe("buildTranscriptItems", () => {
     expectDistinctNonEmptyKeys(items);
   });
 
+  test("excludes subagent-notification messages from the projection but leaves input intact", () => {
+    const user = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
+    const notification = makeMessage({
+      id: "m2",
+      role: "user",
+      ...textBody('[Subagent "research" completed]'),
+      isSubagentNotification: true,
+    });
+    const assistant = makeMessage({ id: "m3", role: "assistant", ...textBody("Hi") });
+    const messages = [user, notification, assistant];
+
+    const items = buildTranscriptItems({ ...emptyInput(), messages });
+
+    // The subagent-notification row is never rendered in the transcript...
+    expect(items).toEqual([
+      { kind: "message", key: "m1", message: user },
+      { kind: "message", key: "m3", message: assistant },
+    ]);
+    // ...but it remains in the input `messages` state so the LLM transcript and
+    // subagent-store rehydration still see it (suppression is render-only).
+    expect(messages).toHaveLength(3);
+    expect(messages[1]).toBe(notification);
+  });
+
   test("emits empty list when there is no state", () => {
     const items = buildTranscriptItems(emptyInput());
     expect(items).toEqual([]);
