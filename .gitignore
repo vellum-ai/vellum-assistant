@@ -140,3 +140,11 @@ clients/web/public/skills/
 # Generated at release time by the publish-meta jobs (release.yml)
 meta/package-lock.json
 meta/npm-shrinkwrap.json
+
+# Runtime SQLite databases. These live on the assistant's workspace volume
+# (VELLUM_WORKSPACE_DIR, e.g. /workspace/data/db) and must never be committed.
+# Scoped to data/db/ plus sqlite sidecar files so intentionally-tracked
+# fixture databases elsewhere in the tree are unaffected.
+data/db/
+*.sqlite-wal
+*.sqlite-shm
