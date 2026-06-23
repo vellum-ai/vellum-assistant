@@ -532,7 +532,7 @@ async function buildVoiceWebhookTwiml(
 /**
  * Build ConversationRelay TwiML for Twilio-native STT providers.
  */
-function buildConversationRelayTwiml(
+async function buildConversationRelayTwiml(
   callSessionId: string,
   profile: ReturnType<typeof resolveVoiceQualityProfile>,
   sessionContext: {
@@ -545,8 +545,8 @@ function buildConversationRelayTwiml(
   } | null,
   verificationSessionId: string | null | undefined,
   sttAttrs: { transcriptionProvider: string; speechModel: string | undefined },
-): string {
-  const rawHints = resolveCallHints(sessionContext, profile.hints);
+): Promise<string> {
+  const rawHints = await resolveCallHints(sessionContext, profile.hints);
 
   const speechConfig: TwilioRelaySpeechConfig = {
     transcriptionProvider: sttAttrs.transcriptionProvider,

@@ -24,6 +24,25 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
+// The guardian principalId for the pending_question request is sourced from the
+// gateway binding reader. Seed it with the vellum guardian.
+const mockGuardianDelivery: Array<{
+  channelType: string;
+  status: string;
+  principalId: string | null;
+}> = [
+  { channelType: "vellum", status: "active", principalId: "test-principal-id" },
+];
+
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => mockGuardianDelivery,
+  guardianForChannel: (
+    list: Array<{ channelType: string; status: string }>,
+    channelType: string,
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
+  anyGuardian: (list: unknown[]) => list[0],
+}));
+
 const emitCalls: unknown[] = [];
 let conversationCreatedFromMock: ConversationCreatedInfo | null = null;
 let mockEmitResult: {
@@ -154,11 +173,18 @@ describe("guardian-dispatch", () => {
         "SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?",
       )
       .get(session.id) as
-      | { id: string; status: string; question_text: string }
+      | {
+          id: string;
+          status: string;
+          question_text: string;
+          guardian_principal_id: string | null;
+        }
       | undefined;
     expect(request).toBeDefined();
     expect(request!.status).toBe("pending");
     expect(request!.question_text).toBe("What is the gate code?");
+    // principalId comes from the gateway guardian binding
+    expect(request!.guardian_principal_id).toBe("test-principal-id");
 
     const vellumDelivery = raw
       .query(

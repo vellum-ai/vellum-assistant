@@ -7,7 +7,10 @@
  * 3. Records guardian_action_delivery rows from pipeline delivery results
  */
 
-import { findGuardianForChannel } from "../contacts/contact-store.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../contacts/guardian-delivery-reader.js";
 import {
   createCanonicalGuardianRequest,
   listCanonicalGuardianDeliveries,
@@ -87,13 +90,11 @@ async function dispatchGuardianQuestionInner(
     const expiresAt = Date.now() + getUserConsultationTimeoutMs();
 
     // Voice decisions are handled in guardian conversations tied to the assistant-
-    // level guardian identity. Resolve the principal from the contacts table.
-    let guardianPrincipalId: string | undefined;
-
-    const guardianResult = findGuardianForChannel("vellum");
-    if (guardianResult?.contact.principalId) {
-      guardianPrincipalId = guardianResult.contact.principalId;
-    }
+    // level guardian identity. Resolve the principal from the gateway binding.
+    const guardianList = await getGuardianDelivery();
+    const guardianPrincipalId = guardianList
+      ? (guardianForChannel(guardianList, "vellum")?.principalId ?? undefined)
+      : undefined;
 
     if (!guardianPrincipalId) {
       log.error(
