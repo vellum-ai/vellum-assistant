@@ -49,8 +49,31 @@ mock.module("../../runtime/actor-trust-resolver.js", () => ({
 // Controllable verdict-derived trust context.
 let verdictTrust: ActorTrustContext;
 const actorTrustContextFromVerdictMock = mock(() => verdictTrust);
+// Mirror the real fail-closed contract: a verdict claiming a member resolves
+// only with valid known status+policy enums; otherwise null (memberless or
+// malformed/mixed-version).
+const CHANNEL_STATUS_VALUES = [
+  "active",
+  "pending",
+  "revoked",
+  "blocked",
+  "unverified",
+];
+const CHANNEL_POLICY_VALUES = ["allow", "deny", "escalate"];
+const resolvedMemberFromVerdictMock = mock((verdict: TrustVerdict) => {
+  if (!verdict.contactId || !verdict.channelId) return null;
+  if (!verdict.status || !verdict.policy) return null;
+  if (
+    !CHANNEL_STATUS_VALUES.includes(verdict.status) ||
+    !CHANNEL_POLICY_VALUES.includes(verdict.policy)
+  ) {
+    return null;
+  }
+  return { contact: {}, channel: {} };
+});
 mock.module("../../runtime/trust-verdict-consumer.js", () => ({
   actorTrustContextFromVerdict: actorTrustContextFromVerdictMock,
+  resolvedMemberFromVerdict: resolvedMemberFromVerdictMock,
 }));
 
 // Controllable pending verification challenge.
@@ -180,6 +203,7 @@ beforeEach(() => {
   boundContact = null;
   resolveActorTrustMock.mockClear();
   actorTrustContextFromVerdictMock.mockClear();
+  resolvedMemberFromVerdictMock.mockClear();
 });
 
 // ---------------------------------------------------------------------------
@@ -530,6 +554,96 @@ describe("routeSetup — verdict path enforces member ACL", () => {
     const { outcome } = route(null, makeVerdict());
 
     expect(actorTrustContextFromVerdictMock).toHaveBeenCalledTimes(1);
+    expect(outcome.action).toBe("normal_call");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Unresolvable member verdict → local fallback (never trust an un-ACL-checkable
+// member). A verdict claiming a member (contactId/channelId) whose ACL can't be
+// reassembled (missing/unknown status·policy) must take the local resolveActorTrust
+// path so the member is ACL-checked locally, not trusted by trustClass.
+// ---------------------------------------------------------------------------
+
+describe("routeSetup — unresolvable member verdict falls back to local", () => {
+  test("member identity with missing status falls back to local resolveActorTrust", () => {
+    nextTrust = makeTrust("trusted_contact", { status: "active" });
+    const { resolved } = route(
+      null,
+      makeVerdict({
+        trustClass: "trusted_contact",
+        contactId: "ct_1",
+        channelId: "ch_1",
+        policy: "allow",
+        // status absent → unresolvable
+      }),
+    );
+
+    expect(resolveActorTrustMock).toHaveBeenCalledTimes(1);
+    expect(actorTrustContextFromVerdictMock).not.toHaveBeenCalled();
+    expect(resolved.actorTrust.trustClass).toBe("trusted_contact");
+  });
+
+  test("member identity with unknown status falls back to local resolveActorTrust", () => {
+    nextTrust = makeTrust("trusted_contact", { status: "active" });
+    route(
+      null,
+      makeVerdict({
+        trustClass: "trusted_contact",
+        contactId: "ct_1",
+        channelId: "ch_1",
+        status: "bogus",
+        policy: "allow",
+      }),
+    );
+
+    expect(resolveActorTrustMock).toHaveBeenCalledTimes(1);
+    expect(actorTrustContextFromVerdictMock).not.toHaveBeenCalled();
+  });
+
+  test("member identity with unknown policy falls back to local resolveActorTrust", () => {
+    nextTrust = makeTrust("trusted_contact", { status: "active" });
+    route(
+      null,
+      makeVerdict({
+        trustClass: "trusted_contact",
+        contactId: "ct_1",
+        channelId: "ch_1",
+        status: "active",
+        policy: "bogus",
+      }),
+    );
+
+    expect(resolveActorTrustMock).toHaveBeenCalledTimes(1);
+    expect(actorTrustContextFromVerdictMock).not.toHaveBeenCalled();
+  });
+
+  test("real stranger verdict (no member identity) still takes the verdict path", () => {
+    verdictTrust = makeTrust("unknown");
+    route(null, makeVerdict({ trustClass: "unknown" }));
+
+    expect(actorTrustContextFromVerdictMock).toHaveBeenCalledTimes(1);
+    expect(resolveActorTrustMock).not.toHaveBeenCalled();
+  });
+
+  test("valid member verdict (good status+policy) still takes the verdict path", () => {
+    verdictTrust = makeTrust("trusted_contact", {
+      status: "active",
+      policy: "allow",
+    });
+    const { outcome } = route(
+      null,
+      makeVerdict({
+        trustClass: "trusted_contact",
+        contactId: "ct_1",
+        channelId: "ch_1",
+        status: "active",
+        policy: "allow",
+      }),
+    );
+
+    expect(actorTrustContextFromVerdictMock).toHaveBeenCalledTimes(1);
+    expect(resolveActorTrustMock).not.toHaveBeenCalled();
     expect(outcome.action).toBe("normal_call");
   });
 });
