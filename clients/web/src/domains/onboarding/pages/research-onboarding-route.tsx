@@ -350,9 +350,16 @@ export function ResearchOnboardingRoute() {
           <SuggestionsStep
             suggestions={research.suggestions}
             loading={researchLoading}
-            onSuggestionClick={(prompt) =>
-              enterAssistant(formValues, faceValues, prompt)
-            }
+            onSuggestionClick={async (suggestion) => {
+              // For a plugin-backed suggestion, wait out the background install
+              // so the new chat can discover the plugin's skills (else it
+              // silently degrades to a generic prompt). Usually instant — the
+              // install kicked off while the user reviewed the results.
+              if (suggestion.plugin) {
+                await research.awaitPluginInstall(suggestion.plugin);
+              }
+              enterAssistant(formValues, faceValues, suggestion.prompt);
+            }}
             onBack={() => goBackTo("results")}
             onForward={onForward}
           />

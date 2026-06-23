@@ -31,6 +31,7 @@ import {
 import type {
   MessagesGetResponses,
   MessagesPostData,
+  PluginsSearchGetResponses,
 } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
@@ -38,6 +39,7 @@ import {
   type AvailableCapability,
   type ResearchSubject,
 } from "@/domains/onboarding/research-prompt";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import {
   parseResearchResultStreaming,
   type ResearchFact,
@@ -55,20 +57,31 @@ const MAX_POLL_MS = 120_000;
 const STABLE_READS_TO_SETTLE = 2;
 
 /**
- * Marketplace plugins that are infrastructure/meta rather than a capability the
- * assistant would ever offer a new user as a suggestion (compression modes,
- * model routers, reference/memory samples, UI shells). Filtered out of the
- * catalog before injection so the prompt only ever lists recommendable
- * skillsets. Anything NOT on this list — including future persona plugins like a
- * developer/PM kit — flows through automatically.
+ * Org that owns first-party, reviewed Vellum plugins. Onboarding only ever
+ * surfaces and installs plugins from this owner — never third-party/external
+ * marketplace repos — so a new user is never offered (or silently handed)
+ * community code during onboarding.
  */
-const NON_RECOMMENDABLE_PLUGINS = new Set<string>([
-  "caveman",
-  "model-router",
-  "simple-memory",
-  "dynamic-notch",
-  "level-up",
-]);
+const VELLUM_PLUGIN_OWNER = "vellum-ai";
+
+/**
+ * Vellum-hosted plugins that are still infrastructure/meta rather than a
+ * capability worth offering a new user (a reference memory sample, the
+ * self-edit diff card). Dropped on top of the owner filter. Anything else owned
+ * by Vellum — including future persona plugins like a developer/PM kit — flows
+ * through automatically.
+ */
+const NON_RECOMMENDABLE_PLUGINS = new Set<string>(["simple-memory", "level-up"]);
+
+type CatalogMatch = NonNullable<
+  PluginsSearchGetResponses[200]["matches"]
+>[number];
+
+export interface RecommendableCapabilities {
+  capabilities: AvailableCapability[];
+  /** Valid install names, used to gate background installs against hallucination. */
+  validNames: Set<string>;
+}
 
 /** Keep injected descriptions to one short clause so the prompt stays compact. */
 function compactDescription(raw: string): string {
@@ -78,33 +91,54 @@ function compactDescription(raw: string): string {
     : firstSentence;
 }
 
+/** Owner segment of an `owner/repo` locator, or "" when unparseable. */
+function repoOwner(repo: string | undefined): string {
+  return repo?.split("/")[0]?.trim() ?? "";
+}
+
+/**
+ * Narrow the marketplace catalog to the capabilities onboarding will surface:
+ * Vellum-hosted (first-party, reviewed) plugins only, minus the meta/infra
+ * ones, each compacted to one short line. Pure so it's unit-testable without
+ * mocking the catalog fetch.
+ */
+export function selectRecommendableCapabilities(
+  matches: CatalogMatch[],
+): RecommendableCapabilities {
+  const capabilities: AvailableCapability[] = [];
+  const validNames = new Set<string>();
+  for (const m of matches) {
+    const name = m.name?.trim();
+    const description = m.description?.trim();
+    if (!name || !description) continue;
+    if (repoOwner(m.source?.repo) !== VELLUM_PLUGIN_OWNER) continue;
+    if (NON_RECOMMENDABLE_PLUGINS.has(name)) continue;
+    validNames.add(name);
+    capabilities.push({ name, description: compactDescription(description) });
+  }
+  return { capabilities, validNames };
+}
+
+const EMPTY_CAPABILITIES: RecommendableCapabilities = {
+  capabilities: [],
+  validNames: new Set<string>(),
+};
+
 /**
  * Pull the live marketplace catalog and compact it into the capability list the
  * research prompt advertises. Best-effort: any failure yields an empty list, in
  * which case the prompt simply omits the capabilities block (unchanged from the
- * pre-plugin behavior). Returns the recommendable entries plus the set of valid
- * install names, used to gate background installs against model hallucination.
+ * pre-plugin behavior).
  */
 async function fetchAvailableCapabilities(
   assistantId: string,
-): Promise<{ capabilities: AvailableCapability[]; validNames: Set<string> }> {
+): Promise<RecommendableCapabilities> {
   try {
     const res = await pluginsSearchGet({
       path: { assistant_id: assistantId },
       throwOnError: false,
     });
-    const matches = res.data?.matches ?? [];
-    const capabilities: AvailableCapability[] = [];
-    const validNames = new Set<string>();
-    for (const m of matches) {
-      const name = m.name?.trim();
-      const description = m.description?.trim();
-      if (!name || !description) continue;
-      if (NON_RECOMMENDABLE_PLUGINS.has(name)) continue;
-      validNames.add(name);
-      capabilities.push({ name, description: compactDescription(description) });
-    }
-    return { capabilities, validNames };
+    return selectRecommendableCapabilities(res.data?.matches ?? []);
   } catch (err) {
     captureError(err, { context: "research_onboarding_catalog" });
     return { capabilities: [], validNames: new Set<string>() };
@@ -158,12 +192,46 @@ export interface UseResearchRunner extends ResearchRunnerState {
    * stale poll loop so the results reflect the corrected subject.
    */
   start: (options: StartResearchOptions) => void;
+  /**
+   * Await the background install of a plugin a suggestion is tagged with, so the
+   * click doesn't open the chat before `<workspace>/plugins/<name>` exists —
+   * otherwise the plugin's skills aren't discoverable in the new conversation
+   * and the suggestion silently degrades to a generic prompt. Resolves
+   * immediately when nothing is pending for that name.
+   */
+  awaitPluginInstall: (name: string) => Promise<void>;
 }
 
 type GetMessage = MessagesGetResponses[200]["messages"][number];
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Bounded wait (ms) for the assistant flag store to hydrate before gating on it. */
+const FLAG_HYDRATE_TIMEOUT_MS = 8000;
+
+/**
+ * Whether the experimental external-plugin surface is enabled for this
+ * assistant. Plugin install/load lives behind the `external-plugins` rollout
+ * gate (assistant flag store key `externalPlugins`), so onboarding must not
+ * surface or materialize plugins when it's off — otherwise we'd bypass the gate
+ * and expose/install marketplace plugins to an unentitled workspace. Waits
+ * (bounded) for the flag store to hydrate so a cold load doesn't read the
+ * default-off value as a hard "no"; an un-hydrated timeout is treated as off.
+ */
+async function awaitExternalPluginsEnabled(
+  isStale: () => boolean,
+): Promise<boolean> {
+  const deadline = Date.now() + FLAG_HYDRATE_TIMEOUT_MS;
+  while (
+    !useAssistantFeatureFlagStore.getState().hasHydrated &&
+    Date.now() < deadline
+  ) {
+    await sleep(250);
+    if (isStale()) return false;
+  }
+  return useAssistantFeatureFlagStore.getState().externalPlugins === true;
+}
 
 /** Latest assistant reply text from a messages list (text blocks, then legacy flat content). */
 function latestAssistantText(messages: GetMessage[]): string {
@@ -195,6 +263,10 @@ export function useResearchRunner(): UseResearchRunner {
   // an identical resubmit is a no-op but an edited one restarts.
   const runIdRef = useRef(0);
   const subjectKeyRef = useRef<string | null>(null);
+  // Background plugin installs keyed by name, so the suggestion click can await
+  // the matching install before opening the chat (see `awaitPluginInstall`).
+  // Promises stay resolved in the map, so awaiting a settled one is instant.
+  const installPromisesRef = useRef<Map<string, Promise<void>>>(new Map());
 
   const start = useCallback(
     ({ awaitAssistantId, subject, conversationTitle }: StartResearchOptions) => {
@@ -204,6 +276,8 @@ export function useResearchRunner(): UseResearchRunner {
       const runId = runIdRef.current + 1;
       runIdRef.current = runId;
       const isStale = () => runIdRef.current !== runId;
+      // Fresh run — drop installs tracked for a superseded subject.
+      installPromisesRef.current.clear();
       setState({ status: "running", claims: [], suggestions: [] });
 
       void (async () => {
@@ -213,9 +287,14 @@ export function useResearchRunner(): UseResearchRunner {
 
           // Advertise the live marketplace catalog to the research turn so it can
           // tag a suggestion with a plugin whose skills the prompt would trigger.
+          // Only when the external-plugin surface is enabled for this assistant;
+          // otherwise run plain research with no plugin injection or install.
           // Best-effort: an empty list just omits the capabilities block.
-          const { capabilities, validNames } =
-            await fetchAvailableCapabilities(assistantId);
+          const pluginsEnabled = await awaitExternalPluginsEnabled(isStale);
+          if (isStale()) return;
+          const { capabilities, validNames } = pluginsEnabled
+            ? await fetchAvailableCapabilities(assistantId)
+            : EMPTY_CAPABILITIES;
           if (isStale()) return;
 
           const conversation = await conversationsPost({
@@ -266,11 +345,12 @@ export function useResearchRunner(): UseResearchRunner {
           const deadline = Date.now() + MAX_POLL_MS;
           let lastText = "";
           let stableReads = 0;
-          // Plugins we've already kicked off an install for — installs fire the
-          // moment a tagged suggestion first streams in (overlapping the user's
-          // results-review screens) so the plugin is materialized before the
-          // click opens the chat. Idempotent, so racing the same name is fine.
-          const installing = new Set<string>();
+          // Installs fire the moment a tagged suggestion first streams in
+          // (overlapping the user's results-review screens) so the plugin is
+          // materialized before the click opens the chat. Tracked by promise so
+          // the click can await a still-running one. Idempotent, so racing the
+          // same name is fine.
+          const installs = installPromisesRef.current;
           while (Date.now() < deadline) {
             await sleep(POLL_INTERVAL_MS);
             if (isStale()) return;
@@ -288,13 +368,11 @@ export function useResearchRunner(): UseResearchRunner {
               for (const s of suggestions) {
                 // Gate on the fetched catalog so a hallucinated name never hits
                 // the install route; skip ones already in flight.
-                if (
-                  s.plugin &&
-                  validNames.has(s.plugin) &&
-                  !installing.has(s.plugin)
-                ) {
-                  installing.add(s.plugin);
-                  void installCapabilityBestEffort(assistantId, s.plugin);
+                if (s.plugin && validNames.has(s.plugin) && !installs.has(s.plugin)) {
+                  installs.set(
+                    s.plugin,
+                    installCapabilityBestEffort(assistantId, s.plugin),
+                  );
                 }
               }
               stableReads = text === lastText ? stableReads + 1 : 0;
@@ -315,5 +393,13 @@ export function useResearchRunner(): UseResearchRunner {
     [],
   );
 
-  return { ...state, start };
+  const awaitPluginInstall = useCallback(
+    async (name: string): Promise<void> => {
+      const pending = installPromisesRef.current.get(name);
+      if (pending) await pending;
+    },
+    [],
+  );
+
+  return { ...state, start, awaitPluginInstall };
 }

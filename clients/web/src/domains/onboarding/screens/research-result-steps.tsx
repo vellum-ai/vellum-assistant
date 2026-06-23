@@ -350,8 +350,11 @@ export function SuggestionsStep({
   suggestions: ResearchSuggestion[];
   /** True while the research turn is still streaming. */
   loading: boolean;
-  /** Sends the user-voiced prompt for the clicked suggestion. */
-  onSuggestionClick: (prompt: string) => void;
+  /**
+   * Opens the chat on the clicked suggestion. Receives the whole suggestion so
+   * the caller can await any tagged plugin's install before navigating.
+   */
+  onSuggestionClick: (suggestion: ResearchSuggestion) => void;
   onBack: () => void;
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
@@ -389,7 +392,7 @@ export function SuggestionsStep({
             <motion.button
               key={`${i}-${s.suggestion}`}
               type="button"
-              onClick={() => onSuggestionClick(s.prompt)}
+              onClick={() => onSuggestionClick(s)}
               initial={reduce ? false : { opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={reduce ? { duration: 0 } : { duration: 0.3, delay: i * 0.06 }}
