@@ -128,11 +128,22 @@ function SubagentPhaseRow({
   // The "N steps" pill only makes sense for a multi-step phase.
   const showStepCount = stepCount >= 2;
   // A row is interactive (the whole row is a pointer-cursor toggle) when at
-  // least one step actually renders a pill — `stepRendersPill` is
-  // `DefaultStepPill`'s own predicate, so expanding can never reveal an empty
-  // body. A lone info-less tool step (successful or failed) renders no pill, so
-  // it stays non-expandable.
-  const isExpandable = section.steps.some(stepRendersPill);
+  // least one step actually renders a pill in the expanded body, so expanding
+  // can never reveal an empty body. That happens two ways: the step renders a
+  // `DefaultStepPill` (`stepRendersPill`, `DefaultStepPill`'s own predicate),
+  // OR it renders a clickable `ToolStepPill`. A clickable tool step renders
+  // even when its labeler left `info` empty (the pill falls back to
+  // `step.title`), so it counts toward expandability too — otherwise a
+  // tool-only phase whose tool produced no `info` would be wrongly
+  // non-expandable and its nested tool detail unreachable. The clickable arm
+  // mirrors the expanded body's render condition below.
+  const isExpandable = section.steps.some(
+    (step) =>
+      stepRendersPill(step) ||
+      (step.kind === "tool" &&
+        Boolean(step.toolCallId) &&
+        Boolean(onToolStepClick)),
+  );
 
   const totalDuration =
     status === "running"

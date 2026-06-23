@@ -221,6 +221,31 @@ describe("SubagentPhaseTimeline — clickable tool steps", () => {
     expect(onToolStepClick).toHaveBeenLastCalledWith("tc-b");
   });
 
+  // A clickable tool step whose labeler produced no `info` still renders a
+  // `ToolStepPill` (its label falls back to `step.title`), so the row must be
+  // expandable and the nested detail reachable. Regression for `isExpandable`
+  // consulting only `stepRendersPill` — which is false for an info-less tool
+  // step — and thus disabling the row even though the clickable arm would have
+  // rendered a real pill.
+  test("a single info-less tool step is expandable + clickable when a handler is wired", () => {
+    const onToolStepClick = mock((_id: string) => {});
+    const steps: ToolCallCardStep[] = [bash("", "completed", "1s", "tc-a")];
+    const { getByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} onToolStepClick={onToolStepClick} />,
+    );
+
+    const header = getByTestId("subagent-phase-header");
+    expect(header.hasAttribute("disabled")).toBe(false);
+
+    fireEvent.click(header);
+    const pill = getByTestId("tool-step-pill");
+    expect(pill.tagName).toBe("BUTTON");
+
+    fireEvent.click(pill);
+    expect(onToolStepClick).toHaveBeenCalledTimes(1);
+    expect(onToolStepClick).toHaveBeenLastCalledWith("tc-a");
+  });
+
   test("a thinking step does NOT render as a clickable tool pill", () => {
     const onToolStepClick = mock((_id: string) => {});
     const steps: ToolCallCardStep[] = [thinking("Considering options")];
