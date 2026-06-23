@@ -66,11 +66,16 @@ export function buildTranscriptItems(
   const items: TranscriptItem[] = [];
 
   for (const message of messages) {
-    // Subagent notification messages are injected by the daemon as user-role
-    // messages for state reconstruction (history.ts extracts them). They
-    // pass through as normal `MessageItem`s so reconciliation sees the full
-    // row context — `TranscriptMessageBody` branches on `isSubagentNotification`
-    // and renders a narrow system pill instead of the user bubble.
+    // Daemon-injected subagent lifecycle notifications (user-role messages
+    // carrying subagentNotification metadata) stay in `messages` state so the
+    // LLM transcript and subagent-store rehydration (history.ts) still see
+    // them, but they are internal scaffolding and are never rendered in the
+    // transcript — subagent activity surfaces through the inline progress card.
+    if (message.isSubagentNotification) {
+      continue;
+    }
+
+    // Queued user messages surface via the queue drawer, not the transcript.
     const isQueuedUser =
       message.role === "user" && message.queueStatus === "queued";
 

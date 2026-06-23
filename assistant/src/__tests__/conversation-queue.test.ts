@@ -2911,3 +2911,92 @@ describe("MessageQueue byte budget", () => {
     ).toBe(false);
   });
 });
+
+describe("subagent notification user_message_echo suppression", () => {
+  beforeEach(() => {
+    pendingRuns = [];
+    capturedAddMessages.length = 0;
+  });
+
+  test("drained subagent-notification message persists and wakes the agent but emits no user_message_echo", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: ServerMessage[] = [];
+    const eventsNotif: ServerMessage[] = [];
+
+    // Occupy the conversation so the injected notification queues.
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+    expect(conversation.isProcessing()).toBe(true);
+
+    // A daemon-injected subagent completion notification carries
+    // `subagentNotification` metadata.
+    conversation.enqueueMessage({
+      content: '[Subagent "research" completed]',
+      onEvent: (e) => eventsNotif.push(e),
+      requestId: "req-notif",
+      metadata: {
+        subagentNotification: {
+          subagentId: "sub-1",
+          label: "research",
+          status: "completed",
+        },
+      },
+    });
+
+    // Resolving the first run drains the queued notification.
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // It is still persisted (so the orchestrator LLM sees it in the transcript)
+    // and still wakes the agent (a run was created for the drained message)...
+    expect(
+      capturedAddMessages.some((m) => m.content.includes("Subagent")),
+    ).toBe(true);
+    expect(pendingRuns.length).toBe(2);
+    // ...but no user_message_echo is broadcast, so the client never renders it
+    // as a live user bubble.
+    expect(eventsNotif.some((e) => e.type === "user_message_echo")).toBe(false);
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("drained ordinary message still emits user_message_echo", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: ServerMessage[] = [];
+    const eventsNormal: ServerMessage[] = [];
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "ordinary message",
+      onEvent: (e) => eventsNormal.push(e),
+      requestId: "req-normal",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    expect(eventsNormal.some((e) => e.type === "user_message_echo")).toBe(true);
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+});

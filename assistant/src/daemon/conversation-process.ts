@@ -60,6 +60,21 @@ import { resolveVerificationSessionIntent } from "./verification-session-intent.
 
 const log = getLogger("conversation-process");
 
+/**
+ * Daemon-injected subagent lifecycle notifications carry `subagentNotification`
+ * metadata. They are persisted into the parent conversation so the orchestrator
+ * wakes and reads the subagent's result, but they are internal scaffolding — the
+ * user sees subagent activity through the inline progress card, not a chat turn.
+ * Skip the `user_message_echo` broadcast for these so they never render as a live
+ * user bubble; the persisted row is filtered from the rendered transcript on the
+ * client.
+ */
+function isSubagentNotificationMessage(
+  metadata: Record<string, unknown> | undefined,
+): boolean {
+  return metadata?.subagentNotification != null;
+}
+
 /** Format the result of a forced compaction into a user-facing message. */
 export function formatCompactResult(result: ContextWindowResult): string {
   const fmt = (n: number | undefined) => (n ?? 0).toLocaleString("en-US");
@@ -853,14 +868,16 @@ async function drainSingleMessage(
 
   // Broadcast the user message to all hub subscribers so passive devices
   // see the user turn before the assistant reply starts streaming.
-  next.onEvent({
-    type: "user_message_echo",
-    text: resolvedContent,
-    conversationId: conversation.conversationId,
-    messageId: userMessageId,
-    requestId: next.requestId,
-    clientMessageId: next.clientMessageId,
-  });
+  if (!isSubagentNotificationMessage(next.metadata)) {
+    next.onEvent({
+      type: "user_message_echo",
+      text: resolvedContent,
+      conversationId: conversation.conversationId,
+      messageId: userMessageId,
+      requestId: next.requestId,
+      clientMessageId: next.clientMessageId,
+    });
+  }
   publishConversationMessagesChanged(conversation.conversationId);
 
   // Set the active surface for the dequeued message so runAgentLoop can inject context
@@ -1204,14 +1221,16 @@ async function drainBatch(
 
     // Broadcast the user message to all hub subscribers so passive devices
     // see each batched user turn before the assistant reply starts streaming.
-    qm.onEvent({
-      type: "user_message_echo",
-      text: qmContent,
-      conversationId: conversation.conversationId,
-      messageId: lastUserMessageId,
-      requestId: qm.requestId,
-      clientMessageId: qm.clientMessageId,
-    });
+    if (!isSubagentNotificationMessage(qm.metadata)) {
+      qm.onEvent({
+        type: "user_message_echo",
+        text: qmContent,
+        conversationId: conversation.conversationId,
+        messageId: lastUserMessageId,
+        requestId: qm.requestId,
+        clientMessageId: qm.clientMessageId,
+      });
+    }
     publishConversationMessagesChanged(conversation.conversationId);
 
     // Persist succeeded. Update last-successful markers so a later tail
