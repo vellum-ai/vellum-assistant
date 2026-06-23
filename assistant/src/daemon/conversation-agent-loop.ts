@@ -791,10 +791,7 @@ export async function runAgentLoopImpl(
     // the post-compaction hook re-emits this same value during in-loop recovery
     // instead of re-resolving against contact/member registry state that may
     // have drifted mid-turn.
-    const actorContext = resolveTurnInboundActorContext(
-      ctx.trustContext,
-      ctx.assistantId,
-    );
+    const actorContext = resolveTurnInboundActorContext(ctx.trustContext);
     ctx.currentTurnInboundActorContext = actorContext;
 
     // Surface long gaps between user messages so the model can acknowledge

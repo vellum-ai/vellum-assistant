@@ -95,6 +95,45 @@ describe("trustContextFromVerdict", () => {
     expect(result.requesterIdentifier).toBe("@carol");
   });
 
+  test("member verdict stamps ACL member fields + contact id onto the context", () => {
+    const verdict = {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "u-1",
+      contactId: "contact-1",
+      channelId: "channel-1",
+      type: "slack",
+      address: "u-1",
+      status: "unverified",
+      policy: "escalate",
+    } satisfies TrustVerdict;
+
+    const result = trustContextFromVerdict(verdict, {
+      sourceChannel: "slack",
+      conversationExternalId: CONV,
+    });
+
+    expect(result.requesterContactId).toBe("contact-1");
+    // "unverified" maps to the API-facing "pending" member status.
+    expect(result.memberStatus).toBe("pending");
+    expect(result.memberPolicy).toBe("escalate");
+  });
+
+  test("memberless verdict leaves ACL member fields undefined", () => {
+    const verdict = {
+      trustClass: "unknown",
+      canonicalSenderId: "u-2",
+    } satisfies TrustVerdict;
+
+    const result = trustContextFromVerdict(verdict, {
+      sourceChannel: "slack",
+      conversationExternalId: CONV,
+    });
+
+    expect(result.requesterContactId).toBeUndefined();
+    expect(result.memberStatus).toBeUndefined();
+    expect(result.memberPolicy).toBeUndefined();
+  });
+
   test("maps trustClass through and leaves guardian fields undefined when absent", () => {
     for (const trustClass of [
       "trusted_contact",
