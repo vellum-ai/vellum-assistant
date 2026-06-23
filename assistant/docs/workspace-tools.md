@@ -94,6 +94,23 @@ Defaults applied when fields are omitted:
 | `input_schema`     | `{ type: "object", properties: {}, additionalProperties: false }`                           |
 | `execute`          | Returns `{ content: "workspace tool <name> has no execute implementation", isError: true }` |
 
+## Execution target resolution
+
+When a tool does not declare `executionTarget` explicitly, the value is
+resolved at load time by `resolveExecutionTarget()` in
+`src/tools/execution-target.ts`:
+
+1. **Explicit `executionTarget` on the tool** — always wins.
+2. **Name-prefix heuristic** — tools whose name starts with `host_` or
+   `computer_use_` resolve to `"host"`.
+3. **Default** — everything else resolves to `"sandbox"`.
+
+This means **tool naming matters**: `host_my_thing` executes on the host
+(guardian's device via host-bridge proxy), while `my_host_thing` executes in
+the sandbox (assistant container). If you want a host-targeting tool with a
+name that doesn't start with `host_`, you must set `executionTarget: "host"`
+explicitly.
+
 ## Override semantics
 
 Workspace tools are the highest-priority origin in the tool registry:
