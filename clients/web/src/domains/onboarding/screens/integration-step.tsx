@@ -68,7 +68,7 @@ export function IntegrationStep({
           Want to connect your first integration?
         </h1>
         <p className="text-[16px]" style={{ color: tone.fgMuted }}>
-          Here&rsquo;s 10 free credits to get you started.
+          Giving you free credits to get started.
         </p>
 
         {/* Coin — drops to the eyes, gets bumped up, then falls away (2D flight
@@ -97,9 +97,6 @@ export function IntegrationStep({
           >
             <OnboardingCoin size={88} spinning={claiming && !reduce} />
           </motion.div>
-          {!claiming && (
-            <p className="text-[20px] font-medium" style={{ color: tone.fg }}>10 cr.</p>
-          )}
         </div>
 
         {/* Claim — hidden while the coin animates. */}
