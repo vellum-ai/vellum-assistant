@@ -9,16 +9,20 @@
  */
 import { z } from "zod";
 
-import type { ChannelId } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { findGuardianForChannel } from "../../contacts/contact-store.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../../contacts/guardian-delivery-reader.js";
+import type { TrustContext } from "../../daemon/trust-context.js";
 import { getLogger } from "../../util/logger.js";
-import type { TrustClass } from "../actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { processGuardianDecision } from "../guardian-action-service.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
-import { resolveLocalTrustContext } from "../local-actor-identity.js";
+import { findLocalGuardianPrincipalId } from "../local-actor-identity.js";
+import { resolveLocalPrincipalTrustContext } from "../local-principal-trust.js";
 import {
   resolveTrustContext,
   withSourceChannel,
@@ -40,17 +44,13 @@ const log = getLogger("surface-action-routes");
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve trust context from the actor principal ID and set it on the
- * conversation, following the same pattern as POST /v1/messages. This ensures
- * surface actions inherit the correct trust class (guardian vs trusted_contact)
- * rather than defaulting to unknown.
+ * Resolve trust context for the actor principal from the gateway guardian
+ * binding and set it on the conversation. A vellum principal is the guardian or
+ * nobody, so the mapper yields guardian or unknown.
  */
 async function applyTrustContext(
   conversation: {
-    setTrustContext?(ctx: {
-      trustClass: TrustClass;
-      sourceChannel: ChannelId;
-    }): void;
+    setTrustContext?(ctx: TrustContext): void;
   },
   actorPrincipalId: string | undefined,
 ): Promise<void> {
@@ -58,42 +58,55 @@ async function applyTrustContext(
 
   const sourceChannel = "vellum";
 
-  if (actorPrincipalId) {
-    if (isHttpAuthDisabled() && actorPrincipalId === "dev-bypass") {
-      conversation.setTrustContext(
-        await resolveLocalTrustContext(sourceChannel),
-      );
-    } else {
-      const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-      let trustCtx = resolveTrustContext({
-        assistantId,
-        sourceChannel,
-        conversationExternalId: "local",
-        actorExternalId: actorPrincipalId,
-      });
-      if (trustCtx.trustClass === "unknown") {
-        const healed = await healGuardianBindingDrift(actorPrincipalId);
-        if (healed) {
-          trustCtx = resolveTrustContext({
-            assistantId,
-            sourceChannel,
-            conversationExternalId: "local",
-            actorExternalId: actorPrincipalId,
-          });
-          log.info(
-            {
-              actorPrincipalId,
-              trustClass: trustCtx.trustClass,
-            },
-            "Trust re-resolved after guardian binding drift heal (surface action)",
-          );
-        }
-      }
-      conversation.setTrustContext(withSourceChannel(sourceChannel, trustCtx));
-    }
-  } else {
+  if (!actorPrincipalId) {
     conversation.setTrustContext({ trustClass: "guardian", sourceChannel });
+    return;
   }
+
+  // Dev-bypass injects a synthetic principal that won't match the real
+  // guardian binding, so resolve the actual guardian principalId (gateway
+  // first, local store fallback) before mapping trust.
+  let principalId = actorPrincipalId;
+  if (isHttpAuthDisabled() && actorPrincipalId === "dev-bypass") {
+    principalId = (await findLocalGuardianPrincipalId()) ?? actorPrincipalId;
+  }
+
+  let trustCtx = await resolveLocalPrincipalTrustContext({
+    actorPrincipalId: principalId,
+    sourceChannel,
+    conversationExternalId: "local",
+  });
+  if (trustCtx.trustClass === "unknown") {
+    const guardians = await getGuardianDelivery({ channelTypes: ["vellum"] });
+    const gatewayPrincipal = guardians
+      ? guardianForChannel(guardians, sourceChannel)?.principalId
+      : undefined;
+    // Narrow drift only: a DB reset rebound the gateway to a fresh
+    // vellum-principal while the client holds a valid JWT for the old one. Both
+    // are daemon-minted vellum-principal-* ids, so a genuine revocation or rebind
+    // to a real identity fails closed instead of re-granting from a stale mirror.
+    const isResetDrift =
+      principalId.startsWith("vellum-principal-") &&
+      !!gatewayPrincipal?.startsWith("vellum-principal-") &&
+      gatewayPrincipal !== principalId;
+    if (isResetDrift) {
+      await healGuardianBindingDrift(principalId);
+      trustCtx = withSourceChannel(
+        sourceChannel,
+        resolveTrustContext({
+          assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+          sourceChannel,
+          conversationExternalId: "local",
+          actorExternalId: principalId,
+        }),
+      );
+      log.info(
+        { actorPrincipalId: principalId, trustClass: trustCtx.trustClass },
+        "Trust re-resolved from local mirror after gateway reset drift (surface action)",
+      );
+    }
+  }
+  conversation.setTrustContext(trustCtx);
 }
 
 // ---------------------------------------------------------------------------
