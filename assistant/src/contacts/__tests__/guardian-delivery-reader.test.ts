@@ -42,6 +42,7 @@ import {
   __resetGuardianDeliveryCacheForTest,
   anyGuardian,
   getGuardianDelivery,
+  getGuardianDeliveryFresh,
   guardianForChannel,
   invalidateGuardianDeliveryCache,
 } from "../guardian-delivery-reader.js";
@@ -200,6 +201,69 @@ describe("getGuardianDelivery", () => {
     ipcHandlers.set(METHOD, () => ({ guardians: [telegramGuardian] }));
     expect(await getGuardianDelivery()).toEqual([telegramGuardian]);
     expect(countCalls(METHOD)).toBe(2);
+  });
+
+  test("forceRefresh ignores a stale cached entry and re-fetches", async () => {
+    // Seed the cache with an empty list (the stale gateway-side view).
+    ipcHandlers.set(METHOD, () => ({ guardians: [] }));
+    expect(await getGuardianDelivery()).toEqual([]);
+
+    // A cached read still serves the stale empty list (no new IPC)...
+    expect(await getGuardianDelivery()).toEqual([]);
+    expect(countCalls(METHOD)).toBe(1);
+
+    // ...but forceRefresh bypasses the cache and sees the now-present guardian.
+    ipcHandlers.set(METHOD, () => ({ guardians: [telegramGuardian] }));
+    expect(await getGuardianDelivery({ forceRefresh: true })).toEqual([
+      telegramGuardian,
+    ]);
+    expect(countCalls(METHOD)).toBe(2);
+  });
+
+  test("forceRefresh updates the cache with the fresh result", async () => {
+    ipcHandlers.set(METHOD, () => ({ guardians: [] }));
+    await getGuardianDelivery();
+
+    ipcHandlers.set(METHOD, () => ({ guardians: [telegramGuardian] }));
+    await getGuardianDelivery({ forceRefresh: true });
+
+    // A subsequent cached read serves the refreshed value without a new IPC.
+    expect(await getGuardianDelivery()).toEqual([telegramGuardian]);
+    expect(countCalls(METHOD)).toBe(2);
+  });
+
+  test("getGuardianDeliveryFresh bypasses a stale cached empty list", async () => {
+    ipcHandlers.set(METHOD, () => ({ guardians: [] }));
+    expect(
+      await getGuardianDelivery({ channelTypes: ["telegram"] }),
+    ).toEqual([]);
+
+    ipcHandlers.set(METHOD, () => ({ guardians: [telegramGuardian] }));
+    expect(
+      await getGuardianDeliveryFresh({ channelTypes: ["telegram"] }),
+    ).toEqual([telegramGuardian]);
+    expect(countCalls(METHOD)).toBe(2);
+  });
+
+  test("a burst of forceRefresh reads still coalesces single-flight", async () => {
+    let resolveIpc: ((value: unknown) => void) | undefined;
+    ipcHandlers.set(
+      METHOD,
+      () =>
+        new Promise((resolve) => {
+          resolveIpc = resolve;
+        }),
+    );
+
+    const burst = Promise.all([
+      getGuardianDeliveryFresh(),
+      getGuardianDeliveryFresh(),
+      getGuardianDeliveryFresh(),
+    ]);
+    resolveIpc?.({ guardians: [telegramGuardian] });
+    await burst;
+
+    expect(countCalls(METHOD)).toBe(1);
   });
 });
 

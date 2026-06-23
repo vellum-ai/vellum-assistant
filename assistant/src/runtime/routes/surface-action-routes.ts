@@ -72,7 +72,7 @@ async function applyTrustContext(
         actorExternalId: actorPrincipalId,
       });
       if (trustCtx.trustClass === "unknown") {
-        const healed = healGuardianBindingDrift(actorPrincipalId);
+        const healed = await healGuardianBindingDrift(actorPrincipalId);
         if (healed) {
           trustCtx = resolveTrustContext({
             assistantId,

@@ -19,14 +19,28 @@ mock.module("../../../util/logger.js", () => ({
 }));
 
 // Track contact-store reads to prove findContactChannel is NOT used on the
-// verdict path. findGuardianForChannel is still called by resolveGuardianLabel.
+// verdict path.
 const findContactChannelCalls: unknown[] = [];
 mock.module("../../../contacts/contact-store.js", () => ({
   findContactChannel: (params: unknown) => {
     findContactChannelCalls.push(params);
     return null;
   },
-  findGuardianForChannel: () => null,
+}));
+
+// resolveGuardianLabel resolves the guardian via the gateway delivery reader.
+let guardianDeliveryList: Array<Record<string, unknown>> = [];
+mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => guardianDeliveryList,
+  guardianForChannel: (
+    list: Array<Record<string, unknown>>,
+    channelType: string,
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
+}));
+
+mock.module("../../../prompts/user-reference.js", () => ({
+  resolveGuardianName: (displayName?: string | null) =>
+    displayName && displayName.trim().length > 0 ? displayName.trim() : "my human",
 }));
 
 const deliverReplyCalls: Array<{ url: string; payload: unknown }> = [];
@@ -126,6 +140,7 @@ beforeEach(() => {
   deliverReplyCalls.length = 0;
   accessRequestCalls.length = 0;
   inviteTokenForTest = undefined;
+  guardianDeliveryList = [];
 });
 
 afterEach(() => {
@@ -287,6 +302,41 @@ describe("enforceIngressAcl — fail-closed on resolutionFailed verdict", () => 
 
     expect(result.earlyResponse!.inviteRedemption).toBe("redeemed");
     expect(result.resolvedMember).toBeNull();
+  });
+});
+
+describe("enforceIngressAcl — deny copy names the gateway guardian", () => {
+  test("non-member deny reply uses the guardian displayName from the gateway list", async () => {
+    guardianDeliveryList = [
+      {
+        channelType: "vellum",
+        contactId: "c-1",
+        principalId: "p-anchor",
+        displayName: "Alice Guardian",
+        address: "p-anchor",
+        status: "active",
+      },
+    ];
+
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict({
+          trustClass: "unknown",
+          canonicalSenderId: "stranger-1",
+        }),
+      }),
+    );
+
+    expect(result.earlyResponse!.reason).toBe("not_a_member");
+    const denyReply = deliverReplyCalls.find((c) =>
+      String((c.payload as { text?: string }).text ?? "").includes(
+        "tried talking to me",
+      ),
+    );
+    expect(denyReply).toBeDefined();
+    expect((denyReply!.payload as { text: string }).text).toContain(
+      "Alice Guardian",
+    );
   });
 });
 

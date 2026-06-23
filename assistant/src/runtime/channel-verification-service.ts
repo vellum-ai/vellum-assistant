@@ -11,6 +11,10 @@ import { v4 as uuid } from "uuid";
 
 import { findGuardianForChannel } from "../contacts/contact-store.js";
 import { revokeGuardianBinding } from "../contacts/contacts-write.js";
+import {
+  getGuardianDeliveryFresh,
+  guardianForChannel,
+} from "../contacts/guardian-delivery-reader.js";
 import type {
   GuardianBinding,
   IdentityBindingStatus,
@@ -346,6 +350,26 @@ export function getGuardianBinding(
   }
 
   return null;
+}
+
+/**
+ * Gateway-backed guardian-existence check: is a guardian already bound for
+ * this channel? Presence-only idempotency guard, NOT an ACL-field read.
+ *
+ * Null-list fail direction: a `null` from the gateway (unreachable / malformed)
+ * is "unknown" — returns `true` so an unreachable gateway is treated as
+ * already-bound. Callers gate session creation on a falsy result, so this
+ * blocks a new binding on a transient miss rather than spuriously creating a
+ * second one.
+ */
+export async function isGuardianBoundForChannel(
+  channel: string,
+): Promise<boolean> {
+  // Existence guards read fresh because gateway-side binding writes don't
+  // invalidate the daemon cache.
+  const list = await getGuardianDeliveryFresh({ channelTypes: [channel] });
+  if (list === null) return true;
+  return !!guardianForChannel(list, channel);
 }
 
 /**
