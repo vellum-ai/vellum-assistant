@@ -32,11 +32,9 @@ import { setDiagnosticsReportingGate } from "@/lib/consent/diagnostics-consent";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import { patchConsent, type UserConsent } from "@/domains/account/profile";
 
-// Consent versions MUST stay zero-padded ISO dates (YYYY-MM-DD) so currency is
-// decided by a monotonic comparison (`resolveServerConsent` uses `>=`): an
-// accepted version at or newer than this build's constant counts as current. A
-// non-sortable scheme would break that and reintroduce the cross-client
-// re-consent loop.
+// Consent versions must be zero-padded ISO dates (YYYY-MM-DD): currency is a
+// monotonic comparison (`resolveServerConsent` uses `>=`), which requires a
+// lexicographically sortable, chronological format.
 export const TOS_CONSENT_VERSION = "2026-06-08";
 export const PRIVACY_CONSENT_VERSION = "2026-06-22";
 
@@ -171,18 +169,10 @@ export function clearConsentForUser(userId: string | null): void {
 
 /**
  * Whether a server-recorded `accepted` version satisfies the `required` build
- * version. Compares monotonically (`>=`) rather than for exact equality so a
- * client never treats a version NEWER than its own build constant as stale.
- *
- * All clients share one server consent record but bake the "current" version
- * into each build (the macOS app embeds a packaged web build; native iOS
- * renders the same web screen), so builds drift. With exact equality a lagging
- * build calls a newer client's acceptance stale, re-prompts, and writes its own
- * older version back — a last-writer-wins downgrade that ping-pongs re-consent
- * between clients. `>=` closes that loop: a lagging build accepts a newer
- * version as current. Versions are zero-padded ISO dates, so the lexicographic
- * comparison is chronological; `""` (never accepted) sorts below any real
- * version and stays stale.
+ * version. Monotonic (`>=`): a version at or newer than the build's constant is
+ * current, so a build never treats a newer client's acceptance as stale. `""`
+ * (never accepted) sorts below any real version and stays stale. Relies on the
+ * ISO-date version format (see the version constants above).
  */
 function versionIsCurrent(accepted: string, required: string): boolean {
   return accepted >= required;
