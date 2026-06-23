@@ -16,6 +16,13 @@ Read these before making changes:
 
 ## Common pitfalls
 
+- **Design system first for UI changes.** Always start from
+  `@vellumai/design-library` when adding or changing controls, surfaces,
+  typography, popovers, inputs, cards, or button/icon affordances. Use existing
+  design-library primitives when they are available; only build custom
+  components when the design library does not provide an
+  appropriate primitive, and call out that choice in the PR body if the UI is
+  non-trivial.
 - **`conversationId` vs `conversationKey`**: API queries must send `conversationId` (UUID), never `conversationKey`. See [`docs/CONVENTIONS.md` — Conversation identifiers](./docs/CONVENTIONS.md#conversation-identifiers-conversationid-vs-conversationkey).
 - **Don't ship cross-route state through outlet context.** React Router outlet context [re-renders every consumer when any field changes](https://reactrouter.com/start/framework/outlet), forces a bundled value through every layout, and silently resolves to `undefined` whenever an intermediate `<Outlet />` (a gate, a wrapper) sits between writer and reader. Cross-route state — auth, lifecycle, selection, feature flags, layout slots — belongs in a Zustand store so consumers can subscribe atomically and so intermediate routes don't break the channel. Use outlet context only for one-shot parent→direct-child wiring with no intermediate routes.
 - **HeyAPI generated artifacts**: For **queries**, spread the generated factory into `useQuery()`: `useQuery({ ...xxxOptions(), enabled })` — the generated `useXxxQuery()` hooks do **not** accept TanStack Query options (`enabled`, `select`, `staleTime`). For **mutations**, use the generated hooks directly: `useXxxMutation({ onSuccess })` — they accept all TQ callbacks. Use typed cache helpers (`setXxxQueryData()`) for optimistic writes. See [`docs/CONVENTIONS.md` — Generated artifacts](./docs/CONVENTIONS.md#generated-artifacts-and-when-to-use-each).
