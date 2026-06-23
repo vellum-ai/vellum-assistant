@@ -1296,7 +1296,7 @@ describe("buildSystemPrompt", () => {
         mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
         const result = buildSystemPrompt();
         expect(result).toContain("## Sending Files to the User");
-        expect(result).toContain("<vellum-attachment");
+        expect(result).toContain("vellum://");
       });
     });
 

@@ -1,9 +1,12 @@
 /**
  * Chat-domain MarkdownMessage that composes the design-library primitive
- * with OAuth-aware link handling for authorization URLs in chat responses.
+ * with OAuth-aware link handling and vellum:// file link support.
  */
 
-import type { AnchorHTMLAttributes } from "react";
+import {
+  type AnchorHTMLAttributes,
+  useCallback,
+} from "react";
 
 import {
     openMarkdownOAuthLinkInPopup,
@@ -13,6 +16,20 @@ import {
     MarkdownMessage,
     type MarkdownMessageProps,
 } from "@vellumai/design-library";
+import { defaultUrlTransform } from "react-markdown";
+
+/** Returns true when `href` uses the `vellum://` scheme. */
+export function isVellumLink(href: string | undefined): boolean {
+  return href != null && href.startsWith("vellum://");
+}
+
+/** Extends react-markdown's default URL sanitization to allow `vellum://` URIs. */
+function vellumUrlTransform(url: string): string {
+  if (url.startsWith("vellum://")) {
+    return url;
+  }
+  return defaultUrlTransform(url);
+}
 
 function OAuthAwareLink({
   href,
@@ -37,8 +54,52 @@ function OAuthAwareLink({
   );
 }
 
-export type ChatMarkdownMessageProps = Omit<MarkdownMessageProps, "linkComponent">;
+export interface ChatMarkdownMessageProps extends Omit<MarkdownMessageProps, "linkComponent"> {
+  /**
+   * Callback invoked when a `vellum://` link is clicked. Receives the full
+   * href (e.g. `vellum://workspace/scratch/report.pdf`). When provided,
+   * `vellum://` links render as download triggers instead of navigating.
+   *
+   * Pass a stable reference (useCallback) to avoid rebuilding the markdown
+   * component tree on every render.
+   */
+  onVellumLinkClick?: (href: string) => void;
+}
 
-export function ChatMarkdownMessage(props: ChatMarkdownMessageProps) {
-  return <MarkdownMessage {...props} linkComponent={OAuthAwareLink} />;
+export function ChatMarkdownMessage({
+  onVellumLinkClick,
+  ...markdownProps
+}: ChatMarkdownMessageProps) {
+  const LinkComponent = useCallback(
+    ({
+      href,
+      children,
+    }: Pick<AnchorHTMLAttributes<HTMLAnchorElement>, "href" | "children">) => {
+      if (isVellumLink(href)) {
+        return (
+          <a
+            href={href}
+            onClick={(event) => {
+              event.preventDefault();
+              if (href) {
+                onVellumLinkClick?.(href);
+              }
+            }}
+            className="text-[var(--system-positive-strong)] underline hover:opacity-80 cursor-pointer"
+          >
+            {children}
+          </a>
+        );
+      }
+
+      return <OAuthAwareLink href={href}>{children}</OAuthAwareLink>;
+    },
+    [onVellumLinkClick],
+  );
+
+  if (!onVellumLinkClick) {
+    return <MarkdownMessage {...markdownProps} linkComponent={OAuthAwareLink} urlTransform={vellumUrlTransform} />;
+  }
+
+  return <MarkdownMessage {...markdownProps} linkComponent={LinkComponent} urlTransform={vellumUrlTransform} />;
 }
