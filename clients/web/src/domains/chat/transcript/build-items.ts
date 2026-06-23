@@ -35,16 +35,43 @@ export interface BuildTranscriptItemsInput {
 }
 
 /**
+ * Memoize the transcript item wrapper for a message by object identity.
+ *
+ * `buildTranscriptItems` re-runs on every streaming token (~20/sec). Without
+ * memoization it mints a fresh `{ kind, key, message }` for every message,
+ * defeating `TranscriptRow`'s `memo()` and re-rendering the entire list per
+ * token. Caching by message ref means only the row whose message object
+ * actually changed gets a new item — unchanged rows keep a stable reference
+ * and skip rendering. Weak keys release naturally with their messages.
+ *
+ * The React `key` uses `clientMessageId ?? id` so the optimistic→server id
+ * swap doesn't remount the row.
+ */
+const messageItemCache = new WeakMap<DisplayMessage, MessageItem>();
+
+function toMessageItem(message: DisplayMessage): MessageItem {
+  const cached = messageItemCache.get(message);
+  if (cached) return cached;
+  const item: MessageItem = {
+    kind: "message",
+    key: message.clientMessageId ?? message.id,
+    message,
+  };
+  messageItemCache.set(message, item);
+  return item;
+}
+
+/**
  * Project the chat state into an ordered flat list of transcript items.
  *
  * Rules:
  *
- *   1. For each `DisplayMessage` in order, emit a `MessageItem` with
- *      `key = message.id`. Inline surfaces attached to a message are
- *      rendered within the message body by `TranscriptMessageBody` via
- *      `contentOrder` — they are NOT separate transcript rows. Tool calls
- *      stay inside the `MessageItem` — the Transcript component flattens
- *      them at render time.
+ *   1. For each `DisplayMessage` in order, emit a `MessageItem` (keyed by the
+ *      stable client identity `clientMessageId ?? id`, memoized by message ref
+ *      via `toMessageItem`). Inline surfaces attached to a message are rendered
+ *      within the message body by `TranscriptMessageBody` via `contentOrder` —
+ *      they are NOT separate transcript rows. Tool calls stay inside the
+ *      `MessageItem` — the Transcript component flattens them at render time.
  *
  *   2. After the last message, emit trailers in this exact order:
  *        a. `ThinkingItem` when `isThinking`.
@@ -78,12 +105,7 @@ export function buildTranscriptItems(
       continue;
     }
 
-    const messageItem: MessageItem = {
-      kind: "message",
-      key: message.id,
-      message,
-    };
-    items.push(messageItem);
+    items.push(toMessageItem(message));
   }
 
   for (const result of input.ephemeralMetaResults ?? []) {
