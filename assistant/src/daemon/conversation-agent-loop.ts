@@ -480,6 +480,11 @@ export async function runAgentLoopImpl(
   // resolved once here and threaded into every re-injection — including the
   // post-compaction hook — rather than re-read per assembly call.
   const isNonInteractive = !isInteractiveResolved;
+  // Expose the resolved turn-level interactivity to tool execution so tools
+  // (e.g. ask_question) see whether a human is present to answer, rather than
+  // re-deriving it from live client state that misclassifies a scheduled turn
+  // running on a client-attached conversation.
+  ctx.currentTurnIsNonInteractive = isNonInteractive;
   const diskPressureDecision = classifyDiskPressureTurnPolicy(
     getDiskPressureStatus(),
     {

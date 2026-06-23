@@ -238,7 +238,10 @@ export function createToolExecutor(
           });
         }
       },
-      isInteractive: !ctx.hasNoClient && !ctx.headlessLock,
+      isInteractive:
+        ctx.currentTurnIsNonInteractive !== undefined
+          ? !ctx.currentTurnIsNonInteractive
+          : !ctx.hasNoClient && !ctx.headlessLock,
       proxyToolResolver: (
         toolName: string,
         proxyInput: Record<string, unknown>,

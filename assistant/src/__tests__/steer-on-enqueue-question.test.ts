@@ -90,6 +90,24 @@ describe("steerOnEnqueuedMessageIfQuestionParked", () => {
     expect(conv.fake.pendingSteerRepair).toBe(true);
   });
 
+  test("steers for a parked question even when a confirmation is also pending", () => {
+    // A single model response can open an ask_question and a confirmation
+    // concurrently (tools run via Promise.all), so both interactions can be
+    // registered at once. The steer must still fire for the question — the
+    // enqueue path runs it before the confirmation auto-deny clears entries.
+    const conv = registerParkedTurn(QUESTION_CONV);
+    registerInteraction(QUESTION_CONV, "confirmation");
+    registerInteraction(QUESTION_CONV, "question");
+
+    const steered = steerOnEnqueuedMessageIfQuestionParked(
+      QUESTION_CONV,
+      "msg-1",
+    );
+
+    expect(steered).toBe(true);
+    expect(conv.abortCount()).toBe(1);
+  });
+
   test("does not steer for a pending confirmation (not a question)", () => {
     const conv = registerParkedTurn(CONFIRMATION_CONV);
     registerInteraction(CONFIRMATION_CONV, "confirmation");

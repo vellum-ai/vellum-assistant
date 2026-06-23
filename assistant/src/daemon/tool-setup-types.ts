@@ -124,4 +124,13 @@ export interface ToolSetupContext extends SurfaceConversationContext {
    * return `undefined` for the in-flight (background) subagent.
    */
   currentTurnOverrideProfile?: string;
+  /**
+   * Whether the current turn has no human present to answer clarification
+   * prompts. Resolved once per turn by the agent loop — honoring an explicit
+   * per-run `isInteractive` option (e.g. scheduled/background turns) over the
+   * live client state — so tool execution sees turn-level interactivity rather
+   * than re-deriving it from `hasNoClient`/`headlessLock`, which would read a
+   * scheduled turn running on a client-attached conversation as interactive.
+   */
+  currentTurnIsNonInteractive?: boolean;
 }

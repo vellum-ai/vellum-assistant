@@ -1818,6 +1818,17 @@ export async function handleSendMessage(
     // the client showing "Failed to send" for a message the daemon will
     // process from the queue.
     try {
+      // A queued chat message while a clarification question is open means the
+      // user chose to move on rather than answer it; steer to it instead of
+      // stranding it behind a prompt no one will answer. This must run before
+      // the confirmation auto-deny below: a single model response can open an
+      // ask_question and a confirmation concurrently (tools run via Promise.all),
+      // and removeByConversation() would otherwise clear the question entry
+      // before the steer fires, leaving the queued message stuck behind an
+      // unresolved question. Steering aborts the parked turn synchronously,
+      // which settles the question via its turn-abort signal.
+      steerOnEnqueuedMessageIfQuestionParked(mapping.conversationId, requestId);
+
       if (conversation.hasAnyPendingConfirmation()) {
         // Emit authoritative denial state for each pending request.
         // sendToClient (wired to the SSE hub) delivers these to the client.
@@ -1841,13 +1852,6 @@ export async function handleSendMessage(
         conversation.denyAllPendingConfirmations();
         pendingInteractions.removeByConversation(mapping.conversationId);
       }
-
-      // A queued chat message while a clarification question is open means the
-      // user chose to move on rather than answer it; steer to it instead of
-      // stranding it behind a prompt no one will answer. A turn parks on at most
-      // one interactive tool, so this and the confirmation auto-deny above are
-      // mutually exclusive in practice.
-      steerOnEnqueuedMessageIfQuestionParked(mapping.conversationId, requestId);
 
       // Expire any orphaned canonical requests that survived without a
       // matching in-memory pending interaction (e.g. prompter timeouts).
