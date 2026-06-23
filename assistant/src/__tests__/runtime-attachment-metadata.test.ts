@@ -45,7 +45,6 @@ mock.module("../daemon/approval-generators.js", () => ({
 }));
 
 import { upsertContact } from "../contacts/contact-store.js";
-import { resolveLocalTrustVerdict } from "./helpers/channel-test-adapter.js";
 import {
   linkAttachmentToMessage,
   uploadAttachment,
@@ -59,6 +58,7 @@ import { resetTestTables } from "../memory/raw-query.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
+import { resolveLocalTrustVerdict } from "./helpers/channel-test-adapter.js";
 
 await initializeDb();
 
