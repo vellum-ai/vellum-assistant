@@ -631,7 +631,7 @@ describe("ui_show card content recovery", () => {
     expect(card?.metadata).toEqual([{ label: "Total", value: "$10" }]);
   });
 
-  test("strips actions from a title-only card and returns error", async () => {
+  test("title-only card with actions renders with actions intact", async () => {
     const sent: ServerMessage[] = [];
     const ctx = makeContext(sent);
 
@@ -642,14 +642,14 @@ describe("ui_show card content recovery", () => {
       data: {},
     });
 
-    // The card still renders (title visible), but actions are stripped and the
-    // model gets an error telling it to resend with content.
-    expect(result.isError).toBe(true);
+    expect(result.isError).toBe(false);
     expect(shownCard(sent)?.title).toBe("Restart the server?");
     const show = sent.find(
       (m): m is UiSurfaceShow => m.type === "ui_surface_show",
     )!;
-    expect(show.actions).toBeUndefined();
+    expect(show.actions).toBeDefined();
+    expect(show.actions!.length).toBe(1);
+    expect(show.actions![0].label).toBe("Yes");
   });
 
   test("title-only card without actions renders without error", async () => {
@@ -823,6 +823,49 @@ describe("ui_show card content recovery", () => {
     )!;
     expect(show.actions).toBeDefined();
     expect(shownCard(sent)?.body).toBe("Proceed with deployment?");
+  });
+
+  test("recovers actions nested inside data when top-level actions is absent", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    const result = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      title: "Confirm deployment",
+      data: {
+        body: "Deploy to production?",
+        actions: [{ id: "yes", label: "Yes" }],
+      },
+    });
+
+    expect(result.isError).toBe(false);
+    const show = sent.find(
+      (m): m is UiSurfaceShow => m.type === "ui_surface_show",
+    )!;
+    expect(show.actions).toBeDefined();
+    expect(show.actions!.length).toBe(1);
+    expect(show.actions![0].label).toBe("Yes");
+  });
+
+  test("top-level actions take precedence over data.actions", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      title: "Confirm",
+      actions: [{ id: "top", label: "Top-level" }],
+      data: {
+        body: "Which actions?",
+        actions: [{ id: "nested", label: "Nested" }],
+      },
+    });
+
+    const show = sent.find(
+      (m): m is UiSurfaceShow => m.type === "ui_surface_show",
+    )!;
+    expect(show.actions!.length).toBe(1);
+    expect(show.actions![0].label).toBe("Top-level");
   });
 
   test("a card with a real body broadcasts unchanged", async () => {

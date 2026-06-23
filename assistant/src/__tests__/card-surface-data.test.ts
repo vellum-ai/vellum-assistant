@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  cardHasRenderableContent,
-  CardSurfaceDataSchema,
-} from "../api/surfaces.js";
+import { CardSurfaceDataSchema } from "../api/surfaces.js";
 
 // The wire keeps surface `data` opaque and the stream drops events that fail to
 // parse, so the canonical card schema must never reject a real payload: every
@@ -41,43 +38,5 @@ describe("CardSurfaceDataSchema", () => {
       "templateData",
       "title",
     ]);
-  });
-});
-
-describe("cardHasRenderableContent", () => {
-  test("empty object has no renderable content", () => {
-    expect(cardHasRenderableContent({})).toBe(false);
-  });
-
-  test("title-only has no renderable content", () => {
-    expect(cardHasRenderableContent({ title: "Hello" })).toBe(false);
-  });
-
-  test("body counts as renderable content", () => {
-    expect(cardHasRenderableContent({ body: "Some text" })).toBe(true);
-  });
-
-  test("whitespace-only body is not renderable content", () => {
-    expect(cardHasRenderableContent({ body: "   " })).toBe(false);
-  });
-
-  test("subtitle counts as renderable content", () => {
-    expect(cardHasRenderableContent({ subtitle: "Sub" })).toBe(true);
-  });
-
-  test("metadata counts as renderable content", () => {
-    expect(
-      cardHasRenderableContent({
-        metadata: [{ label: "Key", value: "Val" }],
-      }),
-    ).toBe(true);
-  });
-
-  test("empty metadata array is not renderable content", () => {
-    expect(cardHasRenderableContent({ metadata: [] })).toBe(false);
-  });
-
-  test("template counts as renderable content", () => {
-    expect(cardHasRenderableContent({ template: "task_progress" })).toBe(true);
   });
 });

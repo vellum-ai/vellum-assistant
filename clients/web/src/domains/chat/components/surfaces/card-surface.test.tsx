@@ -219,7 +219,7 @@ describe("CardSurface", () => {
     expect(rendered).not.toContain("animate-spin");
   });
 
-  test("a content-less card with actions strips the actions (safety net)", () => {
+  test("a title-only card with actions renders both title and actions", () => {
     const rendered = renderToStaticMarkup(
       <CardSurface
         surface={surface({
@@ -232,8 +232,7 @@ describe("CardSurface", () => {
     );
 
     expect(rendered).toContain("Restart the server?");
-    // Actions are stripped on content-less cards to prevent action-loops.
-    expect(rendered).not.toContain("Yes");
+    expect(rendered).toContain("Yes");
   });
 
   test("a card with body and actions renders both", () => {
