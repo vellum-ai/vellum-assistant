@@ -1,9 +1,8 @@
 /**
- * Tests that the inbound text path builds `trustCtx` from the gateway-stamped
- * `sourceMetadata.trustVerdict` (via `trustContextFromVerdict`) instead of the
- * local `resolveTrustContext`. Admission decisions for a given trust class +
- * floor must match pre-cutover behavior, and the Slack requester timezone must
- * still attach to the resulting context.
+ * The inbound text path builds `trustCtx` from the gateway-stamped
+ * `sourceMetadata.trustVerdict` via `trustContextFromVerdict`. Admission follows
+ * the trust class + floor, and the Slack requester timezone attaches to the
+ * resulting context.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
