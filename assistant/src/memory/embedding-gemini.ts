@@ -40,7 +40,7 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
     this.taskType = options?.taskType;
     this.dimensions = options?.dimensions;
     this.managedBaseUrl = options?.managedBaseUrl;
-    this.interCallDelayMs = options?.interCallDelayMs ?? 100;
+    this.interCallDelayMs = options?.interCallDelayMs ?? 5000;
   }
 
   /** True when requests route through the managed platform proxy. */
