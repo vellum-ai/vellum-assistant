@@ -58,10 +58,9 @@ export interface ChatSessionState {
    */
   entities: MessageEntityState;
   /**
-   * Transitional flat mirror of `entities`, kept in sync on every mutation and
-   * read via `selectTranscriptMessages`. Exists so readers not yet on
-   * per-entity selectors keep working; removed once they migrate (LUM-2537,
-   * PR B).
+   * Flat mirror of `entities`, kept in sync on every mutation and read via
+   * `selectTranscriptMessages` — so readers that consume the transcript as a
+   * plain array work without per-entity selectors.
    */
   messages: DisplayMessage[];
   error: ChatError | null;
@@ -555,10 +554,9 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
 export const useChatSessionStore = createSelectors(useChatSessionStoreBase);
 
 /**
- * The transcript message list — the seam every full-transcript reader goes
- * through. Today it returns the in-flight mirror; in Phase 2 (LUM-2538) this
- * becomes the union of cached history + the live turn, swapped here alone so
- * call sites don't change again.
+ * The transcript message list — the single seam every full-transcript reader
+ * goes through, isolating call sites from how the transcript is sourced. It
+ * returns the in-flight mirror.
  */
 export function selectTranscriptMessages(state: ChatSessionState): DisplayMessage[] {
   return state.messages;
