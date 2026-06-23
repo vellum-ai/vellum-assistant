@@ -54,7 +54,7 @@ Before anything else, explain what the user is opting into. Be direct:
 
 > "Here's what inbox management does: on a schedule you choose (e.g. every few hours on weekdays), I'll scan your inbox and take action based on a trust level you control.
 >
-> **Stage 0 (where everyone starts):** I watch but don't touch. I'll tell you what I _would_ archive, show you draft replies I wrote, and flag urgent items — but I won't move or delete anything. This lasts until you explicitly tell me to graduate.
+> **Stage 0 (the default starting point):** I watch but don't touch. I'll tell you what I _would_ archive, show you draft replies I wrote, and flag urgent items — but I won't move or delete anything. This lasts until you explicitly tell me to graduate.
 >
 > **Stage 1 (you opt in):** I silently archive obvious noise — calendar responses, no-reply senders, newsletters. Everything else is still flagged for your review.
 >
@@ -66,7 +66,12 @@ Wait for explicit confirmation before proceeding. If the user hesitates or asks 
 
 ### 1. Stage
 
-Start at **Stage 0**. Store via `gmail-prefs.ts --action set-management-config --stage 0`.
+Default to **Stage 0** (flag-only). When the user — directly or via a caller like
+`admin-copilot` setup — has made an explicit, informed choice to start higher,
+honor it: **Stage 1** (silent archive of known-safe categories only) or **Stage 2**
+(also cold outreach by judgment). Do not infer a higher stage from enthusiasm;
+require an explicit choice made after the §0 consent framing for that stage. Store
+the chosen stage via `gmail-prefs.ts --action set-management-config --stage <0|1|2>`.
 
 ### 2. Safe-list
 
