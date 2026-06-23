@@ -130,12 +130,12 @@ export type {
 } from "../runtime/assistant-event-hub.js";
 export { assistantEventHub } from "../runtime/assistant-event-hub.js";
 export { getModelProfiles } from "./model-profiles.js";
-// Check whether a profile's resolved model can process image input. Resolves
-// the effective (provider, model) by merging over the workspace default and
-// inferring the provider for model-only profiles, then looks up the model
-// catalog's `supportsVision` flag. Handles mix profiles (true if any arm
-// supports vision). Fail-open for unknown models. Pair with
-// `getModelProfiles()` to inspect the active or candidate profiles.
+// Check whether a model or profile can process image input. Accepts a concrete
+// model id, a profile key, or a `ModelProfileInfo`; a bare string is resolved
+// as a model id first and then as a profile key. Profile resolution merges over
+// the workspace default and infers the provider for model-only profiles, then
+// looks up the model catalog's `supportsVision` flag (mix profiles are
+// vision-capable if any arm is). Returns false when nothing resolves.
 export { doesSupportVision } from "./vision-support.js";
 // Resolve a provider for a call site (optionally overriding the profile) so a
 // plugin can run inference through the workspace's configured profiles and
