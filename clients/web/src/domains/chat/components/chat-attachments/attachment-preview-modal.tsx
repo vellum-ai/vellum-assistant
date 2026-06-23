@@ -213,7 +213,13 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     }
 
     if (isPdf && effectiveUrl) {
-      return <PdfPreview url={effectiveUrl} />;
+      return (
+        <PdfPreview
+          url={effectiveUrl}
+          filename={attachment.filename}
+          onDownload={handleDownload}
+        />
+      );
     }
 
     if (isImage && effectiveUrl) {

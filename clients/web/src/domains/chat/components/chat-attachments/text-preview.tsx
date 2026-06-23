@@ -20,9 +20,8 @@ class TextTooLargeError extends Error {}
 /**
  * Read an attachment's text. By the time the preview renders, `url` is always a
  * *local* handle, so this never touches the network: inline attachments arrive
- * as a base64 `data:` URI (the bytes are already in memory — decode them
- * in-process, like {@link PdfPreview}, rather than round-tripping through
- * `fetch`), and daemon-backed attachments arrive as a `blob:` object URL the
+ * as a base64 `data:` URI (the bytes are already in memory, so decode them
+ * directly), and daemon-backed attachments arrive as a `blob:` object URL the
  * modal already fetched.
  */
 async function loadText(
@@ -86,7 +85,7 @@ export function TextPreview({
   // a React Query fetch: the bytes are already in the browser (an inline
   // `data:` URI, or a `blob:` URL the modal already fetched), so there is no
   // server state to cache/revalidate — caching it only forced a content-derived
-  // query key that can't be both short and collision-free. Mirrors PdfPreview.
+  // query key that can't be both short and collision-free.
   useEffect(() => {
     const controller = new AbortController();
     setState({ status: "loading" });
