@@ -69,6 +69,29 @@ function readPersonaFile(filePath: string): string | null {
 // ── User filename resolution ──────────────────────────────────────
 
 /**
+ * Resolve the guardian's persona `userFile` (INFO) for a guardian-trust turn.
+ *
+ * The guardian identity comes from the verdict-derived trust context
+ * (`guardianExternalUserId`): the info read is keyed on that address so it
+ * matches the gateway's guardian binding. When the context carries no guardian
+ * address (desktop / native turns), fall back to the channel's guardian
+ * contact. Returns `"guardian.md"` when the resolved guardian has no userFile.
+ */
+function resolveGuardianUserFile(trustContext: TrustContext): string | null {
+  if (trustContext.guardianExternalUserId) {
+    const guardianContact = findContactByAddress(
+      trustContext.sourceChannel,
+      trustContext.guardianExternalUserId,
+    );
+    if (guardianContact) {
+      return guardianContact.userFile ?? "guardian.md";
+    }
+  }
+  const guardian = findGuardianForChannel(trustContext.sourceChannel);
+  return guardian ? (guardian.contact.userFile ?? "guardian.md") : null;
+}
+
+/**
  * Resolve the raw userFile filename for the current actor's contact.
  * Returns the validated filename (e.g. "alice.md") or null.
  */
@@ -97,22 +120,17 @@ function resolveUserFilename(
       } else if (trustContext.trustClass === "guardian") {
         // Managed desktop: the JWT principal ID used as requesterExternalUserId
         // may differ from the contact channel's address (they are separate
-        // identity concepts). Fall back to the channel-type guardian.
-        const guardian = findGuardianForChannel(trustContext.sourceChannel);
-        if (guardian) {
-          filename = guardian.contact.userFile ?? "guardian.md";
-        }
+        // identity concepts). Read the guardian's user file keyed by the
+        // verdict-bound guardian identity.
+        filename = resolveGuardianUserFile(trustContext);
       }
     } else if (trustContext.trustClass === "guardian") {
       // Guardian-trust turn carrying no requester identity — background and
       // scheduled turns (heartbeat, scheduled pulses) run under the guardian
       // trust class but have no per-actor address to look up. Resolve the
-      // channel's guardian user file so they load the same persona as a
-      // foreground guardian turn instead of falling back to users/default.md.
-      const guardian = findGuardianForChannel(trustContext.sourceChannel);
-      if (guardian) {
-        filename = guardian.contact.userFile ?? "guardian.md";
-      }
+      // guardian's user file so they load the same persona as a foreground
+      // guardian turn instead of falling back to users/default.md.
+      filename = resolveGuardianUserFile(trustContext);
     }
   } catch (err) {
     // Contacts table may be absent — happens during early bootstrap

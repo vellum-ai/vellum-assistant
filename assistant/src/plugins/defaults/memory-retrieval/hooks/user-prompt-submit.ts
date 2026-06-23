@@ -278,7 +278,6 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
     resolveTrustClass(conversation?.trustContext) === "guardian";
   const actorContext = resolveTurnInboundActorContext(
     conversation?.trustContext,
-    conversation?.assistantId,
   );
 
   // v2 graph retrieval is the deprecated path: `shouldRunV2Retrieval` skips it

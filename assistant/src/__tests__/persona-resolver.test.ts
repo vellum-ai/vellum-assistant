@@ -40,6 +40,7 @@ let mockAnyGuardian: {
   contact: { userFile: string | null };
   channels: Record<string, unknown>[];
 } | null = null;
+let mockContactsByAddress: Record<string, { userFile: string | null }> = {};
 
 // ── Mock modules (must precede imports from the module under test) ──
 
@@ -48,7 +49,8 @@ mock.module("../util/platform.js", () => ({
 }));
 
 mock.module("../contacts/contact-store.js", () => ({
-  findContactByAddress: () => null,
+  findContactByAddress: (channelType: string, address: string) =>
+    mockContactsByAddress[`${channelType}:${address}`] ?? null,
   findGuardianForChannel: (channelType: string) =>
     channelType === "vellum" ? mockVellumGuardian : null,
   listGuardianChannels: () => mockAnyGuardian,
@@ -83,6 +85,7 @@ beforeEach(() => {
   mockWorkspaceDir = mkdtempSync(join(testRoot, "ws-"));
   mockVellumGuardian = null;
   mockAnyGuardian = null;
+  mockContactsByAddress = {};
 });
 
 afterEach(() => {
@@ -282,5 +285,40 @@ describe("resolveUserSlug (guardian trust, no requester identity)", () => {
     } as TrustContext;
 
     expect(resolveUserSlug(trustContext)).toBeNull();
+  });
+
+  test("guardian identity from the verdict keys the guardian user-file info read", () => {
+    // The verdict-bound guardian is looked up by its address, not by the
+    // most-recently-verified channel guardian, so a different channel guardian
+    // does not shadow the verdict's binding.
+    mockVellumGuardian = {
+      contact: { userFile: "wrong-guardian.md" },
+      channel: {},
+    };
+    mockContactsByAddress["telegram:guardian-tg"] = {
+      userFile: "alice.md",
+    };
+
+    const trustContext = {
+      sourceChannel: "telegram",
+      trustClass: "guardian",
+      guardianExternalUserId: "guardian-tg",
+    } as TrustContext;
+
+    expect(resolveUserSlug(trustContext)).toBe("alice");
+  });
+
+  test("falls back to the channel guardian when the verdict carries no guardian identity", () => {
+    mockVellumGuardian = {
+      contact: { userFile: "alice.md" },
+      channel: {},
+    };
+
+    const trustContext = {
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+    } as TrustContext;
+
+    expect(resolveUserSlug(trustContext)).toBe("alice");
   });
 });

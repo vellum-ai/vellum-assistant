@@ -22,7 +22,10 @@ import type {
 import type { TrustContext } from "../daemon/trust-context.js";
 import type { ActorTrustContext } from "./actor-trust-resolver.js";
 import { toTrustContext } from "./actor-trust-resolver.js";
-import type { ResolvedMember } from "./routes/inbound-stages/acl-enforcement.js";
+import {
+  channelStatusToMemberStatus,
+  type ResolvedMember,
+} from "./routes/inbound-stages/acl-enforcement.js";
 
 export interface TrustVerdictTransport {
   sourceChannel: ChannelId;
@@ -72,7 +75,22 @@ export function trustContextFromVerdict(
     },
   };
 
-  return toTrustContext(actorTrustContext, input.conversationExternalId);
+  const context = toTrustContext(
+    actorTrustContext,
+    input.conversationExternalId,
+  );
+
+  // Stamp the verdict's ACL member fields onto the context so downstream turn
+  // assembly reads member status/policy from the verdict rather than a local
+  // re-resolution. The contact ID anchors the local info-only join.
+  const member = resolvedMemberFromVerdict(verdict);
+  if (member) {
+    context.requesterContactId = member.contact.id;
+    context.memberStatus = channelStatusToMemberStatus(member.channel.status);
+    context.memberPolicy = member.channel.policy;
+  }
+
+  return context;
 }
 
 // Allowed ACL enum values, kept in sync with the ContactChannel union types.
