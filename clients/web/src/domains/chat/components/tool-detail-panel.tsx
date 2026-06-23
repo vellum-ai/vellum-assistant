@@ -17,6 +17,7 @@ import {
   Code,
   Copy,
   FileText,
+  Globe,
   Monitor,
   Pen,
   Plug,
@@ -47,6 +48,7 @@ import type { ToolDetailPayload } from "@/stores/viewer-store";
 const ICON_MAP: Record<IconName, LucideIcon> = {
   code: Code,
   file: FileText,
+  globe: Globe,
   pen: Pen,
   monitor: Monitor,
   plug: Plug,

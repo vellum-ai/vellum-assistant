@@ -24,6 +24,7 @@ import {
   CheckCircle2,
   Code,
   FileText,
+  Globe,
   Monitor,
   Pen,
   Plug,
@@ -47,6 +48,7 @@ import { cn } from "@/utils/misc";
 export const ICON_MAP: Record<IconName, LucideIcon> = {
   code: Code,
   file: FileText,
+  globe: Globe,
   pen: Pen,
   monitor: Monitor,
   plug: Plug,

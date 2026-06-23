@@ -30,6 +30,11 @@ import {
   type PhaseSection,
 } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import { ToolStepPill } from "@/domains/chat/components/tool-progress-card/tool-step-pill";
+import {
+  WebSearchErrorRow,
+  WebSearchStepRow,
+} from "@/domains/chat/components/web-search/web-search-step-row";
+import { WebsiteCarousel } from "@/domains/chat/components/web-search/website-carousel";
 import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 import { cn } from "@/utils/misc";
 
@@ -68,6 +73,7 @@ function runningActivity(section: PhaseSection): string {
 function stepDetailKey(step: ToolCallCardStep): string | undefined {
   if (step.kind === "tool") return step.toolCallId || undefined;
   if (step.kind === "thinking") return step.detailKey;
+  if (step.kind === "web_search") return step.detailKey;
   return undefined;
 }
 
@@ -162,6 +168,12 @@ function SubagentPhaseRow({
   const status = phaseHeaderStatus(section.steps);
   const isThinking = section.steps[0]?.kind === "thinking";
   const stepCount = section.steps.length;
+
+  // Accumulated web-search result sources for this phase, in order. Drives the
+  // rotating thumbnail ticker shown while the phase is still in flight.
+  const webResults = section.steps.flatMap((step) =>
+    step.kind === "web_search" ? step.results : [],
+  );
 
   // The "N steps" pill only makes sense for a multi-step phase.
   const showStepCount = stepCount >= 2;
@@ -304,6 +316,17 @@ function SubagentPhaseRow({
         )}
       </button>
 
+      {status === "running" && webResults.length > 0 && (
+        // Rotating "sites searched" ticker for an in-flight web-search phase —
+        // the same `WebsiteCarousel` main chat shows in its collapsed header,
+        // placed as its own row here (the timeline header is pinned to 22px, so
+        // the 28px ticker can't sit inline). Disappears once the phase
+        // completes; the expanded query pills + source detail cover the results.
+        <div className="pl-[22px]">
+          <WebsiteCarousel items={webResults} />
+        </div>
+      )}
+
       {/* Expanded body: the section's steps as default pills, indented to clear
           the bullet rail and align under the status icon (bullet 14px + the
           row's 8px gap → 22px). No own bottom padding — the container's `pb-4`
@@ -349,6 +372,53 @@ function SubagentPhaseRow({
                   />
                 );
               }
+              if (step.kind === "web_search") {
+                // The search's query becomes a clickable pill; its result
+                // sources move into the nested detail (query + links), mirroring
+                // the thinking-pill → reasoning-detail pattern. Falls back to the
+                // inline query label + chips below when no detail handler is
+                // wired (deploy-safe).
+                return (
+                  <ToolStepPill
+                    key={stepKey(step, stepIdx)}
+                    variant="tool"
+                    iconName="globe"
+                    label={step.query || step.title}
+                    ariaLabel="View search details"
+                    onClick={() => onStepDetailClick(detailKey)}
+                  />
+                );
+              }
+            }
+            // Web steps render as their own chip clusters (favicon chips /
+            // error chip) rather than the title-only `DefaultStepPill`, matching
+            // main chat. `web_search` results are parsed from the tool result by
+            // `computeSubagentCardData`.
+            if (step.kind === "web_search") {
+              // Label each search with its query so multiple (unclamped)
+              // searches in one "Searching the web" group stay visually
+              // distinct — the "N steps" count then maps to N labelled clusters.
+              return (
+                <div
+                  key={stepKey(step, stepIdx)}
+                  className="flex w-full flex-col gap-1"
+                >
+                  {step.query ? (
+                    <Typography
+                      variant="body-small-default"
+                      className="text-[var(--content-secondary)]"
+                    >
+                      {`"${step.query}"`}
+                    </Typography>
+                  ) : null}
+                  <WebSearchStepRow step={step} />
+                </div>
+              );
+            }
+            if (step.kind === "web_search_error") {
+              return (
+                <WebSearchErrorRow key={stepKey(step, stepIdx)} step={step} />
+              );
             }
             return <DefaultStepPill key={stepKey(step, stepIdx)} step={step} />;
           })}

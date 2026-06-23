@@ -51,6 +51,23 @@ function toolError(message: string): ToolCallCardStep {
   return { kind: "tool_error", message };
 }
 
+function webSearch(
+  results: Array<{ title: string; url: string; domain: string }>,
+  title = "Searched the web",
+  query?: string,
+  detailKey?: string,
+): ToolCallCardStep {
+  return {
+    kind: "web_search",
+    title,
+    query,
+    durationLabel: "",
+    linkCount: results.length,
+    results: results.map((r, i) => ({ rank: i + 1, ...r })),
+    detailKey,
+  };
+}
+
 describe("SubagentPhaseTimeline — empty input", () => {
   test("renders nothing when there are no steps (panel owns the empty state)", () => {
     const { container } = render(<SubagentPhaseTimeline steps={[]} />);
@@ -315,6 +332,147 @@ describe("SubagentPhaseTimeline — clickable tool steps", () => {
 
     fireEvent.click(getByTestId("subagent-phase-header"));
     expect(queryByTestId("tool-step-pill")).toBeNull();
+  });
+
+  test("a web_search step WITH a detail key renders a clickable query pill and calls back", () => {
+    const onStepDetailClick = mock((_id: string) => {});
+    const steps: ToolCallCardStep[] = [
+      webSearch(
+        [{ title: "R1", url: "https://a.com", domain: "a.com" }],
+        "Searched the web",
+        "best vector databases",
+        "ws-1",
+      ),
+    ];
+    const { getByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} onStepDetailClick={onStepDetailClick} />,
+    );
+
+    fireEvent.click(getByTestId("subagent-phase-header"));
+    // The query renders as a single clickable tool pill (a button) that opens
+    // the nested detail — NOT the inline web-source anchors.
+    const pill = getByTestId("tool-step-pill");
+    expect(pill.tagName).toBe("BUTTON");
+    expect(pill.textContent).toContain("best vector databases");
+
+    fireEvent.click(pill);
+    expect(onStepDetailClick).toHaveBeenCalledTimes(1);
+    expect(onStepDetailClick).toHaveBeenLastCalledWith("ws-1");
+  });
+
+  test("a web_search step WITHOUT a detail key falls back to inline source chips", () => {
+    const onStepDetailClick = mock((_id: string) => {});
+    const steps: ToolCallCardStep[] = [
+      webSearch([
+        { title: "R1", url: "https://a.com", domain: "a.com" },
+        { title: "R2", url: "https://b.com", domain: "b.com" },
+      ]),
+    ];
+    const { getByTestId, getAllByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} onStepDetailClick={onStepDetailClick} />,
+    );
+
+    fireEvent.click(getByTestId("subagent-phase-header"));
+    // No detailKey → the deploy-safe inline web chips (anchors), not a button,
+    // and nothing to open.
+    const chips = getAllByTestId("tool-step-pill");
+    expect(chips.length).toBe(2);
+    chips.forEach((chip) => expect(chip.tagName).toBe("A"));
+    expect(onStepDetailClick).not.toHaveBeenCalled();
+  });
+});
+
+describe("SubagentPhaseTimeline — web_search ticker", () => {
+  test("an in-flight web_search phase renders the rotating result ticker", () => {
+    const steps: ToolCallCardStep[] = [
+      webSearch(
+        [
+          { title: "First Source", url: "https://a.com", domain: "a.com" },
+          { title: "Second Source", url: "https://b.com", domain: "b.com" },
+        ],
+        "Searched the web",
+      ),
+      // The latest search is still in flight → the phase reads as running.
+      webSearch([], "Searching the web"),
+    ];
+    const { getByText } = render(<SubagentPhaseTimeline steps={steps} />);
+    // The ticker (WebsiteCarousel) sits under the group header and starts on
+    // the first accumulated source — no expansion needed.
+    expect(getByText("First Source")).toBeDefined();
+  });
+
+  test("a completed web_search phase does NOT render the ticker", () => {
+    const steps: ToolCallCardStep[] = [
+      webSearch(
+        [{ title: "First Source", url: "https://a.com", domain: "a.com" }],
+        "Searched the web",
+      ),
+    ];
+    const { queryByText } = render(<SubagentPhaseTimeline steps={steps} />);
+    // Completed + collapsed → no rotating ticker; the sources live in the
+    // expandable detail instead.
+    expect(queryByText("First Source")).toBeNull();
+  });
+});
+
+describe("SubagentPhaseTimeline — web_search chips", () => {
+  test("a web_search step renders its results as favicon link chips when expanded", () => {
+    const steps: ToolCallCardStep[] = [
+      webSearch([
+        { title: "First Result", url: "https://example.com/a", domain: "example.com" },
+        { title: "Second Result", url: "https://foo.org/b", domain: "foo.org" },
+      ]),
+      // A second search so the group is multi-step (has the "N steps" pill).
+      webSearch([
+        { title: "Third Result", url: "https://bar.net/c", domain: "bar.net" },
+      ]),
+    ];
+    const { getByTestId, getAllByTestId, queryAllByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} />,
+    );
+
+    // Both searches collapse into one "Searching the web" group.
+    const section = getByTestId("subagent-phase-section");
+    expect(section.getAttribute("data-phase-label")).toBe("Searching the web");
+
+    // Collapsed by default — no chips.
+    expect(queryAllByTestId("tool-step-pill").length).toBe(0);
+
+    // Expanding reveals every result chip inline (no clamp): 2 + 1 = 3.
+    fireEvent.click(getByTestId("subagent-phase-header"));
+    const chips = getAllByTestId("tool-step-pill");
+    expect(chips.length).toBe(3);
+    chips.forEach((chip) => {
+      // Web chips render as external-link anchors, not buttons.
+      expect(chip.tagName).toBe("A");
+      expect(chip.getAttribute("data-variant")).toBe("web");
+    });
+    expect(chips[0]!.getAttribute("href")).toBe("https://example.com/a");
+    expect(chips[0]!.textContent).toContain("First Result");
+    expect(chips[2]!.getAttribute("href")).toBe("https://bar.net/c");
+  });
+
+  test("labels each search with its query so multiple searches stay distinct", () => {
+    const steps: ToolCallCardStep[] = [
+      webSearch(
+        [{ title: "R1", url: "https://a.com", domain: "a.com" }],
+        "Searched the web",
+        "most popular AI assistants 2026",
+      ),
+      webSearch(
+        [{ title: "R2", url: "https://b.com", domain: "b.com" }],
+        "Searched the web",
+        "ChatGPT users market share 2026",
+      ),
+    ];
+    const { getByTestId, container } = render(
+      <SubagentPhaseTimeline steps={steps} />,
+    );
+
+    fireEvent.click(getByTestId("subagent-phase-header"));
+    // Both queries render as labels above their chip clusters.
+    expect(container.textContent).toContain("most popular AI assistants 2026");
+    expect(container.textContent).toContain("ChatGPT users market share 2026");
   });
 });
 

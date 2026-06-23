@@ -81,6 +81,12 @@ export type ToolCallCardStep =
   | {
       kind: "web_search";
       title: string;
+      /**
+       * The search query, when known. Surfaced by the subagent timeline as a
+       * per-step label so multiple unclamped searches in one "Searching the web"
+       * group stay visually distinct; main-chat builders leave it unset.
+       */
+      query?: string;
       durationLabel: string;
       linkCount: number;
       /** Results shown inline as favicon chips (clamped to `MAX_VISIBLE_RESULTS`). */
@@ -91,6 +97,14 @@ export type ToolCallCardStep =
        * omitted when every result fits inline.
        */
       overflowResults?: WebSearchResultItem[];
+      /**
+       * Stable key (the originating `tool_call`'s `toolUseId`) that lets the
+       * subagent timeline render this search as a clickable pill opening its
+       * nested query + sources detail — matching the key
+       * `buildSubagentStepDetails` emits. Unset for main-chat builders, whose
+       * searches aren't clickable.
+       */
+      detailKey?: string;
     }
   | {
       kind: "web_search_error";

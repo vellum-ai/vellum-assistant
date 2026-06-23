@@ -12,6 +12,10 @@ import {
   computeSubagentCardData,
   mapToolEventToStep,
 } from "@/domains/chat/hooks/use-subagent-card-data";
+import {
+  groupStepsByPhase,
+  phaseFromStep,
+} from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import type {
   SubagentEntry,
   SubagentTimelineEvent,
@@ -393,6 +397,379 @@ describe("computeSubagentCardData — step mapping", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Web-tool group-label alignment with main chat
+// ---------------------------------------------------------------------------
+
+describe("computeSubagentCardData — web tools match main-chat group labels", () => {
+  test("web_search tool_call → web_search step grouped under 'Searching the web'", () => {
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "running",
+        events: [
+          makeEvent({
+            type: "tool_call",
+            toolName: "web_search",
+            toolUseId: "tu-ws",
+            content: "thermos history",
+          }),
+        ],
+      }),
+    );
+    expect(data.steps).toHaveLength(1);
+    const step = data.steps[0]!;
+    expect(step.kind).toBe("web_search");
+    if (step.kind === "web_search") {
+      expect(step.title).toBe("Searching the web");
+    }
+    // The whole point of the change: the phase label matches main chat
+    // ("Searching the web"), NOT the generic "Working" bucket.
+    expect(phaseFromStep(step)).toBe("Searching the web");
+  });
+
+  test("web_search step carries detailKey = toolUseId so the timeline can open its detail", () => {
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "running",
+        events: [
+          makeEvent({
+            type: "tool_call",
+            toolName: "web_search",
+            toolUseId: "tu-ws",
+            content: "thermos history",
+          }),
+        ],
+      }),
+    );
+    const step = data.steps[0]!;
+    expect(step.kind).toBe("web_search");
+    if (step.kind === "web_search") {
+      expect(step.detailKey).toBe("tu-ws");
+    }
+  });
+
+  test("web_search tool_call → tool_result flips the title to past tense", () => {
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "completed",
+        events: [
+          makeEvent(
+            {
+              type: "tool_call",
+              toolName: "web_search",
+              toolUseId: "tu-ws",
+              content: "thermos history",
+              timestamp: NOW,
+            },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "web_search",
+              toolUseId: "tu-ws",
+              result: "results...",
+              timestamp: NOW + 2500,
+            },
+            1,
+          ),
+        ],
+      }),
+    );
+    expect(data.steps).toHaveLength(1);
+    const step = data.steps[0]!;
+    expect(step.kind).toBe("web_search");
+    if (step.kind === "web_search") {
+      expect(step.title).toBe("Searched the web");
+      expect(step.durationLabel).toBe("3s");
+    }
+    // Both tenses still group under the same label.
+    expect(phaseFromStep(step)).toBe("Searching the web");
+  });
+
+  test("web_search result text is parsed into link chips (no clamp)", () => {
+    // The subagent timeline carries the raw result text (Title\nURL pairs), not
+    // structured metadata — parse it into chips like main chat does on reload.
+    const resultText = [
+      "First Result Title",
+      "https://example.com/a",
+      "Second Result Title",
+      "https://www.foo.org/b",
+      "Third Result Title",
+      "https://bar.net/c",
+    ].join("\n");
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "completed",
+        events: [
+          makeEvent(
+            {
+              type: "tool_call",
+              toolName: "web_search",
+              toolUseId: "tu-ws",
+              content: "q",
+              timestamp: NOW,
+            },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "web_search",
+              toolUseId: "tu-ws",
+              result: resultText,
+              timestamp: NOW + 1000,
+            },
+            1,
+          ),
+        ],
+      }),
+    );
+    const step = data.steps[0]!;
+    expect(step.kind).toBe("web_search");
+    if (step.kind === "web_search") {
+      expect(step.title).toBe("Searched the web");
+      // All three results kept inline — no 5-cap, no overflow bucket.
+      expect(step.linkCount).toBe(3);
+      expect(step.results.map((r) => r.url)).toEqual([
+        "https://example.com/a",
+        "https://www.foo.org/b",
+        "https://bar.net/c",
+      ]);
+      expect(step.results[0]!.title).toBe("First Result Title");
+      // `www.` stripped by the shared domain extractor.
+      expect(step.results[1]!.domain).toBe("foo.org");
+      expect(step.overflowResults ?? []).toHaveLength(0);
+    }
+  });
+
+  test("web_search step carries its query (raw input preferred, content fallback) and it survives completion", () => {
+    // From raw input.
+    const fromInput = computeSubagentCardData(
+      makeEntry({
+        events: [
+          makeEvent({
+            type: "tool_call",
+            toolName: "web_search",
+            toolUseId: "tu-a",
+            content: "summary",
+            input: { query: "best laptops 2026" },
+          }),
+        ],
+      }),
+    ).steps[0]!;
+    expect(fromInput.kind).toBe("web_search");
+    if (fromInput.kind === "web_search") {
+      expect(fromInput.query).toBe("best laptops 2026");
+    }
+
+    // Fallback to the content summary (which is the query for web_search).
+    const fromContent = computeSubagentCardData(
+      makeEntry({
+        events: [
+          makeEvent({
+            type: "tool_call",
+            toolName: "web_search",
+            toolUseId: "tu-b",
+            content: "fallback query",
+          }),
+        ],
+      }),
+    ).steps[0]!;
+    if (fromContent.kind === "web_search") {
+      expect(fromContent.query).toBe("fallback query");
+    }
+
+    // Query survives the tool_result completion (title flip + results fill).
+    const completed = computeSubagentCardData(
+      makeEntry({
+        status: "completed",
+        events: [
+          makeEvent(
+            {
+              type: "tool_call",
+              toolName: "web_search",
+              toolUseId: "tu-c",
+              content: "persisted query",
+            },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "web_search",
+              toolUseId: "tu-c",
+              result: "Result\nhttps://x.com",
+            },
+            1,
+          ),
+        ],
+      }),
+    ).steps[0]!;
+    if (completed.kind === "web_search") {
+      expect(completed.title).toBe("Searched the web");
+      expect(completed.query).toBe("persisted query");
+    }
+  });
+
+  test("web_search chips parse from event.content when result is absent", () => {
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "completed",
+        events: [
+          makeEvent(
+            { type: "tool_call", toolName: "web_search", toolUseId: "tu-ws" },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "web_search",
+              toolUseId: "tu-ws",
+              content: "Only Result\nhttps://solo.com/x",
+            },
+            1,
+          ),
+        ],
+      }),
+    );
+    const step = data.steps[0]!;
+    if (step.kind === "web_search") {
+      expect(step.linkCount).toBe(1);
+      expect(step.results[0]!.url).toBe("https://solo.com/x");
+    }
+  });
+
+  test("web_search failure (isError result) → web_search_error step", () => {
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "completed",
+        events: [
+          makeEvent(
+            { type: "tool_call", toolName: "web_search", toolUseId: "tu-ws" },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "web_search",
+              toolUseId: "tu-ws",
+              isError: true,
+              result: "rate limited",
+            },
+            1,
+          ),
+        ],
+      }),
+    );
+    expect(data.steps).toHaveLength(1);
+    const step = data.steps[0]!;
+    expect(step.kind).toBe("web_search_error");
+    if (step.kind === "web_search_error") {
+      expect(step.title).toBe("Web search failed");
+      expect(step.errorMessage).toBe("rate limited");
+    }
+    // web_search_error still groups under "Searching the web".
+    expect(phaseFromStep(step)).toBe("Searching the web");
+  });
+
+  test("web_search closed by a raw error event → web_search_error + tool_error row", () => {
+    // Failed tool results arrive as type `"error"` (with isError/result) in the
+    // subagent timeline; the in-flight web_search must convert to
+    // web_search_error, mirroring how the tool path closes failed tools.
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "failed",
+        events: [
+          makeEvent(
+            { type: "tool_call", toolName: "web_search", toolUseId: "tu-ws" },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "error",
+              toolName: "web_search",
+              toolUseId: "tu-ws",
+              content: "boom",
+            },
+            1,
+          ),
+        ],
+      }),
+    );
+    // web_search_error step + the appended tool_error row.
+    expect(data.steps).toHaveLength(2);
+    expect(data.steps[0]!.kind).toBe("web_search_error");
+    expect(data.steps[1]!.kind).toBe("tool_error");
+  });
+
+  test("web_fetch tool_call → 'Reading <domain>' thinking step grouped under 'Thinking'", () => {
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "running",
+        events: [
+          makeEvent({
+            type: "tool_call",
+            toolName: "web_fetch",
+            toolUseId: "tu-wf",
+            content: "https://www.example.com/article",
+          }),
+        ],
+      }),
+    );
+    expect(data.steps).toHaveLength(1);
+    const step = data.steps[0]!;
+    expect(step.kind).toBe("thinking");
+    if (step.kind === "thinking") {
+      // Scheme + leading www. stripped, matching main chat's web_fetch label.
+      expect(step.text).toBe("Reading example.com");
+    }
+    // web_fetch maps to the "Thinking" group, exactly as main chat does.
+    expect(phaseFromStep(step)).toBe("Thinking");
+  });
+
+  test("web_fetch prefers the raw input url over the content summary", () => {
+    const data = computeSubagentCardData(
+      makeEntry({
+        events: [
+          makeEvent({
+            type: "tool_call",
+            toolName: "web_fetch",
+            toolUseId: "tu-wf",
+            content: "truncated summ…",
+            input: { url: "https://docs.vellum.ai/guide" },
+          }),
+        ],
+      }),
+    );
+    const step = data.steps[0]!;
+    if (step.kind === "thinking") {
+      expect(step.text).toBe("Reading docs.vellum.ai");
+    }
+  });
+
+  test("a web_search run reads as one 'Searching the web' group, not 'Working'", () => {
+    // End-to-end label check: group the projected steps the same way the
+    // timeline does and assert the section label.
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "running",
+        events: [
+          makeEvent({
+            type: "tool_call",
+            toolName: "web_search",
+            toolUseId: "tu-ws",
+            content: "q",
+          }),
+        ],
+      }),
+    );
+    const sections = groupStepsByPhase(data.steps);
+    expect(sections).toHaveLength(1);
+    expect(sections[0]!.label).toBe("Searching the web");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Header carousel content
 // ---------------------------------------------------------------------------
 
@@ -502,6 +879,23 @@ describe("computeSubagentCardData — current step title/info", () => {
     expect(data.currentStepTitle).toBe("Used File Read");
   });
 
+  test("latest step is a running web_search → 'Searching the web'", () => {
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "running",
+        events: [
+          makeEvent({
+            type: "tool_call",
+            toolName: "web_search",
+            toolUseId: "tu-ws",
+            content: "q",
+          }),
+        ],
+      }),
+    );
+    expect(data.currentStepTitle).toBe("Searching the web");
+  });
+
   test("latest step is an error → Errored + message", () => {
     const data = computeSubagentCardData(
       makeEntry({
@@ -594,6 +988,71 @@ describe("mapToolEventToStep", () => {
     });
     expect(step.title).toBe("Running tool");
     expect(step.toolCallId).toBe("");
+  });
+
+  test("derives the skill name from raw event.input, not the lossy summary", () => {
+    // `skill` isn't a `summarizeToolInput` priority key, so `content` is empty
+    // and the old reconstructInputBag path produced an info-less "Using a
+    // skill". The raw input carries the name.
+    const step = mapToolEventToStep({
+      id: "te-skill",
+      type: "tool_call",
+      content: "",
+      toolName: "skill",
+      toolUseId: "tu-skill",
+      input: { skill: "competitor-research" },
+      timestamp: 0,
+    });
+    expect(step.title).toBe("Using a skill");
+    expect(step.iconName).toBe("sparkle");
+    expect(step.info).toBe("competitor-research");
+  });
+
+  test("surfaces the rich `activity` sentence from raw input", () => {
+    // `reconstructInputBag` never carried `activity`, so the pill could never
+    // show the rich sentence — only the raw command. The raw input does.
+    const step = mapToolEventToStep({
+      id: "te-act",
+      type: "tool_call",
+      content: "rg -n TODO src/",
+      toolName: "bash",
+      toolUseId: "tu-act",
+      input: {
+        command: "rg -n TODO src/",
+        activity: "Searching the codebase for TODOs",
+      },
+      timestamp: 0,
+    });
+    expect(step.title).toBe("Working");
+    expect(step.activity).toBe("Searching the codebase for TODOs");
+  });
+
+  test("computer action comes from raw input (not a summary key)", () => {
+    const step = mapToolEventToStep({
+      id: "te-cu",
+      type: "tool_call",
+      content: "",
+      toolName: "computer",
+      toolUseId: "tu-cu",
+      input: { action: "screenshot" },
+      timestamp: 0,
+    });
+    expect(step.title).toBe("Using computer");
+    expect(step.info).toBe("screenshot");
+  });
+
+  test("falls back to reconstructInputBag when raw input is absent", () => {
+    // Older events without `input` still get a sensible label from the summary.
+    const step = mapToolEventToStep({
+      id: "te-fallback",
+      type: "tool_call",
+      content: "ls -la",
+      toolName: "bash",
+      toolUseId: "tu-fallback",
+      timestamp: 0,
+    });
+    expect(step.title).toBe("Working");
+    expect(step.info).toBe("ls -la");
   });
 });
 
@@ -717,6 +1176,52 @@ describe("buildSubagentStepDetails", () => {
     expect(payload.status).toBe("completed");
     // Full content verbatim — NOT the collapsed/truncated timeline preview.
     expect(payload.thinkingText).toBe(content);
+  });
+
+  test("web_search tool_call + tool_result → web_search payload with query + parsed sources", () => {
+    const resultText = [
+      "First Result Title",
+      "https://example.com/a",
+      "Second Result Title",
+      "https://foo.org/b",
+    ].join("\n");
+    const details = buildSubagentStepDetails(
+      makeEntry({
+        events: [
+          makeEvent(
+            {
+              type: "tool_call",
+              toolName: "web_search",
+              toolUseId: "tu-ws",
+              input: { query: "best vector databases" },
+              timestamp: NOW,
+            },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "web_search",
+              toolUseId: "tu-ws",
+              result: resultText,
+              timestamp: NOW + 1500,
+            },
+            1,
+          ),
+        ],
+      }),
+    );
+    expect(details.size).toBe(1);
+    const payload = details.get("tu-ws")!;
+    // A dedicated web_search payload (NOT the generic "tool" body) carrying the
+    // query + the parsed source list for the nested detail view.
+    expect(payload.kind).toBe("web_search");
+    expect(payload.searchQuery).toBe("best vector databases");
+    expect(payload.status).toBe("completed");
+    expect(payload.searchResults?.map((r) => r.url)).toEqual([
+      "https://example.com/a",
+      "https://foo.org/b",
+    ]);
   });
 
   test("whitespace-only text event produces no thinking payload", () => {
