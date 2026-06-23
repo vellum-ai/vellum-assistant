@@ -63,7 +63,7 @@
       "scope": "assistant",
       "key": "trace-collection",
       "label": "Trace Collection",
-      "description": "Gate per-turn conversation trace (user/assistant/tool-call/tool-response) collection. The daemon attaches a trace to its turn telemetry only when this flag AND the owner's share_diagnostics consent are both on. Defaults off (fail-closed) — the live value is delivered from LaunchDarkly.",
+      "description": "Gate per-turn conversation trace (user/assistant/tool-call/tool-response) collection. The daemon attaches a trace to its turn telemetry only when this flag AND the owner's share_diagnostics consent are both on. Defaults off (fail-closed) \u2014 the live value is delivered from LaunchDarkly.",
       "defaultEnabled": false
     },
     {
@@ -433,6 +433,18 @@
       "label": "OS Beta",
       "description": "Enable the OS Beta model profile (GLM 5.2 / Fireworks) in the assistant's model profile selection.",
       "defaultEnabled": false
+    },
+    {
+      "id": "managed-minimax-m3-provider",
+      "scope": "assistant",
+      "key": "managed-minimax-m3-provider",
+      "label": "Managed MiniMax M3 Provider",
+      "description": "Which managed provider serves MiniMax M3 for the Balanced profile. fireworks = route via Fireworks; together = route via Together AI.",
+      "defaultEnabled": "fireworks",
+      "values": [
+        "fireworks",
+        "together"
+      ]
     }
   ]
 }

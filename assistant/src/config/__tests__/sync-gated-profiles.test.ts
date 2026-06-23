@@ -187,7 +187,12 @@ describe("reconcileFlagGatedProfiles", () => {
   test("flag off with no os-beta present is a no-op", () => {
     process.env.IS_PLATFORM = "true";
     seedBalancedConfig();
-    setOverridesForTesting({ "os-beta": false });
+    // Pin the Balanced provider flag to the seeded value (together) so the
+    // Balanced reconcile is also a no-op, isolating the os-beta behavior.
+    setOverridesForTesting({
+      "os-beta": false,
+      "managed-minimax-m3-provider": "together",
+    });
 
     expect(reconcileFlagGatedProfiles()).toBe(false);
   });
@@ -364,5 +369,109 @@ describe("reconcileFlagGatedProfiles", () => {
     setOverridesForTesting({ "os-beta": false });
     expect(reconcileFlagGatedProfiles()).toBe(false);
     expect(readFileSync(CONFIG_PATH, "utf-8")).toBe(before);
+  });
+});
+
+describe("reconcileFlagGatedProfiles — managed Balanced provider", () => {
+  const FLAG = "managed-minimax-m3-provider";
+
+  beforeEach(() => {
+    ensureTestDir();
+    if (existsSync(CONFIG_PATH)) rmSync(CONFIG_PATH, { force: true });
+    delete process.env.IS_PLATFORM;
+    setOverridesForTesting({});
+    invalidateConfigCache();
+  });
+
+  afterEach(() => {
+    setOverridesForTesting({});
+    invalidateConfigCache();
+  });
+
+  function balanced(): Record<string, unknown> {
+    return readConfig().llm.profiles["balanced"]!;
+  }
+
+  test("defaults to Fireworks when the flag is unset (safe hold state)", () => {
+    seedBalancedConfig(); // seeds the Together template
+    setOverridesForTesting({}); // no override -> registry default "fireworks"
+
+    expect(reconcileFlagGatedProfiles()).toBe(true);
+
+    const b = balanced();
+    expect(b.provider).toBe("fireworks");
+    expect(b.provider_connection).toBe("fireworks-managed");
+    expect(b.model).toBe("accounts/fireworks/models/minimax-m3");
+  });
+
+  test("flag = together keeps Balanced on Together", () => {
+    seedBalancedConfig();
+    setOverridesForTesting({ [FLAG]: "together" });
+
+    reconcileFlagGatedProfiles();
+
+    const b = balanced();
+    expect(b.provider).toBe("together");
+    expect(b.provider_connection).toBe("together-managed");
+    expect(b.model).toBe("MiniMaxAI/MiniMax-M3");
+  });
+
+  test("flag = fireworks routes Balanced to Fireworks", () => {
+    seedBalancedConfig();
+    setOverridesForTesting({ [FLAG]: "fireworks" });
+
+    expect(reconcileFlagGatedProfiles()).toBe(true);
+
+    const b = balanced();
+    expect(b.provider).toBe("fireworks");
+    expect(b.provider_connection).toBe("fireworks-managed");
+    expect(b.model).toBe("accounts/fireworks/models/minimax-m3");
+  });
+
+  test("live flip: together -> fireworks re-routes on the next reconcile", () => {
+    seedBalancedConfig();
+    setOverridesForTesting({ [FLAG]: "together" });
+    reconcileFlagGatedProfiles();
+    expect(balanced().provider).toBe("together");
+
+    // Operator flips the flag in LaunchDarkly; the gateway pushes the new value
+    // and the flag listener re-runs this reconcile without a reboot.
+    setOverridesForTesting({ [FLAG]: "fireworks" });
+    invalidateConfigCache();
+    expect(reconcileFlagGatedProfiles()).toBe(true);
+    expect(balanced().provider).toBe("fireworks");
+  });
+
+  test("idempotent — no second write once routed", () => {
+    seedBalancedConfig();
+    setOverridesForTesting({ [FLAG]: "fireworks" });
+    expect(reconcileFlagGatedProfiles()).toBe(true);
+    invalidateConfigCache();
+    expect(reconcileFlagGatedProfiles()).toBe(false);
+  });
+
+  test("never touches a user-owned balanced profile", () => {
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: {
+            source: "user",
+            provider: "anthropic",
+            provider_connection: "anthropic-personal",
+            model: "claude-sonnet-4-6",
+          },
+        },
+        profileOrder: ["balanced"],
+      },
+    });
+    invalidateConfigCache();
+    setOverridesForTesting({ [FLAG]: "fireworks" });
+
+    reconcileFlagGatedProfiles();
+
+    const b = balanced();
+    expect(b.source).toBe("user");
+    expect(b.provider).toBe("anthropic");
+    expect(b.model).toBe("claude-sonnet-4-6");
   });
 });

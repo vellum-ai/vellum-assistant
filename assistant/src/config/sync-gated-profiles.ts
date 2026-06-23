@@ -1,7 +1,10 @@
 import { isDeepStrictEqual } from "node:util";
 
 import { getLogger } from "../util/logger.js";
-import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
+import {
+  getAssistantFeatureFlagValue,
+  isAssistantFeatureFlagEnabled,
+} from "./assistant-feature-flags.js";
 import {
   getConfigReadOnly,
   invalidateConfigCache,
@@ -18,6 +21,73 @@ import {
 } from "./seed-inference-profiles.js";
 
 const log = getLogger("sync-gated-profiles");
+
+export const MANAGED_BALANCED_PROFILE_KEY = "balanced";
+export const MINIMAX_M3_PROVIDER_FLAG_KEY = "managed-minimax-m3-provider";
+
+/**
+ * Routing targets for the managed Balanced profile, keyed by the
+ * `managed-minimax-m3-provider` flag value. Provider slug, managed connection,
+ * and model id move together — each provider serves MiniMax M3 under its own
+ * model id.
+ */
+const BALANCED_PROVIDER_TARGETS = {
+  fireworks: {
+    provider: "fireworks",
+    provider_connection: "fireworks-managed",
+    model: "accounts/fireworks/models/minimax-m3",
+  },
+  together: {
+    provider: "together",
+    provider_connection: "together-managed",
+    model: "MiniMaxAI/MiniMax-M3",
+  },
+} as const;
+
+/**
+ * Reconcile the managed Balanced profile's provider against the
+ * `managed-minimax-m3-provider` flag — the policy lever for moving MiniMax M3
+ * between Fireworks and Together without a redeploy or migration. The seed
+ * template owns Balanced's content; this override runs after the seed (on boot
+ * and on every live flag change) and is the final authority on which provider
+ * serves it. Any value other than `"together"` — including an unreachable flag
+ * — holds on Fireworks, the safe default.
+ *
+ * Only the three routing fields are patched; everything else on Balanced is
+ * shared across providers and owned by the seed template. A user-owned
+ * `balanced` (`source: "user"`) is never touched.
+ */
+function reconcileBalancedProvider(
+  profiles: Record<string, Record<string, unknown>>,
+): boolean {
+  const balanced = readObject(profiles[MANAGED_BALANCED_PROFILE_KEY]);
+  // Absent → the seeder hasn't materialized it yet this boot; nothing to steer.
+  // Only an explicit `source: "user"` opts out (mirrors the migration
+  // convention; a source-less legacy managed entry is still ours).
+  if (balanced == null || balanced.source === "user") return false;
+
+  const value = getAssistantFeatureFlagValue(
+    MINIMAX_M3_PROVIDER_FLAG_KEY,
+    getConfigReadOnly(),
+  );
+  const target =
+    value === "together"
+      ? BALANCED_PROVIDER_TARGETS.together
+      : BALANCED_PROVIDER_TARGETS.fireworks;
+
+  if (
+    balanced.provider === target.provider &&
+    balanced.provider_connection === target.provider_connection &&
+    balanced.model === target.model
+  ) {
+    return false;
+  }
+
+  balanced.provider = target.provider;
+  balanced.provider_connection = target.provider_connection;
+  balanced.model = target.model;
+  return true;
+}
 
 /**
  * Reconcile flag-gated managed profiles against the current feature-flag state.
@@ -67,21 +137,24 @@ export function reconcileFlagGatedProfiles(): boolean {
   // Never clobber a user-owned profile that happens to be named `os-beta`. The
   // entry is ours to manage only when it is absent or already managed; a
   // user-sourced entry of the same name is left untouched on every path.
-  const isOursToManage = previous == null || previous.source === "managed";
-  if (!isOursToManage) {
-    return false;
-  }
+  const osBetaIsOurs = previous == null || previous.source === "managed";
+  const osBetaChanged = osBetaIsOurs
+    ? enabled
+      ? enableProfile(profiles, profileOrder, previous, isByokMode)
+      : disableProfile(llm, profiles, profileOrder, previous)
+    : false;
 
-  const changed = enabled
-    ? enableProfile(profiles, profileOrder, previous, isByokMode)
-    : disableProfile(llm, profiles, profileOrder, previous);
+  // Steer the managed Balanced profile's provider from the flag. Independent of
+  // the os-beta path above, so it runs even when os-beta is user-owned.
+  const balancedChanged = reconcileBalancedProvider(profiles);
 
+  const changed = osBetaChanged || balancedChanged;
   if (changed) {
     saveRawConfig(config);
     invalidateConfigCache();
     log.info(
-      { profile: OS_BETA_PROFILE_KEY, enabled },
-      "Reconciled flag-gated profile",
+      { osBetaEnabled: enabled, osBetaChanged, balancedChanged },
+      "Reconciled flag-gated profiles",
     );
   }
   return changed;
