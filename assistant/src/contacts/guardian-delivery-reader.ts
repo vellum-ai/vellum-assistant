@@ -118,6 +118,26 @@ export async function getGuardianDelivery(
 }
 
 /**
+ * Synchronous read of the already-cached guardian deliveries, without any IO.
+ *
+ * Returns the fresh cached list for the given channel filter, or `undefined`
+ * when the cache is cold or expired. Used by sync hot paths (SSE subscribe)
+ * that cannot await {@link getGuardianDelivery} but must resolve the SAME
+ * gateway-owned principal the async paths land on. A cold/expired return lets
+ * the caller fall back to the local store as before.
+ */
+export function peekCachedGuardianDelivery(
+  input?: { channelTypes?: string[] },
+): GuardianDelivery[] | undefined {
+  const cached = cache.get(cacheKey(input?.channelTypes));
+  if (!cached) return undefined;
+  if (Date.now() - cached.fetchedAt >= GUARDIAN_DELIVERY_CACHE_TTL_MS) {
+    return undefined;
+  }
+  return cached.guardians;
+}
+
+/**
  * Fresh (uncached) variant of {@link getGuardianDelivery}. Existence guards read
  * fresh because gateway-side binding writes don't invalidate the daemon cache.
  */

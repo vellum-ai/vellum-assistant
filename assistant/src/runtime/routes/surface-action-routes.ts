@@ -60,7 +60,9 @@ async function applyTrustContext(
 
   if (actorPrincipalId) {
     if (isHttpAuthDisabled() && actorPrincipalId === "dev-bypass") {
-      conversation.setTrustContext(resolveLocalTrustContext(sourceChannel));
+      conversation.setTrustContext(
+        await resolveLocalTrustContext(sourceChannel),
+      );
     } else {
       const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
       let trustCtx = resolveTrustContext({
