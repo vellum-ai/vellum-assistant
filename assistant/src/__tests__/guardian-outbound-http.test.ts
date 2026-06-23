@@ -84,6 +84,18 @@ globalThis.fetch = (async (
   return originalFetch(input, init as never);
 }) as unknown as typeof fetch;
 
+// Guardian-delivery reader mock — the inbound challenge guard reads guardian
+// existence from the gateway. These tests seed no binding, so report an empty
+// list (not bound) rather than a null that would fail closed as already-bound.
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => [],
+  guardianForChannel: (
+    list: Array<{ channelType: string; status: string }>,
+    channelType: string,
+  ) =>
+    list.find((g) => g.channelType === channelType && g.status === "active"),
+}));
+
 // ---------------------------------------------------------------------------
 // Now import modules under test (after mocks are in place)
 // ---------------------------------------------------------------------------
