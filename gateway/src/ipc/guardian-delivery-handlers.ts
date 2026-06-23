@@ -17,13 +17,13 @@ export const guardianDeliveryRoutes: IpcRoute[] = [
     schema: ResolveGuardianDeliveryRequestSchema,
     handler: async (params?: Record<string, unknown>) => {
       const input = ResolveGuardianDeliveryRequestSchema.parse(params);
-      try {
-        return { guardians: resolveGuardianDelivery(input) };
-      } catch {
-        // Fails soft to [] — guardian delivery is not an admission decision;
-        // the daemon owns fallback.
-        return { guardians: [] };
-      }
+      // Let a resolver error propagate: the IPC server turns it into an error
+      // envelope, which the daemon reader maps to `null` ("couldn't
+      // determine"). A successful resolve with no active guardian returns `[]`
+      // (authoritative no-guardian). This distinction lets the daemon's
+      // existence guards apply their null fail-safe on a gateway DB error
+      // instead of mis-reading it as "no guardian".
+      return { guardians: resolveGuardianDelivery(input) };
     },
   },
 ];

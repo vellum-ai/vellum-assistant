@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Gateway guardian-delivery list: null = unreachable, [] = unbound,
-// one active entry = bound.
+// Gateway guardian-delivery list: null = couldn't determine (transport failure
+// OR gateway-side resolver/DB error), [] = authoritative unbound, one active
+// entry = bound.
 let mockGuardianList: Array<Record<string, unknown>> | null = [];
 const freshCalls: Array<{ channelTypes?: string[] } | undefined> = [];
 
@@ -45,5 +46,19 @@ describe("isGuardianBoundForChannel", () => {
   test("null list (gateway unreachable) is treated as bound", async () => {
     mockGuardianList = null;
     expect(await isGuardianBoundForChannel("telegram")).toBe(true);
+  });
+
+  test("gateway resolver error (null, not []) is treated as bound — no duplicate", async () => {
+    // A gateway-side DB/resolver error now reaches the reader as null (the
+    // handler no longer swallows it into an empty list), so the guard's
+    // null fail-safe applies and reports bound instead of mis-reading the
+    // error as "no guardian" and allowing a duplicate binding.
+    mockGuardianList = null;
+    expect(await isGuardianBoundForChannel("telegram")).toBe(true);
+  });
+
+  test("genuine empty ([], not null) reports unbound so first-bind is allowed", async () => {
+    mockGuardianList = [];
+    expect(await isGuardianBoundForChannel("telegram")).toBe(false);
   });
 });

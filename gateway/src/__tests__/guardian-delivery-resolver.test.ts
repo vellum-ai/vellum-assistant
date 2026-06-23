@@ -229,11 +229,28 @@ describe("resolveGuardianDelivery", () => {
 });
 
 describe("guardianDeliveryRoutes handler", () => {
-  test("resolver throw → handler returns { guardians: [] }", async () => {
+  test("resolver throw → handler propagates (server maps to error envelope → daemon null)", async () => {
     mock.module("../risk/guardian-delivery-resolver.js", () => ({
       resolveGuardianDelivery: () => {
         throw new Error("boom");
       },
+    }));
+    const { guardianDeliveryRoutes } = await import(
+      "../ipc/guardian-delivery-handlers.js"
+    );
+
+    const route = guardianDeliveryRoutes[0]!;
+    // A resolver error must NOT be swallowed into {guardians:[]}: it propagates
+    // so the IPC server returns an error envelope, which the daemon reader maps
+    // to `null` ("couldn't determine") rather than an authoritative empty list.
+    expect(route.handler({})).rejects.toThrow("boom");
+
+    mock.restore();
+  });
+
+  test("successful resolve with no guardian → handler returns { guardians: [] }", async () => {
+    mock.module("../risk/guardian-delivery-resolver.js", () => ({
+      resolveGuardianDelivery: () => [],
     }));
     const { guardianDeliveryRoutes } = await import(
       "../ipc/guardian-delivery-handlers.js"
