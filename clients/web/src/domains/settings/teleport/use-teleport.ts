@@ -13,6 +13,7 @@ import { useNavigate } from "react-router";
 
 import { getAssistantHealthz, hatchAssistant } from "@/assistant/api";
 import { retireAssistant } from "@/assistant/retire-service";
+import { getAppVersionInfo } from "@/runtime/app-info";
 import {
   assistantsList,
   assistantsOperationalStatusDetailRead,
@@ -138,6 +139,16 @@ export function useTeleport(): TeleportController {
             : "Teleport failed.";
       setPhase({ kind: "failed", error: `Teleport failed: ${message}` });
       captureError(error, { context: "teleport-execute" });
+      // A failure after the target was created (e.g. import non-2xx, job
+      // failure) would otherwise orphan the fresh assistant — and the retry
+      // pre-check would then reject because it already exists. Clean it up the
+      // same way Cancel does.
+      await cleanupFreshTarget(
+        targetRef.current,
+        originalRef.current,
+        "teleport-execute-cleanup",
+      );
+      targetRef.current = null;
     }
   }, [source, destination, setStep, setProgress]);
 
@@ -201,20 +212,7 @@ export function useTeleport(): TeleportController {
     const target = targetRef.current;
     const original = originalRef.current;
     void (async () => {
-      // The transfer already created the target (and the lockfile may have
-      // briefly pointed at it). Retire the target if the teleport created it,
-      // then restore the original as the active assistant — otherwise a
-      // cancelled teleport leaves a stray (possibly active) assistant behind.
-      // `retireAssistant` reconciles the lockfile + resolved-assistants store.
-      if (target?.createdFresh) {
-        const result = await retireAssistant(target.id);
-        if (!result.ok) {
-          captureError(new Error(result.error), {
-            context: "teleport-cancel-retire-target",
-          });
-        }
-      }
-      if (original) await setActiveLockfileAssistant(original.id);
+      await cleanupFreshTarget(target, original, "teleport-cancel-retire-target");
       reset();
     })();
   }, [reset]);
@@ -301,6 +299,10 @@ async function teleportToPlatform(
   // half-built target.
   await setActiveLockfileAssistant(source.assistantId);
 
+  // Record the target now (not just at the end) so a failure during the
+  // remaining steps cleans up this freshly-hatched managed assistant.
+  targetRef.current = { id: managedId, kind: "managed", createdFresh: true };
+
   // Wait for post-hatch provisioning to finish before importing — otherwise the
   // import's workspace swap can race the runtime's secret provisioning.
   setStep("Finalizing cloud assistant...");
@@ -325,8 +327,6 @@ async function teleportToPlatform(
     }
     await awaitPlatformJob(jobId);
   }
-
-  targetRef.current = { id: managedId, kind: "managed", createdFresh: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -352,15 +352,17 @@ async function teleportToLocal(
   await awaitManagedExportJob(source.assistantId, jobId);
 
   // Resolve the local target BEFORE requesting the download so the version
-  // check runs against the local *runtime* version, not the Electron shell —
-  // local runtimes upgrade independently of the app. Don't fall back to the
-  // shell version: a legacy entry without a recorded runtime version would
-  // make the compat check use the wrong value, so fail with a repairable error.
+  // check runs against the local *runtime* version, not the Electron shell.
   setStep("Preparing local assistant...");
   const { assistant: local, createdFresh } = await resolveLocalTarget();
-  const targetRuntimeVersion =
-    local.resources?.runtimeVersion ??
-    (await resolveRuntimeVersion(local.assistantId));
+  // Record the target now so a failure during download/import cleans up a
+  // freshly-hatched local instead of orphaning it.
+  targetRef.current = { id: local.assistantId, kind: "local", createdFresh };
+
+  const targetRuntimeVersion = await resolveLocalTargetRuntimeVersion(
+    local,
+    createdFresh,
+  );
   if (!targetRuntimeVersion) {
     throw new TeleportError(
       "local_assistant_not_found",
@@ -383,13 +385,50 @@ async function teleportToLocal(
   // Hatching/waking the local target may have flipped the active assistant;
   // keep the source active until the user confirms the switch.
   await setActiveLockfileAssistant(source.assistantId);
+}
 
-  targetRef.current = { id: local.assistantId, kind: "local", createdFresh };
+/**
+ * The runtime version to validate a `platform → local` import against.
+ *
+ * A freshly-hatched local assistant runs the runtime bundled with this app, so
+ * the bundled app version is its runtime version (matching the macOS original,
+ * which used `Bundle.main` for the bundled local runtime). A pre-existing local
+ * can have been upgraded independently of the app shell, so it must report its
+ * own recorded `resources.runtimeVersion`; if it doesn't, return `undefined` so
+ * the caller fails with a repairable error rather than comparing against the
+ * wrong (shell) version.
+ */
+async function resolveLocalTargetRuntimeVersion(
+  local: LockfileAssistant,
+  createdFresh: boolean,
+): Promise<string | undefined> {
+  if (local.resources?.runtimeVersion) return local.resources.runtimeVersion;
+  if (!createdFresh) return undefined;
+  return (await getAppVersionInfo())?.version ?? undefined;
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Discard a teleport target the user cancelled or that a failed transfer left
+ * behind: retire it only if the teleport created it (never a pre-existing
+ * assistant the import wrote into), then restore the original as the active
+ * assistant. `retireAssistant` reconciles the lockfile + resolved-assistants
+ * store so the target stops being selectable.
+ */
+async function cleanupFreshTarget(
+  target: AssistantRef | null,
+  original: AssistantRef | null,
+  context: string,
+): Promise<void> {
+  if (target?.createdFresh) {
+    const result = await retireAssistant(target.id);
+    if (!result.ok) captureError(new Error(result.error), { context });
+  }
+  if (original) await setActiveLockfileAssistant(original.id);
+}
 
 /**
  * The runtime version reported by an assistant's gateway healthz, or
