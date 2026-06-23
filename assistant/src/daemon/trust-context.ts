@@ -38,6 +38,12 @@ export interface TrustContext {
   requesterExternalUserId?: string;
   /** Chat/conversation ID the requester is interacting through. */
   requesterChatId?: string;
+  /** Contact ID of the requester's member record, for local info joins. */
+  requesterContactId?: string;
+  /** API-facing member status of the requester's channel (ACL). */
+  memberStatus?: string;
+  /** Channel policy of the requester's channel (ACL). */
+  memberPolicy?: string;
 }
 
 /**

@@ -58,6 +58,7 @@ import { resetTestTables } from "../memory/raw-query.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
+import { resolveLocalTrustVerdict } from "./helpers/channel-test-adapter.js";
 
 await initializeDb();
 
@@ -266,6 +267,13 @@ describe("WhatsApp channel ingress attachment resolution", () => {
   function makeInboundBody(
     overrides: Record<string, unknown> = {},
   ): Record<string, unknown> {
+    // Mirror the gateway: stamp a trust verdict from the local contact store so
+    // the daemon's fail-closed ACL stage admits the request to attachment logic.
+    const trustVerdict = resolveLocalTrustVerdict({
+      channelType: "whatsapp",
+      actorExternalId: WHATSAPP_USER_ID,
+      externalChatId: "whatsapp-chat-1",
+    });
     return {
       sourceChannel: "whatsapp",
       interface: "whatsapp",
@@ -274,6 +282,7 @@ describe("WhatsApp channel ingress attachment resolution", () => {
       externalMessageId: `wa-msg-${Date.now()}-${Math.random()}`,
       content: "Check these attachments",
       replyCallbackUrl: "https://gateway.test/deliver",
+      sourceMetadata: { trustVerdict },
       ...overrides,
     };
   }
