@@ -453,12 +453,9 @@ td .row-link { display: block; }
 .status { border: 1px solid currentColor; border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 800; text-transform: uppercase; }
 .transcript { display: flex; flex-direction: column; gap: 12px; }
 .transcript-wrap { display: flex; flex-direction: column; gap: 12px; }
-.conversation-tabs { display: flex; flex-wrap: wrap; gap: 0; margin-bottom: 12px; position: relative; }
-.conversation-radio { position: absolute; opacity: 0; pointer-events: none; }
-.conversation-tab-label { display: inline-block; padding: 6px 16px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--muted); transition: all .12s ease; user-select: none; }
-.conversation-radio:checked + .conversation-tab-label { color: var(--text); border-color: rgba(34,211,238,.5); background: rgba(34,211,238,.08); }
-.conversation-panel { display: none; }
-.conversation-radio:checked + .conversation-tab-label + .conversation-panel { display: flex; flex-direction: column; gap: 12px; padding-top: 12px; }
+.transcript-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.transcript-header h2 { margin: 0; }
+.conversation-select { font-size: 13px; font-weight: 600; padding: 4px 12px; border: 1px solid var(--border); border-radius: 8px; background: rgba(0,0,0,.18); color: var(--text); cursor: pointer; }
 .turn { padding: 14px 16px; border-radius: 18px; border: 1px solid var(--border); background: rgba(255,255,255,.045); }
 .turn.assistant { border-color: rgba(34,211,238,.22); }
 .turn.simulator { border-color: rgba(139,92,246,.24); }
@@ -818,6 +815,12 @@ function profileRunBreakdown(aggregate: SessionProfileAggregate): string {
   }
   if (aggregate.runningCount > 0) {
     parts.push(`${aggregate.runningCount} running`);
+  }
+  if (aggregate.totalRuntimeMs !== undefined) {
+    parts.push(formatDuration(aggregate.totalRuntimeMs));
+  }
+  if (aggregate.totalCostUsd !== undefined) {
+    parts.push(formatCostCents(aggregate.totalCostUsd));
   }
   return parts.join(" · ");
 }
@@ -1473,13 +1476,29 @@ function AssistantMessage({ message }: { message: AssistantMessageView }) {
 function Transcript({
   turns,
   assistantEvents,
+  ingestAssistantEvents = [],
 }: {
   turns: TranscriptTurn[];
   assistantEvents: AgentEvent[];
+  ingestAssistantEvents?: AgentEvent[];
 }) {
-  const items = buildTranscriptView(turns, assistantEvents);
+  const items = buildTranscriptView(turns, [
+    ...ingestAssistantEvents,
+    ...assistantEvents,
+  ]);
+
+  const headerText = "Transcript";
+  const subText =
+    "Simulator turns interleaved with the assistant's reply — text, thinking, tool calls, and surfaces grouped per assistant message, folded from the container event stream.";
+
   if (items.length === 0) {
-    return <p className="muted">No transcript turns recorded.</p>;
+    return (
+      <>
+        <h2>{headerText}</h2>
+        <p className="section-subtle">{subText}</p>
+        <p className="muted">No transcript turns recorded.</p>
+      </>
+    );
   }
 
   // Group items by conversationKey. Turns without a key (legacy runs or
@@ -1488,10 +1507,7 @@ function Transcript({
   const groups: { key: string; label: string; items: typeof items }[] = [];
   const DEFAULT_KEY = "__default__";
   for (const item of items) {
-    const key =
-      (item.role === "simulator"
-        ? item.conversationKey
-        : item.conversationKey) ?? DEFAULT_KEY;
+    const key = item.conversationKey ?? DEFAULT_KEY;
     let group = groups.find((g) => g.key === key);
     if (!group) {
       group = {
@@ -1507,43 +1523,64 @@ function Transcript({
   // Single conversation (or legacy with no keys) — render flat, no dropdown.
   if (groups.length <= 1) {
     return (
-      <div className="transcript">
-        {(groups[0]?.items ?? items).map((item, index) => (
-          <TranscriptItem
-            key={`${item.emittedAt ?? ""}-${index}`}
-            item={item}
-          />
-        ))}
-      </div>
+      <>
+        <h2>{headerText}</h2>
+        <p className="section-subtle">{subText}</p>
+        <div className="transcript">
+          {(groups[0]?.items ?? items).map((item, index) => (
+            <TranscriptItem
+              key={`${item.emittedAt ?? ""}-${index}`}
+              item={item}
+            />
+          ))}
+        </div>
+      </>
     );
   }
 
-  // Multiple conversations — radio-tabbed dropdown so the user can flip
-  // between them. Same CSS-only pattern as the execution tabs.
+  // Multiple conversations — a <select> dropdown inline with the header
+  // toggles which panel is visible. Because this is static HTML (no React
+  // runtime), a small inline script handles the show/hide.
   return (
-    <div className="transcript-wrap">
-      <div className="conversation-tabs">
+    <>
+      <div className="transcript-header">
+        <h2>{headerText}</h2>
+        <select
+          className="conversation-select"
+          dangerouslySetInnerHTML={{
+            __html: groups
+              .map(
+                (g, i) =>
+                  `<option value="${g.key}"${i === 0 ? " selected" : ""}>${g.label}</option>`,
+              )
+              .join(""),
+          }}
+        />
+      </div>
+      <p className="section-subtle">{subText}</p>
+      <div className="transcript-wrap">
         {groups.map((group, index) => (
-          <label key={group.key}>
-            <input
-              type="radio"
-              name="conversation-select"
-              className="conversation-radio"
-              defaultChecked={index === 0}
-            />
-            <span className="conversation-tab-label">{group.label}</span>
-            <div className="transcript conversation-panel">
-              {group.items.map((item, i) => (
-                <TranscriptItem
-                  key={`${item.emittedAt ?? ""}-${i}`}
-                  item={item}
-                />
-              ))}
-            </div>
-          </label>
+          <div
+            key={group.key}
+            className="transcript conversation-panel"
+            data-conv-key={group.key}
+            style={index === 0 ? undefined : { display: "none" }}
+          >
+            {group.items.map((item, i) => (
+              <TranscriptItem
+                key={`${item.emittedAt ?? ""}-${i}`}
+                item={item}
+              />
+            ))}
+          </div>
         ))}
       </div>
-    </div>
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `(function(){var s=document.querySelector('.conversation-select');if(!s)return;var panels=document.querySelectorAll('[data-conv-key]');s.addEventListener('change',function(){panels.forEach(function(p){p.style.display=p.getAttribute('data-conv-key')===s.value?'':'none';});});})();`,
+        }}
+      />
+    </>
   );
 }
 
@@ -1580,7 +1617,12 @@ function TranscriptItem({
         <span>{item.role}</span>
       </div>
       {item.role === "simulator" ? (
-        <div className="turn-body">{item.content}</div>
+        <div
+          className="turn-body md"
+          dangerouslySetInnerHTML={{
+            __html: renderMarkdownWithMath(item.content),
+          }}
+        />
       ) : (
         <AssistantMessage message={item} />
       )}
@@ -1939,15 +1981,10 @@ function ExecutionTabs({ run }: { run: ReportRunDetail }) {
         </section>
 
         <section className="tabpanel panel-responses">
-          <h2>Transcript</h2>
-          <p className="section-subtle">
-            Simulator turns interleaved with the assistant&apos;s reply — text,
-            thinking, tool calls, and surfaces grouped per assistant message,
-            folded from the container event stream.
-          </p>
           <Transcript
             turns={run.transcript}
             assistantEvents={run.assistantEvents}
+            ingestAssistantEvents={run.ingestAssistantEvents}
           />
         </section>
 
