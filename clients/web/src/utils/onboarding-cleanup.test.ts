@@ -173,6 +173,57 @@ describe("resolveServerConsent", () => {
     expect(resolveServerConsent(undefined).diagnosticsCurrent).toBe(false);
   });
 
+  // A server version newer than this build's constant counts as current on
+  // every axis (currency is monotonic `>=`, not exact equality).
+  test("a version NEWER than this build's constant resolves current on every axis", () => {
+    const r = resolveServerConsent(
+      makeConsent({
+        tos_accepted_version: "2099-01-01",
+        privacy_policy_accepted_version: "2099-01-01",
+        ai_data_sharing_accepted_version: "2099-01-01",
+        share_analytics_accepted_version: "2099-01-01",
+        share_diagnostics_accepted_version: "2099-01-01",
+      }),
+    );
+    expect(r.tos).toBe(true);
+    expect(r.privacy).toBe(true);
+    expect(r.analyticsCurrent).toBe(true);
+    expect(r.diagnosticsCurrent).toBe(true);
+  });
+
+  test("privacy needs BOTH artifacts current — a single stale artifact is stale", () => {
+    // ai_data_sharing newer than the privacy version, but privacy_policy older.
+    expect(
+      resolveServerConsent(
+        makeConsent({
+          privacy_policy_accepted_version: "2020-01-01",
+          ai_data_sharing_accepted_version: "2099-01-01",
+        }),
+      ).privacy,
+    ).toBe(false);
+    // ...and the mirror case.
+    expect(
+      resolveServerConsent(
+        makeConsent({
+          privacy_policy_accepted_version: "2099-01-01",
+          ai_data_sharing_accepted_version: "2020-01-01",
+        }),
+      ).privacy,
+    ).toBe(false);
+  });
+
+  test("a version OLDER than this build's constant resolves stale", () => {
+    const r = resolveServerConsent(
+      makeConsent({
+        tos_accepted_version: "2020-01-01",
+        privacy_policy_accepted_version: "2020-01-01",
+        ai_data_sharing_accepted_version: "2020-01-01",
+      }),
+    );
+    expect(r.tos).toBe(false);
+    expect(r.privacy).toBe(false);
+  });
+
   test("keeps the existing value/tos/privacy fields", () => {
     const r = resolveServerConsent(makeConsent({ share_analytics: false }));
     expect(r.tos).toBe(true);
