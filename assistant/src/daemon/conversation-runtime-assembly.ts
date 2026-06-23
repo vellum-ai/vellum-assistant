@@ -13,6 +13,7 @@ import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { LLMCallSite, LLMConfig } from "../config/schemas/llm.js";
+import { findContactInfoById } from "../contacts/contact-store.js";
 import {
   NOW_SCRATCHPAD_STRIP_PREFIXES,
   stripSpotlightInjections,
@@ -60,14 +61,8 @@ import type {
   TurnContext,
 } from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
-import {
-  type ActorTrustContext,
-  resolveActorTrust,
-  type TrustClass,
-} from "../runtime/actor-trust-resolver.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
-import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
@@ -156,32 +151,8 @@ export function inboundActorContextFromTrustContext(
     actorMemberDisplayName: ctx.requesterMemberDisplayName,
     trustClass: ctx.trustClass,
     guardianIdentity: ctx.guardianExternalUserId,
-  };
-}
-
-/**
- * Construct an InboundActorContext from an ActorTrustContext (the new
- * unified trust resolver output from M1).
- */
-export function inboundActorContextFromTrust(
-  ctx: ActorTrustContext,
-): InboundActorContext {
-  return {
-    sourceChannel: ctx.actorMetadata.channel,
-    canonicalActorIdentity: ctx.canonicalSenderId,
-    actorIdentifier: ctx.actorMetadata.identifier,
-    actorDisplayName: ctx.actorMetadata.displayName,
-    actorSenderDisplayName: ctx.actorMetadata.senderDisplayName,
-    actorMemberDisplayName: ctx.actorMetadata.memberDisplayName,
-    trustClass: ctx.trustClass,
-    guardianIdentity: ctx.guardianBindingMatch?.guardianExternalUserId,
-    memberStatus: ctx.memberRecord
-      ? channelStatusToMemberStatus(ctx.memberRecord.channel.status)
-      : undefined,
-    memberPolicy: ctx.memberRecord?.channel.policy ?? undefined,
-    contactNotes: ctx.memberRecord?.contact.notes ?? undefined,
-    contactInteractionCount:
-      ctx.memberRecord?.contact.interactionCount ?? undefined,
+    memberStatus: ctx.memberStatus,
+    memberPolicy: ctx.memberPolicy,
   };
 }
 
@@ -190,33 +161,30 @@ export function inboundActorContextFromTrust(
  * conversation's trust context, for the unified `<turn_context>` actor section.
  *
  * Returns `null` when there is no trust context and on guardian (owner) turns —
- * the actor section is suppressed for the owner. When the trust context carries
- * enough identity to look up member status / policy and the guardian binding,
- * the unified actor-trust resolver is preferred; otherwise the context is
- * projected directly. Derives purely from the passed trust context, so callers
+ * the actor section is suppressed for the owner. ACL fields (trust class,
+ * member status/policy, guardian binding) come from the verdict-derived trust
+ * context; INFO fields (contact notes, interaction count) are joined locally by
+ * contact ID. Derives purely from the passed trust context, so callers
  * self-resolve it from the live conversation rather than threading it.
  */
 export function resolveTurnInboundActorContext(
   trustContext: TrustContext | undefined,
-  assistantId: string | undefined,
 ): InboundActorContext | null {
   if (!trustContext) {
     return null;
   }
-  let resolved: InboundActorContext;
-  if (trustContext.requesterExternalUserId && trustContext.requesterChatId) {
-    const actorTrust = resolveActorTrust({
-      assistantId: assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-      sourceChannel: trustContext.sourceChannel,
-      conversationExternalId: trustContext.requesterChatId,
-      actorExternalId: trustContext.requesterExternalUserId,
-      actorDisplayName: trustContext.requesterSenderDisplayName,
-    });
-    resolved = inboundActorContextFromTrust(actorTrust);
-  } else {
-    resolved = inboundActorContextFromTrustContext(trustContext);
+  const resolved = inboundActorContextFromTrustContext(trustContext);
+  if (resolved.trustClass === "guardian") {
+    return null;
   }
-  return resolved.trustClass === "guardian" ? null : resolved;
+  if (trustContext.requesterContactId) {
+    const info = findContactInfoById(trustContext.requesterContactId);
+    if (info) {
+      resolved.contactNotes = info.notes ?? undefined;
+      resolved.contactInteractionCount = info.interactionCount;
+    }
+  }
+  return resolved;
 }
 
 /**

@@ -80,7 +80,7 @@ export function DeveloperPage() {
           <Button
             variant="outlined"
             className="mb-1 shrink-0"
-            onClick={() => void navigate(`${routes.selectAssistant}?fromSettings=1`)}
+            onClick={() => void navigate(`${routes.selectAssistant}?noAutoSkip=1`)}
           >
             Choose Assistant
           </Button>

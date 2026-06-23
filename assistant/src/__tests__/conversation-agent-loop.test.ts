@@ -1705,6 +1705,10 @@ describe("session-agent-loop", () => {
       expect(ctx.abortController).toBeNull();
       expect(ctx.currentRequestId).toBeUndefined();
       expect(ctx.commandIntent).toBeUndefined();
+      // Turn-scoped interactivity is stamped during the run and must be cleared
+      // so paths that bypass this loop (e.g. opportunity wakes) don't inherit a
+      // stale value instead of falling back to live client state.
+      expect(ctx.currentTurnIsNonInteractive).toBeUndefined();
     });
 
     test("clears state and surfaces a processing error when the provider call fails", async () => {

@@ -10,7 +10,7 @@ import { createFloatingWindow, getFloatingWindow } from "./floating-window";
 import { handle, on } from "./ipc";
 
 /**
- * System-wide dictation overlay — a floating, click-through panel pinned
+ * System-wide dictation overlay — a floating panel pinned
  * top-center of the active display that shows the user's words live while
  * they dictate via push-to-talk into another app. Matches the native Swift
  * client's `DictationOverlayWindow`: a small pill that expands with partial
@@ -24,12 +24,19 @@ import { handle, on } from "./ipc";
  * `clients/web/`, same standalone pattern as Quick Input).
  *
  * `type: "panel"` + `focusable: false` keep the overlay from ever stealing
- * focus from the app being dictated into, and the window is fully
- * click-through — it's a display surface only.
+ * focus from the app being dictated into. The transparent canvas is
+ * click-through except while the pointer is over the Stop control.
  */
 
 const OVERLAY_KIND = "dictation-overlay";
 const OVERLAY_PATH = "/floating/dictation-overlay";
+
+type AlwaysOnTopLevel = NonNullable<
+  Parameters<BrowserWindow["setAlwaysOnTop"]>[1]
+>;
+
+export const DICTATION_OVERLAY_ALWAYS_ON_TOP_LEVEL =
+  "screen-saver" satisfies AlwaysOnTopLevel;
 
 // The window is a fixed-size transparent canvas larger than the visible
 // pill: the page renders the pill top-centered and sized to content, with
@@ -145,6 +152,24 @@ const sendState = (state: DictationOverlayState): void => {
   }
 };
 
+const broadcastStopRequested = (): void => {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+      win.webContents.send("vellum:dictationOverlay:stopRequested");
+    }
+  }
+};
+
+const setOverlayInteractive = (interactive: boolean): void => {
+  const win = getFloatingWindow(OVERLAY_KIND);
+  if (!win || win.isDestroyed()) return;
+  if (interactive) {
+    win.setIgnoreMouseEvents(false);
+  } else {
+    win.setIgnoreMouseEvents(true, { forward: true });
+  }
+};
+
 export const positionDictationOverlayInWorkArea = (workArea: {
   x: number;
   y: number;
@@ -168,7 +193,8 @@ const ensureOverlayWindow = (): BrowserWindow => {
     width: OVERLAY_WIDTH,
     height: OVERLAY_HEIGHT,
     focusOnShow: false,
-    ignoreMouseEvents: true,
+    alwaysOnTopLevel: DICTATION_OVERLAY_ALWAYS_ON_TOP_LEVEL,
+    ignoreMouseEvents: { forward: true },
     position: overlayPosition,
     browserWindow: {
       movable: false,
@@ -192,6 +218,7 @@ const hideOverlay = (): void => {
   latestState = null;
   const win = getFloatingWindow(OVERLAY_KIND);
   if (win) {
+    setOverlayInteractive(false);
     win.hide();
   }
 };
@@ -229,6 +256,18 @@ export const installDictationOverlay = (
     ([message]) => {
       options.onRecordingLifecycle?.(message.kind === "recording");
       controller.handleMessage(message);
+    },
+  );
+
+  on("vellum:dictationOverlay:requestStop", z.tuple([]), () => {
+    broadcastStopRequested();
+  });
+
+  on(
+    "vellum:dictationOverlay:setInteractive",
+    z.tuple([z.boolean()]),
+    ([interactive]) => {
+      setOverlayInteractive(interactive);
     },
   );
 

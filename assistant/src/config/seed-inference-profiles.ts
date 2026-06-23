@@ -1,4 +1,3 @@
-import { AUTO_PROFILE_KEY } from "../api/constants/inference-profiles.js";
 import type { DrizzleDb } from "../memory/db-connection.js";
 import {
   createConnection,
@@ -12,6 +11,7 @@ import type { ModelIntent } from "../providers/types.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getLogger } from "../util/logger.js";
 import { loadRawConfig, saveRawConfig } from "./loader.js";
+import { isDispatchableProfile } from "./profile-dispatchability.js";
 import {
   DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
   type ProfileEntry,
@@ -42,12 +42,12 @@ type ManagedProfileTemplate = Omit<
  * (`preserveProfileNames`) take precedence when present.
  */
 const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
-  // Served by MiniMax M3 on Fireworks via managed platform inference: a strong
+  // Served by MiniMax M3 on Together AI via managed platform inference: a strong
   // open model at a lower price point than the managed Anthropic route.
   balanced: {
     intent: "balanced",
-    provider: "fireworks",
-    connectionName: "fireworks-managed",
+    provider: "together",
+    connectionName: "together-managed",
     source: "managed",
     label: "Balanced",
     description: "Good balance of quality, cost, and speed",
@@ -57,12 +57,28 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
     topP: 0.95,
   },
+  // Served by GLM 5.2 on Fireworks via managed platform inference: a leading
+  // open model. `model` is pinned explicitly rather than resolved via the
+  // `quality-optimized` intent (which still maps to Anthropic Opus for the
+  // `frontier` profile below).
   "quality-optimized": {
+    model: "accounts/fireworks/models/glm-5p2",
+    provider: "fireworks",
+    connectionName: "fireworks-managed",
+    source: "managed",
+    label: "Quality",
+    description: "High-quality results with a leading open model (GLM 5.2)",
+    maxTokens: 32000,
+    effort: "high",
+    thinking: { enabled: true, streamThinking: true },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+  },
+  frontier: {
     intent: "quality-optimized",
     provider: "anthropic",
     connectionName: "anthropic-managed",
     source: "managed",
-    label: "Quality",
+    label: "Frontier",
     description: "Best results with the most capable model",
     maxTokens: 32000,
     effort: "high",
@@ -132,17 +148,6 @@ const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   },
 };
 
-/**
- * The "auto" profile key. When active, the daemon injects the
- * `switch_inference_profile` tool and lets the model self-select a profile
- * per query. No provider/model — the resolver falls through to the call-site
- * default (balanced or custom-balanced for BYOK).
- *
- * Defined in `@vellumai/assistant-api` (assistant/src/api/constants/
- * inference-profiles.ts) so the backend, plugin API, and UI share a single
- * source of truth.
- */
-
 export const OS_BETA_PROFILE_KEY = "os-beta";
 export const OS_BETA_FEATURE_FLAG_KEY = "os-beta";
 
@@ -174,8 +179,18 @@ export const OS_BETA_PROFILE_TEMPLATE: ManagedProfileTemplate = {
 export const MANAGED_PROFILE_NAMES = new Set([
   ...Object.keys(MANAGED_PROFILE_TEMPLATES),
   OS_BETA_PROFILE_KEY,
-  AUTO_PROFILE_KEY,
 ]);
+
+// Managed names introduced after profile-ownership metadata existed, so any
+// pre-existing same-named entry must have been user-created. The seed loop
+// protects these from being clobbered: a user may already own a profile under
+// such a name (the settings UI saves custom profiles without a `source`), so an
+// entry that isn't explicitly `source: "managed"` is treated as theirs. The
+// original canonical names (`balanced`/`quality-optimized`/`cost-optimized`)
+// predate ownership metadata — migration 052 seeded them source-less — so they
+// are NOT listed here and always reseed, even when source is absent.
+const NEWLY_RESERVED_MANAGED_NAMES = new Set(["frontier"]);
+const MIX_MIN_ARMS = 2;
 
 export type SeedInferenceProfilesOptions = {
   /**
@@ -293,6 +308,21 @@ export function seedInferenceProfiles(
     if (preservedProfileNames.has(name)) continue;
 
     const previous = readObject(profiles[name]);
+    // Never clobber a custom profile that happens to share a *newly reserved*
+    // managed name (e.g. `frontier`): reseeding would change its provider/model
+    // and mark it managed. Treat anything not explicitly `source: "managed"` as
+    // the user's, since the settings UI saves custom profiles without a `source`
+    // and the source backfill below skips managed names. The original canonical
+    // names are excluded from this guard — they may be source-less *managed*
+    // entries from migration 052, so they must keep reseeding to receive
+    // template updates (see NEWLY_RESERVED_MANAGED_NAMES).
+    if (
+      NEWLY_RESERVED_MANAGED_NAMES.has(name) &&
+      previous &&
+      previous.source !== "managed"
+    ) {
+      continue;
+    }
     const effectiveTemplate: ManagedProfileTemplate = isByokMode
       ? { ...template, label: `${template.label} (Managed)` }
       : template;
@@ -338,25 +368,6 @@ export function seedInferenceProfiles(
     profiles[name] = next as ProfileEntry;
   }
 
-  // 1b. Auto profile — a metadata-only profile with no provider/model. When
-  //     the user selects "Auto", the resolver falls through to the call-site
-  //     default (balanced or custom-balanced), and the agent loop injects the
-  //     switch_inference_profile tool so the model can self-select per query.
-  if (!preservedProfileNames.has(AUTO_PROFILE_KEY)) {
-    const previousAuto = readObject(profiles[AUTO_PROFILE_KEY]);
-    const autoEntry: Record<string, unknown> = {
-      source: "managed",
-      label: "Auto",
-      description:
-        "Automatically routes each query to the best profile — fast for simple questions, capable for complex ones",
-    };
-    if (previousAuto) {
-      if ("label" in previousAuto) autoEntry.label = previousAuto.label;
-      if ("status" in previousAuto) autoEntry.status = previousAuto.status;
-    }
-    profiles[AUTO_PROFILE_KEY] = autoEntry as ProfileEntry;
-  }
-
   // 2. User profiles — only at hatch time for off-platform installations.
   let userConnectionName: string | undefined;
   if (options.isHatch && !isPlatform) {
@@ -398,6 +409,8 @@ export function seedInferenceProfiles(
     }
   }
 
+  pruneNonDispatchableProfiles(llm, profiles);
+
   // Active profile resolution.
   const requestedActiveProfile = readString(llm.activeProfile);
   const requestedActiveEntry =
@@ -418,26 +431,26 @@ export function seedInferenceProfiles(
   }
 
   // Advisor profile: default to the strongest managed profile when unset, so
-  // the advisor consults `quality-optimized` out of the box. Guarded on
-  // existence so it never names a missing profile (superRefine rejects that);
-  // off-platform/BYOK installs can repoint it at one of their own profiles.
-  if (
-    readString(llm.advisorProfile) === undefined &&
-    readObject(profiles["quality-optimized"]) !== null
-  ) {
-    llm.advisorProfile = "quality-optimized";
+  // the advisor consults `frontier` (Anthropic Opus) out of the box, falling
+  // back to `quality-optimized` if `frontier` is unavailable. The `frontier`
+  // arm requires managed ownership: the seed loop above leaves a user-owned
+  // profile named `frontier` in place, and pointing the advisor at that would
+  // consult an arbitrary user model. Guarded on existence so it never names a
+  // missing profile (superRefine rejects that); off-platform/BYOK installs can
+  // repoint it at one of their own profiles.
+  if (readString(llm.advisorProfile) === undefined) {
+    if (readObject(profiles["frontier"])?.source === "managed") {
+      llm.advisorProfile = "frontier";
+    } else if (readObject(profiles["quality-optimized"]) !== null) {
+      llm.advisorProfile = "quality-optimized";
+    }
   }
 
   // Profile ordering — ensure all seeded profiles appear in the order array.
-  // "auto" is prepended so it appears first in the picker.
   const profileOrder = Array.isArray(llm.profileOrder)
     ? (llm.profileOrder as string[])
     : [];
   const orderSet = new Set(profileOrder);
-  if (!orderSet.has(AUTO_PROFILE_KEY)) {
-    profileOrder.unshift(AUTO_PROFILE_KEY);
-    orderSet.add(AUTO_PROFILE_KEY);
-  }
   for (const name of Object.keys(MANAGED_PROFILE_TEMPLATES)) {
     if (!orderSet.has(name)) {
       profileOrder.push(name);
@@ -492,6 +505,77 @@ export function readObject(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function pruneNonDispatchableProfiles(
+  llm: Record<string, unknown>,
+  profiles: Record<string, Record<string, unknown>>,
+): void {
+  const removed = new Set<string>();
+  for (const [name, profile] of Object.entries(profiles)) {
+    if (!isDispatchableProfile(profile)) {
+      delete profiles[name];
+      removed.add(name);
+    }
+  }
+  pruneRemovedProfileReferences(llm, profiles, removed);
+}
+
+function pruneRemovedProfileReferences(
+  llm: Record<string, unknown>,
+  profiles: Record<string, Record<string, unknown>>,
+  removed: Set<string>,
+): void {
+  if (removed.size === 0) return;
+
+  let cascading = true;
+  while (cascading) {
+    cascading = false;
+    for (const [name, profile] of Object.entries(profiles)) {
+      if (removed.has(name)) continue;
+      if (!Array.isArray(profile.mix)) continue;
+      const arms = profile.mix as unknown[];
+      const kept = arms.filter((arm) => {
+        const armProfile = readObject(arm)?.profile;
+        return typeof armProfile !== "string" || !removed.has(armProfile);
+      });
+      if (kept.length === arms.length) continue;
+      if (kept.length >= MIX_MIN_ARMS) {
+        profile.mix = kept;
+      } else {
+        delete profiles[name];
+        removed.add(name);
+      }
+      cascading = true;
+    }
+  }
+
+  if (Array.isArray(llm.profileOrder)) {
+    llm.profileOrder = (llm.profileOrder as unknown[]).filter(
+      (name) => typeof name !== "string" || !removed.has(name),
+    );
+  }
+
+  if (
+    typeof llm.advisorProfile === "string" &&
+    removed.has(llm.advisorProfile)
+  ) {
+    delete llm.advisorProfile;
+  }
+
+  const callSites = readObject(llm.callSites);
+  if (callSites) {
+    for (const entry of Object.values(callSites)) {
+      const site = readObject(entry);
+      if (
+        site &&
+        typeof site.profile === "string" &&
+        removed.has(site.profile)
+      ) {
+        delete site.profile;
+      }
+    }
+  }
 }
 
 function readString(value: unknown): string | undefined {

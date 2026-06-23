@@ -8,8 +8,10 @@ import {
   addMcpServer,
   fetchMcpServers,
   fetchMcpToolsSummary,
+  pollMcpAuthStatus,
   reloadMcpServers,
   removeMcpServer,
+  startMcpAuth,
   updateMcpServer,
   type McpServerEntry,
   type McpToolsSummaryServer,
@@ -35,6 +37,7 @@ function McpPageInner() {
   const [isRemoving, setIsRemoving] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isReloading, setIsReloading] = useState(false);
+  const [authenticatingServerId, setAuthenticatingServerId] = useState<string | null>(null);
 
   const {
     data: serversData,
@@ -108,6 +111,48 @@ function McpPageInner() {
     }
   }, [removeServerId, assistantId, invalidateAll]);
 
+  const handleAuthenticate = useCallback(
+    async (serverId: string) => {
+      setAuthenticatingServerId(serverId);
+      let result;
+      try {
+        result = await startMcpAuth(assistantId, serverId);
+      } catch {
+        toast.error(`Failed to start authentication for ${serverId}`);
+        setAuthenticatingServerId(null);
+        return;
+      }
+      try {
+        if (result.already_authenticated) {
+          toast.success(`${serverId} is already authenticated`);
+          invalidateAll();
+          return;
+        }
+        window.open(result.auth_url, "_blank", "noopener,noreferrer");
+        const maxAttempts = 60;
+        for (let i = 0; i < maxAttempts; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          const status = await pollMcpAuthStatus(assistantId, serverId);
+          if (status.status === "complete") {
+            toast.success(`${serverId} authenticated successfully`);
+            invalidateAll();
+            return;
+          }
+          if (status.status === "error") {
+            toast.error(status.error ?? `Authentication failed for ${serverId}`);
+            return;
+          }
+        }
+        toast.error(`Authentication timed out for ${serverId}`);
+      } catch {
+        toast.error(`Authentication polling failed for ${serverId}`);
+      } finally {
+        setAuthenticatingServerId(null);
+      }
+    },
+    [assistantId, invalidateAll],
+  );
+
   const handleAdd = useCallback(
     async (config: {
       name: string;
@@ -115,6 +160,7 @@ function McpPageInner() {
       url?: string;
       command?: string;
       args?: string[];
+      headers?: Record<string, string>;
     }) => {
       setIsAdding(true);
       try {
@@ -136,8 +182,7 @@ function McpPageInner() {
       name: string;
       defaultRiskLevel?: string;
       maxTools?: number;
-      allowedTools?: string[] | null;
-      blockedTools?: string[] | null;
+      headers?: Record<string, string> | null;
     }) => {
       setIsSaving(true);
       try {
@@ -233,7 +278,9 @@ function McpPageInner() {
               onToggleEnabled={handleToggleEnabled}
               onRemove={setRemoveServerId}
               onConfigure={setConfigureServerId}
+              onAuthenticate={handleAuthenticate}
               isUpdating={pendingMutations.has(server.id)}
+              isAuthenticating={authenticatingServerId === server.id}
             />
           ))}
         </div>

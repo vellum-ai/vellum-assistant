@@ -240,18 +240,22 @@ describe("runLongMemEvalV2Unit", () => {
     expect(metricsOnDisk).toHaveLength(1);
     expect(metricsOnDisk[0].score).toBe(1);
 
-    // transcript.json carries the three-turn shape
+    // transcript.json carries the four-turn shape: ingest simulator,
+    // ingest assistant response ("Ready."), question simulator, question
+    // assistant response. The transcript is written incrementally by
+    // runIngestAsk, not constructed manually by the benchmark runner.
     const transcript = JSON.parse(
       await readFile(runArtifacts(runId).transcriptPath, "utf8"),
     );
-    expect(transcript).toHaveLength(3);
+    expect(transcript).toHaveLength(4);
     expect(transcript[0].role).toBe("simulator");
-    expect(transcript[1].role).toBe("simulator");
-    expect(transcript[1].content).toBe(
+    expect(transcript[1].role).toBe("assistant");
+    expect(transcript[2].role).toBe("simulator");
+    expect(transcript[2].content).toBe(
       "What color was the laptop in the screenshot?",
     );
-    expect(transcript[2].role).toBe("assistant");
-    expect(transcript[2].content).toBe("The laptop was blue.");
+    expect(transcript[3].role).toBe("assistant");
+    expect(transcript[3].content).toBe("The laptop was blue.");
 
     // Progress events: artifacts/setup/send/metrics/result
     const steps = events.map((e) => `${e.step}:${e.status}`);

@@ -269,30 +269,57 @@ export async function selectPool(
   // (no usable tool_use, or tool input that fails the schema) re-prompts before
   // we give up. `null` from an attempt means "unusable, retry"; the provider
   // layer already backs off transient throws, so this loop adds no delay.
+  //
+  // `lastError` captures the most recent attempt's thrown provider error —
+  // `retryForResult` swallows attempt throws, so without this an infrastructure
+  // failure (e.g. an upstream HTTP 4xx/5xx) is indistinguishable from a 200 that
+  // carried no usable tool_use. It is cleared on every attempt that reaches a
+  // response, so it reflects the LAST attempt's failure mode.
+  let lastError: unknown = null;
   const parsed = await retryForResult(async () => {
-    const response = await provider.sendMessage([userMsg], {
-      tools: [SELECT_PAGES_TOOL],
-      systemPrompt: SYSTEM_PROMPT,
-      config: {
-        callSite: "memoryV3SelectL2" as const,
-        tool_choice: { type: "tool" as const, name: SELECT_PAGES_TOOL_NAME },
-        // The last block of this one-shot message varies every turn; the
-        // provider's auto-applied turn-start breakpoint would land on it and
-        // pay cache_creation with no future hit. The stable-prefix block
-        // above carries its own breakpoint instead.
-        disableTurnStartCache: true,
-      },
-    });
-    const toolBlock = extractToolUse(response);
-    if (!toolBlock || toolBlock.name !== SELECT_PAGES_TOOL_NAME) return null;
-    const result = SelectPagesSchema.safeParse(toolBlock.input);
-    return result.success ? result.data : null;
+    try {
+      const response = await provider.sendMessage([userMsg], {
+        tools: [SELECT_PAGES_TOOL],
+        systemPrompt: SYSTEM_PROMPT,
+        config: {
+          callSite: "memoryV3SelectL2" as const,
+          tool_choice: { type: "tool" as const, name: SELECT_PAGES_TOOL_NAME },
+          // The last block of this one-shot message varies every turn; the
+          // provider's auto-applied turn-start breakpoint would land on it and
+          // pay cache_creation with no future hit. The stable-prefix block
+          // above carries its own breakpoint instead.
+          disableTurnStartCache: true,
+        },
+      });
+      lastError = null;
+      const toolBlock = extractToolUse(response);
+      if (!toolBlock || toolBlock.name !== SELECT_PAGES_TOOL_NAME) return null;
+      const result = SelectPagesSchema.safeParse(toolBlock.input);
+      return result.success ? result.data : null;
+    } catch (err) {
+      lastError = err;
+      throw err;
+    }
   });
 
   if (parsed === null) {
+    if (lastError !== null) {
+      // The selector's provider call threw on its final attempt (e.g. an
+      // upstream HTTP error). Surface the underlying error rather than
+      // reporting it as a model-output problem.
+      const detail =
+        lastError instanceof Error ? lastError.message : String(lastError);
+      log.warn(
+        { candidateCount: ordered.length, err: lastError },
+        "pool selector provider call failed after retries — failing the turn rather than dropping memory",
+      );
+      throw new MemoryV3RetrievalUnavailableError(
+        `memory-v3 pool selector provider call failed after retries: ${detail}`,
+      );
+    }
     log.warn(
       { candidateCount: ordered.length },
-      "pool selector could not obtain a selection after retries — failing the turn rather than dropping memory",
+      "pool selector returned no usable tool_use after retries — failing the turn rather than dropping memory",
     );
     throw new MemoryV3RetrievalUnavailableError(
       "memory-v3 pool selector returned no usable selection after retries",

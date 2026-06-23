@@ -1,6 +1,5 @@
 import type { DrizzleDb } from "../db-connection.js";
 import { getSqliteFrom } from "../db-connection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
 
 /**
  * One-shot migration: strip the `integration:` prefix from provider_key
@@ -23,79 +22,73 @@ import { withCrashRecovery } from "./validate-migration-state.js";
 export function migrateStripIntegrationPrefixFromProviderKeys(
   database: DrizzleDb,
 ): void {
-  withCrashRecovery(
-    database,
-    "migration_strip_integration_prefix_from_provider_keys_v1",
-    () => {
-      const raw = getSqliteFrom(database);
+  const raw = getSqliteFrom(database);
 
-      raw.exec("PRAGMA foreign_keys = OFF");
-      try {
-        // Find all provider keys with the integration: prefix.
-        const rows = raw
-          .prepare(
-            /*sql*/ `SELECT provider_key FROM oauth_providers WHERE provider_key LIKE 'integration:%'`,
-          )
-          .all() as Array<{ provider_key: string }>;
+  raw.exec("PRAGMA foreign_keys = OFF");
+  try {
+    // Find all provider keys with the integration: prefix.
+    const rows = raw
+      .prepare(
+        /*sql*/ `SELECT provider_key FROM oauth_providers WHERE provider_key LIKE 'integration:%'`,
+      )
+      .all() as Array<{ provider_key: string }>;
 
-        for (const { provider_key: oldKey } of rows) {
-          const newKey = oldKey.replace(/^integration:/, "");
+    for (const { provider_key: oldKey } of rows) {
+      const newKey = oldKey.replace(/^integration:/, "");
 
-          // Check if the bare-name key already exists (seed data may have created it).
-          const bareExists = raw
-            .prepare(
-              /*sql*/ `SELECT 1 FROM oauth_providers WHERE provider_key = ?`,
-            )
-            .get(newKey);
+      // Check if the bare-name key already exists (seed data may have created it).
+      const bareExists = raw
+        .prepare(
+          /*sql*/ `SELECT 1 FROM oauth_providers WHERE provider_key = ?`,
+        )
+        .get(newKey);
 
-          if (bareExists) {
-            // Bare-name provider already exists — delete the old prefixed rows
-            // to avoid UNIQUE constraint violations.
-            raw
-              .prepare(
-                /*sql*/ `DELETE FROM oauth_connections WHERE provider_key = ?`,
-              )
-              .run(oldKey);
-            raw
-              .prepare(/*sql*/ `DELETE FROM oauth_apps WHERE provider_key = ?`)
-              .run(oldKey);
-            raw
-              .prepare(
-                /*sql*/ `DELETE FROM oauth_providers WHERE provider_key = ?`,
-              )
-              .run(oldKey);
-          } else {
-            // Rename: update child tables first, then parent.
-            raw
-              .prepare(
-                /*sql*/ `UPDATE oauth_connections SET provider_key = ? WHERE provider_key = ?`,
-              )
-              .run(newKey, oldKey);
-            raw
-              .prepare(
-                /*sql*/ `UPDATE oauth_apps SET provider_key = ? WHERE provider_key = ?`,
-              )
-              .run(newKey, oldKey);
-            raw
-              .prepare(
-                /*sql*/ `UPDATE oauth_providers SET provider_key = ? WHERE provider_key = ?`,
-              )
-              .run(newKey, oldKey);
-          }
-        }
-
-        // Also update the watchers table — credential_service stores provider
-        // keys like "integration:google" that feed into resolveOAuthConnection().
+      if (bareExists) {
+        // Bare-name provider already exists — delete the old prefixed rows
+        // to avoid UNIQUE constraint violations.
         raw
           .prepare(
-            /*sql*/ `UPDATE watchers SET credential_service = REPLACE(credential_service, 'integration:', '') WHERE credential_service LIKE 'integration:%'`,
+            /*sql*/ `DELETE FROM oauth_connections WHERE provider_key = ?`,
           )
-          .run();
-      } finally {
-        raw.exec("PRAGMA foreign_keys = ON");
+          .run(oldKey);
+        raw
+          .prepare(/*sql*/ `DELETE FROM oauth_apps WHERE provider_key = ?`)
+          .run(oldKey);
+        raw
+          .prepare(
+            /*sql*/ `DELETE FROM oauth_providers WHERE provider_key = ?`,
+          )
+          .run(oldKey);
+      } else {
+        // Rename: update child tables first, then parent.
+        raw
+          .prepare(
+            /*sql*/ `UPDATE oauth_connections SET provider_key = ? WHERE provider_key = ?`,
+          )
+          .run(newKey, oldKey);
+        raw
+          .prepare(
+            /*sql*/ `UPDATE oauth_apps SET provider_key = ? WHERE provider_key = ?`,
+          )
+          .run(newKey, oldKey);
+        raw
+          .prepare(
+            /*sql*/ `UPDATE oauth_providers SET provider_key = ? WHERE provider_key = ?`,
+          )
+          .run(newKey, oldKey);
       }
-    },
-  );
+    }
+
+    // Also update the watchers table — credential_service stores provider
+    // keys like "integration:google" that feed into resolveOAuthConnection().
+    raw
+      .prepare(
+        /*sql*/ `UPDATE watchers SET credential_service = REPLACE(credential_service, 'integration:', '') WHERE credential_service LIKE 'integration:%'`,
+      )
+      .run();
+  } finally {
+    raw.exec("PRAGMA foreign_keys = ON");
+  }
 }
 
 /**

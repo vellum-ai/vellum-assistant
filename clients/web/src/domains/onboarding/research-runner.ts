@@ -1,0 +1,405 @@
+/**
+ * Runs the "research me" turn against the hatched assistant from inside the
+ * research-onboarding route and surfaces the parsed `{ claims, suggestions }`
+ * incrementally so the in-flow result steps can render real data.
+ *
+ * SPIKE — research-onboarding flow.
+ *
+ * Why this lives here (and not in the chat domain): the new in-flow result
+ * steps render the research output WITH the toned backdrop, never handing off
+ * to the chat surface until the user picks a suggestion. So we fire the turn
+ * ourselves — mint a dedicated side conversation, post the research prompt, and
+ * poll `messagesGet` — rather than relying on `ActiveChatView`'s stream. Talks
+ * to the daemon through the generated SDK directly (`@/domains/chat/api/*` is
+ * import-banned from onboarding), exactly like `checkin-scheduler.ts`. The
+ * parser is shared via the neutral `@/utils/research-facts`.
+ *
+ * Best-effort: a failure never blocks the flow — the steps just fall back to
+ * their loading/empty presentation. The research conversation is intentionally
+ * SEPARATE from the user-facing chat the suggestion click later opens.
+ */
+
+import { useCallback, useRef, useState } from "react";
+
+import {
+  conversationsPost,
+  messagesGet,
+  messagesPost,
+  pluginsInstallPost,
+  pluginsSearchGet,
+} from "@/generated/daemon/sdk.gen";
+import type {
+  MessagesGetResponses,
+  MessagesPostData,
+  PluginsSearchGetResponses,
+} from "@/generated/daemon/types.gen";
+import { captureError } from "@/lib/sentry/capture-error";
+import {
+  buildResearchPrompt,
+  type AvailableCapability,
+  type ResearchSubject,
+} from "@/domains/onboarding/research-prompt";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import {
+  parseResearchResultStreaming,
+  type ResearchFact,
+  type ResearchSuggestion,
+} from "@/utils/research-facts";
+
+/** Poll cadence + ceiling for reading the streaming research reply. */
+const POLL_INTERVAL_MS = 1500;
+const MAX_POLL_MS = 120_000;
+/**
+ * Consecutive identical non-empty reads that mark the turn settled. Two
+ * matching polls (~3s apart) means generation has stopped, whether the daemon
+ * persists the assistant message incrementally or only on completion.
+ */
+const STABLE_READS_TO_SETTLE = 2;
+
+/**
+ * Org that owns first-party, reviewed Vellum plugins. Onboarding only ever
+ * surfaces and installs plugins from this owner — never third-party/external
+ * marketplace repos — so a new user is never offered (or silently handed)
+ * community code during onboarding.
+ */
+const VELLUM_PLUGIN_OWNER = "vellum-ai";
+
+/**
+ * Vellum-hosted plugins that are still infrastructure/meta rather than a
+ * capability worth offering a new user (a reference memory sample, the
+ * self-edit diff card). Dropped on top of the owner filter. Anything else owned
+ * by Vellum — including future persona plugins like a developer/PM kit — flows
+ * through automatically.
+ */
+const NON_RECOMMENDABLE_PLUGINS = new Set<string>(["simple-memory", "level-up"]);
+
+type CatalogMatch = NonNullable<
+  PluginsSearchGetResponses[200]["matches"]
+>[number];
+
+export interface RecommendableCapabilities {
+  capabilities: AvailableCapability[];
+  /** Valid install names, used to gate background installs against hallucination. */
+  validNames: Set<string>;
+}
+
+/** Keep injected descriptions to one short clause so the prompt stays compact. */
+function compactDescription(raw: string): string {
+  const firstSentence = raw.trim().split(/(?<=\.)\s/)[0]?.trim() ?? raw.trim();
+  return firstSentence.length > 100
+    ? `${firstSentence.slice(0, 97).trimEnd()}…`
+    : firstSentence;
+}
+
+/** Owner segment of an `owner/repo` locator, or "" when unparseable. */
+function repoOwner(repo: string | undefined): string {
+  return repo?.split("/")[0]?.trim() ?? "";
+}
+
+/**
+ * Narrow the marketplace catalog to the capabilities onboarding will surface:
+ * Vellum-hosted (first-party, reviewed) plugins only, minus the meta/infra
+ * ones, each compacted to one short line. Pure so it's unit-testable without
+ * mocking the catalog fetch.
+ */
+export function selectRecommendableCapabilities(
+  matches: CatalogMatch[],
+): RecommendableCapabilities {
+  const capabilities: AvailableCapability[] = [];
+  const validNames = new Set<string>();
+  for (const m of matches) {
+    const name = m.name?.trim();
+    const description = m.description?.trim();
+    if (!name || !description) continue;
+    if (repoOwner(m.source?.repo) !== VELLUM_PLUGIN_OWNER) continue;
+    if (NON_RECOMMENDABLE_PLUGINS.has(name)) continue;
+    validNames.add(name);
+    capabilities.push({ name, description: compactDescription(description) });
+  }
+  return { capabilities, validNames };
+}
+
+const EMPTY_CAPABILITIES: RecommendableCapabilities = {
+  capabilities: [],
+  validNames: new Set<string>(),
+};
+
+/**
+ * Pull the live marketplace catalog and compact it into the capability list the
+ * research prompt advertises. Best-effort: any failure yields an empty list, in
+ * which case the prompt simply omits the capabilities block (unchanged from the
+ * pre-plugin behavior).
+ */
+async function fetchAvailableCapabilities(
+  assistantId: string,
+): Promise<RecommendableCapabilities> {
+  try {
+    const res = await pluginsSearchGet({
+      path: { assistant_id: assistantId },
+      throwOnError: false,
+    });
+    return selectRecommendableCapabilities(res.data?.matches ?? []);
+  } catch (err) {
+    captureError(err, { context: "research_onboarding_catalog" });
+    return { capabilities: [], validNames: new Set<string>() };
+  }
+}
+
+/**
+ * Materialize a matched plugin under the assistant's workspace so the fresh
+ * conversation the suggestion click opens can discover its skills (plugin-
+ * resident skills load per-conversation from disk — no restart needed; the
+ * plugin's hooks/persona would need a later restart, but the skills carry the
+ * value). Best-effort and idempotent: an already-installed plugin returns 409,
+ * which we ignore.
+ */
+async function installCapabilityBestEffort(
+  assistantId: string,
+  name: string,
+): Promise<void> {
+  try {
+    await pluginsInstallPost({
+      path: { assistant_id: assistantId },
+      body: { name },
+      throwOnError: false,
+    });
+  } catch (err) {
+    captureError(err, { context: "research_onboarding_install" });
+  }
+}
+
+export type ResearchStatus = "idle" | "running" | "done" | "error";
+
+export interface ResearchRunnerState {
+  status: ResearchStatus;
+  claims: ResearchFact[];
+  suggestions: ResearchSuggestion[];
+}
+
+export interface StartResearchOptions {
+  /** Resolves with the hatched assistant id once it's healthy. */
+  awaitAssistantId: () => Promise<string>;
+  subject: ResearchSubject;
+  /** Friendly title for the behind-the-scenes research conversation. */
+  conversationTitle?: string;
+}
+
+export interface UseResearchRunner extends ResearchRunnerState {
+  /**
+   * Fire the research turn. Keyed by subject: calling again with the same
+   * subject is a no-op, but resubmitting with EDITED details (e.g. the user
+   * stepped back and changed their name/role) restarts the run and cancels the
+   * stale poll loop so the results reflect the corrected subject.
+   */
+  start: (options: StartResearchOptions) => void;
+  /**
+   * Await the background install of a plugin a suggestion is tagged with, so the
+   * click doesn't open the chat before `<workspace>/plugins/<name>` exists —
+   * otherwise the plugin's skills aren't discoverable in the new conversation
+   * and the suggestion silently degrades to a generic prompt. Resolves
+   * immediately when nothing is pending for that name.
+   */
+  awaitPluginInstall: (name: string) => Promise<void>;
+}
+
+type GetMessage = MessagesGetResponses[200]["messages"][number];
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Bounded wait (ms) for the assistant flag store to hydrate before gating on it. */
+const FLAG_HYDRATE_TIMEOUT_MS = 8000;
+
+/**
+ * Whether the experimental external-plugin surface is enabled for this
+ * assistant. Plugin install/load lives behind the `external-plugins` rollout
+ * gate (assistant flag store key `externalPlugins`), so onboarding must not
+ * surface or materialize plugins when it's off — otherwise we'd bypass the gate
+ * and expose/install marketplace plugins to an unentitled workspace. Waits
+ * (bounded) for the flag store to hydrate so a cold load doesn't read the
+ * default-off value as a hard "no"; an un-hydrated timeout is treated as off.
+ */
+async function awaitExternalPluginsEnabled(
+  isStale: () => boolean,
+): Promise<boolean> {
+  const deadline = Date.now() + FLAG_HYDRATE_TIMEOUT_MS;
+  while (
+    !useAssistantFeatureFlagStore.getState().hasHydrated &&
+    Date.now() < deadline
+  ) {
+    await sleep(250);
+    if (isStale()) return false;
+  }
+  return useAssistantFeatureFlagStore.getState().externalPlugins === true;
+}
+
+/** Latest assistant reply text from a messages list (text blocks, then legacy flat content). */
+function latestAssistantText(messages: GetMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (!m || m.role !== "assistant") continue;
+    const blocks = m.contentBlocks;
+    if (blocks && blocks.length > 0) {
+      const text = blocks
+        .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
+        .map((b) => b.text)
+        .join("\n")
+        .trim();
+      if (text) return text;
+    }
+    return (m.content ?? "").trim();
+  }
+  return "";
+}
+
+export function useResearchRunner(): UseResearchRunner {
+  const [state, setState] = useState<ResearchRunnerState>({
+    status: "idle",
+    claims: [],
+    suggestions: [],
+  });
+  // Monotonic run id: every fresh run claims the next id; in-flight loops bail
+  // the moment a newer run supersedes them. Paired with the last subject key so
+  // an identical resubmit is a no-op but an edited one restarts.
+  const runIdRef = useRef(0);
+  const subjectKeyRef = useRef<string | null>(null);
+  // Background plugin installs keyed by name, so the suggestion click can await
+  // the matching install before opening the chat (see `awaitPluginInstall`).
+  // Promises stay resolved in the map, so awaiting a settled one is instant.
+  const installPromisesRef = useRef<Map<string, Promise<void>>>(new Map());
+
+  const start = useCallback(
+    ({ awaitAssistantId, subject, conversationTitle }: StartResearchOptions) => {
+      const subjectKey = JSON.stringify(subject);
+      if (subjectKeyRef.current === subjectKey) return;
+      subjectKeyRef.current = subjectKey;
+      const runId = runIdRef.current + 1;
+      runIdRef.current = runId;
+      const isStale = () => runIdRef.current !== runId;
+      // Fresh run — drop installs tracked for a superseded subject.
+      installPromisesRef.current.clear();
+      setState({ status: "running", claims: [], suggestions: [] });
+
+      void (async () => {
+        try {
+          const assistantId = await awaitAssistantId();
+          if (isStale()) return;
+
+          // Advertise the live marketplace catalog to the research turn so it can
+          // tag a suggestion with a plugin whose skills the prompt would trigger.
+          // Only when the external-plugin surface is enabled for this assistant;
+          // otherwise run plain research with no plugin injection or install.
+          // Best-effort: an empty list just omits the capabilities block.
+          const pluginsEnabled = await awaitExternalPluginsEnabled(isStale);
+          if (isStale()) return;
+          const { capabilities, validNames } = pluginsEnabled
+            ? await fetchAvailableCapabilities(assistantId)
+            : EMPTY_CAPABILITIES;
+          if (isStale()) return;
+
+          const conversation = await conversationsPost({
+            path: { assistant_id: assistantId },
+            body: {
+              conversationType: "standard",
+              ...(conversationTitle ? { title: conversationTitle } : {}),
+            },
+            throwOnError: false,
+          });
+          if (isStale()) return;
+          const conversationId = conversation.data?.id;
+          if (!conversation.response?.ok || !conversationId) {
+            setState((s) => ({ ...s, status: "error" }));
+            return;
+          }
+
+          const body: MessagesPostData["body"] = {
+            conversationId,
+            content: buildResearchPrompt(subject, capabilities),
+            sourceChannel: "vellum",
+            interface: "vellum",
+            clientMessageId: crypto.randomUUID(),
+          };
+          // Carry the browser timezone so any time-relative reasoning resolves
+          // to the user's local clock. Mirrors `checkin-scheduler.ts`.
+          try {
+            const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            if (tz) body.clientTimezone = tz;
+          } catch {
+            // Intl unavailable — daemon falls back to its own cascade.
+          }
+
+          const posted = await messagesPost({
+            path: { assistant_id: assistantId },
+            body,
+            throwOnError: false,
+          });
+          if (isStale()) return;
+          if (!posted.response?.ok) {
+            setState((s) => ({ ...s, status: "error" }));
+            return;
+          }
+
+          // Poll the conversation, parsing the (possibly partial) reply each
+          // pass so claims/suggestions surface as they land. Settle once the
+          // reply text stops changing.
+          const deadline = Date.now() + MAX_POLL_MS;
+          let lastText = "";
+          let stableReads = 0;
+          // Installs fire the moment a tagged suggestion first streams in
+          // (overlapping the user's results-review screens) so the plugin is
+          // materialized before the click opens the chat. Tracked by promise so
+          // the click can await a still-running one. Idempotent, so racing the
+          // same name is fine.
+          const installs = installPromisesRef.current;
+          while (Date.now() < deadline) {
+            await sleep(POLL_INTERVAL_MS);
+            if (isStale()) return;
+            const listed = await messagesGet({
+              path: { assistant_id: assistantId },
+              query: { conversationId },
+              throwOnError: false,
+            });
+            if (isStale()) return;
+            const messages = listed.data?.messages ?? [];
+            const text = latestAssistantText(messages);
+            if (text) {
+              const { claims, suggestions } = parseResearchResultStreaming(text);
+              setState({ status: "running", claims, suggestions });
+              for (const s of suggestions) {
+                // Gate on the fetched catalog so a hallucinated name never hits
+                // the install route; skip ones already in flight.
+                if (s.plugin && validNames.has(s.plugin) && !installs.has(s.plugin)) {
+                  installs.set(
+                    s.plugin,
+                    installCapabilityBestEffort(assistantId, s.plugin),
+                  );
+                }
+              }
+              stableReads = text === lastText ? stableReads + 1 : 0;
+              lastText = text;
+              if (stableReads >= STABLE_READS_TO_SETTLE) break;
+            }
+          }
+
+          if (isStale()) return;
+          setState((s) => ({ ...s, status: "done" }));
+        } catch (err) {
+          if (isStale()) return;
+          captureError(err, { context: "research_onboarding_runner" });
+          setState((s) => ({ ...s, status: "error" }));
+        }
+      })();
+    },
+    [],
+  );
+
+  const awaitPluginInstall = useCallback(
+    async (name: string): Promise<void> => {
+      const pending = installPromisesRef.current.get(name);
+      if (pending) await pending;
+    },
+    [],
+  );
+
+  return { ...state, start, awaitPluginInstall };
+}

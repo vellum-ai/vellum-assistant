@@ -345,10 +345,22 @@ function collectRemediationHints(
 
 /**
  * Detect the common extension CDP failure where the active tab is a
- * restricted Chrome internal page (e.g. `chrome://newtab`).
+ * page Chrome forbids extensions from scripting — either a privileged
+ * `chrome://` internal page (e.g. `chrome://newtab`) or the Chrome Web
+ * Store / extensions gallery (which yields "The extensions gallery
+ * cannot be scripted."). The latter is especially common right after
+ * install, when the Web Store page is still the active tab.
+ *
+ * Keep this restricted-error match in sync with the Page.navigate
+ * recovery in the chrome-extension dispatcher (host-browser-dispatcher.ts,
+ * separate package, duplicated by necessity): the status side reports the
+ * tab as recoverable, and the navigate side must actually recover it.
  */
 function isRestrictedChromePageProbeError(error: CdpError): boolean {
-  return error.message.toLowerCase().includes("chrome://");
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("chrome://") || message.includes("cannot be scripted")
+  );
 }
 
 /**
@@ -2450,9 +2462,9 @@ async function checkExtensionModeStatus(
       verified: "active_probe",
       autoCandidate,
       summary:
-        "Extension mode transport is connected, but the active Chrome tab is a restricted chrome:// page. Switch to a regular website tab if browser actions fail.",
+        "Extension mode transport is connected, but the active Chrome tab is a page Chrome won't let extensions script (a chrome:// page or the Chrome Web Store / extensions gallery). Switch to a regular website tab if browser actions fail.",
       userActions: [
-        "Switch Chrome to a regular http(s) tab (not chrome://...) and retry.",
+        "Switch Chrome to a regular http(s) tab — not a chrome:// page or the Chrome Web Store / extensions gallery — and retry.",
       ],
       tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
       details: {

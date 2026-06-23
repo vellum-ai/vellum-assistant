@@ -779,6 +779,31 @@ describe("getUsageDayBuckets", () => {
     expect(buckets[0].totalEstimatedCostUsd).toBeCloseTo(0.05);
     expect(buckets[0].eventCount).toBe(2);
   });
+
+  test("collapses many events within a sub-bucket span without losing totals", () => {
+    // The read path pre-aggregates events into 15-minute UTC buckets in SQL
+    // before local-time bucketing. Many events inside one such window must
+    // still sum exactly, and events split across the 15-minute boundary but
+    // within the same local day must land in the same day bucket.
+    const windowStart = utcMs(2025, 3, 1, 10); // 10:00:00 UTC
+    for (let i = 0; i < 50; i++) {
+      // Spread across ~16 minutes so the events straddle a 15-minute boundary.
+      insertEventAt(windowStart + i * 20_000, {
+        inputTokens: 2,
+        outputTokens: 1,
+      });
+    }
+
+    const buckets = getUsageDayBuckets({
+      from: utcMs(2025, 3, 1),
+      to: utcMs(2025, 3, 2),
+    });
+    expect(buckets).toHaveLength(1);
+    expect(buckets[0].date).toBe("2025-03-01");
+    expect(buckets[0].totalInputTokens).toBe(100);
+    expect(buckets[0].totalOutputTokens).toBe(50);
+    expect(buckets[0].eventCount).toBe(50);
+  });
 });
 
 describe("getUsageDayBuckets — timezone-aware", () => {

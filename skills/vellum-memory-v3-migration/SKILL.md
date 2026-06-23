@@ -164,7 +164,7 @@ Resolve cross-references. Walk every staged article's `links:` and inline `[[wik
 This is what makes loss-proof real. Two passes (see `references/loss-proofing.md`):
 
 1. **Mechanical quote-screen** — extract quoted strings, dates, and numbers from each snapshot source; confirm each appears in the staged article that claims it (frontmatter stripped). A stdlib helper does this; flag misses.
-2. **Semantic reader panel** — fan out one reader per cluster (anonymous **schema** leaves — cheap, impartial, no persona) that reads source-vs-staged in full and lists substance present in the source but absent/weakened in the draft, tagged `[load-bearing]` / `[secondary]` / `[incidental]`. Adapt the loss-audit template in `references/workflows.md` (§2).
+2. **Semantic reader panel** — pre-assemble each cluster's source-vs-staged text into a bundle, then fan out one **non-schema** reader leaf per bundle that lists substance present in the source but absent/weakened in the draft, tagged `[load-bearing]` / `[secondary]` / `[incidental]`. A schema leaf has **no `file_read`** and would hallucinate findings against files it never read — use the bundle-reading template in `references/workflows.md` (§2).
 
 **Patch every `[load-bearing]` drop back verbatim** into the right section. Also confirm the drop-check: every snapshot path appears as a source in some staged article's provenance (or in `unrouted`). Then **review and approve** each cluster (`status: draft → final`) — you are reading content that is already verified whole.
 
@@ -176,13 +176,24 @@ cd "$VELLUM_WORKSPACE_DIR" && git add -A && git commit -m "memory-v3-migration: 
 
 ### Step 8 — Eval gate (prove it before cutover)
 
-Prove the staged wiki retrieves at least as well as today's corpus before cutting over. The `assistant memory v3 eval` command does the mechanical half — it mines recent real turns, retrieves the top pages from BOTH the snapshot and the staged wiki per turn (needle + dense, in memory, nothing live touched), and writes blinded A/B packets:
+Prove the staged wiki retrieves at least as well as today's corpus before cutting over. `assistant memory v3 eval` does the mechanical half — it mines recent real turns, retrieves the top pages from BOTH the snapshot and the staged wiki per turn (needle + dense, in memory, nothing live touched), and writes blinded A/B packets. Mine the turns **once**, excluding this migration's own conversation, then **pin that turn set on every re-judge** so iteration is reproducible (an unpinned re-run re-mines a different turn set, which reads as judge noise):
 
 ```
-assistant memory v3 eval --snapshot .mv3/snapshot/concepts --staging .mv3/staging --out .mv3/eval
+# first run — mines fresh turns; --exclude-conversation is the conversation you are in
+assistant memory v3 eval --snapshot .mv3/snapshot/concepts --staging .mv3/staging --out .mv3/eval --exclude-conversation <this-conversation-id>
+# every later run — pin the same turns so only the staged corpus varies
+assistant memory v3 eval --snapshot .mv3/snapshot/concepts --staging .mv3/staging --out .mv3/eval --turns-file .mv3/eval/key.json
 ```
 
-That writes `.mv3/eval/packets.json` (blinded A/B memory sets per turn) and `.mv3/eval/key.json` (the unblinding map). Then launch the **blind-judge workflow** (adapt `references/workflows.md` §3, pass `packets.json` as `args.packets`) to score each turn on coverage, map the verdicts back through `key.json`, and tally. The gate: the wiki must **win or tie**. If it loses, the losing turns name the clusters that under-retrieve (thin lead, over-merged article, missing link) — repair, re-run `eval`, re-judge. Do **not** cut over on a losing or unrun eval. See `references/eval-gate.md` for the methodology. (Embedding both corpora can take a while on a large corpus; `--no-dense` gives a fast lexical-only pass for iteration.)
+That writes `packets.json` (blinded A/B sets per turn), `key.json` (the per-turn unblinding map), and `eval-meta.json` (seed/k/dense, turn ids, and the **embedding identity** — confirm it's stable across runs; dense embedding drift makes runs incomparable). Then launch the **blind-judge workflow as a panel** (adapt `references/workflows.md` §3, pass `packets.json` as `args.packets`), write its verdicts to `.mv3/eval/verdicts.json`, and **decide with the deterministic tally** — never a hand count (A/B is shuffled per turn, so a global A-vs-B tally is wrong):
+
+```
+assistant memory v3 eval-tally --verdicts .mv3/eval/verdicts.json --key .mv3/eval/key.json
+```
+
+The gate is `eval-tally`'s `gate` field: **`pass`** if the wiki wins or ties (a within-noise difference is a tie, not a loss), **`fail`** only on a statistically significant loss. On `fail`, the losing turns name the clusters that under-retrieve (thin lead, over-merged article, missing link) — repair, re-run `eval` with the same `--turns-file`, re-judge, re-tally. Heed the `confident` flag — re-judge with a bigger panel if it's low. Do **not** cut over on a `fail`, a low-confidence, or an unrun gate. See `references/eval-gate.md`.
+
+**Judge model:** judging is the most quality-sensitive step — pin a strong, **known-working** leaf profile for it, and confirm the judge run's verdict count matches packets × panel size. (A profile can pass config validation yet no-op as a workflow leaf; the engine now fails such a leaf loudly rather than returning empty, but verify the count.)
 
 ### Step 9 — Cutover (deploy + go live)
 
@@ -219,7 +230,7 @@ Close the inference session if you opened one (`assistant inference session clos
 - **Loss-proof is verified, not intended.** The mechanical drop-check + load-bearing patch (Step 7) is mandatory. Patch drops **verbatim**.
 - **Editorial judgment is the assistant's.** Taxonomy (Step 3) and final review (Step 7) are the assistant's calls; fan-out leaves draft, they never mark an article final.
 - **Cluster-grain authoring.** One agent per topic cluster, not per page — keeps the run under the engine's 500-agent cap and keeps topical judgment coherent.
-- **No eval, no cutover.** The wiki ships only after the blind judge says it retrieves ≥ the v2 corpus.
+- **No eval, no cutover.** The wiki ships only after `assistant memory v3 eval-tally` returns `gate: pass` (wiki wins or ties) on a pinned, reproducible turn set — never on a hand tally. A `fail`, a low-confidence verdict, or an unrun gate blocks cutover.
 - **Freeze consolidation, then go live by config.** Before the snapshot (Step 1) disable both consolidation triggers (`consolidation_max_buffer_lines: null`, `consolidation_interval_hours` huge) and wait out any in-flight run via `memory/.v2-state/consolidation.lock` — consolidation is the only live-corpus writer. At cutover (Step 9) set `memory.v3.live true` _then_ restore the triggers; the order keeps the next consolidation in v3 shape.
 - **Lowercase, dash-separated flat slugs.** `the-cutover.md`, not `Arcs/The-Cutover.md`. v3 slugs are flat; hubs organize via `main:`/`links:`, not folders.
 - **Three sentinel commits**, all prefixed `memory-v3-migration:` — start / staged+audited / complete.
@@ -228,5 +239,5 @@ Close the inference session if you opened one (`assistant inference session clos
 
 - `references/v3-wiki-principles.md` — the v3 article skeleton and the principles every article obeys. Read first.
 - `references/loss-proofing.md` — the snapshot/staging/provenance/verify contract.
-- `references/eval-gate.md` — the blind-judge methodology and the ship gate.
-- `references/workflows.md` — the three fan-out templates the assistant adapts and launches via `run_workflow`: §1 author-clusters (write staged articles + provenance), §2 loss-audit (schema-leaf reader panel), §3 blind-judge (A/B content judge over mined turns).
+- `references/eval-gate.md` — the reproducible-eval + `eval-tally` ship gate methodology.
+- `references/workflows.md` — the three fan-out templates the assistant adapts and launches via `run_workflow`: §1 author-clusters (write staged articles + provenance), §2 loss-audit (bundle-reading reader panel, no schema), §3 blind-judge (A/B content judge panel over mined turns, tallied by `eval-tally`).

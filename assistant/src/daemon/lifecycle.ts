@@ -121,6 +121,10 @@ import {
   startDiskPressureGuard,
   stopDiskPressureGuard,
 } from "./disk-pressure-guard.js";
+import {
+  startEventLoopWatchdog,
+  stopEventLoopWatchdog,
+} from "./event-loop-watchdog.js";
 import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
 import { installAssistantSymlink } from "./install-symlink.js";
@@ -822,6 +826,7 @@ export async function runDaemon(): Promise<void> {
     log.info("Daemon startup: DaemonServer started");
     startDiskPressureGuardForLifecycle();
     startOrphanReaper();
+    startEventLoopWatchdog();
 
     // Mutable refs for Qdrant and memory worker so background
     // init can assign them and the shutdown handler always sees the latest value.
@@ -1422,6 +1427,7 @@ export async function runDaemon(): Promise<void> {
         stopGatewayFlagListener();
         stopDiskPressureGuardForLifecycle();
         stopOrphanReaper();
+        stopEventLoopWatchdog();
         cleanupPidFile();
       },
     });
@@ -1437,6 +1443,7 @@ export async function runDaemon(): Promise<void> {
     log.error({ err }, "Daemon startup failed — cleaning up");
     stopDiskPressureGuardForLifecycle();
     stopOrphanReaper();
+    stopEventLoopWatchdog();
     cleanupPidFileIfOwner(process.pid);
     throw err;
   }

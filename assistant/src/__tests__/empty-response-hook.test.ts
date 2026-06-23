@@ -326,6 +326,48 @@ describe("empty-response post-model-call hook — default decisions", () => {
     expect(ctx.decision).toBe("stop");
     expect(ctx.messages).toEqual([priorToolUseTurn]);
   });
+
+  // ─── Call-site gating ──────────────────────────────────────────────────────
+
+  test("empty turn after tools on a non-mainAgent call site → stop, no nudge", async () => {
+    // GIVEN an empty-after-tools turn that would nudge on the user-facing reply,
+    // but the call site is a background one (a memory retrospective). There is
+    // no user awaiting a summary, so the re-query nudge must not fire.
+    const ctx = makeCtx({
+      callSite: "memoryRetrospective",
+      messages: [priorToolUseTurn],
+      content: [],
+    });
+
+    // WHEN the hook runs.
+    await postModelCall(ctx);
+
+    // THEN the turn ends silently — no nudge appended, no re-query.
+    expect(ctx.decision).toBe("stop");
+    expect(ctx.messages).toEqual([priorToolUseTurn]);
+  });
+
+  test("refusal on a non-mainAgent call site is still rewritten to the fallback", async () => {
+    // GIVEN a refusal with no visible text on a background call site. The
+    // call-site gate scopes only the re-query nudge; the refusal-rewrite is a
+    // user-facing terminal fallback for any consumer that reads the final text,
+    // so it stays ungated.
+    const ctx = makeCtx({
+      callSite: "memoryRetrospective",
+      messages: [],
+      content: [],
+      stopReason: "refusal",
+    });
+
+    // WHEN the hook runs.
+    await postModelCall(ctx);
+
+    // THEN the empty refusal is still rewritten to the user-facing fallback.
+    expect(ctx.decision).toBe("stop");
+    expect(ctx.content).toEqual([
+      { type: "text", text: REFUSAL_FALLBACK_TEXT },
+    ]);
+  });
 });
 
 // ─── One-shot retry bound ────────────────────────────────────────────────────

@@ -565,6 +565,15 @@ export interface MarkdownMessageProps {
    * avoid rebuilding internal component overrides on every render.
    */
   linkComponent?: MarkdownLinkComponent;
+  /**
+   * Custom URL transform applied to link, image, and definition URLs.
+   * Overrides react-markdown's default sanitization which only allows
+   * `http:`, `https:`, `mailto:`, and a few other schemes. Use this to
+   * permit custom URI schemes (e.g. `vellum://`).
+   *
+   * @see https://github.com/remarkjs/react-markdown?tab=readme-ov-file#urltransform
+   */
+  urlTransform?: (url: string) => string;
 }
 
 export function MarkdownMessage({
@@ -572,6 +581,7 @@ export function MarkdownMessage({
   className,
   hardLineBreaks,
   linkComponent,
+  urlTransform,
 }: MarkdownMessageProps) {
   const processed = useMemo(() => {
     const escaped = escapeCurrencyDollars(content);
@@ -581,7 +591,7 @@ export function MarkdownMessage({
   const components = useMemo(() => buildMarkdownComponents(Link), [Link]);
   return (
     <div data-slot="markdown-message" className={cn("text-chat text-[var(--content-default)]", className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath, remarkPreserveOrderedListNumbers]} rehypePlugins={[rehypeKatex]} components={components}>
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath, remarkPreserveOrderedListNumbers]} rehypePlugins={[rehypeKatex]} components={components} urlTransform={urlTransform}>
         {processed}
       </ReactMarkdown>
     </div>

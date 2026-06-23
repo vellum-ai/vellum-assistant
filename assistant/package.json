@@ -41,6 +41,7 @@
     "@qdrant/js-client-rest": "1.17.0",
     "@resvg/resvg-js": "2.6.2",
     "@sentry/node": "10.43.0",
+    "@slack/types": "2.21.1",
     "@vellumai/ces-client": "file:../packages/ces-client",
     "@vellumai/credential-storage": "file:../packages/credential-storage",
     "@vellumai/egress-proxy": "file:../packages/egress-proxy",

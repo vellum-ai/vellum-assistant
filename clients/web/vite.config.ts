@@ -5,7 +5,11 @@ import { rmSync } from "node:fs";
 import type http from "node:http";
 import path from "node:path";
 import { defineConfig, loadEnv } from "vite";
-import { localModePlugin } from "./vite-plugin-local-mode";
+import {
+  localModePlugin,
+  getDevPlatformToken,
+  isSameOriginProxyRequest,
+} from "./vite-plugin-local-mode";
 
 const DESIGN_LIBRARY_SRC = path.resolve(
   import.meta.dirname,
@@ -19,21 +23,23 @@ function isPlatformMode(raw: string | undefined): boolean {
 }
 
 /**
- * Proxy configure hook that rewrites the localhost `sessionid` cookie
- * into both `sessionid` and `__Secure-sessionid` so the platform's
- * Django session middleware recognises it regardless of which cookie
- * name is configured (dev vs production).
- *
- * Only used in local mode — platform mode proxies without rewriting.
+ * Proxy configure hook (local mode) that authenticates upstream requests with
+ * the loopback platform session token the SPA registered, as the Django session
+ * cookie. No browser cookie is involved.
  */
-function forwardSessionCookie(proxy: { on: (event: string, cb: (...args: unknown[]) => void) => void }): void {
+function injectPlatformToken(proxy: {
+  on: (event: string, cb: (...args: unknown[]) => void) => void;
+}): void {
   proxy.on("proxyReq", (...args: unknown[]) => {
     const proxyReq = args[0] as http.ClientRequest;
     const req = args[1] as http.IncomingMessage;
-    const cookie = req.headers.cookie ?? "";
-    const match = /sessionid=([^;]+)/.exec(cookie);
-    if (match?.[1]) {
-      proxyReq.setHeader("Cookie", `sessionid=${match[1]}; __Secure-sessionid=${match[1]}`);
+    if (!isSameOriginProxyRequest(req)) return;
+    const token = getDevPlatformToken();
+    if (token) {
+      proxyReq.setHeader(
+        "Cookie",
+        `sessionid=${token}; __Secure-sessionid=${token}`,
+      );
     }
   });
 }
@@ -46,17 +52,22 @@ export default defineConfig(({ mode }) => {
   // Server-only proxy targets — never embedded in the client bundle.
   // Reference: https://vite.dev/config/server-options#server-proxy
   const apiProxyTarget = env.API_PROXY_TARGET || "http://localhost:8000";
-  const gatewayProxyTarget = env.GATEWAY_PROXY_TARGET || "http://localhost:7830";
+  const gatewayProxyTarget =
+    env.GATEWAY_PROXY_TARGET || "http://localhost:7830";
 
   // Only enable Sentry source map upload for deploy builds.
   // Reference: https://docs.sentry.io/platforms/javascript/guides/react/sourcemaps/uploading/vite/
   const sentryUploadEnabled = env.SENTRY_UPLOAD_SOURCE_MAPS === "true";
   if (sentryUploadEnabled && !env.SENTRY_AUTH_TOKEN) {
-    throw new Error("SENTRY_AUTH_TOKEN is required to upload Sentry source maps.");
+    throw new Error(
+      "SENTRY_AUTH_TOKEN is required to upload Sentry source maps.",
+    );
   }
   if (sentryUploadEnabled) {
     if (!env.VITE_APP_VERSION) {
-      throw new Error("VITE_APP_VERSION is required to upload Sentry source maps.");
+      throw new Error(
+        "VITE_APP_VERSION is required to upload Sentry source maps.",
+      );
     }
   }
 
@@ -129,14 +140,29 @@ export default defineConfig(({ mode }) => {
         allow: [import.meta.dirname, DESIGN_LIBRARY_SRC],
       },
       proxy: {
-        ...(isPlatformMode(env.VITE_PLATFORM_MODE) ? {
-          "/v1": { target: apiProxyTarget, changeOrigin: true },
-          "/_allauth": { target: apiProxyTarget, changeOrigin: true },
-        } : {
-          "/v1": { target: apiProxyTarget, changeOrigin: true, configure: forwardSessionCookie },
-          "/_allauth": { target: apiProxyTarget, changeOrigin: true, configure: forwardSessionCookie },
-        }),
-        "/accounts": { target: apiProxyTarget, changeOrigin: true },
+        ...(isPlatformMode(env.VITE_PLATFORM_MODE)
+          ? {
+              "/v1": { target: apiProxyTarget, changeOrigin: true },
+              "/_allauth": { target: apiProxyTarget, changeOrigin: true },
+              "/accounts": { target: apiProxyTarget, changeOrigin: true },
+            }
+          : {
+              "/v1": {
+                target: apiProxyTarget,
+                changeOrigin: true,
+                configure: injectPlatformToken,
+              },
+              "/_allauth": {
+                target: apiProxyTarget,
+                changeOrigin: true,
+                configure: injectPlatformToken,
+              },
+              "/accounts": {
+                target: apiProxyTarget,
+                changeOrigin: true,
+                configure: injectPlatformToken,
+              },
+            }),
         "/auth": { target: gatewayProxyTarget, changeOrigin: true },
       },
     },

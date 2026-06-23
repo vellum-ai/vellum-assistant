@@ -206,6 +206,35 @@ describe("AskQuestionTool.execute", () => {
     expect(result.content).toBe("Question aborted");
   });
 
+  test("short-circuits without prompting when no interactive user is present", async () => {
+    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
+
+    const result = await askQuestionTool.execute(
+      validInput,
+      makeContext({ isInteractive: false }),
+    );
+
+    // The prompter must never be invoked — there is no one to answer, so the
+    // turn proceeds with defaults instead of parking on the response backstop.
+    expect(calls).toHaveLength(0);
+    expect(result.isError).toBe(false);
+    expect(result.content.toLowerCase()).toContain("no interactive user");
+  });
+
+  test("still prompts when isInteractive is true or unset", async () => {
+    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
+
+    // The short-circuit keys off an explicit `false`, not a missing flag, so an
+    // interactive turn (or one that never set the flag) still prompts.
+    await askQuestionTool.execute(
+      validInput,
+      makeContext({ isInteractive: true }),
+    );
+    await askQuestionTool.execute(validInput, makeContext());
+
+    expect(calls).toHaveLength(2);
+  });
+
   test("rejects a question with fewer than 2 options", async () => {
     setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
     const result = await askQuestionTool.execute(

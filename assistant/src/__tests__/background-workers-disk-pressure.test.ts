@@ -116,6 +116,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   findAnalysisConversationFor: mock(() => null),
   findMostRecentRetrospectiveFor: mock(() => null),
   forkConversation: mock(() => ({ id: "conv-fork" })),
+  forkConversationForRetrospective: mock(async () => ({ id: "conv-fork" })),
   getConversationOverrideProfile: () => undefined,
   resolveOverrideProfile: () => undefined,
   getConversationMemoryScopeId: () => "default",

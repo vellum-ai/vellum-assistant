@@ -1,8 +1,5 @@
 import type { DrizzleDb } from "../db-connection.js";
 import { tableHasColumn } from "./schema-introspection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
-
-const CHECKPOINT_KEY = "migration_slack_compaction_watermark_v1";
 
 const COLUMNS = [
   {
@@ -24,14 +21,12 @@ const COLUMNS = [
  * of local insertion order.
  */
 export function migrateSlackCompactionWatermark(database: DrizzleDb): void {
-  withCrashRecovery(database, CHECKPOINT_KEY, () => {
-    for (const column of COLUMNS) {
-      if (tableHasColumn(database, "conversations", column.name)) {
-        continue;
-      }
-      database.run(`ALTER TABLE conversations ADD COLUMN ${column.definition}`);
+  for (const column of COLUMNS) {
+    if (tableHasColumn(database, "conversations", column.name)) {
+      continue;
     }
-  });
+    database.run(`ALTER TABLE conversations ADD COLUMN ${column.definition}`);
+  }
 }
 
 export function downSlackCompactionWatermark(database: DrizzleDb): void {

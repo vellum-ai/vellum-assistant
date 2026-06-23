@@ -44,6 +44,13 @@ interface MockCdpProxyOptions {
   sendThrows?: Error;
   /** If set, `attach()` will reject with this error. */
   attachThrows?: Error;
+  /**
+   * If set, only the FIRST `attach()` call rejects with this error;
+   * subsequent calls succeed. Used to exercise the Page.navigate
+   * recovery path, where the initial attach fails on a restricted tab
+   * and the retry attaches to a freshly created blank tab.
+   */
+  attachThrowsOnce?: Error;
 }
 
 interface MockCdpProxy extends CdpProxy {
@@ -91,6 +98,9 @@ function createMockCdpProxy(options: MockCdpProxyOptions = {}): MockCdpProxy {
     async attach(target, requiredVersion) {
       attachCalls.push({ target, requiredVersion });
       if (options.attachThrows) throw options.attachThrows;
+      if (options.attachThrowsOnce && attachCalls.length === 1) {
+        throw options.attachThrowsOnce;
+      }
     },
     async detach(target) {
       detachCalls.push(target);
@@ -683,6 +693,74 @@ describe('createHostBrowserDispatcher', () => {
 
       // We still attempted to post the error envelope once.
       expect(postResultCalls).toBe(1);
+    });
+  });
+
+  describe('handle — Page.navigate restricted-tab recovery', () => {
+    const navigateRequest: HostBrowserRequestEnvelope = {
+      type: 'host_browser_request',
+      requestId: 'nav-1',
+      conversationId: 'conv-1',
+      cdpMethod: 'Page.navigate',
+      cdpParams: { url: 'https://example.com' },
+    };
+
+    test('recovers from a privileged chrome:// tab by creating a new tab and retargeting', async () => {
+      harness = createHarness({
+        attachThrowsOnce: new Error('Cannot access a chrome:// URL'),
+      });
+      harness.createTabImpl = async () => ({ tabId: 99 });
+
+      await harness.dispatcher.handle(navigateRequest);
+
+      // First attach on the active (restricted) tab failed; recovery
+      // created a new tab and the retry attached to it.
+      expect(harness.createTabCalls).toBe(1);
+      expect(harness.proxy.attachCalls.length).toBe(2);
+      expect(harness.proxy.attachCalls[1].target).toEqual({ tabId: 99 });
+      // The actual navigate was sent against the recovered tab.
+      expect(harness.proxy.sendCalls.length).toBe(1);
+      expect(harness.proxy.sendCalls[0].target).toEqual({ tabId: 99 });
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].isError).toBe(false);
+    });
+
+    test('recovers from a Chrome Web Store / extensions gallery tab ("cannot be scripted")', async () => {
+      harness = createHarness({
+        attachThrowsOnce: new Error('The extensions gallery cannot be scripted.'),
+      });
+      harness.createTabImpl = async () => ({ tabId: 99 });
+
+      await harness.dispatcher.handle(navigateRequest);
+
+      expect(harness.createTabCalls).toBe(1);
+      expect(harness.proxy.attachCalls.length).toBe(2);
+      expect(harness.proxy.attachCalls[1].target).toEqual({ tabId: 99 });
+      expect(harness.proxy.sendCalls[0].target).toEqual({ tabId: 99 });
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].isError).toBe(false);
+    });
+
+    test('does NOT open a new tab for non-navigate methods on a restricted tab', async () => {
+      // Status-probe Runtime.evaluate against a Web Store tab must surface
+      // the error, not silently spawn a tab as a side effect.
+      harness = createHarness({
+        attachThrowsOnce: new Error('The extensions gallery cannot be scripted.'),
+      });
+      harness.createTabImpl = async () => ({ tabId: 99 });
+
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpMethod: 'Runtime.evaluate',
+      });
+
+      expect(harness.createTabCalls).toBe(0);
+      expect(harness.proxy.attachCalls.length).toBe(1);
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].isError).toBe(true);
+      expect(harness.results[0].content).toBe(
+        'The extensions gallery cannot be scripted.',
+      );
     });
   });
 

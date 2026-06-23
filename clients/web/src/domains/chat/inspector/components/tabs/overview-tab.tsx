@@ -1,18 +1,19 @@
 import { type ReactNode } from "react";
 
 import {
-    displayProvider,
-    displayText,
-    formatCacheTokens,
-    formatCost,
-    formatCount,
-    formattedCreatedAt,
-    isProviderOnlySummary,
-    summaryFallbackMessage,
+  displayProvider,
+  displayText,
+  formatCacheTokens,
+  formatCost,
+  formatCount,
+  formattedCreatedAt,
+  isProviderOnlySummary,
+  summaryFallbackMessage,
 } from "@/domains/chat/inspector/inspector-formatters";
+import { LlmCallErrorCard } from "@/domains/chat/inspector/components/llm-call-error-card";
 import type {
-    LLMCallSummary,
-    LLMRequestLogEntry,
+  LLMCallSummary,
+  LLMRequestLogEntry,
 } from "@vellumai/assistant-api";
 import { Card } from "@vellumai/design-library";
 
@@ -37,7 +38,16 @@ export function OverviewTab({
   conversationTotalEstimatedCostUsd,
 }: OverviewTabProps): ReactNode {
   const summary = entry.summary;
-  const showFallback = !summary || isProviderOnlySummary(summary);
+  const error = entry.error ?? null;
+  const hasError = error != null;
+  // A failed call gets a dedicated banner; only show the generic
+  // "summary unavailable" fallback when the call didn't fail.
+  const showFallback =
+    !hasError && (!summary || isProviderOnlySummary(summary));
+  // Skip the sea-of-"Unavailable" metadata cards on a failed call whose
+  // summary never normalized past the provider name — the failure banner
+  // already carries the useful signal.
+  const showSummaryCards = summary != null && !isProviderOnlySummary(summary);
   const conversationTotals = renderConversationTotalsCard(
     conversationTotalEstimatedCostUsd,
   );
@@ -59,20 +69,26 @@ export function OverviewTab({
   return (
     <div className="flex flex-col gap-4 p-4">
       {conversationTotals}
-      <MetadataCard
-        title="Normalized metadata"
-        subtitle="Provider, model, timestamps, and usage counts."
-        rows={buildIdentityRows(
-          summary,
-          entry.createdAt,
-          entry.agentLoopExitReason,
-        )}
-      />
-      <MetadataCard
-        title="Usage"
-        subtitle="Token and call counts normalized by the assistant route."
-        rows={buildUsageRows(summary)}
-      />
+      {hasError && <LlmCallErrorCard error={error} />}
+      {showSummaryCards && (
+        <>
+          <MetadataCard
+            title="Normalized metadata"
+            subtitle="Provider, model, timestamps, and usage counts."
+            rows={buildIdentityRows(
+              summary,
+              entry.createdAt,
+              entry.agentLoopExitReason,
+              hasError,
+            )}
+          />
+          <MetadataCard
+            title="Usage"
+            subtitle="Token and call counts normalized by the assistant route."
+            rows={buildUsageRows(summary, hasError)}
+          />
+        </>
+      )}
     </div>
   );
 }
@@ -104,6 +120,7 @@ function buildIdentityRows(
   summary: LLMCallSummary,
   createdAt: number | null | undefined,
   agentLoopExitReason: string | null | undefined,
+  hasError: boolean,
 ): MetadataRow[] {
   const rows: MetadataRow[] = [
     { label: "Provider", value: displayProvider(summary.provider ?? null) },
@@ -111,6 +128,9 @@ function buildIdentityRows(
     { label: "Created", value: formattedCreatedAt(createdAt) },
     { label: "Stop reason", value: displayText(summary.stopReason ?? null) },
   ];
+  if (hasError) {
+    rows.push({ label: "Status", value: "Failed" });
+  }
   if (agentLoopExitReason != null && agentLoopExitReason.trim().length > 0) {
     rows.push({
       label: "Loop exit reason",
@@ -120,7 +140,10 @@ function buildIdentityRows(
   return rows;
 }
 
-function buildUsageRows(summary: LLMCallSummary): MetadataRow[] {
+function buildUsageRows(
+  summary: LLMCallSummary,
+  hasError: boolean,
+): MetadataRow[] {
   const rows: MetadataRow[] = [
     { label: "Input tokens", value: formatCount(summary.inputTokens) },
     { label: "Output tokens", value: formatCount(summary.outputTokens) },
@@ -131,18 +154,23 @@ function buildUsageRows(summary: LLMCallSummary): MetadataRow[] {
         summary.cacheReadInputTokens,
       ),
     },
-    { label: "Estimated cost", value: formatCost(summary.estimatedCostUsd) },
+    // A rejected call billed nothing, so show an explicit $0.00 rather than
+    // the "Unavailable" placeholder a missing cost would otherwise render.
+    {
+      label: "Estimated cost",
+      value: hasError ? formatCost(0) : formatCost(summary.estimatedCostUsd),
+    },
     {
       label: "Request messages",
       value: formatCount(summary.requestMessageCount),
     },
     { label: "Tools available", value: formatCount(summary.requestToolCount) },
-    { label: "Tool calls", value: formatCount(summary.responseToolCallCount ?? 0) },
+    {
+      label: "Tool calls",
+      value: formatCount(summary.responseToolCallCount ?? 0),
+    },
   ];
-  if (
-    summary.durationMs != null &&
-    Number.isFinite(summary.durationMs)
-  ) {
+  if (summary.durationMs != null && Number.isFinite(summary.durationMs)) {
     rows.splice(4, 0, {
       label: "Duration",
       value: `${formatCount(Math.round(summary.durationMs))} ms`,

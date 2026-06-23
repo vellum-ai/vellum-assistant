@@ -39,7 +39,9 @@ mock.module("react-router", () => ({
 // Imported AFTER the mock so the component picks up the stub.
 import { CallRail } from "./call-rail";
 
-function makeRealEntry(overrides: Partial<LLMRequestLogEntry> = {}): LLMRequestLogEntry {
+function makeRealEntry(
+  overrides: Partial<LLMRequestLogEntry> = {},
+): LLMRequestLogEntry {
   return {
     id: "call-real-1",
     createdAt: Date.parse("2026-05-26T13:30:00Z"),
@@ -143,6 +145,31 @@ describe("CallRail — synthetic vs real rows", () => {
     expect(html).toContain("Cost");
     expect(html).toContain("Unavailable");
     expect(html).not.toContain("var(--system-negative-strong)");
+  });
+});
+
+describe("CallRail — failed rows", () => {
+  test("flags a provider-rejected call with the warning palette, a Failed pill, and $0.00 cost", () => {
+    // GIVEN a real call the provider rejected (structured `error` present)
+    // WHEN the rail renders the row
+    const html = render([
+      makeRealEntry({
+        summary: { provider: "fireworks", model: "glm-5p2" },
+        error: {
+          name: "ProviderError",
+          message: "This model doesn't support image input.",
+          code: "PROVIDER_ERROR",
+          provider: "fireworks",
+          statusCode: 400,
+        },
+      }),
+    ]);
+    // THEN it carries the failure styling and a Failed pill
+    expect(html).toContain("var(--system-negative-strong)");
+    expect(html).toContain("Failed");
+    // AND the cost reads $0.00 rather than "Unavailable"
+    expect(html).toContain("$0.00");
+    expect(html).not.toContain("Unavailable");
   });
 });
 

@@ -19,6 +19,7 @@ import type {
   HelperState,
   HotkeyEvent,
   LocalAssistantStatusResult,
+  LocalUpgradeOptions,
   LocalWakeOptions,
   NotificationActionEvent,
   PowerEvent,
@@ -307,6 +308,16 @@ const bridge: VellumBridge = {
         ok: boolean;
         error?: string;
       }>,
+    upgrade: (assistantId: string, options?: LocalUpgradeOptions) =>
+      ipcRenderer.invoke(
+        "vellum:localMode:upgrade",
+        assistantId,
+        options,
+      ) as Promise<{
+        ok: boolean;
+        version?: string;
+        error?: string;
+      }>,
     status: (assistantId: string) =>
       ipcRenderer.invoke(
         "vellum:localMode:status",
@@ -494,6 +505,21 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke(
         "vellum:dictationOverlay:getState",
       ) as Promise<DictationOverlayState | null>,
+    requestStop: (): void => {
+      ipcRenderer.send("vellum:dictationOverlay:requestStop");
+    },
+    onStopRequested: (callback) => {
+      const handler = () => {
+        callback();
+      };
+      ipcRenderer.on("vellum:dictationOverlay:stopRequested", handler);
+      return () => {
+        ipcRenderer.off("vellum:dictationOverlay:stopRequested", handler);
+      };
+    },
+    setInteractive: (interactive: boolean): void => {
+      ipcRenderer.send("vellum:dictationOverlay:setInteractive", interactive);
+    },
   },
   popout: {
     open: (conversationId: string): Promise<void> =>

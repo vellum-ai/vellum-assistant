@@ -9,7 +9,7 @@ import type {
 
 // Use a tiny timeout so the setTimeout branch fires quickly in tests
 const mockConfig = {
-  timeouts: { permissionTimeoutSec: 0.05 },
+  timeouts: { questionResponseTimeoutSec: 0.05 },
 };
 // Preserve every other export from the real config/loader so other
 // tests in the same `bun test` run (which share module-level mocks)

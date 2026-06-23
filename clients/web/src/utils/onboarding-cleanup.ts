@@ -4,9 +4,11 @@
  * Consent flags live in `device:consent:{tos,privacy,share_analytics,share_diagnostics}:v<VERSION>:<userId>`.
  * The `device:` prefix survives logout; the userId makes them per-user;
  * the version lets us force re-consent by bumping the relevant version
- * constant. The ToS legal terms version independently from the privacy
- * artifacts (privacy policy, AI data sharing, the share toggles), so each can
- * be re-reviewed without forcing the other.
+ * constant. The four consent axes version independently — ToS, the privacy
+ * checkbox (privacy policy + AI data sharing), share-analytics, and
+ * share-diagnostics — so any one can be re-reviewed without forcing the
+ * others. Bumping the privacy policy, in particular, must not re-prompt the
+ * two data-capture toggles, so those carry their own frozen versions.
  *
  * The `share_analytics`/`share_diagnostics` ack keys record the version under
  * which the toggle was last confirmed (its currency), independent of the
@@ -30,8 +32,18 @@ import { setDiagnosticsReportingGate } from "@/lib/consent/diagnostics-consent";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import { patchConsent, type UserConsent } from "@/domains/account/profile";
 
+// Consent versions must be zero-padded ISO dates (YYYY-MM-DD): currency is a
+// monotonic comparison (`resolveServerConsent` uses `>=`), which requires a
+// lexicographically sortable, chronological format.
 export const TOS_CONSENT_VERSION = "2026-06-08";
-export const PRIVACY_CONSENT_VERSION = "2026-06-18";
+export const PRIVACY_CONSENT_VERSION = "2026-06-22";
+
+// The two data-capture toggles version independently from the privacy policy.
+// Frozen at the prior privacy version (the value existing toggle acks/device
+// keys are stamped under) so bumping the privacy policy doesn't re-prompt
+// capture consent. Bump each independently when its own disclosure changes.
+export const ANALYTICS_CONSENT_VERSION = "2026-06-18";
+export const DIAGNOSTICS_CONSENT_VERSION = "2026-06-18";
 
 // The privacy version that the legacy "ai"-named device key was last written
 // under, before that field was folded into "privacy". Frozen as a literal (not
@@ -40,14 +52,14 @@ export const PRIVACY_CONSENT_VERSION = "2026-06-18";
 // key rather than treating it as current consent.
 const LEGACY_AI_PRIVACY_CONSENT_VERSION = "2026-06-08";
 
-// Version stamp embedded in each field's device-cache key. ToS tracks its own
-// version; the privacy checkbox (privacy policy + AI data sharing) and the two
-// share toggles track the privacy version.
+// Version stamp embedded in each field's device-cache key. ToS, the privacy
+// checkbox (privacy policy + AI data sharing), and each share toggle track
+// their own version constant.
 const CONSENT_KEY_VERSION = {
   tos: TOS_CONSENT_VERSION,
   privacy: PRIVACY_CONSENT_VERSION,
-  share_analytics: PRIVACY_CONSENT_VERSION,
-  share_diagnostics: PRIVACY_CONSENT_VERSION,
+  share_analytics: ANALYTICS_CONSENT_VERSION,
+  share_diagnostics: DIAGNOSTICS_CONSENT_VERSION,
 } as const;
 
 function consentKey(field: keyof typeof CONSENT_KEY_VERSION, userId: string): string {
@@ -155,6 +167,17 @@ export function clearConsentForUser(userId: string | null): void {
 // Server consent resolution
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether a server-recorded `accepted` version satisfies the `required` build
+ * version. Monotonic (`>=`): a version at or newer than the build's constant is
+ * current, so a build never treats a newer client's acceptance as stale. `""`
+ * (never accepted) sorts below any real version and stays stale. Relies on the
+ * ISO-date version format (see the version constants above).
+ */
+function versionIsCurrent(accepted: string, required: string): boolean {
+  return accepted >= required;
+}
+
 export function resolveServerConsent(
   consent: UserConsent | null | undefined,
 ): {
@@ -196,14 +219,21 @@ export function resolveServerConsent(
   return {
     // The ToS checkbox covers only the Terms of Service. The privacy checkbox
     // covers both the Privacy Policy and the AI Data Sharing Policy, so it is
-    // current only when BOTH versions match.
-    tos: consent.tos_accepted_version === TOS_CONSENT_VERSION,
-    privacy: consent.privacy_policy_accepted_version === PRIVACY_CONSENT_VERSION
-      && consent.ai_data_sharing_accepted_version === PRIVACY_CONSENT_VERSION,
+    // current only when BOTH versions are at or past the current version.
+    tos: versionIsCurrent(consent.tos_accepted_version, TOS_CONSENT_VERSION),
+    privacy:
+      versionIsCurrent(consent.privacy_policy_accepted_version, PRIVACY_CONSENT_VERSION) &&
+      versionIsCurrent(consent.ai_data_sharing_accepted_version, PRIVACY_CONSENT_VERSION),
     shareAnalytics: consent.share_analytics,
     shareDiagnostics: consent.share_diagnostics,
-    analyticsCurrent: consent.share_analytics_accepted_version === PRIVACY_CONSENT_VERSION,
-    diagnosticsCurrent: consent.share_diagnostics_accepted_version === PRIVACY_CONSENT_VERSION,
+    analyticsCurrent: versionIsCurrent(
+      consent.share_analytics_accepted_version,
+      ANALYTICS_CONSENT_VERSION,
+    ),
+    diagnosticsCurrent: versionIsCurrent(
+      consent.share_diagnostics_accepted_version,
+      DIAGNOSTICS_CONSENT_VERSION,
+    ),
     hasServerRecord,
   };
 }
@@ -240,8 +270,8 @@ export function saveConsent(opts: {
       ai_data_sharing_accepted_version: opts.privacy ? PRIVACY_CONSENT_VERSION : "",
       share_analytics: opts.shareAnalytics,
       share_diagnostics: opts.shareDiagnostics,
-      share_analytics_accepted_version: PRIVACY_CONSENT_VERSION,
-      share_diagnostics_accepted_version: PRIVACY_CONSENT_VERSION,
+      share_analytics_accepted_version: ANALYTICS_CONSENT_VERSION,
+      share_diagnostics_accepted_version: DIAGNOSTICS_CONSENT_VERSION,
     }).catch(() => {});
   }
 }
@@ -283,7 +313,7 @@ export function savePreferenceToggle(
   if (hasPlatformSession) {
     void patchConsent({
       [field]: value,
-      [`${field}_accepted_version`]: PRIVACY_CONSENT_VERSION,
+      [`${field}_accepted_version`]: CONSENT_KEY_VERSION[field],
     }).catch(() => {});
   }
 }

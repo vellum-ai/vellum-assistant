@@ -376,7 +376,7 @@ export class Conversation {
    */
   wakePersonaOverride?: SystemPromptPersonaOverride;
   /** @internal */ currentTurnOverrideProfile?: string;
-  /** @internal */ toolRoutedProfile?: string;
+  /** @internal */ currentTurnIsNonInteractive?: boolean;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ currentTurnAuthContext?: AuthContext;
   /** @internal */ currentTurnSourceActorPrincipalId?: string;
@@ -1550,9 +1550,7 @@ export class Conversation {
 
   ensureHostProxiesForTurn(
     sourceInterface: import("../channels/types.js").InterfaceId | undefined,
-    sourceActorPrincipalId = this.currentTurnSourceActorPrincipalId ??
-      this.currentTurnAuthContext?.actorPrincipalId ??
-      this.authContext?.actorPrincipalId,
+    sourceActorPrincipalId = this.getTurnActorPrincipalId(),
   ): void {
     if (
       shouldAttachHostProxyForCapability(
@@ -1845,6 +1843,21 @@ export class Conversation {
 
   getAuthContext(): AuthContext | undefined {
     return this.authContext;
+  }
+
+  /**
+   * The actor principal that owns the current turn, for host-proxy routing.
+   * Prefers the in-flight turn's actor over the conversation's resting
+   * authContext so a /v1/messages turn (which sets only
+   * `currentTurnSourceActorPrincipalId`/`currentTurnAuthContext`) scopes
+   * correctly. Returns `undefined` when no actor identity is known.
+   */
+  getTurnActorPrincipalId(): string | undefined {
+    return (
+      this.currentTurnSourceActorPrincipalId ??
+      this.currentTurnAuthContext?.actorPrincipalId ??
+      this.authContext?.actorPrincipalId
+    );
   }
 
   setVoiceCallControlPrompt(prompt: string | null): void {

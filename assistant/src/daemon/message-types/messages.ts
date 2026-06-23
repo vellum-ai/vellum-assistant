@@ -22,7 +22,6 @@ import type {
   TraceEvent,
   TraceEventKind,
 } from "../../api/events/trace-event.js";
-import type { TurnProfileAutoRoutedEvent } from "../../api/events/turn-profile-auto-routed.js";
 import type { UserMessageEchoEvent } from "../../api/events/user-message-echo.js";
 import type { ChannelId, InterfaceId } from "../../channels/types.js";
 import type { CommandIntent, UserMessageAttachment } from "./shared.js";
@@ -122,8 +121,6 @@ export interface ConfirmationStateChanged {
   toolUseId?: string;
 }
 
-export type { TurnProfileAutoRoutedEvent };
-
 /**
  * Broadcast to clients when a conversation's inference-profile override
  * changes. `profile` is the profile name (a key in `llm.profiles`) or
@@ -172,6 +169,5 @@ export type _MessagesServerMessages =
   | TraceEvent
   | ConfirmationStateChanged
   | AssistantActivityStateEvent
-  | TurnProfileAutoRoutedEvent
   | ConversationInferenceProfileUpdated
   | InteractionResolvedEvent;

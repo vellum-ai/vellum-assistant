@@ -34,7 +34,7 @@ export interface MigrationRunResult {
  * `drop_*`) and is deliberately chosen so `validateMigrationState` does not
  * mistake a step record for an unknown registry migration.
  */
-const STEP_CHECKPOINT_PREFIX = "step:";
+export const STEP_CHECKPOINT_PREFIX = "step:";
 
 /**
  * Create the migration bookkeeping table if it is missing.
@@ -119,10 +119,9 @@ export function recoverCrashedMigrations(database: DrizzleDb): string[] {
  * unconditional ~200-step re-probe — which floors daemon startup at tens of
  * seconds on a fully-migrated database — into a single bookkeeping read.
  *
- * Step bookkeeping shares the same `memory_checkpoints` ledger that the
- * registry's `withCrashRecovery` uses, under the {@link STEP_CHECKPOINT_PREFIX}
- * namespace, so applied-state for every migration — DDL guard or registry-backed
- * — lives in one place.
+ * Step bookkeeping lives in the `memory_checkpoints` ledger under the
+ * {@link STEP_CHECKPOINT_PREFIX} namespace, so applied-state for every
+ * migration lives in one place.
  *
  * Before the step loop runs, the ledger is created if missing and
  * {@link recoverCrashedMigrations} clears any stalled checkpoints left by a
@@ -172,27 +171,10 @@ export async function runMigrationSteps(
     }
 
     try {
-      log.info({ migration: name }, `Starting migration: ${name}`);
-
-      // For async steps, write a 'started' marker BEFORE calling the
-      // step. An async function starts executing synchronously up to its
-      // first `await`, so the 'started' write must happen before we call
-      // the step to ensure the marker is visible during the async body.
-      // Sync steps don't need a 'started' marker — they complete before
-      // the event loop can process the write (a crash during a sync step
-      // would lose it too).
-      //
-      // We detect async-ness by checking if the step's toString() body
-      // contains `async` — cheaper than calling it and checking the
-      // return type, which would have already started execution.
-      const isAsync = step.constructor.name === "AsyncFunction";
-      if (checkpointable && isAsync) {
+      if (checkpointable) {
         markStarted.run(`${STEP_CHECKPOINT_PREFIX}${name}`, Date.now());
       }
-
-      // Await only steps that actually return a promise, so a list of purely
-      // synchronous steps runs to completion without yielding the thread — and
-      // an async step is fully drained before it is checkpointed below.
+      log.info({ migration: name }, `Starting migration: ${name}`);
       const result = step(database);
       if (result instanceof Promise) {
         await result;
@@ -218,13 +200,10 @@ export async function runMigrationSteps(
  * Discard every forward-step checkpoint so the next {@link runMigrationSteps}
  * call re-runs and re-records all steps.
  *
- * Migration rollback calls this. A rolled-back step whose body is registry-backed
- * (guarded by `withCrashRecovery`) clears its own `memory_checkpoints` registry
- * entry when its `down()` runs; the `step:` checkpoint recorded here must be
- * discarded in the same operation, otherwise the runner skips the step on the
- * next upgrade and the rolled-back schema is never restored. Only the `step:`
- * namespace is cleared, leaving registry checkpoints and other ledger entries
- * untouched.
+ * Migration rollback calls this. A rolled-back step's `step:` checkpoint
+ * must be discarded, otherwise the runner skips the step on the next
+ * upgrade and the rolled-back schema is never restored. Only the `step:`
+ * namespace is cleared, leaving other ledger entries untouched.
  */
 export function clearMigrationStepCheckpoints(database: DrizzleDb): void {
   getSqliteFrom(database).run(

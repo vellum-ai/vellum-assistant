@@ -1,6 +1,6 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { forwardRef } from "react";
+import { forwardRef, useImperativeHandle } from "react";
 
 type TextInsertionStatus =
   | "inserted"
@@ -22,20 +22,37 @@ let latestVoiceInputProps: VoiceInputButtonProps | null = null;
 let nextTextInsertionStatus: TextInsertionStatus = "unavailable";
 const insertedTexts: string[] = [];
 let nextDictationResult: { mode: "dictation"; text: string } | null = null;
+let overlayStopCallback: (() => void) | null = null;
+const voiceStopMock = mock(() => undefined);
 type ToastErrorOptions = { id?: string };
 const toastErrorMock = mock(
   (_message: string, _options?: ToastErrorOptions) => undefined,
 );
 
 mock.module("@/domains/chat/components/voice-input-button", () => ({
-  VoiceInputButton: forwardRef<unknown, VoiceInputButtonProps>((props, _ref) => {
+  VoiceInputButton: forwardRef<unknown, VoiceInputButtonProps>((props, ref) => {
     latestVoiceInputProps = props;
+    useImperativeHandle(ref, () => ({
+      start: () => undefined,
+      stop: voiceStopMock,
+    }));
     return null;
   }),
 }));
 
 mock.module("@/domains/chat/hooks/use-dictation-overlay-sync", () => ({
   useDictationOverlaySync: () => undefined,
+}));
+
+mock.module("@/runtime/dictation-overlay", () => ({
+  subscribeToDictationOverlayStop: (callback: () => void) => {
+    overlayStopCallback = callback;
+    return () => {
+      if (overlayStopCallback === callback) {
+        overlayStopCallback = null;
+      }
+    };
+  },
 }));
 
 mock.module(
@@ -76,6 +93,9 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 const { GlobalPushToTalkBridge } = await import("./global-push-to-talk-bridge");
 const { formatVoiceError } = await import("@/domains/chat/utils/chat");
 const { useComposerStore } = await import("@/domains/chat/composer-store");
+const { useVoiceRecordingStore } = await import(
+  "@/domains/chat/voice/voice-recording-store"
+);
 const { useConversationStore } = await import("@/stores/conversation-store");
 const { useViewerStore } = await import("@/stores/viewer-store");
 
@@ -90,10 +110,13 @@ const renderBridge = (assistantId: string | null = "assistant-1") => {
 afterEach(() => {
   cleanup();
   latestVoiceInputProps = null;
+  overlayStopCallback = null;
+  voiceStopMock.mockClear();
   nextTextInsertionStatus = "unavailable";
   nextDictationResult = null;
   insertedTexts.length = 0;
   toastErrorMock.mockClear();
+  useVoiceRecordingStore.getState().reset();
   useComposerStore.getState().setInput("");
   useComposerStore.getState().fullReset();
   useConversationStore.getState().reset();
@@ -150,5 +173,28 @@ describe("GlobalPushToTalkBridge", () => {
         { id: "voice-error:stt-not-configured" },
       ],
     ]);
+  });
+
+  test("stops the active voice input when the overlay requests stop during recording", () => {
+    renderBridge();
+
+    act(() => {
+      useVoiceRecordingStore.getState().startRecording();
+    });
+    act(() => {
+      overlayStopCallback?.();
+    });
+
+    expect(voiceStopMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("ignores overlay stop requests outside a recording session", () => {
+    renderBridge();
+
+    act(() => {
+      overlayStopCallback?.();
+    });
+
+    expect(voiceStopMock).not.toHaveBeenCalled();
   });
 });

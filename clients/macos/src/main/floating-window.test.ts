@@ -67,9 +67,11 @@ const makeWindow = (): StubWindow => {
     },
     setPosition: mock((_x: number, _y: number) => undefined),
     setAlwaysOnTop: mock((_flag: boolean, _level: string) => undefined),
-    setIgnoreMouseEvents: mock((_ignore: boolean) => {
-      calls.push("setIgnoreMouseEvents");
-    }),
+    setIgnoreMouseEvents: mock(
+      (_ignore: boolean, _options?: { forward?: boolean }) => {
+        calls.push("setIgnoreMouseEvents");
+      },
+    ),
     setVisibleOnAllWorkspaces: mock(
       (_visible: boolean, _opts: Record<string, boolean>) => undefined,
     ),
@@ -273,6 +275,45 @@ describe("createFloatingWindow", () => {
 
     expect(win.setIgnoreMouseEvents.mock.calls).toEqual([[true]]);
     expect(win.__calls).toEqual(["setIgnoreMouseEvents", "showInactive"]);
+  });
+
+  test("can forward mouse movement while click-through", () => {
+    const win = createFloatingWindow({
+      kind: kind("click-through-forward"),
+      route: "/overlay",
+      width: 100,
+      height: 100,
+      ignoreMouseEvents: { forward: true },
+    }) as unknown as StubWindow;
+
+    expect(win.setIgnoreMouseEvents.mock.calls).toEqual([
+      [true, { forward: true }],
+    ]);
+  });
+
+  test("reapplies click-through behavior when reusing an existing window", () => {
+    const singletonKind = kind("click-through-reuse");
+
+    const win = createFloatingWindow({
+      kind: singletonKind,
+      route: "/overlay",
+      width: 100,
+      height: 100,
+      ignoreMouseEvents: { forward: true },
+    }) as unknown as StubWindow;
+    win.setIgnoreMouseEvents.mockClear();
+
+    createFloatingWindow({
+      kind: singletonKind,
+      route: "/overlay",
+      width: 100,
+      height: 100,
+      ignoreMouseEvents: { forward: true },
+    });
+
+    expect(win.setIgnoreMouseEvents.mock.calls).toEqual([
+      [true, { forward: true }],
+    ]);
   });
 
   test("drops the singleton reference when the window closes", () => {

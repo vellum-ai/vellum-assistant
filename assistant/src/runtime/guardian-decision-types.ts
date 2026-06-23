@@ -1,9 +1,7 @@
 /**
- * Shared types for the guardian decision primitive.
- *
- * All decision entrypoints (callback buttons, conversational engine, legacy
- * parser, requester self-cancel) use these types to route through the
- * unified `applyGuardianDecision` primitive.
+ * Shared types and render helpers for guardian decision prompts: the prompt
+ * model shown to guardians, the canonical action constants, and the
+ * legend/fallback builders used to present them on rich and plain-text channels.
  */
 
 // ---------------------------------------------------------------------------
@@ -107,21 +105,4 @@ export function buildPlainTextFallback(
   _actions: GuardianDecisionAction[],
 ): string {
   return `${promptText}\n\nReply "yes" to approve or "no" to reject.`;
-}
-
-// ---------------------------------------------------------------------------
-// Apply decision result
-// ---------------------------------------------------------------------------
-
-export interface ApplyGuardianDecisionResult {
-  applied: boolean;
-  reason?:
-    | "stale"
-    | "identity_mismatch"
-    | "invalid_action"
-    | "not_found"
-    | "expired";
-  requestId?: string;
-  /** Feedback text when the action was parsed from user text. */
-  userText?: string;
 }

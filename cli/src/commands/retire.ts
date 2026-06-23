@@ -9,7 +9,6 @@ import {
   loadAllAssistants,
   lookupAssistantByIdentifier,
   removeAssistantEntry,
-  resolveCloud,
   type AssistantEntry,
 } from "../lib/assistant-config.js";
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
@@ -249,7 +248,7 @@ async function retireInner(): Promise<void> {
   const entry = lookup.entry;
   const assistantId = entry.assistantId;
   const source = parsed.source;
-  const cloud = resolveCloud(entry);
+  const cloud = entry.cloud;
 
   if (cloud === "paired") {
     // A remote assistant paired from another machine. Retiring tears the

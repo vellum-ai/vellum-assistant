@@ -1,9 +1,9 @@
 import { type DragEventHandler, type ReactNode } from "react";
 
-import { Eye, Paperclip, Square } from "lucide-react";
+import { Eye, Paperclip, Square, X } from "lucide-react";
 
-import { ChatComposer, type ChatComposerProps } from "@/domains/chat/components/chat-composer/chat-composer";
 import { QuestionPromptSlot } from "@/domains/chat/components/question-prompt-slot";
+import { StagedQuotesStrip } from "@/domains/chat/components/staged-quotes-strip";
 import { ChatScrollArea, type ChatScrollAreaProps } from "@/domains/chat/components/chat-scroll-area";
 import { ScrollToLatestButton } from "@/domains/chat/components/scroll-to-latest-button";
 import {
@@ -60,8 +60,18 @@ export interface ChatBodyProps {
   /** Props forwarded to {@link ChatScrollArea}. */
   scrollAreaProps: ChatScrollAreaProps;
 
-  /** Props forwarded to {@link ChatComposer}. */
-  composerProps: ChatComposerProps;
+  /**
+   * The composer element to render below the scroll area. The orchestrator
+   * builds `<ChatComposer …/>` with explicit props and passes it as a node;
+   * `ChatBody` only positions it (and swaps it for the read-only banner).
+   */
+  composerSlot: ReactNode;
+  /**
+   * Stop-generation handler for the read-only banner's cancel control. In
+   * read-only conversations the composer is replaced by the banner, so this is
+   * passed alongside {@link composerSlot} rather than read off it.
+   */
+  onStopGenerating: () => void;
 
   /** Drag handlers attached to the outer container for attachment drag-and-drop. */
   dragHandlers: ChatBodyDragHandlers;
@@ -85,6 +95,12 @@ export interface ChatBodyProps {
 
   /** Generic chat error rendered above the composer, or `null` when none. */
   genericChatError: { message: string; actions?: ReactNode } | null;
+  /**
+   * Dismiss handler for {@link genericChatError}. When provided, the
+   * banner renders a "Dismiss" button as a second action next to the
+   * existing actions (typically "Go to Doctor").
+   */
+  onDismissChatError?: () => void;
 
   /** When true, a read-only banner replaces the composer entirely. */
   isChannelReadonly: boolean;
@@ -164,7 +180,8 @@ function ChatReadonlyBanner({
 export function ChatBody({
   variant,
   scrollAreaProps,
-  composerProps,
+  composerSlot,
+  onStopGenerating,
   dragHandlers,
   isAttachmentDragOver,
   showScrollToLatest,
@@ -174,6 +191,7 @@ export function ChatBody({
   onDismissRefreshFeedback,
   onRetryRefresh,
   genericChatError,
+  onDismissChatError,
   isChannelReadonly,
   canStopGenerating,
   bannerSlot,
@@ -249,12 +267,38 @@ export function ChatBody({
         <div className="mx-auto max-w-[var(--chat-max-width)]">
           {genericChatError && (
             <div className="mb-2">
-              <Notice tone="error" actions={genericChatError.actions}>{genericChatError.message}</Notice>
+              <Notice
+                tone="error"
+                actions={
+                  <>
+                    {genericChatError.actions}
+                    {onDismissChatError ? (
+                      <Button
+                        variant="outlined"
+                        size="compact"
+                        leftIcon={
+                          <X
+                            className="h-3.5 w-3.5"
+                            strokeWidth={2}
+                            aria-hidden="true"
+                          />
+                        }
+                        onClick={onDismissChatError}
+                      >
+                        Dismiss
+                      </Button>
+                    ) : null}
+                  </>
+                }
+              >
+                {genericChatError.message}
+              </Notice>
             </div>
           )}
           {queuedDrawerSlot}
           <QuestionPromptSlot />
           {channelFooterSlot}
+          <StagedQuotesStrip />
           {isChannelReadonly ? (
             readonlyBannerSlot ? (
               <div className="flex items-center gap-2">
@@ -263,7 +307,7 @@ export function ChatBody({
                   <Button
                     variant="primary"
                     iconOnly={<Square className="h-3 w-3" fill="currentColor" />}
-                    onClick={composerProps.onStopGenerating}
+                    onClick={onStopGenerating}
                     aria-label="Stop generating"
                     title="Stop generation"
                   />
@@ -272,11 +316,11 @@ export function ChatBody({
             ) : (
               <ChatReadonlyBanner
                 canStopGenerating={canStopGenerating}
-                onStopGenerating={composerProps.onStopGenerating}
+                onStopGenerating={onStopGenerating}
               />
             )
           ) : (
-            <ChatComposer {...composerProps} />
+            composerSlot
           )}
           {startersSlot}
         </div>

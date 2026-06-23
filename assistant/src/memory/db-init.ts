@@ -258,6 +258,7 @@ import { dropApprovalPromptTsTrackerTable } from "./migrations/295-drop-approval
 import { migrateRewriteBalancedEconomyProfilePins } from "./migrations/296-rewrite-balanced-economy-profile-pins.js";
 import { migrateMoveLlmRequestLogsToLogsDb } from "./migrations/297-move-llm-request-logs-to-logs-db.js";
 import { migrateMoveMemoryJobsToMemoryDb } from "./migrations/298-move-memory-jobs-to-memory-db.js";
+import { migrateCanonicalGuardianDeliveriesConversationIndex } from "./migrations/299-canonical-guardian-deliveries-conversation-index.js";
 import { runMigrationSteps } from "./migrations/run-migrations.js";
 import { validateMigrationState } from "./migrations/validate-migration-state.js";
 
@@ -690,6 +691,7 @@ export async function initializeDb(): Promise<void> {
     migrateRewriteBalancedEconomyProfilePins,
     migrateMoveLlmRequestLogsToLogsDb,
     migrateMoveMemoryJobsToMemoryDb,
+    migrateCanonicalGuardianDeliveriesConversationIndex,
   ];
 
   // Run each migration step, catching and logging individual failures so one

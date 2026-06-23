@@ -360,6 +360,12 @@ const wake = (assistantId?: unknown, options?: unknown): Promise<unknown> =>
     assistantId,
     options,
   ) as Promise<unknown>;
+const upgrade = (assistantId?: unknown, options?: unknown): Promise<unknown> =>
+  handlers["vellum:localMode:upgrade"](
+    allowedEvent,
+    assistantId,
+    options,
+  ) as Promise<unknown>;
 
 describe("lockfile IPC handlers", () => {
   beforeEach(() => {
@@ -577,5 +583,56 @@ describe("vellum:localMode:wake handler", () => {
       error: "Missing assistantId",
     });
     expect(spawnArgs).toHaveLength(0);
+  });
+});
+
+describe("vellum:localMode:upgrade handler", () => {
+  beforeEach(() => {
+    fs.rmSync(lockfilePath, { force: true });
+    saveLockfileAssistant(
+      {
+        assistantId: "asst-active",
+        cloud: "local",
+        runtimeUrl: "http://127.0.0.1:1",
+      },
+      "asst-active",
+    );
+    spawnArgs.length = 0;
+  });
+
+  test("rejects a non-active assistant without spawning the CLI", async () => {
+    await expect(upgrade("asst-inactive", { latest: true })).resolves.toEqual({
+      ok: false,
+      error: "Can only upgrade the active local assistant",
+    });
+    expect(spawnArgs).toHaveLength(0);
+  });
+
+  test("deduplicates concurrent requests before resolving the CLI invocation", async () => {
+    const pending = upgrade("asst-active", { latest: true });
+    const duplicate = upgrade("asst-active", { latest: true });
+
+    await expect(duplicate).resolves.toEqual({
+      ok: false,
+      error: "An upgrade is already in progress for this assistant.",
+    });
+
+    await tick();
+    expect(spawnArgs).toHaveLength(1);
+    expect(spawnArgs[0]).toEqual([
+      "bun",
+      [
+        "run",
+        path.join("/repo", "cli", "src", "index.ts"),
+        "upgrade",
+        "asst-active",
+        "--latest",
+      ],
+    ]);
+
+    lastChild.stdout.emit("data", Buffer.from("upgraded to v1.2.3\n"));
+    lastChild.emit("close", 0);
+
+    await expect(pending).resolves.toEqual({ ok: true, version: "v1.2.3" });
   });
 });

@@ -64,14 +64,6 @@ import {
 } from "../runtime/verification-templates.js";
 
 // ---------------------------------------------------------------------------
-// DB initialization
-// ---------------------------------------------------------------------------
-
-beforeEach(async () => {
-  await initializeDb();
-});
-
-// ---------------------------------------------------------------------------
 // Template tests: channel verification reply templates are deterministic
 // ---------------------------------------------------------------------------
 
@@ -181,6 +173,10 @@ describe("TwiML parameter propagation", () => {
 // ---------------------------------------------------------------------------
 
 describe("Call session mode metadata", () => {
+  beforeEach(async () => {
+    await initializeDb();
+  });
+
   test("createCallSession persists callMode and verificationSessionId", async () => {
     // Dynamic import to avoid circular dependency issues
     const { createCallSession, getCallSession } =
@@ -239,6 +235,10 @@ describe("Call session mode metadata", () => {
 // ---------------------------------------------------------------------------
 
 describe("Verification control messages are deterministic (guard)", () => {
+  beforeEach(async () => {
+    await initializeDb();
+  });
+
   test("handleChannelInbound does not call processMessage for /start gv_<token> bootstrap commands", async () => {
     const { createHash, randomBytes } = await import("node:crypto");
 
@@ -302,6 +302,12 @@ describe("Verification control messages are deterministic (guard)", () => {
           replyCallbackUrl: "http://localhost/callback",
           sourceMetadata: {
             commandIntent: { type: "start", payload: `gv_${bootstrapToken}` },
+            // Gateway stamps a stranger verdict for this not-yet-bound user;
+            // the bootstrap intercept still fires for a present stranger.
+            trustVerdict: {
+              trustClass: "unknown",
+              canonicalSenderId: "user-bootstrap-123",
+            },
           },
         }),
       });
@@ -367,6 +373,18 @@ describe("Verification control messages are deterministic (guard)", () => {
         actorDisplayName: blockedIdentity.displayName,
         sourceMetadata: {
           commandIntent: { type: "start", payload: `gv_${bootstrapToken}` },
+          // Gateway stamps the member verdict surfacing the blocked status; the
+          // ACL hard-deny fires before the bootstrap intercept.
+          trustVerdict: {
+            trustClass: "unknown",
+            canonicalSenderId: blockedIdentity.externalUserId,
+            contactId: "contact-blocked-bootstrap",
+            channelId: "channel-blocked-bootstrap",
+            type: blockedIdentity.sourceChannel,
+            address: blockedIdentity.externalUserId,
+            status: blockedIdentity.status,
+            policy: blockedIdentity.policy,
+          },
         },
       }),
     });

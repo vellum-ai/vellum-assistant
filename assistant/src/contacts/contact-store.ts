@@ -184,6 +184,27 @@ export function getContact(id: string): ContactWithChannels | null {
 /** @deprecated Use {@link getContact} directly. */
 export const getContactInternal = getContact;
 
+/** INFO-only contact fields, joined locally by contact ID. */
+export interface ContactInfo {
+  notes: string | null;
+  interactionCount: number;
+}
+
+/**
+ * Look up a contact's INFO fields (notes, interaction count) by ID.
+ *
+ * Carries no ACL state (status/policy/verification) — those are owned by the
+ * gateway-stamped trust verdict. Returns null when the contact does not exist.
+ */
+export function findContactInfoById(contactId: string): ContactInfo | null {
+  const contact = getContact(contactId);
+  if (!contact) return null;
+  return {
+    notes: contact.notes,
+    interactionCount: contact.interactionCount,
+  };
+}
+
 /**
  * Look up a single contact channel by its primary key.
  * Returns the parsed channel row, or null if it does not exist.

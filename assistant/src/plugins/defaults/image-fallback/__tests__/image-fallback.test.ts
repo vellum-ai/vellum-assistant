@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
+  ContentBlock,
   ImageContent,
   Message,
   ModelProfileInfo,
+  PostToolUseContext,
+  ToolResultContent,
   UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
 
@@ -27,20 +30,24 @@ const fakeProvider = {
 // Mock @vellumai/plugin-api — only the runtime handles the plugin imports.
 // `extractAllText` stays real (imported from the relative path, not plugin-api).
 mock.module("@vellumai/plugin-api", () => ({
-  doesSupportVision: (profile: ModelProfileInfo) => visionProfiles.has(profile.key),
+  doesSupportVision: (profile: ModelProfileInfo) =>
+    visionProfiles.has(profile.key),
   getModelProfiles: () => mockProfiles,
   getConfiguredProvider: async () => (providerResolves ? fakeProvider : null),
 }));
 
 // Mock the image-persist module to avoid filesystem side effects in tests.
-let mockPersistPath: string | null = "/workspace/data/attachments/mock-hash.png";
+let mockPersistPath: string | null =
+  "/workspace/data/attachments/mock-hash.png";
 mock.module("../src/image-persist.js", () => ({
   persistImage: () => mockPersistPath,
 }));
 
 // ─── Imports (after mocks are registered) ───────────────────────────────────
 
-const userPromptSubmit = (await import("../hooks/user-prompt-submit.js")).default;
+const userPromptSubmit = (await import("../hooks/user-prompt-submit.js"))
+  .default;
+const postToolUse = (await import("../hooks/post-tool-use.js")).default;
 const { findVisionProfile } = await import("../src/vision-caption.js");
 const { resetCaptionCacheForTests } = await import("../src/caption-cache.js");
 
@@ -101,6 +108,30 @@ function makeCtx(
   } as unknown as UserPromptSubmitContext;
 }
 
+function toolResult(contentBlocks?: ContentBlock[]): ToolResultContent {
+  return {
+    type: "tool_result",
+    tool_use_id: "tu1",
+    content: "Took a screenshot.",
+    ...(contentBlocks ? { contentBlocks } : {}),
+  };
+}
+
+function makeToolCtx(
+  overrides: Partial<PostToolUseContext> = {},
+): PostToolUseContext {
+  return {
+    conversationId: "c1",
+    toolResponse: toolResult(),
+    messages: [],
+    additionalContext: null,
+    model: "text-only-model",
+    maxInputTokens: 100_000,
+    logger,
+    ...overrides,
+  } as unknown as PostToolUseContext;
+}
+
 // ─── Setup ──────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
@@ -133,9 +164,9 @@ describe("image-fallback user-prompt-submit hook", () => {
     const ctx = makeCtx({ latestMessages: messages, isNonInteractive: true });
     await userPromptSubmit(ctx);
     expect(ctx.latestMessages[0].content[0].type).toBe("text");
-    expect((ctx.latestMessages[0].content[0] as { text: string }).text).toContain(
-      "[Image:",
-    );
+    expect(
+      (ctx.latestMessages[0].content[0] as { text: string }).text,
+    ).toContain("[Image auto-described");
   });
 
   test("replaces image blocks with captions when active model is text-only", async () => {
@@ -143,27 +174,27 @@ describe("image-fallback user-prompt-submit hook", () => {
     const ctx = makeCtx({ latestMessages: messages });
     await userPromptSubmit(ctx);
     expect(ctx.latestMessages[0].content[0].type).toBe("text");
-    expect((ctx.latestMessages[0].content[0] as { text: string }).text).toContain(
-      "[Image: A red chart showing Q3 revenue.]",
+    expect((ctx.latestMessages[0].content[0] as { text: string }).text).toBe(
+      "[Image auto-described for text-only model: A red chart showing Q3 revenue.]",
     );
   });
 
-  test("references the saved image path in the caption text", async () => {
+  test("caption states the model can't view images and the text is derived", async () => {
     const messages = [imageMsg("img1")];
     const ctx = makeCtx({ latestMessages: messages });
     await userPromptSubmit(ctx);
     const text = (ctx.latestMessages[0].content[0] as { text: string }).text;
-    expect(text).toContain("(saved to /workspace/data/attachments/");
+    expect(text).toContain("text-only model");
+    expect(text).toContain("auto-described");
   });
 
-  test("works without a saved path when persist fails", async () => {
-    mockPersistPath = null;
+  test("does not embed the saved image path in the caption text", async () => {
     const messages = [imageMsg("img1")];
     const ctx = makeCtx({ latestMessages: messages });
     await userPromptSubmit(ctx);
     const text = (ctx.latestMessages[0].content[0] as { text: string }).text;
-    expect(text).toContain("[Image: A red chart showing Q3 revenue.]");
-    expect(text).not.toContain("(saved to");
+    expect(text).not.toContain("saved to");
+    expect(text).not.toContain("/workspace/data/attachments/");
   });
 
   test("preserves non-image blocks and captions only images", async () => {
@@ -183,9 +214,9 @@ describe("image-fallback user-prompt-submit hook", () => {
       "Look at this:",
     );
     expect(ctx.latestMessages[0].content[1].type).toBe("text");
-    expect((ctx.latestMessages[0].content[1] as { text: string }).text).toContain(
-      "[Image:",
-    );
+    expect(
+      (ctx.latestMessages[0].content[1] as { text: string }).text,
+    ).toContain("[Image auto-described");
     expect((ctx.latestMessages[0].content[2] as { text: string }).text).toBe(
       "What do you see?",
     );
@@ -197,9 +228,9 @@ describe("image-fallback user-prompt-submit hook", () => {
     const ctx = makeCtx({ latestMessages: messages });
     await userPromptSubmit(ctx);
     expect(ctx.latestMessages[0].content[0].type).toBe("text");
-    expect((ctx.latestMessages[0].content[0] as { text: string }).text).toContain(
-      "no vision-capable model",
-    );
+    expect(
+      (ctx.latestMessages[0].content[0] as { text: string }).text,
+    ).toContain("no vision-capable model");
   });
 
   test("uses fail-open placeholder when provider resolution returns null", async () => {
@@ -208,9 +239,9 @@ describe("image-fallback user-prompt-submit hook", () => {
     const ctx = makeCtx({ latestMessages: messages });
     await userPromptSubmit(ctx);
     expect(ctx.latestMessages[0].content[0].type).toBe("text");
-    expect((ctx.latestMessages[0].content[0] as { text: string }).text).toContain(
-      "captioning failed",
-    );
+    expect(
+      (ctx.latestMessages[0].content[0] as { text: string }).text,
+    ).toContain("auto-description failed");
   });
 
   test("caches captions — second call with same image does not invoke provider", async () => {
@@ -244,7 +275,8 @@ describe("image-fallback user-prompt-submit hook", () => {
     mock.module("@vellumai/plugin-api", () => ({
       doesSupportVision: (p: ModelProfileInfo) => visionProfiles.has(p.key),
       getModelProfiles: () => mockProfiles,
-      getConfiguredProvider: async () => (providerResolves ? fakeProvider : null),
+      getConfiguredProvider: async () =>
+        providerResolves ? fakeProvider : null,
     }));
   });
 
@@ -260,13 +292,13 @@ describe("image-fallback user-prompt-submit hook", () => {
     const ctx = makeCtx({ latestMessages: messages });
     await userPromptSubmit(ctx);
     expect(ctx.latestMessages[0].content[0].type).toBe("text");
-    expect((ctx.latestMessages[0].content[0] as { text: string }).text).toContain(
-      "[Image:",
-    );
+    expect(
+      (ctx.latestMessages[0].content[0] as { text: string }).text,
+    ).toContain("[Image auto-described");
     expect(ctx.latestMessages[2].content[0].type).toBe("text");
-    expect((ctx.latestMessages[2].content[0] as { text: string }).text).toContain(
-      "[Image:",
-    );
+    expect(
+      (ctx.latestMessages[2].content[0] as { text: string }).text,
+    ).toContain("[Image auto-described");
     expect((ctx.latestMessages[2].content[1] as { text: string }).text).toBe(
       "both?",
     );
@@ -298,5 +330,72 @@ describe("findVisionProfile", () => {
   test("returns null when no profiles support vision", () => {
     visionProfiles = new Set<string>();
     expect(findVisionProfile()).toBeNull();
+  });
+});
+
+describe("image-fallback post-tool-use hook", () => {
+  test("captions image blocks nested in a tool result for a text-only model", async () => {
+    const ctx = makeToolCtx({
+      toolResponse: toolResult([imageBlock("shot1")]),
+    });
+    await postToolUse(ctx);
+    const block = ctx.toolResponse.contentBlocks![0];
+    expect(block.type).toBe("text");
+    expect((block as { text: string }).text).toBe(
+      "[Image auto-described for text-only model: A red chart showing Q3 revenue.]",
+    );
+  });
+
+  test("is a no-op when the active model supports vision", async () => {
+    visionProfiles = new Set(["text-only"]); // active profile supports vision
+    const ctx = makeToolCtx({
+      toolResponse: toolResult([imageBlock("shot1")]),
+    });
+    await postToolUse(ctx);
+    expect(ctx.toolResponse.contentBlocks![0].type).toBe("image");
+  });
+
+  test("is a no-op when the tool result has no contentBlocks", async () => {
+    const ctx = makeToolCtx({ toolResponse: toolResult() });
+    await postToolUse(ctx);
+    expect(ctx.toolResponse.contentBlocks).toBeUndefined();
+  });
+
+  test("preserves non-image contentBlocks and captions only images", async () => {
+    const ctx = makeToolCtx({
+      toolResponse: toolResult([
+        { type: "text", text: "page title" },
+        imageBlock("shot1"),
+      ]),
+    });
+    await postToolUse(ctx);
+    const blocks = ctx.toolResponse.contentBlocks!;
+    expect((blocks[0] as { text: string }).text).toBe("page title");
+    expect(blocks[1].type).toBe("text");
+    expect((blocks[1] as { text: string }).text).toContain(
+      "[Image auto-described",
+    );
+  });
+
+  test("uses fail-open placeholder when no vision profile is configured", async () => {
+    visionProfiles = new Set<string>(); // no vision profiles
+    const ctx = makeToolCtx({
+      toolResponse: toolResult([imageBlock("shot1")]),
+    });
+    await postToolUse(ctx);
+    const block = ctx.toolResponse.contentBlocks![0];
+    expect(block.type).toBe("text");
+    expect((block as { text: string }).text).toContain(
+      "no vision-capable model",
+    );
+  });
+
+  test("does not embed the saved image path in the caption text", async () => {
+    const ctx = makeToolCtx({
+      toolResponse: toolResult([imageBlock("shot1")]),
+    });
+    await postToolUse(ctx);
+    const text = (ctx.toolResponse.contentBlocks![0] as { text: string }).text;
+    expect(text).not.toContain("saved to");
   });
 });

@@ -50,6 +50,7 @@ import {
   getCannedFirstGreeting,
   isWakeUpGreeting,
 } from "../../daemon/first-greeting.js";
+import { supersedePendingInteractionsOnEnqueue } from "../../daemon/handlers/conversations.js";
 import {
   collectAttachmentRefs,
   type HistoryAttachmentRef,
@@ -946,25 +947,28 @@ export function handleListMessages({
         .filter((block) => block.type !== "text" || block.text.length > 0);
     }
 
-  // Ensure every hydrated attachment has a corresponding content block.
-  // renderHistoryContent inlines attachment blocks only when it has
-  // file-block refs with matching DB rows; directives (assistant-authored
-  // <vellum-attachment/> tags) don't leave a file block after stripping,
-  // so their attachments end up in the flat `attachments` array but not in
-  // `contentBlocks`. Append any that are missing so the canonical
-  // projection is complete.
-  const existingAttachmentIds = new Set(
-    contentBlocks
-      .filter((b): b is Extract<ConversationContentBlock, { type: "attachment" }> => b.type === "attachment")
-      .map((b) => b.attachment.id),
-  );
-  for (const att of msgAttachments) {
-    if (!existingAttachmentIds.has(att.id)) {
-      contentBlocks.push({ type: "attachment", attachment: att });
+    // Ensure every hydrated attachment has a corresponding content block.
+    // renderHistoryContent inlines attachment blocks only when it has
+    // file-block refs with matching DB rows; directives (assistant-authored
+    // <vellum-attachment/> tags) don't leave a file block after stripping,
+    // so their attachments end up in the flat `attachments` array but not in
+    // `contentBlocks`. Append any that are missing so the canonical
+    // projection is complete.
+    const existingAttachmentIds = new Set(
+      contentBlocks
+        .filter(
+          (b): b is Extract<ConversationContentBlock, { type: "attachment" }> =>
+            b.type === "attachment",
+        )
+        .map((b) => b.attachment.id),
+    );
+    for (const att of msgAttachments) {
+      if (!existingAttachmentIds.has(att.id)) {
+        contentBlocks.push({ type: "attachment", attachment: att });
+      }
     }
-  }
 
-  const alignedContentOrder = aligned.rewriteContentOrder(contentOrder);
+    const alignedContentOrder = aligned.rewriteContentOrder(contentOrder);
 
     // Use sentAt (actual event time) for the display timestamp when available,
     // falling back to createdAt (persistence time). Clients use this display
@@ -1814,29 +1818,11 @@ export async function handleSendMessage(
     // the client showing "Failed to send" for a message the daemon will
     // process from the queue.
     try {
-      if (conversation.hasAnyPendingConfirmation()) {
-        // Emit authoritative denial state for each pending request.
-        // sendToClient (wired to the SSE hub) delivers these to the client.
-        for (const interaction of pendingInteractions.getByConversation(
-          mapping.conversationId,
-        )) {
-          if (interaction.kind === "confirmation") {
-            conversation.emitConfirmationStateChanged({
-              conversationId: mapping.conversationId,
-              requestId: interaction.requestId,
-              state: "denied" as const,
-              source: "auto_deny" as const,
-            });
-            // Sync canonical guardian request status so stale "pending" DB
-            // records don't get matched by later guardian reply routing.
-            resolveCanonicalGuardianRequest(interaction.requestId, "pending", {
-              status: "denied",
-            });
-          }
-        }
-        conversation.denyAllPendingConfirmations();
-        pendingInteractions.removeByConversation(mapping.conversationId);
-      }
+      // Supersede interactions left pending by the in-flight turn: auto-deny
+      // confirmations (with canonical/client sync) and steer to the enqueued
+      // message if an ask_question is parked. Centralized so the CLI signal
+      // path (signals/user-message.ts) gets identical handling.
+      supersedePendingInteractionsOnEnqueue(mapping.conversationId, requestId);
 
       // Expire any orphaned canonical requests that survived without a
       // matching in-memory pending interaction (e.g. prompter timeouts).

@@ -2,7 +2,7 @@ import {
   CircleAlert,
   CircleCheck,
   Info,
-  OctagonX,
+  TriangleAlert,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -52,7 +52,7 @@ const TONE_CLASSES: Record<NoticeTone, ToneClasses> = {
     container:
       "bg-[var(--system-negative-weak)] border-[color-mix(in_srgb,var(--system-negative-strong)_25%,transparent)]",
     icon: "text-[color:var(--system-negative-strong)]",
-    DefaultIcon: OctagonX,
+    DefaultIcon: TriangleAlert,
   },
   neutral: {
     container: "bg-[var(--surface-overlay)] border-[var(--border-base)]",

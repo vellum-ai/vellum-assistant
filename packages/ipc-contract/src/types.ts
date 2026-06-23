@@ -51,6 +51,7 @@ export type VellumCommand =
   | { kind: "zoomOut" }
   | { kind: "actualSize" }
   | { kind: "selectAssistant"; assistantId: string }
+  | { kind: "chooseAssistant" }
   | { kind: "createAssistant" }
   | { kind: "retireAssistant"; assistantId: string }
   | { kind: "quickInputSubmit"; message: string }
@@ -368,6 +369,8 @@ export interface LocalAssistantResources {
   instanceDir?: string;
   gatewayPort: number;
   daemonPort: number;
+  runtimeVersion?: string;
+  runtimeInstallDir?: string;
 }
 
 export interface LockfileAssistant {
@@ -392,6 +395,7 @@ export type LockfileWriteResult =
 
 export type LocalAssistantRuntimeState =
   | "healthy"
+  | "upgrading"
   | "sleeping"
   | "starting"
   | "crashed"

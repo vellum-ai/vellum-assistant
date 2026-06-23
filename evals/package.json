@@ -22,6 +22,7 @@
   "license": "MIT",
   "dependencies": {
     "commander": "13.1.0",
+    "katex": "0.17.0",
     "markdown-it": "14.2.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",

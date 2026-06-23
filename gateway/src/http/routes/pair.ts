@@ -27,11 +27,17 @@
  * renew via `/v1/guardian/refresh` instead of re-pairing.
  */
 
+import { and, eq } from "drizzle-orm";
+
 import { mintAndRecordDeviceBoundTokenPair } from "../../auth/guardian-bootstrap.js";
 import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
 import { mintToken } from "../../auth/token-service.js";
 import { KNOWN_EXTENSION_ORIGINS } from "../../chrome-extension-origins.js";
-import { assistantDbQuery } from "../../db/assistant-db-proxy.js";
+import { getGatewayDb } from "../../db/connection.js";
+import {
+  contacts as gwContacts,
+  contactChannels as gwContactChannels,
+} from "../../db/schema.js";
 import { getLogger } from "../../logger.js";
 import { enforceLoopbackOnly, errorResponse } from "../loopback-guard.js";
 
@@ -102,22 +108,26 @@ export function resetPairRateLimiterForTests(): void {
 // Guardian resolution
 // ---------------------------------------------------------------------------
 
-interface GuardianPrincipalRow {
-  principalId: string | null;
-}
-
 export async function resolveLocalGuardianPrincipalId(): Promise<string> {
   try {
-    const rows = await assistantDbQuery<GuardianPrincipalRow>(
-      `SELECT c.principal_id AS principalId
-       FROM contacts c
-       JOIN contact_channels cc ON cc.contact_id = c.id
-       WHERE c.role = 'guardian' AND cc.type = 'vellum' AND cc.status = 'active'
-       LIMIT 1`,
-      [],
-    );
-    if (rows.length > 0 && rows[0].principalId) {
-      return rows[0].principalId;
+    const row = getGatewayDb()
+      .select({ principalId: gwContacts.principalId })
+      .from(gwContacts)
+      .innerJoin(
+        gwContactChannels,
+        eq(gwContactChannels.contactId, gwContacts.id),
+      )
+      .where(
+        and(
+          eq(gwContacts.role, "guardian"),
+          eq(gwContactChannels.type, "vellum"),
+          eq(gwContactChannels.status, "active"),
+        ),
+      )
+      .limit(1)
+      .get();
+    if (row?.principalId) {
+      return row.principalId;
     }
   } catch (err) {
     log.warn(

@@ -1,9 +1,4 @@
-import {
-  type Dispatch,
-  type SetStateAction,
-  useCallback,
-  useRef,
-} from "react";
+import { type Dispatch, type SetStateAction, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useConversationStore } from "@/stores/conversation-store";
@@ -55,7 +50,6 @@ import {
   handleUsageUpdate,
   handleCompactionCircuitOpen,
   handleCompactionCircuitClosed,
-  handleTurnProfileAutoRouted,
 } from "@/domains/chat/utils/stream-handlers/metadata-handlers";
 import {
   handleMessageQueued,
@@ -236,7 +230,8 @@ export function useStreamEventHandler(
         setConfirmationToolCall: store.setConfirmationToolCall,
         setAssetsRefreshKey,
         addDismissedSurfaceId: store.addDismissedSurfaceId,
-        setContextWindowUsageForConversation: store.setContextWindowUsageForConversation,
+        setContextWindowUsageForConversation:
+          store.setContextWindowUsageForConversation,
         setContextWindowUsage: store.setContextWindowUsage,
         queryClient,
         setCompactionCircuitOpenUntil: store.setCompactionCircuitOpenUntil,
@@ -351,9 +346,6 @@ export function useStreamEventHandler(
           handleCompactionCircuitClosed(event, ctx);
           break;
 
-        case "turn_profile_auto_routed":
-          handleTurnProfileAutoRouted(event, ctx);
-          break;
         case "message_queued":
           handleMessageQueued(event, ctx);
           break;

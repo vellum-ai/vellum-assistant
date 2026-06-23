@@ -1491,19 +1491,19 @@ paths:
                 properties:
                   id:
                     type: string
-                  original_filename:
+                  filename:
                     type: string
-                  mime_type:
+                  mimeType:
                     type: string
-                  size_bytes:
+                  sizeBytes:
                     type: number
                   kind:
                     type: string
                 required:
                   - id
-                  - original_filename
-                  - mime_type
-                  - size_bytes
+                  - filename
+                  - mimeType
+                  - sizeBytes
                   - kind
                 additionalProperties: false
   /v1/attachments/{id}:
@@ -3959,6 +3959,61 @@ paths:
                         - trusted_contacts
                         - any_contact
                         - strangers
+                    trustVerdict:
+                      type: object
+                      properties:
+                        trustClass:
+                          type: string
+                          enum:
+                            - guardian
+                            - trusted_contact
+                            - unverified_contact
+                            - unknown
+                        canonicalSenderId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        resolutionFailed:
+                          type: boolean
+                        guardianExternalUserId:
+                          type: string
+                        guardianDeliveryChatId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        guardianPrincipalId:
+                          type: string
+                        guardianDisplayName:
+                          type: string
+                        contactId:
+                          type: string
+                        channelId:
+                          type: string
+                        type:
+                          type: string
+                        address:
+                          type: string
+                        externalChatId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        status:
+                          type: string
+                        policy:
+                          type: string
+                        verifiedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        verifiedVia:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        memberDisplayName:
+                          type: string
+                      required:
+                        - trustClass
+                        - canonicalSenderId
                     emailSubject:
                       type: string
                     emailRecipient:
@@ -8324,6 +8379,36 @@ paths:
                         callSite:
                           anyOf:
                             - type: string
+                            - type: "null"
+                        error:
+                          anyOf:
+                            - type: object
+                              properties:
+                                name:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                message:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                code:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                provider:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                statusCode:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                retryAfterMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                              additionalProperties: false
                             - type: "null"
                       required:
                         - id
@@ -13317,8 +13402,8 @@ paths:
           schema:
             type: string
           description:
-            "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, openai-compatible,
-            minimax, atlascloud"
+            "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
+            openai-compatible, minimax, atlascloud"
       responses:
         "200":
           description: Successful response
@@ -14626,6 +14711,12 @@ paths:
                   type: string
                 disabled:
                   type: boolean
+                headers:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties:
+                    type: string
               required:
                 - name
                 - transportType
@@ -14851,6 +14942,14 @@ paths:
                   anyOf:
                     - type: array
                       items:
+                        type: string
+                    - type: "null"
+                headers:
+                  anyOf:
+                    - type: object
+                      propertyNames:
+                        type: string
+                      additionalProperties:
                         type: string
                     - type: "null"
               required:
@@ -15225,6 +15324,36 @@ paths:
                     anyOf:
                       - type: string
                       - type: "null"
+                  error:
+                    anyOf:
+                      - type: object
+                        properties:
+                          name:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          message:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          code:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          provider:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          statusCode:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          retryAfterMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                        additionalProperties: false
+                      - type: "null"
                 required:
                   - id
                   - createdAt
@@ -15547,6 +15676,14 @@ paths:
                   type: integer
                   minimum: -9007199254740991
                   maximum: 9007199254740991
+                turnIds:
+                  type: array
+                  items:
+                    type: string
+                excludeConversationIds:
+                  type: array
+                  items:
+                    type: string
               required:
                 - stagingDir
                 - snapshotDir
@@ -15561,11 +15698,15 @@ paths:
                 properties:
                   turnsMined:
                     type: number
+                  turnsRequested:
+                    type: number
                   packetsWritten:
                     type: number
                   packetsPath:
                     type: string
                   keyPath:
+                    type: string
+                  metaPath:
                     type: string
                   snapshotPages:
                     type: number
@@ -15573,14 +15714,177 @@ paths:
                     type: number
                   dense:
                     type: boolean
+                  seed:
+                    type: number
+                  k:
+                    type: number
+                  embedding:
+                    type: object
+                    properties:
+                      provider:
+                        type: string
+                      model:
+                        type: string
+                      dims:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                    required:
+                      - provider
+                      - model
+                      - dims
+                    additionalProperties: false
+                  turnIds:
+                    type: array
+                    items:
+                      type: string
                 required:
                   - turnsMined
+                  - turnsRequested
                   - packetsWritten
                   - packetsPath
                   - keyPath
+                  - metaPath
                   - snapshotPages
                   - stagingPages
                   - dense
+                  - seed
+                  - k
+                  - embedding
+                  - turnIds
+                additionalProperties: false
+  /v1/memory/eval/tally:
+    post:
+      operationId: memory_eval_tally_post
+      summary: Unblind + tally blind-judge verdicts against the key with a noise-aware win/tie/loss verdict
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                verdicts:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      turn:
+                        type: string
+                      winner:
+                        type: string
+                      scoreA:
+                        type: number
+                      scoreB:
+                        type: number
+                    required:
+                      - turn
+                      - scoreA
+                      - scoreB
+                key:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      turn:
+                        type: string
+                      a:
+                        type: string
+                        enum:
+                          - snapshot
+                          - staging
+                      b:
+                        type: string
+                        enum:
+                          - snapshot
+                          - staging
+                    required:
+                      - turn
+                      - a
+                      - b
+                alpha:
+                  type: number
+                  exclusiveMinimum: 0
+              required:
+                - verdicts
+                - key
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  turns:
+                    type: number
+                  verdictsCounted:
+                    type: number
+                  unmatchedVerdicts:
+                    type: number
+                  panel:
+                    type: object
+                    properties:
+                      min:
+                        type: number
+                      max:
+                        type: number
+                      mean:
+                        type: number
+                    required:
+                      - min
+                      - max
+                      - mean
+                    additionalProperties: false
+                  snapshotWins:
+                    type: number
+                  stagingWins:
+                    type: number
+                  ties:
+                    type: number
+                  decided:
+                    type: number
+                  meanSnapshot:
+                    type: number
+                  meanStaging:
+                    type: number
+                  signTestP:
+                    type: number
+                  verdict:
+                    type: string
+                    enum:
+                      - wiki-wins
+                      - tie
+                      - wiki-loses
+                  gate:
+                    type: string
+                    enum:
+                      - pass
+                      - fail
+                  confident:
+                    type: boolean
+                  notes:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - turns
+                  - verdictsCounted
+                  - unmatchedVerdicts
+                  - panel
+                  - snapshotWins
+                  - stagingWins
+                  - ties
+                  - decided
+                  - meanSnapshot
+                  - meanStaging
+                  - signTestP
+                  - verdict
+                  - gate
+                  - confident
+                  - notes
                 additionalProperties: false
   /v1/memory/v2/backfill:
     post:
@@ -17476,6 +17780,36 @@ paths:
                         callSite:
                           anyOf:
                             - type: string
+                            - type: "null"
+                        error:
+                          anyOf:
+                            - type: object
+                              properties:
+                                name:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                message:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                code:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                provider:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                statusCode:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                retryAfterMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                              additionalProperties: false
                             - type: "null"
                       required:
                         - id
@@ -29048,6 +29382,7 @@ components:
         - openai-compatible
         - minimax
         - atlascloud
+        - together
     ProfilePatchEntry:
       type: object
       properties:
@@ -29424,6 +29759,7 @@ components:
         - gemini
         - ollama
         - fireworks
+        - together
         - openrouter
         - openai-compatible
         - minimax
