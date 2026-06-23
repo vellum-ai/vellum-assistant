@@ -80,6 +80,10 @@ export function resolvedMemberFromVerdict(
   verdict: TrustVerdict,
 ): ResolvedMember | null {
   if (!verdict.contactId || !verdict.channelId) return null;
+  // Member verdict requires status+policy, else null (fail-closed): a
+  // partial/mixed-version verdict must not synthesize an active/allow channel
+  // that would skip ingress ACL gates.
+  if (!verdict.status || !verdict.policy) return null;
 
   const channel: ContactChannel = {
     id: verdict.channelId,
@@ -88,8 +92,8 @@ export function resolvedMemberFromVerdict(
     address: verdict.address ?? "",
     isPrimary: false,
     externalChatId: verdict.externalChatId ?? null,
-    status: (verdict.status ?? "active") as ContactChannel["status"],
-    policy: (verdict.policy ?? "allow") as ContactChannel["policy"],
+    status: verdict.status as ContactChannel["status"],
+    policy: verdict.policy as ContactChannel["policy"],
     verifiedAt: verdict.verifiedAt ?? null,
     verifiedVia: verdict.verifiedVia ?? null,
     inviteId: null,

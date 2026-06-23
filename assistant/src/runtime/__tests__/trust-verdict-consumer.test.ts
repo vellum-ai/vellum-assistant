@@ -15,8 +15,8 @@ describe("trustContextFromVerdict", () => {
   test("guardian verdict maps trust + guardian fields and is byte-identical to toTrustContext", () => {
     const verdict = {
       trustClass: "guardian",
-      canonicalSenderId: "+15551234567",
-      guardianExternalUserId: "+15551234567",
+      canonicalSenderId: "+15550100",
+      guardianExternalUserId: "+15550100",
       guardianDeliveryChatId: "chat-9",
       guardianPrincipalId: "vellum-principal-abc",
       memberDisplayName: "Alice",
@@ -30,8 +30,8 @@ describe("trustContextFromVerdict", () => {
     });
 
     expect(result.trustClass).toBe("guardian");
-    expect(result.requesterExternalUserId).toBe("+15551234567");
-    expect(result.guardianExternalUserId).toBe("+15551234567");
+    expect(result.requesterExternalUserId).toBe("+15550100");
+    expect(result.guardianExternalUserId).toBe("+15550100");
     expect(result.guardianChatId).toBe("chat-9");
     expect(result.guardianPrincipalId).toBe("vellum-principal-abc");
     // memberDisplayName wins over sender display name.
@@ -39,9 +39,9 @@ describe("trustContextFromVerdict", () => {
     expect(result.requesterIdentifier).toBe("@alice");
 
     const equivalent: ActorTrustContext = {
-      canonicalSenderId: "+15551234567",
+      canonicalSenderId: "+15550100",
       guardianBindingMatch: {
-        guardianExternalUserId: "+15551234567",
+        guardianExternalUserId: "+15550100",
         guardianDeliveryChatId: "chat-9",
       },
       guardianPrincipalId: "vellum-principal-abc",
@@ -63,7 +63,7 @@ describe("trustContextFromVerdict", () => {
   test("identifier falls back to canonicalSenderId when no username", () => {
     const verdict = {
       trustClass: "trusted_contact",
-      canonicalSenderId: "+15550009999",
+      canonicalSenderId: "+15550101",
       memberDisplayName: "Bob",
     } satisfies TrustVerdict;
 
@@ -72,7 +72,7 @@ describe("trustContextFromVerdict", () => {
       conversationExternalId: CONV,
     });
 
-    expect(result.requesterIdentifier).toBe("+15550009999");
+    expect(result.requesterIdentifier).toBe("+15550101");
     // No memberDisplayName/sender override -> memberDisplayName used.
     expect(result.requesterDisplayName).toBe("Bob");
   });
@@ -176,6 +176,30 @@ describe("resolvedMemberFromVerdict", () => {
     const verdict = {
       trustClass: "unknown",
       canonicalSenderId: "u-2",
+    } satisfies TrustVerdict;
+
+    expect(resolvedMemberFromVerdict(verdict)).toBeNull();
+  });
+
+  test("member verdict missing status returns null (fail-closed)", () => {
+    const verdict = {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "u-4",
+      contactId: "contact-4",
+      channelId: "channel-4",
+      policy: "allow",
+    } satisfies TrustVerdict;
+
+    expect(resolvedMemberFromVerdict(verdict)).toBeNull();
+  });
+
+  test("member verdict missing policy returns null (fail-closed)", () => {
+    const verdict = {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "u-5",
+      contactId: "contact-5",
+      channelId: "channel-5",
+      status: "active",
     } satisfies TrustVerdict;
 
     expect(resolvedMemberFromVerdict(verdict)).toBeNull();
