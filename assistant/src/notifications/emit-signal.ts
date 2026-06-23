@@ -12,7 +12,10 @@
 import { v4 as uuid } from "uuid";
 
 import { getDeliverableChannels } from "../channels/config.js";
-import { findGuardianForChannel } from "../contacts/contact-store.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../contacts/guardian-delivery-reader.js";
 import type { ConversationCreateType } from "../memory/conversation-crud.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
@@ -89,8 +92,12 @@ export function getBroadcaster(): NotificationBroadcaster {
 
 // ── Connected channels resolution ──────────────────────────────────────
 
-function getConnectedChannels(): NotificationChannel[] {
+async function getConnectedChannels(): Promise<NotificationChannel[]> {
   const channels: NotificationChannel[] = [];
+
+  // Guardian bindings (ACL) come from the gateway pull; null on failure ⇒ no
+  // binding-based channels are reported connected.
+  const guardians = (await getGuardianDelivery()) ?? [];
 
   // getDeliverableChannels() returns ChannelId[] but every returned channel
   // has deliveryEnabled: true, making it a valid NotificationChannel at
@@ -113,10 +120,10 @@ function getConnectedChannels(): NotificationChannel[] {
         // A binding-based channel is connected when the guardian has an
         // active channel entry with a valid delivery endpoint. The
         // externalChatId check ensures we don't report a channel as
-        // connected when the contacts record exists but lacks the
-        // delivery address the destination-resolver needs.
-        const guardian = findGuardianForChannel(channel);
-        if (guardian && guardian.channel.externalChatId) {
+        // connected when the binding exists but lacks the delivery address
+        // the destination-resolver needs.
+        const guardian = guardianForChannel(guardians, channel);
+        if (guardian && guardian.externalChatId) {
           channels.push(channel);
         }
         break;
@@ -125,8 +132,8 @@ function getConnectedChannels(): NotificationChannel[] {
         // Slack bindings can originate from shared channels (app_mention).
         // Only consider Slack connected when the stored chat ID is a DM
         // channel (D-prefixed) to prevent leaking notifications.
-        const slackGuardian = findGuardianForChannel("slack");
-        const chatId = slackGuardian?.channel.externalChatId;
+        const slackGuardian = guardianForChannel(guardians, "slack");
+        const chatId = slackGuardian?.externalChatId;
         if (slackGuardian && chatId && chatId.startsWith("D")) {
           channels.push(channel);
         }
@@ -290,7 +297,7 @@ export async function emitNotificationSignal<TEventName extends string>(
     }
 
     // Step 2: Evaluate the signal through the decision engine
-    const connectedChannels = getConnectedChannels();
+    const connectedChannels = await getConnectedChannels();
 
     log.debug(
       {
