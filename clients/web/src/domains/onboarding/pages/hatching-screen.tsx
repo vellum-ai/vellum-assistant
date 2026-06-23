@@ -44,10 +44,25 @@ const POLL_INTERVAL_MS = 3000;
 const COMPLETION_NAVIGATE_DELAY_MS = 800;
 const MAX_HATCH_WAIT_MS = 300_000;
 
-// Module-level promises so HMR remounts and StrictMode double-mounts
-// can await the same in-flight hatch instead of spawning duplicates.
+// Module-level state so HMR remounts, StrictMode double-mounts, and — critically
+// — the auth-driven provider remount survive without spawning duplicate hatches.
+// The local-hatch handoff calls connectLocalAssistant(), which flips
+// `sessionStatus` to "authenticated"; that changes the scope `key` on the
+// query-client providers (see providers.tsx), unmounting and remounting this
+// whole screen mid-flow. The remounted instance must await the SAME in-flight
+// (or already-resolved) hatch — and reuse the SAME avatar traits — rather than
+// start over. These guards are released only on failure (so retry re-hatches)
+// and on genuine completion (so a later onboarding hatches fresh), never in the
+// window between the hatch resolving and the screen navigating away.
 let localHatchPromise: Promise<import("@/runtime/local-mode-host").LocalHatchResult> | null = null;
 let platformHatchPromise: Promise<import("@/assistant/api").HatchResult> | null = null;
+let hatchTraitsCache: CharacterTraits | null = null;
+
+function releaseHatchGuards(): void {
+  localHatchPromise = null;
+  platformHatchPromise = null;
+  hatchTraitsCache = null;
+}
 
 type HatchPhase = "initializing" | "provisioning" | "connecting" | "ready";
 
@@ -108,8 +123,8 @@ export function HatchingScreen() {
   const sessionGateKey = useLocalHatch
     ? isSessionSettled(sessionStatus)
     : sessionStatus;
-  const [hatchTraits] = useState<CharacterTraits>(() =>
-    randomCharacterTraits(BUNDLED_COMPONENTS),
+  const [hatchTraits] = useState<CharacterTraits>(
+    () => (hatchTraitsCache ??= randomCharacterTraits(BUNDLED_COMPONENTS)),
   );
   const avatarSvgDataUrl = useMemo(() => {
     const svg = composeSvg(
@@ -196,6 +211,11 @@ export function HatchingScreen() {
       phaseRef.current = "ready";
       navigateTimer = setTimeout(() => {
         if (cancelled) return;
+        // The hatch succeeded and we're leaving this screen for good. Release
+        // the module-level guards so a later onboarding session (e.g. after
+        // retiring this assistant) hatches a brand-new one instead of reusing
+        // this resolved promise and avatar.
+        releaseHatchGuards();
         void (async () => {
           await lifecycleService.checkAssistant();
           if (cancelled) return;
@@ -273,10 +293,15 @@ export function HatchingScreen() {
             const remote = hostingParam === "docker" ? "docker" : undefined;
             localHatchPromise = hatchLocalAssistant(undefined, remote);
           }
+          // Keep `localHatchPromise` set through the rest of the flow. The
+          // connectLocalAssistant() handoff below remounts this screen (see the
+          // module-level comment); the fresh instance must await this same
+          // resolved promise instead of starting a second hatch. Released only
+          // on failure (below / catch) and on completion (handleHatchReady).
           const result = await localHatchPromise;
-          localHatchPromise = null;
           if (cancelled) return;
           if (!result.ok) {
+            releaseHatchGuards();
             setError(result.error ?? "Failed to hatch local assistant.");
             return;
           }
@@ -321,6 +346,10 @@ export function HatchingScreen() {
               }
             }
             if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
+              // The hatch succeeded but the gateway never went healthy. We never
+              // reached connectLocalAssistant(), so no remount occurred — release
+              // the guards so "Try again" runs a genuinely fresh hatch.
+              releaseHatchGuards();
               setError("Your assistant is taking longer than expected. Please try again.");
               return;
             }
@@ -363,7 +392,7 @@ export function HatchingScreen() {
 
           handleHatchReady();
         } catch {
-          localHatchPromise = null;
+          releaseHatchGuards();
           if (cancelled) return;
           setError("Failed to hatch local assistant. Check CLI logs for details.");
         }
