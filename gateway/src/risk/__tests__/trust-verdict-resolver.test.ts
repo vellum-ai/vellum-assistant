@@ -1,0 +1,282 @@
+/**
+ * Tests for the gateway-side per-actor trust verdict resolver.
+ *
+ * Seeds the gateway ACL DB directly (contacts + contact_channels) and asserts
+ * the resolved {@link TrustVerdict} for guardian / trusted / unverified /
+ * unknown / blocked actors, plus id-divergence and case-insensitive address
+ * matching.
+ */
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+
+await import("../../__tests__/test-preload.js");
+const { initGatewayDb, resetGatewayDb, getGatewayDb } = await import(
+  "../../db/connection.js"
+);
+const { contacts: gwContacts, contactChannels: gwContactChannels } =
+  await import("../../db/schema.js");
+const { resolveTrustVerdict } = await import("../trust-verdict-resolver.js");
+
+const CHANNEL = "telegram";
+
+function insertContact(args: {
+  id: string;
+  displayName: string;
+  role?: string;
+  principalId?: string;
+}): void {
+  const now = Date.now();
+  getGatewayDb()
+    .insert(gwContacts)
+    .values({
+      id: args.id,
+      displayName: args.displayName,
+      role: args.role ?? "contact",
+      principalId: args.principalId ?? null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+}
+
+function insertChannel(args: {
+  id: string;
+  contactId: string;
+  type?: string;
+  address: string;
+  externalChatId?: string | null;
+  status?: string;
+  policy?: string;
+  verifiedAt?: number | null;
+  verifiedVia?: string | null;
+}): void {
+  const now = Date.now();
+  getGatewayDb()
+    .insert(gwContactChannels)
+    .values({
+      id: args.id,
+      contactId: args.contactId,
+      type: args.type ?? CHANNEL,
+      address: args.address,
+      externalChatId: args.externalChatId ?? null,
+      status: args.status ?? "active",
+      policy: args.policy ?? "allow",
+      verifiedAt: args.verifiedAt ?? now,
+      verifiedVia: args.verifiedVia ?? "challenge",
+      interactionCount: 0,
+      createdAt: now,
+    })
+    .run();
+}
+
+beforeEach(async () => {
+  resetGatewayDb();
+  await initGatewayDb();
+  // initGatewayDb reconnects to the same on-disk DB, so clear any rows a
+  // prior test left behind (channels first — FK cascade from contacts).
+  getGatewayDb().delete(gwContactChannels).run();
+  getGatewayDb().delete(gwContacts).run();
+});
+
+afterEach(() => {
+  resetGatewayDb();
+});
+
+describe("resolveTrustVerdict", () => {
+  test("guardian actor → trustClass guardian, guardian fields populated", async () => {
+    insertContact({
+      id: "c-guardian",
+      displayName: "The Guardian",
+      role: "guardian",
+      principalId: "principal-1",
+    });
+    insertChannel({
+      id: "ch-guardian",
+      contactId: "c-guardian",
+      address: "U_GUARDIAN",
+      externalChatId: "chat-guardian",
+      status: "active",
+    });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "U_GUARDIAN",
+    });
+
+    expect(verdict.trustClass).toBe("guardian");
+    expect(verdict.canonicalSenderId).toBe("U_GUARDIAN");
+    expect(verdict.guardianExternalUserId).toBe("U_GUARDIAN");
+    expect(verdict.guardianDeliveryChatId).toBe("chat-guardian");
+    expect(verdict.guardianPrincipalId).toBe("principal-1");
+    expect(verdict.guardianDisplayName).toBe("The Guardian");
+    expect(verdict.contactId).toBe("c-guardian");
+    expect(verdict.status).toBe("active");
+  });
+
+  test("active non-guardian member → trusted_contact, member ACL fields populated", async () => {
+    insertContact({
+      id: "c-guardian",
+      displayName: "Guardian",
+      role: "guardian",
+      principalId: "principal-1",
+    });
+    insertChannel({
+      id: "ch-guardian",
+      contactId: "c-guardian",
+      address: "U_GUARDIAN",
+    });
+    insertContact({ id: "c-member", displayName: "Trusted Member" });
+    insertChannel({
+      id: "ch-member",
+      contactId: "c-member",
+      address: "U_MEMBER",
+      externalChatId: "chat-member",
+      status: "active",
+      verifiedVia: "manual",
+    });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "U_MEMBER",
+    });
+
+    expect(verdict.trustClass).toBe("trusted_contact");
+    expect(verdict.status).toBe("active");
+    expect(verdict.policy).toBe("allow");
+    expect(verdict.contactId).toBe("c-member");
+    expect(verdict.channelId).toBe("ch-member");
+    expect(verdict.address).toBe("U_MEMBER");
+    expect(verdict.externalChatId).toBe("chat-member");
+    expect(verdict.memberDisplayName).toBe("Trusted Member");
+    expect(verdict.verifiedVia).toBe("manual");
+    // Guardian fields still populated from the channel binding.
+    expect(verdict.guardianExternalUserId).toBe("U_GUARDIAN");
+  });
+
+  test("pending/unverified member → unverified_contact", async () => {
+    insertContact({ id: "c-member", displayName: "Pending Member" });
+    insertChannel({
+      id: "ch-member",
+      contactId: "c-member",
+      address: "U_PENDING",
+      status: "unverified",
+      verifiedAt: null,
+      verifiedVia: null,
+    });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "U_PENDING",
+    });
+
+    expect(verdict.trustClass).toBe("unverified_contact");
+    expect(verdict.status).toBe("unverified");
+    expect(verdict.contactId).toBe("c-member");
+  });
+
+  test("no matching channel → unknown, canonicalSenderId reflects input, member fields undefined", async () => {
+    const verdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "U_STRANGER",
+    });
+
+    expect(verdict.trustClass).toBe("unknown");
+    expect(verdict.canonicalSenderId).toBe("U_STRANGER");
+    expect(verdict.contactId).toBeUndefined();
+    expect(verdict.channelId).toBeUndefined();
+    expect(verdict.status).toBeUndefined();
+    expect(verdict.guardianExternalUserId).toBeUndefined();
+  });
+
+  test("no actorExternalId → unknown, canonicalSenderId null", async () => {
+    const verdict = await resolveTrustVerdict({ channelType: CHANNEL });
+    expect(verdict.trustClass).toBe("unknown");
+    expect(verdict.canonicalSenderId).toBeNull();
+  });
+
+  test("blocked member → status/policy surfaced verbatim, no reclassification", async () => {
+    insertContact({ id: "c-blocked", displayName: "Blocked Member" });
+    insertChannel({
+      id: "ch-blocked",
+      contactId: "c-blocked",
+      address: "U_BLOCKED",
+      status: "blocked",
+      policy: "deny",
+    });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "U_BLOCKED",
+    });
+
+    // Per status rules: a member channel that is not active falls into the
+    // unverified_contact tier — but the raw status/policy carry through so the
+    // consumer enforces. Proves the resolver never reclassifies.
+    expect(verdict.trustClass).toBe("unverified_contact");
+    expect(verdict.status).toBe("blocked");
+    expect(verdict.policy).toBe("deny");
+    expect(verdict.contactId).toBe("c-blocked");
+  });
+
+  test("id-divergent row resolves by (type,address)", async () => {
+    // Channel id intentionally unrelated to any assistant-side id — lookup is
+    // keyed on (type,address), so it still resolves.
+    insertContact({ id: "gw-only-contact", displayName: "Mirror Member" });
+    insertChannel({
+      id: "gw-only-channel-id-9999",
+      contactId: "gw-only-contact",
+      address: "U_DIVERGENT",
+      status: "active",
+    });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "U_DIVERGENT",
+    });
+
+    expect(verdict.trustClass).toBe("trusted_contact");
+    expect(verdict.channelId).toBe("gw-only-channel-id-9999");
+    expect(verdict.contactId).toBe("gw-only-contact");
+  });
+
+  test("case-insensitive address match (COLLATE NOCASE)", async () => {
+    insertContact({ id: "c-member", displayName: "Case Member" });
+    insertChannel({
+      id: "ch-member",
+      contactId: "c-member",
+      address: "U_MixedCase",
+      status: "active",
+    });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "u_mixedcase",
+    });
+
+    expect(verdict.trustClass).toBe("trusted_contact");
+    expect(verdict.channelId).toBe("ch-member");
+  });
+
+  test("guardian classification by member contact role, even without channel binding row match", async () => {
+    // Guardian's own member channel has role=guardian; even if address differs
+    // from the (separately-resolved) channel guardian binding, role wins.
+    insertContact({
+      id: "c-guardian",
+      displayName: "Guardian",
+      role: "guardian",
+      principalId: "principal-1",
+    });
+    insertChannel({
+      id: "ch-guardian",
+      contactId: "c-guardian",
+      address: "U_GUARDIAN_ROLE",
+      status: "active",
+    });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "U_GUARDIAN_ROLE",
+    });
+
+    expect(verdict.trustClass).toBe("guardian");
+  });
+});
