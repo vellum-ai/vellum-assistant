@@ -179,6 +179,7 @@ export function RuntimeUpgradeBanner({
   const platformUpgrade = usePlatformRuntimeUpgrade({
     assistantId,
     targetVersion: targetVersion ?? undefined,
+    shouldStopPolling: platformOperationalStatus?.detail_state === "failed",
   });
   const upgradePending =
     mode === "platform" ? platformUpgrade.isPending : localUpgrade.isPending;
@@ -286,9 +287,11 @@ export function RuntimeUpgradeBanner({
 function usePlatformRuntimeUpgrade({
   assistantId,
   targetVersion,
+  shouldStopPolling = false,
 }: {
   assistantId: string | null | undefined;
   targetVersion?: string;
+  shouldStopPolling?: boolean;
 }) {
   const queryClient = useQueryClient();
   const [isPollingUpgrade, setIsPollingUpgrade] = useState(false);
@@ -306,6 +309,12 @@ function usePlatformRuntimeUpgrade({
       return data;
     },
   });
+
+  useEffect(() => {
+    if (!isPollingUpgrade || !shouldStopPolling) return;
+    targetVersionRef.current = null;
+    setIsPollingUpgrade(false);
+  }, [isPollingUpgrade, shouldStopPolling]);
 
   useQuery({
     ...assistantsRetrieveOptions({
