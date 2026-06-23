@@ -31,7 +31,7 @@ let mockOperationCalls: Array<{
 let mockConversation: {
   trustContext?: { trustClass: string };
   transportInterface?: string;
-  authContext?: { actorPrincipalId?: string };
+  getTurnActorPrincipalId?: () => string | undefined;
 } | null = null;
 
 let mockFindConversationCalls: string[] = [];
@@ -199,6 +199,7 @@ describe("browser_execute route", () => {
     mockConversation = {
       trustContext: { trustClass: "trusted" },
       transportInterface: "chrome-extension",
+      getTurnActorPrincipalId: () => undefined,
     };
 
     await callHandler({
@@ -234,7 +235,7 @@ describe("browser_execute route", () => {
     mockConversation = {
       trustContext: { trustClass: "trusted" },
       transportInterface: "macos",
-      authContext: { actorPrincipalId: "conversation-actor" },
+      getTurnActorPrincipalId: () => "conversation-actor",
     };
 
     await callHandler({
@@ -255,7 +256,7 @@ describe("browser_execute route", () => {
     mockConversation = {
       trustContext: { trustClass: "trusted" },
       transportInterface: "macos",
-      authContext: { actorPrincipalId: "conversation-actor" },
+      getTurnActorPrincipalId: () => "conversation-actor",
     };
 
     await callHandler(
