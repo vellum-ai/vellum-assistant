@@ -528,8 +528,8 @@ export { isSideEffectTool } from "./side-effects.js";
  * handles cleanup before the executor wrapper trips.
  *
  * `ask_question` blocks on user input inside `execute()` via `QuestionPrompter`,
- * which waits up to `permissionTimeoutSec`. We give the wrapper the same 5s
- * buffer over that deadline so the prompter's own timeout fires first and
+ * which waits up to `questionResponseTimeoutSec`. We give the wrapper the same
+ * 5s buffer over that deadline so the prompter's own timeout fires first and
  * returns its clean "User did not respond within timeout" result — otherwise
  * the shorter generic budget trips first, orphaning the still-pending prompt
  * behind the confusing "may still be running in the background" error.
@@ -556,8 +556,8 @@ export function computePerToolTimeoutMs(
     return (shellTimeoutSec + 5) * 1000;
   }
   if (name === "ask_question") {
-    const { permissionTimeoutSec } = getConfig().timeouts;
-    return (permissionTimeoutSec + 5) * 1000;
+    const { questionResponseTimeoutSec } = getConfig().timeouts;
+    return (questionResponseTimeoutSec + 5) * 1000;
   }
   const rawTimeoutSec = getConfig().timeouts.toolExecutionTimeoutSec;
   return safeTimeoutMs(rawTimeoutSec);

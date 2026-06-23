@@ -28,6 +28,14 @@ export const TimeoutConfigSchema = z
       .describe(
         "How long to wait for user permission approval before timing out (seconds)",
       ),
+    questionResponseTimeoutSec: z
+      .number({ error: "timeouts.questionResponseTimeoutSec must be a number" })
+      .finite("timeouts.questionResponseTimeoutSec must be finite")
+      .positive("timeouts.questionResponseTimeoutSec must be a positive number")
+      .default(1800)
+      .describe(
+        "Backstop timeout for an unanswered ask_question prompt (seconds). The primary way an interactive user dismisses a prompt is by moving on — enqueuing another message supersedes it — so this only bounds a prompt left open with no response and no follow-up message.",
+      ),
     toolExecutionTimeoutSec: z
       .number({ error: "timeouts.toolExecutionTimeoutSec must be a number" })
       .finite("timeouts.toolExecutionTimeoutSec must be finite")

@@ -376,6 +376,7 @@ export class Conversation {
    */
   wakePersonaOverride?: SystemPromptPersonaOverride;
   /** @internal */ currentTurnOverrideProfile?: string;
+  /** @internal */ currentTurnIsNonInteractive?: boolean;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ currentTurnAuthContext?: AuthContext;
   /** @internal */ currentTurnSourceActorPrincipalId?: string;
