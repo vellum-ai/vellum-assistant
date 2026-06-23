@@ -204,7 +204,7 @@ export function PitchDifferentStep({
 
 const TOGETHER_HEADING = "The more we work together";
 const SMARTER_LINE = "The smarter I get";
-const FASTER_LINE = "The faster I can take things off your plate";
+const FASTER_LINE = "And the less you have to do";
 
 /**
  * The payoff: the relationship compounds. The heading lands and a little team of
