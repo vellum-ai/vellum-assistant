@@ -37,6 +37,8 @@ export function LocalRuntimeUpgradeBanner({
       ? s.assistants.find((assistant) => assistant.id === assistantId)
       : null,
   );
+  const effectiveCurrentVersion =
+    currentVersion ?? activeAssistant?.runtimeVersion ?? null;
   const isHealthyLocalRuntimeState =
     assistantState.kind === "self_hosted"
       ? !assistantState.health || assistantState.health === "healthy"
@@ -46,7 +48,7 @@ export function LocalRuntimeUpgradeBanner({
         : false;
   const shouldCheck =
     !!assistantId &&
-    !!currentVersion &&
+    !!effectiveCurrentVersion &&
     !!activeAssistant?.isLocal &&
     isHealthyLocalRuntimeState &&
     isLocalModeHostAvailable();
@@ -84,7 +86,7 @@ export function LocalRuntimeUpgradeBanner({
   const dismissalScope =
     assistantId && targetVersion ? `${assistantId}:${targetVersion}` : null;
   const upgradeAvailable = isRuntimeUpgradeAvailable(
-    currentVersion,
+    effectiveCurrentVersion,
     targetVersion,
   );
   const upgrade = useLocalRuntimeUpgrade({

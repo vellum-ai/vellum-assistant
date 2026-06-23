@@ -44,6 +44,7 @@ export interface ResolvedAssistant {
   id: string;
   name?: string;
   hatchedAt?: string;
+  runtimeVersion?: string;
   isLocal: boolean;
   isPlatformHosted: boolean;
   /** Owning org for platform entries; only the lockfile carries it, so
@@ -108,6 +109,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
         id: a.assistantId,
         name: a.name,
         hatchedAt: a.hatchedAt,
+        runtimeVersion: a.resources?.runtimeVersion,
         isLocal: isLocalAssistant(a),
         isPlatformHosted: isPlatformAssistant(a),
         organizationId: a.organizationId,
@@ -147,23 +149,28 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
         const idx = state.assistants.findIndex((a) => a.id === assistant.id);
         if (idx >= 0) {
           const next = [...state.assistants];
-          // The API payload has no org field; preserve the org the lockfile
-          // seeded so a lifecycle refresh doesn't erase it.
-          next[idx] = { ...entry, organizationId: next[idx]!.organizationId };
+          // The API payload omits lockfile-sourced fields; preserve them across
+          // lifecycle refreshes.
+          next[idx] = {
+            ...entry,
+            organizationId: next[idx]!.organizationId,
+            runtimeVersion: next[idx]!.runtimeVersion,
+          };
           return { assistants: next };
         }
-        // New entry: the API payload has no org field, but the lockfile may
-        // already know it (a lifecycle refresh can land before the lockfile
-        // subscription seeds the list).
-        const lockfileOrg = useLockfileStore
+        // New entry: the API payload omits lockfile-sourced fields, but the
+        // lockfile may already know them.
+        const lockfileEntry = useLockfileStore
           .getState()
-          .lockfile?.assistants.find(
-            (a) => a.assistantId === assistant.id,
-          )?.organizationId;
+          .lockfile?.assistants.find((a) => a.assistantId === assistant.id);
         return {
           assistants: [
             ...state.assistants,
-            { ...entry, organizationId: lockfileOrg },
+            {
+              ...entry,
+              organizationId: lockfileEntry?.organizationId,
+              runtimeVersion: lockfileEntry?.resources?.runtimeVersion,
+            },
           ],
         };
       }),

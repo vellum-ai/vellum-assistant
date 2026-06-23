@@ -22,7 +22,11 @@ const localAssistant: LockfileAssistant = {
   assistantId: "asst-local",
   name: "Local",
   cloud: "local",
-  resources: { gatewayPort: 7830, daemonPort: 7831 },
+  resources: {
+    gatewayPort: 7830,
+    daemonPort: 7831,
+    runtimeVersion: "v0.8.13",
+  },
 };
 
 beforeEach(() => {
@@ -60,6 +64,7 @@ describe("setFromLockfile", () => {
     expect(entry.id).toBe("asst-local");
     expect(entry.isLocal).toBe(true);
     expect(entry.organizationId).toBeUndefined();
+    expect(entry.runtimeVersion).toBe("v0.8.13");
   });
 });
 
@@ -86,11 +91,32 @@ describe("upsertFromApi", () => {
     expect(entry.organizationId).toBe("org-1");
   });
 
-  it("seeds organizationId from the lockfile cache when inserting a new entry", () => {
+  it("preserves a lockfile-seeded runtimeVersion on refresh", () => {
+    useResolvedAssistantsStore.getState().setFromLockfile({
+      assistants: [localAssistant],
+      activeAssistant: null,
+    });
+
+    useResolvedAssistantsStore.getState().upsertFromApi({
+      id: "asst-local",
+      name: "Local (refreshed)",
+      created: "2026-01-01T00:00:00Z",
+      is_local: true,
+    } as Parameters<
+      ReturnType<typeof useResolvedAssistantsStore.getState>["upsertFromApi"]
+    >[0]);
+
+    const entry = useResolvedAssistantsStore.getState().assistants[0];
+    expect(entry.id).toBe("asst-local");
+    expect(entry.name).toBe("Local (refreshed)");
+    expect(entry.runtimeVersion).toBe("v0.8.13");
+  });
+
+  it("seeds lockfile fields from the cache when inserting a new entry", () => {
     // A lifecycle refresh can land before the lockfile subscription has seeded
-    // the resolved list; the insert must still pick up the org the lockfile knows.
+    // the resolved list; the insert must still pick up the fields the lockfile knows.
     useLockfileStore.getState().setLockfile({
-      assistants: [platformAssistant],
+      assistants: [platformAssistant, localAssistant],
       activeAssistant: null,
     });
 
@@ -106,6 +132,19 @@ describe("upsertFromApi", () => {
     const entry = useResolvedAssistantsStore.getState().assistants[0];
     expect(entry.id).toBe("asst-platform");
     expect(entry.organizationId).toBe("org-1");
+
+    useResolvedAssistantsStore.getState().upsertFromApi({
+      id: "asst-local",
+      name: "Local",
+      created: "2026-01-01T00:00:00Z",
+      is_local: true,
+    } as Parameters<
+      ReturnType<typeof useResolvedAssistantsStore.getState>["upsertFromApi"]
+    >[0]);
+
+    const localEntry = useResolvedAssistantsStore.getState().assistants[1];
+    expect(localEntry.id).toBe("asst-local");
+    expect(localEntry.runtimeVersion).toBe("v0.8.13");
   });
 });
 
