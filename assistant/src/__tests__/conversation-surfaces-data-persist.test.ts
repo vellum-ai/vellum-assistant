@@ -25,8 +25,8 @@ let updateMessageContentSpy: (id: string, content: string) => void = () => {};
 const realCrud = await import("../memory/conversation-crud.js");
 
 mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
   ...realCrud,
+  setConversationProcessingStartedAt: () => {},
   getMessages: (conversationId: string) => getMessagesImpl(conversationId),
   updateMessageContent: (id: string, content: string) =>
     updateMessageContentSpy(id, content),
