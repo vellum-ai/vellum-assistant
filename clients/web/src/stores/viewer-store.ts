@@ -139,6 +139,13 @@ export interface ToolDetailPayload {
   activity: string; // rich sentence (may be "")
   input: Record<string, unknown>;
   result?: string;
+  /**
+   * Open-time snapshot of the live streamed tool output (e.g. foreground bash
+   * stdout/stderr). Only a fallback: an open drawer re-derives the live value
+   * from the chat-session store via `useLiveToolCall`, so this is used only
+   * when the tool call can't be resolved live (e.g. paged out).
+   */
+  streamedOutput?: string;
   status: "running" | "completed" | "error" | "denied";
   riskLevel?: string;
   riskReason?: string;

@@ -33,6 +33,8 @@ import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-mes
 import { RiskBadge } from "@/domains/chat/components/risk-badge";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
 import { useLiveThinkingText } from "@/domains/chat/hooks/use-live-thinking-text";
+import { useLiveToolCall } from "@/domains/chat/hooks/use-live-tool-call";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import {
     deriveStepLabelFromName,
     type IconName,
@@ -214,13 +216,47 @@ export function ToolDetailPanel({
   if (detail.kind === "thinking") {
     return <ThinkingDetailBody detail={detail} onClose={onClose} />;
   }
+  // Tool variant lives in its own component so its store-subscribing hook
+  // (`useLiveToolCall`) is called unconditionally, never gated behind the
+  // thinking early-return above (Rules of Hooks).
+  return (
+    <ToolDetailBody
+      detail={detail}
+      onClose={onClose}
+      onRiskBadgeClick={onRiskBadgeClick}
+    />
+  );
+}
 
+/**
+ * Tool-call variant body. Reuses the shared shell and renders technical
+ * details + output. Subscribes to the chat-session store via `useLiveToolCall`
+ * so an open drawer streams `tool_output_chunk` output while the call runs and
+ * flips to the final `result` when it lands, falling back to the open-time
+ * snapshot when the call can't be resolved live (e.g. paged out).
+ */
+function ToolDetailBody({
+  detail,
+  onClose,
+  onRiskBadgeClick,
+}: {
+  detail: ToolDetailPayload;
+  onClose: () => void;
+  onRiskBadgeClick?: () => void;
+}) {
   const { iconName } = deriveStepLabelFromName(detail.toolName, detail.input);
   const Glyph = ICON_MAP[iconName] ?? Bolt;
 
+  const liveTc = useLiveToolCall(detail.toolCallId);
+  const result = liveTc?.result ?? detail.result;
+  const streamedOutput = liveTc?.streamedOutput ?? detail.streamedOutput;
+
   const title = detail.activity || detail.title;
-  const hasResult = detail.result !== undefined && detail.result !== "";
-  const isRunning = detail.status === "running";
+  const hasResult = result !== undefined && result !== "";
+  const isRunning = liveTc
+    ? isToolCallRunning(liveTc)
+    : detail.status === "running";
+  const hasStreamedOutput = !!streamedOutput;
   const inputJson = JSON.stringify(detail.input, null, 2);
 
   return (
@@ -267,12 +303,15 @@ export function ToolDetailPanel({
           </div>
         </div>
 
-        {/* Output section — omitted entirely when there's no result */}
+        {/* Output — the final result once present, else the live streamed
+            tail while running, else a bare running placeholder. */}
         {(hasResult || isRunning) && (
           <div className="mt-5">
             <SectionLabel>Output</SectionLabel>
             {hasResult ? (
-              <CodeBlock text={detail.result as string} />
+              <CodeBlock text={result as string} />
+            ) : hasStreamedOutput ? (
+              <CodeBlock text={streamedOutput as string} />
             ) : (
               <Typography
                 variant="body-small-default"

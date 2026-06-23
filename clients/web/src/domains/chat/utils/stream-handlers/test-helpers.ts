@@ -106,6 +106,8 @@ export function makeCtx(
     lastActivityVersionRef: { current: new Map() },
     toolCallIdCounterRef: { current: 0 },
     currentAssistantMessageIdRef: { current: undefined },
+    toolOutputBufferRef: { current: new Map() },
+    toolOutputFlushHandleRef: { current: null },
     ...restOverrides,
   };
 }
