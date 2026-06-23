@@ -125,11 +125,16 @@ export function resolveCallSiteConfig(
 
   // Effective sampling params, tracked outside the deep-merge for the same
   // reason as `logitBias`: `temperature`/`top_p` are provider-coupled, so only
-  // the winning profile may contribute them. Each profile fully determines the
-  // pair (REPLACE — a profile that omits a param clears what a lower-precedence
-  // profile set), while an explicit call-site override COALESCES on top (see
-  // `appendProfileLayer` / `appendCallSiteLayers`).
-  const samplingRef: SamplingRef = { temperature: undefined, topP: undefined };
+  // the winning profile may contribute them. A profile clears what a lower
+  // PROFILE set where it is silent (so a shadowed profile's sampling can't
+  // leak), while an explicit call-site override is sticky and survives a later
+  // silent profile (see `applyProfileSampling` / `appendCallSiteLayers`).
+  const samplingRef: SamplingRef = {
+    temperature: undefined,
+    topP: undefined,
+    temperatureFromCallSite: false,
+    topPFromCallSite: false,
+  };
 
   const activeFragment = resolveProfileFragment(llm.activeProfile, llm, opts);
   const overrideFragment = resolveProfileFragment(
@@ -224,6 +229,13 @@ type LogitBiasRef = { preset: ProfileEntry["logitBias"] };
 type SamplingRef = {
   temperature: ProfileEntry["temperature"];
   topP: ProfileEntry["topP"];
+  // Provenance of the current pair: `true` when a field came from an explicit
+  // call-site override (deliberate, sticky), `false` when it came from a profile
+  // (clearable by a higher-precedence profile that determines the model). Lets a
+  // silent higher profile clear a lower profile's sampling without discarding a
+  // deliberate call-site override.
+  temperatureFromCallSite: boolean;
+  topPFromCallSite: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -383,6 +395,32 @@ function withImpliedProviderForKnownModel(source: Mergeable): Mergeable {
   };
 }
 
+/**
+ * Fold a profile's sampling into `samplingRef`. A profile determines
+ * provider/model, so its pair supersedes any LOWER PROFILE's: set each field the
+ * profile specifies, and clear a lower profile's value where the profile is
+ * silent. A deliberate call-site override is NOT a profile and outranks a silent
+ * profile — it survives until a profile EXPLICITLY sets the field. (The mirror
+ * COALESCE for call-site overrides lives in `appendCallSiteLayers`.)
+ */
+function applyProfileSampling(
+  samplingRef: SamplingRef,
+  profile: ProfileEntry,
+): void {
+  if (profile.temperature !== undefined) {
+    samplingRef.temperature = profile.temperature;
+    samplingRef.temperatureFromCallSite = false;
+  } else if (!samplingRef.temperatureFromCallSite) {
+    samplingRef.temperature = undefined;
+  }
+  if (profile.topP !== undefined) {
+    samplingRef.topP = profile.topP;
+    samplingRef.topPFromCallSite = false;
+  } else if (!samplingRef.topPFromCallSite) {
+    samplingRef.topP = undefined;
+  }
+}
+
 function appendProfileLayer(
   layers: Mergeable[],
   profile: ProfileEntry | undefined,
@@ -391,11 +429,7 @@ function appendProfileLayer(
 ): void {
   if (profile != null) {
     biasRef.preset = profile.logitBias;
-    // Each profile fully determines the sampling pair: a profile that omits
-    // `temperature`/`topP` clears what a lower-precedence profile set, so the
-    // winning (last-appended) profile is the sole profile source.
-    samplingRef.temperature = profile.temperature;
-    samplingRef.topP = profile.topP;
+    applyProfileSampling(samplingRef, profile);
     layers.push(profileConfigFragment(profile));
   }
 }
@@ -422,24 +456,29 @@ function appendCallSiteLayers(
         );
       }
       biasRef.preset = profileFragment.logitBias;
-      samplingRef.temperature = profileFragment.temperature;
-      samplingRef.topP = profileFragment.topP;
+      applyProfileSampling(samplingRef, profileFragment);
       layers.push(profileConfigFragment(profileFragment));
     }
     // Strip the `profile` discriminator (not a `LLMConfigBase` field) and the
     // sampling params before merging. An explicit call-site `temperature` /
     // `topP` is a deliberate per-site choice, so it COALESCES over the winning
-    // profile's pair (only overriding the fields it sets) — routed through
-    // `samplingRef` so it never inherits a shadowed profile's value via merge.
+    // profile's pair (only overriding the fields it sets) and is marked sticky
+    // so a later silent profile can't clear it — routed through `samplingRef` so
+    // it never inherits a shadowed profile's value via merge.
     const {
       profile: _profile,
       temperature: siteTemperature,
       topP: siteTopP,
       ...siteFragment
     } = site;
-    if (siteTemperature !== undefined)
+    if (siteTemperature !== undefined) {
       samplingRef.temperature = siteTemperature;
-    if (siteTopP !== undefined) samplingRef.topP = siteTopP;
+      samplingRef.temperatureFromCallSite = true;
+    }
+    if (siteTopP !== undefined) {
+      samplingRef.topP = siteTopP;
+      samplingRef.topPFromCallSite = true;
+    }
     layers.push(siteFragment as Mergeable);
   }
 }
