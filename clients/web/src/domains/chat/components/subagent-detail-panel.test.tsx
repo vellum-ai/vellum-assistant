@@ -21,8 +21,49 @@ mock.module("@/domains/chat/components/subagent-status-badge", () => ({
   ),
 }));
 
+// The real timeline is exercised in its own test; here we stub it so the panel
+// tests stay focused on the panel's own behavior. The stub renders a button
+// that forwards a fixed tool-call id to the panel's `onStepDetailClick`, letting
+// us drive the nested tool-detail swap without depending on the timeline's
+// expand/pill internals.
 mock.module("@/domains/chat/components/subagent-phase-timeline", () => ({
-  SubagentPhaseTimeline: () => <div data-testid="timeline" />,
+  SubagentPhaseTimeline: ({
+    onStepDetailClick,
+    expandedKeys,
+    onExpandedKeysChange,
+  }: {
+    onStepDetailClick?: (detailKey: string) => void;
+    expandedKeys?: Set<string>;
+    onExpandedKeysChange?: (next: Set<string>) => void;
+  }) => (
+    <div data-testid="timeline">
+      {/* Surfaces the controlled expand state so a test can assert the panel
+          preserves it across the detail view swap. */}
+      <button
+        type="button"
+        data-testid="timeline-expand"
+        onClick={() =>
+          onExpandedKeysChange?.(new Set(expandedKeys).add("grp-1"))
+        }
+      >
+        {expandedKeys?.has("grp-1") ? "group-open" : "group-closed"}
+      </button>
+      <button
+        type="button"
+        data-testid="timeline-pill"
+        onClick={() => onStepDetailClick?.("tool-1")}
+      >
+        pill
+      </button>
+      <button
+        type="button"
+        data-testid="timeline-thinking-pill"
+        onClick={() => onStepDetailClick?.("think-1")}
+      >
+        thinking
+      </button>
+    </div>
+  ),
 }));
 
 import { SubagentDetailPanel } from "@/domains/chat/components/subagent-detail-panel";
@@ -246,14 +287,14 @@ describe("SubagentDetailPanel — objective", () => {
 
       const body = screen.getByText(longObjective);
       // Collapsed by default: clamped and offering "Show more".
-      expect(body.className).toContain("line-clamp-3");
+      expect(body.className).toContain("line-clamp-5");
       const toggle = screen.getByText("Show more");
 
       fireEvent.click(toggle);
       // Expanded: clamp removed and the affordance flips to "Show less".
       expect(screen.getByText("Show less")).toBeDefined();
       expect(screen.getByText(longObjective).className).not.toContain(
-        "line-clamp-3",
+        "line-clamp-5",
       );
 
       fireEvent.click(screen.getByText("Show less"));
@@ -300,7 +341,7 @@ describe("SubagentDetailPanel — objective", () => {
       fireEvent.click(screen.getByText("Show more"));
       expect(screen.getByText("Show less")).toBeDefined();
       expect(screen.getByText(longObjective).className).not.toContain(
-        "line-clamp-3",
+        "line-clamp-5",
       );
 
       // Switch to a different subagent with a short objective. Same instance,
@@ -314,7 +355,7 @@ describe("SubagentDetailPanel — objective", () => {
 
       // State reset + re-measured: collapsed, no stale "Show less"/toggle.
       const shortBody = screen.getByText("Short");
-      expect(shortBody.className).toContain("line-clamp-3");
+      expect(shortBody.className).toContain("line-clamp-5");
       expect(screen.queryByText("Show less")).toBeNull();
       expect(screen.queryByText("Show more")).toBeNull();
     } finally {
@@ -354,10 +395,178 @@ describe("SubagentDetailPanel — objective", () => {
       // Re-measured despite identical text: the toggle is still present.
       expect(screen.getByText("Show more")).toBeDefined();
       expect(screen.getByText(longObjective).className).toContain(
-        "line-clamp-3",
+        "line-clamp-5",
       );
     } finally {
       restore();
     }
+  });
+});
+
+/**
+ * A `tool_call`/`tool_result` pair whose `toolUseId` matches the id the stubbed
+ * timeline forwards (`tool-1`), so `buildSubagentStepDetails(entry)` produces a
+ * payload the panel can swap into. `completed` overrides whether the call has a
+ * result (closed) or is still in flight (running output state).
+ */
+function entryWithTool(completed: boolean): SubagentEntry {
+  const now = Date.now();
+  return makeEntry({
+    events: [
+      {
+        id: "te-call",
+        type: "tool_call",
+        content: "ls -la",
+        toolName: "bash",
+        toolUseId: "tool-1",
+        input: { command: "ls -la" },
+        timestamp: now,
+      },
+      ...(completed
+        ? [
+            {
+              id: "te-result",
+              type: "tool_result" as const,
+              content: "file-listing-output",
+              result: "file-listing-output",
+              toolName: "bash",
+              toolUseId: "tool-1",
+              timestamp: now + 1000,
+            },
+          ]
+        : []),
+    ],
+  });
+}
+
+/**
+ * A single `text` event whose id matches the key the stubbed thinking pill
+ * forwards (`think-1`), so `buildSubagentStepDetails(entry)` produces a
+ * `kind: "thinking"` payload carrying the full reasoning markdown.
+ */
+function entryWithThinking(): SubagentEntry {
+  return makeEntry({
+    events: [
+      {
+        id: "think-1",
+        type: "text",
+        content: "Full reasoning the pill preview truncates.",
+        timestamp: Date.now(),
+      },
+    ],
+  });
+}
+
+describe("SubagentDetailPanel — nested tool detail", () => {
+  test("clicking a timeline tool pill swaps the body to the tool detail while keeping the header", () => {
+    render(<SubagentDetailPanel entry={entryWithTool(true)} onClose={noop} />);
+
+    // Timeline view first.
+    expect(screen.getByTestId("timeline")).toBeDefined();
+    expect(screen.queryByText("Back")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("timeline-pill"));
+
+    // Detail body is shown (tool input + Output sections). The nested view
+    // omits the "Technical details" label — redundant under the subagent
+    // header + "Back" affordance — so it must NOT appear.
+    expect(screen.queryByText("Technical details")).toBeNull();
+    expect(screen.getByText("Output")).toBeDefined();
+    expect(screen.getByText("file-listing-output")).toBeDefined();
+    // Timeline is no longer rendered (body swapped, not stacked).
+    expect(screen.queryByTestId("timeline")).toBeNull();
+    // The subagent header stays mounted in the detail view.
+    expect(screen.getByText("Research agent")).toBeDefined();
+    expect(screen.getByLabelText("Close subagent detail")).toBeDefined();
+  });
+
+  test("'Back' restores the timeline view", () => {
+    render(<SubagentDetailPanel entry={entryWithTool(true)} onClose={noop} />);
+
+    fireEvent.click(screen.getByTestId("timeline-pill"));
+    expect(screen.getByText("Output")).toBeDefined();
+
+    fireEvent.click(screen.getByText("Back"));
+    expect(screen.getByTestId("timeline")).toBeDefined();
+    expect(screen.queryByText("Back")).toBeNull();
+  });
+
+  test("selecting a still-running tool shows the 'Running…' output state", () => {
+    render(<SubagentDetailPanel entry={entryWithTool(false)} onClose={noop} />);
+
+    fireEvent.click(screen.getByTestId("timeline-pill"));
+    expect(screen.getByText("Output")).toBeDefined();
+    expect(screen.getByText("Running…")).toBeDefined();
+  });
+
+  test("returning via 'Back' preserves the expanded timeline group", () => {
+    render(<SubagentDetailPanel entry={entryWithTool(true)} onClose={noop} />);
+
+    // Expand a group.
+    expect(screen.getByTestId("timeline-expand").textContent).toBe(
+      "group-closed",
+    );
+    fireEvent.click(screen.getByTestId("timeline-expand"));
+    expect(screen.getByTestId("timeline-expand").textContent).toBe(
+      "group-open",
+    );
+
+    // Open a tool's detail (the timeline unmounts) then return via "Back".
+    fireEvent.click(screen.getByTestId("timeline-pill"));
+    expect(screen.getByText("Output")).toBeDefined();
+    fireEvent.click(screen.getByText("Back"));
+
+    // The group the user had open is still expanded — the lifted expand state
+    // survived the timeline unmounting.
+    expect(screen.getByTestId("timeline-expand").textContent).toBe(
+      "group-open",
+    );
+  });
+
+  test("switching to a different subagent resets the nested view and expanded groups", () => {
+    // The desktop parent reuses this instance across subagent switches (no
+    // React `key`), so neither an open nested detail nor an expanded group may
+    // leak onto the next subagent.
+    const { rerender } = render(
+      <SubagentDetailPanel entry={entryWithTool(true)} onClose={noop} />,
+    );
+
+    fireEvent.click(screen.getByTestId("timeline-expand"));
+    fireEvent.click(screen.getByTestId("timeline-pill"));
+    expect(screen.getByText("Output")).toBeDefined();
+
+    rerender(
+      <SubagentDetailPanel
+        entry={{ ...entryWithTool(true), subagentId: "sub-2" }}
+        onClose={noop}
+      />,
+    );
+
+    // Reset to the timeline for the new subagent, with no leaked detail or
+    // expansion.
+    expect(screen.getByTestId("timeline")).toBeDefined();
+    expect(screen.queryByText("Back")).toBeNull();
+    expect(screen.getByTestId("timeline-expand").textContent).toBe(
+      "group-closed",
+    );
+  });
+
+  test("clicking a thinking pill shows its full reasoning, no tool sections", () => {
+    render(<SubagentDetailPanel entry={entryWithThinking()} onClose={noop} />);
+
+    fireEvent.click(screen.getByTestId("timeline-thinking-pill"));
+
+    // The full (un-truncated) reasoning is rendered as markdown, with none of
+    // the tool-detail sections.
+    expect(
+      screen.getByText("Full reasoning the pill preview truncates."),
+    ).toBeDefined();
+    expect(screen.queryByText("Technical details")).toBeNull();
+    expect(screen.queryByText("Output")).toBeNull();
+
+    // Back returns to the timeline.
+    fireEvent.click(screen.getByText("Back"));
+    expect(screen.getByTestId("timeline")).toBeDefined();
+    expect(screen.queryByText("Back")).toBeNull();
   });
 });

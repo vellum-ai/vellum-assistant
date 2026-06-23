@@ -9,7 +9,7 @@
  * for 1); and contiguous same-phase collapsing into a single row.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
@@ -39,12 +39,33 @@ function bash(
   };
 }
 
-function thinking(text: string, duration = "1s"): ToolCallCardStep {
-  return { kind: "thinking", durationLabel: duration, text };
+function thinking(
+  text: string,
+  duration = "1s",
+  detailKey?: string,
+): ToolCallCardStep {
+  return { kind: "thinking", durationLabel: duration, text, detailKey };
 }
 
 function toolError(message: string): ToolCallCardStep {
   return { kind: "tool_error", message };
+}
+
+function webSearch(
+  results: Array<{ title: string; url: string; domain: string }>,
+  title = "Searched the web",
+  query?: string,
+  detailKey?: string,
+): ToolCallCardStep {
+  return {
+    kind: "web_search",
+    title,
+    query,
+    durationLabel: "",
+    linkCount: results.length,
+    results: results.map((r, i) => ({ rank: i + 1, ...r })),
+    detailKey,
+  };
 }
 
 describe("SubagentPhaseTimeline — empty input", () => {
@@ -91,7 +112,11 @@ describe("SubagentPhaseTimeline — running row", () => {
     const steps: ToolCallCardStep[] = [
       bash("sleep 5", "running", "", "tc-a", "Compiling the project"),
     ];
-    const { getByTestId } = render(<SubagentPhaseTimeline steps={steps} />);
+    // A running phase implies a running subagent (the panel always passes this);
+    // only then is the last phase the pulsing active tail.
+    const { getByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} isRunning />,
+    );
 
     // The running node is the three-dot indicator: it stamps no `data-status`
     // and exposes 3 dot children (the `ThreeDotIndicator` contract).
@@ -108,9 +133,96 @@ describe("SubagentPhaseTimeline — running row", () => {
     const steps: ToolCallCardStep[] = [
       bash("npm run build", "running", "", "tc-a", ""),
     ];
-    const { getByTestId } = render(<SubagentPhaseTimeline steps={steps} />);
+    const { getByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} isRunning />,
+    );
     const header = getByTestId("subagent-phase-header");
     expect(header.textContent).toContain("npm run build");
+  });
+
+  test("an in-flight web_search surfaces its query as the live sub-label", () => {
+    // Title "Searching the web" → the phase reads as running; the running row's
+    // sub-label is the search query, not the generic phase label.
+    const steps: ToolCallCardStep[] = [
+      webSearch([], "Searching the web", "best thermos 2025"),
+    ];
+    const { getByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} isRunning />,
+    );
+    const header = getByTestId("subagent-phase-header");
+    expect(header.textContent).toContain("best thermos 2025");
+  });
+});
+
+describe("SubagentPhaseTimeline — running tail", () => {
+  test("the last phase's node keeps pulsing when the subagent is running but its steps have settled", () => {
+    // Settled bash phase + the subagent is still running → the node is the
+    // pulsing ThreeDotIndicator (no `data-status`, 3 dot children), NOT a green
+    // check — so the timeline shows ongoing work without a separate row.
+    const steps: ToolCallCardStep[] = [bash("ls", "completed", "1s", "tc-a")];
+    const { getByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} isRunning />,
+    );
+    const node = getByTestId("phase-header-status-icon");
+    expect(node.getAttribute("data-status")).toBeNull();
+    expect(node.children.length).toBe(3);
+  });
+
+  test("the last node shows its settled status when the subagent is NOT running", () => {
+    const steps: ToolCallCardStep[] = [bash("ls", "completed", "1s", "tc-a")];
+    const { getByTestId } = render(<SubagentPhaseTimeline steps={steps} />);
+    const node = getByTestId("phase-header-status-icon");
+    expect(node.getAttribute("data-status")).toBe("completed");
+  });
+
+  test("a non-last phase whose web_search never resolved does NOT pulse (coerced to settled)", () => {
+    // The web_search keeps the present-tense title because its `tool_result`
+    // never arrived, so phaseHeaderStatus reads it as "running". With a later
+    // phase after it, it must read as settled — only the tail may pulse.
+    const steps: ToolCallCardStep[] = [
+      webSearch([], "Searching the web", "orphaned query"),
+      bash("ls", "completed", "1s", "tc-a"),
+    ];
+    const { getAllByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} isRunning />,
+    );
+    const nodes = getAllByTestId("phase-header-status-icon");
+    // The stuck search node is coerced to a completed check, not the pulse.
+    expect(nodes[0]!.getAttribute("data-status")).toBe("completed");
+    // The genuine tail (bash) pulses.
+    const last = nodes[nodes.length - 1]!;
+    expect(last.getAttribute("data-status")).toBeNull();
+    expect(last.children.length).toBe(3);
+  });
+
+  test("an orphaned web_search does not pulse once the subagent is terminal", () => {
+    // Same stuck search, but as the LAST phase with the subagent no longer
+    // running — it must not pulse (the subagent is done).
+    const steps: ToolCallCardStep[] = [
+      webSearch([], "Searching the web", "orphaned query"),
+    ];
+    const { getByTestId } = render(<SubagentPhaseTimeline steps={steps} />);
+    expect(
+      getByTestId("phase-header-status-icon").getAttribute("data-status"),
+    ).toBe("completed");
+  });
+
+  test("only the last phase pulses — earlier settled phases keep their status", () => {
+    // Working → Thinking → Working. While running, only the final Working phase
+    // pulses; the first Working stays a completed check.
+    const steps: ToolCallCardStep[] = [
+      bash("a", "completed", "1s", "tc-a"),
+      thinking("t1"),
+      bash("b", "completed", "1s", "tc-b"),
+    ];
+    const { getAllByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} isRunning />,
+    );
+    const nodes = getAllByTestId("phase-header-status-icon");
+    expect(nodes[0]!.getAttribute("data-status")).toBe("completed");
+    const last = nodes[nodes.length - 1]!;
+    expect(last.getAttribute("data-status")).toBeNull();
+    expect(last.children.length).toBe(3);
   });
 });
 
@@ -196,6 +308,273 @@ describe("SubagentPhaseTimeline — single-step expandability", () => {
   });
 });
 
+describe("SubagentPhaseTimeline — clickable tool steps", () => {
+  test("tool steps render as clickable buttons and call back with toolCallId", () => {
+    const onStepDetailClick = mock((_id: string) => {});
+    const steps: ToolCallCardStep[] = [
+      bash("ls", "completed", "1s", "tc-a"),
+      bash("pwd", "completed", "2s", "tc-b"),
+    ];
+    const { getByTestId, getAllByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} onStepDetailClick={onStepDetailClick} />,
+    );
+
+    fireEvent.click(getByTestId("subagent-phase-header"));
+
+    const pills = getAllByTestId("tool-step-pill");
+    expect(pills.length).toBe(2);
+    pills.forEach((pill) => expect(pill.tagName).toBe("BUTTON"));
+
+    fireEvent.click(pills[0]!);
+    expect(onStepDetailClick).toHaveBeenCalledTimes(1);
+    expect(onStepDetailClick).toHaveBeenLastCalledWith("tc-a");
+
+    fireEvent.click(pills[1]!);
+    expect(onStepDetailClick).toHaveBeenLastCalledWith("tc-b");
+  });
+
+  // A clickable tool step whose labeler produced no `info` still renders a
+  // `ToolStepPill` (its label falls back to `step.title`), so the row must be
+  // expandable and the nested detail reachable. Regression for `isExpandable`
+  // consulting only `stepRendersPill` — which is false for an info-less tool
+  // step — and thus disabling the row even though the clickable arm would have
+  // rendered a real pill.
+  test("a single info-less tool step is expandable + clickable when a handler is wired", () => {
+    const onStepDetailClick = mock((_id: string) => {});
+    const steps: ToolCallCardStep[] = [bash("", "completed", "1s", "tc-a")];
+    const { getByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} onStepDetailClick={onStepDetailClick} />,
+    );
+
+    const header = getByTestId("subagent-phase-header");
+    expect(header.hasAttribute("disabled")).toBe(false);
+
+    fireEvent.click(header);
+    const pill = getByTestId("tool-step-pill");
+    expect(pill.tagName).toBe("BUTTON");
+
+    fireEvent.click(pill);
+    expect(onStepDetailClick).toHaveBeenCalledTimes(1);
+    expect(onStepDetailClick).toHaveBeenLastCalledWith("tc-a");
+  });
+
+  test("a thinking step WITHOUT a detail key is not clickable", () => {
+    const onStepDetailClick = mock((_id: string) => {});
+    const steps: ToolCallCardStep[] = [thinking("Considering options")];
+    const { getByTestId, queryByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} onStepDetailClick={onStepDetailClick} />,
+    );
+
+    fireEvent.click(getByTestId("subagent-phase-header"));
+    expect(queryByTestId("tool-step-pill")).toBeNull();
+  });
+
+  test("a thinking step WITH a detail key renders a clickable pill and calls back", () => {
+    const onStepDetailClick = mock((_id: string) => {});
+    const steps: ToolCallCardStep[] = [
+      thinking("Considering options", "1s", "think-1"),
+    ];
+    const { getByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} onStepDetailClick={onStepDetailClick} />,
+    );
+
+    fireEvent.click(getByTestId("subagent-phase-header"));
+    const pill = getByTestId("tool-step-pill");
+    expect(pill.tagName).toBe("BUTTON");
+
+    fireEvent.click(pill);
+    expect(onStepDetailClick).toHaveBeenCalledTimes(1);
+    expect(onStepDetailClick).toHaveBeenLastCalledWith("think-1");
+  });
+
+  test("a tool_error step does NOT render as a clickable tool pill", () => {
+    const onStepDetailClick = mock((_id: string) => {});
+    const steps: ToolCallCardStep[] = [toolError("context window exceeded")];
+    const { getByTestId, queryByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} onStepDetailClick={onStepDetailClick} />,
+    );
+
+    fireEvent.click(getByTestId("subagent-phase-header"));
+    expect(queryByTestId("tool-step-pill")).toBeNull();
+  });
+
+  test("tool steps with an empty toolCallId stay non-clickable", () => {
+    const onStepDetailClick = mock((_id: string) => {});
+    const steps: ToolCallCardStep[] = [
+      bash("ls", "completed", "1s", ""),
+      bash("pwd", "completed", "2s", ""),
+    ];
+    const { getByTestId, queryByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} onStepDetailClick={onStepDetailClick} />,
+    );
+
+    fireEvent.click(getByTestId("subagent-phase-header"));
+    expect(queryByTestId("tool-step-pill")).toBeNull();
+  });
+
+  test("without the callback, tool steps remain non-clickable", () => {
+    const steps: ToolCallCardStep[] = [
+      bash("ls", "completed", "1s", "tc-a"),
+      bash("pwd", "completed", "2s", "tc-b"),
+    ];
+    const { getByTestId, queryByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} />,
+    );
+
+    fireEvent.click(getByTestId("subagent-phase-header"));
+    expect(queryByTestId("tool-step-pill")).toBeNull();
+  });
+
+  test("a web_search step WITH a detail key renders a clickable query pill and calls back", () => {
+    const onStepDetailClick = mock((_id: string) => {});
+    const steps: ToolCallCardStep[] = [
+      webSearch(
+        [{ title: "R1", url: "https://a.com", domain: "a.com" }],
+        "Searched the web",
+        "best vector databases",
+        "ws-1",
+      ),
+    ];
+    const { getByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} onStepDetailClick={onStepDetailClick} />,
+    );
+
+    fireEvent.click(getByTestId("subagent-phase-header"));
+    // The query renders as a single clickable tool pill (a button) that opens
+    // the nested detail — NOT the inline web-source anchors.
+    const pill = getByTestId("tool-step-pill");
+    expect(pill.tagName).toBe("BUTTON");
+    expect(pill.textContent).toContain("best vector databases");
+
+    fireEvent.click(pill);
+    expect(onStepDetailClick).toHaveBeenCalledTimes(1);
+    expect(onStepDetailClick).toHaveBeenLastCalledWith("ws-1");
+  });
+
+  test("a web_search step WITHOUT a detail key falls back to inline source chips", () => {
+    const onStepDetailClick = mock((_id: string) => {});
+    const steps: ToolCallCardStep[] = [
+      webSearch([
+        { title: "R1", url: "https://a.com", domain: "a.com" },
+        { title: "R2", url: "https://b.com", domain: "b.com" },
+      ]),
+    ];
+    const { getByTestId, getAllByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} onStepDetailClick={onStepDetailClick} />,
+    );
+
+    fireEvent.click(getByTestId("subagent-phase-header"));
+    // No detailKey → the deploy-safe inline web chips (anchors), not a button,
+    // and nothing to open.
+    const chips = getAllByTestId("tool-step-pill");
+    expect(chips.length).toBe(2);
+    chips.forEach((chip) => expect(chip.tagName).toBe("A"));
+    expect(onStepDetailClick).not.toHaveBeenCalled();
+  });
+});
+
+describe("SubagentPhaseTimeline — web_search trailing query", () => {
+  test("an in-flight search shows the most recent query to the right of the divider", () => {
+    const steps: ToolCallCardStep[] = [
+      webSearch(
+        [{ title: "First Source", url: "https://a.com", domain: "a.com" }],
+        "Searched the web",
+        "thermos history",
+      ),
+      // The latest search is still in flight (no resolved query yet) → the phase
+      // reads as running and falls back to the previous, known query.
+      webSearch([], "Searching the web"),
+    ];
+    const { getByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} isRunning />,
+    );
+    expect(getByTestId("subagent-phase-header").textContent).toContain(
+      "thermos history",
+    );
+  });
+
+  test("a completed search shows its query in the trailing slot (not under the row)", () => {
+    const steps: ToolCallCardStep[] = [
+      webSearch(
+        [{ title: "First Source", url: "https://a.com", domain: "a.com" }],
+        "Searched the web",
+        "best vacuum flask 2025",
+      ),
+    ];
+    const { getByTestId, queryByText } = render(
+      <SubagentPhaseTimeline steps={steps} />,
+    );
+    // Query sits inline on the header row...
+    expect(getByTestId("subagent-phase-header").textContent).toContain(
+      "best vacuum flask 2025",
+    );
+    // ...and the result source is NOT rendered under the row (no ticker); it
+    // only appears in the expandable detail.
+    expect(queryByText("First Source")).toBeNull();
+  });
+});
+
+describe("SubagentPhaseTimeline — web_search chips", () => {
+  test("a web_search step renders its results as favicon link chips when expanded", () => {
+    const steps: ToolCallCardStep[] = [
+      webSearch([
+        { title: "First Result", url: "https://example.com/a", domain: "example.com" },
+        { title: "Second Result", url: "https://foo.org/b", domain: "foo.org" },
+      ]),
+      // A second search so the group is multi-step (has the "N steps" pill).
+      webSearch([
+        { title: "Third Result", url: "https://bar.net/c", domain: "bar.net" },
+      ]),
+    ];
+    const { getByTestId, getAllByTestId, queryAllByTestId } = render(
+      <SubagentPhaseTimeline steps={steps} />,
+    );
+
+    // Both searches collapse into one "Searching the web" group.
+    const section = getByTestId("subagent-phase-section");
+    expect(section.getAttribute("data-phase-label")).toBe("Searching the web");
+
+    // Collapsed by default — no chips.
+    expect(queryAllByTestId("tool-step-pill").length).toBe(0);
+
+    // Expanding reveals every result chip inline (no clamp): 2 + 1 = 3.
+    fireEvent.click(getByTestId("subagent-phase-header"));
+    const chips = getAllByTestId("tool-step-pill");
+    expect(chips.length).toBe(3);
+    chips.forEach((chip) => {
+      // Web chips render as external-link anchors, not buttons.
+      expect(chip.tagName).toBe("A");
+      expect(chip.getAttribute("data-variant")).toBe("web");
+    });
+    expect(chips[0]!.getAttribute("href")).toBe("https://example.com/a");
+    expect(chips[0]!.textContent).toContain("First Result");
+    expect(chips[2]!.getAttribute("href")).toBe("https://bar.net/c");
+  });
+
+  test("labels each search with its query so multiple searches stay distinct", () => {
+    const steps: ToolCallCardStep[] = [
+      webSearch(
+        [{ title: "R1", url: "https://a.com", domain: "a.com" }],
+        "Searched the web",
+        "most popular AI assistants 2026",
+      ),
+      webSearch(
+        [{ title: "R2", url: "https://b.com", domain: "b.com" }],
+        "Searched the web",
+        "ChatGPT users market share 2026",
+      ),
+    ];
+    const { getByTestId, container } = render(
+      <SubagentPhaseTimeline steps={steps} />,
+    );
+
+    fireEvent.click(getByTestId("subagent-phase-header"));
+    // Both queries render as labels above their chip clusters.
+    expect(container.textContent).toContain("most popular AI assistants 2026");
+    expect(container.textContent).toContain("ChatGPT users market share 2026");
+  });
+});
+
 describe("SubagentPhaseTimeline — phase grouping", () => {
   test("contiguous same-phase steps collapse into one row", () => {
     const steps: ToolCallCardStep[] = [
@@ -253,6 +632,48 @@ describe("SubagentPhaseTimeline — phase grouping", () => {
 
     // Collapsing the first leaves the second's pills visible.
     fireEvent.click(headerOf(working[0]!));
+    expect(queryAllByTestId("phase-step-pill").length).toBe(2);
+  });
+});
+
+describe("SubagentPhaseTimeline — controlled expand state", () => {
+  // When `expandedKeys`/`onExpandedKeysChange` are supplied the parent owns the
+  // expansion (so it can outlive an unmount): the component renders from the
+  // prop and reports toggles instead of self-managing, and does not expand
+  // until the parent feeds the new set back.
+  test("renders expansion from `expandedKeys` and reports toggles to the parent", () => {
+    const onExpandedKeysChange = mock((_next: Set<string>) => {});
+    const steps: ToolCallCardStep[] = [
+      bash("ls", "completed", "1s", "tc-a"),
+      bash("pwd", "completed", "2s", "tc-b"),
+    ];
+
+    const { rerender, getByTestId, queryAllByTestId } = render(
+      <SubagentPhaseTimeline
+        steps={steps}
+        expandedKeys={new Set()}
+        onExpandedKeysChange={onExpandedKeysChange}
+      />,
+    );
+
+    // Controlled + collapsed: no pills yet.
+    expect(queryAllByTestId("phase-step-pill").length).toBe(0);
+
+    // Clicking the header reports the next set but does NOT self-expand.
+    fireEvent.click(getByTestId("subagent-phase-header"));
+    expect(onExpandedKeysChange).toHaveBeenCalledTimes(1);
+    const nextKeys = onExpandedKeysChange.mock.calls[0]![0];
+    expect(nextKeys.size).toBe(1);
+    expect(queryAllByTestId("phase-step-pill").length).toBe(0);
+
+    // Feeding the reported set back expands the section.
+    rerender(
+      <SubagentPhaseTimeline
+        steps={steps}
+        expandedKeys={nextKeys}
+        onExpandedKeysChange={onExpandedKeysChange}
+      />,
+    );
     expect(queryAllByTestId("phase-step-pill").length).toBe(2);
   });
 });

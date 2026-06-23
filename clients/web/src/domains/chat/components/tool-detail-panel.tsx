@@ -17,6 +17,7 @@ import {
   Code,
   Copy,
   FileText,
+  Globe,
   Monitor,
   Pen,
   Plug,
@@ -47,6 +48,7 @@ import type { ToolDetailPayload } from "@/stores/viewer-store";
 const ICON_MAP: Record<IconName, LucideIcon> = {
   code: Code,
   file: FileText,
+  globe: Globe,
   pen: Pen,
   monitor: Monitor,
   plug: Plug,
@@ -200,6 +202,89 @@ function ThinkingDetailBody({
   );
 }
 
+/**
+ * Tool-variant detail sections — the risk-reason note, "Technical details"
+ * (input `CodeBlock`), and "Output" (result or running-state fallback) — with
+ * no surrounding shell, header, or close button. Composed by `ToolDetailPanel`
+ * inside its own `DetailShell`, and reused by `SubagentDetailPanel` to show a
+ * nested tool call under the subagent's own header.
+ */
+export function ToolDetailBody({
+  detail,
+  showTechnicalDetailsLabel = true,
+}: {
+  detail: ToolDetailPayload;
+  /**
+   * Render the "Technical details" section label above the tool name + input.
+   * Defaults to true (main-chat `ToolDetailPanel`). `SubagentDetailPanel` passes
+   * false — its nested view already sits under the subagent header and a "Back
+   * to timeline" affordance, so the extra label reads as redundant there.
+   */
+  showTechnicalDetailsLabel?: boolean;
+}) {
+  const hasResult = detail.result !== undefined && detail.result !== "";
+  const isRunning = detail.status === "running";
+  const inputJson = JSON.stringify(detail.input, null, 2);
+
+  return (
+    <>
+      {detail.riskReason && (
+        <Typography
+          variant="body-small-default"
+          as="p"
+          className="mb-4 text-[var(--content-tertiary)]"
+        >
+          {detail.riskReason}
+        </Typography>
+      )}
+
+      {/* Technical details section */}
+      <div>
+        {showTechnicalDetailsLabel && (
+          <SectionLabel>Technical details</SectionLabel>
+        )}
+        <Typography
+          variant="body-medium-default"
+          as="div"
+          className="text-[var(--content-default)]"
+        >
+          {titleCaseToolName(detail.toolName)}
+        </Typography>
+        {detail.activity && (
+          <Typography
+            variant="body-small-default"
+            as="p"
+            className="mt-0.5 text-[var(--content-secondary)]"
+          >
+            {detail.activity}
+          </Typography>
+        )}
+        <div className="mt-2">
+          <CodeBlock text={inputJson} />
+        </div>
+      </div>
+
+      {/* Output section — omitted entirely when there's no result */}
+      {(hasResult || isRunning) && (
+        <div className="mt-5">
+          <SectionLabel>Output</SectionLabel>
+          {hasResult ? (
+            <CodeBlock text={detail.result as string} />
+          ) : (
+            <Typography
+              variant="body-small-default"
+              as="p"
+              className="text-[var(--content-tertiary)]"
+            >
+              Running…
+            </Typography>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 export function ToolDetailPanel({
   detail,
   onClose,
@@ -219,9 +304,6 @@ export function ToolDetailPanel({
   const Glyph = ICON_MAP[iconName] ?? Bolt;
 
   const title = detail.activity || detail.title;
-  const hasResult = detail.result !== undefined && detail.result !== "";
-  const isRunning = detail.status === "running";
-  const inputJson = JSON.stringify(detail.input, null, 2);
 
   return (
     <DetailShell
@@ -232,59 +314,7 @@ export function ToolDetailPanel({
         <RiskBadge level={detail.riskLevel} onClick={onRiskBadgeClick} />
       }
     >
-      <>
-        {detail.riskReason && (
-          <Typography
-            variant="body-small-default"
-            as="p"
-            className="mb-4 text-[var(--content-tertiary)]"
-          >
-            {detail.riskReason}
-          </Typography>
-        )}
-
-        {/* Technical details section */}
-        <div>
-          <SectionLabel>Technical details</SectionLabel>
-          <Typography
-            variant="body-medium-default"
-            as="div"
-            className="text-[var(--content-default)]"
-          >
-            {titleCaseToolName(detail.toolName)}
-          </Typography>
-          {detail.activity && (
-            <Typography
-              variant="body-small-default"
-              as="p"
-              className="mt-0.5 text-[var(--content-secondary)]"
-            >
-              {detail.activity}
-            </Typography>
-          )}
-          <div className="mt-2">
-            <CodeBlock text={inputJson} />
-          </div>
-        </div>
-
-        {/* Output section — omitted entirely when there's no result */}
-        {(hasResult || isRunning) && (
-          <div className="mt-5">
-            <SectionLabel>Output</SectionLabel>
-            {hasResult ? (
-              <CodeBlock text={detail.result as string} />
-            ) : (
-              <Typography
-                variant="body-small-default"
-                as="p"
-                className="text-[var(--content-tertiary)]"
-              >
-                Running…
-              </Typography>
-            )}
-          </div>
-        )}
-      </>
+      <ToolDetailBody detail={detail} />
     </DetailShell>
   );
 }

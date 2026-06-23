@@ -39,6 +39,8 @@ export interface SubagentDetailResult {
     toolName?: string;
     isError?: boolean;
     messageId?: string;
+    toolUseId?: string;
+    input?: Record<string, unknown>;
   }>;
 }
 
@@ -112,6 +114,8 @@ export function parseSubagentMessages(
           type: "tool_use",
           content: JSON.stringify(input),
           toolName: name,
+          toolUseId: id || undefined,
+          input,
         });
         if (id) pendingTools.set(id, name);
       } else if (
@@ -147,6 +151,7 @@ export function parseSubagentMessages(
           content: resultContent,
           toolName: toolName ?? "unknown",
           isError,
+          toolUseId: toolUseId || undefined,
         });
       }
     }
