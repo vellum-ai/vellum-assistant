@@ -6,6 +6,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let mockProvider: Record<string, unknown> | undefined;
 let mockConnection: Record<string, unknown> | undefined;
+let mockConnections:
+  | Array<Record<string, unknown> & { clientId?: string; accountInfo?: string }>
+  | undefined;
 let mockAccessToken: string | undefined;
 let mockConfig: Record<string, unknown> = {};
 let mockPlatformClient: Record<string, unknown> | null = null;
@@ -24,15 +27,17 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("./oauth-store.js", () => ({
   getProvider: () => mockProvider,
-  getActiveConnection: (
+  getActiveConnections: (
     _pk: string,
     opts?: { clientId?: string; account?: string },
   ) => {
-    if (opts?.clientId && mockConnection?.clientId !== opts.clientId)
-      return undefined;
-    if (opts?.account && mockConnection?.accountInfo !== opts.account)
-      return undefined;
-    return mockConnection;
+    // Default to the single mockConnection unless a test sets an explicit list.
+    const rows = mockConnections ?? (mockConnection ? [mockConnection] : []);
+    return rows.filter((row) => {
+      if (opts?.clientId && row.clientId !== opts.clientId) return false;
+      if (opts?.account && row.accountInfo !== opts.account) return false;
+      return true;
+    });
   },
 }));
 
@@ -131,6 +136,7 @@ function setupDefaults(): void {
       "google-oauth": { mode: "managed" },
     },
   };
+  mockConnections = undefined;
   mockPlatformClient = makeMockClient();
   syncManualTokenCalls = [];
 }
@@ -395,6 +401,36 @@ describe("resolveOAuthConnection scope-awareness", () => {
       requiredScopes: [GMAIL_SCOPE],
     });
     expect(result).toBeInstanceOf(BYOOAuthConnection);
+  });
+
+  test("BYO: picks an older scope-satisfying connection over a newer narrow one", async () => {
+    (mockConfig.services as Record<string, unknown>)["google-oauth"] = {
+      mode: "your-own",
+    };
+    // Newest first (matching the store's ordering): a Calendar-only row, then
+    // an older row that carries the Gmail scope. The narrow row must not win.
+    mockConnections = [
+      {
+        id: "cal-only",
+        provider: "google",
+        accountInfo: "user@example.com",
+        grantedScopes: JSON.stringify(CALENDAR_ONLY),
+        status: "active",
+      },
+      {
+        id: "full",
+        provider: "google",
+        accountInfo: "user@example.com",
+        grantedScopes: JSON.stringify(FULL_BUNDLE),
+        status: "active",
+      },
+    ];
+
+    const result = await resolveOAuthConnection("google", {
+      requiredScopes: [GMAIL_SCOPE],
+    });
+    expect(result).toBeInstanceOf(BYOOAuthConnection);
+    expect(result.id).toBe("full");
   });
 });
 

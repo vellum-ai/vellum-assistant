@@ -10,7 +10,7 @@ import { BYOOAuthConnection } from "./byo-connection.js";
 import type { OAuthConnection } from "./connection.js";
 import { getConnectionAccessTokenResult } from "./credential-token-resolver.js";
 import { syncManualTokenConnection } from "./manual-token-connection.js";
-import { getActiveConnection, getProvider } from "./oauth-store.js";
+import { getActiveConnections, getProvider } from "./oauth-store.js";
 import { PlatformOAuthConnection } from "./platform-connection.js";
 import { scopeDifference } from "./scope-utils.js";
 
@@ -100,8 +100,8 @@ export async function resolveOAuthConnection(
     await syncManualTokenConnection(provider);
   }
 
-  const conn = getActiveConnection(provider, { clientId, account });
-  if (!conn) {
+  const candidates = getActiveConnections(provider, { clientId, account });
+  if (candidates.length === 0) {
     const filters = [
       account && `account "${account}"`,
       clientId && `client ID "${clientId}"`,
@@ -114,18 +114,23 @@ export async function resolveOAuthConnection(
     );
   }
 
-  // Scope guard: if the caller needs specific scopes and this connection
-  // positively lacks them (its granted-scope set is known and missing one),
-  // fail with an actionable error rather than returning a token that 403s
-  // downstream. Unknown scope data (empty set) never blocks.
+  // Scope guard: when the caller needs specific scopes, pick a connection that
+  // actually carries them rather than blindly taking the newest row — a user
+  // may hold several active connections (e.g. one Calendar-only, one full).
+  // Only fail when EVERY active connection positively lacks a required scope;
+  // unknown scope data never blocks. Without requiredScopes, behavior is
+  // unchanged: take the most-recently-created connection.
+  let conn = candidates[0];
   if (requiredScopes?.length) {
-    const granted = parseGrantedScopes(conn.grantedScopes);
-    if (granted.length > 0) {
-      const missing = scopeDifference(requiredScopes, granted);
-      if (missing.length > 0) {
-        throw new Error(missingScopesMessage(provider, missing));
-      }
+    const { eligible, missingScopes } = partitionByScopes(
+      candidates,
+      requiredScopes,
+      (row) => parseGrantedScopes(row.grantedScopes),
+    );
+    if (eligible.length === 0) {
+      throw new Error(missingScopesMessage(provider, missingScopes));
     }
+    conn = eligible[0];
   }
 
   const tokenResult = await getConnectionAccessTokenResult({
@@ -303,28 +308,31 @@ async function resolvePlatformConnectionId(
   // This is what keeps a narrowly-scoped Google connection (e.g. Calendar-only,
   // created by the onboarding check-in flow) from being resolved as a full
   // Gmail connection and 403-ing on the first Gmail API call.
-  const selection = selectConnectionByScopes(connections, requiredScopes ?? []);
-  if (selection.kind === "missing-scopes") {
+  if (requiredScopes?.length) {
+    const { eligible, missingScopes } = partitionByScopes(
+      connections,
+      requiredScopes,
+      (c) => c.scopes_granted ?? [],
+    );
+    if (eligible.length === 0) {
+      log.warn(
+        { provider, count: connections.length, requiredScopes, missingScopes },
+        "Active platform connection(s) found but none carry the required scopes",
+      );
+      throw new Error(missingScopesMessage(provider, missingScopes));
+    }
+    connections = eligible;
+  }
+
+  if (connections.length > 1 && !account) {
+    const allAccounts = connections
+      .map((c) => c.account_label ?? c.id)
+      .join(", ");
     log.warn(
       {
         provider,
         count: connections.length,
-        requiredScopes,
-        missingScopes: selection.missingScopes,
-      },
-      "Active platform connection(s) found but none carry the required scopes",
-    );
-    throw new Error(missingScopesMessage(provider, selection.missingScopes));
-  }
-
-  const eligible = selection.connections;
-  if (eligible.length > 1 && !account) {
-    const allAccounts = eligible.map((c) => c.account_label ?? c.id).join(", ");
-    log.warn(
-      {
-        provider,
-        count: eligible.length,
-        selectedId: eligible[0].id,
+        selectedId: connections[0].id,
         allAccounts,
       },
       "Multiple active platform connections found; using the most recently created. " +
@@ -332,61 +340,53 @@ async function resolvePlatformConnectionId(
     );
   }
 
-  return eligible[0].id;
+  return connections[0].id;
 }
 
-type ScopeSelection =
-  | { kind: "ok"; connections: PlatformConnectionEntry[] }
-  | { kind: "missing-scopes"; missingScopes: string[] };
-
 /**
- * Choose the connections eligible to serve a request needing `requiredScopes`.
+ * Partition connections into those eligible to serve a request needing
+ * `requiredScopes` versus the scopes positively missing across all of them.
  *
- * Scope data from the platform can be absent (older connections, providers that
- * don't report granted scopes). We only ever REJECT a connection when we can
- * positively see its granted-scope set AND that set is missing a required
- * scope — never when scope data is simply unknown. This keeps the check from
- * breaking existing working connections while still catching the real failure
- * mode: a narrowly-scoped connection masquerading as a fully-capable one.
+ * Scope data can be absent (older connections, providers that don't report
+ * granted scopes). We only ever REJECT a connection when we can positively see
+ * its granted-scope set AND that set is missing a required scope — never when
+ * scope data is simply unknown. This keeps the check from breaking existing
+ * working connections while still catching the real failure mode: a narrowly-
+ * scoped connection masquerading as a fully-capable one.
  *
- * Eligible connections are returned scope-satisfying first, then scope-unknown,
- * preserving the platform's most-recent-first ordering within each group.
+ * `eligible` is ordered scope-satisfying first, then scope-unknown, preserving
+ * the caller's most-recent-first ordering within each group, so `eligible[0]`
+ * is the best connection to use. `missingScopes` is only meaningful when
+ * `eligible` is empty (every connection positively lacked a required scope).
  */
-function selectConnectionByScopes(
-  connections: PlatformConnectionEntry[],
+function partitionByScopes<T>(
+  items: T[],
   requiredScopes: string[],
-): ScopeSelection {
-  if (requiredScopes.length === 0) {
-    return { kind: "ok", connections };
-  }
+  getGranted: (item: T) => string[],
+): { eligible: T[]; missingScopes: string[] } {
+  const satisfying: T[] = [];
+  const scopeUnknown: T[] = [];
+  const missingPerItem: string[][] = [];
 
-  const satisfying: PlatformConnectionEntry[] = [];
-  const scopeUnknown: PlatformConnectionEntry[] = [];
-  const missingPerConnection: string[][] = [];
-
-  for (const conn of connections) {
-    const granted = conn.scopes_granted ?? [];
+  for (const item of items) {
+    const granted = getGranted(item);
     if (granted.length === 0) {
       // Unknown scope coverage — don't block on it.
-      scopeUnknown.push(conn);
+      scopeUnknown.push(item);
       continue;
     }
     const missing = scopeDifference(requiredScopes, granted);
     if (missing.length === 0) {
-      satisfying.push(conn);
+      satisfying.push(item);
     } else {
-      missingPerConnection.push(missing);
+      missingPerItem.push(missing);
     }
   }
 
-  const eligible = [...satisfying, ...scopeUnknown];
-  if (eligible.length > 0) {
-    return { kind: "ok", connections: eligible };
-  }
-
-  // Every active connection positively lacks a required scope.
-  const missingScopes = Array.from(new Set(missingPerConnection.flat()));
-  return { kind: "missing-scopes", missingScopes };
+  return {
+    eligible: [...satisfying, ...scopeUnknown],
+    missingScopes: Array.from(new Set(missingPerItem.flat())),
+  };
 }
 
 /** Best-effort parse of a connection row's JSON-encoded granted-scopes column. */

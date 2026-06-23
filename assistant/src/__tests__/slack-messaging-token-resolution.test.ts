@@ -50,8 +50,11 @@ mock.module("../runtime/auth/token-service.js", () => ({}));
 // Slack client stubs (not exercised in these tests, but required on import)
 mock.module("../messaging/providers/slack/client.js", () => ({}));
 
-// Gmail client stubs
-mock.module("../messaging/providers/gmail/client.js", () => ({}));
+// Gmail client stubs. Re-export GMAIL_REQUIRED_SCOPES so the adapter's
+// `requiredScopes` is populated (and the forwarding assertion below is real).
+mock.module("../messaging/providers/gmail/client.js", () => ({
+  GMAIL_REQUIRED_SCOPES: ["https://www.googleapis.com/auth/gmail.readonly"],
+}));
 mock.module("../messaging/providers/gmail/people-client.js", () => ({}));
 
 // Telegram client stubs
@@ -246,10 +249,14 @@ describe("Slack messaging token resolution", () => {
       expect(result).toBe(oauthConn);
       // Gmail forwards its requiredScopes so a narrowly-scoped (e.g.
       // Calendar-only) Google connection is rejected at resolution time
-      // instead of 403-ing on the first Gmail API call.
+      // instead of 403-ing on the first Gmail API call. Asserted as a concrete
+      // value (not the provider property) so removing the forwarding fails.
+      expect(gmailMessagingProvider.requiredScopes).toEqual([
+        "https://www.googleapis.com/auth/gmail.readonly",
+      ]);
       expect(resolveOAuthConnectionMock).toHaveBeenCalledWith("google", {
         account: undefined,
-        requiredScopes: gmailMessagingProvider.requiredScopes,
+        requiredScopes: ["https://www.googleapis.com/auth/gmail.readonly"],
       });
     });
   });

@@ -19,8 +19,3 @@ export function scopeDifference(
   const grantedSet = new Set(granted);
   return required.filter((s) => !grantedSet.has(s));
 }
-
-/** True when every required scope is present in the granted set. */
-export function hasAllScopes(required: string[], granted: string[]): boolean {
-  return scopeDifference(required, granted).length === 0;
-}
