@@ -430,6 +430,8 @@ export {
   LlmContextResponseSchema,
 } from "./responses/llm-context-response.js";
 export {
+  type LLMCallError,
+  LLMCallErrorSchema,
   type LLMCallSummary,
   LLMCallSummarySchema,
   type LLMContextSection,
