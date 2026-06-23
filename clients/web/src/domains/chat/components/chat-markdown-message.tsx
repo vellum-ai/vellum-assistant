@@ -18,14 +18,25 @@ import {
 } from "@vellumai/design-library";
 import { defaultUrlTransform } from "react-markdown";
 
-/** Returns true when `href` uses the `vellum://` scheme. */
+/** Returns true when `href` is a known `vellum://` attachment link. */
 export function isVellumLink(href: string | undefined): boolean {
-  return href != null && href.startsWith("vellum://");
+  return (
+    href != null &&
+    (href.startsWith("vellum://workspace/") ||
+      href.startsWith("vellum://host/"))
+  );
 }
 
-/** Extends react-markdown's default URL sanitization to allow `vellum://` URIs. */
+/**
+ * Extends react-markdown's default URL sanitization to allow known
+ * `vellum://workspace/` and `vellum://host/` attachment URIs. Other
+ * `vellum://` shapes are rejected to limit protocol-handler attack surface.
+ */
 function vellumUrlTransform(url: string): string {
-  if (url.startsWith("vellum://")) {
+  if (
+    url.startsWith("vellum://workspace/") ||
+    url.startsWith("vellum://host/")
+  ) {
     return url;
   }
   return defaultUrlTransform(url);
@@ -57,13 +68,14 @@ function OAuthAwareLink({
 export interface ChatMarkdownMessageProps extends Omit<MarkdownMessageProps, "linkComponent"> {
   /**
    * Callback invoked when a `vellum://` link is clicked. Receives the full
-   * href (e.g. `vellum://workspace/scratch/report.pdf`). When provided,
-   * `vellum://` links render as download triggers instead of navigating.
+   * href (e.g. `vellum://workspace/scratch/report.pdf`) and the visible
+   * link text (e.g. `report.pdf`). When provided, `vellum://` links
+   * render as download triggers instead of navigating.
    *
    * Pass a stable reference (useCallback) to avoid rebuilding the markdown
    * component tree on every render.
    */
-  onVellumLinkClick?: (href: string) => void;
+  onVellumLinkClick?: (href: string, linkText: string) => void;
 }
 
 export function ChatMarkdownMessage({
@@ -82,7 +94,8 @@ export function ChatMarkdownMessage({
             onClick={(event) => {
               event.preventDefault();
               if (href) {
-                onVellumLinkClick?.(href);
+                const text = event.currentTarget.textContent ?? "";
+                onVellumLinkClick?.(href, text);
               }
             }}
             className="text-[var(--system-positive-strong)] underline hover:opacity-80 cursor-pointer"

@@ -174,9 +174,11 @@ export function TranscriptMessageBody({
   };
 
   const handleVellumLinkClick = useCallback(
-    (href: string) => {
-      const filename = href.split("/").pop() || "";
-      const att = message.attachments?.find((a) => a.filename === filename);
+    (href: string, linkText: string) => {
+      const pathBasename = href.split("/").pop() ?? "";
+      const att =
+        message.attachments?.find((a) => a.filename === linkText) ??
+        message.attachments?.find((a) => a.filename === pathBasename);
       if (att) {
         void downloadAttachment(att, assistantId);
       }

@@ -11,6 +11,7 @@ import {
   extractVellumLinks,
   inferMimeType,
   MAX_ASSISTANT_ATTACHMENT_BYTES,
+  stripVellumLinks,
   validateDrafts,
 } from "../daemon/assistant-attachments.js";
 
@@ -404,6 +405,40 @@ describe("extractVellumLinks", () => {
 
     expect(result.directiveRequests).toHaveLength(0);
     expect(result.parseWarnings).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cleanAssistantContent — vellum:// links
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// stripVellumLinks
+// ---------------------------------------------------------------------------
+
+describe("stripVellumLinks", () => {
+  test("replaces vellum:// links with their link text", () => {
+    const text =
+      "Here is the file: [report.pdf](vellum://workspace/scratch/report.pdf)";
+    expect(stripVellumLinks(text)).toBe("Here is the file: report.pdf");
+  });
+
+  test("handles multiple links", () => {
+    const text = [
+      "[a.png](vellum://workspace/scratch/a.png)",
+      "[b.pdf](vellum://host/tmp/b.pdf)",
+    ].join(" and ");
+    expect(stripVellumLinks(text)).toBe("a.png and b.pdf");
+  });
+
+  test("preserves text with no vellum links", () => {
+    const text = "Plain text with [link](https://example.com)";
+    expect(stripVellumLinks(text)).toBe(text);
+  });
+
+  test("handles link text that differs from path basename", () => {
+    const text = "[Quarterly Report](vellum://workspace/scratch/report.pdf)";
+    expect(stripVellumLinks(text)).toBe("Quarterly Report");
   });
 });
 

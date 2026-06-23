@@ -1,3 +1,4 @@
+import { stripVellumLinks } from "../daemon/assistant-attachments.js";
 import type { RenderedHistoryContent } from "../daemon/handlers/shared.js";
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
 import { getAttachmentMetadataForMessage } from "../memory/attachments-store.js";
@@ -64,9 +65,11 @@ function toDeliverableTextSegments(
   textSegments: string[],
   fallbackText?: string,
 ): string[] {
-  const nonEmptySegments = textSegments.filter(
-    (segment) => segment.trim().length > 0 && !NO_RESPONSE_RE.test(segment),
-  );
+  const nonEmptySegments = textSegments
+    .map(stripVellumLinks)
+    .filter(
+      (segment) => segment.trim().length > 0 && !NO_RESPONSE_RE.test(segment),
+    );
   if (nonEmptySegments.length > 0) return nonEmptySegments;
   // If the only text was <no_response/>, treat as intentional silence —
   // do not fall back to fallbackText.

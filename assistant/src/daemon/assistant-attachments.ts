@@ -330,6 +330,15 @@ export function extractVellumLinks(text: string): VellumLinkExtractResult {
 }
 
 /**
+ * Replace `[text](vellum://...)` markdown links with their link text.
+ * Used to sanitize text before channel delivery (Slack, Telegram, etc.)
+ * where the `vellum://` scheme has no meaning.
+ */
+export function stripVellumLinks(text: string): string {
+  return text.replace(VELLUM_LINK_RE, "$1");
+}
+
+/**
  * Drain streamed assistant text while stripping only valid, complete
  * self-closing `<vellum-attachment ... />` directives.
  *

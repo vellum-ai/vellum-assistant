@@ -53,12 +53,16 @@ describe("ChatMarkdownMessage (OAuth link handling)", () => {
 });
 
 describe("isVellumLink", () => {
-  test("returns true for vellum:// workspace links", () => {
+  test("returns true for vellum://workspace/ links", () => {
     expect(isVellumLink("vellum://workspace/scratch/report.pdf")).toBe(true);
   });
 
-  test("returns true for vellum:// host links", () => {
+  test("returns true for vellum://host/ links", () => {
     expect(isVellumLink("vellum://host/Users/me/doc.pdf")).toBe(true);
+  });
+
+  test("returns false for unknown vellum:// authority", () => {
+    expect(isVellumLink("vellum://evil/payload")).toBe(false);
   });
 
   test("returns false for https links", () => {
