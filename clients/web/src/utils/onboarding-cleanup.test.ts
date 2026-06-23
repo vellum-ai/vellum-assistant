@@ -173,11 +173,8 @@ describe("resolveServerConsent", () => {
     expect(resolveServerConsent(undefined).diagnosticsCurrent).toBe(false);
   });
 
-  // Cross-client skew regression: all clients share one server consent record
-  // but bake "current" into each build, so a lagging build sees versions NEWER
-  // than its own constant. Currency is monotonic (`>=`), so a newer accepted
-  // version resolves current — the lagging client neither re-prompts nor writes
-  // its older version back, which is what broke the re-consent loop.
+  // A server version newer than this build's constant counts as current on
+  // every axis (currency is monotonic `>=`, not exact equality).
   test("a version NEWER than this build's constant resolves current on every axis", () => {
     const r = resolveServerConsent(
       makeConsent({
