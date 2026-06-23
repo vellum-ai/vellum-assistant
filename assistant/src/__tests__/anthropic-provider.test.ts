@@ -3191,3 +3191,61 @@ describe("AnthropicProvider — thinking block send-time filtering", () => {
     expect(signatures).toContain("sig-step2");
   });
 });
+
+describe("AnthropicProvider — deprecated sampling params (temperature / top_p)", () => {
+  beforeEach(() => {
+    lastStreamParams = null;
+  });
+
+  // opus-4-7 / opus-4-8 (and, conservatively, fable) reject `temperature` and
+  // `top_p` with a 400; the provider must strip them.
+  for (const model of [
+    "claude-opus-4-8",
+    "claude-opus-4-7",
+    "claude-fable-5",
+  ]) {
+    test(`strips temperature and top_p for ${model}`, async () => {
+      const provider = new AnthropicProvider("sk-ant-test", model);
+      await provider.sendMessage([userMsg("Hi")], {
+        systemPrompt: "You are helpful.",
+        config: { temperature: 0, top_p: 0.95 },
+      });
+      expect(lastStreamParams!).not.toHaveProperty("temperature");
+      expect(lastStreamParams!).not.toHaveProperty("top_p");
+    });
+  }
+
+  // opus-4-6 / sonnet-4-6 still accept the params — they must pass through,
+  // including `temperature: 0` (a value check, not truthiness).
+  test("forwards temperature (including 0) and top_p for opus-4-6", async () => {
+    const provider = new AnthropicProvider("sk-ant-test", "claude-opus-4-6");
+    await provider.sendMessage([userMsg("Hi")], {
+      systemPrompt: "You are helpful.",
+      config: { temperature: 0, top_p: 0.95 },
+    });
+    expect(lastStreamParams!.temperature).toBe(0);
+    expect(lastStreamParams!.top_p).toBe(0.95);
+  });
+
+  test("forwards temperature and top_p for sonnet-4-6", async () => {
+    const provider = new AnthropicProvider("sk-ant-test", "claude-sonnet-4-6");
+    await provider.sendMessage([userMsg("Hi")], {
+      systemPrompt: "You are helpful.",
+      config: { temperature: 0.7, top_p: 0.9 },
+    });
+    expect(lastStreamParams!.temperature).toBe(0.7);
+    expect(lastStreamParams!.top_p).toBe(0.9);
+  });
+
+  // A per-call model override targeting a deprecating model must win over the
+  // provider's default (accepting) model.
+  test("strips params when a per-call model override deprecates them", async () => {
+    const provider = new AnthropicProvider("sk-ant-test", "claude-sonnet-4-6");
+    await provider.sendMessage([userMsg("Hi")], {
+      systemPrompt: "You are helpful.",
+      config: { temperature: 0, top_p: 0.95, model: "claude-opus-4-8" },
+    });
+    expect(lastStreamParams!).not.toHaveProperty("temperature");
+    expect(lastStreamParams!).not.toHaveProperty("top_p");
+  });
+});
