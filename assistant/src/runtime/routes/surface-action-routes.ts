@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { findGuardianForChannel } from "../../contacts/contact-store.js";
+import { getGuardianDelivery } from "../../contacts/guardian-delivery-reader.js";
 import type { TrustContext } from "../../daemon/trust-context.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
@@ -73,26 +74,25 @@ async function applyTrustContext(
     conversationExternalId: "local",
   });
   if (trustCtx.trustClass === "unknown") {
-    // Best-effort: repair the local mirror if it drifted from the JWT principal.
-    await healGuardianBindingDrift(principalId);
-    // Re-resolve from the dual-written local mirror whenever the gateway mapper
-    // yields unknown, since the gateway mismatch persists across requests while
-    // heal writes once. Safe on the vellum channel: only the daemon mints
-    // signature-valid vellum-principal JWTs, so a valid principal is the owner.
-    // Transitional; removed once the gateway binding is authoritative.
-    trustCtx = withSourceChannel(
-      sourceChannel,
-      resolveTrustContext({
-        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+    // Only fall back for genuine drift: a readable gateway whose binding doesn't
+    // match the principal. A null read (gateway unreachable) fails closed.
+    const guardians = await getGuardianDelivery({ channelTypes: ["vellum"] });
+    if (guardians) {
+      await healGuardianBindingDrift(principalId);
+      trustCtx = withSourceChannel(
         sourceChannel,
-        conversationExternalId: "local",
-        actorExternalId: principalId,
-      }),
-    );
-    log.info(
-      { actorPrincipalId: principalId, trustClass: trustCtx.trustClass },
-      "Trust re-resolved from local mirror after gateway returned unknown (surface action)",
-    );
+        resolveTrustContext({
+          assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+          sourceChannel,
+          conversationExternalId: "local",
+          actorExternalId: principalId,
+        }),
+      );
+      log.info(
+        { actorPrincipalId: principalId, trustClass: trustCtx.trustClass },
+        "Trust re-resolved from local mirror after gateway drift (surface action)",
+      );
+    }
   }
   conversation.setTrustContext(trustCtx);
 }

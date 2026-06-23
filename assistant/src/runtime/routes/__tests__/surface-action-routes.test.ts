@@ -505,6 +505,26 @@ describe("triggerSurfaceAction trust context", () => {
     expect(live.trustContext?.trustClass).toBe("guardian");
   });
 
+  test("fail-closed: unreachable gateway (null) blocks the local drift fallback → unknown", async () => {
+    // Gateway unreadable: the mapper fails closed to unknown, and the local
+    // mirror WOULD classify this principal as guardian. The drift fallback must
+    // stay gated off a null read, so trust must remain unknown (fail closed).
+    mockGuardianList = null;
+    mockGuardianRecord = localGuardianRecord(GUARDIAN_PRINCIPAL);
+    const live = makeStub("conv-fail-closed");
+    memoryBySurface = live;
+
+    const handler = findHandler("triggerSurfaceAction");
+    await handler({
+      body: { surfaceId: "surf-fc", actionId: "act-fc" },
+      headers: { "x-vellum-actor-principal-id": GUARDIAN_PRINCIPAL },
+    });
+
+    expect(live.trustContext?.trustClass).toBe("unknown");
+    // No fallback ran: heal is skipped on a null read.
+    expect(healCalls).toEqual([]);
+  });
+
   test("dev-bypass resolves the real guardian principal from the gateway", async () => {
     httpAuthDisabled = true;
     mockGuardianList = [guardianDelivery(GUARDIAN_PRINCIPAL)];
