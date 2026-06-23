@@ -417,28 +417,13 @@ describe("seedV2CliCommandEntries", () => {
     expect(getCliCommandCapability("browser")).not.toBeNull();
   });
 
-  test("treats an empty command set as anomalous: skips prune and preserves the prior cache", async () => {
-    // The Commander tree is always non-empty in production, so an empty
-    // `buildCliProgramTree()` result is a transient anomaly — not a signal to
-    // clear. We neither prune Qdrant (nothing was persisted this run) nor wipe
-    // a previously-populated cache, which would take the needle lane dark.
-    state.commands = [
-      { name: "config", description: "Manage configuration", helpText: "..." },
-    ];
-    state.embedReturn = [[0.1, 0.2, 0.3]];
-
-    await seedV2CliCommandEntries();
-    expect(getCliCommandCapability("config")).not.toBeNull();
-
-    state.upsertCalls.length = 0;
-    state.pruneCalls.length = 0;
+  test("empty command set still calls prune to clear stale rows", async () => {
     state.commands = [];
 
     await seedV2CliCommandEntries();
 
     expect(state.upsertCalls).toHaveLength(0);
-    expect(state.pruneCalls).toHaveLength(0);
-    // The prior cache survives the anomalous empty run.
-    expect(getCliCommandCapability("config")).not.toBeNull();
+    expect(state.pruneCalls).toHaveLength(1);
+    expect(state.pruneCalls[0].activeSuffixes).toEqual([]);
   });
 });

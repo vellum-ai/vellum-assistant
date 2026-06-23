@@ -357,29 +357,14 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
       );
     }
 
-    // Replace the cache — but never clear a populated cache on an unverified-
-    // empty enumeration. When this run produced no entries AND the catalog was
-    // unavailable, we cannot tell "genuinely no skills" from "catalog fetch
-    // failed", so keep the prior cache rather than wiping the needle lane. A
-    // genuinely-empty catalog (catalogAvailable) still clears stale state.
-    const priorEntries = entries;
-    if (
-      nextEntries.size === 0 &&
-      priorEntries !== null &&
-      priorEntries.size > 0 &&
-      !catalogAvailable
-    ) {
-      log.warn(
-        { cachedEntries: priorEntries.size },
-        "Refusing to clear cached skill entries on an unverified-empty enumeration (catalog unavailable) — preserving the prior cache",
-      );
-    } else {
-      // Drop the page-index cache so the next router invocation observes the
-      // freshly seeded skill set (skill entries share the unified concept-page
-      // collection and surface in the same index).
-      entries = nextEntries;
-      invalidatePageIndex();
-    }
+    // Atomically replace the cache from the freshly enumerated skills. The local
+    // resolution (`resolveSkillStates`) is authoritative, so a skill the config
+    // just disabled or removed drops out here even when the remote catalog is
+    // unavailable. Drop the page-index cache so the next router invocation
+    // observes the new skill set (skill entries share the unified concept-page
+    // collection and surface in the same index).
+    entries = nextEntries;
+    invalidatePageIndex();
 
     // Surface a dense-embed failure to `throwOnError` callers (the managed-
     // credential reseed and the operator reembed route) so the existing retry +

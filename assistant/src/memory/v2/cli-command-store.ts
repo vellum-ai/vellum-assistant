@@ -226,10 +226,10 @@ async function runSeedV2CliCommandEntries(generation: number): Promise<void> {
       nextEntries.set(seed.id, seed);
     }
 
-    // Write Qdrant points and reconcile the collection only when dense vectors
-    // were produced. In the degraded (backend-unavailable) path we skip Qdrant
-    // mutation entirely so we never write half-formed points or prune against a
-    // set we did not persist.
+    // Write the dense+sparse Qdrant points only when dense vectors were
+    // produced. In the degraded (backend-unavailable) path we skip the upsert
+    // so we never write half-formed points; the dense lane backfills on
+    // recovery.
     if (seeds.length > 0 && denseAvailable) {
       const now = Date.now();
       await Promise.all(
@@ -243,11 +243,15 @@ async function runSeedV2CliCommandEntries(generation: number): Promise<void> {
           }),
         ),
       );
+    }
 
-      // The CLI tree is always available (no remote catalog), so pruning is
-      // unconditional once we have written the current set. Run the legacy
-      // `kind` backfill once per process so pre-discriminator rows become
-      // prunable.
+    // The CLI tree is always available (no remote catalog), so pruning to clear
+    // stale rows runs whenever we wrote the current set this run OR there was
+    // nothing to embed (empty tree). The cold-start degraded path (commands
+    // present but dense embedding unavailable) skips the prune so we never
+    // reconcile the collection against a set we did not persist. Run the legacy
+    // `kind` backfill once per process so pre-discriminator rows become prunable.
+    if (denseAvailable || seeds.length === 0) {
       const knownIds = new Set(seeds.map((s) => s.id));
       if (!legacyKindBackfillDone) {
         try {
@@ -271,24 +275,11 @@ async function runSeedV2CliCommandEntries(generation: number): Promise<void> {
       );
     }
 
-    // Replace the cache — but never clear a populated cache with an empty
-    // enumeration. The Commander tree is always non-empty in practice, so an
-    // empty `nextEntries` means `buildCliProgramTree` returned nothing
-    // (anomalous); keep the prior cache rather than wiping the needle lane.
-    const priorEntries = entries;
-    if (
-      nextEntries.size === 0 &&
-      priorEntries !== null &&
-      priorEntries.size > 0
-    ) {
-      log.warn(
-        { cachedEntries: priorEntries.size },
-        "Refusing to clear cached CLI-command entries on an empty program tree — preserving the prior cache",
-      );
-    } else {
-      entries = nextEntries;
-      invalidatePageIndex();
-    }
+    // Atomically replace the cache from the freshly enumerated commands. Drop
+    // the page-index cache so the next router invocation observes the new
+    // command set.
+    entries = nextEntries;
+    invalidatePageIndex();
 
     // Surface a dense-embed failure to `throwOnError` callers so the existing
     // retry + maintain machinery backfills the dense lane. The in-memory cache

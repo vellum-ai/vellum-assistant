@@ -670,11 +670,10 @@ Write a local article draft.
     expect(state.upsertCalls).toHaveLength(0);
   });
 
-  test("does not wipe a populated cache when a reseed finds no skills and the catalog is unavailable", async () => {
-    // Regression: an empty enumeration we can't trust (no enabled local skills
-    // AND a failed catalog fetch) must not atomically clear the cache and take
-    // the needle lane dark. Only a genuinely-available, genuinely-empty catalog
-    // clears stale entries.
+  test("drops a locally-disabled installed skill even when the catalog is unavailable (local state is authoritative)", async () => {
+    // Regression: the local resolution is authoritative, so a skill that is
+    // still installed but explicitly disabled must NOT be kept alive by remote-
+    // catalog uncertainty — `getSkillCapability` and the page index must drop it.
     const skillA = makeSummary({ id: "example-skill-a" });
     state.catalog = [skillA];
     state.resolved = [{ summary: skillA, state: "enabled" }];
@@ -683,21 +682,21 @@ Write a local article draft.
     ];
     state.embedReturn = [[0.1, 0.2, 0.3]];
 
-    // First run populates the cache.
+    // First run: skillA enabled and cached.
     await seedV2SkillEntries();
     expect(getSkillCapability("example-skill-a")).not.toBeNull();
 
-    // Second run: no enabled local skills AND the catalog fetch throws — an
-    // unverified-empty enumeration. The prior cache must survive.
-    state.catalog = [];
-    state.resolved = [];
+    // Second run: skillA is still locally installed but now disabled; the remote
+    // catalog is unavailable. It stays in `installedIds`, so the carry-forward
+    // must skip it and the cache drops it.
+    state.resolved = [{ summary: skillA, state: "disabled" }];
     state.fullCatalog = [];
     state.fullCatalogThrows = new Error("catalog fetch failed");
 
     await seedV2SkillEntries();
 
-    expect(getSkillCapability("example-skill-a")).not.toBeNull();
-    expect(listSkillEntries().map((e) => e.id)).toEqual(["example-skill-a"]);
+    expect(getSkillCapability("example-skill-a")).toBeNull();
+    expect(listSkillEntries()).toEqual([]);
   });
 
   test("no enabled skills yields empty cache and no prune when catalog is empty", async () => {
