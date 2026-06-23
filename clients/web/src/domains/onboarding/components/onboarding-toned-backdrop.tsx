@@ -151,12 +151,12 @@ export function OnboardingTonedBackdrop({
                   marginLeft: i === 0 ? 0 : -size * 0.34,
                   zIndex: TOP_TEAM.length - i,
                 }}
-                initial={reduce ? false : { y: -36, opacity: 0 }}
+                initial={reduce ? false : { y: -140, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={
                   reduce
                     ? { duration: 0 }
-                    : { type: "spring", stiffness: 300, damping: 18, delay: i * 0.1 }
+                    : { type: "spring", stiffness: 200, damping: 18, delay: i * 0.1 }
                 }
               >
                 <AnimatedAvatar
