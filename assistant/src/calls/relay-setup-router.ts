@@ -6,7 +6,7 @@
  * next — without performing any side effects itself.
  */
 
-import type { AdmissionPolicy } from "@vellumai/gateway-client";
+import type { AdmissionPolicy, TrustVerdict } from "@vellumai/gateway-client";
 
 import { getConfig } from "../config/loader.js";
 import { getContact } from "../contacts/contact-store.js";
@@ -21,6 +21,7 @@ import {
   type AdmissionPolicyResult,
   enforceAdmissionPolicy,
 } from "../runtime/routes/inbound-stages/admission-policy.js";
+import { actorTrustContextFromVerdict } from "../runtime/trust-verdict-consumer.js";
 import { getLogger } from "../util/logger.js";
 import type { CallSession } from "./types.js";
 
@@ -40,6 +41,12 @@ interface SetupContext {
    * preserving all pre-admission behavior.
    */
   admissionPolicy?: AdmissionPolicy | null;
+  /**
+   * Gateway-stamped caller trust verdict. When present and not
+   * `resolutionFailed`, the caller's trust is built from it; otherwise the
+   * router falls back to local resolution.
+   */
+  verdict?: TrustVerdict | null;
 }
 
 // ── Setup outcomes ───────────────────────────────────────────────────
@@ -112,12 +119,23 @@ export function routeSetup(ctx: SetupContext): {
   const isInbound = ctx.session?.initiatedFromConversationId == null;
   const otherPartyNumber = isInbound ? ctx.from : ctx.to;
 
-  const actorTrust = resolveActorTrust({
-    assistantId,
-    sourceChannel: "phone",
-    conversationExternalId: otherPartyNumber,
-    actorExternalId: otherPartyNumber || undefined,
-  });
+  // Verdict-first: build caller trust from the gateway verdict when present.
+  // Voice falls back to local resolution on a missing/failed verdict so a
+  // gateway blip does not drop a known guardian's call — the deliberate
+  // difference from the fail-closed text path.
+  const actorTrust =
+    ctx.verdict && !ctx.verdict.resolutionFailed
+      ? actorTrustContextFromVerdict(ctx.verdict, {
+          sourceChannel: "phone",
+          conversationExternalId: otherPartyNumber,
+          actorDisplayName: undefined,
+        })
+      : resolveActorTrust({
+          assistantId,
+          sourceChannel: "phone",
+          conversationExternalId: otherPartyNumber,
+          actorExternalId: otherPartyNumber || undefined,
+        });
 
   const resolved: SetupResolved = {
     assistantId,
