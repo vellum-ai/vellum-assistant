@@ -341,14 +341,37 @@ describe("plugin-resident skills", () => {
   });
 
   test("ignores plugin dirs whose package.json name mismatches the directory", () => {
-    // Mirrors the loader's recognition gate: an un-adapted clone whose
-    // package.json declares `caveman-installer` in a `caveman` dir is skipped.
+    // An un-adapted clone whose package.json declares `caveman-installer` in a
+    // `caveman` dir is skipped: the name does not resolve to the directory name
+    // even after npm-scope stripping.
     writePluginSkill("caveman", "caveman", "Caveman", "Terse mode", "body", {
       packageName: "caveman-installer",
     });
 
     const skill = loadSkillCatalog().find((s) => s.id === "caveman");
     expect(skill).toBeUndefined();
+  });
+
+  test("discovers a scoped-package plugin whose name resolves to the directory", () => {
+    // The external plugin loader identifies a plugin by `stripScope(pkg.name)`,
+    // so a scoped package installed under an unscoped directory is a real
+    // plugin. The catalog gate must derive the name the same way, otherwise the
+    // plugin's hooks/tools load but its skills silently vanish from the catalog.
+    writePluginSkill(
+      "the-force",
+      "software-engineering",
+      "Software Engineering",
+      "Engineering workflow",
+      "body",
+      { packageName: "@acme/the-force" },
+    );
+
+    const skill = loadSkillCatalog().find(
+      (s) => s.id === "software-engineering",
+    );
+    expect(skill).toBeDefined();
+    expect(skill!.source).toBe("plugin");
+    expect(skill!.owner).toEqual({ kind: "plugin", id: "the-force" });
   });
 
   test("workspace skill overrides a plugin-resident skill with the same id", () => {

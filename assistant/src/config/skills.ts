@@ -684,22 +684,42 @@ function discoverSkillDirectories(skillsDir: string): string[] {
 }
 
 /**
+ * Strip the npm scope from a package name (`@acme/the-force` → `the-force`);
+ * an unscoped name passes through unchanged. Mirrors the external plugin
+ * loader's `stripScope` (see `plugins/external-plugin-loader.ts`) — duplicated
+ * as a one-liner here to keep `config/` from depending on the plugin/tool
+ * layer. Keep the two in sync.
+ */
+function stripPackageScope(name: string): string {
+  const match = /^@[^/]+\/(.+)$/.exec(name);
+  return match ? match[1]! : name;
+}
+
+/**
  * Whether `pluginDir` is a recognized installed plugin: it must carry a
- * parseable `package.json` whose `name` equals the directory name. This
- * mirrors the external plugin loader's recognition gate, which skips any
- * directory whose `manifest.name` does not match its directory name.
+ * parseable `package.json` whose `name` — with any npm scope stripped —
+ * equals the directory name. This mirrors how the external plugin loader
+ * identifies a plugin: it derives the plugin name via `stripScope(pkg.name)`
+ * (see `external-plugin-loader.ts`), so a scoped package such as
+ * `@acme/the-force` installed under `plugins/the-force/` is a real plugin.
+ * Comparing the raw, un-stripped name here would wrongly reject such plugins
+ * and silently drop every skill they ship, even though the runtime loads the
+ * plugin's hooks and tools.
  */
 function isRecognizedPluginDir(pluginDir: string, dirName: string): boolean {
   const manifestPath = join(pluginDir, "package.json");
   if (!existsSync(manifestPath)) return false;
   try {
     const parsed: unknown = JSON.parse(readFileSync(manifestPath, "utf-8"));
-    return (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      "name" in parsed &&
-      (parsed as { name: unknown }).name === dirName
-    );
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      !("name" in parsed) ||
+      typeof (parsed as { name: unknown }).name !== "string"
+    ) {
+      return false;
+    }
+    return stripPackageScope((parsed as { name: string }).name) === dirName;
   } catch (err) {
     log.warn(
       { err, manifestPath },
