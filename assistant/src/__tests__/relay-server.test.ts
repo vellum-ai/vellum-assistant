@@ -92,17 +92,13 @@ mock.module("../prompts/user-reference.js", () => ({
 // resolveGuardianLabel primes its displayName from the gateway binding via
 // getGuardianDelivery at setup. Tests drive the binding through this list.
 
+// Tests set this to drive the guardian binding directly. When null (the
+// default), the guardian-delivery-reader mock below derives the binding from
+// the DB-seeded createGuardianBinding setup. Single mock registration lives
+// below since `mock.module` is process-global and last-write-wins in Bun.
 let mockGuardianDeliveryList:
   | Array<{ channelType: string; status: string; displayName: string | null }>
   | null = null;
-mock.module("../contacts/guardian-delivery-reader.js", () => ({
-  getGuardianDelivery: async () => mockGuardianDeliveryList,
-  guardianForChannel: (
-    list: Array<{ channelType: string; status: string }>,
-    channelType: string,
-  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
-  anyGuardian: (list: unknown[]) => list[0],
-}));
 
 // ── Config mock ─────────────────────────────────────────────────────
 
@@ -223,6 +219,9 @@ const realContactStoreModule = {
 };
 mock.module("../contacts/guardian-delivery-reader.js", () => ({
   getGuardianDelivery: async () => {
+    // Tests that set mockGuardianDeliveryList drive the binding directly;
+    // otherwise derive from the DB-seeded createGuardianBinding bindings.
+    if (mockGuardianDeliveryList) return mockGuardianDeliveryList;
     const guardians = realContactStoreModule.listGuardianChannels();
     if (!guardians) return [];
     return guardians.channels.map((ch) => ({
@@ -240,6 +239,7 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
     list: Array<{ channelType: string; status: string }>,
     channelType: string,
   ) => list.find((g) => g.channelType === channelType && g.status === "active"),
+  anyGuardian: (list: unknown[]) => list[0],
 }));
 
 // ── Trust verdict consumer spy ──────────────────────────────────────
@@ -5134,8 +5134,8 @@ describe("relay-server", () => {
   test("guardian label: DEFAULT_USER_REFERENCE used when both guardian persona name and Contact.displayName are empty", async () => {
     mockUserReference = "my human";
 
-    // No guardian binding so resolveGuardianLabel falls back to DEFAULT_USER_REFERENCE
-    mockGuardianDeliveryList = null;
+    // Empty binding list so resolveGuardianLabel falls back to DEFAULT_USER_REFERENCE
+    mockGuardianDeliveryList = [];
 
     ensureConversation("conv-label-default");
     const session = createCallSession({
