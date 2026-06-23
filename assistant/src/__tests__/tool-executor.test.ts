@@ -166,7 +166,11 @@ mock.module("../tools/shared/filesystem/path-policy.js", () => ({
 }));
 
 import { PermissionPrompter } from "../permissions/prompter.js";
-import { isSideEffectTool, ToolExecutor } from "../tools/executor.js";
+import {
+  computePerToolTimeoutMs,
+  isSideEffectTool,
+  ToolExecutor,
+} from "../tools/executor.js";
 import type { ToolContext } from "../tools/types.js";
 
 function makeContext(overrides?: Partial<ToolContext>): ToolContext {
@@ -1291,5 +1295,32 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
         pattern: "action:rm",
       },
     ]);
+  });
+});
+
+describe("computePerToolTimeoutMs ask_question budget", () => {
+  // Regression guard: ask_question blocks on user input inside execute() via
+  // QuestionPrompter, which waits up to permissionTimeoutSec. The executor's
+  // generic toolExecutionTimeoutSec wrapper must give ask_question a budget
+  // strictly larger than that prompt timeout — otherwise the wrapper fires
+  // first and orphans the still-pending prompt behind the confusing "may
+  // still be running in the background" error. These assertions fail if the
+  // special case is removed and ask_question falls back to the generic budget.
+  test("execution-timeout budget exceeds the prompt's own permissionTimeoutSec", () => {
+    const { permissionTimeoutSec } = mockConfig.timeouts;
+    const askQuestionBudgetMs = computePerToolTimeoutMs("ask_question", {});
+
+    expect(askQuestionBudgetMs).toBeGreaterThan(permissionTimeoutSec * 1000);
+    expect(askQuestionBudgetMs).toBe((permissionTimeoutSec + 5) * 1000);
+  });
+
+  test("the generic budget that would otherwise apply is shorter than the prompt timeout", () => {
+    const { permissionTimeoutSec } = mockConfig.timeouts;
+    const genericBudgetMs = computePerToolTimeoutMs("some_other_tool", {});
+
+    // This is the collision the ask_question special case fixes: the generic
+    // execution-timeout budget is shorter than the prompter's own wait, so
+    // without the special case the wrapper trips first.
+    expect(genericBudgetMs).toBeLessThan(permissionTimeoutSec * 1000);
   });
 });
