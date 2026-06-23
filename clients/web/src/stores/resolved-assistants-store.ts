@@ -38,7 +38,7 @@ import {
 } from "@/assistant/selected-assistant-storage";
 import { useLockfileStore } from "@/stores/lockfile-store";
 import type { Lockfile } from "@/runtime/local-mode-host";
-import type { Assistant } from "@/generated/api/types.gen";
+import type { Assistant, ReleaseChannelEnum } from "@/generated/api/types.gen";
 
 export interface ResolvedAssistant {
   id: string;
@@ -46,6 +46,8 @@ export interface ResolvedAssistant {
   hatchedAt?: string;
   cloud?: string;
   runtimeVersion?: string;
+  currentReleaseVersion?: string | null;
+  releaseChannel?: ReleaseChannelEnum;
   isActiveLockfileAssistant?: boolean;
   isLocal: boolean;
   isPlatformHosted: boolean;
@@ -110,12 +112,18 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
       const activeLockfileAssistantId = getEffectiveActiveLockfileAssistantId(
         lockfile,
       );
+      const existingById = new Map(
+        get().assistants.map((assistant) => [assistant.id, assistant]),
+      );
       const assistants = lockfile.assistants.map((a) => ({
         id: a.assistantId,
         name: a.name,
         hatchedAt: a.hatchedAt,
         cloud: a.cloud,
         runtimeVersion: a.resources?.runtimeVersion,
+        currentReleaseVersion: existingById.get(a.assistantId)
+          ?.currentReleaseVersion,
+        releaseChannel: existingById.get(a.assistantId)?.releaseChannel,
         isActiveLockfileAssistant: activeLockfileAssistantId === a.assistantId,
         isLocal: isLocalAssistant(a),
         isPlatformHosted: isPlatformAssistant(a),
@@ -143,6 +151,8 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
             hatchedAt: a.created,
             cloud: lockfileFields.cloud,
             runtimeVersion: lockfileFields.runtimeVersion,
+            currentReleaseVersion: a.current_release_version,
+            releaseChannel: a.release_channel,
             isActiveLockfileAssistant:
               lockfileFields.isActiveLockfileAssistant,
             isLocal: a.is_local,
@@ -157,6 +167,8 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
           id: assistant.id,
           name: assistant.name,
           hatchedAt: assistant.created,
+          currentReleaseVersion: assistant.current_release_version,
+          releaseChannel: assistant.release_channel,
           isLocal: assistant.is_local,
           isPlatformHosted: !assistant.is_local,
         };
