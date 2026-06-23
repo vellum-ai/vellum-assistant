@@ -106,9 +106,9 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/git-workflow",
-        "ref": "205c245d5e66d02f98f1de5e889b66b30b6ee470"
+        "ref": "6a8a8df108615c3fdae2bb5c512c2b6632047dd6"
       },
-      "description": "Git workflow tools and multi-perspective code review: branch management, PR creation/review/merge, diffs, logs, changelog generation, and parallel subagent code review with confidence scoring.",
+      "description": "Git workflow tools and multi-perspective code review: branch management, push, stash, PR creation/review/merge/checkout, diffs, logs, changelog generation, and parallel subagent code review with confidence scoring.",
       "category": "developer",
       "homepage": "https://github.com/vellum-ai/git-workflow",
       "license": "MIT"
