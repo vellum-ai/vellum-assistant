@@ -158,7 +158,7 @@ export async function handleInbound(
 
   // ── Per-actor trust verdict ──
   // Resolved from the gateway ACL DB and stamped on sourceMetadata for the
-  // runtime. Additive — the daemon does not consume it yet (Combo 9).
+  // runtime to consume.
   let trustVerdict: TrustVerdict | undefined;
   try {
     trustVerdict = await resolveTrustVerdict({
@@ -169,8 +169,8 @@ export async function handleInbound(
       conversationExternalId: event.message.conversationExternalId,
     });
   } catch (err) {
-    // Producer fails SOFT — never break ingress. Fail-closed is a Combo 9
-    // consumer concern. Leaves trustVerdict undefined so the stamp is omitted.
+    // Producer fails soft — resolution never breaks ingress. trustVerdict
+    // stays undefined so the stamp is omitted; the consumer owns deny policy.
     log.warn({ err }, "trust verdict resolution failed; omitting stamp");
   }
 
