@@ -26,6 +26,7 @@ import { PreviewReleaseChannel } from "@/domains/settings/components/preview-rel
 import { ResizeCard } from "@/domains/settings/components/resize-card";
 import { RetireAssistant } from "@/domains/settings/components/retire-assistant";
 import { TimezonePicker } from "@/domains/settings/components/timezone-picker";
+import { TeleportCard } from "@/domains/settings/teleport/teleport-card";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -225,6 +226,7 @@ export function GeneralPage() {
     refetchUntilResized,
   } = useAssistantWithHealthz();
   const multiPlatformAssistant = useClientFeatureFlagStore.use.multiPlatformAssistant();
+  const teleportEnabled = useClientFeatureFlagStore.use.teleport();
   const settingsSleepPolicy = useAssistantFeatureFlagStore.use.settingsSleepPolicy();
   const isAuthenticated = useIsAuthenticated();
   const navigate = useNavigate();
@@ -314,6 +316,8 @@ export function GeneralPage() {
       <ComposerSendCard />
 
       {isElectron() && <LaunchAtLoginCard />}
+
+      {teleportEnabled && isElectron() && <TeleportCard />}
 
       {infraGate === "full" && platformAssistant && (
         <DetailCard title="Software Updates">
