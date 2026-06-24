@@ -24,24 +24,39 @@ function isPlatformMode(raw: string | undefined): boolean {
 
 /**
  * Proxy configure hook (local mode) that authenticates upstream requests with
- * the loopback platform session token the SPA registered, as the Django session
- * cookie. No browser cookie is involved.
+ * the loopback platform session token the SPA registered. No browser cookie is
+ * involved.
+ *
+ * The DRF API (`/v1`) authenticates by header (X-Session-Token); sending a
+ * `sessionid` cookie would engage Django's SessionAuthentication, which enforces
+ * CSRF and rejects unsafe (POST/PUT/PATCH) requests when the proxy can't supply
+ * a matching Origin/Referer. The allauth / accounts session endpoints need the
+ * Django session cookie instead.
  */
-function injectPlatformToken(proxy: {
-  on: (event: string, cb: (...args: unknown[]) => void) => void;
-}): void {
-  proxy.on("proxyReq", (...args: unknown[]) => {
-    const proxyReq = args[0] as http.ClientRequest;
-    const req = args[1] as http.IncomingMessage;
-    if (!isSameOriginProxyRequest(req)) return;
-    const token = getDevPlatformToken();
-    if (token) {
-      proxyReq.setHeader(
-        "Cookie",
-        `sessionid=${token}; __Secure-sessionid=${token}`,
-      );
-    }
-  });
+function injectPlatformToken(apiMode: boolean) {
+  return (proxy: {
+    on: (event: string, cb: (...args: unknown[]) => void) => void;
+  }): void => {
+    proxy.on("proxyReq", (...args: unknown[]) => {
+      const proxyReq = args[0] as http.ClientRequest;
+      const req = args[1] as http.IncomingMessage;
+      if (!isSameOriginProxyRequest(req)) return;
+      const token = getDevPlatformToken();
+      if (apiMode) {
+        // Header-only auth; drop any browser cookie so it can't re-engage the
+        // session-cookie (CSRF-enforcing) path.
+        proxyReq.removeHeader("Cookie");
+        if (token) proxyReq.setHeader("X-Session-Token", token);
+        return;
+      }
+      if (token) {
+        proxyReq.setHeader(
+          "Cookie",
+          `sessionid=${token}; __Secure-sessionid=${token}`,
+        );
+      }
+    });
+  };
 }
 
 // Reference: https://vite.dev/config/#using-environment-variables-in-config
@@ -150,17 +165,17 @@ export default defineConfig(({ mode }) => {
               "/v1": {
                 target: apiProxyTarget,
                 changeOrigin: true,
-                configure: injectPlatformToken,
+                configure: injectPlatformToken(true),
               },
               "/_allauth": {
                 target: apiProxyTarget,
                 changeOrigin: true,
-                configure: injectPlatformToken,
+                configure: injectPlatformToken(false),
               },
               "/accounts": {
                 target: apiProxyTarget,
                 changeOrigin: true,
-                configure: injectPlatformToken,
+                configure: injectPlatformToken(false),
               },
             }),
         "/auth": { target: gatewayProxyTarget, changeOrigin: true },
