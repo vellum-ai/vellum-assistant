@@ -21,6 +21,7 @@ import { type Dispatch, type MutableRefObject, type RefObject, type SetStateActi
 
 import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
 import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
+import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
 import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
 import { useComposerSubmit } from "@/domains/chat/hooks/use-composer-submit";
 import { DiskPressureBannerSlot } from "@/domains/chat/components/disk-pressure-banner-slot";
@@ -203,7 +204,7 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Store reads — per-conversation state
   // -------------------------------------------------------------------------
-  const messages = useChatSessionStore.use.messages();
+  const messages = useTranscriptMessages(assistantId, activeConversationId);
   const error = useChatSessionStore.use.error();
   const isLoadingHistory = useChatSessionStore.use.isLoadingHistory();
   const contextWindowUsage = useChatSessionStore.use.contextWindowUsage();
@@ -409,6 +410,7 @@ export function ChatMainPanel({
   // Transcript data (sanitise + build items)
   // -------------------------------------------------------------------------
   const { sanitizedMessages, transcriptItems } = useTranscriptData({
+    messages,
     showThinking,
     thinkingLabel,
     showOnboardingChoice,

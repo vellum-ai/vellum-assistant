@@ -25,6 +25,9 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 // ---------------------------------------------------------------------------
 
 export interface UseTranscriptDataParams {
+  /** The rendered transcript — cached history ⊕ the in-flight turn, from
+   *  `useTranscriptMessages`. The caller owns the union so it is computed once. */
+  messages: DisplayMessage[];
   /** Whether the thinking indicator is active (from `useChatUIState`). */
   showThinking: boolean;
   /** Status label for the thinking indicator (from `useChatUIState`). */
@@ -43,12 +46,12 @@ export interface TranscriptData {
 // ---------------------------------------------------------------------------
 
 export function useTranscriptData({
+  messages,
   showThinking,
   thinkingLabel,
   showOnboardingChoice,
 }: UseTranscriptDataParams): TranscriptData {
   // --- Store reads --------------------------------------------------------
-  const messages = useChatSessionStore.use.messages();
   const ephemeralMetaResults = useChatSessionStore.use.ephemeralMetaResults();
 
   const pendingSecret = useInteractionStore.use.pendingSecret();
