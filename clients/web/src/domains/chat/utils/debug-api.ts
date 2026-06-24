@@ -751,8 +751,8 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
 
   function getScrollState(): ChatDebugScrollState {
     const capturedAt = new Date().toISOString();
-    const { messages } = useChatSessionStore.getState();
-    const itemCount = messages.length;
+    const { liveTurn } = useChatSessionStore.getState();
+    const itemCount = liveTurn.length;
     const pagination = refs.getScrollPagination();
 
     const el = refs.transcriptRef.current?.getScrollElement() ?? null;

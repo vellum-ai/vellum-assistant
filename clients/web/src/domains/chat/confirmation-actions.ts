@@ -63,7 +63,7 @@ function cleanupAfterConfirmationDecision(
   // AND stamp risk metadata on the target tool call.
   let nudgeTcId: string | null = null;
 
-  useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) => {
+  useChatSessionStore.getState().setLiveTurn((prev: DisplayMessage[]) => {
     // Resolve stamp target: explicit mapping or heuristic fallback
     let stampTargetId = mappedToolCallId;
     if (!stampTargetId) {
@@ -134,7 +134,7 @@ function clearStaleConfirmation(snapshot: PendingConfirmationState): void {
   }
   useChatSessionStore
     .getState()
-    .setMessages((prev: DisplayMessage[]) =>
+    .setLiveTurn((prev: DisplayMessage[]) =>
       clearConfirmationByRequestId(prev, snapshot.requestId),
     );
   useChatSessionStore.getState().deleteConfirmationToolCall(snapshot.requestId);
@@ -276,7 +276,7 @@ export async function handleAllowAndCreateRule(toolCall?: ChatMessageToolCall): 
         .setError(result.status === 404 ? null : { message: result.error });
       useInteractionStore.getState().submitConfirmationEnd();
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-      useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
+      useChatSessionStore.getState().setLiveTurn((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
       openCreateEditor({ ...editorContext, requestId: "" });
       return;
     }
@@ -287,7 +287,7 @@ export async function handleAllowAndCreateRule(toolCall?: ChatMessageToolCall): 
   } catch (err) {
     captureError(err, { context: "allow_and_create_rule" });
     useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-    useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
+    useChatSessionStore.getState().setLiveTurn((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
     openCreateEditor({ ...editorContext, requestId: "" });
     useChatSessionStore.getState().setError({ message: "Failed to submit confirmation, but you can still create a rule." });
     useInteractionStore.getState().submitConfirmationEnd();

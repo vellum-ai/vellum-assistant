@@ -26,6 +26,20 @@ export function messageIdentityKeys(message: MessageIdentity): string[] {
   ];
 }
 
+/**
+ * All ids a row can be matched on, including the client nonce. An optimistic
+ * row and the server echo of it correlate on `clientMessageId`, not on a shared
+ * server `id`, so transcript overlay and the live-turn→history handoff must
+ * consider the nonce on top of the server-id keys.
+ */
+export function messageMatchKeys(message: DisplayMessage): string[] {
+  const keys = messageIdentityKeys(message);
+  if (message.clientMessageId && !keys.includes(message.clientMessageId)) {
+    return [...keys, message.clientMessageId];
+  }
+  return keys;
+}
+
 /** Register a message under each of its identity keys (first writer wins). */
 export function indexDisplayMessageByIdentity(
   indexById: Map<string, DisplayMessage>,

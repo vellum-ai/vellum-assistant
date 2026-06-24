@@ -17,22 +17,8 @@
 // timestamp together would interleave the two clocks and scramble the
 // transcript.
 
-import { messageIdentityKeys } from "@/domains/chat/utils/message-identity";
+import { messageMatchKeys } from "@/domains/chat/utils/message-identity";
 import type { DisplayMessage } from "@/domains/chat/types/types";
-
-/**
- * Every id a row can be matched on: its server id, any merged aliases, and the
- * client nonce. `messageIdentityKeys` covers id + aliases; the nonce is added
- * here because an optimistic row and its server echo correlate on the nonce,
- * not on a shared server id.
- */
-function identityKeys(row: DisplayMessage): string[] {
-  const keys = messageIdentityKeys(row);
-  if (row.clientMessageId && !keys.includes(row.clientMessageId)) {
-    return [...keys, row.clientMessageId];
-  }
-  return keys;
-}
 
 /**
  * Merge cached server history with the client-owned in-flight turn into the
@@ -50,7 +36,7 @@ export function selectTranscriptMessages(
 
   const liveByKey = new Map<string, DisplayMessage>();
   for (const row of live) {
-    for (const key of identityKeys(row)) {
+    for (const key of messageMatchKeys(row)) {
       if (!liveByKey.has(key)) {
         liveByKey.set(key, row);
       }
@@ -62,7 +48,7 @@ export function selectTranscriptMessages(
 
   for (const historyRow of history) {
     let liveRow: DisplayMessage | undefined;
-    for (const key of identityKeys(historyRow)) {
+    for (const key of messageMatchKeys(historyRow)) {
       const found = liveByKey.get(key);
       if (found) {
         liveRow = found;

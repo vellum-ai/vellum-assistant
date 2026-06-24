@@ -33,7 +33,7 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 
 function seed(messages: DisplayMessage[]) {
   act(() => {
-    useChatSessionStore.setState({ messages });
+    useChatSessionStore.setState({ liveTurn: messages });
   });
 }
 
@@ -44,7 +44,7 @@ function msg(overrides: Partial<DisplayMessage>): DisplayMessage {
 afterEach(() => {
   cleanup();
   act(() => {
-    useChatSessionStore.setState({ messages: [] });
+    useChatSessionStore.setState({ liveTurn: [] });
   });
 });
 

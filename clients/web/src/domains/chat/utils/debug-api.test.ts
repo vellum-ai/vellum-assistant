@@ -1008,7 +1008,7 @@ describe("createChatDebugApi.getScrollState", () => {
     });
     // Non-empty conversation so classifyScrollPosition treats the
     // near-top position as load-older-eligible.
-    useChatSessionStore.setState({ messages: [fakeDisplayMessage()] });
+    useChatSessionStore.setState({ liveTurn: [fakeDisplayMessage()] });
     const api = createChatDebugApi(
       makeRefs({
         transcriptRef: { current: makeTranscriptHandle(el) },
@@ -1066,7 +1066,7 @@ describe("createChatDebugApi.getScrollState", () => {
       clientHeight: 100,
     });
     useChatSessionStore.setState({
-      messages: [
+      liveTurn: [
         fakeDisplayMessage({ id: "a" }),
         fakeDisplayMessage({ id: "b" }),
         fakeDisplayMessage({ id: "c" }),

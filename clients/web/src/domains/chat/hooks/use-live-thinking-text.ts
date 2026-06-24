@@ -27,7 +27,7 @@ export function useLiveThinkingText(
 ): string | null {
   return useChatSessionStore((s) => {
     if (!messageId || groupIndex == null) return null;
-    const message = s.messages.find(
+    const message = s.liveTurn.find(
       (m) => m.id === messageId || m.mergedMessageIds?.includes(messageId),
     );
     if (!message) return null;

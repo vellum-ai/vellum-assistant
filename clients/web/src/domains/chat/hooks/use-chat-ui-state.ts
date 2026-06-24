@@ -62,7 +62,10 @@ export interface ChatUIState {
 
 export function useChatUIState(): ChatUIState {
   // --- Store reads (atomic selectors → minimal re-renders) ----------------
-  const messages = useChatSessionStore.use.messages();
+  // The in-flight turn drives every flag computed here (thinking indicator,
+  // streaming row, send-disabled) — all active-turn state. Persisted history
+  // is not consulted.
+  const messages = useChatSessionStore.use.liveTurn();
 
   const pendingSecret = useInteractionStore.use.pendingSecret();
   const pendingConfirmation = useInteractionStore.use.pendingConfirmation();

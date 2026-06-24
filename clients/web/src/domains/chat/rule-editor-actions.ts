@@ -157,7 +157,7 @@ async function executeSaveRule(
     useInteractionStore.getState().dismissConfirmationIfMatches(context.requestId);
     useInteractionStore.getState().setInlineConfirmationToolCallId(null);
     useChatSessionStore.getState().deleteConfirmationToolCall(context.requestId);
-    useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) =>
+    useChatSessionStore.getState().setLiveTurn((prev: DisplayMessage[]) =>
       clearConfirmationByRequestId(prev, context.requestId),
     );
     useRuleEditorStore.getState().dismissRuleEditor();

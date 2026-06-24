@@ -50,7 +50,7 @@ function faviconService(domain: string): string {
 }
 
 export function ResearchResultsOverlay() {
-  const messages = useChatSessionStore((s) => s.messages);
+  const messages = useChatSessionStore((s) => s.liveTurn);
   const turnPhase = useTurnStore((s) => s.phase);
   const liveWebActivity = useTurnStore((s) => s.liveWebActivity);
   const exitFocus = useOnboardingFocusStore.use.exitFocus();
