@@ -16,7 +16,7 @@ import { useCallback, useState } from "react";
 import type { McpServerEntry, McpToolsSummaryServer } from "./mcp-api";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
-import { SkillRow } from "@vellumai/design-library/components/skill-row";
+import { ListRow } from "@vellumai/design-library/components/list-row";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 const STATUS_CONFIG: Record<string, { icon: typeof CheckCircle2; label: string; className: string }> = {
@@ -202,16 +202,14 @@ export function McpServerCard({
             </button>
 
             {toolsExpanded ? (
-              <div className="mt-2 max-h-60 space-y-1 overflow-y-auto">
+              <div className="mt-2 max-h-60 overflow-y-auto">
                 {toolsSummary.tools.map((tool) => (
-                  <SkillRow
+                  <ListRow
                     key={tool.name}
-                    title={
-                      <span className="font-medium text-[var(--content-default)]">{tool.name}</span>
-                    }
+                    title={tool.name}
                     subtitle={tool.description || undefined}
-                    action={
-                      <span className="whitespace-nowrap text-body-small-default text-[var(--content-tertiary)]">
+                    trailing={
+                      <span className="whitespace-nowrap text-body-small-default text-[var(--content-secondary)]">
                         ~{tool.estimatedTokens.toLocaleString()} tok
                       </span>
                     }
