@@ -17,7 +17,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { ArrowRight, Check, X } from "lucide-react";
+import { ArrowRight, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
@@ -459,9 +459,13 @@ export function SuggestionsStep({
             animate={{ opacity: 1 }}
             transition={reduce ? { duration: 0 } : { duration: 0.4, delay: 0.2 }}
           >
-            <Check className="h-4 w-4 shrink-0" />
+            <span className="shrink-0 leading-none" aria-hidden>
+              *
+            </span>
             <span>
-              Set up {formatNameList(pluginLabels)} to help with your work
+              I already set up the {formatNameList(pluginLabels)}{" "}
+              {pluginLabels.length === 1 ? "plugin" : "plugins"} based on what I
+              know about you
             </span>
           </motion.div>
         )}
