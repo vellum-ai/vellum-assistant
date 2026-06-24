@@ -203,10 +203,6 @@ export {
   type ListRowProps,
 } from "./components/list-row";
 export {
-  SkillRow,
-  type SkillRowProps,
-} from "./components/skill-row";
-export {
   ShortcutKeys,
   parseAccelerator,
   type ShortcutKeysProps,

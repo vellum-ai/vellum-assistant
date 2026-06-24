@@ -133,7 +133,10 @@ export function ListRow({
       className={cn(
         "flex items-center gap-3 rounded-md px-2 py-3 transition-colors",
         "[&+&]:border-t [&+&]:border-[var(--border-base)]",
-        interactive && !selected && "hover:bg-[var(--surface-hover)]",
+        interactive &&
+          !selected &&
+          !disabled &&
+          "hover:bg-[var(--surface-hover)]",
         selected && "bg-[var(--surface-active)]",
         disabled && "opacity-60",
         className,
