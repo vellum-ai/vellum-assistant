@@ -25,6 +25,7 @@ export interface McpServerEntry {
   transport: McpServerTransport;
   enabled: boolean;
   defaultRiskLevel: string;
+  hasOAuth: boolean;
   hasStaticAuth: boolean;
   authType: "none" | "bearer" | "api-key";
   authHeaderName?: string;
@@ -171,6 +172,20 @@ export async function pollMcpAuthStatus(
     throw new Error(`Failed to poll MCP auth status: ${response?.status}`);
   }
   return data as unknown as { status: string; auth_url?: string; error?: string };
+}
+
+export async function revokeMcpOAuth(
+  assistantId: string,
+  serverId: string,
+): Promise<void> {
+  const { response } = await client.post({
+    url: "/v1/assistants/{assistant_id}/internal/mcp/auth/revoke" as "/v1/assistants/{assistant_id}/config",
+    path: { assistant_id: assistantId },
+    body: { serverId } as Record<string, unknown>,
+  });
+  if (!response?.ok) {
+    throw new Error(`Failed to revoke OAuth for ${serverId}: ${response?.status}`);
+  }
 }
 
 export async function reloadMcpServers(assistantId: string): Promise<void> {

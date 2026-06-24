@@ -128,25 +128,41 @@ export function McpServerDetailModal({
 
             {server.transport.type !== "stdio" ? (
               <>
-                <div className="space-y-1.5">
-                  <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-detail-auth">
-                    Authentication
-                  </label>
-                  <select
-                    id="mcp-detail-auth"
-                    value={authType}
-                    onChange={(e) => setAuthType(e.target.value as AuthType)}
-                    className="w-full rounded-md border border-[var(--border-element)] bg-[var(--surface-lift)] px-3 py-1.5 text-body-medium-default text-[var(--content-default)] outline-none focus:ring-2 focus:ring-[var(--ring)]"
-                  >
-                    {AUTH_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {server.hasOAuth ? (
+                  <div className="flex items-center gap-2 rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] px-3 py-2">
+                    <span className="text-body-small-default text-[var(--content-secondary)]">
+                      Authentication
+                    </span>
+                    <span className="rounded-full bg-[var(--surface-lift)] px-2 py-0.5 text-label-small-default text-[var(--content-default)]">
+                      OAuth
+                    </span>
+                    <span className="text-body-small-default text-[var(--content-tertiary)]">
+                      — managed via OAuth flow
+                    </span>
+                  </div>
+                ) : null}
 
-                {authType === "bearer" ? (
+                {!server.hasOAuth ? (
+                  <div className="space-y-1.5">
+                    <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-detail-auth">
+                      Authentication
+                    </label>
+                    <select
+                      id="mcp-detail-auth"
+                      value={authType}
+                      onChange={(e) => setAuthType(e.target.value as AuthType)}
+                      className="w-full rounded-md border border-[var(--border-element)] bg-[var(--surface-lift)] px-3 py-1.5 text-body-medium-default text-[var(--content-default)] outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                    >
+                      {AUTH_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+
+                {authType === "bearer" && !server.hasOAuth ? (
                   <div className="space-y-1.5">
                     <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-detail-bearer">
                       Bearer token
@@ -162,7 +178,7 @@ export function McpServerDetailModal({
                   </div>
                 ) : null}
 
-                {authType === "api-key" ? (
+                {authType === "api-key" && !server.hasOAuth ? (
                   <div className="flex gap-3">
                     <div className="flex-1 space-y-1.5">
                       <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-detail-apikey-header">

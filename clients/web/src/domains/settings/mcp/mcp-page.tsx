@@ -11,6 +11,7 @@ import {
   pollMcpAuthStatus,
   reloadMcpServers,
   removeMcpServer,
+  revokeMcpOAuth,
   startMcpAuth,
   updateMcpServer,
   type McpServerEntry,
@@ -38,6 +39,7 @@ function McpPageInner() {
   const [isSaving, setIsSaving] = useState(false);
   const [isReloading, setIsReloading] = useState(false);
   const [authenticatingServerId, setAuthenticatingServerId] = useState<string | null>(null);
+  const [revokingServerId, setRevokingServerId] = useState<string | null>(null);
 
   const {
     data: serversData,
@@ -148,6 +150,22 @@ function McpPageInner() {
         toast.error(`Authentication polling failed for ${serverId}`);
       } finally {
         setAuthenticatingServerId(null);
+      }
+    },
+    [assistantId, invalidateAll],
+  );
+
+  const handleRevokeOAuth = useCallback(
+    async (serverId: string) => {
+      setRevokingServerId(serverId);
+      try {
+        await revokeMcpOAuth(assistantId, serverId);
+        invalidateAll();
+        toast.success(`OAuth credentials revoked for ${serverId}`);
+      } catch {
+        toast.error(`Failed to revoke OAuth for ${serverId}`);
+      } finally {
+        setRevokingServerId(null);
       }
     },
     [assistantId, invalidateAll],
@@ -279,8 +297,10 @@ function McpPageInner() {
               onRemove={setRemoveServerId}
               onConfigure={setConfigureServerId}
               onAuthenticate={handleAuthenticate}
+              onRevokeOAuth={handleRevokeOAuth}
               isUpdating={pendingMutations.has(server.id)}
               isAuthenticating={authenticatingServerId === server.id}
+              isRevoking={revokingServerId === server.id}
             />
           ))}
         </div>

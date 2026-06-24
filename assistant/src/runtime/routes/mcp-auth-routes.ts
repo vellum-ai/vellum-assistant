@@ -26,7 +26,10 @@ import {
   getMcpHeaders,
   setMcpHeaders,
 } from "../../mcp/mcp-header-store.js";
-import { deleteMcpOAuthCredentials } from "../../mcp/mcp-oauth-provider.js";
+import {
+  deleteMcpOAuthCredentials,
+  hasMcpOAuthTokens,
+} from "../../mcp/mcp-oauth-provider.js";
 import { getMcpToolsByServer } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -178,6 +181,7 @@ interface McpServerEntry {
   transport: Omit<McpServerConfig["transport"], "headers"> & { type: string };
   enabled: boolean;
   defaultRiskLevel: string;
+  hasOAuth: boolean;
   hasStaticAuth: boolean;
   authType: "none" | "bearer" | "api-key";
   authHeaderName?: string;
@@ -210,6 +214,10 @@ async function handleMcpList(_args: {
         } else {
           status = await checkMachineReadableHealth(id, config);
         }
+        const hasOAuth =
+          config.transport.type !== "stdio"
+            ? await hasMcpOAuthTokens(id)
+            : false;
 
         // Check credential store for stored static auth headers
         const storedHeaders = await getMcpHeaders(id);
@@ -224,8 +232,6 @@ async function handleMcpList(_args: {
         const authType: "none" | "bearer" | "api-key" = hasStaticAuth
           ? detectAuthType(effectiveHeaders!)
           : "none";
-        // For API-key auth, expose the non-secret header name so the UI
-        // can pre-fill it during credential rotation.
         const authHeaderName =
           authType === "api-key" && effectiveHeaders
             ? Object.keys(effectiveHeaders).find(
@@ -243,6 +249,7 @@ async function handleMcpList(_args: {
           transport: safeTransport as McpServerEntry["transport"],
           enabled,
           defaultRiskLevel: config.defaultRiskLevel ?? "high",
+          hasOAuth,
           hasStaticAuth,
           authType,
           ...(authHeaderName && { authHeaderName }),
@@ -492,6 +499,44 @@ async function handleMcpAdd({
 }
 
 // ---------------------------------------------------------------------------
+// Revoke OAuth
+// ---------------------------------------------------------------------------
+
+async function handleMcpAuthRevoke({
+  body,
+}: {
+  body?: Record<string, unknown>;
+}): Promise<{ revoked: true }> {
+  const { serverId } = body as { serverId: string };
+
+  const raw = loadRawConfig();
+  const servers = (raw.mcp as Partial<McpConfig> | undefined)?.servers ?? {};
+  const serverConfig = servers[serverId];
+
+  if (!serverConfig) {
+    throw new NotFoundError(`MCP server "${serverId}" not found`);
+  }
+
+  let result: { ok: boolean; failedKeys: string[] };
+  try {
+    result = await deleteMcpOAuthCredentials(serverId);
+  } catch (err) {
+    throw new InternalError(
+      `Failed to revoke OAuth credentials: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  if (!result.ok) {
+    throw new InternalError(
+      `Failed to delete OAuth credentials for keys: ${result.failedKeys.join(", ")}`,
+    );
+  }
+
+  triggerReload("internal_mcp_auth_revoke");
+  return { revoked: true };
+}
+
+// ---------------------------------------------------------------------------
 // Remove
 // ---------------------------------------------------------------------------
 
@@ -609,6 +654,7 @@ export const ROUTES: RouteDefinition[] = [
             .passthrough(),
           enabled: z.boolean(),
           defaultRiskLevel: z.string(),
+          hasOAuth: z.boolean(),
           allowedTools: z.array(z.string()).optional(),
           blockedTools: z.array(z.string()).optional(),
         }),
@@ -694,6 +740,22 @@ export const ROUTES: RouteDefinition[] = [
       headers: z.record(z.string(), z.string()).optional(),
     }),
     handler: handleMcpAdd,
+  },
+  {
+    operationId: "internal_mcp_auth_revoke",
+    endpoint: "internal/mcp/auth/revoke",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Revoke MCP OAuth credentials",
+    description:
+      "Deletes stored OAuth tokens for an MCP server and triggers a reload.",
+    tags: ["internal"],
+    requestBody: z.object({ serverId: z.string() }),
+    responseBody: z.object({ revoked: z.boolean() }),
+    handler: handleMcpAuthRevoke,
   },
   {
     operationId: "internal_mcp_remove",
