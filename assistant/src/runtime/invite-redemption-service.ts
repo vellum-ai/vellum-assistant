@@ -35,14 +35,18 @@ const log = getLogger("invite-redemption-service");
 /**
  * Resolve the sender's existing member status for the already_member/blocked
  * gate from the gateway trust verdict. Falls back to the local channel status
- * only when the gateway returns no verdict.
+ * when the verdict is absent or carries no resolvable member status (e.g. an
+ * externalChatId-only match or a resolutionFailed verdict), so a locally
+ * blocked contact can't bypass the gate.
  */
-async function resolveMemberGateStatus(
+export async function resolveMemberGateStatus(
   verdict: Awaited<ReturnType<typeof getInboundTrustVerdict>>,
   localChannelStatus: ChannelStatus | null,
 ): Promise<ChannelStatus | null> {
-  if (verdict) return verdictMemberFromVerdict(verdict)?.status ?? null;
-  return localChannelStatus;
+  const memberStatus = verdict
+    ? verdictMemberFromVerdict(verdict)?.status
+    : null;
+  return memberStatus ?? localChannelStatus;
 }
 
 // ---------------------------------------------------------------------------
