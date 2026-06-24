@@ -9,7 +9,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, within } from "@testing-library/react";
 
 import { SubagentSpawnGroup } from "@/domains/chat/components/subagent-inline-progress-card/subagent-spawn-group";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -103,7 +103,10 @@ describe("SubagentSpawnGroup", () => {
     fireEvent.click(getByTestId("subagent-avatar-row-details"));
 
     const rows = getAllByTestId("subagent-inline-progress-card");
-    fireEvent.click(rows[0]);
+    // The open affordance lives on the leading cluster (a `role="button"`
+    // element inside the row), not on the row container itself, so the stop
+    // button is not nested inside it. Click the affordance, not the row.
+    fireEvent.click(within(rows[0]).getByRole("button", { name: /open subagent/i }));
     expect(clicked).toEqual([ids[0]]);
 
     const stopButtons = getAllByTestId("subagent-inline-card-stop");
