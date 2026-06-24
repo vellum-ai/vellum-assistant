@@ -80,6 +80,12 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   subagentToolGateMode?: SubagentToolGateMode;
   /** Turn-scoped disk-pressure cleanup mode flag. */
   diskPressureCleanupModeActive?: boolean;
+  /**
+   * Shell execution mode for this conversation. When `"read-only"`, the bash
+   * tool enforces a command allowlist. Set by SubagentManager from the role
+   * config; `undefined` means unrestricted.
+   */
+  shellMode?: "unrestricted" | "read-only";
   /** True when the conversation has no connected client (HTTP-only path). */
   hasNoClient?: boolean;
   /** When true, the conversation is executing a task run and must not become interactive. */

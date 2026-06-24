@@ -409,8 +409,6 @@ export interface SkillProjectionContext {
   diskPressureCleanupModeActive?: boolean;
   /** True when this conversation belongs to a subagent spawned by SubagentManager. */
   readonly isSubagent?: boolean;
-  /** Shell execution mode for this conversation. Enforced by the bash tool. */
-  readonly shellMode?: "unrestricted" | "read-only";
   /**
    * The interface id of the connected client driving the current turn (e.g.
    * "macos", "chrome-extension"). Used to gate host tools by per-capability
