@@ -11,6 +11,13 @@
  * skills are passed to the model as a separate catalog, not inlined) plus a
  * fresh, task-focused memory recall.
  *
+ * Personal-memory surfaces are gated to the same policy the main agent's
+ * memory injectors apply: the recall search honors `canAccessMemory` (like the
+ * `recall` tool), and NOW.md / PKB honor `isPersonalMemoryAllowed` (plus the
+ * scratchpad-injection toggle for NOW.md). The advisor tool is low-risk and can
+ * run on remote/trusted-contact turns, so without these gates it could forward
+ * private content the main agent itself would not receive.
+ *
  * Every section is best-effort: each source is wrapped so a failure or empty
  * result drops just that section, never the consult. Daemon- and memory-side
  * modules are pulled in via dynamic `import()` so this plugin module — loaded
@@ -106,12 +113,40 @@ async function buildSkillsSection(): Promise<string | null> {
   }
 }
 
+/**
+ * Whether personal-memory surfaces (NOW.md, PKB) may be exposed to the advisor
+ * for this conversation — the same `isPersonalMemoryAllowed` gate the runtime
+ * memory injectors apply, resolved from the conversation's trust context. The
+ * advisor tool is low-risk and can run on remote/trusted-contact turns, so
+ * these surfaces must be gated exactly as the main agent's injectors gate them.
+ * Fail-closed: if the gate or trust can't be resolved, returns false.
+ */
+async function personalMemoryAllowedForAdvisor(
+  conversationId: string,
+): Promise<boolean> {
+  try {
+    const [{ findConversation }, { isPersonalMemoryAllowed }] =
+      await Promise.all([
+        import("../../../daemon/conversation-registry.js"),
+        import("../../../daemon/trust-context.js"),
+      ]);
+    return isPersonalMemoryAllowed(
+      findConversation(conversationId)?.trustContext,
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** `## Workspace & project context` — the loaded environment around the agent. */
 async function buildWorkspaceSection(
   conversationId: string,
 ): Promise<string | null> {
   const parts: string[] = [];
 
+  // The `<workspace>` directory listing is not personal memory — the agent's
+  // own file tools already operate in this cwd — so it is surfaced ungated, the
+  // same way the workspace-context injector does.
   try {
     const { resolveWorkspaceTopLevelContext } =
       await import("../../../daemon/conversation-workspace.js");
@@ -121,21 +156,31 @@ async function buildWorkspaceSection(
     /* best-effort */
   }
 
-  try {
-    const { readNowScratchpad } =
-      await import("../../../daemon/now-scratchpad.js");
-    const now = readNowScratchpad();
-    if (now) parts.push(`NOW.md scratchpad:\n${truncate(now, 1500)}`);
-  } catch {
-    /* best-effort */
-  }
+  // NOW.md and PKB are personal-memory surfaces. Gate them behind the same
+  // `isPersonalMemoryAllowed` policy (and, for NOW.md, the scratchpad-injection
+  // toggle) the runtime injectors use, so a low-risk advisor consult cannot
+  // forward private content the main agent would never receive.
+  if (await personalMemoryAllowedForAdvisor(conversationId)) {
+    try {
+      const [{ readNowScratchpad }, { getConfig }] = await Promise.all([
+        import("../../../daemon/now-scratchpad.js"),
+        import("../../../config/loader.js"),
+      ]);
+      if (getConfig().memory.retrieval.scratchpadInjection.enabled) {
+        const now = readNowScratchpad();
+        if (now) parts.push(`NOW.md scratchpad:\n${truncate(now, 1500)}`);
+      }
+    } catch {
+      /* best-effort */
+    }
 
-  try {
-    const { readPkbContext } = await import("../../../memory/pkb/context.js");
-    const pkb = readPkbContext();
-    if (pkb) parts.push(truncate(pkb, 1500));
-  } catch {
-    /* best-effort */
+    try {
+      const { readPkbContext } = await import("../../../memory/pkb/context.js");
+      const pkb = readPkbContext();
+      if (pkb) parts.push(truncate(pkb, 1500));
+    } catch {
+      /* best-effort */
+    }
   }
 
   try {
