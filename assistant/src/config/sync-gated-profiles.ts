@@ -119,9 +119,6 @@ function enableProfile(
     // by key-presence so an explicit null (user cleared it) survives too.
     if ("label" in previous) next.label = previous.label;
     if ("status" in previous) next.status = previous.status;
-    if ("advisorEnabled" in previous) {
-      next.advisorEnabled = previous.advisorEnabled;
-    }
   }
 
   let changed = false;
