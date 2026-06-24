@@ -55,12 +55,14 @@ const PITCH_TEAM = [
 const PITCH_TEAM_SIZE = 290;
 
 /**
- * One carousel line: a fixed-height window holding the first phrase above the
- * second. The first phrase wipes in (clip reveal); flipping `carouseled` rolls
- * the window up to the second phrase.
+ * One carousel line: a window holding the first phrase above the second. The
+ * first phrase wipes in (clip reveal); flipping `carouseled` rolls the window
+ * up to the second phrase and collapses the window to that phrase's height (so
+ * a 2-line setup line doesn't leave a gap once it carousels to a 1-line payoff).
  */
 function CarouselLine({
-  slotH,
+  firstH,
+  secondH,
   color,
   firstText,
   secondText,
@@ -70,7 +72,8 @@ function CarouselLine({
   revealDuration,
   reduce,
 }: {
-  slotH: number;
+  firstH: number;
+  secondH: number;
   color: string;
   firstText: string;
   secondText: string;
@@ -84,16 +87,23 @@ function CarouselLine({
   const clipHidden =
     revealFrom === "bottom" ? "inset(100% 0 0 0)" : "inset(0 0 100% 0)";
   const clipShown = "inset(0% 0 0% 0)";
+  // Wait for the measurer so the window opens at the right height (no grow-in).
+  if (!firstH || !secondH) return null;
   return (
-    <div className="relative w-full overflow-hidden" style={{ height: slotH || undefined }}>
+    <motion.div
+      className="relative w-full overflow-hidden"
+      initial={false}
+      animate={{ height: carouseled ? secondH : firstH }}
+      transition={reduce ? { duration: 0 } : { duration: 0.5, ease: "easeInOut" }}
+    >
       <motion.div
         className="flex flex-col"
         style={{ color }}
         initial={false}
-        animate={{ y: carouseled ? -slotH : 0 }}
+        animate={{ y: carouseled ? -firstH : 0 }}
         transition={reduce ? { duration: 0 } : { duration: 0.5, ease: "easeInOut" }}
       >
-        <div className="flex items-center justify-center" style={{ height: slotH }}>
+        <div className="flex items-center justify-center" style={{ height: firstH }}>
           <motion.span
             className="block"
             initial={false}
@@ -103,11 +113,11 @@ function CarouselLine({
             {firstText}
           </motion.span>
         </div>
-        <div className="flex items-center justify-center" style={{ height: slotH }}>
+        <div className="flex items-center justify-center" style={{ height: secondH }}>
           <span className="block">{secondText}</span>
         </div>
       </motion.div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -171,19 +181,15 @@ export function PitchStep({
   const m1bRef = useRef<HTMLSpanElement>(null);
   const m2aRef = useRef<HTMLSpanElement>(null);
   const m2bRef = useRef<HTMLSpanElement>(null);
-  const [slotH1, setSlotH1] = useState(0);
-  const [slotH2, setSlotH2] = useState(0);
+  const [firstH1, setFirstH1] = useState(0);
+  const [secondH1, setSecondH1] = useState(0);
+  const [firstH2, setFirstH2] = useState(0);
+  const [secondH2, setSecondH2] = useState(0);
   useLayoutEffect(() => {
-    const h1 = Math.max(
-      m1aRef.current?.offsetHeight ?? 0,
-      m1bRef.current?.offsetHeight ?? 0,
-    );
-    const h2 = Math.max(
-      m2aRef.current?.offsetHeight ?? 0,
-      m2bRef.current?.offsetHeight ?? 0,
-    );
-    if (h1) setSlotH1(h1);
-    if (h2) setSlotH2(h2);
+    if (m1aRef.current?.offsetHeight) setFirstH1(m1aRef.current.offsetHeight);
+    if (m1bRef.current?.offsetHeight) setSecondH1(m1bRef.current.offsetHeight);
+    if (m2aRef.current?.offsetHeight) setFirstH2(m2aRef.current.offsetHeight);
+    if (m2bRef.current?.offsetHeight) setSecondH2(m2bRef.current.offsetHeight);
   }, [blockW]);
 
   // Park the eyes at rest until the journey starts.
@@ -310,7 +316,7 @@ export function PitchStep({
       {/* Hidden measurer — sizes the carousel windows to the taller phrase. */}
       <div
         aria-hidden="true"
-        className="pointer-events-none invisible absolute -left-[9999px] top-0 text-[72px] leading-[1.15]"
+        className="pointer-events-none invisible absolute -left-[9999px] top-0 text-[clamp(2.25rem,5.5vw,4.5rem)] leading-[1.15]"
         style={{ width: blockW, fontFamily: "var(--font-serif)" }}
       >
         <span ref={m1aRef} className="block">{SETUP_LINE}</span>
@@ -389,12 +395,13 @@ export function PitchStep({
 
       <div className={`${ONBOARDING_STEP_CONTENT} max-w-3xl`}>
         <div
-          className="flex w-full flex-col gap-3 text-[72px] leading-[1.15]"
+          className="flex w-full flex-col gap-3 text-[clamp(2.25rem,5.5vw,4.5rem)] leading-[1.15]"
           style={{ fontFamily: "var(--font-serif)" }}
         >
           {/* Line 1 — the darker secondary tone; wipes in bottom→top. */}
           <CarouselLine
-            slotH={slotH1}
+            firstH={firstH1}
+            secondH={secondH1}
             color={tone.fgDeep}
             firstText={SETUP_LINE}
             secondText={HELP_LINE}
@@ -406,7 +413,8 @@ export function PitchStep({
           />
           {/* Line 2 — full-strength; wipes in top→bottom. */}
           <CarouselLine
-            slotH={slotH2}
+            firstH={firstH2}
+            secondH={secondH2}
             color={tone.fg}
             firstText={PUNCH_LINE}
             secondText={LESS_LINE}
