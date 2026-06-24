@@ -335,6 +335,17 @@ async function teleportToPlatform(
       );
     }
     await awaitPlatformJob(jobId);
+  } else {
+    // A synchronous 2xx can still report a validation/import failure in the
+    // body (`{success:false}`); without this check the flow would advance to
+    // verifying and let the user retire the source despite a failed import.
+    const body = result.body as { success?: boolean; error?: string } | null;
+    if (body && body.success === false) {
+      throw new TeleportError(
+        "import_failed",
+        body.error ?? "Import reported failure.",
+      );
+    }
   }
 }
 
