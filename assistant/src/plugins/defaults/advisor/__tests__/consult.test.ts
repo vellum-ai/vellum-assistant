@@ -10,6 +10,7 @@ let sendMessageError: Error | null = null;
 let providerResolves = true;
 let providerSupportsWeb = false;
 let streamDeltas: string[] = [];
+let streamEvents: Array<Record<string, unknown>> = [];
 
 const fakeProvider = {
   name: "mock-advisor-provider",
@@ -20,9 +21,11 @@ const fakeProvider = {
     sendMessageArgs = { messages, options } as Record<string, unknown>;
     if (sendMessageError) throw sendMessageError;
     const onEvent = (
-      options as { onEvent?: (e: { type: string; text?: string }) => void }
+      options as { onEvent?: (e: Record<string, unknown>) => void }
     ).onEvent;
     if (onEvent) {
+      // Activity (search/thinking) streams before the final advice text.
+      for (const ev of streamEvents) onEvent(ev);
       for (const text of streamDeltas) onEvent({ type: "text_delta", text });
     }
     return {
@@ -70,6 +73,7 @@ beforeEach(() => {
   providerResolves = true;
   providerSupportsWeb = false;
   streamDeltas = [];
+  streamEvents = [];
   resetAdvisorStateForTests();
 });
 
@@ -139,6 +143,73 @@ describe("consultAdvisor", () => {
     expect(options.tools?.map((t) => t.name)).toEqual(["web_search"]);
     // tool_choice must not be `none`, or the provider suppresses its server tool.
     expect(optionConfig().tool_choice).toEqual({ type: "auto" });
+  });
+
+  test("streams web-search activity to onText, not just the final advice", async () => {
+    providerSupportsWeb = true;
+    streamEvents = [
+      { type: "server_tool_start", name: "web_search", toolUseId: "s1", input: {} },
+      {
+        type: "server_tool_complete",
+        toolUseId: "s1",
+        isError: false,
+        resolvedInput: { query: "vellum streaming" },
+      },
+    ];
+    streamDeltas = ["Here is ", "the advice."];
+    const chunks: string[] = [];
+
+    await consultAdvisor({
+      systemPrompt: null,
+      messages: [userMsg("hi")],
+      onText: (c) => chunks.push(c),
+    });
+
+    const joined = chunks.join("");
+    // The drawer isn't silent during the search prefix...
+    expect(joined).toContain("Searching the web");
+    expect(joined).toContain("Searched: vellum streaming");
+    // ...and the advice text still streams.
+    expect(joined).toContain("Here is the advice.");
+  });
+
+  test("surfaces a failure note (not 'Searched') when a web search errors", async () => {
+    providerSupportsWeb = true;
+    streamEvents = [
+      { type: "server_tool_start", name: "web_search", toolUseId: "s1", input: {} },
+      {
+        type: "server_tool_complete",
+        toolUseId: "s1",
+        isError: true,
+        errorCode: "query_too_long",
+        resolvedInput: { query: "an overly long query" },
+      },
+    ];
+    streamDeltas = ["Proceeding without search."];
+    const chunks: string[] = [];
+
+    await consultAdvisor({
+      systemPrompt: null,
+      messages: [userMsg("hi")],
+      onText: (c) => chunks.push(c),
+    });
+
+    const joined = chunks.join("");
+    expect(joined).toContain("Web search failed");
+    expect(joined).not.toContain("🔎 Searched:");
+    // The consult still continues and streams its guidance.
+    expect(joined).toContain("Proceeding without search.");
+  });
+
+  test("streams the model's reasoning summary to onText", async () => {
+    streamEvents = [{ type: "thinking_delta", thinking: "weighing tradeoffs" }];
+    const chunks: string[] = [];
+    await consultAdvisor({
+      systemPrompt: null,
+      messages: [userMsg("hi")],
+      onText: (c) => chunks.push(c),
+    });
+    expect(chunks.join("")).toContain("weighing tradeoffs");
   });
 
   test("embeds the runtime context in the advisor system prompt", async () => {
