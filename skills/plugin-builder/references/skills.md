@@ -14,15 +14,15 @@ The Assistant decides when to load a skill from its `description` and activation
 
 These are the fields the `SKILL.md` frontmatter can set. Only `name` and `description` are required; everything under `metadata` is optional and refines how the skill is presented and matched.
 
-| Field                              | Type       | Required | Description                                                                                                                                                        |
-| ---------------------------------- | ---------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `name`                             | `string`   | Yes      | Skill identifier. Keep it stable, since the Assistant refers to the skill by this name when it loads it.                                                           |
-| `description`                      | `string`   | Yes      | What the skill does and when to use it. The Assistant matches against this to decide whether to load the skill, so write it for the model, not for a human reader. |
-| `metadata.emoji`                   | `string`   | No       | Glyph shown next to the skill in clients that render a skill list.                                                                                                 |
-| `metadata.vellum.display-name`     | `string`   | No       | Human-friendly label for the skill. Falls back to name when omitted.                                                                                               |
-| `metadata.vellum.activation-hints` | `string[]` | No       | Plain-language situations where the skill should activate. These sharpen the match beyond the description.                                                         |
-| `metadata.vellum.avoid-when`       | `string[]` | No       | Situations where the skill should not activate, used to keep it from firing on adjacent-but-wrong requests.                                                        |
-| `metadata.vellum.category`         | `string`   | No       | Grouping used when the skill is listed in a client. Defaults to "system".                                                                                          |
+| Field                              | Type       | Required | Description                                                                                                                                                                                                                                                                                    |
+| ---------------------------------- | ---------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                             | `string`   | Yes      | Skill display name used in skill lists and matching. The canonical identifier is the directory basename (the folder name under `skills/`), not this field. Keep them aligned to avoid confusion, but note that the runtime uses the directory name for deduplication and collision resolution. |
+| `description`                      | `string`   | Yes      | What the skill does and when to use it. The Assistant matches against this to decide whether to load the skill, so write it for the model, not for a human reader.                                                                                                                             |
+| `metadata.emoji`                   | `string`   | No       | Glyph shown next to the skill in clients that render a skill list.                                                                                                                                                                                                                             |
+| `metadata.vellum.display-name`     | `string`   | No       | Human-friendly label for the skill. Falls back to name when omitted.                                                                                                                                                                                                                           |
+| `metadata.vellum.activation-hints` | `string[]` | No       | Plain-language situations where the skill should activate. These sharpen the match beyond the description.                                                                                                                                                                                     |
+| `metadata.vellum.avoid-when`       | `string[]` | No       | Situations where the skill should not activate, used to keep it from firing on adjacent-but-wrong requests.                                                                                                                                                                                    |
+| `metadata.vellum.category`         | `string`   | No       | Grouping used when the skill is listed in a client. Defaults to "system".                                                                                                                                                                                                                      |
 
 ## Resolution order
 
@@ -78,3 +78,10 @@ and Blockers.
 
 Keep each section to a few short bullet points.
 ```
+
+### Referencing scripts and reference files from the body
+
+The `scripts/` and `references/` directories are optional companions to `SKILL.md`. The body invokes them by relative path:
+
+- **Scripts:** Reference a script by its path relative to the skill directory. The assistant runs it via the `bash` tool when the instructions call for it. For example, a body that says "Run `scripts/post_summary.ts` to submit the summary" tells the assistant to execute `bun run scripts/post_summary.ts` from the skill directory.
+- **References:** Cite a reference file by relative path when the body needs to defer detail. For example, "See `references/api-fields.md` for the full field contract" tells the assistant to read that file when it needs the details, rather than inlining them in the body. This keeps the body short and loads the detail only when relevant.

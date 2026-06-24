@@ -25,7 +25,7 @@ simple-memory  vellum-ai/simple-memory
 # Install it by name (clones the pinned commit)
 $ assistant plugins install simple-memory
 Installed plugin "simple-memory" (12 files) at ed09a4c -> ~/.vellum/workspace/plugins/simple-memory
-Restart the assistant to pick up the new plugin.
+The new plugin is picked up on the next boot or plugin reload.
 
 # Confirm what is installed
 $ assistant plugins list
@@ -56,7 +56,7 @@ Resolve `<name>` in the catalog, shallow-clone its repo at the pinned commit, an
 - `--force`: Overwrite an existing install of the same name.
 - `--ref <ref>`: Advanced. Read the catalog (and any adapter stub) from a different ref of the vellum-assistant repo; defaults to main. The external plugin itself is still fetched at the commit pinned in the manifest, never this ref.
 
-Note: Installs are not hot-loaded. Restart the assistant to pick up the new plugin.
+Note: The new plugin is picked up on the next boot or plugin reload.
 
 #### `plugins list`
 
@@ -83,7 +83,7 @@ Move an installed plugin to the marketplace's current pinned commit. It is a no-
 - `--dry-run`: Report the commit move without touching the install.
 - `--json`: Emit machine-readable JSON instead of a summary.
 
-Note: Upgrading re-installs at the new commit and overwrites any local edits to the plugin's files. Restart the assistant to load the upgraded code.
+Note: Upgrading re-installs at the new commit and overwrites any local edits to the plugin's files. The upgraded code is picked up on the next boot or plugin reload.
 
 #### `plugins uninstall`
 
@@ -93,7 +93,7 @@ Remove `<workspaceDir>/plugins/<name>/`. Prompts for confirmation unless stdin i
 
 - `--force`: Skip the confirmation prompt.
 
-Note: Restart the assistant to drop the plugin.
+Note: The plugin is dropped on the next boot or plugin reload.
 
 ## Updating a plugin
 
@@ -139,7 +139,7 @@ $ assistant plugins upgrade simple-memory
 Upgraded "simple-memory" 2026-06-01T12:34:56 (ed09a4c) -> 2026-06-05T08:12:24 (3eae182)
 
 (12 files) -> /workspace/plugins/simple-memory
-Restart the assistant to pick up the upgrade.
+The upgraded code is picked up on the next boot or plugin reload.
 ```
 
 ### Upgrading from the Plugins tab

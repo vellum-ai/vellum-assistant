@@ -30,15 +30,14 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 
 **Context:** `PluginInitContext`
 **When:** Once, when the plugin is first registered (on boot or install).
-**Use it to:** Validate config and credentials and open resources. Throwing aborts the plugin's load.
+**Use it to:** Validate config and open resources. Throwing aborts the plugin's load.
 
-| Field              | Type                     | Access    | Description                                                                      |
-| ------------------ | ------------------------ | --------- | -------------------------------------------------------------------------------- |
-| `config`           | `unknown`                | Read-only | Parsed config for this plugin, validated against the manifest.                   |
-| `credentials`      | `Record<string, string>` | Read-only | Resolved credential values, keyed by the plugin's `requiresCredential` entries.  |
-| `pluginStorageDir` | `string`                 | Read-only | Absolute path to the plugin's writable data directory, created during bootstrap. |
-| `assistantVersion` | `string`                 | Read-only | Assistant semver, for defensive runtime checks.                                  |
-| `logger`           | `PluginLogger`           | Read-only | Pino-compatible logger scoped to the plugin.                                     |
+| Field              | Type           | Access    | Description                                                                      |
+| ------------------ | -------------- | --------- | -------------------------------------------------------------------------------- |
+| `config`           | `unknown`      | Read-only | Parsed config for this plugin, validated against the manifest.                   |
+| `pluginStorageDir` | `string`       | Read-only | Absolute path to the plugin's writable data directory, created during bootstrap. |
+| `assistantVersion` | `string`       | Read-only | Assistant semver, for defensive runtime checks.                                  |
+| `logger`           | `PluginLogger` | Read-only | Pino-compatible logger scoped to the plugin.                                     |
 
 ### `user-prompt-submit`
 
