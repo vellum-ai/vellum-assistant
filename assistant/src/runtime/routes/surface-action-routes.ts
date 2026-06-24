@@ -16,7 +16,10 @@ import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { processGuardianDecision } from "../guardian-action-service.js";
 import { reResolveTrustOnResetDrift } from "../guardian-vellum-migration.js";
-import { findLocalGuardianPrincipalId } from "../local-actor-identity.js";
+import {
+  findLocalGuardianPrincipalId,
+  resolveActorPrincipalIdForLocalGuardian,
+} from "../local-actor-identity.js";
 import { resolveLocalPrincipalTrustContext } from "../local-principal-trust.js";
 import { parseCallbackData } from "./channel-route-shared.js";
 import {
@@ -176,11 +179,18 @@ async function handleSurfaceAction({
   const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
   await applyTrustContext(conversation, actorPrincipalId);
 
+  // Translate dev-bypass → real guardian so the surface turn's principal matches
+  // the SSE host-proxy client's registered principal; otherwise CU/app-control
+  // same-actor checks reject the turn. Real principals pass through unchanged.
+  const resolvedActorPrincipalId =
+    await resolveActorPrincipalIdForLocalGuardian(actorPrincipalId ?? undefined);
+
   try {
     const raw = await conversation.handleSurfaceAction(
       surfaceId,
       actionId,
       data,
+      resolvedActorPrincipalId,
     );
     const result =
       raw && typeof raw === "object" && "accepted" in raw
