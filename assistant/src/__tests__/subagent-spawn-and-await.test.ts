@@ -11,7 +11,7 @@
  * its real setUpSubagent → runSubagent path against a controllable fake
  * Conversation without touching SQLite or a real provider.
  */
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Message } from "../providers/types.js";
@@ -42,6 +42,8 @@ interface FakeConversationConfig {
 let nextConversationConfig: FakeConversationConfig = {};
 /** Set true when any FakeConversation's runAgentLoop is invoked. */
 let runLoopInvoked = false;
+/** The first user message persisted by the most recent FakeConversation. */
+let lastPersistedUserMessage: string | undefined;
 
 class FakeConversation {
   messages: Message[];
@@ -86,7 +88,8 @@ class FakeConversation {
   }
   injectInheritedContext() {}
 
-  persistUserMessage() {
+  persistUserMessage(args: { content: string }) {
+    lastPersistedUserMessage = args.content;
     return { id: "msg-id", deduplicated: false };
   }
 
@@ -387,6 +390,79 @@ describe("SubagentManager.spawnAndAwait", () => {
     await expect(manager.spawnAndAwait(makeConfig(), () => {})).rejects.toThrow(
       "boom",
     );
+  });
+});
+
+describe("SubagentManager — first user message framing", () => {
+  const advisorTrailingText = {
+    messages: [
+      {
+        role: "assistant" as const,
+        content: [{ type: "text" as const, text: "advice" }],
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    lastPersistedUserMessage = undefined;
+  });
+
+  test("advisor consult sends the bare advice request (no FORK TASK wrapper)", async () => {
+    nextConversationConfig = advisorTrailingText;
+
+    const manager = new SubagentManager();
+    await manager.spawnAndAwait(
+      makeConfig({
+        objective: "Please advise.",
+        fork: true,
+        role: "advisor",
+        // The advisor always supplies its own framing; setUpSubagent uses it
+        // verbatim and never falls back to parentSystemPrompt.
+        systemPromptOverride: "You are a senior advisor.",
+        parentMessages: [
+          { role: "user", content: [{ type: "text", text: "prior turn" }] },
+        ],
+      }),
+      () => {},
+    );
+
+    // The advisor's user turn is the bare advice request — the generic fork
+    // directive would fight the advisor system prompt.
+    expect(lastPersistedUserMessage).toBe("Please advise.");
+    expect(lastPersistedUserMessage).not.toContain("FORK TASK");
+  });
+
+  test("a non-advisor fork still wraps the objective in FORK TASK framing", async () => {
+    nextConversationConfig = advisorTrailingText;
+
+    const manager = new SubagentManager();
+    await manager.spawnAndAwait(
+      makeConfig({
+        objective: "Investigate the bug.",
+        fork: true,
+        parentSystemPrompt: "Parent prompt.",
+        parentMessages: [
+          { role: "user", content: [{ type: "text", text: "prior turn" }] },
+        ],
+      }),
+      () => {},
+    );
+
+    expect(lastPersistedUserMessage).toContain("FORK TASK");
+    expect(lastPersistedUserMessage).toContain("Investigate the bug.");
+  });
+
+  test("a non-fork subagent sends the bare objective (no FORK TASK wrapper)", async () => {
+    nextConversationConfig = advisorTrailingText;
+
+    const manager = new SubagentManager();
+    await manager.spawnAndAwait(
+      makeConfig({ objective: "Do the thing." }),
+      () => {},
+    );
+
+    expect(lastPersistedUserMessage).toBe("Do the thing.");
+    expect(lastPersistedUserMessage).not.toContain("FORK TASK");
   });
 });
 

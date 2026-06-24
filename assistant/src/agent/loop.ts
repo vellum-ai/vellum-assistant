@@ -97,7 +97,9 @@ export interface AgentLoopConfig {
   cacheTtl?: "5m" | "1h";
   /**
    * Give every LLM call provider-native (server-side) web search, gated on the
-   * resolved provider's {@link Provider.supportsNativeWebSearch} capability.
+   * native-search capability of the (provider, model) the call routes to —
+   * {@link Provider.supportsNativeWebSearchFor} when the provider exposes it,
+   * else the static {@link Provider.supportsNativeWebSearch} flag.
    * When both are true, the loop appends a `web_search`-named tool to the
    * outbound request — which Anthropic/OpenAI substitute for their server-side
    * search tool, running the search inline and returning results without a
@@ -133,6 +135,35 @@ const NATIVE_WEB_SEARCH_TOOL: ToolDefinition = {
     required: ["query"],
   },
 };
+
+/**
+ * Build the minimal `SendMessageOptions` a routing-aware provider needs to
+ * report the native web-search capability of the (provider, model) THIS turn
+ * routes to. Mirrors the call-site fields the loop plumbs onto the actual send
+ * (`callSite` + `overrideProfile`/`forceOverrideProfile` + per-conversation
+ * `selectionSeed`) so the capability probe and the dispatch resolve the same
+ * arm. Returns `undefined` when there is no `callSite` (the legacy
+ * default-provider path); `selectionSeed` is omitted for standalone loops with
+ * no conversation id, matching the dispatch path's own guard.
+ */
+function buildNativeWebSearchProbeOptions(
+  callSite: LLMCallSite | undefined,
+  overrideProfile: string | undefined,
+  forceOverrideProfile: boolean,
+  conversationId: string | undefined,
+): SendMessageOptions | undefined {
+  if (!callSite) return undefined;
+  return {
+    config: {
+      callSite,
+      ...(overrideProfile ? { overrideProfile } : {}),
+      ...(overrideProfile && forceOverrideProfile
+        ? { forceOverrideProfile: true }
+        : {}),
+      ...(conversationId ? { selectionSeed: conversationId } : {}),
+    },
+  };
+}
 
 export interface CheckpointInfo {
   turnIndex: number;
@@ -1283,15 +1314,33 @@ export class AgentLoop {
 
         // Provider-native web search: append a `web_search`-named tool that the
         // provider substitutes for its server-side search (run inline, no client
-        // execution), gated STRICTLY on the resolved provider's capability so a
-        // non-native provider never sees an unexecutable client tool. This is a
-        // SERVER tool — it bypasses the client allowlist and the tool executor —
-        // so the tool-less advisor consult can ground its guidance with live web
-        // access while staying one-shot for client tools. Skip when a
-        // `web_search` tool is already present so we never duplicate the name.
+        // execution), gated STRICTLY on the capability of the provider/model
+        // this call ACTUALLY routes to so a non-native provider never sees an
+        // unexecutable client tool. The advisor consult's `advisorProfile` can
+        // route `subagentSpawn` to a provider/model whose native-search support
+        // differs from the construction-time default, so the gate resolves the
+        // routed target (callSite + overrideProfile) via
+        // `supportsNativeWebSearchFor` rather than the static
+        // `this.provider.supportsNativeWebSearch` snapshot; providers without
+        // the routing-aware probe fall back to the static flag. This is a SERVER
+        // tool — it bypasses the client allowlist and the tool executor — so the
+        // tool-less advisor consult can ground its guidance with live web access
+        // while staying one-shot for client tools. Skip when a `web_search` tool
+        // is already present so we never duplicate the name.
+        const supportsRoutedNativeWebSearch = this.provider
+          .supportsNativeWebSearchFor
+          ? this.provider.supportsNativeWebSearchFor(
+              buildNativeWebSearchProbeOptions(
+                callSite,
+                resolveEffectiveOverrideProfile(),
+                forceOverrideProfile,
+                this.conversationId,
+              ),
+            )
+          : this.provider.supportsNativeWebSearch === true;
         const attachNativeWebSearch =
           this.config.enableNativeWebSearch === true &&
-          this.provider.supportsNativeWebSearch === true &&
+          supportsRoutedNativeWebSearch &&
           !resolvedTools.some((t) => t.name === NATIVE_WEB_SEARCH_TOOL.name);
         const currentTools = attachNativeWebSearch
           ? [...resolvedTools, NATIVE_WEB_SEARCH_TOOL]
