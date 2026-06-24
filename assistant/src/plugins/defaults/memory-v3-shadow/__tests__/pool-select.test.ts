@@ -253,10 +253,9 @@ describe("selectPool — id mapping", () => {
 });
 
 // ---------------------------------------------------------------------------
-// selectPool — infrastructure failures THROW (no silent degradation). A
-// deliberate empty selection and an empty pool (covered above) still return
-// normally; only a genuine infra failure throws so the LIVE injector can
-// hard-fail the turn instead of shipping it with no memory.
+// selectPool — infrastructure failures THROW. A deliberate empty selection and
+// an empty pool (covered above) still return normally; only a genuine infra
+// failure throws so callers can log it distinctly from an empty selection.
 // ---------------------------------------------------------------------------
 
 describe("selectPool — infrastructure failures throw", () => {
