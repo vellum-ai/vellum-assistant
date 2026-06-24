@@ -28,13 +28,14 @@
  *   step so the body doesn't show a stale loader.
  */
 
-import { useMemo } from "react";
+import { useRef } from "react";
 
 import {
   useSubagentStore,
   type SubagentEntry,
   type SubagentTimelineEvent,
 } from "@/domains/chat/subagent-store";
+import { useSubagentSteps } from "@/domains/chat/subagent-step-projection";
 import type { SubagentStatus } from "@vellumai/assistant-api";
 import { deriveStepLabelFromName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
@@ -58,6 +59,13 @@ export type { ToolCallCardData, ToolCallCardStep };
 // ---------------------------------------------------------------------------
 
 const TEXT_PREVIEW_MAX = 160;
+
+/**
+ * Shared frozen empty events array for the spawn-race window (no entry yet).
+ * A stable reference keeps the projector's identity check happy so the hook
+ * doesn't churn while waiting for the `subagent_spawned` event.
+ */
+const EMPTY_EVENTS: SubagentTimelineEvent[] = [];
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -505,8 +513,21 @@ export function computeSubagentSteps(events: SubagentTimelineEvent[]): {
 export function computeSubagentCardData(
   entry: SubagentEntry,
 ): ToolCallCardData {
-  const { steps, toolMeta } = computeSubagentSteps(entry.events);
+  return deriveSubagentCardData(entry, computeSubagentSteps(entry.events));
+}
 
+/**
+ * The cheap O(1) tail of `computeSubagentCardData`: given an entry and an
+ * already-projected `{ steps, toolMeta }`, derive the carousel meta (state,
+ * current-step title/info, step count) and assemble the card props. Split out so
+ * `useSubagentCardData` can feed it the incremental projector's output instead
+ * of re-walking the timeline. Reads only the last step, so it's safe to run on
+ * every render.
+ */
+export function deriveSubagentCardData(
+  entry: SubagentEntry,
+  { steps, toolMeta }: { steps: ToolCallCardStep[]; toolMeta: Array<ToolMeta | undefined> },
+): ToolCallCardData {
   const state = deriveCardState(entry.status);
   const { currentStepTitle, currentStepInfo } = deriveCurrentStep(
     entry,
@@ -644,10 +665,42 @@ export function useSubagentCardData(
   subagentId: string,
 ): ToolCallCardData | null {
   const entry = useSubagentStore((state) => state.byId[subagentId]);
-  return useMemo(() => {
-    if (!entry) return null;
-    return computeSubagentCardData(entry);
-  }, [entry]);
+  // Project incrementally (must run unconditionally — `useSubagentSteps` holds
+  // a ref). In the spawn-race window there's no entry yet, so feed the stable
+  // empty array; the `null` return below preserves the existing contract.
+  const projected = useSubagentSteps(entry?.events ?? EMPTY_EVENTS);
+
+  const lastRef = useRef<ToolCallCardData | null>(null);
+
+  // Intentional render-phase ref usage: `lastRef` caches the last projected
+  // card so we can preserve its identity across renders that produce an equal
+  // result (so the inline card's `React.memo` bails). Same pattern as
+  // `useSubagentSteps` / `use-event-stream.ts`.
+  /* eslint-disable react-hooks/refs -- per-instance card-identity cache (see above) */
+  if (!entry) {
+    lastRef.current = null;
+    return null;
+  }
+
+  const next = deriveSubagentCardData(entry, projected);
+  const last = lastRef.current;
+  // Preserve `cardData` identity when the projected steps and the cheap meta
+  // scalars are all unchanged, so the inline card's `React.memo` / shell bails.
+  // `toolMeta`/`carouselItems` aren't read downstream; comparing `steps`
+  // identity (stable across no-op deltas) plus the derived scalars is sufficient.
+  if (
+    last != null &&
+    last.steps === next.steps &&
+    last.state === next.state &&
+    last.currentStepTitle === next.currentStepTitle &&
+    last.currentStepInfo === next.currentStepInfo &&
+    last.stepCount === next.stepCount
+  ) {
+    return last;
+  }
+  lastRef.current = next;
+  return next;
+  /* eslint-enable react-hooks/refs */
 }
 
 /**

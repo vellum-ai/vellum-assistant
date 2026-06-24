@@ -35,10 +35,8 @@ import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/
 import { ToolDetailBody } from "@/domains/chat/components/tool-detail-panel";
 import { WebFetchDetailView } from "@/domains/chat/components/web-fetch/web-fetch-detail-view";
 import { WebSearchDetailView } from "@/domains/chat/components/web-search/web-search-detail-view";
-import {
-    buildSubagentStepDetails,
-    computeSubagentSteps,
-} from "@/domains/chat/hooks/use-subagent-card-data";
+import { buildSubagentStepDetails } from "@/domains/chat/hooks/use-subagent-card-data";
+import { useSubagentSteps } from "@/domains/chat/subagent-step-projection";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 /**
@@ -104,15 +102,13 @@ export function SubagentDetailPanel({
   const traits = useMemo(() => subagentTraits(entry.subagentId), [entry.subagentId]);
   // The panel re-renders when `entry` changes via the store subscription in
   // chat-content-layout.tsx. The store bumps `entry` identity on every
-  // token/status/usage update but keeps `entry.events` reference-stable, so the
-  // heavy O(n) timeline walk is keyed on `entry.events` — it re-runs only when
-  // the event list actually changes, not on every status/usage tick. The panel
-  // renders its own header from `entry` directly, so it needs only the projected
-  // `steps` (not the carousel meta `computeSubagentCardData` derives).
-  const { steps } = useMemo(
-    () => computeSubagentSteps(entry.events),
-    [entry.events],
-  );
+  // token/status/usage update but keeps `entry.events` reference-stable. Rather
+  // than rebuild the whole timeline on each tick, `useSubagentSteps` replays
+  // only the events that changed since the last render (append / text-coalesce),
+  // and preserves the `steps` array identity when nothing visible changed so the
+  // timeline below can bail. The panel renders its own header from `entry`
+  // directly, so it needs only the projected `steps`.
+  const { steps } = useSubagentSteps(entry.events);
 
   // `toolCallId`-keyed map of nested tool-detail payloads, used to swap the
   // panel body to a tool's input/output when its timeline pill is clicked —
