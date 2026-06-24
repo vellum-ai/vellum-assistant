@@ -705,6 +705,26 @@ describe("HostCuProxy", () => {
       expect(result.content).not.toContain("NO VISIBLE EFFECT");
     });
 
+    test("loop detection fires for the same exempt combo spelled differently", () => {
+      setup();
+
+      // Equivalent spellings the mac helper executes identically must count as
+      // the same action — otherwise a stuck session could repeat cmd+a forever
+      // (no-effect warning is suppressed for exempt keys, so loop detection is
+      // the only remaining guard).
+      proxy.recordAction("computer_use_key", { key: "cmd+a" });
+      proxy.recordAction("computer_use_key", { key: "command+a" });
+      proxy.recordAction("computer_use_key", { key: "cmd + a" });
+
+      const result = proxy.formatObservation({
+        axTree: "Button [1]",
+      });
+
+      expect(result.content).toContain(
+        "WARNING: You've repeated the same action (computer_use_key) 3 times",
+      );
+    });
+
     test("resets consecutive count when diff is present", async () => {
       setup();
 

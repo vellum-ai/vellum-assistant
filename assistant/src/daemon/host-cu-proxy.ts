@@ -133,6 +133,22 @@ function isNoDiffKeyAction(action: ActionRecord | undefined): boolean {
   );
 }
 
+/**
+ * Canonical signature for loop detection. Key presses collapse equivalent
+ * spellings (`cmd+a`, `command+a`, `cmd + a`) to one signature so a stuck
+ * session retrying the same combo with alias/whitespace variants is still
+ * caught — important now that exempt keys no longer emit no-effect warnings.
+ */
+function actionSignature(record: ActionRecord): string {
+  if (
+    record.toolName === "computer_use_key" &&
+    typeof record.input.key === "string"
+  ) {
+    return `computer_use_key:${canonicalizeKeyCombo(record.input.key)}`;
+  }
+  return `${record.toolName}:${JSON.stringify(record.input)}`;
+}
+
 // ---------------------------------------------------------------------------
 // HostCuProxy
 // ---------------------------------------------------------------------------
@@ -470,10 +486,9 @@ export class HostCuProxy {
 
     if (this._actionHistory.length >= LOOP_DETECTION_WINDOW) {
       const recent = this._actionHistory.slice(-LOOP_DETECTION_WINDOW);
+      const firstSignature = actionSignature(recent[0]);
       const allIdentical = recent.every(
-        (r) =>
-          r.toolName === recent[0].toolName &&
-          JSON.stringify(r.input) === JSON.stringify(recent[0].input),
+        (r) => actionSignature(r) === firstSignature,
       );
       if (allIdentical) {
         parts.push(
