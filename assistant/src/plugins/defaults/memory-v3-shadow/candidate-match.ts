@@ -102,6 +102,18 @@ export type ScoreSlugsFn = (
   restrictToSlugs: readonly string[],
 ) => Promise<ScoredSlug[]>;
 
+/**
+ * A registered candidate cluster reduced to what Tier 1 needs: its identity
+ * (`clusterId` — the registry/store key) and the member-note slugs embedded for
+ * it. The matcher restricts the ANN to the member-note slugs but always reports
+ * the OWNING `clusterId`, never a note slug — the store keys every mutator
+ * (`getCandidate`/`incrementCandidate`/`addMemberNote`) on `cluster_id`.
+ */
+export interface CandidateClusterRef {
+  clusterId: string;
+  memberNoteSlugs: readonly string[];
+}
+
 export interface MatchCandidateOptions {
   /** Config used for embedding + fusion weights. Defaults to `getConfig()`. */
   config?: AssistantConfig;
@@ -110,10 +122,12 @@ export interface MatchCandidateOptions {
   /** Live skill catalog (Tier 0 targets). Defaults to `loadSkillCatalog()`. */
   loadCatalog?: () => { id: string }[];
   /**
-   * Member-note slugs of existing candidate clusters (Tier 1 targets).
-   * Defaults to the union of every registered cluster's `memberNoteSlugs`.
+   * Existing candidate clusters (Tier 1 targets), each carrying its `clusterId`
+   * and its embedded member-note slugs. The matcher ANN-restricts to the union
+   * of member-note slugs but maps any hit back to its owning `clusterId`.
+   * Defaults to every registered cluster across the tracked statuses.
    */
-  listCandidateNoteSlugs?: () => string[];
+  listCandidateClusters?: () => CandidateClusterRef[];
 }
 
 /** The matcher's verdict — which tier (if any) claimed the goal. */
@@ -147,8 +161,8 @@ export async function matchCandidate(
   const scoreSlugs =
     opts.scoreSlugs ?? ((g, slugs) => scoreSlugsWithQdrant(config, g, slugs));
   const loadCatalog = opts.loadCatalog ?? (() => loadSkillCatalog());
-  const listCandidateNoteSlugs =
-    opts.listCandidateNoteSlugs ?? defaultCandidateNoteSlugs;
+  const listCandidateClusters =
+    opts.listCandidateClusters ?? defaultCandidateClusters;
 
   // ── Tier 0 — existing skill. ───────────────────────────────────────────────
   // Map each skill id to its capability-page slug, score them, and resolve the
@@ -166,19 +180,29 @@ export async function matchCandidate(
   }
 
   // ── Tier 1 — candidate cluster. ────────────────────────────────────────────
-  // The candidate-note slug IS the clusterId in the registry contract used by
-  // the caller's distillation job; carry it straight through.
-  const candidateBest = await bestHit(
-    scoreSlugs,
-    goal,
-    listCandidateNoteSlugs(),
-  );
-  if (candidateBest) {
-    if (candidateBest.score >= CLUSTER_MATCH_THRESHOLD) {
-      return { kind: "cluster", clusterId: candidateBest.slug };
+  // Member-note slugs are EMBEDDED, so the ANN must run against them — but a
+  // note slug is NOT a clusterId. Build a `memberNoteSlug → clusterId` map so a
+  // hit resolves back to the OWNING cluster's store key; the caller keys every
+  // mutator (`incrementCandidate`/`addMemberNote`) on `cluster_id`, so returning
+  // a note slug would update zero rows or fork a duplicate cluster.
+  const slugToClusterId = new Map<string, string>();
+  for (const cluster of listCandidateClusters()) {
+    for (const slug of cluster.memberNoteSlugs) {
+      slugToClusterId.set(slug, cluster.clusterId);
     }
-    if (candidateBest.score >= GRAY_BAND_THRESHOLD) {
-      return { kind: "gray", clusterId: candidateBest.slug };
+  }
+  const candidateBest = await bestHit(scoreSlugs, goal, [
+    ...slugToClusterId.keys(),
+  ]);
+  if (candidateBest) {
+    const clusterId = slugToClusterId.get(candidateBest.slug);
+    if (clusterId) {
+      if (candidateBest.score >= CLUSTER_MATCH_THRESHOLD) {
+        return { kind: "cluster", clusterId };
+      }
+      if (candidateBest.score >= GRAY_BAND_THRESHOLD) {
+        return { kind: "gray", clusterId };
+      }
     }
   }
 
@@ -201,8 +225,9 @@ async function bestHit(
 }
 
 /**
- * Default Tier-1 target set: every member-note slug across every registered
- * candidate cluster, deduped. Read-only — `listCandidatesByStatus` only SELECTs.
+ * Default Tier-1 target set: every registered candidate cluster across the
+ * tracked statuses, each carrying its `clusterId` and embedded member-note
+ * slugs. Read-only — `listCandidatesByStatus` only SELECTs.
  */
 const CANDIDATE_STATUSES: ProcCandidateStatus[] = [
   "observing",
@@ -210,14 +235,17 @@ const CANDIDATE_STATUSES: ProcCandidateStatus[] = [
   "distilled",
 ];
 
-function defaultCandidateNoteSlugs(): string[] {
-  const slugs = new Set<string>();
+function defaultCandidateClusters(): CandidateClusterRef[] {
+  const clusters: CandidateClusterRef[] = [];
   for (const status of CANDIDATE_STATUSES) {
     for (const candidate of listCandidatesByStatus(status)) {
-      for (const slug of candidate.memberNoteSlugs) slugs.add(slug);
+      clusters.push({
+        clusterId: candidate.clusterId,
+        memberNoteSlugs: candidate.memberNoteSlugs,
+      });
     }
   }
-  return [...slugs];
+  return clusters;
 }
 
 /**

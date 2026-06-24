@@ -10,11 +10,13 @@
  *     skill capability page resolves to `existing-skill` (and short-circuits
  *     Tier 1).
  *   - Tier 1: a goal scoring at/above the cluster threshold against a candidate
- *     note resolves to `cluster` with that note's slug as the clusterId.
+ *     member note resolves to `cluster` carrying the OWNING cluster's id — not
+ *     the matched note slug (the store keys every mutator on `cluster_id`).
  *   - Novel: a goal below the gray band against everything resolves to `new`.
  *   - Gray band: a goal whose best candidate match lands in
- *     `[GRAY_BAND_THRESHOLD, CLUSTER_MATCH_THRESHOLD)` resolves to `gray` (the
- *     Tier-2 judge is the caller's job, never invoked here).
+ *     `[GRAY_BAND_THRESHOLD, CLUSTER_MATCH_THRESHOLD)` resolves to `gray`
+ *     carrying the owning cluster id (the Tier-2 judge is the caller's job,
+ *     never invoked here).
  *   - Threshold precedence (Tier 0 beats Tier 1) + read-only invariant (no
  *     writes, default registry reader only SELECTs).
  *
@@ -25,7 +27,7 @@
 import { describe, expect, mock, test } from "bun:test";
 
 import { makeMockLogger } from "../../../../__tests__/helpers/mock-logger.js";
-import type { ScoredSlug } from "../candidate-match.js";
+import type { CandidateClusterRef, ScoredSlug } from "../candidate-match.js";
 
 mock.module("../../../../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
@@ -62,10 +64,20 @@ const catalog =
   (...ids: string[]) =>
   () =>
     ids.map((id) => ({ id }));
-const candidateNotes =
-  (...slugs: string[]) =>
+
+// A Tier-1 candidate-cluster source. Each cluster carries its own `clusterId`
+// plus the member-note slugs that are actually embedded; the matcher ANN-scores
+// the slugs but must report the owning clusterId. Fixtures deliberately give
+// clusters a `clusterId` that DIFFERS from any member-note slug so a test fails
+// if the matcher leaks a note slug as the clusterId.
+const clusters =
+  (...refs: CandidateClusterRef[]) =>
   () =>
-    slugs;
+    refs;
+const cluster = (
+  clusterId: string,
+  ...memberNoteSlugs: string[]
+): CandidateClusterRef => ({ clusterId, memberNoteSlugs });
 
 describe("matchCandidate — Tier 0 (existing skill)", () => {
   test("a goal matching a skill capability page → existing-skill", async () => {
@@ -74,7 +86,9 @@ describe("matchCandidate — Tier 0 (existing skill)", () => {
     const result = await matchCandidate("ship the web app to prod", {
       scoreSlugs: fn,
       loadCatalog: catalog("deploy-web", "rotate-secrets"),
-      listCandidateNoteSlugs: candidateNotes("proc/something-else"),
+      listCandidateClusters: clusters(
+        cluster("cluster/other", "proc/something-else"),
+      ),
     });
 
     expect(result).toEqual({ kind: "existing-skill", skillId: "deploy-web" });
@@ -90,7 +104,9 @@ describe("matchCandidate — Tier 0 (existing skill)", () => {
     const result = await matchCandidate("deploy the app", {
       scoreSlugs: fn,
       loadCatalog: catalog("deploy-web"),
-      listCandidateNoteSlugs: candidateNotes("proc/deploy-candidate"),
+      listCandidateClusters: clusters(
+        cluster("cluster/deploy", "proc/deploy-candidate"),
+      ),
     });
 
     expect(result).toEqual({ kind: "existing-skill", skillId: "deploy-web" });
@@ -106,7 +122,7 @@ describe("matchCandidate — Tier 0 (existing skill)", () => {
     const result = await matchCandidate("deploy the app", {
       scoreSlugs: fn,
       loadCatalog: catalog("deploy-web"),
-      listCandidateNoteSlugs: candidateNotes(),
+      listCandidateClusters: clusters(),
     });
 
     // Falls through Tier 0 and Tier 1 (no candidates) → new.
@@ -115,35 +131,53 @@ describe("matchCandidate — Tier 0 (existing skill)", () => {
 });
 
 describe("matchCandidate — Tier 1 (candidate cluster)", () => {
-  test("a goal matching a candidate note → cluster with that slug", async () => {
+  test("a goal matching a member note → cluster carrying the OWNING clusterId (not the note slug)", async () => {
     const { fn } = fakeScorer({
       "skills/unrelated": 0.1,
       "proc/cleanup-disk": 0.85,
     });
 
+    // The owning cluster's id DIFFERS from the matched member-note slug. The
+    // matcher must report the clusterId — the store keys every mutator on it.
     const result = await matchCandidate("clear out the disk", {
       scoreSlugs: fn,
       loadCatalog: catalog("unrelated"),
-      listCandidateNoteSlugs: candidateNotes("proc/cleanup-disk", "proc/other"),
+      listCandidateClusters: clusters(
+        cluster("cluster/disk-housekeeping", "proc/cleanup-disk", "proc/other"),
+      ),
     });
 
-    expect(result).toEqual({ kind: "cluster", clusterId: "proc/cleanup-disk" });
+    expect(result).toEqual({
+      kind: "cluster",
+      clusterId: "cluster/disk-housekeeping",
+    });
+    // Regression guard: the matched note slug must NOT leak out as the clusterId.
+    expect(result).not.toEqual({
+      kind: "cluster",
+      clusterId: "proc/cleanup-disk",
+    });
   });
 
-  test("the highest-scoring candidate wins when several match", async () => {
+  test("the highest-scoring candidate wins, reported as its owning clusterId", async () => {
     const { fn } = fakeScorer({
       "proc/a": CLUSTER_MATCH_THRESHOLD + 0.01,
       "proc/b": CLUSTER_MATCH_THRESHOLD + 0.1,
       "proc/c": CLUSTER_MATCH_THRESHOLD + 0.05,
     });
 
+    // Each note lives in a distinct cluster whose id differs from the note slug.
     const result = await matchCandidate("do the thing", {
       scoreSlugs: fn,
       loadCatalog: catalog(),
-      listCandidateNoteSlugs: candidateNotes("proc/a", "proc/b", "proc/c"),
+      listCandidateClusters: clusters(
+        cluster("cluster/a", "proc/a"),
+        cluster("cluster/b", "proc/b"),
+        cluster("cluster/c", "proc/c"),
+      ),
     });
 
-    expect(result).toEqual({ kind: "cluster", clusterId: "proc/b" });
+    // Winner is proc/b's score → its owning cluster, not the note slug.
+    expect(result).toEqual({ kind: "cluster", clusterId: "cluster/b" });
   });
 
   test("a candidate exactly at the cluster threshold matches (inclusive)", async () => {
@@ -152,10 +186,10 @@ describe("matchCandidate — Tier 1 (candidate cluster)", () => {
     const result = await matchCandidate("boundary goal", {
       scoreSlugs: fn,
       loadCatalog: catalog(),
-      listCandidateNoteSlugs: candidateNotes("proc/edge"),
+      listCandidateClusters: clusters(cluster("cluster/edge", "proc/edge")),
     });
 
-    expect(result).toEqual({ kind: "cluster", clusterId: "proc/edge" });
+    expect(result).toEqual({ kind: "cluster", clusterId: "cluster/edge" });
   });
 });
 
@@ -169,7 +203,9 @@ describe("matchCandidate — novel goal", () => {
     const result = await matchCandidate("a totally unrelated brand-new task", {
       scoreSlugs: fn,
       loadCatalog: catalog("deploy-web"),
-      listCandidateNoteSlugs: candidateNotes("proc/cleanup-disk"),
+      listCandidateClusters: clusters(
+        cluster("cluster/disk-housekeeping", "proc/cleanup-disk"),
+      ),
     });
 
     expect(result).toEqual({ kind: "new" });
@@ -181,7 +217,7 @@ describe("matchCandidate — novel goal", () => {
     const result = await matchCandidate("anything", {
       scoreSlugs: fn,
       loadCatalog: catalog(),
-      listCandidateNoteSlugs: candidateNotes(),
+      listCandidateClusters: clusters(),
     });
 
     expect(result).toEqual({ kind: "new" });
@@ -191,19 +227,31 @@ describe("matchCandidate — novel goal", () => {
 });
 
 describe("matchCandidate — gray band (deferred to caller's Tier-2 judge)", () => {
-  test("a borderline candidate → gray carrying the clusterId", async () => {
+  test("a borderline member note → gray carrying the OWNING clusterId (not the note slug)", async () => {
     const { fn } = fakeScorer({
       "proc/deploy-preview":
         (GRAY_BAND_THRESHOLD + CLUSTER_MATCH_THRESHOLD) / 2,
     });
 
+    // The owning cluster's id DIFFERS from the matched member-note slug; the
+    // gray result must hand the Tier-2 judge the clusterId, not the note slug.
     const result = await matchCandidate("deploy to production", {
       scoreSlugs: fn,
       loadCatalog: catalog(),
-      listCandidateNoteSlugs: candidateNotes("proc/deploy-preview"),
+      listCandidateClusters: clusters(
+        cluster("cluster/deploy-rituals", "proc/deploy-preview"),
+      ),
     });
 
-    expect(result).toEqual({ kind: "gray", clusterId: "proc/deploy-preview" });
+    expect(result).toEqual({
+      kind: "gray",
+      clusterId: "cluster/deploy-rituals",
+    });
+    // Regression guard: the matched note slug must NOT leak out as the clusterId.
+    expect(result).not.toEqual({
+      kind: "gray",
+      clusterId: "proc/deploy-preview",
+    });
   });
 
   test("a candidate exactly at the gray-band floor → gray (inclusive)", async () => {
@@ -212,10 +260,10 @@ describe("matchCandidate — gray band (deferred to caller's Tier-2 judge)", () 
     const result = await matchCandidate("boundary goal", {
       scoreSlugs: fn,
       loadCatalog: catalog(),
-      listCandidateNoteSlugs: candidateNotes("proc/edge"),
+      listCandidateClusters: clusters(cluster("cluster/edge", "proc/edge")),
     });
 
-    expect(result).toEqual({ kind: "gray", clusterId: "proc/edge" });
+    expect(result).toEqual({ kind: "gray", clusterId: "cluster/edge" });
   });
 
   test("just below the gray-band floor → new, not gray", async () => {
@@ -224,7 +272,7 @@ describe("matchCandidate — gray band (deferred to caller's Tier-2 judge)", () 
     const result = await matchCandidate("boundary goal", {
       scoreSlugs: fn,
       loadCatalog: catalog(),
-      listCandidateNoteSlugs: candidateNotes("proc/edge"),
+      listCandidateClusters: clusters(cluster("cluster/edge", "proc/edge")),
     });
 
     expect(result).toEqual({ kind: "new" });
