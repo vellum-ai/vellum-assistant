@@ -60,6 +60,7 @@ import {
 import { tuiLog } from "../lib/tui-log";
 import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
 import { probePort } from "../lib/port-probe.js";
+import { openBrowser } from "../lib/open-browser";
 
 const SUPPORTED_INTERFACES = ["cli", "web"] as const;
 type SupportedInterface = (typeof SUPPORTED_INTERFACES)[number];
@@ -90,6 +91,8 @@ interface ParsedArgs {
   /** Parsed --flag overrides: kebab-case key -> typed value (for web injection). */
   parsedFlagOverrides: Record<string, boolean | string>;
   disablePlatform: boolean;
+  /** Auto-open the web interface in the default browser (--interface web only). */
+  openBrowser: boolean;
 }
 
 function readAssistantName(entry: AssistantEntry | null): string | undefined {
@@ -136,6 +139,8 @@ export function parseArgs(): ParsedArgs {
     "--token",
     "-t",
   ]);
+  // Auto-open the web interface in the browser by default; --no-open opts out.
+  let openBrowserPref = true;
   const flagArgs: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -144,6 +149,10 @@ export function parseArgs(): ParsedArgs {
       process.exit(0);
     } else if (arg === "--disable-platform") {
       disablePlatform = true;
+    } else if (arg === "--open") {
+      openBrowserPref = true;
+    } else if (arg === "--no-open") {
+      openBrowserPref = false;
     } else if (
       (arg === "--url" ||
         arg === "-u" ||
@@ -264,6 +273,7 @@ export function parseArgs(): ParsedArgs {
     flagEnvVars,
     parsedFlagOverrides,
     disablePlatform,
+    openBrowser: openBrowserPref,
   };
 }
 
@@ -283,6 +293,8 @@ ${ANSI.bold}OPTIONS:${ANSI.reset}
                               not persisted.
     -a, --assistant-id <id>    Assistant ID
     -i, --interface <id>       Interface identifier: cli (default) or web
+    --no-open                  Don't auto-open the browser (--interface web)
+    --open                     Auto-open the browser (--interface web, default)
     --flag <key=value>         Feature flag override (repeatable, kebab-case key)
     --disable-platform         Suppress all outbound platform API calls
     -h, --help                 Show this help message
@@ -816,10 +828,26 @@ async function findFreeDualLoopbackPort(preferred: number): Promise<number> {
   return preferred;
 }
 
+/**
+ * Open `url` in the browser once `port` is accepting connections, polling for
+ * up to ~10s. Used for the Vite dev server, which binds the port asynchronously
+ * after spawn — opening immediately would load the tab before Vite is ready.
+ */
+async function openBrowserWhenReady(url: string, port: number): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    if (await probePort(port, "127.0.0.1")) {
+      openBrowser(url);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+}
+
 async function runWebInterface(
   flagEnvVars: Record<string, string>,
   parsedFlagOverrides: Record<string, boolean | string>,
   disablePlatform: boolean,
+  openInBrowser: boolean,
 ): Promise<void> {
   // Propagate flag env vars so child processes (e.g. hatch from the web UI) inherit them.
   Object.assign(process.env, flagEnvVars);
@@ -828,7 +856,12 @@ async function runWebInterface(
   // (HMR, __local endpoints, gateway proxy).
   const webSourceDir = findWebSourceDir();
   if (webSourceDir) {
-    return runViteDevServer(webSourceDir, flagEnvVars, disablePlatform);
+    return runViteDevServer(
+      webSourceDir,
+      flagEnvVars,
+      disablePlatform,
+      openInBrowser,
+    );
   }
 
   const distDir = findWebDistDir();
@@ -978,7 +1011,9 @@ async function runWebInterface(
   // Advertise `localhost` (not `127.0.0.1`) so the app origin matches the host
   // the platform hardcodes in its loopback callback. We bind both loopback
   // families above so `localhost` reaches us whichever one it resolves to.
-  console.log(`Vellum web interface: http://localhost:${port}${SPA_BASE}`);
+  const webInterfaceUrl = `http://localhost:${port}${SPA_BASE}`;
+  console.log(`Vellum web interface: ${webInterfaceUrl}`);
+  if (openInBrowser) openBrowser(webInterfaceUrl);
 
   const shutdown = (): void => {
     for (const server of servers) server.stop();
@@ -994,6 +1029,7 @@ async function runViteDevServer(
   webSourceDir: string,
   flagEnvVars: Record<string, string>,
   disablePlatform: boolean,
+  openInBrowser: boolean,
 ): Promise<void> {
   const platformUrl = getPlatformUrl();
 
@@ -1026,6 +1062,12 @@ async function runViteDevServer(
       PORT: String(port),
     },
   });
+
+  // Vite binds the port itself, so wait until it's listening before opening the
+  // browser — otherwise the tab loads before the dev server is ready.
+  if (openInBrowser) {
+    void openBrowserWhenReady(`http://localhost:${port}${SPA_BASE}`, port);
+  }
 
   const shutdown = (): void => {
     child.kill();
@@ -1099,6 +1141,7 @@ export async function client(): Promise<void> {
     flagEnvVars,
     parsedFlagOverrides,
     disablePlatform,
+    openBrowser: openInBrowser,
   } = parseArgs();
 
   if (disablePlatform) {
@@ -1106,7 +1149,12 @@ export async function client(): Promise<void> {
   }
 
   if (interfaceId === WEB_INTERFACE_ID) {
-    await runWebInterface(flagEnvVars, parsedFlagOverrides, disablePlatform);
+    await runWebInterface(
+      flagEnvVars,
+      parsedFlagOverrides,
+      disablePlatform,
+      openInBrowser,
+    );
     return;
   }
 
