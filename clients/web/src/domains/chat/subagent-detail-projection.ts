@@ -44,6 +44,7 @@
 import { useRef } from "react";
 
 import { applyDetailEvent } from "@/domains/chat/hooks/use-subagent-card-data";
+import { classifyEventsDiff } from "@/domains/chat/subagent-projection-diff";
 import type { SubagentTimelineEvent } from "@/domains/chat/subagent-store";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
@@ -105,91 +106,74 @@ export function createIncrementalDetailProjection(
   function project(
     events: SubagentTimelineEvent[],
   ): Map<string, ToolDetailPayload> {
-    // Identity — also covers events-stable status/usage updates.
-    if (events === prevEvents) return map;
+    // The diff classification (including the subtle cross-subagent `detail-1`
+    // id-collision guard) is shared with the step projector — see
+    // `subagent-projection-diff.ts`.
+    const diff = classifyEventsDiff(prevEvents, events);
 
-    // First call / empty cache.
-    if (prevEvents == null) return fullBuild(events);
+    switch (diff.kind) {
+      // Identity — also covers events-stable status/usage updates.
+      case "identity":
+        return map;
 
-    const prevLen = prevEvents.length;
-    const len = events.length;
+      // First call / empty cache.
+      case "first":
+        return fullBuild(events);
 
-    // Append: same prefix, one-or-more new events at the tail. The O(1)
-    // boundary checks (first + last-of-prev still share their references)
-    // distinguish a genuine append from a full-replace whose new array happens
-    // to be longer.
-    if (
-      len > prevLen &&
-      (prevLen === 0 ||
-        (events[0] === prevEvents[0] &&
-          events[prevLen - 1] === prevEvents[prevLen - 1]))
-    ) {
-      const payloadsClone = payloads.slice();
-      const metaClone = meta.slice();
-      for (let i = prevLen; i < len; i++) {
-        reducer(payloadsClone, metaClone, events[i]!);
-      }
-      prevEvents = events;
-      payloads = payloadsClone;
-      meta = metaClone;
-      // The Map build is O(n) but pointer-cheap — the expensive per-event
-      // parsing (parseWebSearchResultText, deriveStepLabelFromName) already ran
-      // only for the appended events inside the reducer above.
-      map = payloadsToMap(payloads);
-      return map;
-    }
-
-    // Mutate-last: text-delta coalescing. Same length, only the last element
-    // replaced, every earlier element shared. We require the genuine
-    // text-coalescing CONTENT shape the store actually produces, NOT just last-id
-    // equality: both last events must be `type: "text"` and the new content must
-    // strictly EXTEND the old (`content: lastEvent.content + delta`). Id equality
-    // alone is insufficient because `mapDetailEvents` restarts event ids at
-    // `detail-1` per subagent — a single-event subagent switch collides on
-    // `id === "detail-1"` and would be misclassified, surviving a stale tool
-    // entry. The type + content-extension guards reject that collision (different
-    // type, or content that isn't a strict extension → Fallback full rebuild).
-    if (
-      len === prevLen &&
-      len >= 1 &&
-      events[len - 1] !== prevEvents[len - 1] &&
-      events[len - 1]!.id === prevEvents[len - 1]!.id &&
-      prevEvents[len - 1]!.type === "text" &&
-      events[len - 1]!.type === "text" &&
-      events[len - 1]!.content.length >= prevEvents[len - 1]!.content.length &&
-      events[len - 1]!.content.startsWith(prevEvents[len - 1]!.content) &&
-      (len === 1 || events[len - 2] === prevEvents[len - 2])
-    ) {
-      const payloadsClone = payloads.slice();
-      const metaClone = meta.slice();
-
-      // A text event contributes 0 or 1 trailing `thinking` payload (keyed by
-      // the event id) and never mutates earlier payloads, so popping the keyed
-      // tail (if present) and re-applying the grown event reproduces the full
-      // rebuild exactly. Unlike the step projection there is NO tail-identity
-      // shortcut: `thinkingText` carries the full untruncated content, so the
-      // payload changes on every delta — but the replay is still O(Δ).
-      const tail = payloadsClone[payloadsClone.length - 1];
-      if (
-        tail &&
-        tail.kind === "thinking" &&
-        tail.toolCallId === events[len - 1]!.id
-      ) {
-        payloadsClone.pop();
-        metaClone.pop();
+      // Append: same prefix, one-or-more new events at the tail. Replay only
+      // the appended events through the reducer.
+      case "append": {
+        const len = events.length;
+        const payloadsClone = payloads.slice();
+        const metaClone = meta.slice();
+        for (let i = diff.from; i < len; i++) {
+          reducer(payloadsClone, metaClone, events[i]!);
+        }
+        prevEvents = events;
+        payloads = payloadsClone;
+        meta = metaClone;
+        // The Map build is O(n) but pointer-cheap — the expensive per-event
+        // parsing (parseWebSearchResultText, deriveStepLabelFromName) already ran
+        // only for the appended events inside the reducer above.
+        map = payloadsToMap(payloads);
+        return map;
       }
 
-      reducer(payloadsClone, metaClone, events[len - 1]!);
+      // Mutate-last: text-delta coalescing. Re-apply only the grown tail.
+      case "mutate-last": {
+        const len = events.length;
+        const payloadsClone = payloads.slice();
+        const metaClone = meta.slice();
 
-      prevEvents = events;
-      payloads = payloadsClone;
-      meta = metaClone;
-      map = payloadsToMap(payloads);
-      return map;
+        // A text event contributes 0 or 1 trailing `thinking` payload (keyed by
+        // the event id) and never mutates earlier payloads, so popping the keyed
+        // tail (if present) and re-applying the grown event reproduces the full
+        // rebuild exactly. Unlike the step projection there is NO tail-identity
+        // shortcut: `thinkingText` carries the full untruncated content, so the
+        // payload changes on every delta — but the replay is still O(Δ).
+        const tail = payloadsClone[payloadsClone.length - 1];
+        if (
+          tail &&
+          tail.kind === "thinking" &&
+          tail.toolCallId === events[len - 1]!.id
+        ) {
+          payloadsClone.pop();
+          metaClone.pop();
+        }
+
+        reducer(payloadsClone, metaClone, events[len - 1]!);
+
+        prevEvents = events;
+        payloads = payloadsClone;
+        meta = metaClone;
+        map = payloadsToMap(payloads);
+        return map;
+      }
+
+      // Fallback — full-replace / truncation / reorder / violated assumption.
+      case "fallback":
+        return fullBuild(events);
     }
-
-    // Fallback — full-replace / truncation / reorder / violated assumption.
-    return fullBuild(events);
   }
 
   return { project };

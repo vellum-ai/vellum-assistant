@@ -17,28 +17,48 @@ import {
   applyDetailEvent,
   buildSubagentStepDetails,
 } from "@/domains/chat/hooks/use-subagent-card-data";
+import {
+  NOW,
+  appendEvent,
+  applyMutation as applyMutationShared,
+  coalesceText as coalesceTextShared,
+  createMakeEvent,
+  generateStream as generateStreamShared,
+  type Mutation,
+} from "@/domains/chat/subagent-projection-test-fixtures";
 import type { SubagentTimelineEvent } from "@/domains/chat/subagent-store";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
-
-const NOW = 1700000000000;
 
 let eventSeq = 0;
 function nextEventId(): string {
   return `de-${eventSeq++}`;
 }
 
-function makeEvent(
-  overrides: Partial<SubagentTimelineEvent> & {
-    type: SubagentTimelineEvent["type"];
-  },
-  ts: number = NOW,
-): SubagentTimelineEvent {
-  return {
-    id: nextEventId(),
-    content: "",
-    timestamp: ts,
-    ...overrides,
-  };
+const makeEvent = createMakeEvent(nextEventId);
+
+// Bind the shared simulator/generator to this suite's `makeEvent`. The detail
+// suite attaches tool metadata to `error` events that CLOSE an in-flight tool
+// (`errorEventsCarryToolMeta`) so the failed-tool payload is keyed by
+// `toolUseId` and carries the error — its one divergence from the step suite.
+function coalesceText(
+  events: SubagentTimelineEvent[],
+  delta: string,
+  ts: number,
+): SubagentTimelineEvent[] {
+  return coalesceTextShared(events, delta, ts, makeEvent);
+}
+
+function generateStream(seed: number, n: number): Mutation[] {
+  return generateStreamShared(seed, n, makeEvent, {
+    errorEventsCarryToolMeta: true,
+  });
+}
+
+function applyMutation(
+  events: SubagentTimelineEvent[],
+  m: Mutation,
+): SubagentTimelineEvent[] {
+  return applyMutationShared(events, m, makeEvent);
 }
 
 /**
@@ -58,42 +78,6 @@ function expectMapsEqual(
   full: Map<string, ToolDetailPayload>,
 ): void {
   expect(mapToSortedEntries(incremental)).toEqual(mapToSortedEntries(full));
-}
-
-// ---------------------------------------------------------------------------
-// Store-mutation simulator — mirrors `subagent-store.receiveEvent`'s two
-// incremental array shapes so the projector is fed precisely what it sees live.
-// ---------------------------------------------------------------------------
-
-/** Append a fresh event, returning a NEW array (prior elements shared). */
-function appendEvent(
-  events: SubagentTimelineEvent[],
-  event: SubagentTimelineEvent,
-): SubagentTimelineEvent[] {
-  return [...events, event];
-}
-
-/**
- * Grow the trailing text event's content by `delta`, returning a NEW array with
- * only the last element replaced (same `id`, longer `content`) — the store's
- * "Mutate-last" text-coalescing shape. Falls back to appending a fresh text
- * event when the tail isn't text (matching `receiveEvent`).
- */
-function coalesceText(
-  events: SubagentTimelineEvent[],
-  delta: string,
-  ts: number,
-): SubagentTimelineEvent[] {
-  const last = events[events.length - 1];
-  if (last && last.type === "text") {
-    const updated = [...events];
-    updated[updated.length - 1] = {
-      ...last,
-      content: last.content + delta,
-    };
-    return updated;
-  }
-  return appendEvent(events, makeEvent({ type: "text", content: delta }, ts));
 }
 
 // ---------------------------------------------------------------------------
@@ -347,133 +331,6 @@ describe("createIncrementalDetailProjection — per-diff-class", () => {
     expect(map.has("")).toBe(false);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Deterministic event-stream generator (tiny LCG; no Math.random).
-// ---------------------------------------------------------------------------
-
-/** Numerical Recipes LCG — deterministic, seedable. */
-function makeRng(seed: number) {
-  let state = (seed >>> 0) || 1;
-  return () => {
-    state = (Math.imul(1664525, state) + 1013904223) >>> 0;
-    return state / 0xffffffff;
-  };
-}
-
-type Mutation =
-  | { kind: "append"; event: SubagentTimelineEvent }
-  | { kind: "coalesce"; delta: string };
-
-/**
- * Generate a deterministic sequence of store mutations: text deltas (coalesced
- * when consecutive), tool calls, their results/errors, and web_search/web_fetch
- * — covering every reducer branch. Tracks open tool ids so results/errors close
- * real in-flight calls.
- */
-function generateStream(seed: number, n: number): Mutation[] {
-  const rng = makeRng(seed);
-  const mutations: Mutation[] = [];
-  const openTools: Array<{ id: string; toolName: string }> = [];
-  let lastWasText = false;
-  let ts = NOW;
-
-  for (let i = 0; i < n; i++) {
-    ts += 1 + Math.floor(rng() * 50);
-    const roll = rng();
-
-    // Bias toward text + appends so coalescing fires often.
-    if (roll < 0.45) {
-      const delta = "w".repeat(1 + Math.floor(rng() * 40));
-      if (lastWasText) {
-        mutations.push({ kind: "coalesce", delta });
-      } else {
-        mutations.push({ kind: "append", event: makeEvent({ type: "text", content: delta }, ts) });
-        lastWasText = true;
-      }
-      continue;
-    }
-
-    lastWasText = false;
-
-    if (roll < 0.7) {
-      // Open a tool call (regular / web_search / web_fetch).
-      const toolRoll = rng();
-      const id = `t-${seed}-${i}`;
-      if (toolRoll < 0.2) {
-        mutations.push({
-          kind: "append",
-          event: makeEvent({ type: "tool_call", toolName: "web_search", toolUseId: id, input: { query: `q${i}` } }, ts),
-        });
-        openTools.push({ id, toolName: "web_search" });
-      } else if (toolRoll < 0.35) {
-        // web_fetch has no follow-up — keyed by id, no open tracking.
-        mutations.push({
-          kind: "append",
-          event: makeEvent({ type: "tool_call", toolName: "web_fetch", toolUseId: id, input: { url: `https://ex${i}.dev` } }, ts),
-        });
-      } else {
-        const toolName = toolRoll < 0.6 ? "bash" : "str_replace_editor";
-        mutations.push({
-          kind: "append",
-          event: makeEvent({ type: "tool_call", toolName, toolUseId: id, content: `cmd-${i}` }, ts),
-        });
-        openTools.push({ id, toolName });
-      }
-      continue;
-    }
-
-    if (roll < 0.9 && openTools.length > 0) {
-      // Close an open tool with a result (maybe an error result).
-      const idx = Math.floor(rng() * openTools.length);
-      const open = openTools.splice(idx, 1)[0]!;
-      const isError = rng() < 0.25;
-      mutations.push({
-        kind: "append",
-        event: makeEvent(
-          {
-            type: "tool_result",
-            toolName: open.toolName,
-            toolUseId: open.id,
-            isError,
-            result: isError ? "boom" : `result-${i}`,
-            content: `result-${i}`,
-          },
-          ts,
-        ),
-      });
-      continue;
-    }
-
-    if (openTools.length > 0) {
-      // Close an open tool with a raw error event.
-      const idx = Math.floor(rng() * openTools.length);
-      const open = openTools.splice(idx, 1)[0]!;
-      mutations.push({
-        kind: "append",
-        event: makeEvent({ type: "error", toolName: open.toolName, toolUseId: open.id, isError: true, result: `err-${i}`, content: `err-${i}` }, ts),
-      });
-      continue;
-    }
-
-    // Nothing open — emit a standalone error row.
-    mutations.push({
-      kind: "append",
-      event: makeEvent({ type: "error", content: `err-${i}` }, ts),
-    });
-  }
-
-  return mutations;
-}
-
-function applyMutation(
-  events: SubagentTimelineEvent[],
-  m: Mutation,
-): SubagentTimelineEvent[] {
-  return m.kind === "append"
-    ? appendEvent(events, m.event)
-    : coalesceText(events, m.delta, NOW);
-}
 
 // ---------------------------------------------------------------------------
 // No-drift property test — the core safety net.

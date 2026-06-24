@@ -46,6 +46,7 @@ import {
   type ToolCallCardStep,
   type ToolMeta,
 } from "@/domains/chat/hooks/use-subagent-card-data";
+import { classifyEventsDiff } from "@/domains/chat/subagent-projection-diff";
 import type { SubagentTimelineEvent } from "@/domains/chat/subagent-store";
 
 export interface ProjectedSteps {
@@ -100,89 +101,72 @@ export function createIncrementalStepProjection(
   }
 
   function project(events: SubagentTimelineEvent[]): ProjectedSteps {
-    // Identity — also covers PR2's events-stable status/usage updates.
-    if (events === prevEvents) return { steps, toolMeta };
+    // The diff classification (including the subtle cross-subagent `detail-1`
+    // id-collision guard) is shared with the detail projector — see
+    // `subagent-projection-diff.ts`.
+    const diff = classifyEventsDiff(prevEvents, events);
 
-    // First call / empty cache.
-    if (prevEvents == null) return fullBuild(events);
+    switch (diff.kind) {
+      // Identity — also covers PR2's events-stable status/usage updates.
+      case "identity":
+        return { steps, toolMeta };
 
-    const prevLen = prevEvents.length;
-    const len = events.length;
+      // First call / empty cache.
+      case "first":
+        return fullBuild(events);
 
-    // Append: same prefix, one-or-more new events at the tail. The O(1)
-    // boundary checks (first + last-of-prev still share their references)
-    // distinguish a genuine append from a full-replace whose new array happens
-    // to be longer.
-    if (
-      len > prevLen &&
-      (prevLen === 0 ||
-        (events[0] === prevEvents[0] &&
-          events[prevLen - 1] === prevEvents[prevLen - 1]))
-    ) {
-      const stepsClone = steps.slice();
-      const toolMetaClone = toolMeta.slice();
-      for (let i = prevLen; i < len; i++) {
-        reducer(stepsClone, toolMetaClone, events[i]!);
-      }
-      prevEvents = events;
-      steps = stepsClone;
-      toolMeta = toolMetaClone;
-      return { steps, toolMeta };
-    }
-
-    // Mutate-last: text-delta coalescing. Same length, only the last element
-    // replaced, every earlier element shared. We require the genuine
-    // text-coalescing CONTENT shape the store actually produces, NOT just last-id
-    // equality: both last events must be `type: "text"` and the new content must
-    // strictly EXTEND the old (`content: lastEvent.content + delta`). Id equality
-    // alone is insufficient because `mapDetailEvents` restarts event ids at
-    // `detail-1` per subagent — a single-event subagent switch collides on
-    // `id === "detail-1"` and would be misclassified, surviving a stale step. The
-    // type + content-extension guards reject that collision (different type, or
-    // content that isn't a strict extension → Fallback full rebuild).
-    if (
-      len === prevLen &&
-      len >= 1 &&
-      events[len - 1] !== prevEvents[len - 1] &&
-      events[len - 1]!.id === prevEvents[len - 1]!.id &&
-      prevEvents[len - 1]!.type === "text" &&
-      events[len - 1]!.type === "text" &&
-      events[len - 1]!.content.length >= prevEvents[len - 1]!.content.length &&
-      events[len - 1]!.content.startsWith(prevEvents[len - 1]!.content) &&
-      (len === 1 || events[len - 2] === prevEvents[len - 2])
-    ) {
-      const stepsClone = steps.slice();
-      const toolMetaClone = toolMeta.slice();
-
-      // A text event contributes 0 or 1 trailing thinking step and never
-      // mutates earlier steps, so popping the keyed tail (if present) and
-      // re-deriving from the grown content reproduces the full rebuild exactly.
-      const tail = stepsClone[stepsClone.length - 1];
-      let poppedStep: ToolCallCardStep | undefined;
-      if (tail && tail.kind === "thinking" && tail.detailKey === events[len - 1]!.id) {
-        poppedStep = tail;
-        stepsClone.pop();
-        toolMetaClone.pop();
-      }
-
-      reducer(stepsClone, toolMetaClone, events[len - 1]!);
-
-      prevEvents = events;
-      const newTail = stepsClone[stepsClone.length - 1];
-      // Identity preservation — once the collapsed preview passes the 160-char
-      // clamp, further deltas don't change the rendered step. Keep the previous
-      // `steps` reference so memo / `React.memo` consumers bail. (toolMeta is
-      // re-derived identically too; reuse the prior reference for the same win.)
-      if (poppedStep && newTail && stepsEqual(poppedStep, newTail)) {
+      // Append: same prefix, one-or-more new events at the tail. Replay only
+      // the appended events through the reducer.
+      case "append": {
+        const len = events.length;
+        const stepsClone = steps.slice();
+        const toolMetaClone = toolMeta.slice();
+        for (let i = diff.from; i < len; i++) {
+          reducer(stepsClone, toolMetaClone, events[i]!);
+        }
+        prevEvents = events;
+        steps = stepsClone;
+        toolMeta = toolMetaClone;
         return { steps, toolMeta };
       }
-      steps = stepsClone;
-      toolMeta = toolMetaClone;
-      return { steps, toolMeta };
-    }
 
-    // Fallback — full-replace / truncation / reorder / violated assumption.
-    return fullBuild(events);
+      // Mutate-last: text-delta coalescing. Re-derive only the grown tail.
+      case "mutate-last": {
+        const len = events.length;
+        const stepsClone = steps.slice();
+        const toolMetaClone = toolMeta.slice();
+
+        // A text event contributes 0 or 1 trailing thinking step and never
+        // mutates earlier steps, so popping the keyed tail (if present) and
+        // re-deriving from the grown content reproduces the full rebuild exactly.
+        const tail = stepsClone[stepsClone.length - 1];
+        let poppedStep: ToolCallCardStep | undefined;
+        if (tail && tail.kind === "thinking" && tail.detailKey === events[len - 1]!.id) {
+          poppedStep = tail;
+          stepsClone.pop();
+          toolMetaClone.pop();
+        }
+
+        reducer(stepsClone, toolMetaClone, events[len - 1]!);
+
+        prevEvents = events;
+        const newTail = stepsClone[stepsClone.length - 1];
+        // Identity preservation — once the collapsed preview passes the 160-char
+        // clamp, further deltas don't change the rendered step. Keep the previous
+        // `steps` reference so memo / `React.memo` consumers bail. (toolMeta is
+        // re-derived identically too; reuse the prior reference for the same win.)
+        if (poppedStep && newTail && stepsEqual(poppedStep, newTail)) {
+          return { steps, toolMeta };
+        }
+        steps = stepsClone;
+        toolMeta = toolMetaClone;
+        return { steps, toolMeta };
+      }
+
+      // Fallback — full-replace / truncation / reorder / violated assumption.
+      case "fallback":
+        return fullBuild(events);
+    }
   }
 
   return { project };
