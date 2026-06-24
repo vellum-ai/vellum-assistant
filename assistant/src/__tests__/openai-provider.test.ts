@@ -58,6 +58,16 @@ let lastConstructorOptions: Record<string, unknown> | null = null;
 let shouldThrow: Error | null = null;
 const DEFAULT_SDK_TIMEOUT_MS = 1_860_000;
 
+// Each provider installs a `fetch` wrapper to capture raw error bodies, so the
+// constructor options carry a `fetch` function; assert the meaningful options
+// via objectContaining and confirm `fetch` is wired.
+function expectOpenAIConstructorOptions(
+  expected: Record<string, unknown>,
+): void {
+  expect(lastConstructorOptions).toEqual(expect.objectContaining(expected));
+  expect(typeof lastConstructorOptions?.fetch).toBe("function");
+}
+
 function userMsg(text: string): Message {
   return { role: "user", content: [{ type: "text", text }] };
 }
@@ -309,7 +319,7 @@ describe("OpenAIProvider", () => {
     });
 
     expect(compatible.name).toBe("ollama");
-    expect(lastConstructorOptions).toEqual({
+    expectOpenAIConstructorOptions({
       apiKey: "sk-local",
       baseURL: "http://127.0.0.1:11434/v1",
       timeout: DEFAULT_SDK_TIMEOUT_MS,
@@ -322,7 +332,7 @@ describe("OpenAIProvider", () => {
       delete process.env.OLLAMA_BASE_URL;
       const ollama = new OllamaProvider("llama3.2");
       expect(ollama.name).toBe("ollama");
-      expect(lastConstructorOptions).toEqual({
+      expectOpenAIConstructorOptions({
         apiKey: "ollama",
         baseURL: "http://127.0.0.1:11434/v1",
         timeout: DEFAULT_SDK_TIMEOUT_MS,
@@ -342,7 +352,7 @@ describe("OpenAIProvider", () => {
       process.env.OLLAMA_BASE_URL = "   ";
       const ollama = new OllamaProvider("llama3.2");
       expect(ollama.name).toBe("ollama");
-      expect(lastConstructorOptions).toEqual({
+      expectOpenAIConstructorOptions({
         apiKey: "ollama",
         baseURL: "http://127.0.0.1:11434/v1",
         timeout: DEFAULT_SDK_TIMEOUT_MS,
@@ -1260,7 +1270,7 @@ describe("custom baseURL initialization", () => {
     });
 
     expect(managed.name).toBe("openai");
-    expect(lastConstructorOptions).toEqual({
+    expectOpenAIConstructorOptions({
       apiKey: "ast-key-123",
       baseURL: "https://platform.example.com/v1/runtime-proxy/openai",
       timeout: DEFAULT_SDK_TIMEOUT_MS,
@@ -1270,7 +1280,7 @@ describe("custom baseURL initialization", () => {
   test("OpenAIProvider without baseURL calls provider directly", () => {
     new OpenAIProvider("sk-user-key", "gpt-4o");
 
-    expect(lastConstructorOptions).toEqual({
+    expectOpenAIConstructorOptions({
       apiKey: "sk-user-key",
       baseURL: undefined,
       timeout: DEFAULT_SDK_TIMEOUT_MS,
@@ -1282,7 +1292,7 @@ describe("custom baseURL initialization", () => {
       streamTimeoutMs: 300_000,
     });
 
-    expect(lastConstructorOptions).toEqual({
+    expectOpenAIConstructorOptions({
       apiKey: "sk-user-key",
       baseURL: undefined,
       timeout: 360_000,
@@ -1299,7 +1309,7 @@ describe("custom baseURL initialization", () => {
     );
 
     expect(managed.name).toBe("fireworks");
-    expect(lastConstructorOptions).toEqual({
+    expectOpenAIConstructorOptions({
       apiKey: "ast-key-123",
       baseURL: "https://platform.example.com/v1/runtime-proxy/fireworks",
       timeout: DEFAULT_SDK_TIMEOUT_MS,
@@ -1312,7 +1322,7 @@ describe("custom baseURL initialization", () => {
       "accounts/fireworks/models/llama-v3p1-70b-instruct",
     );
 
-    expect(lastConstructorOptions).toEqual({
+    expectOpenAIConstructorOptions({
       apiKey: "fw-user-key",
       baseURL: "https://api.fireworks.ai/inference/v1",
       timeout: DEFAULT_SDK_TIMEOUT_MS,
@@ -1325,7 +1335,7 @@ describe("custom baseURL initialization", () => {
     });
 
     expect(managed.name).toBe("openrouter");
-    expect(lastConstructorOptions).toEqual({
+    expectOpenAIConstructorOptions({
       apiKey: "ast-key-123",
       baseURL: "https://platform.example.com/v1/runtime-proxy/openrouter",
       timeout: DEFAULT_SDK_TIMEOUT_MS,
@@ -1335,7 +1345,7 @@ describe("custom baseURL initialization", () => {
   test("OpenRouterProvider without custom baseURL uses default OpenRouter URL", () => {
     new OpenRouterProvider("or-user-key", "openai/gpt-4o");
 
-    expect(lastConstructorOptions).toEqual({
+    expectOpenAIConstructorOptions({
       apiKey: "or-user-key",
       baseURL: "https://openrouter.ai/api/v1",
       timeout: DEFAULT_SDK_TIMEOUT_MS,
@@ -1348,7 +1358,7 @@ describe("custom baseURL initialization", () => {
     });
 
     expect(managed.name).toBe("minimax");
-    expect(lastConstructorOptions).toEqual({
+    expectOpenAIConstructorOptions({
       apiKey: "ast-key-123",
       baseURL: "https://platform.example.com/v1/runtime-proxy/minimax",
       timeout: DEFAULT_SDK_TIMEOUT_MS,
@@ -1358,7 +1368,7 @@ describe("custom baseURL initialization", () => {
   test("MinimaxProvider without custom baseURL uses default MiniMax URL", () => {
     new MinimaxProvider("mm-user-key", "MiniMax-M2.7");
 
-    expect(lastConstructorOptions).toEqual({
+    expectOpenAIConstructorOptions({
       apiKey: "mm-user-key",
       baseURL: "https://api.minimax.io/v1",
       timeout: DEFAULT_SDK_TIMEOUT_MS,
