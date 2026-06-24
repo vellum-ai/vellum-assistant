@@ -24,6 +24,12 @@ export const DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT = 90;
 // clears the warning state, which discards the banner's (state-scoped) dismissal
 // so it re-appears the moment usage ticks back up.
 export const DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT = 77;
+// Absolute free-space floor (MiB). Regardless of usage percentage, never enter
+// the warning or critical state while at least this much space remains free. A
+// high usage percentage on a large disk can still leave many gigabytes
+// available, where locking is pointless. Small volumes (where a high percentage
+// genuinely means near-full) drop below the floor and remain protected.
+export const DISK_PRESSURE_MIN_FREE_FLOOR_MB = 2048;
 export const DISK_PRESSURE_CHECK_INTERVAL_MS = 60_000;
 export const DISK_PRESSURE_OVERRIDE_CONFIRMATION = "I understand the risks";
 export const DISK_PRESSURE_BLOCKED_CAPABILITIES = [
@@ -219,7 +225,10 @@ export function evaluateDiskPressureNow(): DiskPressureStatus {
   const criticalThreshold = state.status.locked
     ? DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT
     : DISK_PRESSURE_THRESHOLD_PERCENT;
-  const isCritical = usagePercent >= criticalThreshold;
+  // Absolute free-space floor overrides the percentage thresholds: while ample
+  // space remains free, report "ok" no matter how full the volume is by percent.
+  const hasAmpleFreeSpace = usageInfo.freeMb >= DISK_PRESSURE_MIN_FREE_FLOOR_MB;
+  const isCritical = !hasAmpleFreeSpace && usagePercent >= criticalThreshold;
   // Mirror the critical deadband for the warning band: once in an active
   // pressure state (warning or critical), hold warning until usage clears the
   // lower warning-clear threshold. Treating "critical" as active here matters
@@ -235,7 +244,8 @@ export function evaluateDiskPressureNow(): DiskPressureStatus {
   const warningThreshold = inActivePressureState
     ? DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT
     : DISK_PRESSURE_WARNING_THRESHOLD_PERCENT;
-  const isWarning = !isCritical && usagePercent >= warningThreshold;
+  const isWarning =
+    !hasAmpleFreeSpace && !isCritical && usagePercent >= warningThreshold;
   const lastCheckedAt = new Date().toISOString();
 
   if (!isCritical && !isWarning) {
