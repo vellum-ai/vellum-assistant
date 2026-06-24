@@ -72,6 +72,9 @@ export function GiveMeAFaceScreen({
   const [arrangement, setArrangement] = useState<Arrangement | null>(null);
   const [name, setName] = useState("");
   const [editingName, setEditingName] = useState(false);
+  // Once the user edits the name, stop prefilling it from the avatar's default
+  // so their custom name survives cycling through avatars.
+  const nameCustomized = useRef(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
   // The current swap: the newly selected char + the slot it came from
   // (entering), and the old center + the slot it's heading to (exiting).
@@ -92,10 +95,11 @@ export function GiveMeAFaceScreen({
     if (arrangement) setSelectedIndex(arrangement.centerChar);
   }, [arrangement, setSelectedIndex]);
 
-  // Prefill the name for the centered avatar, swapping it as you cycle.
+  // Prefill the name for the centered avatar, swapping it as you cycle — but
+  // never clobber a name the user has typed.
   const centerChar = arrangement?.centerChar;
   useEffect(() => {
-    if (centerChar != null) {
+    if (centerChar != null && !nameCustomized.current) {
       setName(ASSISTANT_NAMES[centerChar % ASSISTANT_NAMES.length]!);
     }
   }, [centerChar]);
@@ -209,7 +213,10 @@ export function GiveMeAFaceScreen({
           <input
             ref={nameInputRef}
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              nameCustomized.current = true;
+              setName(e.target.value);
+            }}
             onBlur={() => setEditingName(false)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {

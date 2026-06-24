@@ -16,14 +16,14 @@
  * loading / empty presentation while the turn is still streaming.
  */
 
-import { useEffect, useState } from "react";
-import { ArrowRight, Check, X } from "lucide-react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ArrowRight, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
-import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
+import { useOnboardingTone, type OnboardingTone } from "@/domains/onboarding/onboarding-tone";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import {
   pluginDisplayName,
@@ -54,13 +54,25 @@ function useChosenAvatar() {
   return { components, chosen };
 }
 
-/** The chosen assistant as a small live avatar (for the heading rows). */
-export function MiniAssistant({ size = 48 }: { size?: number }) {
+/** The chosen assistant as a live avatar (for the heading rows). */
+export function MiniAssistant({
+  size = 64,
+  isStreaming = false,
+}: {
+  size?: number;
+  /** Morph the body while active (e.g. during the looking-you-up carousel). */
+  isStreaming?: boolean;
+}) {
   const { components, chosen } = useChosenAvatar();
   if (!components || !chosen) return <div style={{ width: size, height: size }} />;
   return (
     <div className="shrink-0" style={{ width: size, height: size }}>
-      <AnimatedAvatar components={components} traits={chosen} size={size} />
+      <AnimatedAvatar
+        components={components}
+        traits={chosen}
+        size={size}
+        isStreaming={isStreaming}
+      />
     </div>
   );
 }
@@ -219,8 +231,10 @@ export function LookingYouUpStep({
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
       <OnboardingTopBar onBack={onBack} onNext={onForward} />
-      <div className="absolute left-1/2 top-[26%] flex w-full max-w-xl -translate-x-1/2 items-center gap-3 px-6">
-        <MiniAssistant />
+      {/* Top-align so the avatar stays put as messages change line count
+          (centering would bob it up and down between carousel lines). */}
+      <div className="absolute left-1/2 top-[14%] sm:top-[26%] flex w-full max-w-xl -translate-x-1/2 items-start gap-3 px-6">
+        <MiniAssistant isStreaming />
         <AnimatePresence mode="wait">
           <motion.p
             key={index}
@@ -271,7 +285,7 @@ export function ResearchResultsStep({
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
       <OnboardingTopBar onBack={onBack} onNext={onForward} />
 
-      <div className="absolute left-1/2 top-[26%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6">
+      <div className="absolute left-1/2 top-[14%] sm:top-[26%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6">
         <div className="flex items-center gap-3">
           <MiniAssistant />
           <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
@@ -365,11 +379,136 @@ const FALLBACK_SUGGESTIONS: ResearchSuggestion[] = [
   },
 ];
 
-/** Join names into a readable list: "A", "A and B", "A, B, and C". */
-function formatNameList(names: string[]): string {
-  if (names.length <= 1) return names[0] ?? "";
-  if (names.length === 2) return `${names[0]} and ${names[1]}`;
-  return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
+/** A plugin name rendered as a pill tinted with the chosen avatar's color. */
+function PluginPill({ label, tone }: { label: string; tone: OnboardingTone }) {
+  return (
+    <span
+      className="inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-[3px] text-[12px] font-medium align-middle"
+      style={{ backgroundColor: tone.bg, color: tone.fg }}
+    >
+      {label}
+    </span>
+  );
+}
+
+/** Interleave plugin pills with readable connectors: "A", "A and B", "A, B, and C". */
+function joinPills(labels: string[], tone: OnboardingTone) {
+  return labels.map((label, i) => {
+    let connector = "";
+    if (i > 0) {
+      const isLast = i === labels.length - 1;
+      connector = isLast ? (labels.length === 2 ? " and " : ", and ") : ", ";
+    }
+    return (
+      <Fragment key={label}>
+        {connector}
+        <PluginPill label={label} tone={tone} />
+      </Fragment>
+    );
+  });
+}
+
+/** Avatar box size — the same at the heading and where it lands by the note. */
+const HEADING_AVATAR = 64;
+const NOTE_AVATAR = HEADING_AVATAR;
+
+type Anchor = { x: number; y: number };
+
+/**
+ * The "already set up …" confirmation line. No avatar of its own — it just
+ * reserves a small landing slot (`slotRef`) for the single avatar that flies
+ * down from the heading — and names the installed plugins as avatar-tinted
+ * pills.
+ */
+function PluginSetupNote({
+  pluginLabels,
+  tone,
+  reduce,
+  slotRef,
+  revealed,
+}: {
+  pluginLabels: string[];
+  tone: OnboardingTone;
+  reduce: boolean | null;
+  slotRef: React.RefObject<HTMLDivElement | null>;
+  /** True once the avatar has landed — the text only appears then. */
+  revealed: boolean;
+}) {
+  const plural = pluginLabels.length > 1;
+  return (
+    <div className="mt-12 flex items-center gap-3">
+      <div
+        ref={slotRef}
+        className="shrink-0"
+        style={{ width: NOTE_AVATAR, height: NOTE_AVATAR }}
+      />
+      <motion.p
+        className="text-[14px]"
+        style={{ color: tone.fg }}
+        initial={false}
+        animate={{ opacity: revealed ? 1 : 0, x: revealed ? 0 : -6 }}
+        transition={reduce ? { duration: 0 } : { duration: 0.35 }}
+      >
+        Already set up the {joinPills(pluginLabels, tone)} plugin{plural ? "s" : ""}{" "}
+        to help with your work
+      </motion.p>
+    </div>
+  );
+}
+
+/**
+ * The chosen avatar as a single overlay that rests over the heading and — once
+ * the plugin note is present and the layout has settled — flies down along a
+ * curved arc to the note's landing slot and stays there (shrinking from the
+ * heading size to the note size). Positions are measured from the slots so the
+ * flight tracks the real layout as suggestions stream in.
+ */
+function FlyingHeadingAvatar({
+  head,
+  note,
+  flyToNote,
+  reduce,
+  onLanded,
+}: {
+  head: Anchor;
+  note?: Anchor;
+  flyToNote: boolean;
+  reduce: boolean | null;
+  /** Fired when the flight to the note finishes (gates the note text reveal). */
+  onLanded: () => void;
+}) {
+  const { components, chosen } = useChosenAvatar();
+  if (!components || !chosen) return null;
+
+  const half = HEADING_AVATAR / 2;
+  const landing = flyToNote && note ? note : head;
+
+  // Same size throughout (no shrink); straight vertical drop into the note slot.
+  const animate = {
+    x: landing.x - half,
+    y: landing.y - half,
+  };
+
+  return (
+    <motion.div
+      className="pointer-events-none absolute left-0 top-0"
+      style={{ width: HEADING_AVATAR, height: HEADING_AVATAR, transformOrigin: "center" }}
+      initial={false}
+      animate={animate}
+      transition={
+        reduce
+          ? { duration: 0 }
+          : flyToNote && note
+            ? { type: "spring", duration: 0.9, bounce: 0.45 }
+            : { duration: 0.4 }
+      }
+      onAnimationComplete={() => {
+        if (flyToNote && note) onLanded();
+      }}
+    >
+      <AnimatedAvatar components={components} traits={chosen} size={HEADING_AVATAR} />
+    </motion.div>
+  );
 }
 
 export function SuggestionsStep({
@@ -377,6 +516,7 @@ export function SuggestionsStep({
   loading,
   installedPlugins = [],
   onSuggestionClick,
+  onSkip,
   onBack,
   onForward,
 }: {
@@ -392,6 +532,8 @@ export function SuggestionsStep({
   installedPlugins?: string[];
   /** Opens the chat on the clicked suggestion (sends its user-voiced prompt). */
   onSuggestionClick: (suggestion: ResearchSuggestion) => void;
+  /** Skips the suggestions and drops the user straight into a blank chat. */
+  onSkip: () => void;
   onBack: () => void;
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
@@ -410,22 +552,96 @@ export function SuggestionsStep({
   const pluginLabels = installedPlugins
     .map(pluginDisplayName)
     .filter((label) => label.length > 0);
+  const hasNote = pluginLabels.length > 0;
+
+  // A single avatar starts over the heading slot and flies down to the note's
+  // landing slot. We measure both slot centers (relative to the column) so the
+  // flight follows the real layout as suggestions stream in and reflow.
+  const columnRef = useRef<HTMLDivElement>(null);
+  const headSlotRef = useRef<HTMLDivElement>(null);
+  const noteSlotRef = useRef<HTMLDivElement>(null);
+  const [anchors, setAnchors] = useState<{ head: Anchor; note?: Anchor } | null>(
+    null,
+  );
+  const [flown, setFlown] = useState(false);
+  const [landed, setLanded] = useState(false);
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      const col = columnRef.current;
+      const head = headSlotRef.current;
+      if (!col || !head) return;
+      const c = col.getBoundingClientRect();
+      const center = (r: DOMRect): Anchor => ({
+        x: r.left - c.left + r.width / 2,
+        y: r.top - c.top + r.height / 2,
+      });
+      const note = noteSlotRef.current;
+      setAnchors({
+        head: center(head.getBoundingClientRect()),
+        note: note ? center(note.getBoundingClientRect()) : undefined,
+      });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+    // Intentionally not re-measuring on `flown`: the head anchor must stay at
+    // its pre-collapse position so the flight starts from where the avatar sat.
+  }, [items.length, hasNote]);
+
+  // Fly down the moment we have the data: as soon as the note slot is measured.
+  const noteY = anchors?.note?.y;
+  useEffect(() => {
+    if (!hasNote || noteY === undefined || flown) return;
+    setFlown(true);
+  }, [hasNote, noteY, flown]);
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
       <OnboardingTopBar onBack={onBack} onNext={onForward} />
 
-      <div className="absolute left-1/2 top-[26%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6">
-        <div className="flex items-center gap-3">
-          <MiniAssistant />
+      <div
+        ref={columnRef}
+        className="absolute left-1/2 top-[14%] sm:top-[26%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6"
+      >
+        <div className="flex items-center">
+          {/*
+            Empty slot the flying avatar rests over. Once the avatar departs
+            (`flown`), it collapses its width + right margin so the title slides
+            smoothly to left-aligned.
+          */}
+          <motion.div
+            ref={headSlotRef}
+            className="shrink-0"
+            style={{ height: HEADING_AVATAR }}
+            initial={false}
+            animate={
+              flown
+                ? { width: 0, marginRight: 0 }
+                : { width: HEADING_AVATAR, marginRight: 12 }
+            }
+            transition={reduce ? { duration: 0 } : { duration: 0.5, ease: "easeInOut" }}
+          />
           <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
             Here&rsquo;s what we could do first
           </h1>
         </div>
         <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
-          {items.length > 0
-            ? "Pick one to jump in — or start your own thing."
-            : "Putting together a few ideas…"}
+          {items.length > 0 ? (
+            <>
+              Pick one to jump in — or start your own thing.{" "}
+              <button
+                type="button"
+                onClick={onSkip}
+                className="underline underline-offset-2 transition-opacity hover:opacity-80"
+                style={{ color: tone.fg }}
+              >
+                Skip to Chat
+              </button>
+            </>
+          ) : (
+            "Putting together a few ideas…"
+          )}
         </p>
 
         <div className="flex flex-col gap-3">
@@ -451,19 +667,24 @@ export function SuggestionsStep({
           ))}
         </div>
 
-        {pluginLabels.length > 0 && (
-          <motion.div
-            className="mt-5 flex items-center gap-2 text-[13px]"
-            style={{ color: tone.fgMuted }}
-            initial={reduce ? false : { opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={reduce ? { duration: 0 } : { duration: 0.4, delay: 0.2 }}
-          >
-            <Check className="h-4 w-4 shrink-0" />
-            <span>
-              Set up {formatNameList(pluginLabels)} to help with your work
-            </span>
-          </motion.div>
+        {hasNote && (
+          <PluginSetupNote
+            pluginLabels={pluginLabels}
+            tone={tone}
+            reduce={reduce}
+            slotRef={noteSlotRef}
+            revealed={landed}
+          />
+        )}
+
+        {anchors && (
+          <FlyingHeadingAvatar
+            head={anchors.head}
+            note={anchors.note}
+            flyToNote={flown && hasNote && anchors.note !== undefined}
+            reduce={reduce}
+            onLanded={() => setLanded(true)}
+          />
         )}
       </div>
     </div>
