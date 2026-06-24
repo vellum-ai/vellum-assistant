@@ -77,6 +77,21 @@ export interface ConversationHistoryResult {
 
 type HistoryCache = InfiniteData<PaginatedHistoryResult>;
 
+/**
+ * Structural equality for surface `data` payloads. Both sides come from the
+ * same daemon surface-content endpoint, so a stable JSON serialization compares
+ * correctly here. Used to skip no-op surface-content cache writes that would
+ * otherwise re-trigger the `dataUpdatedAt`-keyed snapshot effect and loop.
+ */
+function surfaceContentEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -222,25 +237,37 @@ export function useConversationHistory({
             ),
             (old) => {
               if (!old) return old;
-              return {
-                ...old,
-                pages: old.pages.map((page) => ({
-                  ...page,
-                  messages: page.messages.map((m) =>
-                    m.surfaces?.some((s) => s.surfaceId === fresh.surfaceId)
-                      ? mapMessageSurfaces(m, (s) =>
-                          s.surfaceId === fresh.surfaceId
-                            ? {
-                                ...s,
-                                data: fresh.data,
-                                title: fresh.title ?? s.title,
-                              }
-                            : s,
-                        )
-                      : m,
-                  ),
-                })),
-              };
+              // Only write when the fetched content actually differs from what
+              // the cache already holds. `setQueryData` bumps the query's
+              // `dataUpdatedAt` unconditionally (even for deep-equal data), and
+              // the snapshot effect below is keyed on `dataUpdatedAt` — so
+              // writing back unchanged content would re-trigger the effect,
+              // re-fetch the surface, and loop. Returning `undefined` when
+              // nothing changed makes `setQueryData` a no-op and breaks it.
+              let changed = false;
+              const pages = old.pages.map((page) => ({
+                ...page,
+                messages: page.messages.map((m) => {
+                  if (
+                    !m.surfaces?.some((s) => s.surfaceId === fresh.surfaceId)
+                  ) {
+                    return m;
+                  }
+                  return mapMessageSurfaces(m, (s) => {
+                    if (s.surfaceId !== fresh.surfaceId) return s;
+                    const nextTitle = fresh.title ?? s.title;
+                    if (
+                      surfaceContentEqual(s.data, fresh.data) &&
+                      s.title === nextTitle
+                    ) {
+                      return s;
+                    }
+                    changed = true;
+                    return { ...s, data: fresh.data, title: nextTitle };
+                  });
+                }),
+              }));
+              return changed ? { ...old, pages } : undefined;
             },
           );
         });

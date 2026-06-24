@@ -13,6 +13,7 @@ import {
 } from "@/utils/conversation-cache";
 import { useConversationStore } from "@/stores/conversation-store";
 import { messageIdentityKeys } from "@/domains/chat/utils/message-identity";
+import { mergeAdjacentAssistantMessages } from "@/domains/chat/utils/message-merge";
 import {
   conversationHistoryQueryKey,
   type HistoryCache,
@@ -74,11 +75,19 @@ function resolveHistoryTwin(
   );
   if (!cached) return undefined;
 
-  for (const page of cached.pages) {
-    for (const row of page.messages) {
-      if (row.role === "assistant" && messageIdentityKeys(row).includes(messageId)) {
-        return row;
-      }
+  // Search the same merged view the transcript renders.
+  // `mergeAdjacentAssistantMessages` folds an assistant turn that straddles a
+  // history page boundary into one row (carrying the other page's content as a
+  // merged alias). Seeding from a raw per-page row would carry only one page's
+  // prefix, and the overlay would then drop the rest when the live row replaces
+  // the merged history twin by `mergedMessageIds`. Paid only on the cold
+  // re-attach branch (no live row owns the id), never on the per-token path.
+  const merged = mergeAdjacentAssistantMessages(
+    [...cached.pages].reverse().flatMap((page) => page.messages),
+  );
+  for (const row of merged) {
+    if (row.role === "assistant" && messageIdentityKeys(row).includes(messageId)) {
+      return row;
     }
   }
   return undefined;
