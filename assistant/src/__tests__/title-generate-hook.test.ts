@@ -64,6 +64,8 @@ const mockGetConversation = mock(
     },
 );
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   getConversation: mockGetConversation,
 }));
 

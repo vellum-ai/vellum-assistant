@@ -25,6 +25,7 @@ import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, isChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { findDisplayTurnEndIndex } from "../conversations/message-consolidation.js";
+import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
@@ -304,6 +305,7 @@ export interface ConversationRow {
   inferenceProfileSessionId: string | null;
   inferenceProfileExpiresAt: number | null;
   lastNotifiedInferenceProfile: string | null;
+  processingStartedAt: number | null;
 }
 
 export const parseConversation = createRowMapper<
@@ -339,6 +341,7 @@ export const parseConversation = createRowMapper<
   inferenceProfileSessionId: "inferenceProfileSessionId",
   inferenceProfileExpiresAt: "inferenceProfileExpiresAt",
   lastNotifiedInferenceProfile: "lastNotifiedInferenceProfile",
+  processingStartedAt: "processingStartedAt",
 });
 
 /** Allowed values for the `role` column on `messages`. */
@@ -2178,6 +2181,41 @@ export function unarchiveConversation(id: string): boolean {
     id,
   );
   return true;
+}
+
+/**
+ * Persist the processing-start timestamp for a conversation. Called by
+ * `Conversation.setProcessing(true)` so out-of-process callers can detect
+ * mid-turn state by reading the `conversations` row directly. Pass `null`
+ * to clear (turn ended).
+ */
+export function setConversationProcessingStartedAt(
+  id: string,
+  startedAt: number | null,
+): void {
+  rawRun(
+    "UPDATE conversations SET processing_started_at = ? WHERE id = ?",
+    startedAt,
+    id,
+  );
+}
+
+/**
+ * Read whether a conversation is currently processing. Checks the in-memory
+ * `Conversation._processing` flag first (hot path for resident conversations),
+ * falling back to the persisted `processing_started_at` column for cold
+ * (evicted / never-loaded) conversations. This is the single entry point for
+ * processing state — callers don't need to layer `findConversation` themselves.
+ * Returns `false` when the conversation row doesn't exist.
+ */
+export function isConversationProcessing(id: string): boolean {
+  const inMemory = findConversation(id)?.isProcessing();
+  if (inMemory != null) return inMemory;
+  const row = rawGet<{ processing_started_at: number | null }>(
+    "SELECT processing_started_at FROM conversations WHERE id = ?",
+    id,
+  );
+  return row?.processing_started_at != null;
 }
 
 /**

@@ -161,6 +161,14 @@ mock.module("../conversation-crud.js", () => ({
       title: "Source conversation",
     };
   },
+  // Mirrors the real `isConversationProcessing` which reads the persisted
+  // `processing_started_at` column. In tests, the mock registry
+  // (`loadedConversations`) is the source of truth — a conversation id
+  // present with `processing: true` simulates a mid-turn conversation.
+  isConversationProcessing: (id: string) => {
+    const entry = loadedConversations[id];
+    return entry?.processing ?? false;
+  },
   forkConversationForRetrospective: async (params: {
     conversationId: string;
     throughMessageId?: string;

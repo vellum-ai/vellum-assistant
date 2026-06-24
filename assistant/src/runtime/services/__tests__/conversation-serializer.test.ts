@@ -48,6 +48,7 @@ function makeConversationRow(
     inferenceProfileSessionId: null,
     inferenceProfileExpiresAt: null,
     lastNotifiedInferenceProfile: null,
+    processingStartedAt: null,
     ...overrides,
   };
 }

@@ -100,6 +100,8 @@ mock.module("../daemon/process-message.js", () => ({
 
 const createdConversations: Array<{ conversationType: string }> = [];
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   addMessage: mock(() => ({ id: "msg-1" })),
   archiveConversation: mock(() => true),
   batchSetDisplayOrders: mock(() => {}),

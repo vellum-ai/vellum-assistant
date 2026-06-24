@@ -273,6 +273,8 @@ const deleteMessageByIdMock = mock(() => ({
 const reserveMessageMock = mock(async () => ({ id: "msg-reserve" }));
 const updateMessageContentMock = mock(() => {});
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationUsage: () => {},
   updateMessageMetadata: updateMessageMetadataMock,
@@ -700,6 +702,7 @@ function makeCtx(
       mockConversationRow?.slackContextCompactionWatermarkTs ?? null,
     lastNotifiedInferenceProfile:
       mockConversationRow?.lastNotifiedInferenceProfile ?? null,
+    processingStartedAt: mockConversationRow?.processingStartedAt ?? null,
 
     memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
 
