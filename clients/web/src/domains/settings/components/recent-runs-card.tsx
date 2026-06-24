@@ -57,6 +57,8 @@ export function RecentRunsCard({
             const hasOutput = hasRunText(run.output);
             const hasError = hasRunText(run.error);
             const hasLocalDetails = !conversationId && (hasOutput || hasError);
+            const collapsedOutput =
+              run.status === "skipped" && hasOutput ? run.output : null;
             const isExpanded = expandedRunId === run.id;
             const detailsId = `schedule-run-details-${index}`;
             return (
@@ -78,6 +80,7 @@ export function RecentRunsCard({
                           {hasRunText(run.title)
                             ? `${formatTimestamp(run.startedAt)} · `
                             : ""}
+                          {collapsedOutput ? `${collapsedOutput} · ` : ""}
                           {formatDuration(run.durationMs)} ·{" "}
                           {formatScheduleCost(run.estimatedCostUsd)}
                           {run.status === "error" && run.error && (
