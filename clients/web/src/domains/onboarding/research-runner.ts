@@ -322,8 +322,11 @@ export function useResearchRunner(): UseResearchRunner {
       });
 
       void (async () => {
+        let resolvedAssistantId: string | undefined;
+        let createdConversationId: string | undefined;
         try {
           const assistantId = await awaitAssistantId();
+          resolvedAssistantId = assistantId;
           if (isStale()) return;
 
           // Advertise the live marketplace catalog to the research turn so it can
@@ -356,6 +359,7 @@ export function useResearchRunner(): UseResearchRunner {
             setState((s) => ({ ...s, status: "error" }));
             return;
           }
+          createdConversationId = conversationId;
 
           const body: MessagesPostData["body"] = {
             conversationId,
@@ -445,11 +449,6 @@ export function useResearchRunner(): UseResearchRunner {
 
           if (isStale()) return;
           setState((s) => ({ ...s, status: "done" }));
-          // The research conversation is a throwaway side channel; archive +
-          // invalidate so the sidebar that mounts on handoff never shows
-          // "Getting to know X". Best-effort, after delivery — never blocks.
-          await archiveResearchConversation(assistantId, conversationId);
-          void invalidateConversationQueries(queryClient, assistantId);
         } catch (err) {
           if (isStale()) return;
           captureError(err, { context: "research_onboarding_runner" });
@@ -459,6 +458,17 @@ export function useResearchRunner(): UseResearchRunner {
           // a stale bail-out, or a reply that never emitted a `plugins` array) so
           // `awaitPluginInstalls` can never hang.
           resolvePluginsReady();
+          // Archive the throwaway research conversation on every exit path (settled,
+          // errored, or superseded by a newer run) once it has been created, so the
+          // side channel never lingers in the sidebar on handoff. Best-effort +
+          // idempotent; awaiting lets the cache invalidation reflect the archived state.
+          if (resolvedAssistantId && createdConversationId) {
+            await archiveResearchConversation(
+              resolvedAssistantId,
+              createdConversationId,
+            );
+            void invalidateConversationQueries(queryClient, resolvedAssistantId);
+          }
         }
       })();
     },
