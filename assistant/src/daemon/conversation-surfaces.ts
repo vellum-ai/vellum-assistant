@@ -711,9 +711,11 @@ function normalizeCardShowData(
         scope.setLevel("warning");
         scope.setTag("card_normalization", "dropped_keys");
         scope.setContext("card_normalization", {
-          dropped_keys: droppedKeys,
           dropped_count: droppedKeys.length,
         });
+        // Key names are model-controlled, so they ride in `extra`, which
+        // beforeSend redacts (it does not scrub `contexts`) — see instrument.ts.
+        scope.setExtra("dropped_keys", droppedKeys);
         Sentry.captureMessage("card_normalization:dropped_keys");
       });
     } catch {
@@ -2943,11 +2945,16 @@ export async function surfaceProxyResolver(
               scope.setTag("card_normalization", "action_parse_failure");
               scope.setContext("card_normalization", {
                 issue_paths: result.error.issues.map((i) => i.path.join(".")),
-                keys:
-                  typeof raw === "object" && raw !== null
-                    ? Object.keys(raw)
-                    : [typeof raw],
               });
+              // raw object keys are model-controlled, so they ride in `extra`,
+              // which beforeSend redacts (it does not scrub `contexts`) — see
+              // instrument.ts.
+              scope.setExtra(
+                "raw_keys",
+                typeof raw === "object" && raw !== null
+                  ? Object.keys(raw)
+                  : [typeof raw],
+              );
               Sentry.captureMessage("card_normalization:action_parse_failure");
             });
           } catch {
