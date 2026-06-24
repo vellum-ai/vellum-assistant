@@ -1,14 +1,4 @@
-import {
-    Bot,
-    CheckCircle,
-    Hash,
-    HelpCircle,
-    Mail,
-    MessageSquare,
-    Phone,
-    Send,
-} from "lucide-react";
-import type { CSSProperties } from "react";
+import { CheckCircle } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
@@ -18,6 +8,7 @@ import type {
     ChannelInfo,
     ContactChannelPayload,
 } from "@/domains/contacts/types";
+import { ChannelIcon } from "@/utils/channel-presentation";
 
 const KNOWN_CHANNEL_IDS: ReadonlySet<string> = new Set<ChannelInfo["id"]>([
   "telegram",
@@ -121,33 +112,6 @@ interface ContactChannelsSectionProps {
   onSetupChannel?: (type: string) => void;
   onVerifyChannel?: (type: string) => void;
   onRevokeChannel?: (channelId: string, type: string) => void;
-}
-
-function ChannelIcon({
-  name,
-  className,
-  style,
-}: {
-  name: string;
-  className?: string;
-  style?: CSSProperties;
-}) {
-  switch (name) {
-    case "bot":
-      return <Bot className={className} style={style} />;
-    case "hash":
-      return <Hash className={className} style={style} />;
-    case "send":
-      return <Send className={className} style={style} />;
-    case "phone":
-      return <Phone className={className} style={style} />;
-    case "mail":
-      return <Mail className={className} style={style} />;
-    case "message-square":
-      return <MessageSquare className={className} style={style} />;
-    default:
-      return <HelpCircle className={className} style={style} />;
-  }
 }
 
 export function ContactChannelsSection({
@@ -292,9 +256,8 @@ function ChannelRow({
   return (
     <div className="flex items-center gap-3 py-4">
       <ChannelIcon
-        name={info.icon}
-        className="h-4 w-4 shrink-0"
-        style={{ color: "var(--content-secondary)" }}
+        channelId={info.id}
+        className="h-4 w-4 shrink-0 text-[var(--content-secondary)]"
       />
       <span
         className="text-body-medium-default"
