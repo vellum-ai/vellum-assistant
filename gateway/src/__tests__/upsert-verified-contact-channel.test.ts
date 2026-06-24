@@ -699,6 +699,40 @@ describe("upsertVerifiedContactChannel — invite target-contact binding", () =>
     expect(contactInsert).toBeTruthy();
     expect(contactInsert!.params[0]).toBe("co-target");
   });
+
+  test("re-parents a divergent gateway row to the target when the assistant lookup misses", async () => {
+    // The assistant mirror has no row (no-existing branch), but the gateway
+    // already holds the (type,address) row under a different contact.
+    queryRows = [];
+    gwSelectStatus = "unverified"; // non-blocked gateway row → pre-check passes
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "diverged-tg",
+      externalChatId: "diverged-tg",
+      verifiedVia: "invite",
+      contactId: "co-target",
+    });
+
+    // The gateway row is re-parented to the target by the (type,address)
+    // logical key, not the assistant channel id (the byKey activation update
+    // omits contactId, so without this the gateway row keeps the old contact).
+    const gwReparent = gwUpdates.find(
+      (u) => (u.set as { contactId?: string }).contactId === "co-target",
+    );
+    expect(gwReparent).toBeTruthy();
+    const where = gwReparent!.where as {
+      op: string;
+      conds: { op: string; col?: unknown }[];
+    };
+    expect(where.op).toBe("and");
+    expect(where.conds).toContainEqual({
+      op: "eq",
+      col: "type",
+      val: "telegram",
+    });
+    expect(where.conds.some((c) => c.op === "eq" && c.col === "id")).toBe(false);
+  });
 });
 
 describe("upsertContactChannel — channel address casing", () => {

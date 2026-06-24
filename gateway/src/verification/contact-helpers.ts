@@ -457,17 +457,32 @@ export async function upsertVerifiedContactChannel(params: {
   // rather than silently no-op'd by the (type,address) unique index.
   let gatewayRejected = false;
   try {
-    getGatewayDb()
-      .insert(gwContacts)
-      .values({
-        id: contactId,
+    if (targetContactId) {
+      // The assistant mirror missed, but the gateway may already hold this
+      // (type,address) row under a different contact. Re-parent it to the
+      // target by logical key (writeVerifiedGatewayChannel's update set omits
+      // contactId), so the gateway source of truth lands under the invite's
+      // contact. No-ops when no gateway row exists.
+      reassignChannelContact({
+        type: sourceChannel,
+        address,
+        toContactId: contactId,
         displayName: contactDisplayName,
-        role: "contact",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing()
-      .run();
+        now,
+      });
+    } else {
+      getGatewayDb()
+        .insert(gwContacts)
+        .values({
+          id: contactId,
+          displayName: contactDisplayName,
+          role: "contact",
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoNothing()
+        .run();
+    }
 
     const wrote = writeVerifiedGatewayChannel({
       assistantChannelId: channelId,
