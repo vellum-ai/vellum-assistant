@@ -36,6 +36,7 @@ import { deliverChannelReply } from "../runtime/gateway-client.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { TC_GRANT_WAIT_MAX_MS } from "../tools/tool-approval-handler.js";
 import { getLogger } from "../util/logger.js";
+import { resolveDeliverCallbackUrlForChannel } from "./guardian-channel-delivery.js";
 
 const log = getLogger("guardian-request-resolvers");
 
@@ -241,17 +242,6 @@ export type ResolverResult =
       };
     }
   | { ok: false; reason: string };
-
-function resolveDeliverCallbackUrlForChannel(channel: string): string | null {
-  switch (channel) {
-    case "telegram":
-    case "whatsapp":
-    case "slack":
-      return `/deliver/${channel}`;
-    default:
-      return null;
-  }
-}
 
 /** Interface that kind-specific resolvers implement. */
 export interface GuardianRequestResolver {
