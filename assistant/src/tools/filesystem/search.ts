@@ -194,6 +194,13 @@ export const codeSearchTool = {
     // so the result can report that the search timed out and is incomplete —
     // distinct from the scan-cap and output-budget truncation notes.
     let timedOut = false;
+    // Set when a file was skipped mid-walk because it exceeds MAX_FILE_BYTES.
+    // Unlike the truncation flags this does NOT halt the walk — other files may
+    // still match — but it does mark the overall result incomplete, since the
+    // skipped file could have contained the pattern. Kept separate from
+    // `truncated` so the zero-match invariant ("truncated => scan cap/timeout")
+    // stays intact.
+    let skippedLargeFile = false;
     let filesScanned = 0;
     let totalBytes = 0;
     // Running size of the accumulated output (lines joined by "\n") so we can
@@ -245,7 +252,12 @@ export const codeSearchTool = {
       } catch {
         return;
       }
-      if (size > MAX_FILE_BYTES) return;
+      if (size > MAX_FILE_BYTES) {
+        // Skip just this file (others may still match), but record that the
+        // search is incomplete so the result doesn't read as a definitive miss.
+        skippedLargeFile = true;
+        return;
+      }
       if (totalBytes + size > MAX_TOTAL_BYTES) {
         truncated = true;
         return;
@@ -373,6 +385,13 @@ export const codeSearchTool = {
           status: "truncated",
         };
       }
+      if (skippedLargeFile) {
+        return {
+          content: `No matches found for /${pattern}/${caseInsensitive ? "i" : ""} under ${basename(root)}, but one or more files were skipped because they exceed the ${Math.round(MAX_FILE_BYTES / (1024 * 1024))} MiB per-file size limit, so results may be incomplete.`,
+          isError: false,
+          status: "truncated",
+        };
+      }
       return {
         content: `No matches found for /${pattern}/${caseInsensitive ? "i" : ""} under ${basename(root)}`,
         isError: false,
@@ -389,11 +408,16 @@ export const codeSearchTool = {
           : `\n\n[Results truncated at ${maxResults} matches. Narrow your pattern, glob, or path to see more.]`;
       }
     }
+    if (skippedLargeFile) {
+      // Independent of the truncation reasons above: note any files skipped for
+      // exceeding the per-file size limit so the result isn't read as complete.
+      content += `\n\n[One or more files were skipped because they exceed the ${Math.round(MAX_FILE_BYTES / (1024 * 1024))} MiB per-file size limit. Results may be incomplete.]`;
+    }
 
     return {
       content,
       isError: false,
-      ...(truncated ? { status: "truncated" } : {}),
+      ...(truncated || skippedLargeFile ? { status: "truncated" } : {}),
     };
   },
 } satisfies ToolDefinition;

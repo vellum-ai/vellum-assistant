@@ -164,6 +164,45 @@ describe("codeSearchTool", () => {
     expect(result.content).not.toContain("No matches found");
   });
 
+  test("an oversized file skipped mid-walk keeps scanning others but flags the result incomplete", async () => {
+    const dir = makeTempDir();
+    // A directory search must keep scanning sibling files when it hits an
+    // oversized one (so a smaller file still matches), yet flag the overall
+    // result incomplete since the skipped file could have contained the pattern.
+    const oversize = 8 * 1024 * 1024 + 1;
+    writeFileSync(join(dir, "huge.txt"), "needle " + "x".repeat(oversize));
+    writeFileSync(join(dir, "small.txt"), "needle here\n");
+
+    const result = await codeSearchTool.execute(
+      { pattern: "needle", activity: "search" },
+      makeToolContext(dir),
+    );
+
+    expect(result.isError).toBe(false);
+    // The walk wasn't aborted by the skip — the small file still matched...
+    expect(result.content).toContain("small.txt");
+    // ...and the result is flagged incomplete with a size-limit note.
+    expect(result.status).toBe("truncated");
+    expect(result.content).toContain("size limit");
+  });
+
+  test("a directory whose only candidate is oversized reports incompleteness, not a clean miss", async () => {
+    const dir = makeTempDir();
+    const oversize = 8 * 1024 * 1024 + 1;
+    writeFileSync(join(dir, "huge.txt"), "needle " + "x".repeat(oversize));
+
+    const result = await codeSearchTool.execute(
+      { pattern: "needle", activity: "search" },
+      makeToolContext(dir),
+    );
+
+    expect(result.isError).toBe(false);
+    // Zero matches because the only file was skipped — but the result must say
+    // it's incomplete (status truncated + size-limit note), not a definitive miss.
+    expect(result.status).toBe("truncated");
+    expect(result.content).toContain("size limit");
+  });
+
   test("a single >4 MiB matching line yields a truncated result that acknowledges the match", async () => {
     const dir = makeTempDir();
     // One matching line whose output alone exceeds MAX_OUTPUT_BYTES (4 MiB) but
