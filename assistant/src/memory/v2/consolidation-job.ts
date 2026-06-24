@@ -65,7 +65,10 @@ import {
 import { dirname, join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import { isMemoryV3Live } from "../../config/memory-v3-gate.js";
+import {
+  isMemoryV3Live,
+  isProcToSkillsEnabled,
+} from "../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { runBackgroundJob } from "../../runtime/background-job-runner.js";
 import { getLogger } from "../../util/logger.js";
@@ -277,6 +280,7 @@ export async function memoryV2ConsolidateJob(
       cutoff,
       {
         includeCorePagesSection: memoryV3Active,
+        includeProcToSkillsSection: isProcToSkillsEnabled(config),
         articleShape: memoryV3Live ? "v3" : "v2",
       },
     );
