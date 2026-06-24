@@ -1564,6 +1564,7 @@ describe("Subagent role-based spawn", () => {
       "coder",
       "planner",
       "investigator",
+      "advisor",
     ]);
     // role is not required
     expect(def.input_schema.required).not.toContain("role");

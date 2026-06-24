@@ -13,6 +13,7 @@ const ALL_ROLES: SubagentRole[] = [
   "coder",
   "planner",
   "investigator",
+  "advisor",
 ];
 
 describe("SUBAGENT_ROLE_REGISTRY", () => {
@@ -32,18 +33,30 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     expect(SUBAGENT_ROLE_REGISTRY.general.allowedTools).toBeUndefined();
   });
 
-  test("all non-general roles have allowedTools as a non-empty array", () => {
+  test("all scoped tool-using roles have allowedTools as a non-empty array", () => {
     for (const role of ALL_ROLES) {
-      if (role === "general") continue;
+      // 'general' has no filter (undefined); 'advisor' is tool-less (empty).
+      if (role === "general" || role === "advisor") continue;
       const config = SUBAGENT_ROLE_REGISTRY[role];
       expect(Array.isArray(config.allowedTools)).toBe(true);
       expect(config.allowedTools!.length).toBeGreaterThan(0);
     }
   });
 
-  test('every role with allowedTools includes "notify_parent"', () => {
+  test("advisor is tool-less with an empty allowedTools array", () => {
+    const config = SUBAGENT_ROLE_REGISTRY.advisor;
+    expect(config.allowedTools).toEqual([]);
+  });
+
+  test("SubagentRole type includes advisor", () => {
+    const advisor: SubagentRole = "advisor";
+    expect(SUBAGENT_ROLE_REGISTRY[advisor]).toBeDefined();
+  });
+
+  test('every role with a non-empty allowlist includes "notify_parent"', () => {
     for (const [_role, config] of Object.entries(SUBAGENT_ROLE_REGISTRY)) {
-      if (config.allowedTools !== undefined) {
+      // 'advisor' is tool-less (empty allowlist) and intentionally has none.
+      if (config.allowedTools !== undefined && config.allowedTools.length > 0) {
         expect(config.allowedTools).toContain("notify_parent");
       }
     }
