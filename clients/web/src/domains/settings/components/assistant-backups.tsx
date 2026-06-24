@@ -212,14 +212,14 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
         <div className="flex justify-end">{createBackupButton}</div>
         {/* Desktop table */}
         <div className="hidden md:block">
-          <table className="w-full text-body-medium-lighter">
+          <table className="w-full table-fixed text-body-medium-lighter">
             <thead>
               <tr className="border-b border-[var(--border-base)] text-left text-body-small-default text-[var(--content-secondary)]">
-                <th className="w-full pb-2 pr-4">Snapshot Name</th>
-                <th className="whitespace-nowrap pb-2 pr-4">Type</th>
-                <th className="whitespace-nowrap pb-2 pr-4">Ready</th>
-                <th className="whitespace-nowrap pb-2 pr-4">Created</th>
-                <th className="whitespace-nowrap pb-2">Actions</th>
+                <th className="w-[40%] pb-2 pr-4">Snapshot Name</th>
+                <th className="w-[12%] pb-2 pr-4">Type</th>
+                <th className="w-[12%] pb-2 pr-4">Ready</th>
+                <th className="w-[20%] pb-2 pr-4">Created</th>
+                <th className="w-[16%] pb-2">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -228,7 +228,7 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
                   key={backup.snapshot_name}
                   className="border-b border-[var(--border-base)] last:border-0"
                 >
-                  <td className="w-full py-2.5 pr-4">
+                  <td className="py-2.5 pr-4">
                     <div className="group/snapshot flex items-center gap-1">
                       <code
                         className="truncate text-body-small-default text-[var(--content-default)]"
@@ -252,18 +252,18 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
                       </button>
                     </div>
                   </td>
-                  <td className="whitespace-nowrap py-2.5 pr-4">
+                  <td className="py-2.5 pr-4">
                     <BackupTypeBadge type={backup.backup_type} />
                   </td>
-                  <td className="whitespace-nowrap py-2.5 pr-4">
+                  <td className="py-2.5 pr-4">
                     <Tag tone={backup.ready_to_use ? "positive" : "warning"}>
                       {backup.ready_to_use ? "Ready" : "Pending"}
                     </Tag>
                   </td>
-                  <td className="whitespace-nowrap py-2.5 pr-4 text-body-medium-default text-[var(--content-default)]">
+                  <td className="py-2.5 pr-4 text-body-medium-default text-[var(--content-default)]">
                     {formatTimestamp(backup.created_at)}
                   </td>
-                  <td className="whitespace-nowrap py-2.5">
+                  <td className="py-2.5">
                     <Button
                       variant="ghost"
                       size="compact"
