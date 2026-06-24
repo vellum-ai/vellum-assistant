@@ -211,7 +211,7 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
       <div className="space-y-2">
         <div className="flex justify-end">{createBackupButton}</div>
         <div className="overflow-x-auto">
-          <table className="w-full text-body-medium-lighter">
+          <table className="text-body-medium-lighter">
             <thead>
               <tr className="border-b border-[var(--border-base)] text-left text-body-small-default text-[var(--content-secondary)]">
                 <th className="pb-2 pr-4">Snapshot Name</th>
