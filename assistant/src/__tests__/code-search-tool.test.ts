@@ -302,6 +302,64 @@ describe("codeSearchTool", () => {
     );
   });
 
+  test("an already-aborted signal stops the scan and reports a timed-out result", async () => {
+    const dir = makeTempDir();
+    writeFileSync(join(dir, "a.txt"), "needle here\nneedle there\n");
+
+    // The wall-clock deadline (MAX_SEARCH_MS) and the abort signal are checked
+    // at the same per-line checkpoint. MAX_SEARCH_MS is a 10s const that isn't
+    // injectable, so we exercise the shared stop path deterministically via an
+    // already-aborted signal: the scan must stop at the first line check and
+    // return a truncated/timed-out result instead of running the regex.
+    const controller = new AbortController();
+    controller.abort();
+    const context = { ...makeToolContext(dir), signal: controller.signal };
+
+    const result = await codeSearchTool.execute(
+      { pattern: "needle", activity: "search" },
+      context,
+    );
+
+    // Aborted before any match was emitted, so this is the zero-match
+    // timed-out branch (incomplete), not a definitive "No matches found".
+    expect(result.isError).toBe(false);
+    expect(result.status).toBe("truncated");
+    expect(result.content).toContain("timed out");
+    expect(result.content).not.toContain("No matches found");
+  });
+
+  test(
+    "a catastrophic-backtracking pattern over many lines terminates",
+    async () => {
+      const dir = makeTempDir();
+      // A classic catastrophic-backtracking pattern against crafted lines that
+      // never match. Each individual line is small enough to backtrack quickly,
+      // but the file has many of them — the wall-clock deadline is checked once
+      // per line, so the scan must terminate (it does not block indefinitely).
+      // Kept deterministically fast: the whole file scans well under the
+      // deadline, so we assert it returns a clean result rather than hanging.
+      const evilLine = "a".repeat(20) + "!"; // forces backtracking, no match
+      const body = Array.from({ length: 50 }, () => evilLine).join("\n");
+      writeFileSync(join(dir, "evil.txt"), body + "\n");
+
+      const result = await codeSearchTool.execute(
+        { pattern: "(a+)+$", activity: "search" },
+        makeToolContext(dir),
+      );
+
+      // It must terminate gracefully. Depending on host speed it either
+      // finishes under the deadline (clean "No matches found") or trips the
+      // deadline (truncated/timed-out) — both are acceptable; hanging is not.
+      expect(result.isError).toBe(false);
+      if (result.status === "truncated") {
+        expect(result.content).toContain("timed out");
+      } else {
+        expect(result.content).toContain("No matches found");
+      }
+    },
+    30_000,
+  );
+
   test("does not return contents of denied-basename files", async () => {
     const dir = makeTempDir();
     // A denied file (forbidden to file_read/file_write) that contains the

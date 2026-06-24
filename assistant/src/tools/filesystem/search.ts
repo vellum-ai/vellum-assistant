@@ -41,6 +41,14 @@ const MAX_MATCH_LINE_LENGTH = 2000;
 // report the result as truncated.
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024; // 4 MiB
 
+// Wall-clock deadline for the whole search. Even with the per-line slice bound
+// above, a catastrophic-backtracking regex can take ~1s on a single 2000-char
+// slice, so a file with many such lines could block the event loop for a long
+// time — long enough that the promise-based tool timeout / abort signal can't
+// fire (nothing yields). Checking this deadline every line bounds the total
+// event-loop block to roughly MAX_SEARCH_MS plus one line's worst case.
+const MAX_SEARCH_MS = 10_000; // 10 s
+
 const DEFAULT_MAX_RESULTS = 200;
 const DEFAULT_CONTEXT_LINES = 0;
 // Clamp `context_lines` so a single match cannot request unbounded surrounding
@@ -171,12 +179,21 @@ export const codeSearchTool = {
       };
     }
 
+    // Start the wall-clock deadline before walking so a pathological regex
+    // (or an external abort) can stop the synchronous scan mid-flight instead
+    // of blocking the event loop until the whole tree is exhausted.
+    const searchStart = Date.now();
+
     const lines: string[] = [];
     let matchCount = 0;
     let truncated = false;
     // Set when the output-byte budget (not the max-results cap) stopped the
     // accumulation, so the truncation note can explain why.
     let outputBudgetHit = false;
+    // Set when the wall-clock deadline (or an abort signal) stopped the scan,
+    // so the result can report that the search timed out and is incomplete —
+    // distinct from the scan-cap and output-budget truncation notes.
+    let timedOut = false;
     let filesScanned = 0;
     let totalBytes = 0;
     // Running size of the accumulated output (lines joined by "\n") so we can
@@ -249,6 +266,16 @@ export const codeSearchTool = {
       const display = rel.length > 0 ? rel : basename(full);
       const fileLines = buf.toString("utf8").split("\n");
       for (let i = 0; i < fileLines.length; i++) {
+        // Bound the total event-loop block: check the wall-clock deadline and
+        // the abort signal before every regex test (the per-line Date.now() and
+        // .aborted reads are negligible next to a catastrophic-backtracking
+        // test). When either trips, mark the search timed out / aborted and
+        // stop the whole walk so partial results are still reported.
+        if (Date.now() - searchStart > MAX_SEARCH_MS || context.signal?.aborted) {
+          truncated = true;
+          timedOut = true;
+          return;
+        }
         // Only run the regex against the leading slice of each line so a single
         // pathological line can't monopolize the event loop via catastrophic
         // backtracking. Normal code/log lines are well under the cap.
@@ -329,9 +356,16 @@ export const codeSearchTool = {
 
     if (matchCount === 0) {
       // With zero matches, `truncated` can only have been set by a scan cap
-      // (MAX_FILES_SCANNED / MAX_TOTAL_BYTES), never the max-results path. In
-      // that case the tree was only partially scanned, so a definitive "No
-      // matches found" would be a false negative.
+      // (MAX_FILES_SCANNED / MAX_TOTAL_BYTES) or the wall-clock deadline, never
+      // the max-results path. In either case the tree was only partially
+      // scanned, so a definitive "No matches found" would be a false negative.
+      if (timedOut) {
+        return {
+          content: `Search timed out after ${MAX_SEARCH_MS / 1000}s before finding any match for /${pattern}/${caseInsensitive ? "i" : ""} under ${basename(root)}. Results are incomplete — narrow your pattern, glob, or path and search again.`,
+          isError: false,
+          status: "truncated",
+        };
+      }
       if (truncated) {
         return {
           content: `Search stopped early after hitting a scan cap before finding any match for /${pattern}/${caseInsensitive ? "i" : ""} under ${basename(root)}. Results are incomplete — narrow your glob or path and search again.`,
@@ -347,9 +381,13 @@ export const codeSearchTool = {
 
     let content = lines.join("\n");
     if (truncated) {
-      content += outputBudgetHit
-        ? `\n\n[Output capped at ${Math.round(MAX_OUTPUT_BYTES / (1024 * 1024))} MiB. Narrow your pattern, glob, or path, or reduce context_lines, to see more.]`
-        : `\n\n[Results truncated at ${maxResults} matches. Narrow your pattern, glob, or path to see more.]`;
+      if (timedOut) {
+        content += `\n\n[Search timed out after ${MAX_SEARCH_MS / 1000}s. Results are incomplete. Narrow your pattern, glob, or path to see more.]`;
+      } else {
+        content += outputBudgetHit
+          ? `\n\n[Output capped at ${Math.round(MAX_OUTPUT_BYTES / (1024 * 1024))} MiB. Narrow your pattern, glob, or path, or reduce context_lines, to see more.]`
+          : `\n\n[Results truncated at ${maxResults} matches. Narrow your pattern, glob, or path to see more.]`;
+      }
     }
 
     return {
