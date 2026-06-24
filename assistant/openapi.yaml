@@ -8408,6 +8408,22 @@ paths:
                                   anyOf:
                                     - type: number
                                     - type: "null"
+                                apiErrorCode:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                apiErrorType:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                apiErrorParam:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                requestId:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
                               additionalProperties: false
                             - type: "null"
                       required:
@@ -15352,6 +15368,22 @@ paths:
                             anyOf:
                               - type: number
                               - type: "null"
+                          apiErrorCode:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          apiErrorType:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          apiErrorParam:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          requestId:
+                            anyOf:
+                              - type: string
+                              - type: "null"
                         additionalProperties: false
                       - type: "null"
                 required:
@@ -17808,6 +17840,22 @@ paths:
                                 retryAfterMs:
                                   anyOf:
                                     - type: number
+                                    - type: "null"
+                                apiErrorCode:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                apiErrorType:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                apiErrorParam:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                requestId:
+                                  anyOf:
+                                    - type: string
                                     - type: "null"
                               additionalProperties: false
                             - type: "null"

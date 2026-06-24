@@ -25,18 +25,12 @@
 import { describe, expect, test } from "bun:test";
 
 import { buildProviderErrorResponsePayload } from "../memory/llm-request-log-store.js";
-import {
-  AssistantError,
-  ErrorCode,
-  ProviderError,
-} from "../util/errors.js";
+import { AssistantError, ErrorCode, ProviderError } from "../util/errors.js";
 
 function persisted(err: Error): { error: Record<string, unknown> } {
   // Round-trip through JSON to assert on the actual stored shape, not the
   // in-memory object reference.
-  return JSON.parse(
-    JSON.stringify(buildProviderErrorResponsePayload(err)),
-  );
+  return JSON.parse(JSON.stringify(buildProviderErrorResponsePayload(err)));
 }
 
 describe("buildProviderErrorResponsePayload", () => {
@@ -56,6 +50,34 @@ describe("buildProviderErrorResponsePayload", () => {
         provider: "anthropic",
         statusCode: 429,
         retryAfterMs: 1500,
+      },
+    });
+  });
+
+  test("ProviderError serializes upstream provider error metadata when present", () => {
+    const err = new ProviderError(
+      "OpenAI API error (401): Invalid API key provided",
+      "openai",
+      401,
+      {
+        apiErrorCode: "invalid_api_key",
+        apiErrorType: "invalid_request_error",
+        apiErrorParam: "api_key",
+        requestId: "req_abc123",
+      },
+    );
+    const got = persisted(err);
+    expect(got).toEqual({
+      error: {
+        name: "ProviderError",
+        message: "OpenAI API error (401): Invalid API key provided",
+        code: ErrorCode.PROVIDER_ERROR,
+        provider: "openai",
+        statusCode: 401,
+        apiErrorCode: "invalid_api_key",
+        apiErrorType: "invalid_request_error",
+        apiErrorParam: "api_key",
+        requestId: "req_abc123",
       },
     });
   });

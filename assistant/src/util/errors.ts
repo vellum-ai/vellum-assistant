@@ -102,6 +102,11 @@ export class AssistantError extends VellumError {
 export class ProviderError extends AssistantError {
   /** Delay (in ms) suggested by the server's Retry-After header, if present. */
   public readonly retryAfterMs?: number;
+  /** Upstream provider error metadata, parsed from the raw non-2xx body. */
+  public readonly apiErrorCode?: string;
+  public readonly apiErrorType?: string;
+  public readonly apiErrorParam?: string;
+  public readonly requestId?: string;
   /**
    * Tagged daemon-owned abort reason carried over from the AbortSignal that
    * triggered this error. Untyped here to avoid a daemon→util import cycle;
@@ -114,11 +119,23 @@ export class ProviderError extends AssistantError {
     message: string,
     public readonly provider: string,
     public readonly statusCode?: number,
-    options?: { cause?: unknown; retryAfterMs?: number; abortReason?: unknown },
+    options?: {
+      cause?: unknown;
+      retryAfterMs?: number;
+      abortReason?: unknown;
+      apiErrorCode?: string;
+      apiErrorType?: string;
+      apiErrorParam?: string;
+      requestId?: string;
+    },
   ) {
     super(message, ErrorCode.PROVIDER_ERROR, options);
     this.name = "ProviderError";
     this.retryAfterMs = options?.retryAfterMs;
+    this.apiErrorCode = options?.apiErrorCode;
+    this.apiErrorType = options?.apiErrorType;
+    this.apiErrorParam = options?.apiErrorParam;
+    this.requestId = options?.requestId;
     this.abortReason = options?.abortReason;
   }
 }
