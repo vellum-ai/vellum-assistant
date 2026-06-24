@@ -1,5 +1,5 @@
-import { ArrowUp, Loader2, Play, Square } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowUp, Check, ClipboardCopy, Loader2, Play, Square } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
@@ -17,11 +17,13 @@ import {
 } from "@/domains/settings/components/panels/doctor-chat-blocks";
 import { DoctorAvatar } from "@/domains/settings/components/panels/doctor-avatar";
 import {
+  type ChatEntry,
   hasPendingApproval,
   hasPendingBackup,
   mapPersistedMessagesToEntries,
   mapPersistedStatusToPanelStatus,
   selectLatestHistorySession,
+  serializeSessionToText,
 } from "@/domains/settings/components/panels/doctor-history";
 import { useDoctorPanelStore } from "@/domains/settings/components/panels/doctor-panel-store";
 import {
@@ -42,6 +44,59 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { ApiError, extractErrorMessage } from "@/utils/api-errors";
 import { isPointerCoarse } from "@/utils/pointer";
+
+// ---------------------------------------------------------------------------
+// CopySessionButton
+// ---------------------------------------------------------------------------
+
+function CopySessionButton({ entries }: { entries: ChatEntry[] }) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+    };
+  }, []);
+
+  const handleCopy = useCallback(() => {
+    const text = serializeSessionToText(entries);
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setCopied(true);
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+        }
+        timerRef.current = setTimeout(() => {
+          setCopied(false);
+          timerRef.current = null;
+        }, 1500);
+      })
+      .catch(() => {});
+  }, [entries]);
+
+  return (
+    <Button
+      variant="ghost"
+      size="compact"
+      leftIcon={
+        copied ? (
+          <Check className="text-[var(--system-positive-strong)]" />
+        ) : (
+          <ClipboardCopy />
+        )
+      }
+      onClick={handleCopy}
+      tooltip={copied ? "Copied!" : "Copy session to clipboard"}
+      aria-label={copied ? "Copied" : "Copy session to clipboard"}
+    >
+      {copied ? "Copied!" : "Copy Session"}
+    </Button>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -375,16 +430,19 @@ export function DoctorPanel() {
           )}
         </div>
 
-        {isSessionActive && (
-          <button
-            type="button"
-            onClick={handleEndSession}
-            className="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--system-negative-strong)] px-3 py-1.5 text-body-small-default text-[var(--system-negative-strong)] transition-colors hover:bg-[var(--system-negative-weak)] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Square className="h-3 w-3" />
-            End Session
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {entries.length > 0 && <CopySessionButton entries={entries} />}
+          {isSessionActive && (
+            <button
+              type="button"
+              onClick={handleEndSession}
+              className="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--system-negative-strong)] px-3 py-1.5 text-body-small-default text-[var(--system-negative-strong)] transition-colors hover:bg-[var(--system-negative-weak)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Square className="h-3 w-3" />
+              End Session
+            </button>
+          )}
+        </div>
       </div>
 
       {isLoadingHistory ? (
