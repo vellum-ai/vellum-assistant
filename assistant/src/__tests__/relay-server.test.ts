@@ -1735,7 +1735,7 @@ describe("relay-server", () => {
     // Guardian binding is NOT created by the assistant — the gateway owns
     // binding creation for inbound voice verification. The assistant only
     // transitions to connected state and starts the normal call flow.
-    const binding = getGuardianBinding("self", "phone");
+    const binding = await getGuardianBinding("self", "phone");
     expect(binding).toBeNull();
 
     // Orchestrator greeting should have fired
@@ -1806,7 +1806,7 @@ describe("relay-server", () => {
     expect(relay.getConnectionState()).toBe("connected");
 
     // Binding is NOT created by the assistant — gateway owns this.
-    const binding = getGuardianBinding("self", "phone");
+    const binding = await getGuardianBinding("self", "phone");
     expect(binding).toBeNull();
 
     // Greeting should have started
@@ -2327,6 +2327,9 @@ describe("relay-server", () => {
     for (const digit of secret) {
       await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
+
+    // Let the fire-and-forget verification result handler flush
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Verification should have succeeded
     expect(relay.isVerificationSessionActive()).toBe(false);
@@ -4777,7 +4780,7 @@ describe("relay-server", () => {
     expect(relay.getConnectionState()).toBe("connected");
 
     // Guardian binding is NOT created by the assistant — gateway owns this.
-    const binding = getGuardianBinding("self", "phone");
+    const binding = await getGuardianBinding("self", "phone");
     expect(binding).toBeNull();
 
     // Normal greeting should fire (from mockSendMessage), not the handoff copy

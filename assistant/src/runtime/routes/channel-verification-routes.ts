@@ -192,12 +192,12 @@ export async function handleCreateVerificationSession({
 /**
  * GET /v1/channel-verification-sessions/status
  */
-function handleGetVerificationStatus({
+async function handleGetVerificationStatus({
   queryParams = {},
   body = {},
 }: RouteHandlerArgs) {
   const channel = (queryParams.channel ?? (body as Record<string, unknown>).channel) as ChannelId | undefined;
-  return getVerificationStatus(channel);
+  return await getVerificationStatus(channel);
 }
 
 /**
