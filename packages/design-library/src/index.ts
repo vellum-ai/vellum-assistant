@@ -199,6 +199,10 @@ export {
   type StatSquareTone,
 } from "./components/stat-square";
 export {
+  ListRow,
+  type ListRowProps,
+} from "./components/list-row";
+export {
   SkillRow,
   type SkillRowProps,
 } from "./components/skill-row";
