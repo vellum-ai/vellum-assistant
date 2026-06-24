@@ -22,7 +22,7 @@ import type { WorkspaceMigration } from "./types.js";
  * No-op for configs that never had the key. Idempotent.
  */
 export const removeAdvisorCallsiteOverrideMigration: WorkspaceMigration = {
-  id: "111-remove-advisor-callsite-override",
+  id: "112-remove-advisor-callsite-override",
   description:
     "Remove the stale advisor entry from llm.callSites (advisor call site removed)",
   run(workspaceDir: string): void {

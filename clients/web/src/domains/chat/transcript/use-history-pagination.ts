@@ -17,7 +17,11 @@
  * - https://tanstack.com/query/latest/docs/framework/react/guides/query-cancellation
  */
 
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQueryClient,
+  type InfiniteData,
+} from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 
 import {
@@ -45,6 +49,9 @@ export function conversationHistoryQueryKey(
     conversationId ?? "",
   ] as const;
 }
+
+/** The shape `useInfiniteQuery` stores under a conversation-history key. */
+export type HistoryCache = InfiniteData<PaginatedHistoryResult>;
 
 // ---------------------------------------------------------------------------
 // Types

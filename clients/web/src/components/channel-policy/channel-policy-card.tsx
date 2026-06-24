@@ -27,26 +27,12 @@ import { Card } from "@vellumai/design-library/components/card";
 import { ConfirmDialog } from "@vellumai/design-library";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 
+import { getChannelLabel } from "@/utils/channel-presentation";
+
 const DROPDOWN_OPTIONS = ADMISSION_POLICY_VALUES.map((value) => ({
   value,
   label: POLICY_LABELS[value],
 }));
-
-function humaniseChannel(channelType: string): string {
-  // Map known channel ids to display labels; fall back to a Title-Case
-  // version of the id so future channels render OK without a code change.
-  const LABELS: Record<string, string> = {
-    telegram: "Telegram",
-    phone: "Phone",
-    whatsapp: "WhatsApp",
-    slack: "Slack",
-    email: "Email",
-  };
-  return (
-    LABELS[channelType] ??
-    channelType.charAt(0).toUpperCase() + channelType.slice(1)
-  );
-}
 
 export function ChannelPolicyCard() {
   const assistantId = useActiveAssistantId();
@@ -119,7 +105,7 @@ export function ChannelPolicyCard() {
     (channelType: string, next: AdmissionPolicy) => {
       if (next === "no_one") {
         // §kill-switch: show destructive confirmation before persisting.
-        const channelLabel = humaniseChannel(channelType);
+        const channelLabel = getChannelLabel(channelType);
         setKillSwitchPending({ channelType, label: channelLabel });
         return;
       }
@@ -184,7 +170,7 @@ export function ChannelPolicyCard() {
           >
             <div className="flex-1">
               <div className="text-body-medium-default text-[var(--content-default)]">
-                {humaniseChannel(policy.channelType)}
+                {getChannelLabel(policy.channelType)}
               </div>
               <p className="text-body-small-default text-[var(--content-tertiary)]">
                 {POLICY_DESCRIPTIONS[policy.policy]}
@@ -196,7 +182,7 @@ export function ChannelPolicyCard() {
                 onChange={(next) => handleChange(policy.channelType, next)}
                 options={DROPDOWN_OPTIONS}
                 disabled={savingChannel === policy.channelType}
-                aria-label={`Floor for ${humaniseChannel(policy.channelType)}`}
+                aria-label={`Floor for ${getChannelLabel(policy.channelType)}`}
                 data-testid={`channel-policy-dropdown-${policy.channelType}`}
               />
             </div>

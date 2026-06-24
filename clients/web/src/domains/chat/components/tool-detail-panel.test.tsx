@@ -62,7 +62,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   act(() => {
-    useChatSessionStore.setState({ messages: [] });
+    useChatSessionStore.setState({ liveTurn: [] });
   });
 });
 
@@ -178,7 +178,7 @@ describe("ToolDetailPanel", () => {
   test("thinking variant streams live reasoning from the chat-session store", () => {
     act(() => {
       useChatSessionStore.setState({
-        messages: [
+        liveTurn: [
           {
             id: "m1",
             role: "assistant",
@@ -205,7 +205,7 @@ describe("ToolDetailPanel", () => {
     // Growing the store message updates the already-open drawer.
     act(() => {
       useChatSessionStore.setState({
-        messages: [
+        liveTurn: [
           {
             id: "m1",
             role: "assistant",
@@ -236,7 +236,7 @@ describe("ToolDetailPanel", () => {
   test("thinking variant selects a single reasoning segment by item index", () => {
     act(() => {
       useChatSessionStore.setState({
-        messages: [
+        liveTurn: [
           {
             id: "m1",
             role: "assistant",

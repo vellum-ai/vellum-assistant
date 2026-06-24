@@ -83,10 +83,11 @@ export function MiniAssistant({
 
 const MINI = 48;
 
-// The confirmation animation runs ~2.6s; that's the minimum on-screen time.
-const MEETING_MIN_MS = 2600;
+// The confirmation animation runs ~1.3s to reveal the title; hold well past it
+// so the booked time stays readable for ~3s before advancing.
+const MEETING_MIN_MS = 4500;
 // Cap how long we hold for a slow-but-pending booking before advancing anyway.
-const MEETING_MAX_MS = 6000;
+const MEETING_MAX_MS = 7000;
 
 /**
  * Reverse of the Introduction grow-in. The toned backdrop (behind) blends to
@@ -131,8 +132,17 @@ export function MeetingCreatedStep({
     return () => clearTimeout(t);
   }, [onDone, awaitingTime, scheduledTime]);
 
-  // Mini avatar slot: left of the title, in a left-anchored group.
-  const groupLeft = w / 2 - 170;
+  // Center the avatar+title group as a unit. The title width varies a lot — the
+  // booked-time variant is far wider than the generic copy — so a fixed left
+  // offset shoves it off-center; measure the rendered group and center it.
+  // Re-measures when the title swaps (e.g. the booked time lands late).
+  const groupRef = useRef<HTMLDivElement>(null);
+  const [groupWidth, setGroupWidth] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    if (groupRef.current) setGroupWidth(groupRef.current.offsetWidth);
+  }, [title, w, h]);
+
+  const groupLeft = groupWidth != null ? (w - groupWidth) / 2 : w / 2 - 170;
   const slotCx = groupLeft + MINI / 2;
   const slotCy = h * 0.26 + MINI / 2;
 
@@ -149,11 +159,12 @@ export function MeetingCreatedStep({
       <OnboardingTopBar onBack={onBack} onNext={onForward} tone="light" />
 
       <div
+        ref={groupRef}
         className="absolute flex items-center gap-4"
         style={{ left: groupLeft, top: h * 0.26 }}
       >
         <div className="relative" style={{ width: MINI, height: MINI }}>
-          {components && chosen && (
+          {components && chosen && groupWidth != null && (
             <motion.div
               className="absolute inset-0"
               style={{ transformOrigin: "center" }}

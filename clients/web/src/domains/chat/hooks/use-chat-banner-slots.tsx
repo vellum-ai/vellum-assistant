@@ -13,7 +13,9 @@ import { GitHubNudgeBanner } from "@/components/nudges/github-nudge-banner";
 import { IOSAppBanner } from "@/components/nudges/ios-app-banner";
 import { MacOSAppBanner } from "@/components/nudges/macos-app-banner";
 import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer";
-import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer";
+import { ChannelReadonlyFooter } from "@/domains/chat/components/channel-readonly-footer";
+import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import type { Conversation } from "@/types/conversation-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
 
@@ -29,7 +31,10 @@ export interface UseChatBannerSlotsParams {
   onSteerMessage: (messageId: string) => void;
   onEditQueueTail: () => void;
   queueSteering: boolean;
-  activeConversation: { originChannel?: string; conversationId?: string } | null | undefined;
+  activeConversation:
+    | Pick<Conversation, "originChannel" | "conversationId" | "channelBinding">
+    | null
+    | undefined;
   sanitizedMessages: DisplayMessage[];
   assistantId: string | null;
 }
@@ -37,7 +42,7 @@ export interface UseChatBannerSlotsParams {
 export interface ChatBannerSlots {
   mainBannerSlot: ReactNode;
   mainQueuedDrawerSlot: ReactNode;
-  slackReadonlyBannerSlot: ReactNode;
+  channelReadonlyBannerSlot: ReactNode;
 }
 
 // ---------------------------------------------------------------------------
@@ -114,10 +119,10 @@ export function useChatBannerSlots({
     />
   ), [queuedMessages, onCancelQueuedMessage, onCancelAllQueued, onSteerMessage, queueSteering, onEditQueueTail]);
 
-  const slackReadonlyBannerSlot = useMemo((): ReactNode => {
-    if (activeConversation?.originChannel !== "slack") return null;
+  const channelReadonlyBannerSlot = useMemo((): ReactNode => {
+    if (!isChannelConversation(activeConversation)) return null;
     return (
-      <SlackChannelFooter
+      <ChannelReadonlyFooter
         assistantId={assistantId ?? undefined}
         conversation={activeConversation}
         messages={sanitizedMessages}
@@ -125,5 +130,5 @@ export function useChatBannerSlots({
     );
   }, [activeConversation, sanitizedMessages, assistantId]);
 
-  return { mainBannerSlot, mainQueuedDrawerSlot, slackReadonlyBannerSlot };
+  return { mainBannerSlot, mainQueuedDrawerSlot, channelReadonlyBannerSlot };
 }

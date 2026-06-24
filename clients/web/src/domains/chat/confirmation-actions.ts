@@ -10,6 +10,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -63,7 +64,7 @@ function cleanupAfterConfirmationDecision(
   // AND stamp risk metadata on the target tool call.
   let nudgeTcId: string | null = null;
 
-  useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) => {
+  patchTranscriptMessages((prev: DisplayMessage[]) => {
     // Resolve stamp target: explicit mapping or heuristic fallback
     let stampTargetId = mappedToolCallId;
     if (!stampTargetId) {
@@ -132,11 +133,9 @@ function clearStaleConfirmation(snapshot: PendingConfirmationState): void {
   if (convKey) {
     useConversationStore.getState().removeAttentionConversationId(convKey);
   }
-  useChatSessionStore
-    .getState()
-    .setMessages((prev: DisplayMessage[]) =>
-      clearConfirmationByRequestId(prev, snapshot.requestId),
-    );
+  patchTranscriptMessages((prev: DisplayMessage[]) =>
+    clearConfirmationByRequestId(prev, snapshot.requestId),
+  );
   useChatSessionStore.getState().deleteConfirmationToolCall(snapshot.requestId);
   useChatSessionStore.getState().setError(null);
   useInteractionStore.getState().submitConfirmationEnd();
@@ -276,7 +275,7 @@ export async function handleAllowAndCreateRule(toolCall?: ChatMessageToolCall): 
         .setError(result.status === 404 ? null : { message: result.error });
       useInteractionStore.getState().submitConfirmationEnd();
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-      useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
+      patchTranscriptMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
       openCreateEditor({ ...editorContext, requestId: "" });
       return;
     }
@@ -287,7 +286,7 @@ export async function handleAllowAndCreateRule(toolCall?: ChatMessageToolCall): 
   } catch (err) {
     captureError(err, { context: "allow_and_create_rule" });
     useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-    useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
+    patchTranscriptMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
     openCreateEditor({ ...editorContext, requestId: "" });
     useChatSessionStore.getState().setError({ message: "Failed to submit confirmation, but you can still create a rule." });
     useInteractionStore.getState().submitConfirmationEnd();

@@ -20,7 +20,7 @@ export function useLiveToolCall(
 ): ChatMessageToolCall | null {
   return useChatSessionStore((s) => {
     if (!toolCallId) return null;
-    for (const m of s.messages) {
+    for (const m of s.liveTurn) {
       const tc = m.toolCalls?.find((t) => t.id === toolCallId);
       if (tc) return tc;
     }

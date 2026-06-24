@@ -97,7 +97,6 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   // Chat session store — reactive selectors for per-conversation state
   // -------------------------------------------------------------------------
-  const messages = useChatSessionStore.use.messages();
 
   // -------------------------------------------------------------------------
   // Local state (not store-backed)
@@ -278,7 +277,6 @@ export function ActiveChatView() {
     assistantId,
     activeConversationId,
     diskPressureChatBlockReason,
-    messages,
     pendingOnboardingContextRef,
     onboardingDraftConversationIdRef,
     startReconciliationLoop,

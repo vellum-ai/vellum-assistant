@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { removeAdvisorCallsiteOverrideMigration } from "../workspace/migrations/111-remove-advisor-callsite-override.js";
+import { removeAdvisorCallsiteOverrideMigration } from "../workspace/migrations/112-remove-advisor-callsite-override.js";
 
 let workspaceDir: string;
 
@@ -38,10 +38,10 @@ afterEach(() => {
   }
 });
 
-describe("111-remove-advisor-callsite-override migration", () => {
+describe("112-remove-advisor-callsite-override migration", () => {
   test("has correct migration id and description", () => {
     expect(removeAdvisorCallsiteOverrideMigration.id).toBe(
-      "111-remove-advisor-callsite-override",
+      "112-remove-advisor-callsite-override",
     );
     expect(removeAdvisorCallsiteOverrideMigration.description).toBe(
       "Remove the stale advisor entry from llm.callSites (advisor call site removed)",

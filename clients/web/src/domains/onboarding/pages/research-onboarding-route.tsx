@@ -33,6 +33,7 @@ import { buildResearchPrompt } from "@/domains/onboarding/research-prompt";
 import { useBackgroundHatch } from "@/domains/onboarding/use-background-hatch";
 import { useResearchRunner } from "@/domains/onboarding/research-runner";
 import { scheduleCheckin } from "@/domains/onboarding/checkin-scheduler";
+import { GOOGLE_CALENDAR_EVENTS_SCOPE } from "@/domains/onboarding/hooks/use-google-calendar-connect";
 import { formatCheckinTime } from "@/domains/onboarding/format-checkin-time";
 import { useOnboardingFocusStore } from "@/stores/onboarding-focus-store";
 import {
@@ -74,6 +75,8 @@ export function ResearchOnboardingRoute() {
   const exitFocus = useOnboardingFocusStore.use.exitFocus();
   const setPendingAvatarTraits =
     useOnboardingFocusStore.use.setPendingAvatarTraits();
+  const requestSidebarCollapse =
+    useOnboardingFocusStore.use.requestSidebarCollapse();
   // Belt-and-suspenders gate: the spike lives at a dedicated path AND behind
   // this flag (off by default; enable locally via the feature-flags panel).
   const enabled = useClientFeatureFlagStore.use.researchOnboarding();
@@ -123,6 +126,12 @@ export function ResearchOnboardingRoute() {
   // True while the booking request is in flight, so the confirmation step can
   // hold (capped) until the booked time is known instead of advancing early.
   const [checkinPending, setCheckinPending] = useState(false);
+  // Set when the Google grant landed WITHOUT the calendar.events scope (the user
+  // didn't tick the calendar box on Google's granular-consent screen). The
+  // connection succeeds but no event can be booked, so we keep the user on the
+  // "let's chat tomorrow" step with a recoverable re-prompt instead of advancing
+  // to a false confirmation.
+  const [missingCalendarScope, setMissingCalendarScope] = useState(false);
   // Bumped by the integration step's coin to jolt the bottom eyes.
   const [eyesBump, setEyesBump] = useState(0);
   // Extra edge characters revealed so far — grows as the looking-you-up
@@ -237,6 +246,8 @@ export function ResearchOnboardingRoute() {
     if (isResearch) enterFocus();
     // No auto-sent first message when skipping, so don't arm the expectation.
     if (!skip) lifecycleService.markExpectingFirstMessage();
+    // Collapse the side panel so the workspace opens focused on the new chat.
+    requestSidebarCollapse();
     // Pin the refresh to the background-hatched assistant so the handoff targets
     // it (not a previously-selected one) and doesn't trigger a second hatch.
     void lifecycleService
@@ -269,7 +280,28 @@ export function ResearchOnboardingRoute() {
   // Day-2 check-in: once the Google Calendar grant lands, fire the check-in
   // prompt into its own conversation (best-effort, never blocks) and advance to
   // the "Meeting Created!" confirmation.
-  function handleCheckinConnected() {
+  //
+  // The grant can "connect" without the calendar.events scope when the user
+  // skips the calendar checkbox on Google's granular-consent screen. That's a
+  // recoverable user error — not a transient daemon failure — so hold on this
+  // step with a re-prompt rather than booking nothing and showing a false
+  // confirmation.
+  //
+  // Only block on a POSITIVE denial: a populated scope list that lacks
+  // calendar.events (a real denial still carries the identity scopes, so it's
+  // never empty). An empty list is ambiguous — the connection row may not have
+  // synced yet, the fetch may have failed, or a legacy connection may omit
+  // scope data — so treat it as unknown and fall through to the best-effort
+  // schedule. This mirrors the daemon resolver, which rejects only when a
+  // connection positively lacks a required scope and never on unknown data.
+  function handleCheckinConnected(scopes: string[]) {
+    const calendarDenied =
+      scopes.length > 0 && !scopes.includes(GOOGLE_CALENDAR_EVENTS_SCOPE);
+    if (calendarDenied) {
+      setMissingCalendarScope(true);
+      return;
+    }
+    setMissingCalendarScope(false);
     if (hatchedAssistantId && formValues) {
       const fullName = [formValues.firstName.trim(), formValues.lastName.trim()]
         .filter(Boolean)
@@ -355,7 +387,12 @@ export function ResearchOnboardingRoute() {
             assistantId={hatchedAssistantId}
             assistantReady={hatchReady}
             onConnected={handleCheckinConnected}
-            onSkip={() => goForwardTo("looking")}
+            missingCalendarScope={missingCalendarScope}
+            onRetry={() => setMissingCalendarScope(false)}
+            onSkip={() => {
+              setMissingCalendarScope(false);
+              goForwardTo("looking");
+            }}
             onBack={() => goBackTo("integration")}
             onForward={onForward}
           />
