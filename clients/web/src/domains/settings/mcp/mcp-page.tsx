@@ -150,6 +150,7 @@ function McpPageInner() {
         toast.error(`Authentication polling failed for ${serverId}`);
       } finally {
         setAuthenticatingServerId(null);
+        invalidateAll();
       }
     },
     [assistantId, invalidateAll],
@@ -179,6 +180,7 @@ function McpPageInner() {
       command?: string;
       args?: string[];
       headers?: Record<string, string>;
+      autoAuth?: boolean;
     }) => {
       setIsAdding(true);
       try {
@@ -188,11 +190,16 @@ function McpPageInner() {
         setAddModalOpen(false);
       } catch {
         toast.error(`Failed to add ${config.name}`);
-      } finally {
         setIsAdding(false);
+        return;
+      }
+      setIsAdding(false);
+
+      if (config.autoAuth) {
+        void handleAuthenticate(config.name);
       }
     },
-    [assistantId, invalidateAll],
+    [assistantId, invalidateAll, handleAuthenticate],
   );
 
   const handleSave = useCallback(
