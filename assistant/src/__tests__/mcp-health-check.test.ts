@@ -58,6 +58,7 @@ mock.module("../mcp/mcp-auth-state.js", () => ({
 }));
 
 mock.module("../mcp/mcp-oauth-provider.js", () => ({
+  hasMcpOAuthTokens: async () => false,
   deleteMcpOAuthCredentials: async () => ({ ok: true, failedKeys: [] }),
 }));
 
