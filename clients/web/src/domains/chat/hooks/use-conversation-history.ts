@@ -260,8 +260,10 @@ export function useConversationHistory({
       setIsLoadingHistory(false);
     }
 
-    // Reconstruct subagent state from history notifications.
-    const notifications = pagination.latestPage?.subagentNotifications;
+    // Reconstruct subagent state from notifications across all loaded pages —
+    // not just the latest page, or a subagent whose notification is in an older
+    // page (e.g. one aborted early) gets an avatar badge but no inline row.
+    const notifications = pagination.subagentNotifications;
     if (notifications && notifications.length > 0) {
       const deduped = new Map<
         string,
@@ -337,6 +339,7 @@ export function useConversationHistory({
     pagination.dataUpdatedAt,
     pagination.messages,
     pagination.latestPage,
+    pagination.subagentNotifications,
     pagination.hasMore,
     pagination.oldestLoadedTimestamp,
     pagination.isFetchingOlderPages,
