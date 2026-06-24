@@ -74,6 +74,7 @@ import {
   resolveSigningKey,
 } from "../runtime/auth/token-service.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
+import { warmLocalGuardianPrincipalCache } from "../runtime/local-actor-identity.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
 import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
 import {
@@ -824,6 +825,16 @@ export async function runDaemon(): Promise<void> {
 
     await server.start();
     log.info("Daemon startup: DaemonServer started");
+
+    // Warm the gateway guardian-delivery cache so the SSE eager-subscribe path
+    // (sync, IO-free) resolves the local actor principal on the FIRST client
+    // registration. Without this, a cold cache regresses host-proxy same-user
+    // targeting until a later reconnect. Non-blocking: failures aren't cached
+    // and the async hot paths re-warm on their next read.
+    void warmLocalGuardianPrincipalCache().catch((err) =>
+      log.warn({ err }, "Guardian principal cache warm failed — continuing"),
+    );
+
     startDiskPressureGuardForLifecycle();
     startOrphanReaper();
     startEventLoopWatchdog();
