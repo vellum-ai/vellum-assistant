@@ -1,0 +1,494 @@
+/**
+ * Tests for the incremental detail-map projector
+ * (`createIncrementalDetailProjection`).
+ *
+ * The core safety net is the **no-drift property test**: it drives the projector
+ * one store-mutation at a time (append vs text-coalesce mutate-last, exactly as
+ * `subagent-store.receiveEvent` does) and asserts the incremental `Map` always
+ * deep-equals a full `buildSubagentStepDetails` rebuild — so the O(Δ) replay can
+ * never diverge from the O(n) source of truth, including failed web_search
+ * payloads keyed by `toolUseId` and thinking payloads keyed by event id.
+ */
+
+import { describe, expect, test } from "bun:test";
+
+import { createIncrementalDetailProjection } from "@/domains/chat/subagent-detail-projection";
+import {
+  applyDetailEvent,
+  buildSubagentStepDetails,
+} from "@/domains/chat/hooks/use-subagent-card-data";
+import type { SubagentTimelineEvent } from "@/domains/chat/subagent-store";
+import type { ToolDetailPayload } from "@/stores/viewer-store";
+
+const NOW = 1700000000000;
+
+let eventSeq = 0;
+function nextEventId(): string {
+  return `de-${eventSeq++}`;
+}
+
+function makeEvent(
+  overrides: Partial<SubagentTimelineEvent> & {
+    type: SubagentTimelineEvent["type"];
+  },
+  ts: number = NOW,
+): SubagentTimelineEvent {
+  return {
+    id: nextEventId(),
+    content: "",
+    timestamp: ts,
+    ...overrides,
+  };
+}
+
+/**
+ * Stable, order-independent serialization of a detail map for deep comparison:
+ * sort by key, then compare key→payload pairs. (`Map` equality in bun's `toEqual`
+ * is order-sensitive on insertion; the incremental and full paths build the same
+ * payloads but we compare the canonical content, not insertion order.)
+ */
+function mapToSortedEntries(
+  map: Map<string, ToolDetailPayload>,
+): Array<[string, ToolDetailPayload]> {
+  return [...map.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+function expectMapsEqual(
+  incremental: Map<string, ToolDetailPayload>,
+  full: Map<string, ToolDetailPayload>,
+): void {
+  expect(mapToSortedEntries(incremental)).toEqual(mapToSortedEntries(full));
+}
+
+// ---------------------------------------------------------------------------
+// Store-mutation simulator — mirrors `subagent-store.receiveEvent`'s two
+// incremental array shapes so the projector is fed precisely what it sees live.
+// ---------------------------------------------------------------------------
+
+/** Append a fresh event, returning a NEW array (prior elements shared). */
+function appendEvent(
+  events: SubagentTimelineEvent[],
+  event: SubagentTimelineEvent,
+): SubagentTimelineEvent[] {
+  return [...events, event];
+}
+
+/**
+ * Grow the trailing text event's content by `delta`, returning a NEW array with
+ * only the last element replaced (same `id`, longer `content`) — the store's
+ * "Mutate-last" text-coalescing shape. Falls back to appending a fresh text
+ * event when the tail isn't text (matching `receiveEvent`).
+ */
+function coalesceText(
+  events: SubagentTimelineEvent[],
+  delta: string,
+  ts: number,
+): SubagentTimelineEvent[] {
+  const last = events[events.length - 1];
+  if (last && last.type === "text") {
+    const updated = [...events];
+    updated[updated.length - 1] = {
+      ...last,
+      content: last.content + delta,
+    };
+    return updated;
+  }
+  return appendEvent(events, makeEvent({ type: "text", content: delta }, ts));
+}
+
+// ---------------------------------------------------------------------------
+// Per-diff-class unit tests
+// ---------------------------------------------------------------------------
+
+describe("createIncrementalDetailProjection — per-diff-class", () => {
+  test("first call / empty cache builds via full rebuild", () => {
+    const p = createIncrementalDetailProjection();
+    const events: SubagentTimelineEvent[] = [
+      makeEvent({ type: "text", content: "Investigating" }),
+    ];
+    expectMapsEqual(p.project(events), buildSubagentStepDetails(events));
+  });
+
+  test("identity: same array reference returns the cached Map by reference", () => {
+    const p = createIncrementalDetailProjection();
+    const events: SubagentTimelineEvent[] = [
+      makeEvent({ type: "text", content: "hi" }),
+    ];
+    const first = p.project(events);
+    const second = p.project(events);
+    expect(second).toBe(first);
+  });
+
+  test("thinking payload is keyed by the source event id", () => {
+    const p = createIncrementalDetailProjection();
+    const textEv = makeEvent({ type: "text", content: "deep reasoning here" });
+    const events = [textEv];
+    const map = p.project(events);
+    const payload = map.get(textEv.id);
+    expect(payload?.kind).toBe("thinking");
+    expect(payload?.toolCallId).toBe(textEv.id);
+    expect(payload?.thinkingText).toBe("deep reasoning here");
+  });
+
+  test("append-1 text: new thinking payload keyed by event id", () => {
+    const p = createIncrementalDetailProjection();
+    let events: SubagentTimelineEvent[] = [
+      makeEvent({ type: "text", content: "first" }),
+    ];
+    p.project(events);
+    const second = makeEvent({ type: "text", content: "second" });
+    events = appendEvent(events, second);
+    const map = p.project(events);
+    expectMapsEqual(map, buildSubagentStepDetails(events));
+    expect(map.get(second.id)?.thinkingText).toBe("second");
+  });
+
+  test("append-1 tool_call: new in-flight tool payload keyed by toolUseId", () => {
+    const p = createIncrementalDetailProjection();
+    let events: SubagentTimelineEvent[] = [
+      makeEvent({ type: "text", content: "thinking" }),
+    ];
+    p.project(events);
+    events = appendEvent(
+      events,
+      makeEvent({ type: "tool_call", toolName: "bash", toolUseId: "tu-1", content: "ls" }),
+    );
+    const map = p.project(events);
+    expectMapsEqual(map, buildSubagentStepDetails(events));
+    expect(map.get("tu-1")?.status).toBe("running");
+  });
+
+  test("append-1 tool_result closes an earlier in-flight tool (full untruncated result)", () => {
+    const p = createIncrementalDetailProjection();
+    let events: SubagentTimelineEvent[] = [
+      makeEvent({ type: "tool_call", toolName: "bash", toolUseId: "tu-1", content: "ls", timestamp: NOW }),
+      makeEvent({ type: "text", content: "waiting" }, NOW + 100),
+    ];
+    p.project(events);
+    events = appendEvent(
+      events,
+      makeEvent({ type: "tool_result", toolName: "bash", toolUseId: "tu-1", result: "file-a\nfile-b", timestamp: NOW + 2500 }),
+    );
+    const map = p.project(events);
+    expectMapsEqual(map, buildSubagentStepDetails(events));
+    expect(map.get("tu-1")?.status).toBe("completed");
+    expect(map.get("tu-1")?.result).toBe("file-a\nfile-b");
+  });
+
+  test("append-1 error closes in-flight tool as error", () => {
+    const p = createIncrementalDetailProjection();
+    let events: SubagentTimelineEvent[] = [
+      makeEvent({ type: "tool_call", toolName: "bash", toolUseId: "tu-1", content: "rm -rf /", timestamp: NOW }),
+    ];
+    p.project(events);
+    events = appendEvent(
+      events,
+      makeEvent({ type: "error", toolName: "bash", toolUseId: "tu-1", content: "permission denied", result: "permission denied", isError: true, timestamp: NOW + 500 }),
+    );
+    const map = p.project(events);
+    expectMapsEqual(map, buildSubagentStepDetails(events));
+    expect(map.get("tu-1")?.status).toBe("error");
+  });
+
+  test("mutate-last thinking payload grows with the full untruncated content", () => {
+    const p = createIncrementalDetailProjection();
+    let events: SubagentTimelineEvent[] = [
+      makeEvent({ type: "text", content: "short" }),
+    ];
+    const first = p.project(events);
+    const id = events[0]!.id;
+    expect(first.get(id)?.thinkingText).toBe("short");
+    // Grow past 160 chars — unlike steps, the thinking payload carries the FULL
+    // content, so it keeps changing every delta (no clamp shortcut).
+    const tail = "x".repeat(300);
+    events = coalesceText(events, tail, events[0]!.timestamp);
+    const second = p.project(events);
+    expectMapsEqual(second, buildSubagentStepDetails(events));
+    expect(second.get(id)?.thinkingText).toBe("short" + tail);
+  });
+
+  test("full-replace (history hydration) falls back to a full rebuild", () => {
+    const p = createIncrementalDetailProjection();
+    p.project([makeEvent({ type: "text", content: "live" })]);
+    const hydrated: SubagentTimelineEvent[] = [
+      makeEvent({ type: "text", content: "hydrated-1" }),
+      makeEvent({ type: "tool_call", toolName: "bash", toolUseId: "h-1", content: "echo" }),
+    ];
+    expectMapsEqual(p.project(hydrated), buildSubagentStepDetails(hydrated));
+  });
+
+  test("subagent switch (totally different array) falls back to a full rebuild", () => {
+    const p = createIncrementalDetailProjection();
+    p.project([
+      makeEvent({ type: "tool_call", toolName: "web_search", toolUseId: "ws-a", input: { query: "a" } }),
+    ]);
+    const other: SubagentTimelineEvent[] = [
+      makeEvent({ type: "text", content: "different subagent" }),
+      makeEvent({ type: "tool_call", toolName: "web_fetch", toolUseId: "wf-b", input: { url: "https://x.dev" } }),
+    ];
+    expectMapsEqual(p.project(other), buildSubagentStepDetails(other));
+  });
+
+  test("truncation (shorter array) falls back to a full rebuild", () => {
+    const p = createIncrementalDetailProjection();
+    const full: SubagentTimelineEvent[] = [
+      makeEvent({ type: "text", content: "a" }),
+      makeEvent({ type: "text", content: "b" }),
+    ];
+    p.project(full);
+    const truncated = full.slice(0, 1);
+    expectMapsEqual(p.project(truncated), buildSubagentStepDetails(truncated));
+  });
+
+  test("failed web_search payload is keyed by toolUseId and carries the full error", () => {
+    const p = createIncrementalDetailProjection();
+    let events: SubagentTimelineEvent[] = [
+      makeEvent({ type: "tool_call", toolName: "web_search", toolUseId: "ws-1", input: { query: "vellum" }, timestamp: NOW }),
+    ];
+    p.project(events);
+    events = appendEvent(
+      events,
+      makeEvent({ type: "tool_result", toolName: "web_search", toolUseId: "ws-1", isError: true, result: "upstream 503 backend overloaded", content: "search failed", timestamp: NOW + 900 }),
+    );
+    const map = p.project(events);
+    expectMapsEqual(map, buildSubagentStepDetails(events));
+    const failed = map.get("ws-1");
+    expect(failed?.kind).toBe("web_search");
+    expect(failed?.status).toBe("error");
+    expect(failed?.result).toBe("upstream 503 backend overloaded");
+  });
+
+  test("successful web_search payload flips to completed with parsed sources", () => {
+    const p = createIncrementalDetailProjection();
+    let events: SubagentTimelineEvent[] = [
+      makeEvent({ type: "tool_call", toolName: "web_search", toolUseId: "ws-2", input: { query: "vellum" }, timestamp: NOW }),
+    ];
+    p.project(events);
+    events = appendEvent(
+      events,
+      makeEvent({ type: "tool_result", toolName: "web_search", toolUseId: "ws-2", result: "Vellum\nhttps://vellum.ai", timestamp: NOW + 900 }),
+    );
+    const map = p.project(events);
+    expectMapsEqual(map, buildSubagentStepDetails(events));
+    const search = map.get("ws-2");
+    expect(search?.status).toBe("completed");
+    expect(search?.searchResults?.length).toBeGreaterThan(0);
+  });
+
+  test("tool_call with an empty id is skipped (not keyed/clickable)", () => {
+    const p = createIncrementalDetailProjection();
+    let events: SubagentTimelineEvent[] = [
+      makeEvent({ type: "text", content: "thinking" }),
+    ];
+    p.project(events);
+    events = appendEvent(
+      events,
+      makeEvent({ type: "tool_call", toolName: "bash", content: "ls" }),
+    );
+    const map = p.project(events);
+    expectMapsEqual(map, buildSubagentStepDetails(events));
+    expect(map.has("")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Deterministic event-stream generator (tiny LCG; no Math.random).
+// ---------------------------------------------------------------------------
+
+/** Numerical Recipes LCG — deterministic, seedable. */
+function makeRng(seed: number) {
+  let state = (seed >>> 0) || 1;
+  return () => {
+    state = (Math.imul(1664525, state) + 1013904223) >>> 0;
+    return state / 0xffffffff;
+  };
+}
+
+type Mutation =
+  | { kind: "append"; event: SubagentTimelineEvent }
+  | { kind: "coalesce"; delta: string };
+
+/**
+ * Generate a deterministic sequence of store mutations: text deltas (coalesced
+ * when consecutive), tool calls, their results/errors, and web_search/web_fetch
+ * — covering every reducer branch. Tracks open tool ids so results/errors close
+ * real in-flight calls.
+ */
+function generateStream(seed: number, n: number): Mutation[] {
+  const rng = makeRng(seed);
+  const mutations: Mutation[] = [];
+  const openTools: Array<{ id: string; toolName: string }> = [];
+  let lastWasText = false;
+  let ts = NOW;
+
+  for (let i = 0; i < n; i++) {
+    ts += 1 + Math.floor(rng() * 50);
+    const roll = rng();
+
+    // Bias toward text + appends so coalescing fires often.
+    if (roll < 0.45) {
+      const delta = "w".repeat(1 + Math.floor(rng() * 40));
+      if (lastWasText) {
+        mutations.push({ kind: "coalesce", delta });
+      } else {
+        mutations.push({ kind: "append", event: makeEvent({ type: "text", content: delta }, ts) });
+        lastWasText = true;
+      }
+      continue;
+    }
+
+    lastWasText = false;
+
+    if (roll < 0.7) {
+      // Open a tool call (regular / web_search / web_fetch).
+      const toolRoll = rng();
+      const id = `t-${seed}-${i}`;
+      if (toolRoll < 0.2) {
+        mutations.push({
+          kind: "append",
+          event: makeEvent({ type: "tool_call", toolName: "web_search", toolUseId: id, input: { query: `q${i}` } }, ts),
+        });
+        openTools.push({ id, toolName: "web_search" });
+      } else if (toolRoll < 0.35) {
+        // web_fetch has no follow-up — keyed by id, no open tracking.
+        mutations.push({
+          kind: "append",
+          event: makeEvent({ type: "tool_call", toolName: "web_fetch", toolUseId: id, input: { url: `https://ex${i}.dev` } }, ts),
+        });
+      } else {
+        const toolName = toolRoll < 0.6 ? "bash" : "str_replace_editor";
+        mutations.push({
+          kind: "append",
+          event: makeEvent({ type: "tool_call", toolName, toolUseId: id, content: `cmd-${i}` }, ts),
+        });
+        openTools.push({ id, toolName });
+      }
+      continue;
+    }
+
+    if (roll < 0.9 && openTools.length > 0) {
+      // Close an open tool with a result (maybe an error result).
+      const idx = Math.floor(rng() * openTools.length);
+      const open = openTools.splice(idx, 1)[0]!;
+      const isError = rng() < 0.25;
+      mutations.push({
+        kind: "append",
+        event: makeEvent(
+          {
+            type: "tool_result",
+            toolName: open.toolName,
+            toolUseId: open.id,
+            isError,
+            result: isError ? "boom" : `result-${i}`,
+            content: `result-${i}`,
+          },
+          ts,
+        ),
+      });
+      continue;
+    }
+
+    if (openTools.length > 0) {
+      // Close an open tool with a raw error event.
+      const idx = Math.floor(rng() * openTools.length);
+      const open = openTools.splice(idx, 1)[0]!;
+      mutations.push({
+        kind: "append",
+        event: makeEvent({ type: "error", toolName: open.toolName, toolUseId: open.id, isError: true, result: `err-${i}`, content: `err-${i}` }, ts),
+      });
+      continue;
+    }
+
+    // Nothing open — emit a standalone error row.
+    mutations.push({
+      kind: "append",
+      event: makeEvent({ type: "error", content: `err-${i}` }, ts),
+    });
+  }
+
+  return mutations;
+}
+
+function applyMutation(
+  events: SubagentTimelineEvent[],
+  m: Mutation,
+): SubagentTimelineEvent[] {
+  return m.kind === "append"
+    ? appendEvent(events, m.event)
+    : coalesceText(events, m.delta, NOW);
+}
+
+// ---------------------------------------------------------------------------
+// No-drift property test — the core safety net.
+// ---------------------------------------------------------------------------
+
+describe("createIncrementalDetailProjection — no-drift property", () => {
+  const seeds = [1, 7, 42, 1337, 99999];
+  for (const seed of seeds) {
+    test(`seed ${seed}: incremental Map deep-equals full rebuild after every mutation (N=300)`, () => {
+      const projector = createIncrementalDetailProjection();
+      const mutations = generateStream(seed, 300);
+      let events: SubagentTimelineEvent[] = [];
+      // Prime with the empty array.
+      projector.project(events);
+
+      for (let i = 0; i < mutations.length; i++) {
+        events = applyMutation(events, mutations[i]!);
+        const incremental = projector.project(events);
+        const full = buildSubagentStepDetails(events);
+        expectMapsEqual(incremental, full);
+      }
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Incremental-work guard — reducer invocations must be ~O(N), not O(N²).
+// ---------------------------------------------------------------------------
+
+describe("createIncrementalDetailProjection — incremental-work guard", () => {
+  function countReducerCalls(n: number): number {
+    let calls = 0;
+    const counting = (
+      payloads: ToolDetailPayload[],
+      meta: Array<{ startTs: number; running: boolean }>,
+      event: SubagentTimelineEvent,
+    ) => {
+      calls++;
+      applyDetailEvent(payloads, meta, event);
+    };
+    const projector = createIncrementalDetailProjection(counting);
+    const mutations = generateStream(2024, n);
+
+    let events: SubagentTimelineEvent[] = [];
+    projector.project(events);
+    for (const m of mutations) {
+      events = applyMutation(events, m);
+      projector.project(events);
+    }
+    return calls;
+  }
+
+  for (const n of [50, 150, 300]) {
+    test(`N=${n}: reducer invocations are ~linear (≤ N), not O(N²)`, () => {
+      const calls = countReducerCalls(n);
+      // Each store mutation replays at most ONE event through the reducer
+      // (append-1 → 1 call; mutate-last → exactly 1 re-derive call). So the
+      // total is bounded by the number of mutations, far below N² for large N.
+      expect(calls).toBeLessThanOrEqual(n);
+      // Sanity: O(N²) would be ~N*N/2; assert we're nowhere near it.
+      expect(calls).toBeLessThan((n * n) / 4);
+    });
+  }
+
+  test("reducer call count grows linearly across N ∈ {50,150,300}", () => {
+    const c50 = countReducerCalls(50);
+    const c150 = countReducerCalls(150);
+    const c300 = countReducerCalls(300);
+    // Linear growth: tripling N roughly triples the work (within a small band).
+    // Quadratic growth would make c300/c50 ≈ 36, not ≈ 6.
+    expect(c300 / Math.max(c50, 1)).toBeLessThan(12);
+    expect(c150).toBeGreaterThan(c50);
+    expect(c300).toBeGreaterThan(c150);
+  });
+});

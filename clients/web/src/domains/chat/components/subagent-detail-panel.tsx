@@ -35,8 +35,8 @@ import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/
 import { ToolDetailBody } from "@/domains/chat/components/tool-detail-panel";
 import { WebFetchDetailView } from "@/domains/chat/components/web-fetch/web-fetch-detail-view";
 import { WebSearchDetailView } from "@/domains/chat/components/web-search/web-search-detail-view";
-import { buildSubagentStepDetails } from "@/domains/chat/hooks/use-subagent-card-data";
 import { useSubagentSteps } from "@/domains/chat/subagent-step-projection";
+import { useSubagentStepDetails } from "@/domains/chat/subagent-detail-projection";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 /**
@@ -121,10 +121,13 @@ export function SubagentDetailPanel({
   // `mapDetailEvents` carries through); thinking/text steps key on the source
   // event id and carry the full, un-truncated reasoning. Steps with no entry
   // here render as non-clickable pills — a graceful fallback, not an error.
-  const stepDetails = useMemo(
-    () => buildSubagentStepDetails(entry.events),
-    [entry.events],
-  );
+  //
+  // Built incrementally (mirrors `useSubagentSteps`): the projector replays only
+  // the events that changed since the last render through the shared
+  // `applyDetailEvent` reducer, with an O(n) full-rebuild fallback. This map is
+  // read lazily (only on pill click), so the win is avoiding the O(n) re-walk
+  // per streamed event, not re-render avoidance.
+  const stepDetails = useSubagentStepDetails(entry.events);
 
   // Which step's detail (if any) is shown nested inside this panel — the key
   // into `stepDetails` (a tool call or a thinking segment), or `null` to show
