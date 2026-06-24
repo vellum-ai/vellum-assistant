@@ -35,9 +35,13 @@
  *      maintainer-owned, so this stage NEVER edits it — the maintainer fixes
  *      dangling entries at the next consolidation pass.
  *   5. **Skill-link validation** — read each indexed concept page's `skill:`
- *      frontmatter and report pages whose link points at a skill id no longer in
- *      the catalog (removed or renamed) via the log + outcome. Report-only like
- *      core-set validation — the pages are never auto-edited.
+ *      frontmatter and report pages whose link points at a skill that backs no
+ *      `skills/<id>` capability row (removed or renamed) via the log + outcome.
+ *      The valid set is the indexed `skills/<id>` capability slugs — the same
+ *      set the edge derivation resolves `fact → skills/<id>` edges against — so
+ *      an uninstalled first-party catalog skill with a live capability row is not
+ *      false-flagged. Report-only like core-set validation — the pages are never
+ *      auto-edited.
  *   6. **Lane invalidation** — `invalidateLanes()` so the next turn rebuilds the
  *      in-memory section index, needle, and edge graph from the freshly-updated
  *      pages.
@@ -71,6 +75,10 @@ import { EmbeddingBillingBlockError } from "../../../memory/embedding-billing-br
 import type { MemoryJob } from "../../../memory/jobs-store.js";
 import { getPageIndex } from "../../../memory/v2/page-index.js";
 import { readPage } from "../../../memory/v2/page-store.js";
+import {
+  isSkillSlug,
+  SKILL_SLUG_PREFIX,
+} from "../../../memory/v2/skill-store.js";
 import { getLogger } from "../../../util/logger.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
 import { capabilityOrDiskBody, isCapabilitySlug } from "./capabilities.js";
@@ -163,11 +171,17 @@ export interface MaintainJobDeps {
    */
   loadCoreSet: () => Slug[];
   /**
-   * The live skill ids from the skill catalog. The skill-link validation stage
-   * diffs each indexed page's `skill:` frontmatter against this set to find
-   * facts whose `skill:` points at a removed or renamed skill.
+   * Extra valid skill ids beyond the indexed `skills/<id>` capability set — the
+   * local skill catalog. The skill-link validation stage treats a fact's
+   * `skill: <id>` as orphaned ONLY when `skills/<id>` is absent from the indexed
+   * capability rows (the set the edge derivation resolves against; see
+   * {@link addEdge}), UNIONED with these ids as belt-and-suspenders. The indexed
+   * set is the source of truth: uninstalled first-party catalog skills are
+   * seeded as live `skills/<id>` rows even though they are not in the local
+   * catalog, so validating against the catalog alone false-flags a fact that
+   * validly links such a skill.
    */
-  loadSkillIds: () => string[];
+  loadValidSkillIds: () => string[];
   /**
    * A page's `skill:` frontmatter value (a bare skill id) or `undefined` when
    * the page carries no `skill:` link. Reads through the page store rather than
@@ -264,9 +278,11 @@ export interface MaintainOutcome {
    */
   danglingCoreSlugs: Slug[];
   /**
-   * Indexed concept pages whose `skill:` frontmatter link points at a skill id
-   * no longer in the catalog (removed or renamed). Reported for review — the
-   * pages themselves are never mutated.
+   * Indexed concept pages whose `skill:` frontmatter link points at a skill that
+   * backs no `skills/<id>` capability row in the index (removed or renamed).
+   * Validated against the indexed capability set (the edge-target source of
+   * truth), not just the local catalog. Reported for review — the pages
+   * themselves are never mutated.
    */
   orphanSkillSlugs: Slug[];
   /** Whether the in-memory lanes were invalidated. */
@@ -381,7 +397,7 @@ function defaultDeps(config: AssistantConfig): MaintainJobDeps {
     listSectionArticles: () => realListSectionArticles(config),
     listIndexedSlugs: () => selectAllPagesFromWorkspace(workspaceDir),
     loadCoreSet: () => realLoadCoreSet(workspaceDir),
-    loadSkillIds: () => loadSkillCatalog().map((s) => s.id),
+    loadValidSkillIds: () => loadSkillCatalog().map((s) => s.id),
     readPageSkillLink: (slug) =>
       readPageSkillLinkFromWorkspace(workspaceDir, slug),
     invalidateLanes: realInvalidateLanes,
@@ -803,27 +819,46 @@ export async function maintainJob(
     );
   }
 
-  // Stage 5: validate fact `skill:` links against the live skill catalog. Read
-  // each indexed concept page's `skill:` frontmatter and REPORT pages whose link
-  // points at a skill id no longer in the catalog (removed or renamed) through
-  // the log + outcome. Synthetic capability rows carry no `skill:` link, so they
+  // Stage 5: validate fact `skill:` links against the indexed `skills/<id>`
+  // capability set. Read each indexed concept page's `skill:` frontmatter and
+  // REPORT pages whose link points at a skill that backs no `skills/<id>`
+  // capability row (removed or renamed) through the log + outcome.
+  //
+  // The valid-skill set is the `skills/<id>` slugs present in the page index
+  // (prefix stripped), NOT just `loadValidSkillIds()` (the local catalog). This
+  // is the exact set the edge derivation resolves a `fact → skills/<id>` edge
+  // against (see `edge.ts` `addEdge`): uninstalled first-party catalog skills are
+  // seeded into the corpus as live `skills/<id>` rows even though they are absent
+  // from the local catalog, so validating against the catalog alone would
+  // false-flag a fact that validly links such a skill. The catalog ids are
+  // unioned in as belt-and-suspenders, but the indexed capability set is the
+  // source of truth. Synthetic capability rows carry no `skill:` link, so they
   // are skipped. Report-only, mirroring core-set validation: the pages are never
   // auto-edited; the maintainer fixes a dangling link at the next consolidation.
   try {
-    const skillIds = deps.loadSkillIds();
-    if (skillIds.length > 0) {
-      const liveSkills = new Set(skillIds);
+    const indexedSlugs = await deps.listIndexedSlugs();
+    // The set the edge lane actually resolves `skills/<id>` targets against:
+    // every `skills/<id>` capability row in the index, by bare id.
+    const validSkills = new Set<string>(
+      indexedSlugs
+        .filter((slug) => isSkillSlug(slug))
+        .map((slug) => slug.slice(SKILL_SLUG_PREFIX.length)),
+    );
+    // Union the local catalog ids as belt-and-suspenders.
+    for (const id of deps.loadValidSkillIds()) validSkills.add(id);
+
+    if (validSkills.size > 0) {
       const orphans: Slug[] = [];
-      for (const slug of await deps.listIndexedSlugs()) {
+      for (const slug of indexedSlugs) {
         if (isCapabilitySlug(slug)) continue;
         const skill = await deps.readPageSkillLink(slug);
-        if (skill && !liveSkills.has(skill)) orphans.push(slug);
+        if (skill && !validSkills.has(skill)) orphans.push(slug);
       }
       outcome.orphanSkillSlugs = orphans;
       if (orphans.length > 0) {
         log.warn(
           { orphans },
-          "memory-v3 maintain: pages link a `skill:` missing from the catalog — review the links at the next consolidation",
+          "memory-v3 maintain: pages link a `skill:` with no indexed capability row — review the links at the next consolidation",
         );
       }
     }

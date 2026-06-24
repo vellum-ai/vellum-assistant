@@ -96,9 +96,10 @@ describe("maintainJob", () => {
       // Core-validation stage off by default: empty core set ⇒ nothing to
       // check. The dedicated core tests below override this.
       loadCoreSet: () => [],
-      // Skill-validation stage off by default: empty skill catalog ⇒ nothing to
-      // check. The dedicated skill-link tests below override these.
-      loadSkillIds: () => [],
+      // Skill-validation stage off by default: empty catalog AND no indexed
+      // `skills/<id>` rows ⇒ nothing to check. The dedicated skill-link tests
+      // below override these.
+      loadValidSkillIds: () => [],
       readPageSkillLink: async () => undefined,
       invalidateLanes: () => {
         calls.invalidate += 1;
@@ -334,8 +335,10 @@ describe("maintainJob", () => {
     const outcome = await maintainJob(JOB, CONFIG, d);
     expect(outcome.danglingCoreSlugs).toEqual([]);
     // The reconcile and prune stages each read the index once; the empty core
-    // stage adds no further read.
-    expect(indexReads).toBe(2);
+    // stage adds no further read. The skill-link stage always reads the index to
+    // derive the indexed `skills/<id>` capability set (its valid-skill source of
+    // truth), so it adds one read even when the local catalog is empty.
+    expect(indexReads).toBe(3);
   });
 
   test("a thrown core-validation stage is contained and does not abort lane invalidation", async () => {
@@ -416,10 +419,10 @@ describe("maintainJob", () => {
     expect(calls.upserted).toEqual([]);
   });
 
-  test("a fact linking a live skill reports no orphan", async () => {
+  test("a fact linking a live catalog skill reports no orphan", async () => {
     setOverridesForTesting({ [FLAG_SHADOW]: true });
     const { deps: d, calls } = deps({
-      loadSkillIds: () => ["meet-join"],
+      loadValidSkillIds: () => ["meet-join"],
       listIndexedSlugs: async () => ["fact-a"],
       readPageSkillLink: async (slug) =>
         slug === "fact-a" ? "meet-join" : undefined,
@@ -440,7 +443,7 @@ describe("maintainJob", () => {
     // synthetic capability row carries no `skill:` link and is skipped. Only the
     // dangling fact is reported.
     const { deps: d, calls } = deps({
-      loadSkillIds: () => ["meet-join"],
+      loadValidSkillIds: () => ["meet-join"],
       listIndexedSlugs: async () => [
         "fact-live",
         "fact-gone",
@@ -465,10 +468,56 @@ describe("maintainJob", () => {
     expect(calls.invalidate).toBe(1);
   });
 
+  test("a fact linking an uninstalled catalog skill with an indexed capability row is NOT an orphan", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    // `meet-join` is absent from the local catalog (`loadValidSkillIds` empty)
+    // but IS seeded into the corpus as a live `skills/meet-join` capability row
+    // — exactly the uninstalled-first-party-catalog case. The edge derivation
+    // resolves `fact → skills/meet-join` against that indexed row, so the fact
+    // must NOT be false-flagged.
+    const { deps: d, calls } = deps({
+      loadValidSkillIds: () => [],
+      listIndexedSlugs: async () => ["fact-a", "skills/meet-join"],
+      // The capability row is already stored, so the reconcile stage no-ops.
+      listSectionArticles: async () => ["skills/meet-join"],
+      readPageSkillLink: async (slug) =>
+        slug === "fact-a" ? "meet-join" : undefined,
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    expect(outcome.orphanSkillSlugs).toEqual([]);
+    expect(outcome.failures).toEqual([]);
+    // Report-only and read-only: no dense-store mutation.
+    expect(calls.deleted).toEqual([]);
+    expect(calls.upserted).toEqual([]);
+    expect(calls.invalidate).toBe(1);
+  });
+
+  test("a fact linking a skill absent from the indexed capability set is an orphan", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    // `removed-skill` backs no `skills/<id>` capability row and is not in the
+    // local catalog either, so the edge lane drops `fact → skills/removed-skill`
+    // — the fact is a genuine orphan and must be flagged.
+    const { deps: d, calls } = deps({
+      loadValidSkillIds: () => [],
+      listIndexedSlugs: async () => ["fact-gone", "skills/meet-join"],
+      listSectionArticles: async () => ["skills/meet-join"],
+      readPageSkillLink: async (slug) =>
+        slug === "fact-gone" ? "removed-skill" : undefined,
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    expect(outcome.orphanSkillSlugs).toEqual(["fact-gone"]);
+    expect(outcome.failures).toEqual([]);
+    expect(calls.deleted).toEqual([]);
+    expect(calls.upserted).toEqual([]);
+    expect(calls.invalidate).toBe(1);
+  });
+
   test("a thrown skill-validation stage is contained and does not abort lane invalidation", async () => {
     setOverridesForTesting({ [FLAG_SHADOW]: true });
     const { deps: d, calls } = deps({
-      loadSkillIds: () => {
+      loadValidSkillIds: () => {
         throw new Error("skill boom");
       },
     });
