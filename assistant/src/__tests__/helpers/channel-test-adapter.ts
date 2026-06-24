@@ -189,11 +189,21 @@ export function resolveLocalTrustVerdict(input: {
     !!canonicalSenderId &&
     guardian.channel.address.toLowerCase() === canonicalSenderId.toLowerCase();
 
+  // ACL columns are no longer on the slimmed ContactChannel type; read the raw
+  // row (columns still exist) so this local mirror sees status/policy/verified.
+  const memberRow = member
+    ? (getDb()
+        .select()
+        .from(contactChannels)
+        .where(eq(contactChannels.id, member.channel.id))
+        .get() ?? null)
+    : null;
+
   let trustClass: TrustClass;
   if (isGuardian) {
     trustClass = "guardian";
-  } else if (member) {
-    const status = member.channel.status;
+  } else if (memberRow) {
+    const status = memberRow.status;
     if (status === "active") trustClass = "trusted_contact";
     else if (status === "unverified" || status === "pending")
       trustClass = "unverified_contact";
@@ -212,16 +222,16 @@ export function resolveLocalTrustVerdict(input: {
     verdict.guardianDisplayName = guardian.contact.displayName;
   }
 
-  if (member) {
+  if (member && memberRow) {
     verdict.contactId = member.channel.contactId;
     verdict.channelId = member.channel.id;
     verdict.type = member.channel.type;
     verdict.address = member.channel.address;
     verdict.externalChatId = member.channel.externalChatId;
-    verdict.status = member.channel.status;
-    verdict.policy = member.channel.policy;
-    verdict.verifiedAt = member.channel.verifiedAt;
-    verdict.verifiedVia = member.channel.verifiedVia;
+    verdict.status = memberRow.status;
+    verdict.policy = memberRow.policy;
+    verdict.verifiedAt = memberRow.verifiedAt;
+    verdict.verifiedVia = memberRow.verifiedVia;
     verdict.memberDisplayName = member.contact.displayName;
   }
 

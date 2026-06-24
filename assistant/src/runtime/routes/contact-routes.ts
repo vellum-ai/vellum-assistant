@@ -54,8 +54,10 @@ function rethrowGatewayError(err: unknown): never {
 }
 
 function withGuardianNameOverride<
-  T extends { role: string; displayName: string },
+  T extends { role?: string; displayName: string },
 >(contact: T): T {
+  // `role` is gateway-owned: only the gateway-relayed read carries it. Daemon-
+  // native reads (search/contactType-filtered) omit it and skip the override.
   if (contact.role === "guardian") {
     return {
       ...contact,
@@ -81,7 +83,7 @@ function withChannelCompat<T extends { channels: { address: string }[] }>(
 /** Compose both response transforms (guardian display name + channel compat). */
 function prepareContactResponse<
   T extends {
-    role: string;
+    role?: string;
     displayName: string;
     channels: { address: string }[];
   },

@@ -59,34 +59,76 @@ function richContactForId(contactId: string | undefined) {
   if (!contactId) return undefined;
   const contact = getContact(contactId);
   if (!contact) return undefined;
+  // ACL columns live on the still-present DB rows, not the slimmed interfaces;
+  // read them raw to build the gateway-rich response the production read parses.
+  const contactRole = (
+    getSqlite()
+      .query("SELECT role FROM contacts WHERE id = ?")
+      .get(contact.id) as { role: string } | undefined
+  )?.role;
   return {
     ok: true,
     contact: {
       id: contact.id,
       displayName: contact.displayName,
-      role: contact.role,
+      role: contactRole ?? "contact",
       interactionCount: contact.interactionCount,
       createdAt: contact.createdAt,
       updatedAt: contact.updatedAt,
-      channels: contact.channels.map((c) => ({
-        id: c.id,
-        contactId: c.contactId,
-        type: c.type,
-        address: c.address,
-        isPrimary: c.isPrimary,
-        externalUserId: c.externalChatId,
-        status: c.status,
-        policy: c.policy,
-        verifiedAt: c.verifiedAt,
-        verifiedVia: c.verifiedVia,
-        lastSeenAt: c.lastSeenAt,
-        interactionCount: c.interactionCount,
-        lastInteraction: c.lastInteraction,
-        revokedReason: c.revokedReason,
-        blockedReason: c.blockedReason,
-      })),
+      channels: contact.channels.map((c) => {
+        const acl = rawChannelAcl(c.id);
+        return {
+          id: c.id,
+          contactId: c.contactId,
+          type: c.type,
+          address: c.address,
+          isPrimary: c.isPrimary,
+          externalUserId: c.externalChatId,
+          status: acl.status,
+          policy: acl.policy,
+          verifiedAt: acl.verifiedAt,
+          verifiedVia: acl.verifiedVia,
+          lastSeenAt: acl.lastSeenAt,
+          interactionCount: acl.interactionCount,
+          lastInteraction: acl.lastInteraction,
+          revokedReason: acl.revokedReason,
+          blockedReason: acl.blockedReason,
+        };
+      }),
     },
   };
+}
+
+/** Read a channel's ACL columns straight off the still-present DB row. */
+function rawChannelAcl(channelId: string) {
+  return getSqlite()
+    .query(
+      `SELECT status, policy, verified_at AS verifiedAt, verified_via AS verifiedVia,
+              last_seen_at AS lastSeenAt, interaction_count AS interactionCount,
+              last_interaction AS lastInteraction, revoked_reason AS revokedReason,
+              blocked_reason AS blockedReason
+         FROM contact_channels WHERE id = ?`,
+    )
+    .get(channelId) as {
+    status: string;
+    policy: string;
+    verifiedAt: number | null;
+    verifiedVia: string | null;
+    lastSeenAt: number | null;
+    interactionCount: number;
+    lastInteraction: number | null;
+    revokedReason: string | null;
+    blockedReason: string | null;
+  };
+}
+
+/** Read a contact's local role column (dropped from the Contact interface). */
+function localContactRole(contactId: string): string | undefined {
+  return (
+    getSqlite()
+      .query("SELECT role FROM contacts WHERE id = ?")
+      .get(contactId) as { role: string } | undefined
+  )?.role;
 }
 
 function resetGatewayIpc() {
@@ -659,6 +701,6 @@ describe("redeemVoiceInviteCode", () => {
     // Verify the original guardian contact was NOT modified
     const guardian = getContact(guardianSeed.contactId);
     expect(guardian).not.toBeNull();
-    expect(guardian!.role).toBe("guardian");
+    expect(localContactRole(guardianSeed.contactId)).toBe("guardian");
   });
 });

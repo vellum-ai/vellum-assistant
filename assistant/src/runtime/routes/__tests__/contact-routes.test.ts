@@ -107,8 +107,9 @@ describe("contacts read API relays from the gateway", () => {
     expect(result.contacts).toHaveLength(1);
 
     const [contact] = result.contacts;
-    // ACL fields are gateway-sourced and reach the web client unchanged.
-    expect(contact.role).toBe("member");
+    // ACL fields are gateway-sourced and reach the web client unchanged. `role`
+    // is optional on the transform (gateway reads carry it, daemon-native omit).
+    expect((contact as { role?: string }).role).toBe("member");
     expect(contact.interactionCount).toBe(7);
     expect(contact.lastInteraction).toBe(1900);
     const channel = contact.channels[0] as Record<string, unknown>;

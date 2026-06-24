@@ -7,11 +7,17 @@
  * and are discovered through the same path as every other channel.
  *
  * This suite verifies that address-based lookup returns the correct
- * `memberRecord` with the right channel/status so relay-setup-router
+ * `memberRecord` with the right ACL status so relay-setup-router
  * can emit the appropriate outcome (e.g. `unverified_caller`).
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+import type {
+  ChannelPolicy,
+  ChannelStatus,
+  ContactRole,
+} from "../contacts/types.js";
 
 // ── Logger mock (suppress output) ───────────────────────────────────────────
 mock.module("../util/logger.js", () => ({
@@ -23,9 +29,14 @@ mock.module("../util/logger.js", () => ({
 let _byAddress: ReturnType<
   (typeof import("../contacts/contact-store.js"))["findContactByAddress"]
 > = null;
+// ACL view is carried on memberRecord, sourced from the local ACL columns via
+// getLocalMemberAcl. Stub it per test instead of seeding the DB.
+let _acl: { status: ChannelStatus; policy: ChannelPolicy; role: ContactRole } =
+  { status: "unverified", policy: "allow", role: "contact" };
 
 mock.module("../contacts/contact-store.js", () => ({
   findContactByAddress: (_type: string, _addr: string) => _byAddress,
+  getLocalMemberAcl: (_channelId: string) => _acl,
 }));
 
 // Guardian resolution now reads the gateway delivery cache; these suites only
@@ -48,11 +59,12 @@ function makeContact(
   status: "unverified" | "active" = "unverified",
 ): ContactWithChannels {
   const channelId = "ch-test";
+  // ACL lives on memberRecord (carrier), sourced from getLocalMemberAcl — set
+  // the stub here so the resolver classifies trust off this status/role.
+  _acl = { status, policy: "allow", role };
   return {
     id: "contact-test",
     displayName: "Patrick Test",
-    role,
-    principalId: null,
     notes: null,
     lastInteraction: null,
     interactionCount: 0,
@@ -68,15 +80,6 @@ function makeContact(
         address: PHONE,
         externalChatId: null,
         isPrimary: true,
-        status,
-        policy: "allow",
-        verifiedAt: null,
-        verifiedVia: null,
-        revokedReason: null,
-        blockedReason: null,
-        interactionCount: 0,
-        lastInteraction: null,
-        lastSeenAt: null,
         inviteId: null,
         createdAt: 0,
         updatedAt: 0,
@@ -90,6 +93,7 @@ function makeContact(
 describe("resolveActorTrust — address fallback", () => {
   beforeEach(() => {
     _byAddress = null;
+    _acl = { status: "unverified", policy: "allow", role: "contact" };
   });
 
   test("finds unverified channel via address when externalUserId is null", () => {
@@ -105,7 +109,7 @@ describe("resolveActorTrust — address fallback", () => {
 
     expect(result.memberRecord).not.toBeNull();
     expect(result.memberRecord?.contact.displayName).toBe("Patrick Test");
-    expect(result.memberRecord?.channel.status).toBe("unverified");
+    expect(result.memberRecord?.status).toBe("unverified");
     // trustClass is 'unverified_contact' for a member whose channel is
     // pending or unverified — known to the guardian but not yet verified.
     expect(result.trustClass).toBe("unverified_contact");
@@ -121,7 +125,7 @@ describe("resolveActorTrust — address fallback", () => {
       actorExternalId: PHONE,
     });
 
-    expect(result.memberRecord?.channel.status).toBe("active");
+    expect(result.memberRecord?.status).toBe("active");
     expect(result.memberRecord?.channel.address).toBe(PHONE);
   });
 
@@ -152,7 +156,7 @@ describe("resolveActorTrust — address fallback", () => {
     });
 
     expect(result.memberRecord).not.toBeNull();
-    expect(result.memberRecord?.channel.status).toBe("active");
+    expect(result.memberRecord?.status).toBe("active");
     expect(result.trustClass).toBe("trusted_contact");
   });
 
@@ -160,8 +164,8 @@ describe("resolveActorTrust — address fallback", () => {
     // Mirrors the unverified branch but for `pending` status (e.g. a phone
     // contact registered by name-capture awaiting the DTMF challenge).
     const contact = makeContact("contact", "unverified");
-    // Override status to "pending" — makeContact only accepts unverified/active
-    contact.channels[0]!.status = "pending";
+    // Override ACL status to "pending" — makeContact only accepts unverified/active.
+    _acl = { ..._acl, status: "pending" };
     _byAddress = contact;
 
     const result = resolveActorTrust({
@@ -171,15 +175,15 @@ describe("resolveActorTrust — address fallback", () => {
       actorExternalId: PHONE,
     });
 
-    expect(result.memberRecord?.channel.status).toBe("pending");
+    expect(result.memberRecord?.status).toBe("pending");
     expect(result.trustClass).toBe("unverified_contact");
   });
 
   test("blocked-status member is classified as unknown (not unverified_contact)", () => {
     // Hard-deny statuses (blocked, revoked) stay `unknown` — admission-layer
-    // re-checks channel.status and emits the hard-deny reasons.
+    // re-checks channel status and emits the hard-deny reasons.
     const contact = makeContact("contact", "unverified");
-    contact.channels[0]!.status = "blocked";
+    _acl = { ..._acl, status: "blocked" };
     _byAddress = contact;
 
     const result = resolveActorTrust({
@@ -189,13 +193,13 @@ describe("resolveActorTrust — address fallback", () => {
       actorExternalId: PHONE,
     });
 
-    expect(result.memberRecord?.channel.status).toBe("blocked");
+    expect(result.memberRecord?.status).toBe("blocked");
     expect(result.trustClass).toBe("unknown");
   });
 
   test("revoked-status member is classified as unknown", () => {
     const contact = makeContact("contact", "unverified");
-    contact.channels[0]!.status = "revoked";
+    _acl = { ..._acl, status: "revoked" };
     _byAddress = contact;
 
     const result = resolveActorTrust({
@@ -205,7 +209,7 @@ describe("resolveActorTrust — address fallback", () => {
       actorExternalId: PHONE,
     });
 
-    expect(result.memberRecord?.channel.status).toBe("revoked");
+    expect(result.memberRecord?.status).toBe("revoked");
     expect(result.trustClass).toBe("unknown");
   });
 });

@@ -4,6 +4,8 @@ import type { TrustVerdict } from "@vellumai/gateway-client";
 
 import { channelStatusToMemberStatus } from "../../contacts/member-status.js";
 import type {
+  ChannelPolicy,
+  ChannelStatus,
   ContactChannel,
   ContactWithChannels,
 } from "../../contacts/types.js";
@@ -287,8 +289,8 @@ describe("actorTrustContextFromVerdict", () => {
     expect(ctx.memberRecord).not.toBeNull();
     expect(ctx.memberRecord!.contact.id).toBe("contact-1");
     expect(ctx.memberRecord!.channel.id).toBe("channel-1");
-    expect(ctx.memberRecord!.channel.status).toBe("blocked");
-    expect(ctx.memberRecord!.channel.policy).toBe("deny");
+    expect(ctx.memberRecord!.status).toBe("blocked");
+    expect(ctx.memberRecord!.policy).toBe("deny");
   });
 
   test("memberRecord surfaces channel ACL/identity, info fields null", () => {
@@ -311,14 +313,12 @@ describe("actorTrustContextFromVerdict", () => {
       sourceChannel: "slack",
       conversationExternalId: CONV,
     });
-    expect(memberRecord!.channel.status).toBe("active");
-    expect(memberRecord!.channel.policy).toBe("allow");
-    expect(memberRecord!.channel.verifiedAt).toBe(1700000000);
-    expect(memberRecord!.channel.verifiedVia).toBe("code");
+    expect(memberRecord!.status).toBe("active");
+    expect(memberRecord!.policy).toBe("allow");
     expect(memberRecord!.channel.externalChatId).toBe("chat-1");
 
     expect(memberRecord!.contact.displayName).toBe("Dora");
-    expect(memberRecord!.contact.role).toBe("contact");
+    expect(memberRecord!.role).toBe("contact");
     // INFO fields must be null/default placeholders.
     expect(memberRecord!.contact.notes).toBeNull();
     expect(memberRecord!.contact.userFile).toBeNull();
@@ -337,12 +337,12 @@ describe("actorTrustContextFromVerdict", () => {
       policy: "allow",
     } satisfies TrustVerdict;
 
-    const { memberRecord } = actorTrustContextFromVerdict(verdict, {
+    const ctx = actorTrustContextFromVerdict(verdict, {
       sourceChannel: "slack",
       conversationExternalId: CONV,
     });
-    expect(memberRecord!.contact.role).toBe("guardian");
-    expect(memberRecord!.contact.principalId).toBe("vellum-principal-g");
+    expect(ctx.memberRecord!.role).toBe("guardian");
+    expect(ctx.guardianPrincipalId).toBe("vellum-principal-g");
   });
 
   test("memberRecord null when status missing (fail-closed)", () => {
@@ -428,9 +428,7 @@ describe("actorTrustContextFromVerdict", () => {
 });
 
 describe("toTrustContext member grounding", () => {
-  function memberChannel(
-    overrides: Partial<ContactChannel> = {},
-  ): ContactChannel {
+  function memberChannel(): ContactChannel {
     return {
       id: "channel-1",
       contactId: "contact-1",
@@ -438,19 +436,9 @@ describe("toTrustContext member grounding", () => {
       address: "+15550100",
       isPrimary: true,
       externalChatId: null,
-      status: "unverified",
-      policy: "escalate",
-      verifiedAt: null,
-      verifiedVia: null,
       inviteId: null,
-      revokedReason: null,
-      blockedReason: null,
-      lastSeenAt: null,
-      interactionCount: 0,
-      lastInteraction: null,
       updatedAt: null,
       createdAt: 0,
-      ...overrides,
     };
   }
 
@@ -463,20 +451,29 @@ describe("toTrustContext member grounding", () => {
       interactionCount: 0,
       createdAt: 0,
       updatedAt: 0,
-      role: "contact",
       contactType: "human",
-      principalId: null,
       userFile: null,
       channels: [memberChannel()],
     };
   }
 
-  function ctxWithMember(channel: ContactChannel): ActorTrustContext {
+  function ctxWithMember(
+    acl: { status: ChannelStatus; policy: ChannelPolicy } = {
+      status: "unverified",
+      policy: "escalate",
+    },
+  ): ActorTrustContext {
     return {
       canonicalSenderId: "+15550100",
       guardianBindingMatch: null,
       guardianPrincipalId: undefined,
-      memberRecord: { contact: memberContact(), channel },
+      memberRecord: {
+        contact: memberContact(),
+        channel: memberChannel(),
+        status: acl.status,
+        policy: acl.policy,
+        role: "contact",
+      },
       trustClass: "trusted_contact",
       actorMetadata: {
         identifier: "+15550100",
@@ -491,7 +488,7 @@ describe("toTrustContext member grounding", () => {
   }
 
   test("populates member fields from memberRecord (voice path)", () => {
-    const context = toTrustContext(ctxWithMember(memberChannel()), CONV);
+    const context = toTrustContext(ctxWithMember(), CONV);
     expect(context.requesterContactId).toBe("contact-1");
     // "unverified" maps to the API-facing "pending" member status.
     expect(context.memberStatus).toBe("pending");
@@ -500,7 +497,7 @@ describe("toTrustContext member grounding", () => {
 
   test("passes through active status + allow policy", () => {
     const context = toTrustContext(
-      ctxWithMember(memberChannel({ status: "active", policy: "allow" })),
+      ctxWithMember({ status: "active", policy: "allow" }),
       CONV,
     );
     expect(context.memberStatus).toBe("active");

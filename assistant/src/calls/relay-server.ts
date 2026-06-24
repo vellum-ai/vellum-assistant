@@ -811,7 +811,7 @@ export class RelayConnection {
       from,
       trustClass: resolved.actorTrust.trustClass,
       channelId: resolved.actorTrust.memberRecord?.channel.id,
-      memberPolicy: resolved.actorTrust.memberRecord?.channel.policy,
+      memberPolicy: resolved.actorTrust.memberRecord?.policy,
     });
     this.connectionState = "disconnecting";
     updateCallSession(this.callSessionId, {

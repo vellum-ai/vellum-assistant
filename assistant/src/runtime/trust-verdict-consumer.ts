@@ -17,6 +17,7 @@ import type {
   ChannelPolicy,
   ChannelStatus,
   ContactChannel,
+  ContactRole,
   ContactWithChannels,
 } from "../contacts/types.js";
 import type { TrustContext } from "../daemon/trust-context.js";
@@ -207,16 +208,7 @@ function memberRecordFromVerdict(
     address: verdict.address ?? "",
     isPrimary: false,
     externalChatId: verdict.externalChatId ?? null,
-    status: member.status,
-    policy: member.policy,
-    verifiedAt: member.verifiedAt,
-    verifiedVia: verdict.verifiedVia ?? null,
     inviteId: null,
-    revokedReason: null,
-    blockedReason: null,
-    lastSeenAt: null,
-    interactionCount: 0,
-    lastInteraction: null,
     updatedAt: null,
     createdAt: 0,
   };
@@ -229,12 +221,12 @@ function memberRecordFromVerdict(
     interactionCount: 0,
     createdAt: 0,
     updatedAt: 0,
-    role: verdict.trustClass === "guardian" ? "guardian" : "contact",
     contactType: "human",
-    principalId: verdict.guardianPrincipalId ?? null,
     userFile: null,
     channels: [channel],
   };
 
-  return { contact, channel };
+  const role: ContactRole =
+    verdict.trustClass === "guardian" ? "guardian" : "contact";
+  return { contact, channel, status: member.status, policy: member.policy, role };
 }
