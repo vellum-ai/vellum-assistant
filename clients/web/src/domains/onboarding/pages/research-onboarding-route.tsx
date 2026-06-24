@@ -120,6 +120,9 @@ export function ResearchOnboardingRoute() {
   // Formatted booked check-in time ("2:30 PM"), set when scheduleCheckin lands;
   // null until then (or if booking failed) → confirmation shows generic copy.
   const [checkinTime, setCheckinTime] = useState<string | null>(null);
+  // True while the booking request is in flight, so the confirmation step can
+  // hold (capped) until the booked time is known instead of advancing early.
+  const [checkinPending, setCheckinPending] = useState(false);
   // Bumped by the integration step's coin to jolt the bottom eyes.
   const [eyesBump, setEyesBump] = useState(0);
   // Extra edge characters revealed so far — grows as the looking-you-up
@@ -261,15 +264,18 @@ export function ResearchOnboardingRoute() {
         .filter(Boolean)
         .join(" ");
       setCheckinTime(null);
+      setCheckinPending(true);
       void scheduleCheckin({
         assistantId: hatchedAssistantId,
         userName: fullName || undefined,
         assistantName: faceValues?.name?.trim() || undefined,
-      }).then((result) => {
-        if (result.scheduled) {
-          setCheckinTime(formatCheckinTime(result.start, result.timeZone));
-        }
-      });
+      })
+        .then((result) => {
+          if (result.scheduled) {
+            setCheckinTime(formatCheckinTime(result.start, result.timeZone));
+          }
+        })
+        .finally(() => setCheckinPending(false));
     }
     goForwardTo("meeting");
   }
@@ -346,6 +352,7 @@ export function ResearchOnboardingRoute() {
         {step === "meeting" && (
           <MeetingCreatedStep
             scheduledTime={checkinTime ?? undefined}
+            awaitingTime={checkinPending}
             onDone={() => goForwardTo("looking")}
             onBack={() => goBackTo("letschat")}
             onForward={onForward}
