@@ -211,10 +211,10 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
       <div className="space-y-2">
         <div className="flex justify-end">{createBackupButton}</div>
         <div className="overflow-x-auto">
-          <table className="text-body-medium-lighter">
+          <table className="w-full text-body-medium-lighter">
             <thead>
               <tr className="border-b border-[var(--border-base)] text-left text-body-small-default text-[var(--content-secondary)]">
-                <th className="pb-2 pr-4">Snapshot Name</th>
+                <th className="w-full pb-2 pr-4">Snapshot Name</th>
                 <th className="whitespace-nowrap pb-2 pr-4">Type</th>
                 <th className="whitespace-nowrap pb-2 pr-4">Ready</th>
                 <th className="whitespace-nowrap pb-2 pr-4">Created</th>
@@ -227,7 +227,7 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
                   key={backup.snapshot_name}
                   className="border-b border-[var(--border-base)] last:border-0"
                 >
-                  <td className="py-2.5 pr-4">
+                  <td className="w-full py-2.5 pr-4">
                     <div className="group/snapshot flex items-center gap-1">
                       <code
                         className="truncate text-body-small-default text-[var(--content-default)]"
