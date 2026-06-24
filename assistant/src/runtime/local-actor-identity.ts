@@ -68,6 +68,25 @@ export async function findLocalGuardianPrincipalId(): Promise<
 }
 
 /**
+ * Eagerly warm the gateway guardian-delivery cache for the vellum channel.
+ *
+ * The SSE eager-subscribe path resolves the actor principal synchronously via
+ * {@link findLocalGuardianPrincipalIdFromStore}, which reads only the IO-free
+ * cache snapshot. On a cold cache (auth-disabled / local startup, before any
+ * async `getGuardianDelivery` has run) it returns undefined, so the FIRST SSE
+ * registration would carry no `actorPrincipalId` and host-proxy same-user
+ * targeting would regress until a later reconnect warms the cache.
+ *
+ * Called during daemon startup (after the gateway IPC is reachable) so the
+ * cache is populated before clients register. Best-effort: a cold gateway
+ * leaves the cache empty (failures aren't cached), and the async hot paths
+ * warm it on their next read.
+ */
+export async function warmLocalGuardianPrincipalCache(): Promise<void> {
+  await findLocalGuardianPrincipalId();
+}
+
+/**
  * Synchronous read of the vellum guardian's principalId for paths that cannot
  * await {@link findLocalGuardianPrincipalId} — namely the SSE eager-subscribe
  * path (`events-routes`), which registers before the stream is created.
