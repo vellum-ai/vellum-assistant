@@ -174,7 +174,7 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
   ).length;
 
   const createBackupButton = (
-    <div className="flex items-center gap-3">
+    <div className="flex flex-wrap items-center justify-end gap-3">
       {pitBackupCount >= MAX_POINT_IN_TIME_BACKUPS && (
         <p className="text-body-small-default text-[var(--content-tertiary)]">
           Creating a new backup will remove the oldest one.
@@ -209,9 +209,9 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
   return (
     <>
       <div className="space-y-2">
-        <div className="flex justify-end">{createBackupButton}</div>
+        {createBackupButton}
         {/* Desktop table */}
-        <div className="hidden md:block">
+        <div className="hidden lg:block">
           <table className="w-full table-fixed text-body-medium-lighter">
             <thead>
               <tr className="border-b border-[var(--border-base)] text-left text-body-small-default text-[var(--content-secondary)]">
@@ -219,7 +219,7 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
                 <th className="w-[13%] pb-2 pr-4">Type</th>
                 <th className="w-[12%] pb-2 pr-4">Ready</th>
                 <th className="w-[20%] pb-2 pr-4">Created</th>
-                <th className="w-[20%] pb-2 text-right">Actions</th>
+                <th className="w-[20%] pb-2" />
               </tr>
             </thead>
             <tbody>
@@ -266,7 +266,6 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
                   <td className="py-2.5 text-right">
                     <Button
                       variant="ghost"
-                      size="compact"
                       leftIcon={
                         restoringSnapshot === backup.snapshot_name ? (
                           <Loader2 className="animate-spin" />
@@ -294,7 +293,7 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
         </div>
 
         {/* Mobile stacked layout */}
-        <div className="flex flex-col gap-3 md:hidden">
+        <div className="flex flex-col gap-3 lg:hidden">
           {backups.map((backup) => (
             <div
               key={backup.snapshot_name}
@@ -333,7 +332,6 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
               </div>
               <Button
                 variant="ghost"
-                size="compact"
                 leftIcon={
                   restoringSnapshot === backup.snapshot_name ? (
                     <Loader2 className="animate-spin" />
