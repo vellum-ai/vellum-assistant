@@ -56,6 +56,8 @@ Orient yourself first (read the relevant files, understand the task), then consu
 
 The consult is synchronous and read-only: spawning an `advisor` subagent BLOCKS until it returns guidance. It runs on a stronger model and inherits your full context, so it sees the task, your tool calls, and their results without you re-explaining. Give its guidance serious weight; only override it when primary-source evidence contradicts a specific claim — and say so when you do.
 
+Spawn the advisor **alone** — do NOT batch the consult in the same turn as other tool calls (especially file edits, shell commands, or anything destructive or expensive). Tool calls you issue in the same turn run concurrently with the consult, so they would execute before you see its guidance. Consult the advisor by itself, read its guidance, then act.
+
 ## Parent Communication
 
 Subagents use `notify_parent` to send messages to the parent conversation while still running. Each notification has an urgency level:
