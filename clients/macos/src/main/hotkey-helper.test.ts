@@ -105,13 +105,15 @@ const {
   __resetForTesting,
   __setPlatformForTesting,
   __setSupervisorOptionsForTesting,
-  getMacHelperAppPath,
-  getMacHelperPath,
   installHotkeyHelper,
   queryFreshMacHelperPermission,
   requestMacHelperInputMonitoringPermission,
   requestMacHelperSpeechRecognitionPermission,
 } = await import("./hotkey-helper");
+
+const { getMacHelperAppPath, getMacHelperPath } = await import(
+  "./sidecar/mac-helper-path"
+);
 
 const invokeFnPushToTalk = (enable: boolean) =>
   handlers["vellum:helper:hotkey:fnPushToTalk"](

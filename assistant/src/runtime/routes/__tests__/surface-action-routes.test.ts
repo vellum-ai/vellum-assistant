@@ -29,6 +29,7 @@ interface StubConversation {
     surfaceId: string;
     actionId: string;
     data: unknown;
+    sourceActorPrincipalId?: string;
   }>;
 }
 
@@ -106,8 +107,14 @@ function makeStub(id: string): StubConversation {
       surfaceId: string,
       actionId: string,
       data: unknown,
+      sourceActorPrincipalId?: string,
     ) => {
-      stub.surfaceActionCalls.push({ surfaceId, actionId, data });
+      stub.surfaceActionCalls.push({
+        surfaceId,
+        actionId,
+        data,
+        sourceActorPrincipalId,
+      });
       if (stub.handleSurfaceActionThrows) throw stub.handleSurfaceActionThrows;
       return stub.handleSurfaceActionResult;
     },
@@ -308,6 +315,26 @@ describe("triggerSurfaceAction handler", () => {
     expect(rawGetCalls).toHaveLength(1);
     expect(rawGetCalls[0]!.sql).toContain("ESCAPE");
     expect(rawGetCalls[0]!.params).toEqual([`%"surfaceId":"\\%"%`]);
+  });
+
+  test("threads x-vellum-actor-principal-id into handleSurfaceAction", async () => {
+    const live = makeStub("conv-principal");
+    memoryBySurface = live;
+
+    const handler = findHandler("triggerSurfaceAction");
+    await handler({
+      body: { surfaceId: "surf-p", actionId: "act-p" },
+      headers: { "x-vellum-actor-principal-id": "principal-committer" },
+    });
+
+    expect(live.surfaceActionCalls).toEqual([
+      {
+        surfaceId: "surf-p",
+        actionId: "act-p",
+        data: undefined,
+        sourceActorPrincipalId: "principal-committer",
+      },
+    ]);
   });
 
   test("propagates accepted=false rejection as BadRequestError", async () => {
