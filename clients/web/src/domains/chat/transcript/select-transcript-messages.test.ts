@@ -165,8 +165,11 @@ describe("selectTranscriptMessages", () => {
     expect(messageText(result[0])).toBe("live copy");
   });
 
-  test("collapses two history rows that a single live row claims", () => {
-    // The daemon merged two DB rows under one display id the live turn owns.
+  test("a live row that matches more than one history row still renders once", () => {
+    // Invariant guard, not a routine case: adjacent same-turn rows are already
+    // folded by `mergeAdjacentAssistantMessages` before history reaches the
+    // union, so a single live row matching two history rows is the residual
+    // non-adjacent edge. The dedup keeps it rendering exactly once.
     const history = [
       makeRow({
         id: "a1",

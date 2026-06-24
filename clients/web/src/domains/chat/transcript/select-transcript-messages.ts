@@ -11,9 +11,11 @@
 // a fresh optimistic send, a still-streaming bubble — is appended after
 // history in live order.
 //
-// There is no timestamp sort: order is server-history order followed by the
-// live turn, which is always the newest. Removing the sort is the point —
-// it is what the old reconcile-and-sort-on-every-render path got wrong.
+// Order is structural: server-history order, then the live turn (always the
+// newest). There is deliberately no timestamp sort — history rows are stamped
+// by the server clock and live rows by the client clock, so ordering them by
+// timestamp together would interleave the two clocks and scramble the
+// transcript.
 
 import { messageIdentityKeys } from "@/domains/chat/utils/message-identity";
 import type { DisplayMessage } from "@/domains/chat/types/types";
