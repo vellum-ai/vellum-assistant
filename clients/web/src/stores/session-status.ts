@@ -5,15 +5,13 @@
  * This module is intentionally dependency-free at runtime: it imports no
  * runtime values, so any module — including ones the auth store itself depends
  * on (e.g. the assistant lifecycle service) — can read session meaning without
- * creating an import cycle through the store. The lone `import type` of
- * `AuthUser` is erased at compile time, so it introduces no runtime edge.
+ * creating an import cycle through the store.
  *
  * Imperative readers (middleware, lifecycle, route resolvers) call these
  * predicates directly with a status value. Reactive components read the
  * matching hooks (`useIsAuthenticated`, `useHasPlatformSession`) from the auth
  * store, which compose these predicates over the store's atomic selectors.
  */
-import type { AuthUser } from "@/stores/auth-store";
 
 /**
  * Platform-session liveness as a single tri-state.
@@ -66,14 +64,6 @@ export const isSessionSettled = (status: SessionStatus): boolean =>
 export const hasLivePlatformSession = (
   status: PlatformSessionStatus,
 ): boolean => status === "present";
-
-/**
- * Is this a real platform account, not local gateway access? The local gateway
- * user is a synthetic, platform-shaped identity, so read the `kind` discriminator
- * rather than treating any non-null user as a platform account.
- */
-export const isPlatformIdentity = (user: AuthUser | null): boolean =>
-  user?.kind === "platform";
 
 /**
  * A platform session a live probe confirmed — `"present"` AND not a believed

@@ -302,7 +302,6 @@ mock.module("@/assistant/api", () => ({
 }));
 
 const { useAuthStore } = await import("@/stores/auth-store");
-const { isPlatformIdentity } = await import("@/stores/session-status");
 const { useAssistantLifecycleStore } = await import(
   "@/assistant/lifecycle-store"
 );
@@ -1136,7 +1135,6 @@ describe("offline session restore (LUM-2412)", () => {
     // the restore must default it to a platform identity (only platform users
     // are ever snapshotted), so old snapshots keep restoring correctly.
     expect(useAuthStore.getState().user?.kind).toBe("platform");
-    expect(isPlatformIdentity(useAuthStore.getState().user)).toBe(true);
     // The snapshot only exists for a confirmed platform session, and no
     // probe runs offline to settle an "unknown" — so the restore settles
     // "present" (believed state); reconnect revalidation corrects it.
@@ -1301,7 +1299,6 @@ describe("identity kind (platform vs local gateway access)", () => {
     const user = useAuthStore.getState().user;
     expect(user?.kind).toBe("local");
     expect(user?.id).toBe("gateway-local");
-    expect(isPlatformIdentity(user)).toBe(false);
     // A local session stays authenticated — the discriminator does not change
     // session semantics.
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
@@ -1315,7 +1312,6 @@ describe("identity kind (platform vs local gateway access)", () => {
     const user = useAuthStore.getState().user;
     expect(user?.kind).toBe("platform");
     expect(user?.id).toBe("user-1");
-    expect(isPlatformIdentity(user)).toBe(true);
   });
 
   test("an offline-restored user is a platform identity (legacy snapshot defaults to platform)", async () => {
@@ -1328,10 +1324,5 @@ describe("identity kind (platform vs local gateway access)", () => {
 
     const user = useAuthStore.getState().user;
     expect(user?.kind).toBe("platform");
-    expect(isPlatformIdentity(user)).toBe(true);
-  });
-
-  test("isPlatformIdentity(null) is false", () => {
-    expect(isPlatformIdentity(null)).toBe(false);
   });
 });
