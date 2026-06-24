@@ -85,12 +85,18 @@ interface OnboardingPeekingEyesProps {
    * knock the integration-step coin up).
    */
   bumpNonce?: number;
+  /**
+   * Play the two settle blinks when the eyes settle. Off for resting eyes that
+   * are simply carried over from a previous step (they just idle-blink).
+   */
+  settleBlink?: boolean;
 }
 
 export function OnboardingPeekingEyes({
   entrance = false,
   entranceDelay = 0,
   bumpNonce = 0,
+  settleBlink = true,
 }: OnboardingPeekingEyesProps) {
   const components = useBundledAvatarComponents();
   const characters = useOnboardingAvatarPoolStore.use.characters();
@@ -124,7 +130,7 @@ export function OnboardingPeekingEyes({
     }
   }, [bumpNonce, reduce, bumpControls]);
 
-  // Two blinks once settled, then a slow random idle blink.
+  // Two blinks once settled (when `settleBlink`), then a slow random idle blink.
   const [blinking, setBlinking] = useState(false);
   const [entranceDone, setEntranceDone] = useState(!entrance);
   useEffect(() => {
@@ -143,12 +149,14 @@ export function OnboardingPeekingEyes({
     const idle = () => {
       t = setTimeout(() => blink(idle), 2500 + Math.random() * 4000);
     };
-    blink(() => blink(idle));
+    // Resting eyes (carried over) skip the settle blinks and just idle.
+    if (settleBlink) blink(() => blink(idle));
+    else idle();
     return () => {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [reduce, entranceDone]);
+  }, [reduce, entranceDone, settleBlink]);
 
   const chosen = characters.length > 0 ? characters[selectedIndex] : undefined;
 

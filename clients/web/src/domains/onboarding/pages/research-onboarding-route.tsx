@@ -17,7 +17,7 @@
  * then clicks "Continue" to drop into the full workspace on the same conversation.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
@@ -43,10 +43,7 @@ import {
   type GiveMeAFaceValues,
 } from "@/domains/onboarding/screens/give-me-a-face-screen";
 import { IntroductionScreen } from "@/domains/onboarding/screens/introduction-screen";
-import {
-  PitchDifferentStep,
-  PitchTogetherStep,
-} from "@/domains/onboarding/screens/intro-pitch-steps";
+import { PitchStep } from "@/domains/onboarding/screens/intro-pitch-steps";
 import { IntegrationStep } from "@/domains/onboarding/screens/integration-step";
 import { LetsChatTomorrowStep } from "@/domains/onboarding/screens/lets-chat-tomorrow-step";
 import {
@@ -62,7 +59,6 @@ type ResearchStep =
   | "face"
   | "intro"
   | "different"
-  | "together"
   | "integration"
   | "letschat"
   | "meeting"
@@ -83,10 +79,10 @@ export function ResearchOnboardingRoute() {
   const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
 
   // Sub-steps share this route: details form → avatar/name picker →
-  // introduction → "different"/"collaborate" pitch → integration → "let's chat
-  // tomorrow". The toned steps share a persistent backdrop so the avatars/eyes
-  // stay put. The handoff fires from the "let's chat tomorrow" step (or the
-  // picker's skip).
+  // introduction → pitch (the "different" step, which carousels its lines to
+  // the payoff) → integration → "let's chat tomorrow". The toned steps share a
+  // persistent backdrop so the avatars/eyes stay put. The handoff fires from
+  // the "let's chat tomorrow" step (or the picker's skip).
   const [step, setStep] = useState<ResearchStep>("form");
   // Forward-history (redo) stack: pushed when the user steps back, popped when
   // they step forward via the header's forward chevron. The chevron only shows
@@ -94,10 +90,7 @@ export function ResearchOnboardingRoute() {
   // (any Continue/Skip) clears it, browser-style.
   const [forwardStack, setForwardStack] = useState<ResearchStep[]>([]);
 
-  // Re-entering "together" replays its sequence, so the team should drop in
-  // again on the third line — hide it on the way in.
   function navTo(next: ResearchStep) {
-    if (next === "together") setTeamRevealed(false);
     setStep(next);
   }
   // Forward (Continue/Skip): a fresh forward move invalidates the redo stack.
@@ -128,10 +121,6 @@ export function ResearchOnboardingRoute() {
   // Extra edge characters revealed so far — grows as the looking-you-up
   // carousel advances, then stays for the results/suggestions steps.
   const [edgeAvatars, setEdgeAvatars] = useState(0);
-  // The top-right team is revealed on the "together" step's third line, then
-  // persists for the rest of the flow.
-  const [teamRevealed, setTeamRevealed] = useState(false);
-  const revealTeam = useCallback(() => setTeamRevealed(true), []);
 
   // Provision the assistant in the background the moment the user lands here,
   // so it's (usually) healthy by the time they finish the intro/pitch steps —
@@ -148,6 +137,10 @@ export function ResearchOnboardingRoute() {
   const research = useResearchRunner();
   const researchLoading =
     research.status === "idle" || research.status === "running";
+  // The research turn settled with nothing to show — skip the "this is what I
+  // found" step (it would only say "I didn't turn up much") and go straight to
+  // the suggestions.
+  const noClaims = !researchLoading && research.claims.length === 0;
 
   // Landing on the form means a fresh run — clear any stale focus state left
   // behind by an abandoned previous attempt so the form itself never renders
@@ -161,6 +154,15 @@ export function ResearchOnboardingRoute() {
     exitFocus();
     if (enabled && flagsHydrated) startHatch();
   }, [exitFocus, startHatch, enabled, flagsHydrated]);
+
+  // If we're sitting on the results step when the research turn resolves empty
+  // (it was still streaming when we arrived), skip ahead to the suggestions.
+  useEffect(() => {
+    if (step === "results" && noClaims) {
+      setForwardStack([]);
+      setStep("suggestions");
+    }
+  }, [step, noClaims]);
 
   // Build the pre-chat context and hand off to the chat pipeline. The chosen
   // name is applied via `assistantName`; the avatar traits are applied to the
@@ -276,7 +278,6 @@ export function ResearchOnboardingRoute() {
   // content swaps. Extra edge characters pop in per step to build excitement.
   const tonedSteps = [
     "different",
-    "together",
     "integration",
     "letschat",
     "meeting",
@@ -301,43 +302,25 @@ export function ResearchOnboardingRoute() {
           eyesBumpNonce={eyesBump}
           peekLevel={peekLevel}
           darkBg={postCalendar}
-          // The "different" step choreographs its own eyes (rising to speak the
-          // line in), so hide the backdrop's resting pair there to avoid
-          // doubling. Every other toned step uses the backdrop's resting eyes.
+          // The pitch step ("different") choreographs its own eyes (rising to
+          // speak the lines in), so hide the backdrop's resting pair there to
+          // avoid doubling. Every other toned step uses the backdrop's resting
+          // eyes. The top-right team isn't persistent — the pitch step peeks
+          // its own transient team in and out (see PitchStep).
           showBottomEyes={!postCalendar && step !== "different"}
-          // On "together" the team is gated on the third-line reveal (so it
-          // replays on back); on every later step it's simply present.
-          showTopTeam={
-            step === "together"
-              ? teamRevealed
-              : ["integration", "letschat", "meeting", "looking", "results", "suggestions"].includes(
-                  step,
-                )
-          }
         />
         {step === "different" && (
-          <PitchDifferentStep
-            onContinue={() => goForwardTo("together")}
+          <PitchStep
+            onContinue={() => goForwardTo("integration")}
             onBack={() => goBackTo("intro")}
             onForward={onForward}
           />
         )}
-        {step === "together" && (
-          <PitchTogetherStep
-            onContinue={() => goForwardTo("integration")}
-            onBack={() => goBackTo("different")}
-            onForward={onForward}
-            onRevealTeam={revealTeam}
-          />
-        )}
         {step === "integration" && (
           <IntegrationStep
-            assistantId={hatchedAssistantId}
-            assistantReady={hatchReady}
-            onConnected={handleCheckinConnected}
-            onSkip={() => goForwardTo("looking")}
+            onClaim={() => goForwardTo("letschat")}
             onBumpEyes={() => setEyesBump((n) => n + 1)}
-            onBack={() => goBackTo("together")}
+            onBack={() => goBackTo("different")}
             onForward={onForward}
           />
         )}
@@ -354,14 +337,14 @@ export function ResearchOnboardingRoute() {
         {step === "meeting" && (
           <MeetingCreatedStep
             onDone={() => goForwardTo("looking")}
-            onBack={() => goBackTo("integration")}
+            onBack={() => goBackTo("letschat")}
             onForward={onForward}
           />
         )}
         {step === "looking" && (
           <LookingYouUpStep
-            onDone={() => goForwardTo("results")}
-            onBack={() => goBackTo("integration")}
+            onDone={() => goForwardTo(noClaims ? "suggestions" : "results")}
+            onBack={() => goBackTo("letschat")}
             onAdvance={(i) => setEdgeAvatars(Math.min(i + 1, 4))}
             onForward={onForward}
           />
@@ -389,7 +372,7 @@ export function ResearchOnboardingRoute() {
               }
               enterAssistant(formValues, faceValues, suggestion.prompt);
             }}
-            onBack={() => goBackTo("results")}
+            onBack={() => goBackTo(noClaims ? "looking" : "results")}
             onForward={onForward}
           />
         )}
