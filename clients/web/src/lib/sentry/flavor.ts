@@ -23,10 +23,11 @@ export interface SentryFlavor {
 
 /**
  * Pick the Sentry flavor for the current runtime. The `@sentry/capacitor`
- * flavor runs inside the iOS WKWebview; everything else — web and the Electron
- * renderer alike — uses the `@sentry/react` flavor. The Electron renderer
- * shares the web bundle's SDK (only its DSN differs; see `resolveDsn()`), so it
- * must use the same version-matched client our captures resolve against.
+ * flavor runs inside native Capacitor webviews; everything else — web and the
+ * Electron renderer alike — uses the `@sentry/react` flavor. The Electron
+ * renderer shares the web bundle's SDK (only its DSN differs; see
+ * `resolveDsn()`), so it must use the same version-matched client our captures
+ * resolve against.
  */
 export function selectSentryFlavor(): SentryFlavor {
   if (isNativePlatform() && !isElectron()) return capacitorFlavor;

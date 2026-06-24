@@ -55,6 +55,10 @@ public class NativeAuthPlugin extends Plugin {
             call.reject("Invalid baseURL: " + baseURLString);
             return;
         }
+        if (!"https".equals(baseURL.getScheme())) {
+            call.reject("Invalid baseURL: native auth requires https");
+            return;
+        }
         if (!isAllowedBaseURL(baseURL)) {
             call.reject(
                 "Refusing auth: host "
@@ -162,7 +166,11 @@ public class NativeAuthPlugin extends Plugin {
             rejectFlow(current, "User cancelled login", USER_CANCELLED_CODE, null);
             return;
         }
-        new Handler(Looper.getMainLooper()).postDelayed(this::rejectIfBrowserReturnedWithoutCallback, remainingGrace);
+        AuthFlow expected = current;
+        new Handler(Looper.getMainLooper()).postDelayed(
+            () -> rejectIfBrowserReturnedWithoutCallback(expected),
+            remainingGrace
+        );
     }
 
     @Override
@@ -208,13 +216,9 @@ public class NativeAuthPlugin extends Plugin {
         });
     }
 
-    private void rejectIfBrowserReturnedWithoutCallback() {
-        AuthFlow current;
-        synchronized (flowLock) {
-            current = flow;
-        }
-        if (current != null && current.browserLaunched && !current.callbackReceived) {
-            rejectFlow(current, "User cancelled login", USER_CANCELLED_CODE, null);
+    private void rejectIfBrowserReturnedWithoutCallback(AuthFlow expected) {
+        if (isCurrent(expected) && expected.browserLaunched && !expected.callbackReceived) {
+            rejectFlow(expected, "User cancelled login", USER_CANCELLED_CODE, null);
         }
     }
 
@@ -275,15 +279,15 @@ public class NativeAuthPlugin extends Plugin {
     private String postJson(URL url, JSONObject body) throws IOException {
         byte[] payload = body.toString().getBytes(StandardCharsets.UTF_8);
         HttpURLConnection connection = openConnection(url, "POST");
-        connection.setDoOutput(true);
-        connection.setRequestProperty("Content-Type", "application/json");
-        connection.setRequestProperty("Content-Length", Integer.toString(payload.length));
-
-        try (OutputStream stream = connection.getOutputStream()) {
-            stream.write(payload);
-        }
-
         try {
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Content-Type", "application/json");
+            connection.setRequestProperty("Content-Length", Integer.toString(payload.length));
+
+            try (OutputStream stream = connection.getOutputStream()) {
+                stream.write(payload);
+            }
+
             int status = connection.getResponseCode();
             if (status != HttpURLConnection.HTTP_OK) {
                 throw new IOException("HTTP " + status);

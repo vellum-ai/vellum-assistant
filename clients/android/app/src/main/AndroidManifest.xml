@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@drawable/ic_launcher"
         android:label="${appLabel}"
         android:roundIcon="@drawable/ic_launcher"
@@ -32,6 +32,17 @@
                     android:scheme="${vellumAuthScheme}"
                     android:host="auth"
                     android:path="/callback" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:scheme="${vellumAuthScheme}"
+                    android:host="oauth-complete" />
             </intent-filter>
 
         </activity>
