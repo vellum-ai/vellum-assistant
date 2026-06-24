@@ -74,11 +74,11 @@ describe("LetsChatTomorrowStep", () => {
     ]);
   });
 
-  test("hides the re-prompt and shows 'Set it up' by default", () => {
+  test("hides the re-prompt and shows the connect CTA by default", () => {
     renderStep({ missingCalendarScope: false });
 
     expect(screen.queryByText(RE_PROMPT)).toBeNull();
-    expect(screen.getByText("Set it up")).toBeDefined();
+    expect(screen.getByText("Connect Calendar →")).toBeDefined();
   });
 
   test("shows the re-prompt and 'Try again' when the scope is missing", () => {
