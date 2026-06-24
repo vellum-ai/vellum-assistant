@@ -37,6 +37,12 @@ const gatewayIpc = {
     mirrored: boolean;
   },
   claimThrows: false,
+  // When set, contacts_get_rich throws (gateway read unreachable) so the
+  // gate-status fallback must fail open.
+  richThrows: false,
+  // When set, overrides the contacts_get_rich response (e.g. a gateway row
+  // under a divergent UUID for the same (type,address)).
+  richOverride: null as ((contactId: string | undefined) => unknown) | null,
   // Drives the upsert_verified_channel relay verdict. When false the gateway
   // refuses the actor (blocked/revoked) and the activation is refused.
   activationVerified: true,
@@ -53,6 +59,10 @@ mock.module("../ipc/gateway-client.js", () => ({
   ) => {
     gatewayIpc.calls.push({ method, params });
     if (method === "contacts_get_rich") {
+      if (gatewayIpc.richThrows) throw new Error("gateway read unreachable");
+      if (gatewayIpc.richOverride) {
+        return gatewayIpc.richOverride(params?.contactId as string);
+      }
       return richContactForId(params?.contactId as string);
     }
     if (method === "record_invite_redemption") {
@@ -129,6 +139,8 @@ let onGatewayClaim: (() => void) | null = null;
 function resetGatewayIpc() {
   gatewayIpc.claim = { ok: true, updated: true, mirrored: true };
   gatewayIpc.claimThrows = false;
+  gatewayIpc.richThrows = false;
+  gatewayIpc.richOverride = null;
   gatewayIpc.activationVerified = true;
   gatewayIpc.activationChannelId = "gw-channel-id";
   gatewayIpc.calls = [];
@@ -421,6 +433,142 @@ describe("invite-redemption-service", () => {
     });
 
     expect(outcome).toEqual({ ok: false, reason: "invalid_token" });
+  });
+
+  test("matches an active member by (type,address) when the gateway row has a divergent uuid", async () => {
+    const member = upsertContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "divergent-user",
+      status: "active",
+    });
+
+    // The gateway row for the same (type,address) carries a DIFFERENT id, as a
+    // reconcile divergence would produce. Matching by id alone would miss it.
+    gatewayIpc.richOverride = () => ({
+      ok: true,
+      contact: {
+        id: member!.contact.id,
+        displayName: member!.contact.displayName,
+        role: member!.contact.role,
+        interactionCount: 0,
+        createdAt: 1,
+        updatedAt: 1,
+        channels: [
+          {
+            id: "gateway-divergent-uuid",
+            contactId: member!.contact.id,
+            type: "telegram",
+            address: "divergent-user",
+            isPrimary: false,
+            externalUserId: null,
+            status: "active",
+            policy: "allow",
+            verifiedAt: 1,
+            verifiedVia: "invite",
+            lastSeenAt: null,
+            interactionCount: 0,
+            lastInteraction: null,
+            revokedReason: null,
+            blockedReason: null,
+          },
+        ],
+      },
+    });
+
+    const { rawToken } = createInvite({
+      sourceChannel: "telegram",
+      contactId: member!.contact.id,
+      maxUses: 5,
+    });
+
+    const outcome = await redeemInvite({
+      rawToken,
+      sourceChannel: "telegram",
+      externalUserId: "divergent-user",
+    });
+
+    expect(outcome.ok).toBe(true);
+    expect((outcome as { type: string }).type).toBe("already_member");
+  });
+
+  test("blocks via the (type,address) match when the gateway row has a divergent uuid", async () => {
+    const member = upsertContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "divergent-blocked",
+      status: "blocked",
+    });
+
+    gatewayIpc.richOverride = () => ({
+      ok: true,
+      contact: {
+        id: member!.contact.id,
+        displayName: member!.contact.displayName,
+        role: member!.contact.role,
+        interactionCount: 0,
+        createdAt: 1,
+        updatedAt: 1,
+        channels: [
+          {
+            id: "gateway-divergent-blocked-uuid",
+            contactId: member!.contact.id,
+            type: "telegram",
+            // Case-divergent address must still match (COLLATE NOCASE).
+            address: "DIVERGENT-BLOCKED",
+            isPrimary: false,
+            externalUserId: null,
+            status: "blocked",
+            policy: "deny",
+            verifiedAt: null,
+            verifiedVia: null,
+            lastSeenAt: null,
+            interactionCount: 0,
+            lastInteraction: null,
+            revokedReason: null,
+            blockedReason: "guardian blocked",
+          },
+        ],
+      },
+    });
+
+    const { rawToken } = createInvite({
+      sourceChannel: "telegram",
+      contactId: member!.contact.id,
+      maxUses: 5,
+    });
+
+    const outcome = await redeemInvite({
+      rawToken,
+      sourceChannel: "telegram",
+      externalUserId: "divergent-blocked",
+    });
+
+    expect(outcome).toEqual({ ok: false, reason: "invalid_token" });
+  });
+
+  test("fails open (no throw) when the gateway gate-status read is unreachable", async () => {
+    // No verdict member and an unreachable gateway read must degrade to the
+    // fail-open path: redemption still resolves rather than throwing.
+    const member = upsertContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "readfail-user",
+      status: "revoked",
+    });
+
+    gatewayIpc.richThrows = true;
+
+    const { rawToken } = createInvite({
+      sourceChannel: "telegram",
+      contactId: member!.contact.id,
+      maxUses: 1,
+    });
+
+    const outcome = await redeemInvite({
+      rawToken,
+      sourceChannel: "telegram",
+      externalUserId: "readfail-user",
+    });
+
+    expect(outcome.ok).toBe(true);
   });
 
   test("binds redeemer to the invite's target contact, not the guardian", async () => {

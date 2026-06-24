@@ -56,7 +56,7 @@ export async function resolveMemberGateStatus(
  * local column.
  */
 async function gatewayFallbackStatus(
-  channel: Pick<ContactChannel, "id" | "contactId"> | null,
+  channel: Pick<ContactChannel, "contactId" | "type" | "address"> | null,
 ): Promise<ChannelStatus | null> {
   if (!channel) return null;
   const state = await gatewayContactChannelState(channel);
