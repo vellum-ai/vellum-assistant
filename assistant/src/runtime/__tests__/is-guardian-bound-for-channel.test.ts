@@ -7,11 +7,13 @@ let mockGuardianList: Array<Record<string, unknown>> | null = [];
 const freshCalls: Array<{ channelTypes?: string[] } | undefined> = [];
 
 mock.module("../../contacts/guardian-delivery-reader.js", () => ({
-  // Existence guard must read fresh (uncached) — only this variant is stubbed.
+  // Existence guard reads fresh (uncached); the binding/identity reads use the
+  // cached variant. The service imports both, so both must be stubbed.
   getGuardianDeliveryFresh: (input?: { channelTypes?: string[] }) => {
     freshCalls.push(input);
     return Promise.resolve(mockGuardianList);
   },
+  getGuardianDelivery: () => Promise.resolve(mockGuardianList),
   guardianForChannel: (
     list: Array<{ channelType: string; status: string }>,
     channelType: string,

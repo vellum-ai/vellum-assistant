@@ -8,11 +8,6 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import { desc, eq } from "drizzle-orm";
-
-import { generateUserFileSlug } from "../../contacts/contact-store.js";
-import { getDb } from "../../memory/db-connection.js";
-import { contacts } from "../../memory/schema/contacts.js";
 import type { WorkspaceMigration } from "./types.js";
 
 // ── Inlined helpers ───────────────────────────────────────────────
@@ -122,35 +117,9 @@ export const seedPersonaDirsMigration: WorkspaceMigration = {
     // template from disk, since migration 031 deletes that template file.
     if (content === LEGACY_USER_MD_TEMPLATE_STRIPPED) return;
 
-    // Determine destination filename based on guardian contact
-    let destFilename = "guardian.md";
-    try {
-      const db = getDb();
-      const guardian = db
-        .select()
-        .from(contacts)
-        .where(eq(contacts.role, "guardian"))
-        .orderBy(desc(contacts.createdAt))
-        .limit(1)
-        .get();
-
-      if (guardian) {
-        if (guardian.userFile) {
-          destFilename = guardian.userFile;
-        } else {
-          const slug = generateUserFileSlug(guardian.displayName);
-          db.update(contacts)
-            .set({ userFile: slug })
-            .where(eq(contacts.id, guardian.id))
-            .run();
-          destFilename = slug;
-        }
-      }
-    } catch {
-      // DB might not be initialized yet — fall back to guardian.md
-    }
-
-    const destPath = join(workspaceDir, "users", destFilename);
+    // Seed the canonical `users/guardian.md` — the runtime persona resolver
+    // falls back to this name, so no assistant-DB lookup is needed.
+    const destPath = join(workspaceDir, "users", "guardian.md");
     if (!existsSync(destPath)) {
       copyFileSync(userMdPath, destPath);
     }

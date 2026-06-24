@@ -749,7 +749,7 @@ async function createCanonicalRequestForConfirmation(
     });
 
     if (trustContext && conversation) {
-      bridgeConfirmationRequestToGuardian({
+      await bridgeConfirmationRequestToGuardian({
         canonicalRequest,
         trustContext,
         conversationId,

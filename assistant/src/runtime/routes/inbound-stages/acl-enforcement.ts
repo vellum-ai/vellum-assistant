@@ -39,7 +39,8 @@ import {
   redeemInviteByCode,
 } from "../../invite-redemption-service.js";
 import { getInviteRedemptionReply } from "../../invite-redemption-templates.js";
-import { resolvedMemberFromVerdict } from "../../trust-verdict-consumer.js";
+import type { VerdictMember } from "../../trust-verdict-consumer.js";
+import { verdictMemberFromVerdict } from "../../trust-verdict-consumer.js";
 
 const log = getLogger("runtime-http");
 
@@ -102,7 +103,7 @@ export type ResolvedMember = {
 };
 
 export interface AclResult {
-  resolvedMember: ResolvedMember | null;
+  resolvedMember: VerdictMember | null;
   /** When set, the caller must return this response immediately. */
   earlyResponse?: Record<string, unknown>;
   /**
@@ -186,7 +187,7 @@ export async function enforceIngressAcl(
 
   // Member resolved from the gateway verdict (ACL + identity only); null for a
   // stranger verdict, which falls through to the non-member intercepts.
-  const resolvedMember: ResolvedMember | null = resolvedMemberFromVerdict(verdict);
+  const resolvedMember: VerdictMember | null = verdictMemberFromVerdict(verdict);
 
   // A verdict carrying member identity but no resolvable member
   // (malformed/unknown ACL) fails closed, not treated as a stranger.
@@ -518,8 +519,8 @@ export async function enforceIngressAcl(
     }
 
     if (resolvedMember) {
-      if (resolvedMember.channel.status !== "active") {
-        const isBlockedMember = resolvedMember.channel.status === "blocked";
+      if (resolvedMember.status !== "active") {
+        const isBlockedMember = resolvedMember.status === "blocked";
         // Bootstrap commands must pass through for re-verifiable states
         // (pending/revoked), but never for blocked members.
         let denyInactiveMember = true;
@@ -540,7 +541,7 @@ export async function enforceIngressAcl(
             log.info(
               {
                 sourceChannel,
-                channelId: resolvedMember.channel.id,
+                channelId: resolvedMember.channelId,
                 hasValidBootstrapSession: false,
               },
               "Ingress ACL: inactive member bootstrap bypass denied",
@@ -625,11 +626,11 @@ export async function enforceIngressAcl(
         if (!isBlockedMember && denyInactiveMember) {
           if (
             (effectiveAdmissionPolicy === "strangers" &&
-              resolvedMember.channel.status !== "revoked") ||
+              resolvedMember.status !== "revoked") ||
             ((effectiveAdmissionPolicy === "any_contact" ||
               effectiveAdmissionPolicy === "guardian_only") &&
-              (resolvedMember.channel.status === "pending" ||
-                resolvedMember.channel.status === "unverified"))
+              (resolvedMember.status === "pending" ||
+                resolvedMember.status === "unverified"))
           ) {
             denyInactiveMember = false;
           }
@@ -639,8 +640,8 @@ export async function enforceIngressAcl(
           log.info(
             {
               sourceChannel,
-              channelId: resolvedMember.channel.id,
-              status: resolvedMember.channel.status,
+              channelId: resolvedMember.channelId,
+              status: resolvedMember.status,
             },
             "Ingress ACL: member not active, denying",
           );
@@ -650,7 +651,7 @@ export async function enforceIngressAcl(
           // the guardian made an explicit decision to block them.
           if (
             sourceChannel === "slack" &&
-            resolvedMember.channel.status !== "blocked" &&
+            resolvedMember.status !== "blocked" &&
             (canonicalSenderId ?? rawSenderId)
           ) {
             const slackVerifyResult = initiateSlackVerificationChallenge({
@@ -668,7 +669,7 @@ export async function enforceIngressAcl(
                   actorDisplayName,
                   actorUsername,
                   previousMemberStatus: channelStatusToMemberStatus(
-                    resolvedMember.channel.status,
+                    resolvedMember.status,
                   ),
                   messagePreview: truncate(
                     trimmedContent,
@@ -726,7 +727,7 @@ export async function enforceIngressAcl(
           // re-approve. Blocked members are intentionally excluded — the
           // guardian already made an explicit decision to block them.
           let guardianNotified = false;
-          if (resolvedMember.channel.status !== "blocked") {
+          if (resolvedMember.status !== "blocked") {
             try {
               const accessResult = await notifyGuardianOfAccessRequest({
                 canonicalAssistantId,
@@ -736,7 +737,7 @@ export async function enforceIngressAcl(
                 actorDisplayName,
                 actorUsername,
                 previousMemberStatus: channelStatusToMemberStatus(
-                  resolvedMember.channel.status,
+                  resolvedMember.status,
                 ),
                 messagePreview: truncate(
                   trimmedContent,
@@ -790,16 +791,16 @@ export async function enforceIngressAcl(
             earlyResponse: {
               accepted: true,
               denied: true,
-              reason: `member_${channelStatusToMemberStatus(resolvedMember.channel.status)}`,
+              reason: `member_${channelStatusToMemberStatus(resolvedMember.status)}`,
               ...(!inactiveReplyDelivered && { replyText: inactiveReplyText }),
             },
           };
         }
       }
 
-      if (resolvedMember.channel.policy === "deny") {
+      if (resolvedMember.policy === "deny") {
         log.info(
-          { sourceChannel, channelId: resolvedMember.channel.id },
+          { sourceChannel, channelId: resolvedMember.channelId },
           "Ingress ACL: member policy deny",
         );
         const denyReplyText =

@@ -129,4 +129,29 @@ describe("redeemA2AInvite", () => {
     const result = redeemA2AInvite({ sender: SENDER });
     expect(result.success).toBe(true);
   });
+
+  test("activeConnections counts a2a channel existence, not status", () => {
+    const result = redeemA2AInvite({ sender: SENDER });
+    expect(result.success).toBe(true);
+
+    expect(getA2AConfig().activeConnections).toBe(1);
+
+    // Readiness is existence-based: a non-active stored status still counts.
+    const sqlite = getSqlite();
+    sqlite.run("UPDATE contact_channels SET status = 'unverified'");
+    invalidateConfigCache();
+    expect(getA2AConfig().activeConnections).toBe(1);
+  });
+
+  test("already-connected guard fires regardless of stored channel status", () => {
+    const first = redeemA2AInvite({ sender: SENDER });
+    expect(first.success).toBe(true);
+
+    const sqlite = getSqlite();
+    sqlite.run("UPDATE contact_channels SET status = 'revoked'");
+
+    const second = redeemA2AInvite({ sender: SENDER });
+    expect(second.alreadyConnected).toBe(true);
+    expect(second.contactId).toBe(first.contactId);
+  });
 });
