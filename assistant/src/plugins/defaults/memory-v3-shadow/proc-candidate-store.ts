@@ -107,6 +107,30 @@ export function incrementCandidate(
     .run(at, clusterId);
 }
 
+/**
+ * OR `explicit` on for a cluster (set it to 1) and stamp `updated_at`. Never
+ * clobbers an already-true value — the `WHERE explicit = 0` guard makes a
+ * re-call on an already-explicit cluster a no-op, so `updated_at` only moves
+ * when the flag actually flips. No-op when the cluster is not registered.
+ *
+ * Used when an `explicit` candidate note JOINS an existing `observing` cluster:
+ * the join path must carry the note's explicit-ness onto the cluster so the
+ * readiness check (`count >= minRecurrence || cluster.explicit`) can fire.
+ */
+export function setCandidateExplicit(
+  clusterId: string,
+  at: number = Date.now(),
+): void {
+  getSqliteFrom(getDb())
+    .query(
+      /*sql*/ `
+      UPDATE proc_candidates SET explicit = 1, updated_at = ?
+      WHERE cluster_id = ? AND explicit = 0
+    `,
+    )
+    .run(at, clusterId);
+}
+
 /** Fetch a single cluster, or `null` when it is not registered. */
 export function getCandidate(clusterId: string): ProcCandidate | null {
   const row = getSqliteFrom(getDb())

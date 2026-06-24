@@ -134,6 +134,13 @@ const FOLLOW_UP_JOB_TYPES: readonly MemoryJobType[] = ["memory_v2_reembed"];
 const V3_FOLLOW_UP_JOB_TYPE: MemoryJobType = "memory_v3_maintain";
 
 /**
+ * Follow-up enqueued only when procedural-memory-as-skills is on. The trigger
+ * tallies the `kind: proc-candidate` notes this consolidation pass just wrote,
+ * clustering them by goal toward the recurrence threshold.
+ */
+const PROC_DISTILL_FOLLOW_UP_JOB_TYPE: MemoryJobType = "memory_proc_distill";
+
+/**
  * Job handler. See file header for the full lifecycle. Returns a discriminated
  * union so tests can assert on the path taken (disabled / locked / empty /
  * invoked / failed) without having to spy on the filesystem.
@@ -319,6 +326,9 @@ export async function memoryV2ConsolidateJob(
     const jobTypes: MemoryJobType[] = [...FOLLOW_UP_JOB_TYPES];
     if (memoryV3Active) {
       jobTypes.push(V3_FOLLOW_UP_JOB_TYPE);
+    }
+    if (isProcToSkillsEnabled(config)) {
+      jobTypes.push(PROC_DISTILL_FOLLOW_UP_JOB_TYPE);
     }
     for (const jobType of jobTypes) {
       try {
