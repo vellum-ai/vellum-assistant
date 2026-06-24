@@ -179,12 +179,17 @@ export function ResearchOnboardingRoute() {
     values: ResearchOnboardingValues,
     face: GiveMeAFaceValues | null,
     entryPrompt?: string,
+    { skip = false }: { skip?: boolean } = {},
   ) {
     const { firstName, lastName, role, hobbies } = values;
     const fullName = [firstName.trim(), lastName.trim()]
       .filter(Boolean)
       .join(" ");
     const trimmedFirstName = firstName.trim();
+    // The research kickoff path is the only one that auto-sends a research
+    // prompt and renders focused; suggestions send their prompt as a normal
+    // chat, and "Skip to Chat" sends nothing at all.
+    const isResearch = !skip && entryPrompt === undefined;
 
     const context: PreChatOnboardingContext = {
       // Required handoff fields — no tool/task/tone collection in this flow.
@@ -194,24 +199,29 @@ export function ResearchOnboardingRoute() {
       ...(fullName ? { userName: fullName } : {}),
       // `occupation` is the prechat profile's field name for the person's role.
       ...(role.trim() ? { occupation: role.trim() } : {}),
-      // First message: the picked suggestion if we're entering from one,
-      // otherwise the research kickoff prompt.
-      initialMessage:
-        entryPrompt ??
-        buildResearchPrompt({
-          firstName,
-          lastName,
-          occupation: role,
-          hobby: hobbies.join(", "),
-        }),
-      // Friendly title for the behind-the-scenes research conversation.
-      ...(entryPrompt
+      // First message: the picked suggestion if entering from one, otherwise the
+      // research kickoff prompt. Omitted on "Skip to Chat" so the user lands in a
+      // blank chat ready to type.
+      ...(skip
         ? {}
         : {
+            initialMessage:
+              entryPrompt ??
+              buildResearchPrompt({
+                firstName,
+                lastName,
+                occupation: role,
+                hobby: hobbies.join(", "),
+              }),
+          }),
+      // Friendly title for the behind-the-scenes research conversation.
+      ...(isResearch
+        ? {
             title: trimmedFirstName
               ? `Getting to know ${trimmedFirstName}`
               : "Getting to know you",
-          }),
+          }
+        : {}),
       // Apply the avatar name chosen on the picker (if any).
       ...(face?.name?.trim() ? { assistantName: face.name.trim() } : {}),
     };
@@ -222,10 +232,11 @@ export function ResearchOnboardingRoute() {
     // the assistant is hatched (they're not part of the pre-chat context).
     setPendingAvatarTraits(face?.traits ?? null);
 
-    // The research pass renders in the focused presentation; entering directly
-    // from a suggestion is a normal chat, so only focus for the research path.
-    if (!entryPrompt) enterFocus();
-    lifecycleService.markExpectingFirstMessage();
+    // The research pass renders in the focused presentation; entering from a
+    // suggestion (or skipping) is a normal chat, so only focus for research.
+    if (isResearch) enterFocus();
+    // No auto-sent first message when skipping, so don't arm the expectation.
+    if (!skip) lifecycleService.markExpectingFirstMessage();
     // Pin the refresh to the background-hatched assistant so the handoff targets
     // it (not a previously-selected one) and doesn't trigger a second hatch.
     void lifecycleService
@@ -387,6 +398,10 @@ export function ResearchOnboardingRoute() {
               // reviewed the results.
               await research.awaitPluginInstalls();
               enterAssistant(formValues, faceValues, suggestion.prompt);
+            }}
+            onSkip={async () => {
+              await research.awaitPluginInstalls();
+              enterAssistant(formValues, faceValues, undefined, { skip: true });
             }}
             onBack={() => goBackTo(noClaims ? "looking" : "results")}
             onForward={onForward}
