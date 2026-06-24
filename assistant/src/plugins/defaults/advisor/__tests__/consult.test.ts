@@ -8,10 +8,14 @@ let sendMessageArgs: Record<string, unknown> | null = null;
 let responseText = "Use a channel-based worker pool; drain on shutdown.";
 let sendMessageError: Error | null = null;
 let providerResolves = true;
+let providerSupportsWeb = false;
 let streamDeltas: string[] = [];
 
 const fakeProvider = {
   name: "mock-advisor-provider",
+  get supportsNativeWebSearch() {
+    return providerSupportsWeb;
+  },
   async sendMessage(messages: unknown, options: unknown) {
     sendMessageArgs = { messages, options } as Record<string, unknown>;
     if (sendMessageError) throw sendMessageError;
@@ -36,6 +40,14 @@ mock.module("../../../../providers/provider-send-message.js", () => ({
   getConfiguredProvider: async () => (providerResolves ? fakeProvider : null),
 }));
 
+// Keep the tool tests focused on the consult wiring: stub the context pack so
+// they don't reach into the registry / workspace / memory sources (those have
+// their own coverage). The consult itself never imports this module.
+mock.module("../context-pack.js", () => ({
+  buildAdvisorContext: async () => null,
+  deriveRecallQuery: () => null,
+}));
+
 const { consultAdvisor } = await import("../consult.js");
 const advisorTool = (await import("../tools/advisor.js")).default;
 const { recordSystemPrompt, recordMessages, resetAdvisorStateForTests } =
@@ -56,6 +68,7 @@ beforeEach(() => {
   responseText = "Use a channel-based worker pool; drain on shutdown.";
   sendMessageError = null;
   providerResolves = true;
+  providerSupportsWeb = false;
   streamDeltas = [];
   resetAdvisorStateForTests();
 });
@@ -106,6 +119,37 @@ describe("consultAdvisor", () => {
     const options = sendMessageArgs?.options as { systemPrompt: string };
     expect(options.systemPrompt).toContain("senior advisor");
     expect(options.systemPrompt).toContain("You are a coding agent.");
+  });
+
+  test("stays tool-less when the provider has no native web search", async () => {
+    providerSupportsWeb = false;
+    await consultAdvisor({ systemPrompt: null, messages: [userMsg("hi")] });
+    const options = sendMessageArgs?.options as { tools?: unknown };
+    expect(options.tools).toBeUndefined();
+    expect(optionConfig().tool_choice).toEqual({ type: "none" });
+  });
+
+  test("enables native web search when the provider supports it", async () => {
+    providerSupportsWeb = true;
+    await consultAdvisor({ systemPrompt: null, messages: [userMsg("hi")] });
+
+    const options = sendMessageArgs?.options as {
+      tools?: Array<{ name: string }>;
+    };
+    expect(options.tools?.map((t) => t.name)).toEqual(["web_search"]);
+    // tool_choice must not be `none`, or the provider suppresses its server tool.
+    expect(optionConfig().tool_choice).toEqual({ type: "auto" });
+  });
+
+  test("embeds the runtime context in the advisor system prompt", async () => {
+    await consultAdvisor({
+      systemPrompt: "You are a coding agent.",
+      messages: [userMsg("hi")],
+      runtimeContext: "## Available tools\n- bash — run commands",
+    });
+    const options = sendMessageArgs?.options as { systemPrompt: string };
+    expect(options.systemPrompt).toContain("<agent_runtime_context>");
+    expect(options.systemPrompt).toContain("- bash — run commands");
   });
 
   test("soft-fails when no provider is configured", async () => {

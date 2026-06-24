@@ -33,9 +33,15 @@ export function stripSteering(systemPrompt: string | null): string | null {
  * System prompt for the advisor sub-call. Frames the advisor's role and, for
  * context, quotes the executor's own system prompt (as the advisor tool does —
  * the advisor sees the system prompt as context about the executor's task).
+ *
+ * `runtimeContext`, when present, carries the agent's situational context that
+ * lives outside its system prompt — available tools and skills, workspace /
+ * project context, and recalled memory (see `buildAdvisorContext`) — so the
+ * advisor can ground its recommendations in what the agent can actually do.
  */
 export function buildAdvisorSystem(
   originalSystemPrompt: string | null,
+  runtimeContext?: string | null,
 ): string {
   const base = `You are a senior advisor consulted by another AI agent working on a task — most often at the planning stage, before it starts building, but sometimes partway through. The entire conversation above is the agent's working context: its task or goal, every tool call it has made, and every result it has seen. The agent has paused to consult you because you bring a second, independent perspective it cannot get from inside its own reasoning loop. Your job is to maximize its odds of completing the task correctly and efficiently.
 
@@ -54,8 +60,14 @@ How to advise:
 - Stay in your lane. Advise the agent; do not role-play as it, write its final deliverable, or take its next action for it. If the agent is already on the right track, confirm it and sharpen the plan rather than manufacturing objections.
 
 Write as much as the guidance genuinely needs, and no more.`;
-  if (!originalSystemPrompt) return base;
-  return `${base}\n\nFor context, the agent is operating under this system prompt:\n<agent_system_prompt>\n${originalSystemPrompt}\n</agent_system_prompt>`;
+  let prompt = base;
+  if (originalSystemPrompt) {
+    prompt += `\n\nFor context, the agent is operating under this system prompt:\n<agent_system_prompt>\n${originalSystemPrompt}\n</agent_system_prompt>`;
+  }
+  if (runtimeContext) {
+    prompt += `\n\nThe agent's runtime context — the tools and skills available to it, the loaded workspace/project context, and relevant memory — follows. Ground your recommendations in what the agent can actually do and what is around it; reference specific tools, skills, files, or memory where relevant.\n<agent_runtime_context>\n${runtimeContext}\n</agent_runtime_context>`;
+  }
+  return prompt;
 }
 
 /**

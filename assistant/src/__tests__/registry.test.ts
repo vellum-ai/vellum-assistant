@@ -36,6 +36,9 @@ function makeFakeTool(name: string): Tool {
     category: "test",
     defaultRiskLevel: RiskLevel.Low,
     executionTarget: "sandbox",
+    // Match the finalized shape the registry stores, so identity comparisons
+    // (`getTool(name)` toEqual coreTool) hold after registration fills defaults.
+    exclusive: false,
     input_schema: { type: "object", properties: {}, required: [] },
     async execute(
       _input: Record<string, unknown>,
