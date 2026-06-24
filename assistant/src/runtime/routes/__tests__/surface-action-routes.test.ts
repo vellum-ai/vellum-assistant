@@ -386,6 +386,30 @@ describe("triggerSurfaceAction handler", () => {
     ]);
   });
 
+  test("resolves dev-bypass to the guardian principal before threading the turn", async () => {
+    httpAuthDisabled = true;
+    mockGuardianList = [guardianDelivery(GUARDIAN_PRINCIPAL)];
+    const live = makeStub("conv-dev-thread");
+    memoryBySurface = live;
+
+    const handler = findHandler("triggerSurfaceAction");
+    await handler({
+      body: { surfaceId: "surf-dt", actionId: "act-dt" },
+      headers: { "x-vellum-actor-principal-id": "dev-bypass" },
+    });
+
+    // dev-bypass is translated so the surface turn matches the SSE host-proxy
+    // client's registered guardian principal (CU/app-control same-actor check).
+    expect(live.surfaceActionCalls).toEqual([
+      {
+        surfaceId: "surf-dt",
+        actionId: "act-dt",
+        data: undefined,
+        sourceActorPrincipalId: GUARDIAN_PRINCIPAL,
+      },
+    ]);
+  });
+
   test("propagates accepted=false rejection as BadRequestError", async () => {
     const live = makeStub("conv-reject");
     live.handleSurfaceActionResult = {
