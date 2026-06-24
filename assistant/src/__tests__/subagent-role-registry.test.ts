@@ -74,6 +74,17 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     expect(SUBAGENT_ROLE_REGISTRY.investigator.allowedTools!).toContain("bash");
   });
 
+  test("investigator has shellMode: read-only (enforced, not just preamble)", () => {
+    expect(SUBAGENT_ROLE_REGISTRY.investigator.shellMode).toBe("read-only");
+  });
+
+  test("no other role sets shellMode to read-only", () => {
+    for (const [role, config] of Object.entries(SUBAGENT_ROLE_REGISTRY)) {
+      if (role === "investigator") continue;
+      expect(config.shellMode ?? "unrestricted").not.toBe("read-only");
+    }
+  });
+
   test("investigator excludes file write tools (read-only investigation)", () => {
     const tools = SUBAGENT_ROLE_REGISTRY.investigator.allowedTools!;
     expect(tools).not.toContain("file_write");

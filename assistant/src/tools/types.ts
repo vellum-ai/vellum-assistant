@@ -278,6 +278,13 @@ export interface ToolContext {
   allowedToolNames?: Set<string>;
   /** True when this turn is restricted to storage cleanup-safe tools. */
   diskPressureCleanupModeActive?: boolean;
+  /**
+   * Shell execution mode for this conversation. When `"read-only"`, the bash
+   * tool enforces a command allowlist that blocks filesystem writes, process
+   * side effects, and shell-level bypasses. Set by SubagentManager from the
+   * role config; `undefined` means unrestricted.
+   */
+  shellMode?: "unrestricted" | "read-only";
   /** Prompt the user for a secret value via native SecureField UI. */
   requestSecret?: (params: {
     service: string;

@@ -338,6 +338,15 @@ export class SubagentManager {
       conversation.setSubagentAllowedTools(new Set(roleConfig.allowedTools));
     }
 
+    // Apply shell execution mode from the role config. This enforces a real
+    // command allowlist in the bash tool when set to "read-only", preventing
+    // filesystem writes and process side effects even when bash is in the
+    // allowedTools list. (ATL-864: the investigator role's read-only preamble
+    // was prompt-only text with no enforcement.)
+    if (!isFork && roleConfig.shellMode) {
+      conversation.setShellMode(roleConfig.shellMode);
+    }
+
     // Pre-activate skills defined by the role config, merged with any caller-provided skill IDs.
     const mergedSkillIds = mergeSkillIds(
       roleConfig.skillIds,

@@ -212,6 +212,7 @@ export function createToolExecutor(
       allowedToolNames: ctx.allowedToolNames,
       forcePromptSideEffects: ctx.forcePromptSideEffects,
       diskPressureCleanupModeActive: ctx.diskPressureCleanupModeActive,
+      shellMode: ctx.shellMode,
       toolUseId,
       isPlatformHosted: getIsPlatform(),
       transportInterface: ctx.transportInterface,

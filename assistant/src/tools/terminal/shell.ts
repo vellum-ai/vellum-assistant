@@ -34,6 +34,7 @@ import type {
   ToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
+import { validateReadOnlyCommand } from "./read-only-shell-gate.js";
 import { buildSanitizedEnv } from "./safe-env.js";
 
 /** Build a credential ref resolution trace for diagnostic logging. */
@@ -108,6 +109,27 @@ export const shellTool = {
     // OS level while the parser sees the full string, enabling bypass.
     if (command.includes("\0")) {
       return { content: "Error: command contains null bytes", isError: true };
+    }
+
+    // Read-only shell mode: enforce a command allowlist to prevent
+    // filesystem writes, process side effects, and shell-level bypasses.
+    // This is the real enforcement behind the investigator role's read-only
+    // preamble (ATL-864: the preamble was prompt-only text with no gate).
+    if (context.shellMode === "read-only") {
+      const validation = validateReadOnlyCommand(command);
+      if (!validation.allowed) {
+        log.warn(
+          { command: redactSecrets(command), reason: validation.reason },
+          "Read-only shell mode rejected command",
+        );
+        return {
+          content:
+            `Error: command rejected by read-only shell policy — ${validation.reason}. ` +
+            "This subagent role is restricted to read-only investigation (grep, find, cat, git log, etc.). " +
+            "Filesystem writes, process spawning, and command chaining are not permitted.",
+          isError: true,
+        };
+      }
     }
 
     const background = input.background === true;
