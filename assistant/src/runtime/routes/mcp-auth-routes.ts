@@ -456,11 +456,18 @@ async function handleMcpAuthRevoke({
     throw new NotFoundError(`MCP server "${serverId}" not found`);
   }
 
+  let result: { ok: boolean; failedKeys: string[] };
   try {
-    await deleteMcpOAuthCredentials(serverId);
+    result = await deleteMcpOAuthCredentials(serverId);
   } catch (err) {
     throw new InternalError(
       `Failed to revoke OAuth credentials: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  if (!result.ok) {
+    throw new InternalError(
+      `Failed to delete OAuth credentials for keys: ${result.failedKeys.join(", ")}`,
     );
   }
 
