@@ -108,6 +108,7 @@ import { dropSendDiagnosticsMigration } from "./107-drop-send-diagnostics.js";
 import { dropBalancedEconomyProfileMigration } from "./108-drop-balanced-economy-profile.js";
 import { swapQualityProfileToGlm52Migration } from "./109-swap-quality-profile-to-glm-5p2.js";
 import { flipBalancedProfileToTogetherMigration } from "./110-flip-balanced-profile-to-together.js";
+import { pruneSeededCallsiteDefaultsMigration } from "./111-prune-seeded-callsite-defaults.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -227,4 +228,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   dropBalancedEconomyProfileMigration,
   swapQualityProfileToGlm52Migration,
   flipBalancedProfileToTogetherMigration,
+  pruneSeededCallsiteDefaultsMigration,
 ];
