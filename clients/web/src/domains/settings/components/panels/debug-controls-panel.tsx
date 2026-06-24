@@ -87,20 +87,6 @@ export function DebugControlsPanel() {
         </div>
       ) : assistant ? (
         <div className="space-y-4">
-          {platformGate === "disabled" && (
-            <PlatformLoginNotice>
-              Log in to the Vellum platform to manage backups.
-            </PlatformLoginNotice>
-          )}
-          {platformGate !== "disabled" && (
-            <div className="rounded-lg border border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
-              <h3 className="mb-3 text-body-medium-default text-[var(--content-default)]">
-                Backups
-              </h3>
-              <AssistantBackups assistantId={assistant.id} />
-            </div>
-          )}
-
           <div className="flex items-center justify-between rounded-lg border border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
             <div className="min-w-0">
               <p className="text-body-medium-default text-[var(--content-default)]">
@@ -121,34 +107,48 @@ export function DebugControlsPanel() {
             maintenanceMode={assistant.maintenance_mode}
             onMaintenanceModeChange={() => fetchAssistant(true)}
           />
+
+          {showInternalControls && (
+            <div className="flex items-center justify-between rounded-lg border border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
+              <div className="min-w-0">
+                <p className="text-body-medium-default text-[var(--content-default)]">
+                  Replay onboarding (Vellum-only)
+                </p>
+                <p className="text-body-small-default text-[var(--content-tertiary)]">
+                  Clear local onboarding flags and re-walk the privacy → hatch
+                  screens. Your existing assistant is preserved.
+                </p>
+              </div>
+              <div className="ml-4 shrink-0">
+                <Button
+                  variant="outlined"
+                  leftIcon={<RotateCw />}
+                  onClick={handleReplayOnboarding}
+                >
+                  Replay
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {platformGate === "disabled" && (
+            <PlatformLoginNotice>
+              Log in to the Vellum platform to manage backups.
+            </PlatformLoginNotice>
+          )}
+          {platformGate !== "disabled" && (
+            <div className="rounded-lg border border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
+              <h3 className="mb-3 text-body-medium-default text-[var(--content-default)]">
+                Backups
+              </h3>
+              <AssistantBackups assistantId={assistant.id} />
+            </div>
+          )}
         </div>
       ) : (
         <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
           No assistant found. Hatch an assistant to access debug controls.
         </p>
-      )}
-
-      {showInternalControls && (
-        <div className="flex items-center justify-between rounded-lg border border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
-          <div className="min-w-0">
-            <p className="text-body-medium-default text-[var(--content-default)]">
-              Replay onboarding (Vellum-only)
-            </p>
-            <p className="text-body-small-default text-[var(--content-tertiary)]">
-              Clear local onboarding flags and re-walk the privacy → hatch
-              screens. Your existing assistant is preserved.
-            </p>
-          </div>
-          <div className="ml-4 shrink-0">
-            <Button
-              variant="outlined"
-              leftIcon={<RotateCw />}
-              onClick={handleReplayOnboarding}
-            >
-              Replay
-            </Button>
-          </div>
-        </div>
       )}
     </div>
   );
