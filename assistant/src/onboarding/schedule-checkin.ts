@@ -23,11 +23,11 @@ import type { OAuthConnection } from "../oauth/connection.js";
 import { resolveOAuthConnection } from "../oauth/connection-resolver.js";
 import { getLogger } from "../util/logger.js";
 import {
-  type BusyInterval,
   buildCheckinDescription,
   buildCheckinTitle,
-  type CheckinNames,
+  type BusyInterval,
   checkinFreeBusyWindow,
+  type CheckinNames,
   chooseCheckinSlot,
 } from "./checkin-event.js";
 

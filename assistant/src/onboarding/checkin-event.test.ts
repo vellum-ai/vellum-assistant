@@ -3,12 +3,12 @@ import { describe, expect, test } from "bun:test";
 import {
   buildCheckinDescription,
   buildCheckinTitle,
+  type BusyInterval,
   checkinFreeBusyWindow,
   chooseCheckinSlot,
   findFirstOpenSlot,
   tomorrowInTimeZone,
   zonedWallTimeToUtcMs,
-  type BusyInterval,
 } from "./checkin-event.js";
 
 const TZ = "America/New_York";
