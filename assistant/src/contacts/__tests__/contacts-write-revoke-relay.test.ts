@@ -39,17 +39,6 @@ mock.module("../../ipc/gateway-client.js", () => ({
   ipcCallPersistent: ipcCallPersistentMock,
 }));
 
-// Local channel lookup gating the redundant-revoke skip.
-let localChannelStatus: string | null = "active";
-const actualContactStore = await import("../contact-store.js");
-mock.module("../contact-store.js", () => ({
-  ...actualContactStore,
-  getChannelById: mock((id: string) =>
-    localChannelStatus
-      ? { id, contactId: "c1", type: "telegram", status: localChannelStatus }
-      : null,
-  ),
-}));
 
 // Local-mirror primitive.
 const revokeMemberResult: ContactWriteResult = {
@@ -71,7 +60,6 @@ describe("revokeMemberChannel gateway-first relay", () => {
   beforeEach(() => {
     ipcCalls = [];
     ipcOk = true;
-    localChannelStatus = "active";
     ipcCallPersistentMock.mockClear();
     revokeMemberMock.mockClear();
     revokeMemberMock.mockImplementation(() => revokeMemberResult);
@@ -99,14 +87,18 @@ describe("revokeMemberChannel gateway-first relay", () => {
     expect(revokeMemberMock).toHaveBeenCalledWith("c1:ch1", undefined);
   });
 
-  test("skips the relay when the gateway channel is already revoked", async () => {
-    localChannelStatus = "revoked";
+  test("always relays — never skips based on local mirror status", async () => {
+    // The gateway owns the ACL outcome; the relay must fire even if the local
+    // mirror lags (says revoked) while the gateway row is still active.
+    await revokeMemberChannel("ch1");
 
-    const result = await revokeMemberChannel("ch1");
-
-    expect(ipcCalls).toEqual([]);
-    expect(revokeMemberMock).not.toHaveBeenCalled();
-    expect(result).toBeNull();
+    expect(ipcCalls).toEqual([
+      {
+        method: "mark_channel_revoked",
+        params: { contactChannelId: "ch1", reason: undefined },
+      },
+    ]);
+    expect(revokeMemberMock).toHaveBeenCalledTimes(1);
   });
 
   test("swallows a local-mirror failure without throwing; the gateway revoke stands", async () => {

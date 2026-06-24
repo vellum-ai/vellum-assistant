@@ -13,7 +13,6 @@ import {
 
 import { log } from "../daemon/handlers/shared.js";
 import { ipcCallPersistent } from "../ipc/gateway-client.js";
-import { getChannelById } from "./contact-store.js";
 import { revokeMember, upsertContactChannel } from "./contacts-write.js";
 import type { ContactWriteResult } from "./types.js";
 
@@ -155,15 +154,9 @@ export async function revokeMemberChannel(
 ): Promise<ContactWriteResult | null> {
   const channelId = memberId.includes(":") ? memberId.split(":")[1] : memberId;
 
-  // Skip a redundant relay when the channel is already revoked. The gateway
-  // dual-write keeps this local status in sync, so it's an adequate guard
-  // without an extra gateway round-trip. A missing local row still relays so
-  // the gateway stays authoritative.
-  const localChannel = getChannelById(channelId);
-  if (localChannel && localChannel.status === "revoked") {
-    return null;
-  }
-
+  // Always relay; the gateway owns the ACL outcome and mark_channel_revoked is
+  // idempotent (already-revoked → didWrite:false). Skipping on the local mirror
+  // status would suppress a needed revoke when the mirror lags the gateway.
   const result = await ipcCallPersistent("mark_channel_revoked", {
     contactChannelId: channelId,
     reason,

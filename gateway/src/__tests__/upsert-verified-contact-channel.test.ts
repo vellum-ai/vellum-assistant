@@ -23,6 +23,8 @@ type ExistingRow = {
 let queryRows: ExistingRow[] = [];
 const queryCalls: { sql: string; params: unknown[] }[] = [];
 const runCalls: { sql: string; params: unknown[] }[] = [];
+// When set, assistantDbRun throws for any SQL containing this substring.
+let runThrowOnSql: string | null = null;
 
 // Fake gateway DB: records update/insert calls and returns a configurable
 // `changes` count per update so the resilient dual-write fallback can be
@@ -100,6 +102,9 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   },
   assistantDbRun: async (sql: string, params: unknown[]) => {
     runCalls.push({ sql, params });
+    if (runThrowOnSql && sql.includes(runThrowOnSql)) {
+      throw new Error(`assistantDbRun failed for: ${runThrowOnSql}`);
+    }
   },
 }));
 
@@ -146,6 +151,7 @@ beforeEach(() => {
   // Default: no authoritative gateway row (legacy/unmirrored happy path).
   gwSelectStatus = null;
   gwInsertWrote = true;
+  runThrowOnSql = null;
   writeFileSync(TEST_SOCKET_PATH, "");
 });
 
@@ -651,6 +657,31 @@ describe("upsertVerifiedContactChannel — invite target-contact binding", () =>
     expect(where.conds.some((c) => c.op === "eq" && c.col === "id")).toBe(false);
 
     // The verified gateway write lands under the bound (target) contact.
+    expect(
+      gwUpdates.some(
+        (u) => (u.set as { status?: string }).status === "active",
+      ),
+    ).toBe(true);
+  });
+
+  test("activates the gateway channel even when the assistant mirror re-parent fails", async () => {
+    queryRows = [
+      { channelId: "ch-redeemer", contactId: "co-guardian", channelStatus: "active" },
+    ];
+    // The assistant-DB mirror re-parent throws transiently.
+    runThrowOnSql = "SET contact_id";
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "redeemer-tg",
+      externalChatId: "redeemer-tg",
+      verifiedVia: "invite",
+      contactId: "co-mom",
+    });
+
+    // The gateway activation still ran (mirror failure is best-effort), so the
+    // gateway source of truth is verified rather than left inactive.
+    expect(result).toEqual({ verified: true });
     expect(
       gwUpdates.some(
         (u) => (u.set as { status?: string }).status === "active",

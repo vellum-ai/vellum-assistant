@@ -381,10 +381,19 @@ export async function upsertVerifiedContactChannel(params: {
         displayName: contactDisplayName,
         now,
       });
-      await assistantDbRun(
-        `UPDATE contact_channels SET contact_id = ? WHERE id = ?`,
-        [boundContactId, row.channelId],
-      );
+      // Best-effort: a failed assistant mirror re-parent must not block the
+      // gateway activation below (the gateway is the source of truth).
+      try {
+        await assistantDbRun(
+          `UPDATE contact_channels SET contact_id = ? WHERE id = ?`,
+          [boundContactId, row.channelId],
+        );
+      } catch (mirrorErr) {
+        log.warn(
+          { err: mirrorErr },
+          "Assistant mirror re-parent failed; proceeding with gateway activation",
+        );
+      }
     }
 
     // Gateway is source of truth: write it FIRST, then activate the assistant
