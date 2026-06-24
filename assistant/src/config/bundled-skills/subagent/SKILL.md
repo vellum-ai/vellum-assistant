@@ -39,7 +39,7 @@ Each subagent is spawned with a role that determines its tool access. Choose the
 | `researcher` | `web_search`, `web_fetch`, `file_read`, `file_list`, `recall`, `notify_parent` | Information gathering, web research, codebase exploration, reading documentation |
 | `coder` | `bash`, `file_read`, `file_write`, `file_edit`, `web_search`, `recall`, `notify_parent` | Code changes, file editing, running commands, build/test tasks |
 | `planner` | `file_read`, `file_list`, `web_search`, `web_fetch`, `recall`, `notify_parent` | Analysis, planning, synthesizing information, reviewing approaches |
-| `investigator` | `bash`, `file_read`, `file_list`, `web_search`, `web_fetch`, `recall`, `notify_parent` | Root-cause analysis: debugging, log forensics, tracing behavior across many files. Shell access is for read-only investigation (grep/find/reading logs); returns a compact root-cause report |
+| `investigator` | `code_search`, `file_read`, `file_list`, `web_search`, `web_fetch`, `recall`, `notify_parent` | Root-cause analysis: debugging, log forensics, tracing behavior across many files. Read-only search/read tools only (no shell): use `code_search` to grep file contents across directories, `file_list` to enumerate paths, `file_read` to read whole files and logs; returns a compact root-cause report |
 | `advisor` | None (tool-less) | Read-only senior-advisor consult. Runs on a stronger model, inherits full parent context, and BLOCKS until it returns guidance |
 
 All specialized roles (`researcher`, `coder`, `planner`) include `notify_parent` for mid-run communication with the parent.
@@ -94,7 +94,7 @@ Set `inference_profile` to an `llm.profiles` key when a subagent should run unde
 
 Forks are sub-agents that inherit the parent's full context -- messages, system prompt, and memory -- sharing the KV cache for near-free context inheritance. Use forks when the task benefits from knowing what you've been discussing; use a regular sub-agent when the task is self-contained.
 
-**Key behaviors:** Forks always run as `general` role (the `role` parameter is ignored). `send_result_to_user` defaults to `false`. Read fork output with `last_n: 1` to get only the final synthesis.
+**Key behaviors:** Forks default to `general` role (the `role` parameter is ignored for forks), except the special `advisor` role, which is honored even as a fork. `send_result_to_user` defaults to `false`. Read fork output with `last_n: 1` to get only the final synthesis.
 
 **When to fork vs regular sub-agent:**
 

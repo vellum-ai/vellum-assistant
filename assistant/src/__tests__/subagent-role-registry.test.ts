@@ -83,8 +83,11 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     expect(SUBAGENT_ROLE_REGISTRY.planner.allowedTools!).toContain("recall");
   });
 
-  test('investigator includes "bash" for grep/find-based code and log investigation', () => {
-    expect(SUBAGENT_ROLE_REGISTRY.investigator.allowedTools!).toContain("bash");
+  test("investigator is shell-free and uses code_search for code/log investigation", () => {
+    const tools = SUBAGENT_ROLE_REGISTRY.investigator.allowedTools!;
+    expect(tools).not.toContain("bash");
+    expect(tools).not.toContain("host_bash");
+    expect(tools).toContain("code_search");
   });
 
   test("investigator excludes file write tools (read-only investigation)", () => {
@@ -98,6 +101,8 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     expect(preamble).toContain("Root cause");
     expect(preamble).toContain("Evidence");
     expect(preamble).toContain("notify_parent");
+    expect(preamble).not.toContain("shell access");
+    expect(preamble).toContain("code_search");
   });
 
   test("no role references the old memory_recall tool name", () => {

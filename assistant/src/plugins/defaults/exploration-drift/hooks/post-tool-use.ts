@@ -1,6 +1,6 @@
 /**
  * Default `post-tool-use` hook: when a turn's exploration tool calls (bash,
- * file_read, file_list) show drift — a long unbroken run with no text sent to
+ * code_search, file_read, file_list) show drift — a long unbroken run with no text sent to
  * the user, or the model re-issuing the exact same call — surface a notice
  * via `additionalContext` that coaches it to (a) give the user a brief
  * progress summary and (b) delegate the rest of the investigation to an
@@ -105,6 +105,7 @@ const LOOP_PRONE_MODEL_PATTERN = /kimi-k2[p.]6|minimax-m3/i;
 /** Read-only exploration tools whose unbroken runs indicate inline drift. */
 const EXPLORATION_TOOL_NAMES: ReadonlySet<string> = new Set([
   "bash",
+  "code_search",
   "file_read",
   "file_list",
 ]);

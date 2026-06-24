@@ -165,8 +165,8 @@ export async function executeSubagentSpawn(
         objective,
         context: extraContext,
         sendResultToUser,
-        // For fork mode, role is ignored by the manager (forced to general),
-        // but we still omit it from the config to signal intent.
+        // Regular forks omit the role so they default to general; the advisor
+        // role is special-cased earlier via runAdvisorConsult, not here.
         ...(!fork && role ? { role: role as SubagentRole } : {}),
         ...(inheritedOverrideProfile
           ? { overrideProfile: inheritedOverrideProfile }
