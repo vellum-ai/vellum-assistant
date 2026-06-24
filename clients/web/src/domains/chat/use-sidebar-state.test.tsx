@@ -87,7 +87,7 @@ describe("useSidebarState pagination", () => {
     expect(result.current.recents.showLess).toBe(false);
   });
 
-  test("uses the same incremental reveal behavior for Slack conversations", () => {
+  test("uses the same incremental reveal behavior for channel sections", () => {
     const conversations = Array.from({ length: 12 }, (_, index) =>
       makeConversation(index, {
         originChannel: "slack",
@@ -101,18 +101,45 @@ describe("useSidebarState pagination", () => {
       }),
     );
 
-    expect(result.current.slack.items).toHaveLength(
-      SIDEBAR_CONVERSATION_LIMIT,
-    );
-    expect(result.current.slack.showMore).toBe(true);
-    expect(result.current.slack.showLess).toBe(false);
+    const slackSection = () => {
+      const section = result.current.channelSections.find(
+        (s) => s.channelId === "slack",
+      );
+      if (!section) throw new Error("expected a slack channel section");
+      return section;
+    };
 
-    act(() => result.current.slack.onShowMore());
+    expect(slackSection().items).toHaveLength(SIDEBAR_CONVERSATION_LIMIT);
+    expect(slackSection().showMore).toBe(true);
+    expect(slackSection().showLess).toBe(false);
 
-    expect(result.current.slack.items).toHaveLength(
-      SIDEBAR_CONVERSATION_LIMIT * 2,
+    act(() => slackSection().onShowMore());
+
+    expect(slackSection().items).toHaveLength(SIDEBAR_CONVERSATION_LIMIT * 2);
+    expect(slackSection().showMore).toBe(true);
+    expect(slackSection().showLess).toBe(true);
+  });
+
+  test("exposes one paginated section per origin channel", () => {
+    const conversations = [
+      makeConversation(0, { originChannel: "slack" }),
+      makeConversation(1, { originChannel: "telegram" }),
+      makeConversation(2, { originChannel: "telegram" }),
+      makeConversation(3, {}),
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations }),
     );
-    expect(result.current.slack.showMore).toBe(true);
-    expect(result.current.slack.showLess).toBe(true);
+
+    expect(result.current.channelSections.map((s) => s.channelId)).toEqual([
+      "slack",
+      "telegram",
+    ]);
+    expect(
+      result.current.channelSections.find((s) => s.channelId === "telegram")
+        ?.totalCount,
+    ).toBe(2);
+    expect(result.current.recents.totalCount).toBe(1);
   });
 });

@@ -17,6 +17,7 @@
 import { createElement } from "react";
 import {
   Bot,
+  Hash,
   Mail,
   MessageCircle,
   MessageSquare,
@@ -49,6 +50,9 @@ const REPLYABLE_CHANNELS = new Set([
 ]);
 
 const CHANNEL_ICONS: Record<string, LucideIcon> = {
+  // Slack has a brand SVG used in the header; this `#` glyph is its
+  // Lucide stand-in for compact surfaces (sidebar section, footer fallback).
+  slack: Hash,
   telegram: Send,
   whatsapp: MessageCircle,
   phone: Phone,

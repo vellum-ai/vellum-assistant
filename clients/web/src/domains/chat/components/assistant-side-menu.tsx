@@ -2,7 +2,6 @@ import {
     Brain,
     Calendar,
     Clock,
-    Hash,
     LayoutGrid,
     Pin,
     Rocket,
@@ -27,9 +26,11 @@ import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
 import { SIDEBAR_CONVERSATION_LIMIT, useSidebarState, type PaginatedSection, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { isConversationPinned } from "@/domains/chat/utils/group-conversations";
+import { channelSectionKey } from "@/domains/chat/utils/sidebar-group-collapse-storage";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { Conversation } from "@/types/conversation-types";
 import { canMarkRead, canMarkUnread } from "@/utils/conversation-predicates";
+import { getChannelIcon, getChannelLabel } from "@/utils/channel-presentation";
 import {
     Button,
     ContextMenu,
@@ -506,14 +507,17 @@ export function AssistantSideMenu({
             >
               {(close) => renderCollapsedGroupContent("Recents", sidebar.recents.all, close)}
             </CollapsedGroupIcon>
-            <CollapsedGroupIcon
-              icon={Hash}
-              label="Slack"
-              disabled={sidebar.slack.totalCount === 0}
-              indicatorState={getGroupIndicatorState(sidebar.slack.all, processingConversationIds, attentionConversationIds)}
-            >
-              {(close) => renderCollapsedGroupContent("Slack", sidebar.slack.all, close)}
-            </CollapsedGroupIcon>
+            {sidebar.channelSections.map((section) => (
+              <CollapsedGroupIcon
+                key={section.channelId}
+                icon={getChannelIcon(section.channelId)}
+                label={getChannelLabel(section.channelId)}
+                disabled={section.totalCount === 0}
+                indicatorState={getGroupIndicatorState(section.all, processingConversationIds, attentionConversationIds)}
+              >
+                {(close) => renderCollapsedGroupContent(getChannelLabel(section.channelId), section.all, close)}
+              </CollapsedGroupIcon>
+            ))}
           </div>
         ) : (
           <>
@@ -536,16 +540,20 @@ export function AssistantSideMenu({
                 value={sidebar.effectiveOpenCategories}
                 onValueChange={sidebar.onOpenCategoriesChange}
               >
-                {sidebar.slack.totalCount > 0 ? (
-                  <CollapsibleNavSection.Section
-                    value="slack"
-                    icon={Hash}
-                    label="Slack"
-                    contextMenuContent={buildGroupContextMenu("Slack", sidebar.slack.all)}
-                  >
-                    {renderFlatList(sidebar.slack.items, sidebar.slack)}
-                  </CollapsibleNavSection.Section>
-                ) : null}
+                {sidebar.channelSections.map((section) => {
+                  const label = getChannelLabel(section.channelId);
+                  return (
+                    <CollapsibleNavSection.Section
+                      key={section.channelId}
+                      value={channelSectionKey(section.channelId)}
+                      icon={getChannelIcon(section.channelId)}
+                      label={label}
+                      contextMenuContent={buildGroupContextMenu(label, section.all)}
+                    >
+                      {renderFlatList(section.items, section)}
+                    </CollapsibleNavSection.Section>
+                  );
+                })}
               </CollapsibleNavSection.Root>
 
               {sidebar.customGroups.length > 0 ? (
