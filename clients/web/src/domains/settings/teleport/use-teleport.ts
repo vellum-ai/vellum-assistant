@@ -13,6 +13,7 @@ import { useNavigate } from "react-router";
 
 import { getAssistantHealthz, hatchAssistant } from "@/assistant/api";
 import { retireAssistant } from "@/assistant/retire-service";
+import { resolveManagedOAuthPlatformAssistantId } from "@/lib/local-managed-oauth-identity";
 import { getAppVersionInfo } from "@/runtime/app-info";
 import {
   assistantsList,
@@ -175,6 +176,17 @@ export function useTeleport(): TeleportController {
           await auth.connectPlatformAssistant(target.id);
         } else {
           await auth.connectLocalAssistant(target.id);
+          // The platform→local import strips `vellum:*` platform-identity
+          // credentials, so the freshly-imported local has no platform identity.
+          // Now that it's the active assistant, re-register it with the platform
+          // and inject those credentials (the web equivalent of the CLI's
+          // post-import injection) so managed/platform integrations keep working.
+          // Best-effort: a failure here shouldn't block the switch.
+          void resolveManagedOAuthPlatformAssistantId(target.id).catch((error) =>
+            captureError(error, {
+              context: "teleport-inject-platform-identity",
+            }),
+          );
         }
       } catch (error) {
         // The switch failed — keep the target around and surface the error
