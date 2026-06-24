@@ -52,6 +52,8 @@ describe("SubagentAvatarBadge", () => {
     const indicator = getByTestId("subagent-avatar-badge-status");
     expect(indicator.getAttribute("data-status")).toBe("running");
     expect(indicator.getAttribute("aria-label")).toBe("running");
+    // `role="img"` exposes the aria-label as a stable accessible name.
+    expect(indicator.getAttribute("role")).toBe("img");
     // Three pulsing dots use the shared busy-indicator class.
     expect(indicator.querySelectorAll(".busy-indicator").length).toBe(3);
   });

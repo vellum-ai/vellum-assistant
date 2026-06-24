@@ -87,6 +87,11 @@ export function SubagentAvatarBadge({
 
       {badgeState && (
         <span
+          // `role="img"` makes the `aria-label` a reliably-exposed accessible
+          // name: the indicator is a small graphic conveying state, and its
+          // running dots / lucide glyphs are hidden from assistive tech, so a
+          // bare generic <span> would leave the status non-visually invisible.
+          role="img"
           data-testid="subagent-avatar-badge-status"
           data-status={status}
           aria-label={status && STATUS_ARIA_LABEL[status]}
