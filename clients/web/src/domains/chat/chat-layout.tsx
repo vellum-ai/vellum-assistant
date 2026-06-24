@@ -264,17 +264,6 @@ export function ChatLayout() {
     setLocalBool(SIDEBAR_COLLAPSED_STORAGE_KEY, collapsed);
   }, [collapsed]);
 
-  useEffect(() => {
-    if (!sidebarCollapseRequested) return;
-    // One-shot: research-onboarding asked us to open collapsed. Honor it on
-    // desktop (mobile uses the drawer, which is already closed), then clear.
-    // `setCollapsed(true)` flows through the persistence effect above, so this
-    // intentionally sets the user's persisted collapsed preference (it is not a
-    // transient/visual-only collapse).
-    if (!window.matchMedia(MOBILE_MEDIA_QUERY).matches) setCollapsed(true);
-    consumeSidebarCollapse();
-  }, [sidebarCollapseRequested, consumeSidebarCollapse]);
-
   const handleSidebarWidthChange = useCallback((width: number) => {
     setSidebarWidth(width);
     setLocalNumber(SIDEBAR_WIDTH_STORAGE_KEY, Math.round(width));
@@ -286,6 +275,18 @@ export function ChatLayout() {
   useEffect(() => {
     if (!isMobile) setDrawerOpen(false);
   }, [isMobile]);
+
+  useEffect(() => {
+    if (!sidebarCollapseRequested) return;
+    // One-shot: research-onboarding asked us to open with the side panel
+    // collapsed across the whole web experience (not just desktop). Collapse
+    // the desktop sidebar — `setCollapsed(true)` flows through the persistence
+    // effect above, so this intentionally sets the user's persisted collapsed
+    // preference — AND close the mobile drawer, then clear the signal.
+    setCollapsed(true);
+    setDrawerOpen(false);
+    consumeSidebarCollapse();
+  }, [sidebarCollapseRequested, consumeSidebarCollapse]);
 
   const drawerVisible = isMobile && drawerOpen;
 
