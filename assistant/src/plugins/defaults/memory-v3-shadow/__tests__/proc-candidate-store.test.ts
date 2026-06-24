@@ -2,7 +2,8 @@
  * Tests for `proc-candidate-store.ts` — the procedural-memory candidate
  * registry (migration 302):
  *   - upsert/get round-trip, including member-slug and explicit fields;
- *   - upsert conflict path refreshing fields while preserving `created_at`;
+ *   - upsert conflict path refreshing only `goal`/`updated_at` while preserving
+ *     `created_at` and the accumulated members/count/status/explicit fields;
  *   - `incrementCandidate` bumping the recurrence tally;
  *   - `listCandidatesByStatus` filtering to one lifecycle status;
  *   - `markCandidateStatus` walking the lifecycle;
@@ -104,26 +105,48 @@ describe("upsertCandidate / getCandidate", () => {
     });
   });
 
-  test("re-upserting refreshes fields and updated_at but preserves created_at", () => {
+  test("re-upserting refreshes goal and updated_at but preserves created_at", () => {
     upsertCandidate({ clusterId: "cluster-1", goal: "first" }, 1_000);
-    upsertCandidate(
-      {
-        clusterId: "cluster-1",
-        goal: "second",
-        memberNoteSlugs: ["notes/a"],
-        count: 5,
-        status: "ready",
-      },
-      2_000,
-    );
+    upsertCandidate({ clusterId: "cluster-1", goal: "second" }, 2_000);
 
     expect(getCandidate("cluster-1")).toEqual({
       clusterId: "cluster-1",
       goal: "second",
-      memberNoteSlugs: ["notes/a"],
+      memberNoteSlugs: [],
+      count: 0,
+      status: "observing",
+      explicit: false,
+      createdAt: 1_000,
+      updatedAt: 2_000,
+    });
+  });
+
+  test("re-upserting preserves accumulated members, count, status, and explicit", () => {
+    // Seed a cluster that has accumulated evidence via the dedicated mutators.
+    upsertCandidate(
+      {
+        clusterId: "cluster-1",
+        goal: "first",
+        memberNoteSlugs: ["notes/a", "notes/b"],
+        count: 5,
+        status: "ready",
+        explicit: true,
+      },
+      1_000,
+    );
+
+    // A bare refresh-upsert (only the required fields) must not clobber the
+    // accumulated member slugs, recurrence count, lifecycle status, or the
+    // explicit flag — those are owned by the dedicated mutators.
+    upsertCandidate({ clusterId: "cluster-1", goal: "second" }, 2_000);
+
+    expect(getCandidate("cluster-1")).toEqual({
+      clusterId: "cluster-1",
+      goal: "second",
+      memberNoteSlugs: ["notes/a", "notes/b"],
       count: 5,
       status: "ready",
-      explicit: false,
+      explicit: true,
       createdAt: 1_000,
       updatedAt: 2_000,
     });

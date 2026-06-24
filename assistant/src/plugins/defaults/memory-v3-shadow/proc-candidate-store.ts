@@ -9,11 +9,7 @@
  * seeded by a direct user request rather than passive observation.
  */
 
-import {
-  type DrizzleDb,
-  getDb,
-  getSqliteFrom,
-} from "../../../memory/db-connection.js";
+import { getDb, getSqliteFrom } from "../../../memory/db-connection.js";
 
 export type ProcCandidateStatus = "observing" | "ready" | "distilled";
 
@@ -62,9 +58,12 @@ export interface UpsertCandidateInput {
 }
 
 /**
- * Insert a candidate cluster, or refresh `goal`/`status`/`explicit` and stamp
- * `updated_at` when one already exists. The `created_at` of an existing row is
- * preserved.
+ * Insert a candidate cluster, or refresh `goal` and stamp `updated_at` when one
+ * already exists. The accumulated fields — `member_note_slugs`, `count`,
+ * `status`, `explicit`, and `created_at` — are PRESERVED on conflict; they are
+ * owned by the dedicated mutators (`incrementCandidate`, `addMemberNote`,
+ * `markCandidateStatus`), so re-upserting with only the required fields never
+ * clobbers accumulated evidence.
  */
 export function upsertCandidate(
   input: UpsertCandidateInput,
@@ -78,10 +77,6 @@ export function upsertCandidate(
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(cluster_id) DO UPDATE SET
         goal = excluded.goal,
-        member_note_slugs = excluded.member_note_slugs,
-        count = excluded.count,
-        status = excluded.status,
-        explicit = excluded.explicit,
         updated_at = excluded.updated_at
     `,
     )
