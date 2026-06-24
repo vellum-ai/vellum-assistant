@@ -19,7 +19,13 @@ mock.module("../security/secure-keys.js", () => ({
 // mutating. Default the claim to consumed (updated:true) so these assistant-side
 // handler tests exercise the happy redemption path.
 mock.module("../ipc/gateway-client.js", () => ({
-  ipcCallPersistent: async (method: string) => {
+  ipcCallPersistent: async (
+    method: string,
+    params?: Record<string, unknown>,
+  ) => {
+    if (method === "contacts_get_rich") {
+      return richContactForId(params?.contactId as string);
+    }
     if (method === "record_invite_redemption") {
       return { ok: true, updated: true, mirrored: true };
     }
@@ -27,7 +33,44 @@ mock.module("../ipc/gateway-client.js", () => ({
   },
 }));
 
-import { upsertContact } from "../contacts/contact-store.js";
+// Serves contacts_get_rich (the gateway ACL read backing the gate-status
+// fallback) from the seeded local contact, so the already_member gate resolves
+// via the gateway path rather than the dropped local channel column.
+function richContactForId(contactId: string | undefined) {
+  if (!contactId) return undefined;
+  const contact = getContact(contactId);
+  if (!contact) return undefined;
+  return {
+    ok: true,
+    contact: {
+      id: contact.id,
+      displayName: contact.displayName,
+      role: contact.role,
+      interactionCount: contact.interactionCount,
+      createdAt: contact.createdAt,
+      updatedAt: contact.updatedAt,
+      channels: contact.channels.map((c) => ({
+        id: c.id,
+        contactId: c.contactId,
+        type: c.type,
+        address: c.address,
+        isPrimary: c.isPrimary,
+        externalUserId: c.externalChatId,
+        status: c.status,
+        policy: c.policy,
+        verifiedAt: c.verifiedAt,
+        verifiedVia: c.verifiedVia,
+        lastSeenAt: c.lastSeenAt,
+        interactionCount: c.interactionCount,
+        lastInteraction: c.lastInteraction,
+        revokedReason: c.revokedReason,
+        blockedReason: c.blockedReason,
+      })),
+    },
+  };
+}
+
+import { getContact, upsertContact } from "../contacts/contact-store.js";
 import { handleMintInvite } from "../ipc/routes/invite-ipc-routes.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";

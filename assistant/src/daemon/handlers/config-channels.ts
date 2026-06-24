@@ -6,13 +6,13 @@ import { MarkChannelRevokedIpcResponseSchema } from "@vellumai/gateway-client/ga
 import { startVerificationCall } from "../../calls/call-domain.js";
 import type { ChannelId } from "../../channels/types.js";
 import { emitContactChange } from "../../contacts/contact-events.js";
-import { gatewayContactChannelState } from "../../contacts/gateway-channel-read.js";
 import {
   findContactChannel,
   findGuardianForChannel,
   getChannelById,
   getContact,
 } from "../../contacts/contact-store.js";
+import { gatewayContactChannelState } from "../../contacts/gateway-channel-read.js";
 import { getGuardianDelivery } from "../../contacts/guardian-delivery-reader.js";
 import type { ContactChannel } from "../../contacts/types.js";
 import { ipcCallPersistent } from "../../ipc/gateway-client.js";
