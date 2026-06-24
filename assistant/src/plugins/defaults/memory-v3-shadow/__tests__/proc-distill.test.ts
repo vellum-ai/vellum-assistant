@@ -88,10 +88,27 @@ function fakeRegistry(seed: ProcCandidate[]) {
     listReadyClusters: (): ProcCandidate[] =>
       [...rows.values()].filter((r) => r.status === "ready"),
     listClusters: (): CandidateClusterRef[] =>
-      [...rows.values()].map((r) => ({
-        clusterId: r.clusterId,
-        memberNoteSlugs: r.memberNoteSlugs,
-      })),
+      [...rows.values()]
+        .filter((r) => r.status === "observing" || r.status === "ready")
+        .map((r) => ({
+          clusterId: r.clusterId,
+          memberNoteSlugs: r.memberNoteSlugs,
+        })),
+    // Idempotency skip-set source (observing + ready + distilled). Unused here —
+    // these distillation tests don't run the tally phase — but required by the
+    // deps shape, so mirror the full-membership projection.
+    listAssignedClusters: (): CandidateClusterRef[] =>
+      [...rows.values()]
+        .filter(
+          (r) =>
+            r.status === "observing" ||
+            r.status === "ready" ||
+            r.status === "distilled",
+        )
+        .map((r) => ({
+          clusterId: r.clusterId,
+          memberNoteSlugs: r.memberNoteSlugs,
+        })),
   };
 }
 
@@ -138,6 +155,7 @@ function harness(opts: HarnessOpts) {
     // Tally phase finds nothing — these tests start from pre-seeded clusters.
     loadCandidateNotes: async () => [],
     listClusters: reg.listClusters,
+    listAssignedClusters: reg.listAssignedClusters,
     matchCandidate: async () => ({ kind: "new" }),
     judge: async () => false,
     upsertCandidate: () => {},

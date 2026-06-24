@@ -95,6 +95,7 @@ function fakeRegistry() {
     | "getCandidate"
     | "markCandidateStatus"
     | "listClusters"
+    | "listAssignedClusters"
     | "listReadyClusters"
   > = {
     upsertCandidate: (input) => {
@@ -133,11 +134,30 @@ function fakeRegistry() {
       const row = rows.get(clusterId);
       if (row) row.status = status;
     },
+    // Tier-1 match targets: `observing` + `ready` only — mirrors production's
+    // MATCH_TARGET_STATUSES, so a `distilled` cluster is NOT a match target.
     listClusters: (): CandidateClusterRef[] =>
-      [...rows.values()].map((r) => ({
-        clusterId: r.clusterId,
-        memberNoteSlugs: r.memberNoteSlugs,
-      })),
+      [...rows.values()]
+        .filter((r) => r.status === "observing" || r.status === "ready")
+        .map((r) => ({
+          clusterId: r.clusterId,
+          memberNoteSlugs: r.memberNoteSlugs,
+        })),
+    // Idempotency skip-set source: `observing` + `ready` + `distilled` — mirrors
+    // production's ASSIGNED_STATUSES, so a leftover note on a `distilled` cluster
+    // still counts as assigned and is skipped, never re-tallied.
+    listAssignedClusters: (): CandidateClusterRef[] =>
+      [...rows.values()]
+        .filter(
+          (r) =>
+            r.status === "observing" ||
+            r.status === "ready" ||
+            r.status === "distilled",
+        )
+        .map((r) => ({
+          clusterId: r.clusterId,
+          memberNoteSlugs: r.memberNoteSlugs,
+        })),
     listReadyClusters: (): ProcCandidate[] =>
       [...rows.values()].filter((r) => r.status === "ready"),
   };
@@ -184,7 +204,13 @@ interface HarnessOpts {
   skills?: Set<string>;
   gray?: Map<string, string>;
   judge?: ProcDistillTriggerDeps["judge"];
-  seed?: Array<{ clusterId: string; goal: string; members: string[] }>;
+  seed?: Array<{
+    clusterId: string;
+    goal: string;
+    members: string[];
+    /** Defaults to `observing`; set to seed e.g. an already-`distilled` cluster. */
+    status?: ProcCandidate["status"];
+  }>;
 }
 
 function harness(opts: HarnessOpts) {
@@ -200,6 +226,11 @@ function harness(opts: HarnessOpts) {
       count: seed.members.length,
       explicit: false,
     });
+    // `upsertCandidate` always opens at `observing`; honor an explicit seed
+    // status (e.g. `distilled`) by transitioning the freshly-seeded row.
+    if (seed.status && seed.status !== "observing") {
+      store.markCandidateStatus(seed.clusterId, seed.status);
+    }
     clustersByGoal.set(seed.goal, seed.clusterId);
   }
   for (const n of opts.notes) {
@@ -215,6 +246,7 @@ function harness(opts: HarnessOpts) {
     config: config(opts.minRecurrence),
     loadCandidateNotes: async () => opts.notes,
     listClusters: store.listClusters,
+    listAssignedClusters: store.listAssignedClusters,
     matchCandidate: (goal, listClusters) =>
       matcher(goal, listClusters, clustersByGoal),
     judge:
@@ -256,6 +288,7 @@ describe("procDistillTriggerJob — gating", () => {
       config: config(),
       loadCandidateNotes: async () => [note("proc/a", "do a")],
       listClusters: () => [],
+      listAssignedClusters: () => [],
       matchCandidate: async () => {
         matched += 1;
         return { kind: "new" };
@@ -529,6 +562,41 @@ describe("procDistillTriggerJob — idempotency", () => {
       "proc/deploy-1",
       "proc/deploy-2",
     ]);
+  });
+
+  test("a leftover note on a distilled cluster is skipped, not re-tallied", async () => {
+    // Distillation's `deleteNote` is best-effort: the cluster is marked
+    // `distilled` even when a member-note delete fails, so that note can remain
+    // on disk. Its slug must stay in the idempotency skip set (which spans
+    // observing + ready + DISTILLED) so the next pass skips it rather than
+    // re-tallying it as a brand-new cluster. The matcher returns `new` for this
+    // goal (no existing-skill ANN hit), so a re-tally WOULD open a fresh cluster
+    // — exactly the regression this guards against.
+    const { rows, deps } = harness({
+      notes: [note("proc/deploy-leftover", "deploy the web app")],
+      seed: [
+        {
+          clusterId: "cluster/proc/deploy-leftover",
+          goal: "deploy the web app",
+          members: ["proc/deploy-leftover", "proc/deploy-2"],
+          status: "distilled",
+        },
+      ],
+      minRecurrence: 2,
+    });
+    // Sanity: the cluster is retired and the leftover note is a known member.
+    expect(rows.get("cluster/proc/deploy-leftover")!.status).toBe("distilled");
+
+    const outcome = await procDistillTriggerJob(JOB, deps.config, deps);
+
+    // The leftover note is skipped — no new cluster, no re-count.
+    expect(outcome.skippedAssigned).toBe(1);
+    expect(outcome.opened).toBe(0);
+    expect(outcome.joined).toBe(0);
+    expect(outcome.existingSkill).toBe(0);
+    // Still exactly one cluster (the distilled one); no fresh cluster opened.
+    expect(rows.size).toBe(1);
+    expect(rows.get("cluster/proc/deploy-leftover")!.status).toBe("distilled");
   });
 
   test("two same-goal notes in ONE pass open exactly one cluster (count 2)", async () => {
