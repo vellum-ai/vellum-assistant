@@ -65,6 +65,11 @@ import memoryRetrievalPkg from "./memory-retrieval/package.json" with { type: "j
 import memoryV3PostCompact from "./memory-v3-shadow/hooks/post-compact.js";
 import memoryV3UserPromptSubmit from "./memory-v3-shadow/hooks/user-prompt-submit.js";
 import memoryV3Pkg from "./memory-v3-shadow/package.json" with { type: "json" };
+import prLinkInjectorPostModelCall from "./pr-link-injector/hooks/post-model-call.js";
+import prLinkInjectorPostToolUse from "./pr-link-injector/hooks/post-tool-use.js";
+import prLinkInjectorStop from "./pr-link-injector/hooks/stop.js";
+import prLinkInjectorPkg from "./pr-link-injector/package.json" with { type: "json" };
+import { resetPrLinkStoreForTests } from "./pr-link-injector/pr-link-store.js";
 import surfaceCompletionNudgePostModelCall from "./surface-completion-nudge/hooks/post-model-call.js";
 import surfaceCompletionNudgeStop from "./surface-completion-nudge/hooks/stop.js";
 import { resetSurfaceCompletionNudgeStoreForTests } from "./surface-completion-nudge/nudge-state-store.js";
@@ -354,7 +359,26 @@ export const defaultAdvisorPlugin: Plugin = {
 };
 
 /**
- * Full set of first-party default plugins. Used by
+ * `pr-link-injector` — detects `git push` in bash tool calls and appends the
+ * PR link to the assistant's final reply if the model didn't already include
+ * it. Three hooks: `post-tool-use` resolves the PR URL from the GitHub API and
+ * stores it per-conversation, `post-model-call` injects it as a text block on
+ * the final no-tool reply if absent, and `stop` clears the state.
+ */
+export const defaultPrLinkInjectorPlugin: Plugin = {
+  manifest: {
+    name: prLinkInjectorPkg.name,
+    version: prLinkInjectorPkg.version,
+  },
+  hooks: {
+    "post-tool-use": prLinkInjectorPostToolUse,
+    "post-model-call": prLinkInjectorPostModelCall,
+    stop: prLinkInjectorStop,
+  },
+};
+
+/**
+ * Full set of first-party default plugins.
  * {@link registerDefaultPlugins} to drive the registration loop; the array
  * order is the registration order, which fixes hook-chain order (defaults run
  * ahead of any later-registered user plugins).
@@ -375,6 +399,7 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     defaultCompactionPlugin,
     defaultTitleGeneratePlugin,
     memoryV3ShadowPlugin,
+    defaultPrLinkInjectorPlugin,
     // Registered last so its capture hooks observe the fully-processed turn
     // (memory injections, history repair) that the executor actually sees.
     defaultAdvisorPlugin,
@@ -426,5 +451,6 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
   resetSurfaceCompletionNudgeStoreForTests();
   resetAdvisorStateForTests();
   resetCaptionCacheForTests();
+  resetPrLinkStoreForTests();
   registerDefaultPlugins();
 }
