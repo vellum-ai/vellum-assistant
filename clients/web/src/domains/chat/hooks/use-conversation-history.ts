@@ -36,7 +36,7 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import type { SubagentStatus } from "@vellumai/assistant-api";
+import { reconcileSubagentStoreFromNotifications } from "@/domains/chat/hooks/reconcile-subagent-hydration";
 
 import {
   parsePendingSecretState,
@@ -281,20 +281,11 @@ export function useConversationHistory({
         }
       }
 
-      const subagentStore = useSubagentStore.getState();
-      subagentStore.reset();
-      for (const n of deduped.values()) {
-        subagentStore.spawnSubagent({
-          subagentId: n.subagentId,
-          label: n.label,
-          objective: "",
-          status: (n.status as SubagentStatus) || "completed",
-          error: n.error,
-          conversationId: n.conversationId,
-          timestamp: Date.now(),
-          parentMessageId: n.parentMessageId,
-        });
-      }
+      reconcileSubagentStoreFromNotifications(
+        useSubagentStore.getState(),
+        deduped.values(),
+        Date.now(),
+      );
     }
 
     // Restore pending interactions (secrets, confirmations).
