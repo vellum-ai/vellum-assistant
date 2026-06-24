@@ -16,6 +16,21 @@ type RetrospectiveRun = RetrospectiveRunsGetResponse["runs"][number];
 /** Union of all raw system-task run types from the daemon SDK. */
 export type AnySystemTaskRun = HeartbeatRun | ConsolidationRun | RetrospectiveRun;
 
+interface SystemTaskRunPage<T extends AnySystemTaskRun> {
+  runs: T[];
+  nextCursor: number | null;
+}
+
+interface FetchSystemTaskRunsForUsageArgs<T extends AnySystemTaskRun> {
+  kind: SystemTaskKind;
+  range: { from: number; to: number };
+  signal?: AbortSignal;
+  fetchPage: (
+    before: number | undefined,
+    signal: AbortSignal | undefined,
+  ) => Promise<SystemTaskRunPage<T>>;
+}
+
 /**
  * Maps a raw system-task run from the daemon SDK into the shared
  * {@link ScheduleRun} shape consumed by the schedule UI.
@@ -84,4 +99,36 @@ export function selectRetrospectiveRuns(
   data: RetrospectiveRunsGetResponse,
 ): ScheduleRun[] {
   return data.runs.map((r) => toScheduleRun(r, "retrospective"));
+}
+
+export async function fetchSystemTaskRunsForUsage<T extends AnySystemTaskRun>({
+  kind,
+  range,
+  signal,
+  fetchPage,
+}: FetchSystemTaskRunsForUsageArgs<T>): Promise<ScheduleRun[]> {
+  const runs: ScheduleRun[] = [];
+  const seenCursors = new Set<number>();
+  let before: number | undefined;
+
+  while (true) {
+    const page = await fetchPage(before, signal);
+    const pageRuns = page.runs.map((run) => toScheduleRun(run, kind));
+    runs.push(...pageRuns);
+
+    const reachedOlderRuns = pageRuns.some(
+      (run) => (run.startedAt ?? run.createdAt) < range.from,
+    );
+    if (reachedOlderRuns || page.nextCursor == null || pageRuns.length === 0) {
+      break;
+    }
+
+    if (seenCursors.has(page.nextCursor)) {
+      break;
+    }
+    seenCursors.add(page.nextCursor);
+    before = page.nextCursor;
+  }
+
+  return runs;
 }
