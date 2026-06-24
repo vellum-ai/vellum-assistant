@@ -128,6 +128,10 @@ export function ChatLayout() {
   // toggles — otherwise a suggestion click's navigate + `?prompt=` auto-send
   // gets raced by the remount and the message is lost.
   const isFocused = useOnboardingFocusStore.use.focused();
+  const sidebarCollapseRequested =
+    useOnboardingFocusStore.use.sidebarCollapseRequested();
+  const consumeSidebarCollapse =
+    useOnboardingFocusStore.use.consumeSidebarCollapse();
 
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantStateKind = useAssistantLifecycleStore(
@@ -271,6 +275,18 @@ export function ChatLayout() {
   useEffect(() => {
     if (!isMobile) setDrawerOpen(false);
   }, [isMobile]);
+
+  useEffect(() => {
+    if (!sidebarCollapseRequested) return;
+    // One-shot: research-onboarding asked us to open with the side panel
+    // collapsed across the whole web experience (not just desktop). Collapse
+    // the desktop sidebar — `setCollapsed(true)` flows through the persistence
+    // effect above, so this intentionally sets the user's persisted collapsed
+    // preference — AND close the mobile drawer, then clear the signal.
+    setCollapsed(true);
+    setDrawerOpen(false);
+    consumeSidebarCollapse();
+  }, [sidebarCollapseRequested, consumeSidebarCollapse]);
 
   const drawerVisible = isMobile && drawerOpen;
 

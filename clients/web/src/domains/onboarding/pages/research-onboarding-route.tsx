@@ -75,6 +75,8 @@ export function ResearchOnboardingRoute() {
   const exitFocus = useOnboardingFocusStore.use.exitFocus();
   const setPendingAvatarTraits =
     useOnboardingFocusStore.use.setPendingAvatarTraits();
+  const requestSidebarCollapse =
+    useOnboardingFocusStore.use.requestSidebarCollapse();
   // Belt-and-suspenders gate: the spike lives at a dedicated path AND behind
   // this flag (off by default; enable locally via the feature-flags panel).
   const enabled = useClientFeatureFlagStore.use.researchOnboarding();
@@ -244,6 +246,8 @@ export function ResearchOnboardingRoute() {
     if (isResearch) enterFocus();
     // No auto-sent first message when skipping, so don't arm the expectation.
     if (!skip) lifecycleService.markExpectingFirstMessage();
+    // Collapse the side panel so the workspace opens focused on the new chat.
+    requestSidebarCollapse();
     // Pin the refresh to the background-hatched assistant so the handoff targets
     // it (not a previously-selected one) and doesn't trigger a second hatch.
     void lifecycleService
