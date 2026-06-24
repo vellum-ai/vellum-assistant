@@ -29,7 +29,11 @@ import type {
   DisplayAttachment,
   DisplayMessage,
 } from "@/domains/chat/types/types";
-import { conversationHistoryQueryKey } from "@/domains/chat/transcript/use-history-pagination";
+import {
+  conversationHistoryQueryKey,
+  type HistoryCache,
+} from "@/domains/chat/transcript/use-history-pagination";
+import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { recordLocalSeq } from "@/lib/streaming/local-seq";
 import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
 import { resolveEditChatDraftConversationId } from "@/utils/edit-chat-session";
@@ -633,18 +637,42 @@ export function useSendMessage({
       // single functional updater so the two transforms compose correctly
       // within React 18's batched state updates. Side effects (ref mutation,
       // localStorage persist) are kept outside the updater to stay pure.
-      const messagesForScan = useChatSessionStore.getState().liveTurn;
-      setLiveTurn((prev) => {
+      // Scan the full rendered transcript — history ⊕ live turn — for
+      // superseded interactive surfaces and pending confirmations. After the
+      // turn-idle handoff prunes a completed turn, a superseded surface or
+      // confirmation lives in the history cache, not the live turn, so a
+      // live-turn-only scan would leave it rendering as actionable (and could
+      // let the user resubmit a request the daemon has already resolved). The
+      // clear + dismiss transform is applied to BOTH sources via
+      // patchTranscriptMessages (a no-op for rows it doesn't match), and the
+      // dismissed-id list that drives the hide set is computed over the union.
+      const cachedHistory =
+        assistantId && activeConversationId
+          ? queryClient.getQueryData<HistoryCache>(
+              conversationHistoryQueryKey(assistantId, activeConversationId),
+            )
+          : undefined;
+      const historyRows = cachedHistory
+        ? [...cachedHistory.pages].reverse().flatMap((page) => page.messages)
+        : [];
+      const transcriptForScan =
+        historyRows.length > 0
+          ? [...historyRows, ...useChatSessionStore.getState().liveTurn]
+          : useChatSessionStore.getState().liveTurn;
+
+      patchTranscriptMessages((prev) => {
         const cleared = clearPendingConfirmationsFromMessages(prev);
-        const { updatedMessages, dismissedIds } =
-          dismissInteractiveSurfaces(cleared, messagesForScan);
+        const { updatedMessages, dismissedIds } = dismissInteractiveSurfaces(
+          cleared,
+          transcriptForScan,
+        );
         return dismissedIds.size > 0 ? updatedMessages : cleared;
       });
 
       // Persist dismissed surfaces outside the updater (side effect).
       const { dismissedIds } = dismissInteractiveSurfaces(
-        useChatSessionStore.getState().liveTurn,
-        messagesForScan,
+        transcriptForScan,
+        transcriptForScan,
       );
       if (dismissedIds.size > 0) {
         persistDismissedSurfaces(dismissedIds);
