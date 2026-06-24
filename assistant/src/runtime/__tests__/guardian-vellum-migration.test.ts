@@ -3,11 +3,12 @@
  * `reResolveTrustOnResetDrift`.
  *
  * The real helper runs against mocked leaf deps: the gateway guardian read
- * (`getGuardianDelivery`/`guardianForChannel`), the local-mirror heal
- * (`findGuardianForChannel`/`updateContactPrincipalAndChannel`, which the real
- * `healGuardianBindingDrift` drives), and the local trust resolver
- * (`resolveTrustContext`). Heal invocations are observed via the contact-store
- * write mock.
+ * (`getGuardianDelivery`/`guardianForChannel`) supplies the authoritative
+ * principal, the local-mirror heal target is resolved via
+ * `findGuardianForChannel` and written via `updateContactPrincipalAndChannel`
+ * (the real `healGuardianBindingDrift` drives this), and the local trust
+ * resolver (`resolveTrustContext`) closes the loop. Heal invocations are
+ * observed via the contact-store write mock.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -26,10 +27,10 @@ mock.module("../../contacts/guardian-delivery-reader.js", () => ({
   ) => list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
-// Local mirror the real heal reads/writes. `findGuardianForChannel` returns the
-// stored guardian; `updateContactPrincipalAndChannel` records heal writes.
+// Local mirror the real heal repairs. `findGuardianForChannel` returns the
+// heal target; `updateContactPrincipalAndChannel` records heal writes.
 let mockLocalGuardian: {
-  contact: { id: string; principalId: string };
+  contact: { id: string };
   channel: { id: string };
 } | null = null;
 const healWrites: Array<{ principalId: string }> = [];
@@ -74,9 +75,9 @@ function gatewayGuardian(principalId: string): Record<string, unknown> {
   };
 }
 
-function localGuardian(principalId: string) {
+function localGuardian() {
   return {
-    contact: { id: "contact-1", principalId },
+    contact: { id: "contact-1" },
     channel: { id: "channel-1" },
   };
 }
@@ -89,10 +90,10 @@ describe("reResolveTrustOnResetDrift", () => {
   });
 
   test("reset drift: heals and returns the re-resolved guardian ctx", async () => {
-    // Stale local mirror still holds the pre-reset principal; the incoming JWT
-    // carries the old one. Heal repairs the mirror toward the incoming actor.
+    // Gateway principal diverges from the incoming JWT; heal repairs the local
+    // mirror toward the incoming actor.
     mockGuardianList = [gatewayGuardian("vellum-principal-new")];
-    mockLocalGuardian = localGuardian("vellum-principal-stale");
+    mockLocalGuardian = localGuardian();
 
     const ctx = await reResolveTrustOnResetDrift(
       "vellum-principal-old",
@@ -103,11 +104,11 @@ describe("reResolveTrustOnResetDrift", () => {
     expect(healWrites).toEqual([{ principalId: "vellum-principal-old" }]);
   });
 
-  test("repeat drift where heal no-ops still returns the guardian ctx", async () => {
-    // Local mirror already matches the incoming principal, so heal's write is
-    // skipped, but the gate still passes and the re-resolve yields guardian.
+  test("no local mirror to repair still returns the guardian ctx", async () => {
+    // The gate passes and the re-resolve yields guardian even when there is no
+    // local mirror row for heal to write.
     mockGuardianList = [gatewayGuardian("vellum-principal-new")];
-    mockLocalGuardian = localGuardian("vellum-principal-old");
+    mockLocalGuardian = null;
 
     const ctx = await reResolveTrustOnResetDrift(
       "vellum-principal-old",
@@ -120,7 +121,7 @@ describe("reResolveTrustOnResetDrift", () => {
 
   test("gateway unreachable (null): returns null, heal not called", async () => {
     mockGuardianList = null;
-    mockLocalGuardian = localGuardian("vellum-principal-old");
+    mockLocalGuardian = localGuardian();
 
     const ctx = await reResolveTrustOnResetDrift(
       "vellum-principal-old",
@@ -133,7 +134,7 @@ describe("reResolveTrustOnResetDrift", () => {
 
   test("empty/revoked gateway (no active guardian): returns null, heal not called", async () => {
     mockGuardianList = [];
-    mockLocalGuardian = localGuardian("vellum-principal-old");
+    mockLocalGuardian = localGuardian();
 
     const ctx = await reResolveTrustOnResetDrift(
       "vellum-principal-old",
@@ -146,7 +147,7 @@ describe("reResolveTrustOnResetDrift", () => {
 
   test("gateway guardian is a real (non vellum-principal-*) id: returns null", async () => {
     mockGuardianList = [gatewayGuardian("user@example.com")];
-    mockLocalGuardian = localGuardian("vellum-principal-old");
+    mockLocalGuardian = localGuardian();
 
     const ctx = await reResolveTrustOnResetDrift(
       "vellum-principal-old",
@@ -159,7 +160,7 @@ describe("reResolveTrustOnResetDrift", () => {
 
   test("incoming principal is not vellum-principal-*: returns null", async () => {
     mockGuardianList = [gatewayGuardian("vellum-principal-new")];
-    mockLocalGuardian = localGuardian("vellum-principal-old");
+    mockLocalGuardian = localGuardian();
 
     const ctx = await reResolveTrustOnResetDrift("user@example.com", "vellum");
 
@@ -169,7 +170,7 @@ describe("reResolveTrustOnResetDrift", () => {
 
   test("threads sourceChannel into the returned ctx", async () => {
     mockGuardianList = [gatewayGuardian("vellum-principal-new")];
-    mockLocalGuardian = localGuardian("vellum-principal-old");
+    mockLocalGuardian = localGuardian();
 
     const ctx = await reResolveTrustOnResetDrift(
       "vellum-principal-old",

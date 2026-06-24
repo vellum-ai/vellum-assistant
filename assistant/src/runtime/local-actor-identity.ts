@@ -13,7 +13,6 @@
 
 import type { ChannelId } from "../channels/types.js";
 import { isHttpAuthDisabled } from "../config/env.js";
-import { findGuardianForChannel } from "../contacts/contact-store.js";
 import {
   getGuardianDelivery,
   guardianForChannel,
@@ -54,24 +53,18 @@ export function buildLocalAuthContext(conversationId: string): AuthContext {
  *
  * The gateway owns guardian binding; this reads it through the cached
  * `getGuardianDelivery` reader (PR-3 TTL + single-flight) so hot paths don't
- * storm the IPC. Falls back to the local contacts table for the bootstrap /
- * first-run window where the gateway has no guardian yet or is unreachable
- * (the reader returns `null`).
+ * storm the IPC.
  *
- * Returns `undefined` when no vellum guardian binding exists in either source
- * (e.g. fresh install before bootstrap). Callers should treat that case as
- * "not yet available" and either fall back or proceed without a principalId.
+ * Returns `undefined` when no vellum guardian binding exists (e.g. fresh
+ * install before bootstrap, or the gateway is unreachable). Callers should
+ * treat that case as "not yet available" and proceed without a principalId.
  */
 export async function findLocalGuardianPrincipalId(): Promise<
   string | undefined
 > {
   const list = await getGuardianDelivery({ channelTypes: ["vellum"] });
-  if (list) {
-    const principalId = guardianForChannel(list, "vellum")?.principalId;
-    if (principalId) return principalId;
-  }
-
-  return findLocalGuardianPrincipalIdFromStore();
+  if (!list) return undefined;
+  return guardianForChannel(list, "vellum")?.principalId ?? undefined;
 }
 
 /**
@@ -82,17 +75,12 @@ export async function findLocalGuardianPrincipalId(): Promise<
  * Reads the same gateway-owned binding as the async path via a sync, IO-free
  * snapshot of the guardian-delivery cache (kept fresh by the async hot paths
  * and event-driven invalidation), so SSE registers the SAME principal the
- * send/result routes resolve. Falls back to the local store when the cache is
- * cold — the same fallback the async path lands on during bootstrap.
+ * send/result routes resolve.
  */
 export function findLocalGuardianPrincipalIdFromStore(): string | undefined {
   const cached = peekCachedGuardianDelivery({ channelTypes: ["vellum"] });
-  if (cached) {
-    const principalId = guardianForChannel(cached, "vellum")?.principalId;
-    if (principalId) return principalId;
-  }
-
-  return findGuardianForChannel("vellum")?.contact.principalId ?? undefined;
+  if (!cached) return undefined;
+  return guardianForChannel(cached, "vellum")?.principalId ?? undefined;
 }
 
 /**
