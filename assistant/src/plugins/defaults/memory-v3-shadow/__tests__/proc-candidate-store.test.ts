@@ -5,6 +5,7 @@
  *   - upsert conflict path refreshing only `goal`/`updated_at` while preserving
  *     `created_at` and the accumulated members/count/status/explicit fields;
  *   - `incrementCandidate` bumping the recurrence tally;
+ *   - `setCandidateExplicit` OR-ing explicit on without clobbering a true value;
  *   - `listCandidatesByStatus` filtering to one lifecycle status;
  *   - `markCandidateStatus` walking the lifecycle;
  *   - `addMemberNote` set semantics (dedup, no-op for unknown clusters);
@@ -52,6 +53,7 @@ const {
   incrementCandidate,
   listCandidatesByStatus,
   markCandidateStatus,
+  setCandidateExplicit,
   upsertCandidate,
 } = await import("../proc-candidate-store.js");
 
@@ -162,6 +164,41 @@ describe("incrementCandidate", () => {
     const candidate = getCandidate("cluster-1");
     expect(candidate?.count).toBe(3);
     expect(candidate?.updatedAt).toBe(3_000);
+  });
+});
+
+describe("setCandidateExplicit", () => {
+  test("flips explicit on and stamps updated_at", () => {
+    upsertCandidate(
+      { clusterId: "cluster-1", goal: "g", explicit: false },
+      1_000,
+    );
+
+    setCandidateExplicit("cluster-1", 2_000);
+
+    const candidate = getCandidate("cluster-1");
+    expect(candidate?.explicit).toBe(true);
+    expect(candidate?.updatedAt).toBe(2_000);
+  });
+
+  test("is a no-op on an already-explicit cluster (no updated_at bump)", () => {
+    upsertCandidate(
+      { clusterId: "cluster-1", goal: "g", explicit: true },
+      1_000,
+    );
+
+    // Already explicit — the call must not clobber the flag and must leave
+    // updated_at untouched (the WHERE explicit = 0 guard skips the row).
+    setCandidateExplicit("cluster-1", 2_000);
+
+    const candidate = getCandidate("cluster-1");
+    expect(candidate?.explicit).toBe(true);
+    expect(candidate?.updatedAt).toBe(1_000);
+  });
+
+  test("is a no-op for an unknown cluster", () => {
+    setCandidateExplicit("cluster-unknown", 2_000);
+    expect(getCandidate("cluster-unknown")).toBeNull();
   });
 });
 

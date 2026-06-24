@@ -68,6 +68,7 @@ import {
   markCandidateStatus as realMarkCandidateStatus,
   type ProcCandidate,
   type ProcCandidateStatus,
+  setCandidateExplicit as realSetCandidateExplicit,
   upsertCandidate as realUpsertCandidate,
 } from "./proc-candidate-store.js";
 
@@ -137,6 +138,12 @@ export interface ProcDistillTriggerDeps {
   }) => void;
   /** Bump a matched cluster's recurrence tally by one. */
   incrementCandidate: (clusterId: string) => void;
+  /**
+   * OR `explicit` on for a matched cluster — used when an explicit note joins an
+   * existing cluster so the join carries explicit-ness onto the cluster. Never
+   * clobbers an already-true value.
+   */
+  setCandidateExplicit: (clusterId: string) => void;
   /** Record this note as a member of the matched cluster. */
   addMemberNote: (clusterId: string, slug: string) => void;
   /** Read a single cluster (to re-check its count before marking ready). */
@@ -197,6 +204,13 @@ export async function procDistillTriggerJob(
 
   // Idempotency: a note already recorded as a member (in ANY status) has been
   // tallied; skip it so re-running over the same notes never double-counts.
+  //
+  // Recurrence is counted in DISTINCT candidate notes: one note = one observed
+  // trace. The consolidation prompt enforces this by writing an append-only NEW
+  // note (unique slug) per sighting rather than updating a prior note in place,
+  // so each later sighting arrives as an un-assigned slug and advances the
+  // count. That contract is what makes skipping already-assigned slugs correct
+  // — a re-seen slug is a re-run of the SAME trace, not a new observation.
   const assigned = new Set<string>();
   for (const cluster of deps.listClusters()) {
     for (const slug of cluster.memberNoteSlugs) {
@@ -304,6 +318,12 @@ async function tallyNote(
     case "cluster":
       deps.incrementCandidate(result.clusterId);
       deps.addMemberNote(result.clusterId, note.slug);
+      // Carry explicit-ness onto the cluster when an explicit note joins (covers
+      // the gray→cluster path too, which resolves to `kind: "cluster"`). The
+      // readiness check below consults `cluster.explicit`, so without this an
+      // explicit instruction joining an existing sub-threshold cluster would
+      // never bypass recurrence. OR-in: never clobbers an already-explicit row.
+      if (note.explicit) deps.setCandidateExplicit(result.clusterId);
       outcome.joined += 1;
       return result.clusterId;
     case "new": {
@@ -347,6 +367,7 @@ function defaultDeps(config: AssistantConfig): ProcDistillTriggerDeps {
     judge: (goalA, goalB) => defaultJudge(goalA, goalB),
     upsertCandidate: realUpsertCandidate,
     incrementCandidate: realIncrementCandidate,
+    setCandidateExplicit: realSetCandidateExplicit,
     addMemberNote: realAddMemberNote,
     getCandidate: realGetCandidate,
     markCandidateStatus: realMarkCandidateStatus,

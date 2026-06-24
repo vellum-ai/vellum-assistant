@@ -74,6 +74,7 @@ function fakeRegistry() {
     ProcDistillTriggerDeps,
     | "upsertCandidate"
     | "incrementCandidate"
+    | "setCandidateExplicit"
     | "addMemberNote"
     | "getCandidate"
     | "markCandidateStatus"
@@ -99,6 +100,10 @@ function fakeRegistry() {
     incrementCandidate: (clusterId) => {
       const row = rows.get(clusterId);
       if (row) row.count += 1;
+    },
+    setCandidateExplicit: (clusterId) => {
+      const row = rows.get(clusterId);
+      if (row) row.explicit = true;
     },
     addMemberNote: (clusterId, slug) => {
       const row = rows.get(clusterId);
@@ -201,6 +206,7 @@ function harness(opts: HarnessOpts) {
       }),
     upsertCandidate: store.upsertCandidate,
     incrementCandidate: store.incrementCandidate,
+    setCandidateExplicit: store.setCandidateExplicit,
     addMemberNote: store.addMemberNote,
     getCandidate: store.getCandidate,
     markCandidateStatus: store.markCandidateStatus,
@@ -224,6 +230,7 @@ describe("procDistillTriggerJob — gating", () => {
       judge: async () => false,
       upsertCandidate: () => {},
       incrementCandidate: () => {},
+      setCandidateExplicit: () => {},
       addMemberNote: () => {},
       getCandidate: () => null,
       markCandidateStatus: () => {},
@@ -305,6 +312,61 @@ describe("procDistillTriggerJob — explicit fast-path", () => {
     expect(cluster.explicit).toBe(true);
     expect(cluster.status).toBe("ready");
     expect(outcome.markedReady).toEqual(["cluster/proc/always-x"]);
+  });
+
+  test("an explicit note joining an existing sub-threshold cluster → ready", async () => {
+    // A passively-seeded cluster with count 1 (below minRecurrence 2). An
+    // explicit note matching it must propagate explicit onto the cluster so the
+    // readiness check fires on `cluster.explicit` despite count < threshold.
+    const { rows, deps } = harness({
+      notes: [note("proc/deploy-explicit", "deploy the web app", true)],
+      seed: [
+        {
+          clusterId: "cluster/deploy-rituals",
+          goal: "deploy the web app",
+          members: ["proc/deploy-observed"],
+        },
+      ],
+      minRecurrence: 2,
+    });
+    // Sanity: the seed cluster starts non-explicit and below threshold.
+    expect(rows.get("cluster/deploy-rituals")!.explicit).toBe(false);
+    expect(rows.get("cluster/deploy-rituals")!.count).toBe(1);
+
+    const outcome = await procDistillTriggerJob(JOB, deps.config, deps);
+
+    expect(outcome.joined).toBe(1);
+    expect(outcome.opened).toBe(0);
+    const cluster = rows.get("cluster/deploy-rituals")!;
+    // count is now 2 (also ≥ threshold), but the point is explicit propagated.
+    expect(cluster.explicit).toBe(true);
+    expect(cluster.status).toBe("ready");
+    expect(outcome.markedReady).toEqual(["cluster/deploy-rituals"]);
+  });
+
+  test("explicit note joins a cluster still below threshold → ready via explicit", async () => {
+    // minRecurrence 3 so the joined count (2) stays below the threshold — the
+    // ONLY thing that can mark it ready is the propagated explicit flag.
+    const { rows, deps } = harness({
+      notes: [note("proc/deploy-explicit", "deploy the web app", true)],
+      seed: [
+        {
+          clusterId: "cluster/deploy-rituals",
+          goal: "deploy the web app",
+          members: ["proc/deploy-observed"],
+        },
+      ],
+      minRecurrence: 3,
+    });
+
+    const outcome = await procDistillTriggerJob(JOB, deps.config, deps);
+
+    expect(outcome.joined).toBe(1);
+    const cluster = rows.get("cluster/deploy-rituals")!;
+    expect(cluster.count).toBe(2); // below minRecurrence 3
+    expect(cluster.explicit).toBe(true);
+    expect(cluster.status).toBe("ready");
+    expect(outcome.markedReady).toEqual(["cluster/deploy-rituals"]);
   });
 });
 
