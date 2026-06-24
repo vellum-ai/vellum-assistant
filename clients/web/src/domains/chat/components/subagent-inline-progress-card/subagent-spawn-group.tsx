@@ -36,7 +36,7 @@ export function SubagentSpawnGroup({
 
   return (
     <div className="flex w-full flex-col">
-      <div className="flex w-full flex-col gap-1.5">
+      <div className="flex w-full flex-col gap-1">
         {subagentIds.map((id) => (
           <SubagentInlineProgressCard
             key={id}
