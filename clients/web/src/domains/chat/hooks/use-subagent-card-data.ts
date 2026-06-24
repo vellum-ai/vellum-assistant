@@ -71,7 +71,7 @@ const TEXT_PREVIEW_MAX = 160;
  * `web_search` steps, whose step shape carries no id field. `undefined` for
  * steps with no follow-up (thinking, tool_error).
  */
-type ToolMeta = { startTs: number; toolName: string; toolUseId?: string };
+export type ToolMeta = { startTs: number; toolName: string; toolUseId?: string };
 
 /** Trim newlines + collapse whitespace, then clamp to TEXT_PREVIEW_MAX. */
 function trimTextPreview(input: string): string {
@@ -321,157 +321,185 @@ function deriveCardState(status: SubagentStatus): ToolCallCardData["state"] {
 // ---------------------------------------------------------------------------
 
 /**
- * Pure projection of (entry) → card props. Split from the hook so tests
- * can drive it without instantiating the Zustand store.
+ * Pure per-event reducer for the timeline projection: mutates the parallel
+ * `(steps, toolMeta)` arrays in place exactly as a single iteration of
+ * `computeSubagentSteps`'s loop. The shared step-folding logic so an
+ * incremental replay can't drift from the full rebuild. No-op for unhandled
+ * event types.
  */
-export function computeSubagentCardData(
-  entry: SubagentEntry,
-): ToolCallCardData {
+export function applyTimelineEvent(
+  steps: ToolCallCardStep[],
+  toolMeta: Array<ToolMeta | undefined>,
+  event: SubagentTimelineEvent,
+): void {
+  if (event.type === "text") {
+    const text = trimTextPreview(event.content);
+    // Skip empty text events — they'd render as a blank thinking step.
+    if (text.length === 0) return;
+    // `detailKey` (the source event id) lets the timeline pill open the full,
+    // un-truncated reasoning via `buildSubagentStepDetails` — the pill itself
+    // only carries the collapsed `text` preview.
+    steps.push({ kind: "thinking", durationLabel: "", text, detailKey: event.id });
+    toolMeta.push(undefined);
+    return;
+  }
+
+  if (event.type === "tool_call") {
+    const toolName = event.toolName ?? "";
+    // Route web tools to the dedicated step kinds so their phase labels match
+    // main chat ("Searching the web" / "Thinking") instead of the generic
+    // "Working" bucket the tool path produces. Mirrors the main-chat split in
+    // `tool-call-card-utils` (`buildWebSearchStep` / `buildWebFetchStep`).
+    if (WEB_TOOL_NAMES.has(toolName)) {
+      if (toolName === "web_fetch") {
+        // `web_fetch` renders as a "Reading <domain>" thinking step — no
+        // follow-up tracking needed (the domain is known at call time, and a
+        // thinking step is neutral for phase status).
+        steps.push({
+          kind: "thinking",
+          durationLabel: "",
+          text: webFetchReadingText(event),
+          // Key the step to its tool id so the timeline pill opens the nested
+          // web_fetch detail (source card + extracted content) — matching the
+          // `toolUseId`-keyed payload `buildSubagentStepDetails` emits, the
+          // same way the `web_search` branch below keys its pill.
+          detailKey: event.toolUseId,
+        });
+        toolMeta.push(undefined);
+      } else {
+        // `web_search` — placeholder until its result lands; the matched
+        // `tool_result` flips the title tense + fills in results (see below).
+        // `query` (raw input, else the `content` summary which is the query
+        // for web_search) labels the step so unclamped multi-search groups
+        // stay distinct in the timeline; it survives the `...target` spread on
+        // completion.
+        const query =
+          event.input && typeof event.input.query === "string"
+            ? event.input.query
+            : event.content || undefined;
+        steps.push({
+          kind: "web_search",
+          query,
+          title: "Searching the web",
+          durationLabel: "",
+          linkCount: 0,
+          results: [],
+          // The originating tool id keys this search's nested detail so the
+          // timeline can render it as a clickable pill (query + sources) —
+          // matches the key `buildSubagentStepDetails` emits. Survives the
+          // `...target` spread on completion alongside `query`.
+          detailKey: event.toolUseId,
+        });
+        toolMeta.push({
+          startTs: event.timestamp,
+          toolName,
+          toolUseId: event.toolUseId,
+        });
+      }
+      return;
+    }
+    steps.push(mapToolEventToStep(event));
+    toolMeta.push({ startTs: event.timestamp, toolName });
+    return;
+  }
+
+  if (event.type === "tool_result") {
+    const matchIndex = findMatchingInFlightToolIndex(steps, toolMeta, event);
+    if (matchIndex === -1) return;
+    const target = steps[matchIndex]!;
+    const start = toolMeta[matchIndex]?.startTs;
+    const durationLabel = durationLabelBetween(start, event.timestamp);
+    // `web_search` signals completion via title tense (not a `status` field):
+    // success flips "Searching" → "Searched"; an error becomes a
+    // `web_search_error` step (both still group under "Searching the web").
+    if (target.kind === "web_search") {
+      if (event.isError) {
+        steps[matchIndex] = webSearchErrorStep(durationLabel, event);
+        return;
+      }
+      // Parse the result text (Title\nURL pairs) into link chips — the same
+      // fallback main chat uses on reload, since the subagent timeline carries
+      // the raw result text but not the structured `activityMetadata`. No
+      // clamp: the detail panel has room to show every source inline, so all
+      // results go in `results` and `overflowResults` stays empty.
+      const results = parseWebSearchResultText(event.result ?? event.content);
+      steps[matchIndex] = {
+        ...target,
+        title: "Searched the web",
+        // Backfill the query from the result's metadata. The originating
+        // `tool_call` carried empty input live (Anthropic resolves web_search
+        // input only at completion), so `target.query` is usually undefined
+        // until this result lands `searchQuery`. The history/detail path
+        // already has it on the call, hence the `target.query ||` precedence.
+        query: target.query || event.searchQuery,
+        durationLabel,
+        linkCount: results.length,
+        results,
+      };
+      return;
+    }
+    if (target.kind !== "tool") return;
+    steps[matchIndex] = {
+      ...target,
+      status: event.isError ? "error" : "completed",
+      durationLabel,
+    };
+    return;
+  }
+
+  if (event.type === "error") {
+    // Close the matching in-flight tool step (if any) as `error` before
+    // appending the `tool_error` row. Same matching precedence as
+    // `tool_result` — see `findMatchingInFlightToolIndex` — so parallel
+    // calls to the same tool close the correct step.
+    const matchIndex = findMatchingInFlightToolIndex(steps, toolMeta, event);
+    if (matchIndex !== -1) {
+      const target = steps[matchIndex]!;
+      if (target.kind === "tool") {
+        steps[matchIndex] = { ...target, status: "error" };
+      } else if (target.kind === "web_search") {
+        steps[matchIndex] = webSearchErrorStep(
+          durationLabelBetween(toolMeta[matchIndex]?.startTs, event.timestamp),
+          event,
+        );
+      }
+    }
+    const message = trimTextPreview(event.content) || "Subagent error";
+    steps.push({ kind: "tool_error", message });
+    toolMeta.push(undefined);
+    return;
+  }
+}
+
+/**
+ * Build the `(steps, toolMeta)` parallel arrays for a subagent's full event
+ * list by folding `applyTimelineEvent` over each event. The single source of
+ * truth for the timeline projection's step state, consumed by
+ * `computeSubagentCardData`.
+ */
+export function computeSubagentSteps(events: SubagentTimelineEvent[]): {
+  steps: ToolCallCardStep[];
+  toolMeta: Array<ToolMeta | undefined>;
+} {
   const steps: ToolCallCardStep[] = [];
   // Parallel array tracking per-step metadata not carried on the shared step
   // shapes (see `ToolMeta`). Indexed by `steps` position; `undefined` for
   // entries with no follow-up (thinking, tool_error, web_fetch).
   const toolMeta: Array<ToolMeta | undefined> = [];
 
-  for (const event of entry.events) {
-    if (event.type === "text") {
-      const text = trimTextPreview(event.content);
-      // Skip empty text events — they'd render as a blank thinking step.
-      if (text.length === 0) continue;
-      // `detailKey` (the source event id) lets the timeline pill open the full,
-      // un-truncated reasoning via `buildSubagentStepDetails` — the pill itself
-      // only carries the collapsed `text` preview.
-      steps.push({ kind: "thinking", durationLabel: "", text, detailKey: event.id });
-      toolMeta.push(undefined);
-      continue;
-    }
+  for (const event of events) applyTimelineEvent(steps, toolMeta, event);
 
-    if (event.type === "tool_call") {
-      const toolName = event.toolName ?? "";
-      // Route web tools to the dedicated step kinds so their phase labels match
-      // main chat ("Searching the web" / "Thinking") instead of the generic
-      // "Working" bucket the tool path produces. Mirrors the main-chat split in
-      // `tool-call-card-utils` (`buildWebSearchStep` / `buildWebFetchStep`).
-      if (WEB_TOOL_NAMES.has(toolName)) {
-        if (toolName === "web_fetch") {
-          // `web_fetch` renders as a "Reading <domain>" thinking step — no
-          // follow-up tracking needed (the domain is known at call time, and a
-          // thinking step is neutral for phase status).
-          steps.push({
-            kind: "thinking",
-            durationLabel: "",
-            text: webFetchReadingText(event),
-            // Key the step to its tool id so the timeline pill opens the nested
-            // web_fetch detail (source card + extracted content) — matching the
-            // `toolUseId`-keyed payload `buildSubagentStepDetails` emits, the
-            // same way the `web_search` branch below keys its pill.
-            detailKey: event.toolUseId,
-          });
-          toolMeta.push(undefined);
-        } else {
-          // `web_search` — placeholder until its result lands; the matched
-          // `tool_result` flips the title tense + fills in results (see below).
-          // `query` (raw input, else the `content` summary which is the query
-          // for web_search) labels the step so unclamped multi-search groups
-          // stay distinct in the timeline; it survives the `...target` spread on
-          // completion.
-          const query =
-            event.input && typeof event.input.query === "string"
-              ? event.input.query
-              : event.content || undefined;
-          steps.push({
-            kind: "web_search",
-            query,
-            title: "Searching the web",
-            durationLabel: "",
-            linkCount: 0,
-            results: [],
-            // The originating tool id keys this search's nested detail so the
-            // timeline can render it as a clickable pill (query + sources) —
-            // matches the key `buildSubagentStepDetails` emits. Survives the
-            // `...target` spread on completion alongside `query`.
-            detailKey: event.toolUseId,
-          });
-          toolMeta.push({
-            startTs: event.timestamp,
-            toolName,
-            toolUseId: event.toolUseId,
-          });
-        }
-        continue;
-      }
-      steps.push(mapToolEventToStep(event));
-      toolMeta.push({ startTs: event.timestamp, toolName });
-      continue;
-    }
+  return { steps, toolMeta };
+}
 
-    if (event.type === "tool_result") {
-      const matchIndex = findMatchingInFlightToolIndex(steps, toolMeta, event);
-      if (matchIndex === -1) continue;
-      const target = steps[matchIndex]!;
-      const start = toolMeta[matchIndex]?.startTs;
-      const durationLabel = durationLabelBetween(start, event.timestamp);
-      // `web_search` signals completion via title tense (not a `status` field):
-      // success flips "Searching" → "Searched"; an error becomes a
-      // `web_search_error` step (both still group under "Searching the web").
-      if (target.kind === "web_search") {
-        if (event.isError) {
-          steps[matchIndex] = webSearchErrorStep(durationLabel, event);
-          continue;
-        }
-        // Parse the result text (Title\nURL pairs) into link chips — the same
-        // fallback main chat uses on reload, since the subagent timeline carries
-        // the raw result text but not the structured `activityMetadata`. No
-        // clamp: the detail panel has room to show every source inline, so all
-        // results go in `results` and `overflowResults` stays empty.
-        const results = parseWebSearchResultText(event.result ?? event.content);
-        steps[matchIndex] = {
-          ...target,
-          title: "Searched the web",
-          // Backfill the query from the result's metadata. The originating
-          // `tool_call` carried empty input live (Anthropic resolves web_search
-          // input only at completion), so `target.query` is usually undefined
-          // until this result lands `searchQuery`. The history/detail path
-          // already has it on the call, hence the `target.query ||` precedence.
-          query: target.query || event.searchQuery,
-          durationLabel,
-          linkCount: results.length,
-          results,
-        };
-        continue;
-      }
-      if (target.kind !== "tool") continue;
-      steps[matchIndex] = {
-        ...target,
-        status: event.isError ? "error" : "completed",
-        durationLabel,
-      };
-      continue;
-    }
-
-    if (event.type === "error") {
-      // Close the matching in-flight tool step (if any) as `error` before
-      // appending the `tool_error` row. Same matching precedence as
-      // `tool_result` — see `findMatchingInFlightToolIndex` — so parallel
-      // calls to the same tool close the correct step.
-      const matchIndex = findMatchingInFlightToolIndex(steps, toolMeta, event);
-      if (matchIndex !== -1) {
-        const target = steps[matchIndex]!;
-        if (target.kind === "tool") {
-          steps[matchIndex] = { ...target, status: "error" };
-        } else if (target.kind === "web_search") {
-          steps[matchIndex] = webSearchErrorStep(
-            durationLabelBetween(toolMeta[matchIndex]?.startTs, event.timestamp),
-            event,
-          );
-        }
-      }
-      const message = trimTextPreview(event.content) || "Subagent error";
-      steps.push({ kind: "tool_error", message });
-      toolMeta.push(undefined);
-      continue;
-    }
-  }
+/**
+ * Pure projection of (entry) → card props. Split from the hook so tests
+ * can drive it without instantiating the Zustand store.
+ */
+export function computeSubagentCardData(
+  entry: SubagentEntry,
+): ToolCallCardData {
+  const { steps, toolMeta } = computeSubagentSteps(entry.events);
 
   const state = deriveCardState(entry.status);
   const { currentStepTitle, currentStepInfo } = deriveCurrentStep(
@@ -637,6 +665,139 @@ export function useSubagentCardData(
  * Risk fields (`riskLevel`/`riskReason`) are omitted — subagent timeline events
  * don't carry them.
  */
+/**
+ * Pure per-event reducer for the detail-map projection: mutates the parallel
+ * `(payloads, meta)` arrays in place exactly as a single iteration of
+ * `buildSubagentStepDetails`'s loop. The detail-map counterpart to
+ * `applyTimelineEvent` so an incremental replay folds through the same logic.
+ * No-op for unhandled event types.
+ */
+export function applyDetailEvent(
+  payloads: ToolDetailPayload[],
+  meta: Array<{ startTs: number; running: boolean }>,
+  event: SubagentTimelineEvent,
+): void {
+  // Text events become clickable "thinking" pills. Carry the FULL content
+  // (the timeline pill shows only a collapsed preview) and key by the event
+  // id to match the step's `detailKey`. Skip whitespace-only text exactly as
+  // `computeSubagentCardData` does so steps and payloads stay aligned.
+  if (event.type === "text") {
+    if ((event.content ?? "").trim().length === 0) return;
+    payloads.push({
+      toolCallId: event.id,
+      toolName: "",
+      title: "Thought",
+      activity: "",
+      input: {},
+      status: "completed",
+      durationLabel: "",
+      kind: "thinking",
+      thinkingText: event.content,
+    });
+    meta.push({ startTs: event.timestamp, running: false });
+    return;
+  }
+
+  if (event.type === "tool_call") {
+    const toolCallId = event.toolUseId ?? "";
+    // Skip calls without an id — they can't be keyed or clicked.
+    if (!toolCallId) return;
+    const toolName = event.toolName ?? "";
+    // Web search → a dedicated detail payload carrying the query and (once the
+    // result lands) the parsed source list, rendered as favicon chips rather
+    // than the raw technical-details body. Mirrors the `web_search` step the
+    // timeline projection builds, keyed by the same `toolUseId`.
+    if (toolName === "web_search") {
+      const query =
+        event.input && typeof event.input.query === "string"
+          ? event.input.query
+          : event.content || undefined;
+      payloads.push({
+        toolCallId,
+        toolName,
+        title: "Searched the web",
+        activity: "",
+        input: event.input ?? {},
+        status: "running",
+        durationLabel: "",
+        kind: "web_search",
+        searchQuery: query,
+        searchResults: [],
+      });
+      meta.push({ startTs: event.timestamp, running: true });
+      return;
+    }
+    const labelInput =
+      event.input ?? reconstructInputBag(toolName, event.content ?? "");
+    const label = deriveStepLabelFromName(toolName, labelInput);
+    payloads.push({
+      toolCallId,
+      toolName,
+      title: label.title,
+      activity: label.activity,
+      input: event.input ?? {},
+      status: "running",
+      durationLabel: "",
+      kind: "tool",
+    });
+    meta.push({ startTs: event.timestamp, running: true });
+    return;
+  }
+
+  // A follow-up carrying a result. A FAILED tool result is mapped to a raw
+  // `error`-typed event (see `mapInnerEventType`) yet still carries its
+  // `result` + `isError`, so we resolve both `tool_result` and `error`
+  // against the in-flight list regardless of the mapped type.
+  if (event.type === "tool_result" || event.type === "error") {
+    const matchIndex = matchInFlightTool(
+      payloads.map((payload, i) => ({
+        toolCallId: payload.toolCallId,
+        toolName: payload.toolName,
+        running: meta[i]!.running,
+      })),
+      event,
+    );
+    if (matchIndex === -1) return;
+    const target = payloads[matchIndex]!;
+    const start = meta[matchIndex]!.startTs;
+    // Shared with `computeSubagentCardData` so the non-positive-delta
+    // suppression (synthetic equal-timestamp history events → "") can't drift
+    // between the two projections.
+    const durationLabel = durationLabelBetween(start, event.timestamp);
+    // Web search → parse the raw result text into the same source chips the
+    // timeline renders; everything else keeps the raw `result` for the
+    // technical-details body.
+    payloads[matchIndex] =
+      target.kind === "web_search"
+        ? {
+            ...target,
+            status: event.isError ? "error" : "completed",
+            durationLabel,
+            // Backfill the query from the result metadata for the nested
+            // detail view — the call-time `searchQuery` is empty live (see
+            // the timeline projection's matching backfill).
+            searchQuery: target.searchQuery || event.searchQuery,
+            searchResults: event.isError
+              ? []
+              : parseWebSearchResultText(event.result ?? event.content),
+            // On failure, keep the full provider/backend error so the nested
+            // detail can show it untruncated — the timeline chip only carries
+            // a `trimTextPreview` snippet. Parity with how a failed tool keeps
+            // its full `result`.
+            result: event.isError
+              ? (event.result ?? event.content)
+              : undefined,
+          }
+        : {
+            ...target,
+            result: event.result ?? event.content,
+            status: event.isError ? "error" : "completed",
+            durationLabel,
+          };
+    meta[matchIndex]!.running = false;
+  }
+}
+
 export function buildSubagentStepDetails(
   entry: SubagentEntry,
 ): Map<string, ToolDetailPayload> {
@@ -645,127 +806,7 @@ export function buildSubagentStepDetails(
   // matching follow-ups and duration calc. Indexed by `payloads` position.
   const meta: Array<{ startTs: number; running: boolean }> = [];
 
-  for (const event of entry.events) {
-    // Text events become clickable "thinking" pills. Carry the FULL content
-    // (the timeline pill shows only a collapsed preview) and key by the event
-    // id to match the step's `detailKey`. Skip whitespace-only text exactly as
-    // `computeSubagentCardData` does so steps and payloads stay aligned.
-    if (event.type === "text") {
-      if ((event.content ?? "").trim().length === 0) continue;
-      payloads.push({
-        toolCallId: event.id,
-        toolName: "",
-        title: "Thought",
-        activity: "",
-        input: {},
-        status: "completed",
-        durationLabel: "",
-        kind: "thinking",
-        thinkingText: event.content,
-      });
-      meta.push({ startTs: event.timestamp, running: false });
-      continue;
-    }
-
-    if (event.type === "tool_call") {
-      const toolCallId = event.toolUseId ?? "";
-      // Skip calls without an id — they can't be keyed or clicked.
-      if (!toolCallId) continue;
-      const toolName = event.toolName ?? "";
-      // Web search → a dedicated detail payload carrying the query and (once the
-      // result lands) the parsed source list, rendered as favicon chips rather
-      // than the raw technical-details body. Mirrors the `web_search` step the
-      // timeline projection builds, keyed by the same `toolUseId`.
-      if (toolName === "web_search") {
-        const query =
-          event.input && typeof event.input.query === "string"
-            ? event.input.query
-            : event.content || undefined;
-        payloads.push({
-          toolCallId,
-          toolName,
-          title: "Searched the web",
-          activity: "",
-          input: event.input ?? {},
-          status: "running",
-          durationLabel: "",
-          kind: "web_search",
-          searchQuery: query,
-          searchResults: [],
-        });
-        meta.push({ startTs: event.timestamp, running: true });
-        continue;
-      }
-      const labelInput =
-        event.input ?? reconstructInputBag(toolName, event.content ?? "");
-      const label = deriveStepLabelFromName(toolName, labelInput);
-      payloads.push({
-        toolCallId,
-        toolName,
-        title: label.title,
-        activity: label.activity,
-        input: event.input ?? {},
-        status: "running",
-        durationLabel: "",
-        kind: "tool",
-      });
-      meta.push({ startTs: event.timestamp, running: true });
-      continue;
-    }
-
-    // A follow-up carrying a result. A FAILED tool result is mapped to a raw
-    // `error`-typed event (see `mapInnerEventType`) yet still carries its
-    // `result` + `isError`, so we resolve both `tool_result` and `error`
-    // against the in-flight list regardless of the mapped type.
-    if (event.type === "tool_result" || event.type === "error") {
-      const matchIndex = matchInFlightTool(
-        payloads.map((payload, i) => ({
-          toolCallId: payload.toolCallId,
-          toolName: payload.toolName,
-          running: meta[i]!.running,
-        })),
-        event,
-      );
-      if (matchIndex === -1) continue;
-      const target = payloads[matchIndex]!;
-      const start = meta[matchIndex]!.startTs;
-      // Shared with `computeSubagentCardData` so the non-positive-delta
-      // suppression (synthetic equal-timestamp history events → "") can't drift
-      // between the two projections.
-      const durationLabel = durationLabelBetween(start, event.timestamp);
-      // Web search → parse the raw result text into the same source chips the
-      // timeline renders; everything else keeps the raw `result` for the
-      // technical-details body.
-      payloads[matchIndex] =
-        target.kind === "web_search"
-          ? {
-              ...target,
-              status: event.isError ? "error" : "completed",
-              durationLabel,
-              // Backfill the query from the result metadata for the nested
-              // detail view — the call-time `searchQuery` is empty live (see
-              // the timeline projection's matching backfill).
-              searchQuery: target.searchQuery || event.searchQuery,
-              searchResults: event.isError
-                ? []
-                : parseWebSearchResultText(event.result ?? event.content),
-              // On failure, keep the full provider/backend error so the nested
-              // detail can show it untruncated — the timeline chip only carries
-              // a `trimTextPreview` snippet. Parity with how a failed tool keeps
-              // its full `result`.
-              result: event.isError
-                ? (event.result ?? event.content)
-                : undefined,
-            }
-          : {
-              ...target,
-              result: event.result ?? event.content,
-              status: event.isError ? "error" : "completed",
-              durationLabel,
-            };
-      meta[matchIndex]!.running = false;
-    }
-  }
+  for (const event of entry.events) applyDetailEvent(payloads, meta, event);
 
   // Every payload (including a failed web_search) is kept and keyed by its tool
   // id. The timeline's `web_search_error` step carries the same id as its
