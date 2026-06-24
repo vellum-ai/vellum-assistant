@@ -67,7 +67,7 @@ export function LetsChatTomorrowStep({
           Add a quick check-in to your calendar to follow up tomorrow.
         </p>
 
-        <div className="mt-6 flex w-[234px] flex-col items-center">
+        <div className="mt-6 flex w-[234px] flex-col items-center gap-4">
           <button
             type="button"
             onClick={handleConnect}
@@ -87,19 +87,18 @@ export function LetsChatTomorrowStep({
               "Set it up"
             )}
           </button>
+          {/* Skip sits directly under the connect button. */}
+          <button
+            type="button"
+            onClick={onSkip}
+            disabled={oauthInProgress}
+            className="text-body-small-default transition-opacity hover:opacity-100 disabled:opacity-60"
+            style={{ color: tone.fgMuted }}
+          >
+            Skip for now
+          </button>
         </div>
       </div>
-
-      {/* Skip sits down near the bottom, just above the peeking eyes. */}
-      <button
-        type="button"
-        onClick={onSkip}
-        disabled={oauthInProgress}
-        className="absolute bottom-[26%] left-1/2 -translate-x-1/2 text-body-small-default transition-opacity hover:opacity-100 disabled:opacity-60"
-        style={{ color: tone.fgMuted }}
-      >
-        Skip for now
-      </button>
     </div>
   );
 }

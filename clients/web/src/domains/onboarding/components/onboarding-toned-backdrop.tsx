@@ -89,8 +89,7 @@ export function OnboardingTonedBackdrop({
   darkBg?: boolean;
   /** Show the giant eyes peeking from the bottom (off once they've collapsed). */
   showBottomEyes?: boolean;
-  /** Show the little team peeking in from the top (forms on the "together"
-   *  step and persists through the rest of the flow). */
+  /** Show the little team peeking in from the top edge (off by default). */
   showTopTeam?: boolean;
 }) {
   const components = useBundledAvatarComponents();
@@ -128,10 +127,12 @@ export function OnboardingTonedBackdrop({
 
       {/* The assistant's eyes peek up from the bottom (until they collapse into
           the small avatar at the calendar step). */}
-      {showBottomEyes && <OnboardingPeekingEyes bumpNonce={eyesBumpNonce} />}
+      {showBottomEyes && (
+        <OnboardingPeekingEyes bumpNonce={eyesBumpNonce} settleBlink={false} />
+      )}
 
       {/* The team peeks in from the top-right — three larger avatars, overlapping
-          and cut off by the top edge. Forms on "together" and stays put. */}
+          and cut off by the top edge. Forms on the integration step and stays put. */}
       {showTopTeam && components && (
         <div
           className="pointer-events-none absolute right-0 z-[1] flex items-start"
