@@ -158,7 +158,6 @@ import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-p
 import type { ActorContext } from "../approvals/guardian-request-resolvers.js";
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import { seedContactChannel } from "./helpers/seed-contact-channel.js";
 import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
@@ -176,6 +175,7 @@ import {
   waitForInlineGrant,
 } from "../tools/tool-approval-handler.js";
 import type { ToolContext, ToolLifecycleEvent } from "../tools/types.js";
+import { seedContactChannel } from "./helpers/seed-contact-channel.js";
 
 await initializeDb();
 

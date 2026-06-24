@@ -42,6 +42,7 @@ mock.module("../../util/logger.js", () => ({
 // the a2a.enabled flag. We use the real config system backed by initializeDb's
 // workspace directory.
 
+import { seedContactChannel } from "../../__tests__/helpers/seed-contact-channel.js";
 import {
   invalidateConfigCache,
   loadRawConfig,
@@ -59,7 +60,6 @@ import {
 } from "../../daemon/handlers/config-a2a.js";
 import { getSqlite } from "../../memory/db-connection.js";
 import { initializeDb } from "../../memory/db-init.js";
-import { seedContactChannel } from "../../__tests__/helpers/seed-contact-channel.js";
 import type { A2AMessage, Artifact } from "../protocol-types.js";
 import {
   completeWithArtifacts,
