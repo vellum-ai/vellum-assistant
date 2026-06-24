@@ -188,7 +188,6 @@ export async function handleListContacts(queryParams: Record<string, string>) {
       query,
       channelAddress,
       channelType,
-      role,
       contactType,
       limit,
     });
@@ -206,7 +205,7 @@ export async function handleListContacts(queryParams: Record<string, string>) {
     log.debug(
       "handleListContacts: contactType-filtered read served daemon-native (gateway-native contactType filtering is design-blocked, pending ACL classification)",
     );
-    const contacts = listContacts(limit, role, contactType);
+    const contacts = listContacts(limit, contactType);
     return {
       ok: true,
       contacts: contacts.map(prepareContactResponse),

@@ -63,19 +63,18 @@ const realContactStore = await import("../contacts/contact-store.js");
 // contactType is filtered in SQL (before the limit) rather than relayed.
 const listContactsArgs: Array<{
   limit?: number;
-  role?: string;
   contactType?: string;
 }> = [];
 mock.module("../contacts/contact-store.js", () => ({
   ...realContactStore,
-  listContacts: (limit?: number, role?: string, contactType?: string) => {
+  listContacts: (limit?: number, contactType?: string) => {
     localCalls.push("listContacts");
-    listContactsArgs.push({ limit, role, contactType });
+    listContactsArgs.push({ limit, contactType });
     return [
       {
         id: "local-1",
         displayName: "Local Contact",
-        role: role ?? "contact",
+        role: "contact",
         contactType: contactType ?? "human",
         interactionCount: 0,
         channels: [],
@@ -248,20 +247,18 @@ describe("handleListContacts relay", () => {
     // contactType + limit are pushed into the SQL-filtered daemon read (the
     // daemon-native listContacts filters contactType BEFORE applying limit).
     expect(listContactsArgs).toEqual([
-      { limit: 50, role: undefined, contactType: "assistant" },
+      { limit: 50, contactType: "assistant" },
     ]);
     expect(result.contacts[0].id).toBe("local-1");
     expect(result.contacts[0].contactType).toBe("assistant");
     expect(debugLogs.some((m) => m.includes("daemon-native"))).toBe(true);
   });
 
-  test("contactType + role both flow into the daemon-native read", async () => {
+  test("contactType filters daemon-native; role is gateway-owned and no longer a local predicate", async () => {
     await handleListContacts({ contactType: "human", role: "guardian" });
 
     expect(ipcCalls).toEqual([]);
-    expect(listContactsArgs).toEqual([
-      { limit: 50, role: "guardian", contactType: "human" },
-    ]);
+    expect(listContactsArgs).toEqual([{ limit: 50, contactType: "human" }]);
   });
 });
 
