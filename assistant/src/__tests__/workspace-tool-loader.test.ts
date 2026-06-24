@@ -26,7 +26,7 @@
  *   and skipped (no silent provider-safe rewrite — operator must rename).
  * - Multiple workspace tools register in a single batch.
  */
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
@@ -42,7 +42,10 @@ import {
   registerTool,
 } from "../tools/registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
-import { loadWorkspaceTools } from "../tools/workspace-tools/loader.js";
+import {
+  __resetWorkspaceToolCacheForTesting,
+  loadWorkspaceTools,
+} from "../tools/workspace-tools/loader.js";
 
 // Per-test counter so each writeTool() call lands in a unique tempdir,
 // defeating bun's per-URL ESM cache between tests. Without this, a
@@ -85,6 +88,23 @@ function writeRemovedSentinel(name: string): void {
   const toolsDir = join(currentWorkspaceDir, "tools");
   mkdirSync(toolsDir, { recursive: true });
   writeFileSync(join(toolsDir, `${name}.removed`), "");
+}
+
+/** Delete `<workspaceDir>/tools/<name><ext>` (defaults to `.ts`). */
+function removeToolFile(name: string, ext = ".ts"): void {
+  rmSync(join(currentWorkspaceDir, "tools", `${name}${ext}`), { force: true });
+}
+
+/**
+ * Overwrite an existing tool file and bump its mtime into the future so the
+ * reconcile's mtime gate re-imports it even when the rewrite lands within
+ * the same millisecond as the original write.
+ */
+function rewriteTool(name: string, body: string, ext = ".ts"): void {
+  const path = join(currentWorkspaceDir, "tools", `${name}${ext}`);
+  writeFileSync(path, body);
+  const future = new Date(Date.now() + 5000);
+  utimesSync(path, future, future);
 }
 
 function makeFakeCoreTool(name: string): Tool {
@@ -136,6 +156,7 @@ export default {
 describe("workspace tool loader", () => {
   beforeEach(() => {
     __clearRegistryForTesting();
+    __resetWorkspaceToolCacheForTesting();
     freshWorkspace();
   });
 
@@ -318,5 +339,101 @@ export default 42;
 
     const names = getWorkspaceToolNames().sort();
     expect(names).toEqual(["alpha", "beta", "gamma"]);
+  });
+
+  // ── Reconcile-on-read behavior ─────────────────────────────────────────
+  //
+  // loadWorkspaceTools() is idempotent and re-derives registry state from
+  // disk on every call. These cases cover the deltas a repeat call applies,
+  // which is what replaces the old filesystem watcher.
+
+  test("repeat call with no disk changes is a no-op (does not throw or duplicate)", async () => {
+    writeTool("stable_tool", WELL_FORMED_BODY);
+
+    await loadWorkspaceTools();
+    // A second reconcile must not throw on the already-registered name —
+    // the mtime cache recognizes the unchanged file and skips re-import.
+    await loadWorkspaceTools();
+
+    expect(getTool("stable_tool")).toBeDefined();
+    expect(getWorkspaceToolNames()).toEqual(["stable_tool"]);
+  });
+
+  test("a file added after the first reconcile registers on the next", async () => {
+    writeTool("first", WELL_FORMED_BODY);
+    await loadWorkspaceTools();
+    expect(getWorkspaceToolNames()).toEqual(["first"]);
+
+    writeTool("second", WELL_FORMED_BODY);
+    await loadWorkspaceTools();
+
+    expect(getWorkspaceToolNames().sort()).toEqual(["first", "second"]);
+  });
+
+  test("a changed file is re-imported on the next reconcile", async () => {
+    writeTool("mutable", WELL_FORMED_BODY);
+    await loadWorkspaceTools();
+    expect(getTool("mutable")?.description).toBe("from workspace");
+
+    rewriteTool(
+      "mutable",
+      `
+export default {
+  description: "edited in place",
+  defaultRiskLevel: "low",
+  input_schema: { type: "object", properties: {}, required: [] },
+  async execute() {
+    return { content: "edited", isError: false };
+  },
+};
+`,
+    );
+    await loadWorkspaceTools();
+
+    expect(getTool("mutable")?.description).toBe("edited in place");
+  });
+
+  test("a deleted net-new tool file is unregistered on the next reconcile", async () => {
+    writeTool("ephemeral", WELL_FORMED_BODY);
+    await loadWorkspaceTools();
+    expect(getTool("ephemeral")).toBeDefined();
+
+    removeToolFile("ephemeral");
+    await loadWorkspaceTools();
+
+    expect(getTool("ephemeral")).toBeUndefined();
+    expect(getWorkspaceToolNames()).toEqual([]);
+  });
+
+  test("deleting an override file restores the stashed core tool", async () => {
+    const core = makeFakeCoreTool("restore_me");
+    registerTool(core);
+    writeTool("restore_me", WELL_FORMED_BODY);
+
+    await loadWorkspaceTools();
+    expect(getToolOwner("restore_me")?.kind).toBe("workspace");
+
+    removeToolFile("restore_me");
+    await loadWorkspaceTools();
+
+    expect(getToolOwner("restore_me")).toBeUndefined();
+    expect(getTool("restore_me")).toEqual(core);
+    expect(getCoreToolOverride("restore_me")).toBeUndefined();
+  });
+
+  test("deleting a .removed sentinel restores the stripped core tool", async () => {
+    const core = makeFakeCoreTool("strip_then_restore");
+    registerTool(core);
+    writeRemovedSentinel("strip_then_restore");
+
+    await loadWorkspaceTools();
+    expect(getTool("strip_then_restore")).toBeUndefined();
+    expect(getStrippedCoreToolNames()).toContain("strip_then_restore");
+
+    removeToolFile("strip_then_restore", ".removed");
+    await loadWorkspaceTools();
+
+    expect(getTool("strip_then_restore")).toEqual(core);
+    expect(getStrippedCoreToolNames()).not.toContain("strip_then_restore");
   });
 });

@@ -24,6 +24,7 @@ import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
 import { resolveDefaultProvider } from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { listProviders } from "../providers/registry.js";
+import { loadWorkspaceTools } from "../tools/workspace-tools/loader.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { ProviderNotConfiguredError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -291,6 +292,11 @@ export class SubagentManager {
         event: msg,
       } as ServerMessage);
     };
+
+    // Reconcile workspace tool overrides from disk before the subagent
+    // conversation snapshots its tool set — the same on-read refresh the
+    // top-level conversation store performs. Idempotent and mtime-cached.
+    await loadWorkspaceTools();
 
     const conversation = new Conversation(
       conversationRecord.id,

@@ -22,6 +22,7 @@ import { resolveDefaultProvider } from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { listProviders } from "../providers/registry.js";
 import { getSubagentManager } from "../subagent/index.js";
+import { loadWorkspaceTools } from "../tools/workspace-tools/loader.js";
 import { ProviderNotConfiguredError } from "../util/errors.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import { Conversation } from "./conversation.js";
@@ -159,6 +160,14 @@ export async function getOrCreateConversation(
         );
       }
       const workingDir = getSandboxWorkingDir();
+
+      // Reconcile workspace tool overrides from `<workspaceDir>/tools/`
+      // against the registry before the conversation snapshots its tool set.
+      // This is the on-read replacement for the old filesystem watcher: a
+      // new conversation always sees the current on-disk workspace tools
+      // with no restart. Idempotent and mtime-cached, so an unchanged
+      // directory costs one readdir + a stat per file. Never throws.
+      await loadWorkspaceTools();
 
       const systemPrompt =
         storedOptions?.systemPromptOverride ?? buildSystemPrompt();
