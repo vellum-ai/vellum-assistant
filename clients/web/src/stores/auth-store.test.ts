@@ -302,9 +302,7 @@ mock.module("@/assistant/api", () => ({
 }));
 
 const { useAuthStore } = await import("@/stores/auth-store");
-const { hasAppAccess, isPlatformIdentity } = await import(
-  "@/stores/session-status"
-);
+const { isPlatformIdentity } = await import("@/stores/session-status");
 const { useAssistantLifecycleStore } = await import(
   "@/assistant/lifecycle-store"
 );
@@ -1336,21 +1334,4 @@ describe("identity kind (platform vs local gateway access)", () => {
   test("isPlatformIdentity(null) is false", () => {
     expect(isPlatformIdentity(null)).toBe(false);
   });
-});
-
-// The pure app-access predicate: identity OR connection.
-describe("hasAppAccess (pure predicate)", () => {
-  test.each([
-    [false, false, false],
-    [true, false, true],
-    [false, true, true],
-    [true, true, true],
-  ])(
-    "hasPlatformIdentity=%p canReachSelected=%p -> %p",
-    (hasPlatformIdentity, canReachSelected, expected) => {
-      expect(
-        hasAppAccess({ hasPlatformIdentity, canReachSelected }),
-      ).toBe(expected);
-    },
-  );
 });

@@ -76,26 +76,6 @@ export const isPlatformIdentity = (user: AuthUser | null): boolean =>
   user?.kind === "platform";
 
 /**
- * The two orthogonal authorities behind app access: a real platform identity OR
- * the ability to reach the selected assistant. Either alone grants access — a
- * local-only user has no identity but is gateway-reachable; a platform user with
- * a live session has access regardless of the selected assistant.
- */
-export interface AppAccessSignals {
-  hasPlatformIdentity: boolean;
-  canReachSelected: boolean;
-}
-
-/**
- * Does the user have access to the app? True with a real platform identity OR a
- * reachable selected assistant — the orthogonal "identity vs connection" gate,
- * so a platform-session loss can't lock out a local user who can still reach
- * their assistant.
- */
-export const hasAppAccess = (s: AppAccessSignals): boolean =>
-  s.hasPlatformIdentity || s.canReachSelected;
-
-/**
  * A platform session a live probe confirmed — `"present"` AND not a believed
  * offline restore (LUM-2412). Stricter than {@link hasLivePlatformSession}:
  * telemetry consent gates on this so it never enables on a restored-offline
