@@ -412,6 +412,7 @@ export function ResearchOnboardingRoute() {
             onBack={() => goBackTo("letschat")}
             onAdvance={(i) => setEdgeAvatars(Math.min(i + 1, 4))}
             onForward={onForward}
+            ready={!researchLoading}
           />
         )}
         {step === "results" && (

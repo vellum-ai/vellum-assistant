@@ -81,7 +81,9 @@ export function MiniAssistant({
 // Meeting Created
 // ---------------------------------------------------------------------------
 
-const MINI = 48;
+// Matches the carousel/result steps' avatar size so the avatar doesn't jump
+// between the meeting step and the looking-you-up step that follows it.
+const MINI = 64;
 
 // The confirmation animation runs ~1.3s to reveal the title; hold well past it
 // so the booked time stays readable for ~3s before advancing.
@@ -132,39 +134,39 @@ export function MeetingCreatedStep({
     return () => clearTimeout(t);
   }, [onDone, awaitingTime, scheduledTime]);
 
-  // Center the avatar+title group as a unit. The title width varies a lot — the
-  // booked-time variant is far wider than the generic copy — so a fixed left
-  // offset shoves it off-center; measure the rendered group and center it.
-  // Re-measures when the title swaps (e.g. the booked time lands late).
-  const groupRef = useRef<HTMLDivElement>(null);
-  const [groupWidth, setGroupWidth] = useState<number | null>(null);
+  // Measure the avatar slot's center so the grow-in animation resolves to the
+  // exact resting position the next step's avatar uses — same column, same size
+  // — so there's no horizontal (or size) jump between the two steps. Re-measures
+  // on resize and when the title swaps (e.g. the booked time lands late).
+  const slotRef = useRef<HTMLDivElement>(null);
+  const [slot, setSlot] = useState<{ cx: number; cy: number } | null>(null);
   useLayoutEffect(() => {
-    if (groupRef.current) setGroupWidth(groupRef.current.offsetWidth);
-  }, [title, w, h]);
-
-  const groupLeft = groupWidth != null ? (w - groupWidth) / 2 : w / 2 - 170;
-  const slotCx = groupLeft + MINI / 2;
-  const slotCy = h * 0.26 + MINI / 2;
+    const measure = () => {
+      const r = slotRef.current?.getBoundingClientRect();
+      if (r) setSlot({ cx: r.left + r.width / 2, cy: r.top + r.height / 2 });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [title]);
 
   // The single giant avatar (eyes visible against the colored bg even while the
   // body blends; the body appears as the bg darkens) starts low, dips a touch,
   // then rises + shrinks into the slot with a small settle bounce.
   const bigScale = (1.3 * Math.max(w, h)) / MINI;
-  const startX = w / 2 - slotCx;
-  const startY = h * 0.88 - slotCy;
+  const startX = slot ? w / 2 - slot.cx : 0;
+  const startY = slot ? h * 0.88 - slot.cy : 0;
   const dip = h * 0.05;
 
   return (
     <div className="absolute inset-0 z-10 overflow-hidden text-white">
       <OnboardingTopBar onBack={onBack} onNext={onForward} tone="light" />
 
-      <div
-        ref={groupRef}
-        className="absolute flex items-center gap-4"
-        style={{ left: groupLeft, top: h * 0.26 }}
-      >
-        <div className="relative" style={{ width: MINI, height: MINI }}>
-          {components && chosen && groupWidth != null && (
+      {/* Same column layout as the looking-you-up / result steps so the avatar
+          lands exactly where the next step renders it. */}
+      <div className="absolute left-1/2 top-[14%] sm:top-[26%] flex w-full max-w-xl -translate-x-1/2 items-start gap-3 px-6">
+        <div ref={slotRef} className="relative shrink-0" style={{ width: MINI, height: MINI }}>
+          {components && chosen && slot && (
             <motion.div
               className="absolute inset-0"
               style={{ transformOrigin: "center" }}
@@ -189,7 +191,7 @@ export function MeetingCreatedStep({
           )}
         </div>
         <motion.span
-          className="max-w-[60vw] text-[2.6rem] leading-none"
+          className="text-[2.6rem] leading-none"
           style={{ fontFamily: "var(--font-serif)" }}
           initial={reduce ? false : { opacity: 0, x: -8 }}
           animate={{ opacity: 1, x: 0 }}
@@ -218,6 +220,7 @@ export function LookingYouUpStep({
   onBack,
   onAdvance,
   onForward,
+  ready,
 }: {
   onDone: () => void;
   onBack: () => void;
@@ -225,19 +228,31 @@ export function LookingYouUpStep({
   onAdvance?: (index: number) => void;
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
+  /**
+   * The research turn has settled (results are ready, or there were none). Until
+   * then the carousel keeps rotating — looping the messages — so we never land
+   * on an empty "this is what I found" page.
+   */
+  ready: boolean;
 }) {
   const tone = useOnboardingTone();
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
     onAdvance?.(index);
-    if (index >= LOOKING_MESSAGES.length - 1) {
+    const isLast = index >= LOOKING_MESSAGES.length - 1;
+    // Finish on the last message once research is ready; otherwise keep cycling
+    // (looping back to the start) until it lands.
+    if (ready && isLast) {
       const done = setTimeout(onDone, 1500);
       return () => clearTimeout(done);
     }
-    const next = setTimeout(() => setIndex((i) => i + 1), 1500);
+    const next = setTimeout(
+      () => setIndex((i) => (i + 1) % LOOKING_MESSAGES.length),
+      1500,
+    );
     return () => clearTimeout(next);
-  }, [index, onDone, onAdvance]);
+  }, [index, ready, onDone, onAdvance]);
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
