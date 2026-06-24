@@ -108,6 +108,32 @@ describe("activateMemberChannel gateway-first relay", () => {
     // The local mirror ran AFTER the gateway relay.
     expect(mirrorCallOrder).toBe(1);
     expect(upsertContactChannelMock).toHaveBeenCalledTimes(1);
+
+    // The local mirror persists identity/INFO only — no ACL columns. The
+    // gateway owns status/policy/verification.
+    const mirrorArgs = upsertContactChannelMock.mock.calls[0]![0] as Record<
+      string,
+      unknown
+    >;
+    expect(mirrorArgs).toEqual({
+      sourceChannel: "telegram",
+      externalUserId: "user-1",
+      externalChatId: "chat-1",
+      displayName: "Mom",
+      username: undefined,
+      inviteId: "inv-1",
+      contactId: "target-mom",
+    });
+    for (const aclKey of [
+      "status",
+      "policy",
+      "role",
+      "verifiedAt",
+      "verifiedVia",
+    ]) {
+      expect(aclKey in mirrorArgs).toBe(false);
+    }
+
     expect(result).toEqual({
       status: "activated",
       memberId: "ch1",

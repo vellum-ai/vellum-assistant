@@ -207,6 +207,8 @@ export function resolveLocalTrustVerdict(input: {
   return verdict;
 }
 
+export { seedContactChannel } from "./seed-contact-channel.js";
+
 // ---------------------------------------------------------------------------
 // handleDeleteConversation adapter
 // ---------------------------------------------------------------------------

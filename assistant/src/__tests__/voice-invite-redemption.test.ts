@@ -51,12 +51,12 @@ import {
   getContact,
   upsertContact,
 } from "../contacts/contact-store.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { createInvite, revokeInvite } from "../memory/invite-store.js";
 import { redeemVoiceInviteCode } from "../runtime/invite-redemption-service.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
+import { seedContactChannel } from "./helpers/seed-contact-channel.js";
 
 await initializeDb();
 
@@ -304,15 +304,12 @@ describe("redeemVoiceInviteCode", () => {
 
     expect(result.ok).toBe(true);
 
+    // The gateway owns the verified ACL verdict; the local mirror is identity-only.
     const channelResult = findContactChannel({
       channelType: "phone",
       address: phone,
     });
-
     expect(channelResult).not.toBeNull();
-    expect(channelResult!.channel.verifiedAt).toBeGreaterThan(0);
-    expect(channelResult!.channel.verifiedVia).toBe("invite");
-    expect(channelResult!.channel.status).toBe("active");
   });
 
   test("wrong caller identity fails with generic error", async () => {
@@ -420,7 +417,7 @@ describe("redeemVoiceInviteCode", () => {
     const phone = "+15551234567";
 
     // Pre-create an active member for this phone on voice channel
-    const member = upsertContactChannel({
+    const member = seedContactChannel({
       sourceChannel: "phone",
       externalUserId: phone,
       status: "active",
@@ -430,7 +427,7 @@ describe("redeemVoiceInviteCode", () => {
     // Create a voice invite targeting the same contact that owns the channel
     const { code } = createVoiceInvite({
       callerPhone: phone,
-      contactId: member!.contact.id,
+      contactId: member.contactId,
     });
 
     const result = await redeemVoiceInviteCode({
@@ -456,7 +453,7 @@ describe("redeemVoiceInviteCode", () => {
     const phone = "+15551234567";
 
     // Pre-create a blocked member and find their contact
-    const member = upsertContactChannel({
+    const member = seedContactChannel({
       sourceChannel: "phone",
       externalUserId: phone,
       status: "blocked",
@@ -466,7 +463,7 @@ describe("redeemVoiceInviteCode", () => {
     // Create a voice invite targeting the same contact that owns the channel
     const { code } = createVoiceInvite({
       callerPhone: phone,
-      contactId: member!.contact.id,
+      contactId: member.contactId,
     });
 
     const result = await redeemVoiceInviteCode({
@@ -492,16 +489,12 @@ describe("redeemVoiceInviteCode", () => {
     const phone = "+15559998888";
 
     // Pre-create a guardian contact with a revoked phone channel
-    const guardianContact = upsertContact({
+    const guardianSeed = seedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: phone,
       displayName: "Guardian",
       role: "guardian",
-      channels: [
-        {
-          type: "phone",
-          address: phone,
-          status: "revoked",
-        },
-      ],
+      status: "revoked",
     });
 
     // Create a separate target contact "Mom"
@@ -533,10 +526,9 @@ describe("redeemVoiceInviteCode", () => {
     });
     expect(contactResult).not.toBeNull();
     expect(contactResult!.contact.id).toBe(momContact.id);
-    expect(contactResult!.channel.status).toBe("active");
 
     // Verify the original guardian contact was NOT modified
-    const guardian = getContact(guardianContact.id);
+    const guardian = getContact(guardianSeed.contactId);
     expect(guardian).not.toBeNull();
     expect(guardian!.role).toBe("guardian");
   });

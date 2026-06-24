@@ -73,14 +73,16 @@ mock.module("../runtime/approval-message-composer.js", () => ({
 }));
 
 import { findContactChannel } from "../contacts/contact-store.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
   createOutboundSession,
   validateAndConsumeVerification,
 } from "../runtime/channel-verification-service.js";
-import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
+import {
+  handleChannelInbound,
+  seedContactChannel,
+} from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 await initializeDb();
@@ -253,7 +255,7 @@ for (const config of CHANNEL_CONFIGS) {
         expect(challengeResult.verificationType).toBe("trusted_contact");
       }
 
-      upsertContactChannel({
+      seedContactChannel({
         sourceChannel: config.channel,
         externalUserId: config.senderExternalUserId,
         externalChatId: config.externalChatId,
@@ -276,7 +278,7 @@ for (const config of CHANNEL_CONFIGS) {
 
     test("no cross-channel leakage between member records", () => {
       // Create a member for this channel
-      upsertContactChannel({
+      seedContactChannel({
         sourceChannel: config.channel,
         externalUserId: config.senderExternalUserId,
         externalChatId: config.externalChatId,

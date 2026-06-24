@@ -157,8 +157,8 @@ mock.module("../config/env.js", () => ({
 import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-primitive.js";
 import type { ActorContext } from "../approvals/guardian-request-resolvers.js";
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
 import type { TrustContext } from "../daemon/trust-context.js";
+import { seedContactChannel } from "./helpers/seed-contact-channel.js";
 import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
@@ -1352,7 +1352,7 @@ describe("(g) access_request resolver: requester code delivery", () => {
 
   test("guardian-facing reply uses the requester's display name, not the raw ID", async () => {
     // Seed a contact so the resolver can resolve a display name.
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "slack",
       externalUserId: REQUESTER_UID,
       displayName: "Alice",

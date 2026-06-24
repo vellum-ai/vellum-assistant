@@ -13,7 +13,7 @@
 
 import { answerCall } from "../calls/call-domain.js";
 import { findContactChannel } from "../contacts/contact-store.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
+import { activateMemberChannel } from "../contacts/member-write-relay.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import {
   type CanonicalGuardianRequest,
@@ -603,12 +603,12 @@ const accessRequestResolver: GuardianRequestResolver = {
     // relay server's in-call wait loop will detect the approved status.
     if (channel === "phone") {
       try {
-        upsertContactChannel({
+        // Gateway-first activation: the gateway owns the ACL verdict, the local
+        // mirror persists the caller's contact/channel identity.
+        await activateMemberChannel({
           sourceChannel: "phone",
           externalUserId: requesterExternalUserId,
           externalChatId: requesterChatId,
-          status: "active",
-          policy: "allow",
         });
       } catch (err) {
         log.error(

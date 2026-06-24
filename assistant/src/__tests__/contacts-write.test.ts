@@ -63,8 +63,6 @@ describe("guardian persona seeding and trust-cache invariants", () => {
       externalUserId: "Bob",
       externalChatId: "chat-bob",
       displayName: "Bob",
-      role: "contact",
-      status: "active",
     });
 
     expect(result).not.toBeNull();
