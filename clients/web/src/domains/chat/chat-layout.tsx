@@ -268,6 +268,9 @@ export function ChatLayout() {
     if (!sidebarCollapseRequested) return;
     // One-shot: research-onboarding asked us to open collapsed. Honor it on
     // desktop (mobile uses the drawer, which is already closed), then clear.
+    // `setCollapsed(true)` flows through the persistence effect above, so this
+    // intentionally sets the user's persisted collapsed preference (it is not a
+    // transient/visual-only collapse).
     if (!window.matchMedia(MOBILE_MEDIA_QUERY).matches) setCollapsed(true);
     consumeSidebarCollapse();
   }, [sidebarCollapseRequested, consumeSidebarCollapse]);
