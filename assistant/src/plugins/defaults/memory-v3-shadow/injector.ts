@@ -245,16 +245,15 @@ export const memoryV3Injector: Injector = {
     try {
       observed = await observeTurnOnce(ctx.conversationId, ctx.turnIndex);
     } catch (err) {
-      // A memory-v3 INFRASTRUCTURE failure (the selector lost its provider —
-      // e.g. a transient CES credential blip). Under `memory-v3-live` the
-      // user-prompt-submit hook already skipped v2 retrieval, so swallowing
-      // here would ship the turn with NO memory at all — exactly the silent
-      // degradation we want to eliminate. Hard-fail the turn instead (a clean,
-      // retryable error). In shadow mode v2 still ran this turn, so fall back
-      // to it (return null). Non-infra errors are already swallowed inside
-      // observeTurn; anything else reaching here stays non-fatal.
-      if (live && err instanceof MemoryV3RetrievalUnavailableError) {
-        throw err;
+      if (err instanceof MemoryV3RetrievalUnavailableError) {
+        log.error(
+          {
+            err: err.message,
+            conversationId: ctx.conversationId,
+            mode: live ? "live" : "shadow",
+          },
+          "memory-v3 selection failed; skipping v3 memory for this turn",
+        );
       }
       return null;
     }
@@ -405,12 +404,15 @@ export const memoryV3SpotlightInjector: Injector = {
         placement: "after-memory-prefix",
       };
     } catch (err) {
-      // Live-only injector: an infra failure must hard-fail the turn. The cards
-      // injector (ordered ahead of this one) normally throws first, so this
-      // path is defensive — it keeps the behavior correct if the cards injector
-      // is ever disabled or reordered.
       if (err instanceof MemoryV3RetrievalUnavailableError) {
-        throw err;
+        log.error(
+          {
+            err: err.message,
+            conversationId: ctx.conversationId,
+          },
+          "memory-v3 spotlight selection failed; skipping spotlight",
+        );
+        return null;
       }
       log.warn(
         {
