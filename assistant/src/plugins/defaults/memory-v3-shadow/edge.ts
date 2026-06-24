@@ -1,4 +1,9 @@
+import { CLI_COMMAND_SLUG_PREFIX } from "../../../memory/v2/cli-command-store.js";
 import type { PageIndexEntry } from "../../../memory/v2/page-index.js";
+import {
+  SKILL_SLUG_PREFIX,
+  skillSlugFor,
+} from "../../../memory/v2/skill-store.js";
 import { parseFrontmatterFields } from "../../../skills/frontmatter.js";
 import type { Slug } from "./types.js";
 
@@ -47,7 +52,10 @@ const WIKILINK_REGEX = /\[\[([^\]]+)\]\]/g;
  * many facts would otherwise be flagged a hub and filtered out of expansion, so
  * it is exempt from the hub filter — a skill should still co-surface with its
  * facts no matter how many link to it. */
-const CAPABILITY_TARGET_PREFIXES = ["skills/", "cli-commands/"] as const;
+const CAPABILITY_TARGET_PREFIXES = [
+  SKILL_SLUG_PREFIX,
+  CLI_COMMAND_SLUG_PREFIX,
+] as const;
 
 /** Whether `slug` names a capability page exempt from the hub filter. */
 function isCapabilityTarget(slug: Slug): boolean {
@@ -199,7 +207,11 @@ export async function buildEdgeGraph(
     // the corpus, so a skill with no capability page is a safe no-op.
     const skill = parsed?.fields.skill;
     if (typeof skill === "string" && skill.trim() !== "") {
-      addEdge(source, `skills/${skill}`, "procedural knowledge for this skill");
+      addEdge(
+        source,
+        skillSlugFor(skill),
+        "procedural knowledge for this skill",
+      );
     }
 
     // (b) inline `[[wikilink]]` targets from the body. `parsed.body` strips
