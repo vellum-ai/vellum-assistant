@@ -179,6 +179,42 @@ export interface ResearchResult {
    * card and the user-voiced message sent when it's clicked.
    */
   suggestions: ResearchSuggestion[];
+  /**
+   * True once the reply parses as ONE complete, well-formed JSON object — i.e.
+   * the full payload has arrived and was parsed by `JSON.parse` (not the
+   * brace-counted streaming fallback). The runner gates settling on this so it
+   * never freezes on a partial `suggestions` array (which would render only the
+   * first card or two). False while the reply is still streaming or malformed.
+   */
+  complete: boolean;
+}
+
+/** Map a raw array of entries through `mapper`, dropping the ones that don't validate. */
+function mapEntries<T>(raw: unknown, mapper: (entry: unknown) => T | null): T[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map(mapper).filter((v): v is T => v !== null);
+}
+
+/**
+ * Strict-parse the first complete top-level `{...}` object out of `body`,
+ * tolerating leading/trailing prose. Returns the parsed payload (the object
+ * carrying a `claims` and/or `suggestions` array), or null if no complete,
+ * well-formed payload is present yet — still streaming, or malformed JSON.
+ *
+ * This is the load-bearing robustness fix: `JSON.parse` handles string escaping
+ * correctly, whereas the brace-counted streaming extractor below mis-tracks an
+ * unescaped `"` (or a literal newline) inside a value and silently drops the
+ * affected element — and the elements after it — which is how a fully-generated
+ * 4-suggestion reply could render as one card.
+ */
+function parseWholePayload(body: string): Record<string, unknown> | null {
+  for (const obj of extractCompleteObjects(body)) {
+    if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+      const o = obj as Record<string, unknown>;
+      if (Array.isArray(o.claims) || Array.isArray(o.suggestions)) return o;
+    }
+  }
+  return null;
 }
 
 /**
@@ -188,9 +224,23 @@ export interface ResearchResult {
  * top-level array as `claims` for back-compat.
  */
 export function parseResearchResultStreaming(text: string): ResearchResult {
-  if (!text) return { claims: [], suggestions: [] };
+  if (!text) return { claims: [], suggestions: [], complete: false };
   const body = stripFence(text);
 
+  // Fast path: the whole payload parsed in one shot. Correct (handles escaping)
+  // and authoritative once the reply has fully arrived — so it also tells the
+  // caller the result is `complete` and safe to settle on.
+  const whole = parseWholePayload(body);
+  if (whole) {
+    return {
+      claims: mapEntries(whole.claims, toFact),
+      suggestions: mapEntries(whole.suggestions, toSuggestion),
+      complete: true,
+    };
+  }
+
+  // Streaming fallback: pull every *complete* element out of each array so
+  // claims/suggestions surface as they land, tolerating the unterminated tail.
   const claimsScope = arrayScopeFor(body, "claims");
   const claimsBody =
     claimsScope ??
@@ -213,7 +263,7 @@ export function parseResearchResultStreaming(text: string): ResearchResult {
           .map(toSuggestion)
           .filter((s): s is ResearchSuggestion => s !== null);
 
-  return { claims, suggestions };
+  return { claims, suggestions, complete: false };
 }
 
 /**
