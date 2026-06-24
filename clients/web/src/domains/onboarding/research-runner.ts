@@ -353,13 +353,17 @@ export function useResearchRunner(): UseResearchRunner {
             },
             throwOnError: false,
           });
+          // Capture the created conversation id BEFORE the stale check so a
+          // superseded run still archives its throwaway side conversation in the
+          // finally block. The finally already guards on truthiness, so an
+          // undefined id here is harmless.
+          createdConversationId = conversation.data?.id;
           if (isStale()) return;
           const conversationId = conversation.data?.id;
           if (!conversation.response?.ok || !conversationId) {
             setState((s) => ({ ...s, status: "error" }));
             return;
           }
-          createdConversationId = conversationId;
 
           const body: MessagesPostData["body"] = {
             conversationId,
