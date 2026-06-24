@@ -63,7 +63,10 @@
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../config/loader.js";
 import { isMemoryV3Live } from "../../../config/memory-v3-gate.js";
-import { queueConversationNotice } from "../../../daemon/conversation-notices.js";
+import {
+  type PendingConversationNotice,
+  queueConversationNotice,
+} from "../../../daemon/conversation-notices.js";
 import { isPersonalMemoryAllowed } from "../../../daemon/trust-context.js";
 import {
   wrapMemoryBlock,
@@ -126,11 +129,18 @@ function queueMemoryV3ConversationNotice(
   ctx: TurnContext,
   live: boolean,
 ): void {
-  if (!live || !err.conversationNotice) return;
+  if (!live) return;
+  const notice: PendingConversationNotice = err.conversationNotice ?? {
+    source: "memory_v3",
+    code: "UNKNOWN",
+    userMessage:
+      "Memory is temporarily unavailable, so this response may not use your saved memories. You can retry in a moment.",
+    errorCategory: "memory_v3_degraded",
+  };
   queueConversationNotice(
     ctx.conversationId,
-    `memory_v3:${ctx.turnIndex}:${err.conversationNotice.errorCategory ?? err.conversationNotice.code}`,
-    err.conversationNotice,
+    `memory_v3:${ctx.turnIndex}:${notice.errorCategory ?? notice.code}`,
+    notice,
   );
 }
 

@@ -66,11 +66,13 @@ mock.module("@vellumai/design-library", () => ({
   Notice: ({
     children,
     actions,
+    tone,
   }: {
     children?: ReactNode;
     actions?: ReactNode;
+    tone?: string;
   }) => (
-    <div data-testid="notice">
+    <div data-testid="notice" data-tone={tone}>
       {children}
       {actions ? <div data-testid="notice-actions">{actions}</div> : null}
     </div>
@@ -325,6 +327,23 @@ describe("ChatBody — generic chat error Notice (dismiss UX)", () => {
 
     expect(html).toContain("Go to Doctor");
     expect(html).toContain("Dismiss");
+  });
+
+  test("renders warning-tone generic notices as status banners", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          genericChatError: {
+            message: "Memory is temporarily unavailable.",
+            tone: "warning",
+          },
+          onDismissChatError: () => {},
+        })}
+      />,
+    );
+
+    expect(html).toContain("Memory is temporarily unavailable.");
+    expect(html).toContain('data-tone="warning"');
   });
 
   test("does NOT render the Dismiss button when onDismissChatError is omitted", () => {
