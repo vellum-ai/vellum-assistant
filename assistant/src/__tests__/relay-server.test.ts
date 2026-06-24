@@ -50,11 +50,31 @@ let inviteClaimCalls = 0;
 let inviteClaimGate: Promise<void> | null = null;
 mock.module("../ipc/gateway-client.js", () => ({
   ipcCall: async () => undefined,
-  ipcCallPersistent: async (method: string) => {
+  ipcCallPersistent: async (
+    method: string,
+    params?: Record<string, unknown>,
+  ) => {
     if (method === "record_invite_redemption") {
       inviteClaimCalls += 1;
       if (inviteClaimGate) await inviteClaimGate;
       return { ok: true, updated: true, mirrored: true };
+    }
+    // The gateway owns the ACL verdict; activation fails closed when the relay
+    // does not land, so model a verified upsert for the redemption paths.
+    if (method === "upsert_verified_channel") {
+      return {
+        ok: true,
+        verified: true,
+        channel: {
+          id: "gw-channel-id",
+          contactId: (params?.contactId as string) ?? "gw-contact",
+          type: (params?.type as string) ?? "phone",
+          address: (params?.address as string) ?? "gw-addr",
+          status: "active",
+          verifiedAt: 1,
+          verifiedVia: (params?.verifiedVia as string) ?? "invite",
+        },
+      };
     }
     return undefined;
   },
