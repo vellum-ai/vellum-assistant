@@ -62,9 +62,9 @@ Ask before building. Five questions, in this order. Stop if the user is unclear 
 
 1. **What job does the plugin do?** One sentence, plain language. If you cannot write this, the plugin should not be built yet.
 2. **Which surfaces does it ship?** Tools (model calls), hooks (lifecycle transforms), and skills (on-demand instructions) are the three. Most plugins ship one or two, not all three. See `references/plugins.md` for the directory layout and manifest, and the surface-specific references for each surface's contract.
-3. **Does it need credentials?** An API key, OAuth token, or webhook secret is not a value that belongs in a `.ts` file. Anything sensitive gets declared in the manifest and resolved at `init` time.
+3. **Does it need credentials?** An API key, OAuth token, or webhook secret is not a value that belongs in a `.ts` file. For LLM inference credentials, use `getConfiguredProvider()` from `@vellumai/plugin-api` to route through the workspace's stored credentials without handling plaintext. For other credential types (OAuth tokens, webhook secrets), store them via the credential vault and resolve at runtime through the assistant's credential system.
 4. **Where will the source live?** A GitHub repo, ideally under the user's own namespace. The marketplace entry pins to a full commit SHA.
-5. **Is the user writing TypeScript or compiling ahead?** In-repo Bun/Node compile on daemon start is the default. If they want a different build, ask now.
+5. **Is the user writing TypeScript or compiling ahead?** In-repo Bun/Node compile on assistant start is the default. If they want a different build, ask now.
 
 You have an alignment problem if the user cannot answer questions 1 and 2. Push back and clarify before scaffolding. The most expensive waste of plugin-authoring time is building a plugin whose job is fuzzy.
 
@@ -72,15 +72,15 @@ You have an alignment problem if the user cannot answer questions 1 and 2. Push 
 
 Choose a kebab-case directory name. It becomes the install name. `@scope/<name>` is allowed; the loader strips the scope for the runtime plugin name. Duplicate names fail registration. See `references/plugins.md` for the full directory layout, manifest fields, and loader rules.
 
-To exercise the plugin locally before pushing to the catalog, drop the directory into the path the loader scans and restart the daemon:
+To exercise the plugin locally before pushing to the catalog, copy the directory into the workspace's `plugins/` folder:
 
 ```
-cp -R my-plugin "$(assistant daemon workspace)/plugins/my-plugin"
+cp -R my-plugin $VELLUM_WORKSPACE_DIR/plugins/my-plugin
 ```
 
 ## Verify before shipping
 
-1. Plugin directory copied into `plugins/<name>/`, daemon restarted, `assistant plugins list` shows status `ok` (not `error`, not `skipped`).
+1. Plugin directory copied into `plugins/<name>/`, `assistant plugins list` shows status `ok` (not `error`, not `skipped`).
 2. `assistant plugins inspect <name>` reports `up-to-date` and `drift: none`.
 3. Each surface exercised on a real code path: a tool called by the model, a hook fires on the right event, a skill loads when hints match.
 4. Compiled files win: if you ship both `.js` and `.ts` for the same basename, the `.js` is loaded.
@@ -95,7 +95,7 @@ See `references/distribution.md` for the full marketplace manifest schema, CLI c
 2. Pin `source.ref` to a full commit SHA. Tags and branches are rejected.
 3. Wait for the Vellum team's review. The catalog is curated.
 
-Once merged, users install by name: `assistant plugins install my-plugin`. Restart the assistant to pick up the new code.
+Once merged, users install by name: `assistant plugins install my-plugin`. The new plugin is picked up automatically.
 
 ## SKILL COMPLETE WHEN
 

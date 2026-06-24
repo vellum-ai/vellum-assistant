@@ -4,6 +4,8 @@ Run your own code at fixed points in a turn. Hooks let a plugin read or transfor
 
 A hook is a function that the Assistant calls at a known boundary in its lifecycle. The harness owns the loop, and your code runs at named points along the way. Each hook lives in its own file under `hooks/<name>.ts`, and the filename is the hook name.
 
+Hooks load from two places. Inside a plugin they live under `<plugin>/hooks/<name>.ts`. You can also drop a **standalone hook** directly under `<workspace>/hooks/<name>.ts` — no `package.json`, no plugin scaffolding, just the hook file. Standalone workspace hooks behave identically to plugin hooks (same contexts, same `init`/`shutdown` lifecycle); for a given event, plugin hooks run first and the workspace hook runs last.
+
 ## The Agent Loop
 
 The loop moves a conversation turn through a series of **lifecycle events**. The **hooks** are the places your code can run as the turn moves from one event to the next.
@@ -30,15 +32,14 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 
 **Context:** `PluginInitContext`
 **When:** Once, when the plugin is first registered (on boot or install).
-**Use it to:** Validate config and credentials and open resources. Throwing aborts the plugin's load.
+**Use it to:** Validate config and open resources. Throwing aborts the plugin's load.
 
-| Field              | Type                     | Access    | Description                                                                      |
-| ------------------ | ------------------------ | --------- | -------------------------------------------------------------------------------- |
-| `config`           | `unknown`                | Read-only | Parsed config for this plugin, validated against the manifest.                   |
-| `credentials`      | `Record<string, string>` | Read-only | Resolved credential values, keyed by the plugin's `requiresCredential` entries.  |
-| `pluginStorageDir` | `string`                 | Read-only | Absolute path to the plugin's writable data directory, created during bootstrap. |
-| `assistantVersion` | `string`                 | Read-only | Assistant semver, for defensive runtime checks.                                  |
-| `logger`           | `PluginLogger`           | Read-only | Pino-compatible logger scoped to the plugin.                                     |
+| Field              | Type           | Access    | Description                                                                      |
+| ------------------ | -------------- | --------- | -------------------------------------------------------------------------------- |
+| `config`           | `unknown`      | Read-only | Parsed config for this plugin, validated against the manifest.                   |
+| `pluginStorageDir` | `string`       | Read-only | Absolute path to the plugin's writable data directory, created during bootstrap. |
+| `assistantVersion` | `string`       | Read-only | Assistant semver, for defensive runtime checks.                                  |
+| `logger`           | `PluginLogger` | Read-only | Pino-compatible logger scoped to the plugin.                                     |
 
 ### `user-prompt-submit`
 
@@ -160,6 +161,26 @@ When multiple plugins define the same hook, they execute in a fixed order so the
 2. **User plugins.** Ordered by the plugin's original install date, the `installedAt` timestamp from the `install-meta.json` sidecar written at install time. Plugins installed earlier run first. Plugins without a sidecar fall back to the directory creation time and sort after dated ones.
 
 Within a single plugin, hooks for the same name are not duplicated: each plugin contributes at most one hook per boundary. The chain is linear: the output of hook N is the input of hook N+1, and the final output is what the Assistant acts on.
+
+## @vellumai/plugin-api exports for hooks
+
+These are the hook-related exports from [`@vellumai/plugin-api`](https://github.com/vellum-ai/vellum-assistant/tree/main/assistant/src/plugin-api). Each context type's full field contract is documented in the hook sections above.
+
+| Export                    | Kind  | Purpose                                                                                                                           |
+| ------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `HOOKS`                   | const | Wired hook names keyed by constant (INIT, PRE_MODEL_CALL, and so on). Reference hooks by this instead of free-form strings.       |
+| `HookName`                | type  | Union of every wired hook name declared in HOOKS.                                                                                 |
+| `PluginHookFn`            | type  | Signature every hook implements: `(ctx) => Promise<Partial<ctx> \| void>`.                                                        |
+| `PluginInitContext`       | type  | Passed to the init hook at bootstrap.                                                                                             |
+| `PluginShutdownContext`   | type  | Passed to the shutdown hook at teardown.                                                                                          |
+| `UserPromptSubmitContext` | type  | Passed to user-prompt-submit, before a turn's messages reach the agent loop.                                                      |
+| `PreModelCallContext`     | type  | Passed to pre-model-call, before each provider call.                                                                              |
+| `PostToolUseContext`      | type  | Passed to post-tool-use, once per tool result.                                                                                    |
+| `PostModelCallContext`    | type  | Passed to post-model-call at every model-call outcome (a finalized reply or a provider rejection); carries the continue decision. |
+| `PostCompactContext`      | type  | Passed to post-compact, after the loop compacts a conversation mid-turn.                                                          |
+| `StopContext`             | type  | Passed to stop, the terminal hook, once the turn has committed to ending.                                                         |
+| `PostModelCallDecision`   | type  | The post-model-call decision shape: whether to end the turn or continue.                                                          |
+| `AgentLoopExitReason`     | type  | Which terminal state a turn reached, carried on StopContext.                                                                      |
 
 ## Anatomy of a hook
 

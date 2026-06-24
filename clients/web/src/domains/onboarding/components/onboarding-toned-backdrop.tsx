@@ -53,14 +53,21 @@ const PEEKERS: {
   colorIdx: number;
   base: number;
   pos: (s: number) => Record<string, number | string>;
+  /**
+   * Kept on narrow screens, where the content fills the middle and most of the
+   * width. `mobilePos` rides the four corners (clear of the content) so the
+   * crowd spreads into the corners instead of bunching along the bottom.
+   */
+  mobile?: boolean;
+  mobilePos?: (s: number) => Record<string, number | string>;
 }[] = [
   { bodyShape: "sprout", eyeStyle: "curious", colorIdx: 0, base: 230, pos: (s) => ({ left: -s * 0.32, top: "40%" }) },
   { bodyShape: "flower", eyeStyle: "goofy", colorIdx: 1, base: 230, pos: (s) => ({ right: -s * 0.32, top: "40%" }) },
-  { bodyShape: "star", eyeStyle: "dazed", colorIdx: 2, base: 240, pos: (s) => ({ left: "16%", bottom: -s * 0.42 }) },
-  { bodyShape: "burst", eyeStyle: "angry", colorIdx: 0, base: 240, pos: (s) => ({ right: "16%", bottom: -s * 0.42 }) },
+  { bodyShape: "star", eyeStyle: "dazed", colorIdx: 2, base: 240, mobile: true, pos: (s) => ({ left: "16%", bottom: -s * 0.42 }), mobilePos: (s) => ({ left: -s * 0.3, bottom: -s * 0.3 }) },
+  { bodyShape: "burst", eyeStyle: "angry", colorIdx: 0, base: 240, mobile: true, pos: (s) => ({ right: "16%", bottom: -s * 0.42 }), mobilePos: (s) => ({ right: -s * 0.3, bottom: -s * 0.3 }) },
   { bodyShape: "blob", eyeStyle: "gentle", colorIdx: 1, base: 220, pos: (s) => ({ left: "42%", bottom: -s * 0.5 }) },
-  { bodyShape: "urchin", eyeStyle: "curious", colorIdx: 2, base: 220, pos: (s) => ({ left: -s * 0.28, bottom: "16%" }) },
-  { bodyShape: "burst", eyeStyle: "quirky", colorIdx: 0, base: 220, pos: (s) => ({ right: -s * 0.28, bottom: "16%" }) },
+  { bodyShape: "urchin", eyeStyle: "curious", colorIdx: 2, base: 220, mobile: true, pos: (s) => ({ left: -s * 0.28, bottom: "16%" }), mobilePos: (s) => ({ left: -s * 0.3, top: -s * 0.3 }) },
+  { bodyShape: "burst", eyeStyle: "quirky", colorIdx: 0, base: 220, mobile: true, pos: (s) => ({ right: -s * 0.28, bottom: "16%" }), mobilePos: (s) => ({ right: -s * 0.3, top: -s * 0.3 }) },
   { bodyShape: "flower", eyeStyle: "quirky", colorIdx: 1, base: 230, pos: (s) => ({ left: "30%", bottom: -s * 0.4 }) },
 ];
 
@@ -89,8 +96,7 @@ export function OnboardingTonedBackdrop({
   darkBg?: boolean;
   /** Show the giant eyes peeking from the bottom (off once they've collapsed). */
   showBottomEyes?: boolean;
-  /** Show the little team peeking in from the top (forms on the "together"
-   *  step and persists through the rest of the flow). */
+  /** Show the little team peeking in from the top edge (off by default). */
   showTopTeam?: boolean;
 }) {
   const components = useBundledAvatarComponents();
@@ -100,6 +106,9 @@ export function OnboardingTonedBackdrop({
   const { w } = useViewport();
   // Shrink the peeking characters on smaller screens (full size ≥ ~1100px wide).
   const peekScale = Math.max(0.42, Math.min(w / 1100, 1));
+  // On narrow screens the content fills the middle, so the crowd retreats to a
+  // smaller, corner-only set (see PEEKERS `mobile` / `mobilePos`).
+  const isMobile = w < 640;
 
   const chosen = characters.length > 0 ? characters[selectedIndex] : undefined;
 
@@ -128,10 +137,12 @@ export function OnboardingTonedBackdrop({
 
       {/* The assistant's eyes peek up from the bottom (until they collapse into
           the small avatar at the calendar step). */}
-      {showBottomEyes && <OnboardingPeekingEyes bumpNonce={eyesBumpNonce} />}
+      {showBottomEyes && (
+        <OnboardingPeekingEyes bumpNonce={eyesBumpNonce} settleBlink={false} />
+      )}
 
       {/* The team peeks in from the top-right — three larger avatars, overlapping
-          and cut off by the top edge. Forms on "together" and stays put. */}
+          and cut off by the top edge. Forms on the integration step and stays put. */}
       {showTopTeam && components && (
         <div
           className="pointer-events-none absolute right-0 z-[1] flex items-start"
@@ -175,17 +186,23 @@ export function OnboardingTonedBackdrop({
         </div>
       )}
 
-      {/* The crowd peeks in around the edges — more reveal as steps progress. */}
+      {/* The crowd peeks in around the edges — more reveal as steps progress.
+          On narrow screens the side/top peekers crowd the content, so only the
+          ones rising from the bottom edge are kept. */}
       {components && (
         <AnimatePresence>
-          {PEEKERS.slice(0, Math.max(0, peekLevel)).map((p, i) => {
+          {(isMobile ? PEEKERS.filter((p) => p.mobile) : PEEKERS)
+            .slice(0, Math.max(0, peekLevel))
+            .map((p, i) => {
             const size = Math.round(p.base * peekScale);
+            const position =
+              isMobile && p.mobilePos ? p.mobilePos(size) : p.pos(size);
             return (
               <motion.div
                 key={`peek-${i}`}
                 aria-hidden="true"
                 className="pointer-events-none fixed z-[1]"
-                style={{ ...p.pos(size), width: size, height: size }}
+                style={{ ...position, width: size, height: size }}
                 initial={reduce ? false : { scale: 0, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={reduce ? undefined : { scale: 0, opacity: 0 }}

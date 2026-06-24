@@ -32,7 +32,7 @@ const CENTER_POINT = { x: 0.5, y: 0.4 };
  * Slight per-slot tilt (degrees) so the edge cast isn't all bolt-upright. Some
  * are left at 0. Indexed by edge slot; the centered avatar is always upright.
  */
-export const SLOT_ROTATIONS = [-8, 6, 9, 0, 7, -6, 5, 0, -7, 4];
+export const SLOT_ROTATIONS = [-8, 6, 9, 0, 7, -6, 5, 0, -7, 4, -5, 6];
 function slotRotation(slot: number): number {
   return SLOT_ROTATIONS[slot % SLOT_ROTATIONS.length] ?? 0;
 }
@@ -63,7 +63,7 @@ function centerSize(w: number, h: number): number {
 export function edgeSlots(w: number, h: number, edgeRadius: number): { x: number; y: number }[] {
   const side = edgeRadius * 0.4; // ~60% of the avatar clipped off-screen
   const corner = edgeRadius * 0.48;
-  // Order matches HARDCODED_POOL indices 1–9 (see onboarding-avatar-pool-store).
+  // Order matches HARDCODED_POOL indices 1–11 (see onboarding-avatar-pool-store).
   return [
     { x: corner, y: corner }, // 0 top-left corner → purple blob
     { x: w * 0.3, y: side }, // 1 top, left of center → orange star
@@ -74,6 +74,8 @@ export function edgeSlots(w: number, h: number, edgeRadius: number): { x: number
     { x: corner, y: h - corner }, // 6 bottom-left corner → green ghost
     { x: side, y: h * 0.5 }, // 7 left mid → orange sprout
     { x: w - side, y: h * 0.3 }, // 8 right upper → teal star
+    { x: w * 0.38, y: h - side }, // 9 bottom, left of center → pink flower
+    { x: w * 0.62, y: h - side }, // 10 bottom, right of center → yellow cloud
   ];
 }
 
@@ -142,6 +144,15 @@ export function OnboardingCharacterStage({
 }: OnboardingCharacterStageProps) {
   const { w, h } = useViewport();
   const reduce = useReducedMotion();
+
+  // On narrow screens the side avatars sit behind the title/fields and feel
+  // crowded, so the edge cast is kept to the top (slots 0–3) and bottom corners
+  // (5, 6). Dropped on mobile: the side slots 4 (right-lower), 7 (left-mid), 8
+  // (right-upper), plus the two bottom-center slots 9/10 (desktop-only, else the
+  // bottom re-crowds). Those characters stay reachable via the arrows.
+  const isMobile = w < 640;
+  const MOBILE_HIDDEN_SLOTS = new Set([4, 7, 8, 9, 10]);
+  const slotHidden = (slot: number) => isMobile && MOBILE_HIDDEN_SLOTS.has(slot);
 
   // Every avatar renders in the large edge box; the center one is scaled down.
   const size = edgeSize(w, h);
@@ -216,8 +227,10 @@ export function OnboardingCharacterStage({
 
         // Previously centered — the exact opposite of the entering move: it
         // shrinks + fades away at the center, teleports off-screen (invisible),
-        // then flies in from the edge and bounces into its slot.
+        // then flies in from the edge and bounces into its slot. If that slot is
+        // hidden on mobile, skip it so it doesn't land in a dropped side slot.
         if (isExiting) {
+          if (slotHidden(exiting.toSlot)) return null;
           const to = slots[exiting.toSlot]!;
           const off = offscreenPoint(to, centerX, centerY, w, h);
           return (
@@ -251,9 +264,12 @@ export function OnboardingCharacterStage({
           );
         }
 
+        const charSlot = slotOfChar.get(i) ?? 0;
+        // Drop the side-slot characters on mobile (they're not the center).
+        if (!isCenter && slotHidden(charSlot)) return null;
         const point = isCenter
           ? { x: centerX, y: centerY }
-          : slots[slotOfChar.get(i) ?? 0]!;
+          : slots[charSlot]!;
         return (
           <motion.div
             key={i}

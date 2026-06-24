@@ -34,16 +34,17 @@ mock.module("@/domains/chat/components/subagent-phase-timeline", () => ({
   }: {
     onStepDetailClick?: (detailKey: string) => void;
     expandedKeys?: Set<string>;
-    onExpandedKeysChange?: (next: Set<string>) => void;
+    onExpandedKeysChange?: (updater: (prev: Set<string>) => Set<string>) => void;
   }) => (
     <div data-testid="timeline">
       {/* Surfaces the controlled expand state so a test can assert the panel
-          preserves it across the detail view swap. */}
+          preserves it across the detail view swap. The real timeline drives the
+          functional-updater form, so the stub exercises the same contract. */}
       <button
         type="button"
         data-testid="timeline-expand"
         onClick={() =>
-          onExpandedKeysChange?.(new Set(expandedKeys).add("grp-1"))
+          onExpandedKeysChange?.((prev) => new Set(prev).add("grp-1"))
         }
       >
         {expandedKeys?.has("grp-1") ? "group-open" : "group-closed"}

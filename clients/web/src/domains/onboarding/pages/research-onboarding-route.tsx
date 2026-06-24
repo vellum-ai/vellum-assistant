@@ -17,7 +17,7 @@
  * then clicks "Continue" to drop into the full workspace on the same conversation.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
@@ -33,6 +33,8 @@ import { buildResearchPrompt } from "@/domains/onboarding/research-prompt";
 import { useBackgroundHatch } from "@/domains/onboarding/use-background-hatch";
 import { useResearchRunner } from "@/domains/onboarding/research-runner";
 import { scheduleCheckin } from "@/domains/onboarding/checkin-scheduler";
+import { GOOGLE_CALENDAR_EVENTS_SCOPE } from "@/domains/onboarding/hooks/use-google-calendar-connect";
+import { formatCheckinTime } from "@/domains/onboarding/format-checkin-time";
 import { useOnboardingFocusStore } from "@/stores/onboarding-focus-store";
 import {
   ResearchOnboardingScreen,
@@ -43,10 +45,7 @@ import {
   type GiveMeAFaceValues,
 } from "@/domains/onboarding/screens/give-me-a-face-screen";
 import { IntroductionScreen } from "@/domains/onboarding/screens/introduction-screen";
-import {
-  PitchDifferentStep,
-  PitchTogetherStep,
-} from "@/domains/onboarding/screens/intro-pitch-steps";
+import { PitchStep } from "@/domains/onboarding/screens/intro-pitch-steps";
 import { IntegrationStep } from "@/domains/onboarding/screens/integration-step";
 import { LetsChatTomorrowStep } from "@/domains/onboarding/screens/lets-chat-tomorrow-step";
 import {
@@ -62,7 +61,6 @@ type ResearchStep =
   | "face"
   | "intro"
   | "different"
-  | "together"
   | "integration"
   | "letschat"
   | "meeting"
@@ -83,10 +81,10 @@ export function ResearchOnboardingRoute() {
   const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
 
   // Sub-steps share this route: details form → avatar/name picker →
-  // introduction → "different"/"collaborate" pitch → integration → "let's chat
-  // tomorrow". The toned steps share a persistent backdrop so the avatars/eyes
-  // stay put. The handoff fires from the "let's chat tomorrow" step (or the
-  // picker's skip).
+  // introduction → pitch (the "different" step, which carousels its lines to
+  // the payoff) → integration → "let's chat tomorrow". The toned steps share a
+  // persistent backdrop so the avatars/eyes stay put. The handoff fires from
+  // the "let's chat tomorrow" step (or the picker's skip).
   const [step, setStep] = useState<ResearchStep>("form");
   // Forward-history (redo) stack: pushed when the user steps back, popped when
   // they step forward via the header's forward chevron. The chevron only shows
@@ -94,10 +92,7 @@ export function ResearchOnboardingRoute() {
   // (any Continue/Skip) clears it, browser-style.
   const [forwardStack, setForwardStack] = useState<ResearchStep[]>([]);
 
-  // Re-entering "together" replays its sequence, so the team should drop in
-  // again on the third line — hide it on the way in.
   function navTo(next: ResearchStep) {
-    if (next === "together") setTeamRevealed(false);
     setStep(next);
   }
   // Forward (Continue/Skip): a fresh forward move invalidates the redo stack.
@@ -123,15 +118,23 @@ export function ResearchOnboardingRoute() {
     null,
   );
   const [faceValues, setFaceValues] = useState<GiveMeAFaceValues | null>(null);
+  // Formatted booked check-in time ("2:30 PM"), set when scheduleCheckin lands;
+  // null until then (or if booking failed) → confirmation shows generic copy.
+  const [checkinTime, setCheckinTime] = useState<string | null>(null);
+  // True while the booking request is in flight, so the confirmation step can
+  // hold (capped) until the booked time is known instead of advancing early.
+  const [checkinPending, setCheckinPending] = useState(false);
+  // Set when the Google grant landed WITHOUT the calendar.events scope (the user
+  // didn't tick the calendar box on Google's granular-consent screen). The
+  // connection succeeds but no event can be booked, so we keep the user on the
+  // "let's chat tomorrow" step with a recoverable re-prompt instead of advancing
+  // to a false confirmation.
+  const [missingCalendarScope, setMissingCalendarScope] = useState(false);
   // Bumped by the integration step's coin to jolt the bottom eyes.
   const [eyesBump, setEyesBump] = useState(0);
   // Extra edge characters revealed so far — grows as the looking-you-up
   // carousel advances, then stays for the results/suggestions steps.
   const [edgeAvatars, setEdgeAvatars] = useState(0);
-  // The top-right team is revealed on the "together" step's third line, then
-  // persists for the rest of the flow.
-  const [teamRevealed, setTeamRevealed] = useState(false);
-  const revealTeam = useCallback(() => setTeamRevealed(true), []);
 
   // Provision the assistant in the background the moment the user lands here,
   // so it's (usually) healthy by the time they finish the intro/pitch steps —
@@ -148,6 +151,10 @@ export function ResearchOnboardingRoute() {
   const research = useResearchRunner();
   const researchLoading =
     research.status === "idle" || research.status === "running";
+  // The research turn settled with nothing to show — skip the "this is what I
+  // found" step (it would only say "I didn't turn up much") and go straight to
+  // the suggestions.
+  const noClaims = !researchLoading && research.claims.length === 0;
 
   // Landing on the form means a fresh run — clear any stale focus state left
   // behind by an abandoned previous attempt so the form itself never renders
@@ -162,6 +169,15 @@ export function ResearchOnboardingRoute() {
     if (enabled && flagsHydrated) startHatch();
   }, [exitFocus, startHatch, enabled, flagsHydrated]);
 
+  // If we're sitting on the results step when the research turn resolves empty
+  // (it was still streaming when we arrived), skip ahead to the suggestions.
+  useEffect(() => {
+    if (step === "results" && noClaims) {
+      setForwardStack([]);
+      setStep("suggestions");
+    }
+  }, [step, noClaims]);
+
   // Build the pre-chat context and hand off to the chat pipeline. The chosen
   // name is applied via `assistantName`; the avatar traits are applied to the
   // assistant after hatch (see the avatar-apply effect). The talk style has no
@@ -170,12 +186,17 @@ export function ResearchOnboardingRoute() {
     values: ResearchOnboardingValues,
     face: GiveMeAFaceValues | null,
     entryPrompt?: string,
+    { skip = false }: { skip?: boolean } = {},
   ) {
     const { firstName, lastName, role, hobbies } = values;
     const fullName = [firstName.trim(), lastName.trim()]
       .filter(Boolean)
       .join(" ");
     const trimmedFirstName = firstName.trim();
+    // The research kickoff path is the only one that auto-sends a research
+    // prompt and renders focused; suggestions send their prompt as a normal
+    // chat, and "Skip to Chat" sends nothing at all.
+    const isResearch = !skip && entryPrompt === undefined;
 
     const context: PreChatOnboardingContext = {
       // Required handoff fields — no tool/task/tone collection in this flow.
@@ -185,24 +206,29 @@ export function ResearchOnboardingRoute() {
       ...(fullName ? { userName: fullName } : {}),
       // `occupation` is the prechat profile's field name for the person's role.
       ...(role.trim() ? { occupation: role.trim() } : {}),
-      // First message: the picked suggestion if we're entering from one,
-      // otherwise the research kickoff prompt.
-      initialMessage:
-        entryPrompt ??
-        buildResearchPrompt({
-          firstName,
-          lastName,
-          occupation: role,
-          hobby: hobbies.join(", "),
-        }),
-      // Friendly title for the behind-the-scenes research conversation.
-      ...(entryPrompt
+      // First message: the picked suggestion if entering from one, otherwise the
+      // research kickoff prompt. Omitted on "Skip to Chat" so the user lands in a
+      // blank chat ready to type.
+      ...(skip
         ? {}
         : {
+            initialMessage:
+              entryPrompt ??
+              buildResearchPrompt({
+                firstName,
+                lastName,
+                occupation: role,
+                hobby: hobbies.join(", "),
+              }),
+          }),
+      // Friendly title for the behind-the-scenes research conversation.
+      ...(isResearch
+        ? {
             title: trimmedFirstName
               ? `Getting to know ${trimmedFirstName}`
               : "Getting to know you",
-          }),
+          }
+        : {}),
       // Apply the avatar name chosen on the picker (if any).
       ...(face?.name?.trim() ? { assistantName: face.name.trim() } : {}),
     };
@@ -213,10 +239,11 @@ export function ResearchOnboardingRoute() {
     // the assistant is hatched (they're not part of the pre-chat context).
     setPendingAvatarTraits(face?.traits ?? null);
 
-    // The research pass renders in the focused presentation; entering directly
-    // from a suggestion is a normal chat, so only focus for the research path.
-    if (!entryPrompt) enterFocus();
-    lifecycleService.markExpectingFirstMessage();
+    // The research pass renders in the focused presentation; entering from a
+    // suggestion (or skipping) is a normal chat, so only focus for research.
+    if (isResearch) enterFocus();
+    // No auto-sent first message when skipping, so don't arm the expectation.
+    if (!skip) lifecycleService.markExpectingFirstMessage();
     // Pin the refresh to the background-hatched assistant so the handoff targets
     // it (not a previously-selected one) and doesn't trigger a second hatch.
     void lifecycleService
@@ -249,16 +276,45 @@ export function ResearchOnboardingRoute() {
   // Day-2 check-in: once the Google Calendar grant lands, fire the check-in
   // prompt into its own conversation (best-effort, never blocks) and advance to
   // the "Meeting Created!" confirmation.
-  function handleCheckinConnected() {
+  //
+  // The grant can "connect" without the calendar.events scope when the user
+  // skips the calendar checkbox on Google's granular-consent screen. That's a
+  // recoverable user error — not a transient daemon failure — so hold on this
+  // step with a re-prompt rather than booking nothing and showing a false
+  // confirmation.
+  //
+  // Only block on a POSITIVE denial: a populated scope list that lacks
+  // calendar.events (a real denial still carries the identity scopes, so it's
+  // never empty). An empty list is ambiguous — the connection row may not have
+  // synced yet, the fetch may have failed, or a legacy connection may omit
+  // scope data — so treat it as unknown and fall through to the best-effort
+  // schedule. This mirrors the daemon resolver, which rejects only when a
+  // connection positively lacks a required scope and never on unknown data.
+  function handleCheckinConnected(scopes: string[]) {
+    const calendarDenied =
+      scopes.length > 0 && !scopes.includes(GOOGLE_CALENDAR_EVENTS_SCOPE);
+    if (calendarDenied) {
+      setMissingCalendarScope(true);
+      return;
+    }
+    setMissingCalendarScope(false);
     if (hatchedAssistantId && formValues) {
       const fullName = [formValues.firstName.trim(), formValues.lastName.trim()]
         .filter(Boolean)
         .join(" ");
+      setCheckinTime(null);
+      setCheckinPending(true);
       void scheduleCheckin({
         assistantId: hatchedAssistantId,
         userName: fullName || undefined,
         assistantName: faceValues?.name?.trim() || undefined,
-      });
+      })
+        .then((result) => {
+          if (result.scheduled) {
+            setCheckinTime(formatCheckinTime(result.start, result.timeZone));
+          }
+        })
+        .finally(() => setCheckinPending(false));
     }
     goForwardTo("meeting");
   }
@@ -276,7 +332,6 @@ export function ResearchOnboardingRoute() {
   // content swaps. Extra edge characters pop in per step to build excitement.
   const tonedSteps = [
     "different",
-    "together",
     "integration",
     "letschat",
     "meeting",
@@ -301,43 +356,25 @@ export function ResearchOnboardingRoute() {
           eyesBumpNonce={eyesBump}
           peekLevel={peekLevel}
           darkBg={postCalendar}
-          // The "different" step choreographs its own eyes (rising to speak the
-          // line in), so hide the backdrop's resting pair there to avoid
-          // doubling. Every other toned step uses the backdrop's resting eyes.
+          // The pitch step ("different") choreographs its own eyes (rising to
+          // speak the lines in), so hide the backdrop's resting pair there to
+          // avoid doubling. Every other toned step uses the backdrop's resting
+          // eyes. The top-right team isn't persistent — the pitch step peeks
+          // its own transient team in and out (see PitchStep).
           showBottomEyes={!postCalendar && step !== "different"}
-          // On "together" the team is gated on the third-line reveal (so it
-          // replays on back); on every later step it's simply present.
-          showTopTeam={
-            step === "together"
-              ? teamRevealed
-              : ["integration", "letschat", "meeting", "looking", "results", "suggestions"].includes(
-                  step,
-                )
-          }
         />
         {step === "different" && (
-          <PitchDifferentStep
-            onContinue={() => goForwardTo("together")}
+          <PitchStep
+            onContinue={() => goForwardTo("integration")}
             onBack={() => goBackTo("intro")}
             onForward={onForward}
           />
         )}
-        {step === "together" && (
-          <PitchTogetherStep
-            onContinue={() => goForwardTo("integration")}
-            onBack={() => goBackTo("different")}
-            onForward={onForward}
-            onRevealTeam={revealTeam}
-          />
-        )}
         {step === "integration" && (
           <IntegrationStep
-            assistantId={hatchedAssistantId}
-            assistantReady={hatchReady}
-            onConnected={handleCheckinConnected}
-            onSkip={() => goForwardTo("looking")}
+            onClaim={() => goForwardTo("letschat")}
             onBumpEyes={() => setEyesBump((n) => n + 1)}
-            onBack={() => goBackTo("together")}
+            onBack={() => goBackTo("different")}
             onForward={onForward}
           />
         )}
@@ -346,22 +383,29 @@ export function ResearchOnboardingRoute() {
             assistantId={hatchedAssistantId}
             assistantReady={hatchReady}
             onConnected={handleCheckinConnected}
-            onSkip={() => goForwardTo("looking")}
+            missingCalendarScope={missingCalendarScope}
+            onRetry={() => setMissingCalendarScope(false)}
+            onSkip={() => {
+              setMissingCalendarScope(false);
+              goForwardTo("looking");
+            }}
             onBack={() => goBackTo("integration")}
             onForward={onForward}
           />
         )}
         {step === "meeting" && (
           <MeetingCreatedStep
+            scheduledTime={checkinTime ?? undefined}
+            awaitingTime={checkinPending}
             onDone={() => goForwardTo("looking")}
-            onBack={() => goBackTo("integration")}
+            onBack={() => goBackTo("letschat")}
             onForward={onForward}
           />
         )}
         {step === "looking" && (
           <LookingYouUpStep
-            onDone={() => goForwardTo("results")}
-            onBack={() => goBackTo("integration")}
+            onDone={() => goForwardTo(noClaims ? "suggestions" : "results")}
+            onBack={() => goBackTo("letschat")}
             onAdvance={(i) => setEdgeAvatars(Math.min(i + 1, 4))}
             onForward={onForward}
           />
@@ -379,17 +423,20 @@ export function ResearchOnboardingRoute() {
           <SuggestionsStep
             suggestions={research.suggestions}
             loading={researchLoading}
+            installedPlugins={research.installedPlugins}
             onSuggestionClick={async (suggestion) => {
-              // For a plugin-backed suggestion, wait out the background install
-              // so the new chat can discover the plugin's skills (else it
-              // silently degrades to a generic prompt). Usually instant — the
-              // install kicked off while the user reviewed the results.
-              if (suggestion.plugin) {
-                await research.awaitPluginInstall(suggestion.plugin);
-              }
+              // Wait out any background capability installs so the new chat can
+              // discover their skills (else it silently degrades to a generic
+              // prompt). Usually instant — installs kicked off while the user
+              // reviewed the results.
+              await research.awaitPluginInstalls();
               enterAssistant(formValues, faceValues, suggestion.prompt);
             }}
-            onBack={() => goBackTo("results")}
+            onSkip={async () => {
+              await research.awaitPluginInstalls();
+              enterAssistant(formValues, faceValues, undefined, { skip: true });
+            }}
+            onBack={() => goBackTo(noClaims ? "looking" : "results")}
             onForward={onForward}
           />
         )}

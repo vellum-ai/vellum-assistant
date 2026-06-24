@@ -33,6 +33,14 @@ interface LetsChatTomorrowStepProps {
   onBack: () => void;
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
+  /**
+   * True when a prior grant connected without the calendar.events scope (the
+   * calendar checkbox was left unticked on Google's consent screen). Surfaces an
+   * inline re-prompt instead of advancing to a confirmation that never booked.
+   */
+  missingCalendarScope?: boolean;
+  /** Clears the missing-scope re-prompt as the user starts a fresh attempt. */
+  onRetry?: () => void;
 }
 
 export function LetsChatTomorrowStep({
@@ -42,12 +50,20 @@ export function LetsChatTomorrowStep({
   onSkip,
   onBack,
   onForward,
+  missingCalendarScope = false,
+  onRetry,
 }: LetsChatTomorrowStepProps) {
   const tone = useOnboardingTone();
   const { handleConnect, oauthInProgress } = useGoogleCalendarConnect({
     assistantId: assistantId ?? "",
     onConnect: onConnected,
   });
+  // Clear any stale re-prompt before reopening the consent popup so the message
+  // reflects only the latest attempt.
+  const handleConnectClick = () => {
+    onRetry?.();
+    handleConnect();
+  };
   // Wait for full readiness (not just an id): the post-OAuth `scheduleCheckin`
   // hits the daemon, which may not be reachable until healthz passes.
   const connectDisabled = !assistantId || !assistantReady || oauthInProgress;
@@ -61,16 +77,20 @@ export function LetsChatTomorrowStep({
           className="text-[2.6rem] leading-tight"
           style={{ fontFamily: "var(--font-serif)" }}
         >
-          I&rsquo;ll also check in with you
+          {missingCalendarScope
+            ? "Access not enabled"
+            : "I’ll also check in with you"}
         </h1>
         <p className="text-[16px]" style={{ color: tone.fgMuted }}>
-          Add a quick check-in to your calendar to follow up tomorrow.
+          {missingCalendarScope
+            ? "Check the box next to the Google Calendar permission so I can book the check-in."
+            : "Add a quick check-in to your calendar to follow up tomorrow."}
         </p>
 
-        <div className="mt-6 flex w-[234px] flex-col items-center">
+        <div className="mt-6 flex w-[234px] flex-col items-center gap-4">
           <button
             type="button"
-            onClick={handleConnect}
+            onClick={handleConnectClick}
             disabled={connectDisabled}
             className="flex h-11 w-full items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition-transform duration-150 active:scale-[0.97] disabled:opacity-60"
             style={{
@@ -83,23 +103,24 @@ export function LetsChatTomorrowStep({
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
                 Waiting for authorization…
               </>
+            ) : missingCalendarScope ? (
+              "Try again"
             ) : (
               "Set it up"
             )}
           </button>
+          {/* Skip sits directly under the connect button. */}
+          <button
+            type="button"
+            onClick={onSkip}
+            disabled={oauthInProgress}
+            className="text-body-small-default transition-opacity hover:opacity-100 disabled:opacity-60"
+            style={{ color: tone.fgMuted }}
+          >
+            Skip for now
+          </button>
         </div>
       </div>
-
-      {/* Skip sits down near the bottom, just above the peeking eyes. */}
-      <button
-        type="button"
-        onClick={onSkip}
-        disabled={oauthInProgress}
-        className="absolute bottom-[26%] left-1/2 -translate-x-1/2 text-body-small-default transition-opacity hover:opacity-100 disabled:opacity-60"
-        style={{ color: tone.fgMuted }}
-      >
-        Skip for now
-      </button>
     </div>
   );
 }
