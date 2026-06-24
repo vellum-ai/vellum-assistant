@@ -1,33 +1,56 @@
-import { AlertTriangle, Clock, Loader2, RotateCcw, Save } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  Copy,
+  Loader2,
+  RotateCcw,
+  Save,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import {
-    type AssistantBackup,
-    createAssistantBackup,
-    listAssistantBackups,
-    restoreAssistantBackup,
+  type AssistantBackup,
+  createAssistantBackup,
+  listAssistantBackups,
+  restoreAssistantBackup,
 } from "@/assistant/api";
 import { Button } from "@vellumai/design-library/components/button";
-import { Card } from "@vellumai/design-library/components/card";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
-import { Tag } from "@vellumai/design-library/components/tag";
+import { type TagTone, Tag } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 
 const MAX_POINT_IN_TIME_BACKUPS = 3;
 
-function backupTypeLabel(type: string): string {
-  switch (type) {
-    case "point_in_time":
-      return "Point-in-time";
-    case "doctor":
-      return "Doctor";
-    default:
-      return "Scheduled";
-  }
-}
+const BACKUP_TYPE_CONFIG: Record<string, { label: string; tone: TagTone }> = {
+  point_in_time: { label: "Point-in-time", tone: "neutral" },
+  scheduled: { label: "Scheduled", tone: "positive" },
+  preview_channel: { label: "Preview", tone: "warning" },
+  doctor: { label: "Doctor", tone: "warning" },
+};
 
 function BackupTypeBadge({ type }: { type: string }) {
-  return <Tag tone="neutral">{backupTypeLabel(type)}</Tag>;
+  const config = BACKUP_TYPE_CONFIG[type] ?? {
+    label: type,
+    tone: "neutral" as TagTone,
+  };
+  return <Tag tone={config.tone}>{config.label}</Tag>;
+}
+
+function formatTimestamp(value: unknown): string {
+  if (value === null || value === undefined) return "—";
+  let str = String(value);
+  if (!/Z|[+-]\d{2}:?\d{2}$/.test(str)) {
+    str = str + "Z";
+  }
+  const d = new Date(str);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 export function AssistantBackups({ assistantId }: { assistantId: string }) {
@@ -42,6 +65,14 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
     null,
   );
   const [creatingBackup, setCreatingBackup] = useState(false);
+  const [copiedSnapshot, setCopiedSnapshot] = useState<string | null>(null);
+
+  const handleCopySnapshotName = useCallback((name: string) => {
+    navigator.clipboard.writeText(name).then(() => {
+      setCopiedSnapshot(name);
+      setTimeout(() => setCopiedSnapshot(null), 2000);
+    });
+  }, []);
 
   const loading = resolvedId !== assistantId;
 
@@ -179,64 +210,87 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
     <>
       <div className="space-y-2">
         <div className="flex justify-end">{createBackupButton}</div>
-        {backups.map((backup) => (
-          <Card.Root key={backup.snapshot_name}>
-            <Card.Body
-              padding="sm"
-              className="flex items-center justify-between gap-4 px-4"
-            >
-              <div className="min-w-0 flex-1 space-y-1">
-                <p
-                  className="truncate font-mono text-body-small-default text-[var(--content-secondary)]"
-                  title={backup.snapshot_name}
+        <div className="overflow-x-auto">
+          <table className="w-full text-body-medium-lighter">
+            <thead>
+              <tr className="border-b border-[var(--border-base)] text-left text-body-small-default text-[var(--content-secondary)]">
+                <th className="pb-2 pr-4">Snapshot Name</th>
+                <th className="pb-2 pr-4">Type</th>
+                <th className="pb-2 pr-4">Ready</th>
+                <th className="pb-2 pr-4">Created</th>
+                <th className="pb-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {backups.map((backup) => (
+                <tr
+                  key={backup.snapshot_name}
+                  className="border-b border-[var(--border-base)] last:border-0"
                 >
-                  {backup.snapshot_name}
-                </p>
-                <div className="flex flex-wrap items-center gap-2">
-                  <BackupTypeBadge type={backup.backup_type} />
-                  {!backup.ready_to_use && (
-                    <span className="inline-flex items-center rounded-full bg-[var(--system-mid-weak)] px-2 py-0.5 text-body-small-default text-[var(--system-mid-strong)]">
-                      Not ready
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-3">
-                <div className="flex items-center gap-1 text-body-small-default text-[var(--content-tertiary)]">
-                  <Clock className="h-3 w-3" />
-                  {new Date(backup.created_at).toLocaleString(undefined, {
-                    year: "numeric",
-                    month: "numeric",
-                    day: "numeric",
-                    hour: "numeric",
-                    minute: "2-digit",
-                  })}
-                </div>
-                <Button
-                  variant="outlined"
-                  size="compact"
-                  leftIcon={
-                    restoringSnapshot === backup.snapshot_name ? (
-                      <Loader2 className="animate-spin" />
-                    ) : (
-                      <RotateCcw />
-                    )
-                  }
-                  onClick={() => setPendingBackup(backup)}
-                  disabled={restoringSnapshot !== null || !backup.ready_to_use}
-                  title={
-                    !backup.ready_to_use
-                      ? "Backup is not ready to use"
-                      : undefined
-                  }
-                  className="shrink-0"
-                >
-                  Restore
-                </Button>
-              </div>
-            </Card.Body>
-          </Card.Root>
-        ))}
+                  <td className="py-2.5 pr-4">
+                    <div className="group/snapshot flex items-center gap-1">
+                      <code
+                        className="max-w-[240px] truncate text-body-small-default text-[var(--content-default)]"
+                        title={backup.snapshot_name}
+                      >
+                        {backup.snapshot_name}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleCopySnapshotName(backup.snapshot_name)
+                        }
+                        className="shrink-0 text-[var(--content-secondary)] opacity-0 transition-opacity hover:text-[var(--content-default)] group-hover/snapshot:opacity-100"
+                        title="Copy snapshot name"
+                      >
+                        {copiedSnapshot === backup.snapshot_name ? (
+                          <Check className="h-3.5 w-3.5 text-green-500" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  </td>
+                  <td className="py-2.5 pr-4">
+                    <BackupTypeBadge type={backup.backup_type} />
+                  </td>
+                  <td className="py-2.5 pr-4">
+                    <Tag tone={backup.ready_to_use ? "positive" : "warning"}>
+                      {backup.ready_to_use ? "Ready" : "Pending"}
+                    </Tag>
+                  </td>
+                  <td className="py-2.5 pr-4 text-body-medium-default text-[var(--content-default)]">
+                    {formatTimestamp(backup.created_at)}
+                  </td>
+                  <td className="py-2.5">
+                    <Button
+                      variant="ghost"
+                      size="compact"
+                      leftIcon={
+                        restoringSnapshot === backup.snapshot_name ? (
+                          <Loader2 className="animate-spin" />
+                        ) : (
+                          <RotateCcw />
+                        )
+                      }
+                      onClick={() => setPendingBackup(backup)}
+                      disabled={
+                        restoringSnapshot !== null || !backup.ready_to_use
+                      }
+                      title={
+                        !backup.ready_to_use
+                          ? "Backup is not ready to use"
+                          : undefined
+                      }
+                    >
+                      Restore
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
       <ConfirmDialog
         open={pendingBackup !== null}
