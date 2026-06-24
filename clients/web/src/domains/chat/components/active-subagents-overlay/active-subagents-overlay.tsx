@@ -55,7 +55,8 @@ export function ActiveSubagentsOverlay({
       ref={containerRef}
       data-testid="active-subagents-overlay"
       // Panel max width per Figma node 6063:149685 (narrower than the chat column).
-      className="pointer-events-auto flex w-full max-w-[589px] flex-col items-center gap-2"
+      // pointer-events-none so the blank gutter around the centered pill doesn't block the transcript; pill (ChatPill) + panel re-enable pointer events.
+      className="pointer-events-none flex w-full max-w-[589px] flex-col items-center gap-2"
     >
       <ActiveSubagentsPill
         subagentIds={subagentIds}
@@ -64,7 +65,7 @@ export function ActiveSubagentsOverlay({
       />
 
       {expanded && (
-        <div className="flex w-full flex-col gap-4 rounded-xl bg-[var(--surface-lift)] p-4 shadow-lg">
+        <div className="pointer-events-auto flex w-full flex-col gap-4 rounded-xl bg-[var(--surface-lift)] p-4 shadow-lg">
           <Typography
             variant="title-small"
             className="text-[var(--content-emphasised)]"
