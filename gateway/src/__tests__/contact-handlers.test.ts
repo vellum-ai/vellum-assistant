@@ -455,6 +455,53 @@ describe("upsert_verified_channel IPC handler", () => {
     expect(row!.status).toBe("revoked");
   });
 
+  test("forwards allowRevokedReactivation: reactivates a revoked channel on the invite path", async () => {
+    seedContact("c1", "contact");
+    seedChannel({ id: "ch1", contactId: "c1", status: "revoked" });
+
+    const res = (await upsertVerifiedChannelHandler({
+      type: "vellum",
+      address: "addr-ch1",
+      externalChatId: "chat-1",
+      verifiedVia: "invite",
+      allowRevokedReactivation: true,
+    })) as { ok: boolean; verified: boolean; channel: { status: string } };
+
+    expect(res.ok).toBe(true);
+    expect(res.verified).toBe(true);
+    expect(res.channel.status).toBe("active");
+
+    const row = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, "ch1"))
+      .get();
+    expect(row!.status).toBe("active");
+  });
+
+  test("forwards allowRevokedReactivation but still refuses a blocked channel", async () => {
+    seedContact("c1", "contact");
+    seedChannel({ id: "ch1", contactId: "c1", status: "blocked" });
+
+    const res = (await upsertVerifiedChannelHandler({
+      type: "vellum",
+      address: "addr-ch1",
+      externalChatId: "chat-1",
+      verifiedVia: "invite",
+      allowRevokedReactivation: true,
+    })) as { ok: boolean; verified: boolean };
+
+    expect(res.ok).toBe(true);
+    expect(res.verified).toBe(false);
+
+    const row = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, "ch1"))
+      .get();
+    expect(row!.status).toBe("blocked");
+  });
+
   test("round-trips verifiedVia=\"invite\" (free string, not the restricted enum)", async () => {
     const res = (await upsertVerifiedChannelHandler({
       type: "vellum",

@@ -101,6 +101,7 @@ describe("activateMemberChannel gateway-first relay", () => {
           username: undefined,
           verifiedVia: "invite",
           contactId: "target-mom",
+          allowRevokedReactivation: true,
         },
       },
     ]);

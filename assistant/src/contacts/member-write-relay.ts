@@ -73,6 +73,9 @@ export async function activateMemberChannel(
         username: params.username,
         verifiedVia: params.verifiedVia ?? "invite",
         contactId: params.contactId,
+        // Invite redemption may reactivate a revoked member; blocked actors are
+        // still refused by the gateway guard.
+        allowRevokedReactivation: true,
       });
       const parsed = UpsertVerifiedChannelIpcResponseSchema.parse(result);
       // The gateway refused the actor (blocked/revoked): do NOT mirror an

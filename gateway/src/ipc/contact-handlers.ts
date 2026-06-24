@@ -233,6 +233,7 @@ export const contactRoutes: IpcRoute[] = [
         username,
         verifiedVia,
         contactId,
+        allowRevokedReactivation,
       } = UpsertVerifiedChannelIpcParamsSchema.parse(params);
 
       const { verified } = await upsertVerifiedContactChannel({
@@ -243,6 +244,7 @@ export const contactRoutes: IpcRoute[] = [
         username,
         verifiedVia,
         contactId,
+        allowRevokedReactivation,
       });
 
       // A blocked/revoked skip is not an error: surface it as verified:false

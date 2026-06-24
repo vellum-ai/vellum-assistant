@@ -90,6 +90,7 @@ function writeVerifiedGatewayChannel(params: {
   externalChatId: string;
   verifiedVia: string;
   now: number;
+  allowRevokedReactivation?: boolean;
 }): boolean {
   const {
     assistantChannelId,
@@ -99,6 +100,7 @@ function writeVerifiedGatewayChannel(params: {
     externalChatId,
     verifiedVia,
     now,
+    allowRevokedReactivation,
   } = params;
   const gwDb = getGatewayDb();
   const verifiedSet = {
@@ -113,15 +115,17 @@ function writeVerifiedGatewayChannel(params: {
     updatedAt: now,
   };
 
-  // Never reactivate a blocked/revoked gateway row: the caller's guard only
-  // inspects the assistant mirror, which may be stale relative to the
-  // authoritative gateway status.
-  const notBlockedOrRevoked = sql`${gwContactChannels.status} not in ('blocked', 'revoked')`;
+  // Blocked is never reactivated. Revoked is reactivated only on the invite
+  // path (allowRevokedReactivation); otherwise the caller's guard only inspects
+  // the assistant mirror, which may be stale relative to the gateway status.
+  const reactivatable = allowRevokedReactivation
+    ? sql`${gwContactChannels.status} not in ('blocked')`
+    : sql`${gwContactChannels.status} not in ('blocked', 'revoked')`;
 
   const byId = gwDb
     .update(gwContactChannels)
     .set(verifiedSet)
-    .where(and(eq(gwContactChannels.id, assistantChannelId), notBlockedOrRevoked))
+    .where(and(eq(gwContactChannels.id, assistantChannelId), reactivatable))
     .returning({ id: gwContactChannels.id })
     .all();
   if (byId.length > 0) return true;
@@ -134,7 +138,7 @@ function writeVerifiedGatewayChannel(params: {
       and(
         eq(gwContactChannels.type, type),
         sql`${gwContactChannels.address} = ${address} COLLATE NOCASE`,
-        notBlockedOrRevoked,
+        reactivatable,
       ),
     )
     .returning({ id: gwContactChannels.id })
@@ -305,6 +309,7 @@ export async function upsertVerifiedContactChannel(params: {
   username?: string;
   verifiedVia?: string;
   contactId?: string;
+  allowRevokedReactivation?: boolean;
 }): Promise<{ verified: boolean }> {
   const now = Date.now();
   const {
@@ -313,6 +318,7 @@ export async function upsertVerifiedContactChannel(params: {
     displayName,
     username,
     contactId: targetContactId,
+    allowRevokedReactivation,
   } = params;
   const verifiedVia = params.verifiedVia ?? "challenge";
 
@@ -346,7 +352,10 @@ export async function upsertVerifiedContactChannel(params: {
   // new-insert path so no active mirror is created for a blocked actor. A
   // missing gateway row is the legitimate happy path (legacy/unmirrored).
   const gwStatus = gatewayChannelStatus(sourceChannel, address);
-  if (gwStatus === "blocked" || gwStatus === "revoked") {
+  if (
+    gwStatus === "blocked" ||
+    (gwStatus === "revoked" && !allowRevokedReactivation)
+  ) {
     log.warn(
       { sourceChannel, address, status: gwStatus },
       "Skipping upsert: authoritative gateway channel is blocked or revoked",
@@ -357,8 +366,12 @@ export async function upsertVerifiedContactChannel(params: {
   if (existing.length > 0) {
     const row = existing[0];
 
-    // Don't overwrite blocked or revoked channels (assistant mirror guard).
-    if (row.channelStatus === "blocked" || row.channelStatus === "revoked") {
+    // Blocked is never overwritten; revoked only on the invite path
+    // (assistant mirror guard).
+    if (
+      row.channelStatus === "blocked" ||
+      (row.channelStatus === "revoked" && !allowRevokedReactivation)
+    ) {
       log.warn(
         { sourceChannel, address, status: row.channelStatus },
         "Skipping upsert: channel is blocked or revoked",
@@ -410,6 +423,7 @@ export async function upsertVerifiedContactChannel(params: {
         externalChatId,
         verifiedVia,
         now,
+        allowRevokedReactivation,
       });
       // The pre-check passed, so a write is expected. A false means a
       // blocked/revoked row appeared between the pre-check and the write —
@@ -501,6 +515,7 @@ export async function upsertVerifiedContactChannel(params: {
       externalChatId,
       verifiedVia,
       now,
+      allowRevokedReactivation,
     });
     // A blocked/revoked gateway row appeared after the pre-check — reject
     // without creating an active assistant mirror for a blocked actor.

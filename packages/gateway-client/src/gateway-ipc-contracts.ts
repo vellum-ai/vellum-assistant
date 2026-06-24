@@ -151,6 +151,9 @@ export const UpsertVerifiedChannelIpcParamsSchema = z.object({
   // reassigned to this contact, mirroring the assistant's
   // reassignConflictingChannels.
   contactId: z.string().min(1).optional(),
+  // Relax the revoked refusal guard so a valid invite can reactivate a revoked
+  // member. Blocked actors are refused regardless.
+  allowRevokedReactivation: z.boolean().optional(),
 });
 
 export type UpsertVerifiedChannelIpcParams = z.infer<

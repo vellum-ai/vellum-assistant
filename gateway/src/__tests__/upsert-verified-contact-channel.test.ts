@@ -591,6 +591,102 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     expect(assistantActivate).toBeUndefined();
   });
 
+  test("allowRevokedReactivation: a revoked authoritative gateway row is reactivated and the activation update fires", async () => {
+    // Stale assistant mirror is active so we reach the existing-channel branch;
+    // the authoritative gateway row is revoked. With the flag, the invite path
+    // reactivates it and the assistant activation UPDATE fires (status→active).
+    queryRows = [
+      { channelId: "ch-rev", contactId: "co-rev", channelStatus: "active" },
+    ];
+    gwSelectStatus = "revoked";
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550001313",
+      externalChatId: "+15550001313",
+      verifiedVia: "invite",
+      allowRevokedReactivation: true,
+    });
+
+    expect(result).toEqual({ verified: true });
+    const activate = runCalls.find(
+      (c) =>
+        c.sql.includes("UPDATE contact_channels") &&
+        c.sql.includes("status = 'active'"),
+    );
+    expect(activate).toBeTruthy();
+    // The gateway reactivation guard excludes only 'blocked', allowing the
+    // revoked row to be UPDATED to active.
+    expect(gwUpdates[0]!.where).toMatchObject({ op: "and" });
+  });
+
+  test("allowRevokedReactivation: a blocked gateway row is still refused", async () => {
+    queryRows = [
+      { channelId: "ch-blk", contactId: "co-blk", channelStatus: "active" },
+    ];
+    gwSelectStatus = "blocked";
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550001414",
+      externalChatId: "+15550001414",
+      verifiedVia: "invite",
+      allowRevokedReactivation: true,
+    });
+
+    expect(result).toEqual({ verified: false });
+    expect(
+      runCalls.filter(
+        (c) => c.sql.includes("UPDATE") && c.sql.includes("status = 'active'"),
+      ),
+    ).toHaveLength(0);
+    expect(gwUpdates).toHaveLength(0);
+    expect(gwInserts).toHaveLength(0);
+  });
+
+  test("allowRevokedReactivation: a revoked assistant-mirror row in the existing-channel branch is reactivated", async () => {
+    // No authoritative gateway row; the assistant mirror itself is revoked. With
+    // the flag the mirror guard is relaxed and the activation proceeds.
+    queryRows = [
+      { channelId: "ch-mirror", contactId: "co-mirror", channelStatus: "revoked" },
+    ];
+    gwSelectStatus = null;
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550001515",
+      externalChatId: "+15550001515",
+      verifiedVia: "invite",
+      allowRevokedReactivation: true,
+    });
+
+    expect(result).toEqual({ verified: true });
+    const activate = runCalls.find(
+      (c) =>
+        c.sql.includes("UPDATE contact_channels") &&
+        c.sql.includes("status = 'active'"),
+    );
+    expect(activate).toBeTruthy();
+    expect(activate!.params).toContain("+15550001515");
+  });
+
+  test("allowRevokedReactivation: without the flag a revoked assistant-mirror row is still refused", async () => {
+    queryRows = [
+      { channelId: "ch-mirror", contactId: "co-mirror", channelStatus: "revoked" },
+    ];
+    gwSelectStatus = null;
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550001616",
+      externalChatId: "+15550001616",
+      verifiedVia: "invite",
+    });
+
+    expect(result).toEqual({ verified: false });
+    expect(runCalls.filter((c) => c.sql.includes("UPDATE"))).toHaveLength(0);
+  });
+
   test("honors an explicit verifiedVia value on the update path", async () => {
     queryRows = [
       { channelId: "ch-7", contactId: "co-7", channelStatus: "active" },
