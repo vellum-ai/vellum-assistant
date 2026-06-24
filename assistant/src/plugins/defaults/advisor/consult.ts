@@ -95,17 +95,16 @@ function withTimeout(signal: AbortSignal | undefined, ms: number): AbortSignal {
 
 /**
  * Build the streaming sink for a consult: forward the advisor's live activity
- * to `onText` so the tool-output drawer streams *throughout* the consult rather
- * than sitting silent until the final advice lands.
+ * to `onText` so the tool-output drawer streams throughout the consult instead
+ * of sitting silent until the final advice lands.
  *
- * Before web search the consult was a tool-less one-shot, so the only live
- * activity was the advice text. With full context + native web search the
- * advisor now searches (up to 5×) and reasons before writing — forwarding only
- * `text_delta` left the drawer blank for that whole prefix, which read as "not
- * streaming". We now also surface the reasoning summary (when the model emits
- * one) and a one-line note per web search. The complete guidance is still
- * returned by `consultAdvisor`; the renderer swaps it in once the tool result
- * arrives.
+ * The consult searches the web (up to 5×) and reasons over full context before
+ * writing its guidance. Forwarding the visible advice text alone would leave
+ * the drawer blank for that whole prefix, so the sink also surfaces the
+ * reasoning summary (when the model emits one) and a one-line note per web
+ * search — a success note with the query, or a failure note when the search
+ * errors. The complete guidance is still returned by `consultAdvisor`; the
+ * renderer swaps it in once the tool result arrives.
  */
 function advisorActivitySink(
   onText: (chunk: string) => void,
@@ -123,8 +122,17 @@ function advisorActivitySink(
         break;
       case "server_tool_complete": {
         const rawQuery = event.resolvedInput?.["query"];
-        if (typeof rawQuery === "string" && rawQuery.trim().length > 0) {
-          onText(`\n🔎 Searched: ${rawQuery.trim()}\n`);
+        const query = typeof rawQuery === "string" ? rawQuery.trim() : "";
+        if (event.isError) {
+          // A failed search (e.g. `query_too_long`, `max_uses_exceeded`) must
+          // not be announced as a success — the advisor proceeds without it.
+          onText(
+            query
+              ? `\n⚠️ Web search failed: ${query}\n`
+              : "\n⚠️ Web search failed.\n",
+          );
+        } else if (query) {
+          onText(`\n🔎 Searched: ${query}\n`);
         }
         break;
       }

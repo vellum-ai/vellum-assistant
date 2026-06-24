@@ -173,6 +173,34 @@ describe("consultAdvisor", () => {
     expect(joined).toContain("Here is the advice.");
   });
 
+  test("surfaces a failure note (not 'Searched') when a web search errors", async () => {
+    providerSupportsWeb = true;
+    streamEvents = [
+      { type: "server_tool_start", name: "web_search", toolUseId: "s1", input: {} },
+      {
+        type: "server_tool_complete",
+        toolUseId: "s1",
+        isError: true,
+        errorCode: "query_too_long",
+        resolvedInput: { query: "an overly long query" },
+      },
+    ];
+    streamDeltas = ["Proceeding without search."];
+    const chunks: string[] = [];
+
+    await consultAdvisor({
+      systemPrompt: null,
+      messages: [userMsg("hi")],
+      onText: (c) => chunks.push(c),
+    });
+
+    const joined = chunks.join("");
+    expect(joined).toContain("Web search failed");
+    expect(joined).not.toContain("🔎 Searched:");
+    // The consult still continues and streams its guidance.
+    expect(joined).toContain("Proceeding without search.");
+  });
+
   test("streams the model's reasoning summary to onText", async () => {
     streamEvents = [{ type: "thinking_delta", thinking: "weighing tradeoffs" }];
     const chunks: string[] = [];
