@@ -24,6 +24,7 @@ import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
 import { resolveDefaultProvider } from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { listProviders } from "../providers/registry.js";
+import type { Message, TextContent } from "../providers/types.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { ProviderNotConfiguredError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -56,6 +57,38 @@ export function mergeSkillIds(
   configSkillIds?: string[],
 ): string[] {
   return [...new Set([...roleSkillIds, ...(configSkillIds ?? [])])];
+}
+
+// ── Final-text extraction helper ────────────────────────────────────────
+
+/**
+ * Concatenate the `text` blocks of the conversation's trailing assistant
+ * message. Used by `spawnAndAwait` to return the child's final synthesis to
+ * the awaiting caller. Returns an empty string when the conversation has no
+ * assistant message or the final assistant message carries no text blocks
+ * (e.g. it ended on a tool_use).
+ */
+function extractFinalAssistantText(messages: Message[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role !== "assistant") continue;
+    return message.content
+      .filter((block): block is TextContent => block.type === "text")
+      .map((block) => block.text)
+      .join("");
+  }
+  return "";
+}
+
+/**
+ * Pull the user-visible text out of a streaming delta event, or null for any
+ * other event type. Used by the synchronous `onText` tap to forward
+ * `assistant_text_delta` / `assistant_thinking_delta` chunks to the caller.
+ */
+function extractDeltaText(msg: ServerMessage): string | null {
+  if (msg.type === "assistant_text_delta") return msg.text;
+  if (msg.type === "assistant_thinking_delta") return msg.thinking;
+  return null;
 }
 
 // ── Default subagent system prompt ──────────────────────────────────────
@@ -110,6 +143,19 @@ interface ManagedSubagent {
    * the release to the TTL sweep rather than tearing down mid-drain.
    */
   hadEnqueuedMessages?: boolean;
+  /**
+   * Set on the synchronous `spawnAndAwait` path. When true, `runSubagent`
+   * skips the terminal parent-injection (`notifyParentTerminal`) — the awaiting
+   * caller receives the child's final text directly, so re-injecting a
+   * "read the result" notification into the parent would be redundant noise.
+   */
+  synchronous?: boolean;
+  /**
+   * Optional text tap for the synchronous path. When set, `wrappedSendToClient`
+   * forwards each `assistant_text_delta` / `assistant_thinking_delta` chunk to
+   * this callback IN ADDITION to the normal `subagent_event` envelope.
+   */
+  onText?: (chunk: string) => void;
 }
 
 export interface SubagentNotificationInfo {
@@ -145,6 +191,30 @@ export class SubagentManager {
     config: Omit<SubagentConfig, "id">,
     parentSendToClient: (msg: ServerMessage) => void,
   ): Promise<string> {
+    const { subagentId } = await this.setUpSubagent(config, parentSendToClient);
+
+    // ── Kick off the agent loop (fire-and-forget) ───────────────────
+    this.runSubagent(subagentId, config.objective).catch((err) => {
+      log.error({ subagentId, err }, "Subagent run failed unexpectedly");
+    });
+
+    return subagentId;
+  }
+
+  // ── Internal: shared spawn setup ──────────────────────────────────────
+
+  /**
+   * Perform all spawn-time setup shared by `spawn` and `spawnAndAwait`:
+   * enforce the depth limit, resolve role/provider/system prompt, construct
+   * the child Conversation, register it, and emit the `subagent_spawned`
+   * event. Does NOT start the agent loop — the caller decides whether to run
+   * fire-and-forget (`spawn`) or awaited (`spawnAndAwait`).
+   */
+  private async setUpSubagent(
+    config: Omit<SubagentConfig, "id">,
+    parentSendToClient: (msg: ServerMessage) => void,
+    opts?: { synchronous?: boolean; onText?: (chunk: string) => void },
+  ): Promise<{ subagentId: string; managed: ManagedSubagent }> {
     // ── Limit checks ────────────────────────────────────────────────
 
     // Depth check: prevent subagents from spawning nested subagents.
@@ -279,11 +349,20 @@ export class SubagentManager {
       conversation: null! as Conversation,
       state,
       parentSendToClient,
+      ...(opts?.synchronous ? { synchronous: true } : {}),
+      ...(opts?.onText ? { onText: opts.onText } : {}),
     };
 
     // Wrap sendToClient to envelope all events with the subagent ID.
     // Reads from managed.parentSendToClient so reconnects are picked up.
     const wrappedSendToClient = (msg: ServerMessage): void => {
+      // Tap streaming text/thinking deltas for the synchronous caller (if any),
+      // in addition to the normal envelope below. Reads from managed.onText so
+      // the synchronous path can forward chunks without altering event routing.
+      if (managed.onText) {
+        const text = extractDeltaText(msg);
+        if (text) managed.onText(text);
+      }
       managed.parentSendToClient({
         type: "subagent_event",
         subagentId,
@@ -393,12 +472,60 @@ export class SubagentManager {
       "Subagent spawned",
     );
 
-    // ── Kick off the agent loop (fire-and-forget) ───────────────────
-    this.runSubagent(subagentId, config.objective).catch((err) => {
-      log.error({ subagentId, err }, "Subagent run failed unexpectedly");
-    });
+    return { subagentId, managed };
+  }
 
-    return subagentId;
+  // ── Spawn and await (synchronous) ─────────────────────────────────────
+
+  /**
+   * Spawn a subagent and AWAIT its run, resolving to the child's final
+   * assistant text. Unlike `spawn` (fire-and-forget), the caller blocks until
+   * the child reaches a terminal state and receives the text directly — so the
+   * terminal parent-injection (`notifyParentTerminal`) is skipped on this path.
+   *
+   * `opts.signal` aborts the underlying run when triggered (e.g. an external
+   * timeout). `opts.onText` receives each streaming text/thinking chunk in
+   * addition to the normal `subagent_event` envelope.
+   */
+  async spawnAndAwait(
+    config: Omit<SubagentConfig, "id">,
+    parentSendToClient: (msg: ServerMessage) => void,
+    opts?: { signal?: AbortSignal; onText?: (chunk: string) => void },
+  ): Promise<string> {
+    const { subagentId, managed } = await this.setUpSubagent(
+      config,
+      parentSendToClient,
+      { synchronous: true, ...(opts?.onText ? { onText: opts.onText } : {}) },
+    );
+
+    // Wire the external signal to abort the child conversation. If the signal
+    // is already aborted, abort immediately so the run rejects promptly.
+    const signal = opts?.signal;
+    const onAbort = (): void => {
+      managed.conversation?.abort(
+        createAbortReason(
+          "subagent_aborted",
+          "SubagentManager.spawnAndAwait",
+          managed.state.conversationId,
+        ),
+      );
+    };
+    if (signal) {
+      if (signal.aborted) onAbort();
+      else signal.addEventListener("abort", onAbort, { once: true });
+    }
+
+    try {
+      const finalText = await this.runSubagent(subagentId, config.objective);
+      // Surface aborts as a rejection so the caller's timeout path is observable
+      // rather than silently resolving to whatever partial text exists.
+      if (signal?.aborted) {
+        throw new Error("Subagent run aborted before completion.");
+      }
+      return finalText;
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
+    }
   }
 
   // ── Internal: run the subagent ────────────────────────────────────────
@@ -406,13 +533,19 @@ export class SubagentManager {
   private async runSubagent(
     subagentId: string,
     objective: string,
-  ): Promise<void> {
+  ): Promise<string> {
     const managed = this.subagents.get(subagentId);
-    if (!managed) return;
+    if (!managed) return "";
 
     // Capture the live conversation — it is non-null at this point because
     // spawn() sets it before firing runSubagent.
     const conversation = managed.conversation!;
+
+    // The child's trailing assistant text, captured after runAgentLoop resolves
+    // (before the `finally` releases the conversation). Returned to the
+    // synchronous `spawnAndAwait` caller; the fire-and-forget `spawn` caller
+    // ignores it.
+    let finalText = "";
 
     // Read the current parent sender so reconnects are picked up.
     const getSender = () => managed.parentSendToClient;
@@ -466,6 +599,9 @@ export class SubagentManager {
       });
 
       // Agent loop completed successfully.
+      // Capture the trailing assistant text before any release nulls the
+      // conversation reference. The fire-and-forget caller ignores the return.
+      finalText = extractFinalAssistantText(conversation.messages);
       // Copy usage stats from the conversation before sending status (which includes usage).
       managed.state.usage = { ...conversation.usageStats };
       // Only update state + notify if still non-terminal (guards against abort race).
@@ -476,7 +612,12 @@ export class SubagentManager {
         log.info({ subagentId }, "Subagent completed");
 
         // Notify the parent conversation so the LLM can call subagent_read.
-        this.notifyParentTerminal(managed, "completed");
+        // Skipped on the synchronous path — the awaiting caller receives the
+        // final text directly, so re-injecting a "read the result" prompt
+        // would be redundant noise in the parent.
+        if (!managed.synchronous) {
+          this.notifyParentTerminal(managed, "completed");
+        }
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
@@ -489,10 +630,22 @@ export class SubagentManager {
       // Only update status if not already terminal (e.g. aborted).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
         this.setStatus(subagentId, "failed", getSender(), errorMsg);
-        this.notifyParentTerminal(managed, "failed");
+        // Skip terminal parent-injection on the synchronous path — the failure
+        // surfaces to the awaiting caller as a rejected promise instead.
+        if (!managed.synchronous) {
+          this.notifyParentTerminal(managed, "failed");
+        }
       }
 
       log.error({ subagentId, err }, "Subagent failed");
+
+      // Surface the failure to the synchronous caller. The fire-and-forget
+      // path has no awaiter, so re-throwing there only feeds the `.catch()`
+      // logger in `spawn` — harmless but noisy — so it is confined to the
+      // synchronous path.
+      if (managed.synchronous) {
+        throw err;
+      }
     } finally {
       // Release the heavyweight Conversation — output is already persisted in DB.
       // drainQueue is async: it awaits buildPassthroughBatch (which awaits
@@ -516,6 +669,8 @@ export class SubagentManager {
         this.releaseConversation(managed);
       }
     }
+
+    return finalText;
   }
 
   // ── Abort ─────────────────────────────────────────────────────────────
