@@ -25,8 +25,27 @@ const MAX_FILES_SCANNED = 20_000;
 const MAX_TOTAL_BYTES = 256 * 1024 * 1024; // 256 MiB
 const MAX_FILE_BYTES = 8 * 1024 * 1024; // skip files larger than 8 MiB
 
+// A user-supplied pattern is run synchronously against every line. A
+// catastrophic-backtracking regex against a very long line can monopolize the
+// event loop, which prevents the tool's promise timeout from ever firing
+// (nothing yields). Bounding the slice the regex sees caps worst-case
+// backtracking per line while still covering normal code/log lines. A future
+// enhancement could run matching in an interruptible worker for full isolation;
+// the prefix bound is the pragmatic guard here.
+const MAX_MATCH_LINE_LENGTH = 2000;
+
+// Output-byte budget: when `context_lines` is large and many nearby lines
+// match, the surrounding block is appended for every match, so a single large
+// file with many matches could allocate hundreds of MB before the post-tool
+// truncation hook runs. Stop accumulating once this budget is exceeded and
+// report the result as truncated.
+const MAX_OUTPUT_BYTES = 4 * 1024 * 1024; // 4 MiB
+
 const DEFAULT_MAX_RESULTS = 200;
 const DEFAULT_CONTEXT_LINES = 0;
+// Clamp `context_lines` so a single match cannot request unbounded surrounding
+// context (which would blow past the output budget on its own).
+const MAX_CONTEXT_LINES = 20;
 
 /** Heuristic binary-file detection: a NUL byte in the leading bytes. */
 function looksBinary(buf: Buffer): boolean {
@@ -130,7 +149,7 @@ export const codeSearchTool = {
 
     const contextLines =
       typeof input.context_lines === "number" && input.context_lines > 0
-        ? Math.floor(input.context_lines)
+        ? Math.min(Math.floor(input.context_lines), MAX_CONTEXT_LINES)
         : DEFAULT_CONTEXT_LINES;
 
     const maxResults =
@@ -155,8 +174,28 @@ export const codeSearchTool = {
     const lines: string[] = [];
     let matchCount = 0;
     let truncated = false;
+    // Set when the output-byte budget (not the max-results cap) stopped the
+    // accumulation, so the truncation note can explain why.
+    let outputBudgetHit = false;
     let filesScanned = 0;
     let totalBytes = 0;
+    // Running size of the accumulated output (lines joined by "\n") so we can
+    // stop before allocating an unbounded result. Each pushed line contributes
+    // its UTF-8 byte length plus one byte for the joining newline.
+    let outputBytes = 0;
+
+    // Append an output line, tracking its byte cost. Returns false once the
+    // output-byte budget is exhausted so callers can stop accumulating.
+    const pushLine = (line: string): boolean => {
+      outputBytes += Buffer.byteLength(line, "utf8") + 1;
+      lines.push(line);
+      if (outputBytes > MAX_OUTPUT_BYTES) {
+        truncated = true;
+        outputBudgetHit = true;
+        return false;
+      }
+      return true;
+    };
 
     // Scan a single regular file for matches. Applies the denied-basename guard
     // and per-file size caps. Returns nothing; mutates the shared accumulators.
@@ -210,7 +249,18 @@ export const codeSearchTool = {
       const display = rel.length > 0 ? rel : basename(full);
       const fileLines = buf.toString("utf8").split("\n");
       for (let i = 0; i < fileLines.length; i++) {
-        if (!regex.test(fileLines[i])) continue;
+        // Only run the regex against the leading slice of each line so a single
+        // pathological line can't monopolize the event loop via catastrophic
+        // backtracking. Normal code/log lines are well under the cap.
+        const line = fileLines[i];
+        const probe =
+          line.length > MAX_MATCH_LINE_LENGTH
+            ? line.slice(0, MAX_MATCH_LINE_LENGTH)
+            : line;
+        // Reset lastIndex defensively in case a future change adds the global
+        // flag; with a fresh slice each iteration this is otherwise a no-op.
+        regex.lastIndex = 0;
+        if (!regex.test(probe)) continue;
         if (matchCount >= maxResults) {
           truncated = true;
           return;
@@ -221,11 +271,11 @@ export const codeSearchTool = {
           const end = Math.min(fileLines.length - 1, i + contextLines);
           for (let j = start; j <= end; j++) {
             const sep = j === i ? ":" : "-";
-            lines.push(`${display}:${j + 1}${sep} ${fileLines[j]}`);
+            if (!pushLine(`${display}:${j + 1}${sep} ${fileLines[j]}`)) return;
           }
-          lines.push("--");
+          if (!pushLine("--")) return;
         } else {
-          lines.push(`${display}:${lineNo}: ${fileLines[i]}`);
+          if (!pushLine(`${display}:${lineNo}: ${fileLines[i]}`)) return;
         }
         matchCount++;
       }
@@ -284,7 +334,9 @@ export const codeSearchTool = {
 
     let content = lines.join("\n");
     if (truncated) {
-      content += `\n\n[Results truncated at ${maxResults} matches. Narrow your pattern, glob, or path to see more.]`;
+      content += outputBudgetHit
+        ? `\n\n[Output capped at ${Math.round(MAX_OUTPUT_BYTES / (1024 * 1024))} MiB. Narrow your pattern, glob, or path, or reduce context_lines, to see more.]`
+        : `\n\n[Results truncated at ${maxResults} matches. Narrow your pattern, glob, or path to see more.]`;
     }
 
     return {

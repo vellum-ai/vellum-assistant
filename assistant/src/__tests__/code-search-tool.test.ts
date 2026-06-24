@@ -195,6 +195,71 @@ describe("codeSearchTool", () => {
     expect(result.content).toContain("a.txt:3- after");
   });
 
+  test("bounds the regex to the leading slice of very long lines", async () => {
+    const dir = makeTempDir();
+    // A line far longer than MAX_MATCH_LINE_LENGTH (2000). The matchable token
+    // sits well beyond the cap, so the bounded regex slice must not see it,
+    // while a token inside the cap on the same file is still found. This also
+    // exercises that a huge line is handled without throwing/hanging.
+    const prefix = "x".repeat(5000);
+    writeFileSync(
+      join(dir, "huge.txt"),
+      `${prefix}BEYOND_CAP_TOKEN\ninside INSIDE_CAP_TOKEN here\n`,
+    );
+
+    const beyond = await codeSearchTool.execute(
+      { pattern: "BEYOND_CAP_TOKEN", activity: "search" },
+      makeToolContext(dir),
+    );
+    expect(beyond.isError).toBe(false);
+    // The token only appears past the bounded slice, so it must not match.
+    expect(beyond.content).toContain("No matches found");
+
+    const inside = await codeSearchTool.execute(
+      { pattern: "INSIDE_CAP_TOKEN", activity: "search" },
+      makeToolContext(dir),
+    );
+    expect(inside.isError).toBe(false);
+    expect(inside.content).toContain("huge.txt:2:");
+  });
+
+  test("caps output via the byte budget when many matches have context", async () => {
+    const dir = makeTempDir();
+    // Many matches with context lines. Even though context_lines is requested
+    // far above the clamp (MAX_CONTEXT_LINES = 20), the clamp plus the
+    // output-byte budget must produce a truncated result rather than an
+    // unbounded one. The source file stays under MAX_FILE_BYTES (8 MiB) so it
+    // isn't skipped, but because every line both matches and is re-emitted as
+    // context for ~41 nearby matches, the accumulated output crosses the 4 MiB
+    // budget.
+    const filler = "y".repeat(200);
+    const lineCount = 20_000;
+    const body = Array.from(
+      { length: lineCount },
+      () => `match ${filler}`,
+    ).join("\n");
+    writeFileSync(join(dir, "big.txt"), body + "\n");
+
+    const result = await codeSearchTool.execute(
+      {
+        pattern: "match",
+        context_lines: 1000,
+        max_results: 1_000_000,
+        activity: "search",
+      },
+      makeToolContext(dir),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.status).toBe("truncated");
+    expect(result.content).toContain("Output capped");
+    // The accumulated output must stay near the budget, not balloon to the full
+    // file size (~20 MiB of body * surrounding context).
+    expect(Buffer.byteLength(result.content, "utf8")).toBeLessThan(
+      8 * 1024 * 1024,
+    );
+  });
+
   test("does not return contents of denied-basename files", async () => {
     const dir = makeTempDir();
     // A denied file (forbidden to file_read/file_write) that contains the
