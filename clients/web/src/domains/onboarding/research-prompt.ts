@@ -57,7 +57,7 @@ function renderCapabilitiesBlock(capabilities: AvailableCapability[]): string {
 Capabilities you can offer me — specialized skillsets you can invoke on my behalf, not generic chat:
 ${lines}
 
-Optionally add a "plugin" key (exact name from the list above) to a suggestion, but ONLY when that skillset genuinely does that card's concrete work and fits what you researched about my real work — never to fill a quota. Tag AT MOST ONE suggestion; zero is fine and often correct. Shape: { "suggestion": "...", "prompt": "...", "plugin": "<exact name>" }.
+Add a "plugins" array as the FIRST key in your JSON object, before "claims" and "suggestions": the 1-2 capabilities from the list above (exact names) that best fit who I am — judged by what you researched about my real role, stack, and day-to-day work. (Emit it first so setup can start while you finish the rest.) These get set up for me automatically as part of getting started, so pick by overall fit to ME, not to any single suggestion. Prefer fewer over forcing a match; use [] if nothing clearly fits. Example: "plugins": ["<exact name from the list above>"]. Don't reference the setup in the claims or suggestions text.
 `;
 }
 
@@ -71,6 +71,12 @@ export function buildResearchPrompt(
   const role = occupation.trim();
   const hobbyText = hobby?.trim() ?? "";
   const capabilitiesBlock = renderCapabilitiesBlock(availableCapabilities);
+  // When capabilities are advertised, the canonical shape MUST show `plugins`
+  // first — otherwise "respond with exactly this shape" (which the example
+  // defines) would tell the model to omit it, and nothing gets installed.
+  const pluginsExample = capabilitiesBlock
+    ? `"plugins": ["<exact name from the list above>"], `
+    : "";
 
   const identity =
     [
@@ -88,7 +94,7 @@ Get to know me. Search the web for what's publicly known about the person matchi
 
 CRITICAL: your final reply must be ONLY a JSON object. No preamble, no explanation, no prose, nothing before or after it. Do your thinking and searching, then respond with exactly this shape and nothing else:
 
-{ "claims": [ { "claim": "Senior engineer at an AI infra startup", "confidence": "confident", "sources": ["https://linkedin.com/in/example-user"] }, { "claim": "Based in Boulder, CO", "confidence": "confident", "sources": ["https://linkedin.com/in/example-user"] }, { "claim": "Active climber on Mountain Project", "confidence": "maybe", "sources": [] }, { "claim": "Focused on evals or model serving infrastructure", "confidence": "guessing", "sources": ["https://github.com/example-user"] } ], "suggestions": [ { "suggestion": "I'll build you a dashboard for your eval runs", "prompt": "Build me a dashboard to track my eval runs." }, { "suggestion": "I'll watch arXiv for new eval papers and brief you weekly", "prompt": "Send me a weekly brief on new eval papers from arXiv." }, { "suggestion": "Connect GitHub and I'll triage your stalest issues", "prompt": "Connect to GitHub and triage my oldest open issues." }, { "suggestion": "I'll plan a weekend climbing trip near Boulder", "prompt": "Plan me a weekend climbing trip near Boulder." } ] }
+{ ${pluginsExample}"claims": [ { "claim": "Senior engineer at an AI infra startup", "confidence": "confident", "sources": ["https://linkedin.com/in/example-user"] }, { "claim": "Based in Boulder, CO", "confidence": "confident", "sources": ["https://linkedin.com/in/example-user"] }, { "claim": "Active climber on Mountain Project", "confidence": "maybe", "sources": [] }, { "claim": "Focused on evals or model serving infrastructure", "confidence": "guessing", "sources": ["https://github.com/example-user"] } ], "suggestions": [ { "suggestion": "I'll build you a dashboard for your eval runs", "prompt": "Build me a dashboard to track my eval runs." }, { "suggestion": "I'll watch arXiv for new eval papers and brief you weekly", "prompt": "Send me a weekly brief on new eval papers from arXiv." }, { "suggestion": "Connect GitHub and I'll triage your stalest issues", "prompt": "Connect to GitHub and triage my oldest open issues." }, { "suggestion": "I'll plan a weekend climbing trip near Boulder", "prompt": "Plan me a weekend climbing trip near Boulder." } ] }
 
 Rules for "claims":
 
