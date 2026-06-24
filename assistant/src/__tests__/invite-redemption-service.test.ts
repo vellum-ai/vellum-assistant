@@ -7,6 +7,26 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+// Wrap the real contacts-write so a test can force the best-effort local mirror
+// to fail (simulating a gateway-verified activation whose local DB row failed),
+// while normal setup keeps the real implementation. Capture the concrete real
+// function BEFORE registering the mock so the wrapper never recurses into
+// itself via the (now live) module namespace.
+const contactsWriteState = { mirrorThrows: false };
+const realContactsWrite = await import("../contacts/contacts-write.js");
+const realUpsertContactChannel = realContactsWrite.upsertContactChannel;
+mock.module("../contacts/contacts-write.js", () => ({
+  ...realContactsWrite,
+  upsertContactChannel: (
+    params: Parameters<typeof realUpsertContactChannel>[0],
+  ) => {
+    if (contactsWriteState.mirrorThrows) {
+      throw new Error("local mirror exploded");
+    }
+    return realUpsertContactChannel(params);
+  },
+}));
+
 // Mock the gateway IPC bridge used by the redemption service for the
 // authoritative pre-mutation claim (record_invite_redemption). Tests drive the
 // claim result via `gatewayIpc`.
@@ -17,6 +37,12 @@ const gatewayIpc = {
     mirrored: boolean;
   },
   claimThrows: false,
+  // Drives the upsert_verified_channel relay verdict. When false the gateway
+  // refuses the actor (blocked/revoked) and the activation is refused.
+  activationVerified: true,
+  // Gateway channel returned on a verified activation, surfaced as the memberId
+  // when the local mirror produces no row.
+  activationChannelId: "gw-channel-id" as string | undefined,
   calls: [] as { method: string; params?: Record<string, unknown> }[],
 };
 
@@ -32,7 +58,24 @@ mock.module("../ipc/gateway-client.js", () => ({
       return gatewayIpc.claim;
     }
     if (method === "upsert_verified_channel") {
-      return { ok: true, verified: true };
+      if (!gatewayIpc.activationVerified) {
+        return { ok: true, verified: false };
+      }
+      return {
+        ok: true,
+        verified: true,
+        channel: gatewayIpc.activationChannelId
+          ? {
+              id: gatewayIpc.activationChannelId,
+              contactId: (params?.contactId as string) ?? "gw-contact",
+              type: (params?.type as string) ?? "telegram",
+              address: (params?.address as string) ?? "gw-addr",
+              status: "active",
+              verifiedAt: 1,
+              verifiedVia: (params?.verifiedVia as string) ?? "invite",
+            }
+          : undefined,
+      };
     }
     return undefined;
   },
@@ -46,6 +89,8 @@ let onGatewayClaim: (() => void) | null = null;
 function resetGatewayIpc() {
   gatewayIpc.claim = { ok: true, updated: true, mirrored: true };
   gatewayIpc.claimThrows = false;
+  gatewayIpc.activationVerified = true;
+  gatewayIpc.activationChannelId = "gw-channel-id";
   gatewayIpc.calls = [];
   onGatewayClaim = null;
 }
@@ -89,6 +134,7 @@ describe("invite-redemption-service", () => {
   beforeEach(() => {
     resetTables();
     resetGatewayIpc();
+    contactsWriteState.mirrorThrows = false;
   });
 
   test("redeems a valid invite and returns typed outcome", async () => {
@@ -824,6 +870,55 @@ describe("invite-redemption-service", () => {
         address: "gw-revoked-code-user",
       }),
     ).toBeNull();
+  });
+
+  test("returns invalid_token (no throw) when the gateway refuses the activation", async () => {
+    const targetContactId = createTargetContact();
+    const { rawToken } = createInvite({
+      sourceChannel: "telegram",
+      contactId: targetContactId,
+      maxUses: 1,
+    });
+
+    // Gateway claim consumes the row, then refuses the channel activation
+    // (blocked/revoked actor). The committed use is acceptable for this rare
+    // blocked-backstop path; the outcome must be the branch failure, not a 500.
+    gatewayIpc.activationVerified = false;
+
+    const outcome = await redeemInvite({
+      rawToken,
+      sourceChannel: "telegram",
+      externalUserId: "refused-user",
+    });
+
+    expect(outcome).toEqual({ ok: false, reason: "invalid_token" });
+  });
+
+  test("redeems with the gateway channel id when the gateway verifies but the local mirror fails", async () => {
+    const targetContactId = createTargetContact();
+    const { rawToken, invite } = createInvite({
+      sourceChannel: "telegram",
+      contactId: targetContactId,
+      maxUses: 1,
+    });
+
+    // Gateway verifies and returns its channel; the best-effort local mirror
+    // throws. The activation must still stand using the gateway channel id.
+    gatewayIpc.activationChannelId = "gw-verified-channel";
+    contactsWriteState.mirrorThrows = true;
+
+    const outcome = await redeemInvite({
+      rawToken,
+      sourceChannel: "telegram",
+      externalUserId: "mirrorless-user",
+    });
+
+    expect(outcome).toEqual({
+      ok: true,
+      type: "redeemed",
+      memberId: "gw-verified-channel",
+      inviteId: invite.id,
+    });
   });
 });
 

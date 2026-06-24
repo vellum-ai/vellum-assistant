@@ -107,7 +107,11 @@ describe("activateMemberChannel gateway-first relay", () => {
     // The local mirror ran AFTER the gateway relay.
     expect(mirrorCallOrder).toBe(1);
     expect(upsertContactChannelMock).toHaveBeenCalledTimes(1);
-    expect(result).toBe(localResult);
+    expect(result).toEqual({
+      status: "activated",
+      memberId: "ch1",
+      member: localResult,
+    });
   });
 
   test("fails open and still mirrors locally when the gateway relay throws", async () => {
@@ -122,10 +126,14 @@ describe("activateMemberChannel gateway-first relay", () => {
 
     expect(ipcCalls).toHaveLength(1);
     expect(upsertContactChannelMock).toHaveBeenCalledTimes(1);
-    expect(result).toBe(localResult);
+    expect(result).toEqual({
+      status: "activated",
+      memberId: "ch1",
+      member: localResult,
+    });
   });
 
-  test("swallows a local-mirror failure without throwing; the gateway write stands", async () => {
+  test("returns the gateway channel id when the gateway verifies but the local mirror throws", async () => {
     upsertContactChannelMock.mockImplementation(() => {
       throw new Error("local mirror exploded");
     });
@@ -137,10 +145,33 @@ describe("activateMemberChannel gateway-first relay", () => {
     });
 
     expect(ipcCalls).toHaveLength(1);
-    expect(result).toBeNull();
+    // Gateway activation stands: the gateway channel id is returned even though
+    // the best-effort local mirror produced no row.
+    expect(result).toEqual({
+      status: "activated",
+      memberId: "gw-ch1",
+      member: null,
+    });
   });
 
-  test("skips the local mirror when the gateway refuses the channel (verified:false)", async () => {
+  test("refuses when the gateway throws AND the local mirror yields no row", async () => {
+    ipcThrows = true;
+    upsertContactChannelMock.mockImplementation(() => {
+      throw new Error("local mirror exploded");
+    });
+
+    const result = await activateMemberChannel({
+      sourceChannel: "telegram",
+      externalUserId: "user-1",
+      externalChatId: "chat-1",
+    });
+
+    // No gateway channel (relay threw) and no local mirror: no stable id, so the
+    // caller maps this to a non-redeemed outcome rather than crashing.
+    expect(result).toEqual({ status: "refused" });
+  });
+
+  test("refuses the activation when the gateway denies the actor (verified:false)", async () => {
     ipcVerified = false;
 
     const result = await activateMemberChannel({
@@ -152,7 +183,7 @@ describe("activateMemberChannel gateway-first relay", () => {
 
     expect(ipcCalls).toHaveLength(1);
     expect(upsertContactChannelMock).not.toHaveBeenCalled();
-    expect(result).toBeNull();
+    expect(result).toEqual({ status: "refused" });
   });
 
   test("derives the address from externalChatId when no externalUserId is present", async () => {

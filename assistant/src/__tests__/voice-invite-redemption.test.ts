@@ -14,6 +14,8 @@ const gatewayIpc = {
     mirrored: boolean;
   },
   claimThrows: false,
+  // Drives the upsert_verified_channel relay verdict; false refuses the actor.
+  activationVerified: true,
   calls: [] as { method: string; params?: Record<string, unknown> }[],
 };
 
@@ -28,6 +30,9 @@ mock.module("../ipc/gateway-client.js", () => ({
       return gatewayIpc.claim;
     }
     if (method === "upsert_verified_channel") {
+      if (!gatewayIpc.activationVerified) {
+        return { ok: true, verified: false };
+      }
       return { ok: true, verified: true };
     }
     return undefined;
@@ -37,6 +42,7 @@ mock.module("../ipc/gateway-client.js", () => ({
 function resetGatewayIpc() {
   gatewayIpc.claim = { ok: true, updated: true, mirrored: true };
   gatewayIpc.claimThrows = false;
+  gatewayIpc.activationVerified = true;
   gatewayIpc.calls = [];
 }
 
@@ -231,6 +237,23 @@ describe("redeemVoiceInviteCode", () => {
 
     expect(result).toEqual({ ok: false, reason: "invalid_or_expired" });
     expect(findContactChannel({ channelType: "phone", address: phone })).toBeNull();
+  });
+
+  test("returns invalid_or_expired (no throw) when the gateway refuses the activation", async () => {
+    const phone = "+15551234567";
+    const { code } = createVoiceInvite({ callerPhone: phone });
+
+    // Gateway claim consumes the row, then refuses the channel activation
+    // (blocked/revoked actor). The branch returns its generic failure, not a 500.
+    gatewayIpc.activationVerified = false;
+
+    const result = await redeemVoiceInviteCode({
+      callerExternalUserId: phone,
+      sourceChannel: "phone",
+      code,
+    });
+
+    expect(result).toEqual({ ok: false, reason: "invalid_or_expired" });
   });
 
   test("proceeds for a legacy voice invite the gateway has never seen (mirrored:false)", async () => {

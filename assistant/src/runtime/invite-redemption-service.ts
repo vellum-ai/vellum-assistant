@@ -325,10 +325,14 @@ export async function redeemInvite(params: {
       contactId: invite.contactId,
     });
 
+    if (reactivated.status === "refused") {
+      return { ok: false, reason: "invalid_token" };
+    }
+
     return {
       ok: true,
       type: "redeemed",
-      memberId: reactivated!.channel.id,
+      memberId: reactivated.memberId,
       inviteId: invite.id,
     };
   }
@@ -380,10 +384,14 @@ export async function redeemInvite(params: {
     contactId: invite.contactId,
   });
 
+  if (freshResult.status === "refused") {
+    return { ok: false, reason: "invalid_token" };
+  }
+
   return {
     ok: true,
     type: "redeemed",
-    memberId: freshResult!.channel.id,
+    memberId: freshResult.memberId,
     inviteId: invite.id,
   };
 }
@@ -552,10 +560,14 @@ export async function redeemVoiceInviteCode(params: {
     contactId: invite.contactId,
   });
 
+  if (writeResult.status === "refused") {
+    return { ok: false, reason: "invalid_or_expired" };
+  }
+
   return {
     ok: true,
     type: "redeemed",
-    memberId: writeResult!.channel.id,
+    memberId: writeResult.memberId,
     inviteId: invite.id,
   };
 }
@@ -721,10 +733,14 @@ export async function redeemInviteByCode(params: {
       contactId: invite.contactId,
     });
 
+    if (reactivated.status === "refused") {
+      return { ok: false, reason: "invalid_token" };
+    }
+
     return {
       ok: true,
       type: "redeemed",
-      memberId: reactivated!.channel.id,
+      memberId: reactivated.memberId,
       inviteId: invite.id,
     };
   }
@@ -776,10 +792,14 @@ export async function redeemInviteByCode(params: {
     contactId: invite.contactId,
   });
 
+  if (freshResult.status === "refused") {
+    return { ok: false, reason: "invalid_token" };
+  }
+
   return {
     ok: true,
     type: "redeemed",
-    memberId: freshResult!.channel.id,
+    memberId: freshResult.memberId,
     inviteId: invite.id,
   };
 }

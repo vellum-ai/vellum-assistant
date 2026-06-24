@@ -33,6 +33,17 @@ export interface ActivateMemberChannelParams {
 }
 
 /**
+ * Outcome of a gateway-first member activation. The gateway owns the ACL
+ * verdict; `activated` carries a stable memberId (gateway channel id, or the
+ * local mirror's id when present) regardless of whether the best-effort local
+ * mirror produced a row. `refused` means the gateway authoritatively denied the
+ * actor (blocked/revoked) — callers must NOT treat it as an activation.
+ */
+export type ActivateMemberOutcome =
+  | { status: "activated"; memberId: string; member: ContactWriteResult | null }
+  | { status: "refused" };
+
+/**
  * Activate a member channel gateway-first, then mirror the activation to the
  * assistant DB best-effort. The gateway owns the ACL outcome; the local mirror
  * supplies the native contact/channel callers still wire downstream.
@@ -41,13 +52,17 @@ export interface ActivateMemberChannelParams {
  * service's record_invite_redemption posture) so a transient gateway outage
  * never drops a legitimate activation — the local mirror still stands.
  *
- * Returns the local ContactWriteResult, or null when the mirror yields none.
+ * Returns an `activated` outcome with a stable memberId on success, or
+ * `refused` when the gateway denies the actor. A best-effort local-mirror
+ * failure never downgrades a verified gateway activation.
  */
 export async function activateMemberChannel(
   params: ActivateMemberChannelParams,
-): Promise<ContactWriteResult | null> {
+): Promise<ActivateMemberOutcome> {
   const address = params.externalUserId ?? params.externalChatId;
   const externalChatId = params.externalChatId ?? params.externalUserId;
+
+  let gatewayChannelId: string | undefined;
 
   if (address && externalChatId) {
     try {
@@ -68,9 +83,12 @@ export async function activateMemberChannel(
           { sourceChannel: params.sourceChannel },
           "Gateway refused the channel activation; skipping the local mirror",
         );
-        return null;
+        return { status: "refused" };
       }
+      gatewayChannelId = parsed.channel?.id;
     } catch (err) {
+      // Fail-open: the gateway write may or may not have landed. Proceed to the
+      // local mirror so a transient outage never drops a legitimate activation.
       log.warn(
         { err, sourceChannel: params.sourceChannel },
         "upsert_verified_channel relay unavailable — failing open (local mirror still applies)",
@@ -78,7 +96,19 @@ export async function activateMemberChannel(
     }
   }
 
-  return mirrorLocalActivation(params);
+  const member = mirrorLocalActivation(params);
+  const memberId = member?.channel.id ?? gatewayChannelId;
+  if (!memberId) {
+    // No gateway channel (the relay threw or was skipped) AND no local mirror —
+    // no stable id to hand the caller. Surface as refused so the caller maps it
+    // to a non-redeemed outcome instead of crashing on a missing memberId.
+    log.error(
+      { sourceChannel: params.sourceChannel },
+      "Member activation produced no gateway channel and no local mirror; no memberId to return",
+    );
+    return { status: "refused" };
+  }
+  return { status: "activated", memberId, member };
 }
 
 /** Best-effort local mirror of the activation. Swallows failures. */
