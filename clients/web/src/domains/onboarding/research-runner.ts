@@ -61,15 +61,16 @@ const MAX_POLL_MS = 120_000;
  * message incrementally or only on completion.
  */
 const STABLE_READS_TO_SETTLE = 2;
-/**
- * Higher stable-read bar used while the reply has NOT yet parsed as a complete
- * payload — a still-open (or malformed) `suggestions` array. This stops us
- * settling on a partial array during a generation pause (which would render
- * only the first card or two); a genuinely finished-but-malformed reply still
- * settles here, well before `MAX_POLL_MS`, rather than hanging to the deadline.
- */
-const STABLE_READS_TO_SETTLE_INCOMPLETE = 6;
 
+export function shouldSettleResearchPoll({
+  complete,
+  stableReads,
+}: {
+  complete: boolean;
+  stableReads: number;
+}): boolean {
+  return complete && stableReads >= STABLE_READS_TO_SETTLE;
+}
 /**
  * Org that owns first-party, reviewed Vellum plugins. Onboarding only ever
  * surfaces and installs plugins from this owner — never third-party/external
@@ -468,12 +469,10 @@ export function useResearchRunner(): UseResearchRunner {
               });
               stableReads = text === lastText ? stableReads + 1 : 0;
               lastText = text;
-              // Prefer to settle only once the payload is complete, so a pause
-              // mid-`suggestions` doesn't freeze the result on a partial array.
-              const settleAt = complete
-                ? STABLE_READS_TO_SETTLE
-                : STABLE_READS_TO_SETTLE_INCOMPLETE;
-              if (stableReads >= settleAt) break;
+              // Only a complete payload can settle early. A partial JSON object
+              // can pause between claim/suggestion objects for long enough to
+              // look stable, but it may still be mid-response.
+              if (shouldSettleResearchPoll({ complete, stableReads })) break;
             }
           }
 

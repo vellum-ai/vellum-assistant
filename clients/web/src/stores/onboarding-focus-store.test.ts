@@ -6,6 +6,7 @@ beforeEach(() => {
   useOnboardingFocusStore.setState({
     sidebarCollapseRequested: false,
     focused: false,
+    pendingAvatarTraits: null,
   });
 });
 
@@ -30,6 +31,17 @@ describe("useOnboardingFocusStore — sidebar collapse one-shot signal", () => {
     useOnboardingFocusStore.getState().exitFocus();
     expect(useOnboardingFocusStore.getState().sidebarCollapseRequested).toBe(
       false,
+    );
+  });
+
+  test("exitFocus preserves staged avatar traits for the handoff applier", () => {
+    const traits = { bodyShape: "round", eyeStyle: "dot", color: "green" };
+    useOnboardingFocusStore.getState().setPendingAvatarTraits(traits);
+
+    useOnboardingFocusStore.getState().exitFocus();
+
+    expect(useOnboardingFocusStore.getState().pendingAvatarTraits).toEqual(
+      traits,
     );
   });
 });

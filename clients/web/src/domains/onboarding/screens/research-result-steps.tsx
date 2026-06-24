@@ -291,6 +291,7 @@ export function ResearchResultsStep({
   const [removed, setRemoved] = useState<Set<string>>(() => new Set());
   const visible = claims.filter((c) => !removed.has(c.claim));
   const hasClaims = visible.length > 0;
+  const canContinue = !loading;
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
@@ -305,7 +306,9 @@ export function ResearchResultsStep({
         </div>
         <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
           {hasClaims
-            ? "I searched the web. Feel free to remove anything that isn’t true"
+            ? loading
+              ? "Still checking the rest. You can review these as they come in."
+              : "I searched the web. Feel free to remove anything that isn’t true"
             : loading
               ? "Still putting this together…"
               : "I didn’t turn up much — we can fill it in as we chat."}
@@ -347,14 +350,15 @@ export function ResearchResultsStep({
         <button
           type="button"
           onClick={onContinue}
-          className="mt-8 flex h-11 w-[200px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition-transform duration-150 active:scale-[0.97]"
+          disabled={!canContinue}
+          className="mt-8 flex h-11 w-[200px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition duration-150 enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
           style={{
             backgroundColor: tone.isLight ? "#1A1A1A" : "#FFFFFF",
             color: tone.isLight ? "#FFFFFF" : "#1A1A1A",
           }}
         >
-          Continue
-          <ArrowRight className="h-4 w-4" />
+          {canContinue ? "Continue" : "Still searching…"}
+          {canContinue && <ArrowRight className="h-4 w-4" />}
         </button>
       </div>
     </div>

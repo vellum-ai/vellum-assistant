@@ -8,7 +8,10 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { selectRecommendableCapabilities } from "@/domains/onboarding/research-runner";
+import {
+  selectRecommendableCapabilities,
+  shouldSettleResearchPoll,
+} from "@/domains/onboarding/research-runner";
 
 type Match = Parameters<typeof selectRecommendableCapabilities>[0][number];
 
@@ -71,5 +74,25 @@ describe("selectRecommendableCapabilities", () => {
     expect(capabilities[0]?.description).toBe(
       "Acts as a full-stack marketing expert for any business.",
     );
+  });
+});
+
+describe("shouldSettleResearchPoll", () => {
+  test("does not settle an incomplete response even after repeated identical polls", () => {
+    expect(
+      shouldSettleResearchPoll({ complete: false, stableReads: 20 }),
+    ).toBe(false);
+  });
+
+  test("settles a complete response after the stable-read threshold", () => {
+    expect(
+      shouldSettleResearchPoll({ complete: true, stableReads: 2 }),
+    ).toBe(true);
+  });
+
+  test("waits for the complete response to stabilize", () => {
+    expect(
+      shouldSettleResearchPoll({ complete: true, stableReads: 1 }),
+    ).toBe(false);
   });
 });
