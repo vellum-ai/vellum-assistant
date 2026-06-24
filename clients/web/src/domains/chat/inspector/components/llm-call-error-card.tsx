@@ -79,6 +79,22 @@ function buildErrorChips(error: LLMCallError): ErrorChipModel[] {
   if (code) {
     chips.push({ label: "Code", value: code });
   }
+  const apiErrorCode = error.apiErrorCode?.trim();
+  if (apiErrorCode) {
+    chips.push({ label: "Upstream code", value: apiErrorCode });
+  }
+  const apiErrorType = error.apiErrorType?.trim();
+  if (apiErrorType) {
+    chips.push({ label: "Upstream type", value: apiErrorType });
+  }
+  const apiErrorParam = error.apiErrorParam?.trim();
+  if (apiErrorParam) {
+    chips.push({ label: "Upstream param", value: apiErrorParam });
+  }
+  const requestId = error.requestId?.trim();
+  if (requestId) {
+    chips.push({ label: "Request ID", value: requestId });
+  }
   return chips;
 }
 
