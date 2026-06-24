@@ -1,7 +1,8 @@
 /**
  * Memory v3 — `memory_proc_distill` job handler (recurrence/distillation trigger).
  *
- * A flag-gated, best-effort follow-up to consolidation. Consolidation captures a
+ * A gated, best-effort follow-up to consolidation (active only when the
+ * procedural-memory-as-skills flag is on AND memory-v3 is live). Consolidation captures a
  * freshly-seen procedure as a `kind: proc-candidate` note (PR 6); this pass
  * decides whether that note is a NEW procedure or another run of one we have
  * already been tracking, tallies recurrence in the candidate registry (PR 3),
@@ -57,9 +58,10 @@
  * Qdrant, an LLM provider, or a SQLite database.
  */
 
-import { isProcToSkillsEnabled } from "../../../config/memory-v3-gate.js";
+import { isProcToSkillsActive } from "../../../config/memory-v3-gate.js";
 import { loadSkillCatalog } from "../../../config/skills.js";
 import type { AssistantConfig } from "../../../config/types.js";
+import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../../daemon/trust-context.js";
 import type { MemoryJob } from "../../../memory/jobs-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../../memory/v2/constants.js";
 import { getPageIndex } from "../../../memory/v2/page-index.js";
@@ -96,8 +98,26 @@ import {
 
 const log = getLogger("memory-v3-proc-distill");
 
-/** The lifecycle statuses a note can already be a member of (idempotency set). */
-const TRACKED_STATUSES: ProcCandidateStatus[] = [
+/**
+ * The lifecycle statuses whose clusters are live Tier-1 *match targets* — a new
+ * note's goal can be classified into one of these. `distilled` is excluded: a
+ * distilled cluster's procedure is done (its skill exists), so a re-seen
+ * procedure is caught by Tier 0 (the skill catalog), not by re-matching into the
+ * retired cluster.
+ */
+const MATCH_TARGET_STATUSES: ProcCandidateStatus[] = ["observing", "ready"];
+
+/**
+ * The lifecycle statuses whose member notes count as already *assigned* for the
+ * idempotency skip set. This MUST include `distilled`: distillation's
+ * `deleteNote` is best-effort and the cluster is marked `distilled` even if a
+ * note delete fails, so a candidate note can legitimately remain on disk after
+ * its cluster was retired. Keeping `distilled` here ensures that leftover note's
+ * slug stays in the skip set, so the next pass skips it instead of re-tallying
+ * it as a fresh cluster (which would happen when Tier 0's skill ANN is below
+ * threshold or unavailable).
+ */
+const ASSIGNED_STATUSES: ProcCandidateStatus[] = [
   "observing",
   "ready",
   "distilled",
@@ -122,12 +142,6 @@ const DISTILL_JOB_NAME = "memory.proc_distill";
 
 /** Hard timeout for a single distillation agent run. */
 const DISTILL_TIMEOUT_MS = 10 * 60 * 1000;
-
-/** Guardian trust context the distillation run executes under (matches the grant). */
-const DISTILL_TRUST_CONTEXT = {
-  sourceChannel: "vellum",
-  trustClass: "guardian",
-} as const;
 
 /**
  * A `kind: proc-candidate` note projected to what the trigger needs: its slug
@@ -158,11 +172,22 @@ export interface ProcDistillTriggerDeps {
   /** The `kind: proc-candidate` notes currently on disk. */
   loadCandidateNotes: () => Promise<CandidateNote[]>;
   /**
-   * Every registered candidate cluster across the tracked statuses, each with
-   * its `clusterId` and member-note slugs. Feeds BOTH the idempotency skip set
-   * (union of members) and the matcher's Tier-1 target set.
+   * The matcher's Tier-1 *match-target* clusters: `observing` + `ready` only
+   * (see {@link MATCH_TARGET_STATUSES}). A new note's goal can be classified into
+   * one of these. Distilled clusters are intentionally excluded — re-seen
+   * procedures that already have a skill are caught by Tier 0, not by matching
+   * into a retired cluster.
    */
   listClusters: () => CandidateClusterRef[];
+  /**
+   * The idempotency *skip-set* source: every registered cluster whose members
+   * count as already assigned, across `observing` + `ready` + `distilled` (see
+   * {@link ASSIGNED_STATUSES}). The union of these members is the set of slugs a
+   * pass skips. Distinct from {@link listClusters} so a leftover note from a
+   * best-effort-failed delete on a `distilled` cluster is still skipped (not
+   * re-tallied) even though that cluster is no longer a Tier-1 match target.
+   */
+  listAssignedClusters: () => CandidateClusterRef[];
   /** Classify a goal against skills (Tier 0) and clusters (Tier 1). */
   matchCandidate: (
     goal: string,
@@ -248,7 +273,7 @@ export interface DistillRunResult {
 
 /** Outcome of one trigger pass, for the log summary and test assertions. */
 export interface ProcDistillOutcome {
-  /** True when the feature flag was off — the pass no-ops. */
+  /** True when the feature was inactive (flag off or v3 not live) — the pass no-ops. */
   disabled: boolean;
   /** Candidate notes that were already cluster members and so were skipped. */
   skippedAssigned: number;
@@ -276,9 +301,11 @@ export interface ProcDistillOutcome {
 /**
  * Run one recurrence/distillation-trigger pass.
  *
- * No-ops (returns a disabled outcome) unless the `procedural-memory-as-skills`
- * flag is on. Best-effort: a failure tallying one note is logged and recorded
- * but never aborts the rest of the pass.
+ * No-ops (returns a disabled outcome) unless procedural-memory-as-skills is
+ * active — the flag is on AND memory-v3 is live (see {@link isProcToSkillsActive}).
+ * The candidate notes this pass tallies are only written under v3-live, so the
+ * pass has nothing to do when v3 is not live. Best-effort: a failure tallying
+ * one note is logged and recorded but never aborts the rest of the pass.
  */
 export async function procDistillTriggerJob(
   _job: MemoryJob,
@@ -298,15 +325,20 @@ export async function procDistillTriggerJob(
     failures: 0,
   };
 
-  if (!isProcToSkillsEnabled(config)) {
+  if (!isProcToSkillsActive(config)) {
     outcome.disabled = true;
     return outcome;
   }
 
   const notes = await deps.loadCandidateNotes();
 
-  // Idempotency: a note already recorded as a member (in ANY status) has been
-  // tallied; skip it so re-running over the same notes never double-counts.
+  // Idempotency: a note already recorded as a member (in ANY assigned status —
+  // observing, ready, OR distilled) has been tallied; skip it so re-running over
+  // the same notes never double-counts. This reads `listAssignedClusters`, NOT
+  // the Tier-1 `listClusters` set: a `distilled` cluster is excluded as a match
+  // target but its members must still be skipped, because distillation's
+  // `deleteNote` is best-effort — a leftover note from a failed delete would
+  // otherwise be re-tallied as a brand-new cluster on the next pass.
   //
   // Recurrence is counted in DISTINCT candidate notes: one note = one observed
   // trace. The consolidation prompt enforces this by writing an append-only NEW
@@ -315,7 +347,7 @@ export async function procDistillTriggerJob(
   // count. That contract is what makes skipping already-assigned slugs correct
   // — a re-seen slug is a re-run of the SAME trace, not a new observation.
   const assigned = new Set<string>();
-  for (const cluster of deps.listClusters()) {
+  for (const cluster of deps.listAssignedClusters()) {
     for (const slug of cluster.memberNoteSlugs) {
       assigned.add(slug);
     }
@@ -611,7 +643,8 @@ function defaultDeps(config: AssistantConfig): ProcDistillTriggerDeps {
   return {
     config,
     loadCandidateNotes: () => loadCandidateNotesFromWorkspace(workspaceDir),
-    listClusters: listClustersFromRegistry,
+    listClusters: listMatchTargetClustersFromRegistry,
+    listAssignedClusters: listAssignedClustersFromRegistry,
     matchCandidate: (goal, listClusters) =>
       realMatchCandidate(goal, { config, listCandidateClusters: listClusters }),
     judge: (goalA, goalB) => defaultJudge(goalA, goalB),
@@ -662,10 +695,12 @@ async function loadCandidateNotesFromWorkspace(
   return notes;
 }
 
-/** Default Tier-1 target / idempotency source: every registered cluster. */
-function listClustersFromRegistry(): CandidateClusterRef[] {
+/** Project the clusters in `statuses` to their `{ clusterId, memberNoteSlugs }`. */
+function listClustersFromRegistry(
+  statuses: ProcCandidateStatus[],
+): CandidateClusterRef[] {
   const clusters: CandidateClusterRef[] = [];
-  for (const status of TRACKED_STATUSES) {
+  for (const status of statuses) {
     for (const candidate of realListCandidatesByStatus(status)) {
       clusters.push({
         clusterId: candidate.clusterId,
@@ -674,6 +709,20 @@ function listClustersFromRegistry(): CandidateClusterRef[] {
     }
   }
   return clusters;
+}
+
+/** Default Tier-1 match targets: `observing` + `ready` clusters only. */
+function listMatchTargetClustersFromRegistry(): CandidateClusterRef[] {
+  return listClustersFromRegistry(MATCH_TARGET_STATUSES);
+}
+
+/**
+ * Default idempotency skip-set source: `observing` + `ready` + `distilled`. The
+ * `distilled` rows carry any notes a best-effort delete left behind, keeping
+ * those slugs in the skip set so the next pass never re-tallies them.
+ */
+function listAssignedClustersFromRegistry(): CandidateClusterRef[] {
+  return listClustersFromRegistry(ASSIGNED_STATUSES);
 }
 
 /**
@@ -726,7 +775,7 @@ async function launchDistillation(
       notes: input.notes,
     }),
     systemHint: "Procedure distillation",
-    trustContext: DISTILL_TRUST_CONTEXT,
+    trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
     callSite: "memoryV2Consolidation",
     timeoutMs: DISTILL_TIMEOUT_MS,
     origin: DISTILL_ORIGIN,

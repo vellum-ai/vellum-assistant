@@ -383,7 +383,7 @@
       "scope": "assistant",
       "key": "procedural-memory-as-skills",
       "label": "Procedural Memory as Skills",
-      "description": "When on, consolidation routes procedures to candidate notes and procedural knowledge to skill-linked facts, and a recurrence-gated follow-up distills a recurring procedure into a managed skill. Off by default.",
+      "description": "When on, consolidation routes procedures to candidate notes and procedural knowledge to skill-linked facts, and a recurrence-gated follow-up distills a recurring procedure into a managed skill. Requires memory-v3-live to take effect (the candidate-note routing lives only in the v3 consolidation prompt); with v3 not live the feature is inert. Off by default.",
       "defaultEnabled": false
     },
     {

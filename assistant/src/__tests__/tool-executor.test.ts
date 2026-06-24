@@ -452,6 +452,11 @@ describe("ToolExecutor policy context plumbing", () => {
       // non-interactive auto-grants. requestOrigin/sourceChannel are unset for
       // this interactive turn (omitted — toEqual ignores undefined-valued keys).
       trustClass: "guardian",
+      // buildPolicyContext also precomputes the proc-to-skills gate (flag on AND
+      // v3 live) so the leaf permission checker can read it without touching
+      // config. This test does not mock memory-v3-gate.js, so the real gate runs
+      // against the default config and resolves inactive → false.
+      procToSkillsActive: false,
     });
   });
 
@@ -473,6 +478,8 @@ describe("ToolExecutor policy context plumbing", () => {
       executionContext: "conversation",
       // Trust class is now threaded onto the PolicyContext (see above).
       trustClass: "guardian",
+      // Real (unmocked) proc-to-skills gate resolves inactive (see above).
+      procToSkillsActive: false,
     });
   });
 
@@ -504,6 +511,8 @@ describe("ToolExecutor policy context plumbing", () => {
       executionContext: "conversation",
       // Trust class is now threaded onto the PolicyContext (see above).
       trustClass: "guardian",
+      // Real (unmocked) proc-to-skills gate resolves inactive (see above).
+      procToSkillsActive: false,
     });
   });
 
@@ -537,6 +546,8 @@ describe("ToolExecutor policy context plumbing", () => {
       executionTarget: "host",
       // Trust class is now threaded onto the PolicyContext (see above).
       trustClass: "guardian",
+      // Real (unmocked) proc-to-skills gate resolves inactive (see above).
+      procToSkillsActive: false,
     });
   });
 });

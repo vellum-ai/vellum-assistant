@@ -20,3 +20,17 @@ export function isMemoryV3Live(config: AssistantConfig): boolean {
 export function isProcToSkillsEnabled(config: AssistantConfig): boolean {
   return isAssistantFeatureFlagEnabled("procedural-memory-as-skills", config);
 }
+
+/**
+ * Whether procedural-memory-as-skills is ACTIVE: the flag is on AND memory-v3 is
+ * the live injected source. The feature requires v3-live because the only place
+ * the consolidation pass captures candidate notes is the
+ * `{{PROC_TO_SKILLS_SECTION}}` of the v3 prompt template — the v2 template has no
+ * such placeholder, so with the flag on but v3 not live the pass writes no
+ * candidate notes. Gating the whole feature (prompt section, distill follow-up
+ * enqueue, distill job, and the skill-authoring permission grant) on this
+ * combined predicate keeps it coherently inert unless both are on.
+ */
+export function isProcToSkillsActive(config: AssistantConfig): boolean {
+  return isProcToSkillsEnabled(config) && isMemoryV3Live(config);
+}

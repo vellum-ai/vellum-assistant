@@ -121,14 +121,20 @@ mock.module("../../../config/assistant-feature-flags.js", () => ({
 // `isMemoryV3Live`. Mirror the flag mock so the shadow-vs-live tests keep
 // driving live through `flagStates["memory-v3-live"]` (and `v3FlagOn` toggles
 // it alongside shadow for the existing on/off tests).
+const procToSkillsLive = () => flagStates["memory-v3-live"] ?? v3FlagOn;
+const procToSkillsFlagOn = () =>
+  flagStates["procedural-memory-as-skills"] ?? false;
 mock.module("../../../config/memory-v3-gate.js", () => ({
-  isMemoryV3Live: () => flagStates["memory-v3-live"] ?? v3FlagOn,
+  isMemoryV3Live: () => procToSkillsLive(),
   // Proc-to-skills routing is gated by the `procedural-memory-as-skills`
   // assistant flag (default off). Drive it through `flagStates` so suites that
   // need the proc-to-skills consolidation section ON can flip it the same way
   // they flip the other gates, while existing cases keep the default-off shape.
-  isProcToSkillsEnabled: () =>
-    flagStates["procedural-memory-as-skills"] ?? false,
+  isProcToSkillsEnabled: () => procToSkillsFlagOn(),
+  // Active = flag on AND v3 live. The consolidation prompt section, the distill
+  // follow-up enqueue, and the skill-authoring grant all gate on this combined
+  // predicate, so drive it from the same flag slots.
+  isProcToSkillsActive: () => procToSkillsFlagOn() && procToSkillsLive(),
 }));
 
 // ── Workspace pin ───────────────────────────────────────────────────
@@ -574,6 +580,49 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     await memoryV2ConsolidateJob(makeJob(), CONFIG);
     expect(runnerLastArgs?.prompt as string).toContain(
       "## 10. Review `memory/core-pages.md`",
+    );
+  });
+
+  test("includes the proc-to-skills routing section and enqueues memory_proc_distill only when the flag is on AND v3 is live", async () => {
+    const PROC_MARKER = "## 11. Route procedures and procedural knowledge";
+
+    // Flag on but v3 NOT live → feature inactive: the v2 template renders (no
+    // proc-to-skills placeholder), and the distill follow-up must NOT enqueue.
+    flagStates = {
+      "procedural-memory-as-skills": true,
+      "memory-v3-live": false,
+    };
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    expect(runnerLastArgs?.prompt as string).not.toContain(PROC_MARKER);
+    expect(enqueuedJobs.map((j) => j.type)).not.toContain(
+      "memory_proc_distill",
+    );
+
+    // Flag on AND v3 live → feature active: the v3 template renders the section
+    // and the distill follow-up enqueues.
+    enqueuedJobs.length = 0;
+    flagStates = {
+      "procedural-memory-as-skills": true,
+      "memory-v3-live": true,
+    };
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    expect(runnerLastArgs?.prompt as string).toContain(PROC_MARKER);
+    expect(enqueuedJobs.map((j) => j.type)).toContain("memory_proc_distill");
+  });
+
+  test("v3 live but proc-to-skills flag off → no routing section, no distill follow-up", async () => {
+    // v3-live alone selects the v3 template but must NOT pull in the
+    // proc-to-skills section or its follow-up — that needs the feature flag too.
+    flagStates = {
+      "procedural-memory-as-skills": false,
+      "memory-v3-live": true,
+    };
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    expect(runnerLastArgs?.prompt as string).not.toContain(
+      "## 11. Route procedures and procedural knowledge",
+    );
+    expect(enqueuedJobs.map((j) => j.type)).not.toContain(
+      "memory_proc_distill",
     );
   });
 
