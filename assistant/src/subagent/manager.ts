@@ -560,8 +560,12 @@ export class SubagentManager {
 
     // Aborted before the run started (e.g. an already-aborted signal on the
     // synchronous spawnAndAwait path): the subagent is already terminal. Do not
-    // start the agent loop or reset status back to "running".
+    // start the agent loop or reset status back to "running" — but still release
+    // the conversation, exactly as the post-run `finally` does for a terminal
+    // run. The loop never started, so no messages were enqueued; this matches
+    // the finally's non-deferred release branch.
     if (TERMINAL_STATUSES.has(managed.state.status)) {
+      this.releaseConversation(managed);
       return finalText;
     }
 
