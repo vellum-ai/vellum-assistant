@@ -8,9 +8,13 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  applyTimelineEvent,
   buildSubagentStepDetails,
   computeSubagentCardData,
+  computeSubagentSteps,
   mapToolEventToStep,
+  type ToolCallCardStep,
+  type ToolMeta,
 } from "@/domains/chat/hooks/use-subagent-card-data";
 import {
   groupStepsByPhase,
@@ -1637,4 +1641,110 @@ describe("buildSubagentStepDetails", () => {
     expect(payload.status).toBe("completed");
     expect(payload.durationLabel).toBe("");
   });
+});
+
+// ---------------------------------------------------------------------------
+// Reducer extraction (PR 1) — applyTimelineEvent / computeSubagentSteps must
+// reproduce the same `steps` the full projection produces, so the later
+// incremental-replay path can't drift from `computeSubagentCardData`.
+// ---------------------------------------------------------------------------
+
+describe("computeSubagentSteps / applyTimelineEvent reproduce computeSubagentCardData", () => {
+  const fixtures: Array<{ name: string; events: SubagentTimelineEvent[] }> = [
+    {
+      name: "text + bash tool_call → tool_result",
+      events: [
+        makeEvent({ type: "text", content: "Investigating" }, 0),
+        makeEvent(
+          {
+            type: "tool_call",
+            toolName: "bash",
+            toolUseId: "tu-1",
+            content: "ls -la",
+            timestamp: NOW,
+          },
+          1,
+        ),
+        makeEvent(
+          {
+            type: "tool_result",
+            toolName: "bash",
+            toolUseId: "tu-1",
+            content: "ok",
+            timestamp: NOW + 2500,
+          },
+          2,
+        ),
+      ],
+    },
+    {
+      name: "web_search → result + web_fetch thinking step",
+      events: [
+        makeEvent(
+          {
+            type: "tool_call",
+            toolName: "web_search",
+            toolUseId: "ws-1",
+            input: { query: "vellum docs" },
+            timestamp: NOW,
+          },
+          0,
+        ),
+        makeEvent(
+          {
+            type: "tool_result",
+            toolName: "web_search",
+            toolUseId: "ws-1",
+            result: "Vellum\nhttps://vellum.ai",
+            timestamp: NOW + 1000,
+          },
+          1,
+        ),
+        makeEvent(
+          {
+            type: "tool_call",
+            toolName: "web_fetch",
+            toolUseId: "wf-1",
+            input: { url: "https://vellum.ai/docs" },
+            timestamp: NOW + 1100,
+          },
+          2,
+        ),
+      ],
+    },
+    {
+      name: "in-flight tool closed by an error event",
+      events: [
+        makeEvent(
+          {
+            type: "tool_call",
+            toolName: "bash",
+            toolUseId: "tu-2",
+            content: "rm -rf /",
+            timestamp: NOW,
+          },
+          0,
+        ),
+        makeEvent(
+          { type: "error", content: "permission denied", timestamp: NOW + 500 },
+          1,
+        ),
+      ],
+    },
+  ];
+
+  for (const { name, events } of fixtures) {
+    test(`${name}: computeSubagentSteps matches the card projection`, () => {
+      const expected = computeSubagentCardData(makeEntry({ events })).steps;
+      const { steps } = computeSubagentSteps(events);
+      expect(steps).toEqual(expected);
+    });
+
+    test(`${name}: applyTimelineEvent folded by hand matches computeSubagentSteps`, () => {
+      const steps: ToolCallCardStep[] = [];
+      const toolMeta: Array<ToolMeta | undefined> = [];
+      for (const event of events) applyTimelineEvent(steps, toolMeta, event);
+      expect(steps).toEqual(computeSubagentSteps(events).steps);
+    });
+  }
 });
