@@ -15,12 +15,18 @@ import {
   MarkChannelVerifiedIpcParamsSchema,
   MarkChannelVerifiedIpcResponseSchema,
   UpdateContactChannelIpcParamsSchema,
+  UpsertVerifiedChannelIpcParamsSchema,
+  UpsertVerifiedChannelIpcResponseSchema,
 } from "@vellumai/gateway-client/gateway-ipc-contracts";
 import { z } from "zod";
 
 import { ContactStore } from "../db/contact-store.js";
 import { updateContactChannelCore } from "../http/routes/contacts-control-plane-proxy.js";
 import { getLogger } from "../logger.js";
+import {
+  getGatewayChannelByKey,
+  upsertVerifiedContactChannel,
+} from "../verification/contact-helpers.js";
 import { canonicalizeInboundIdentity } from "../verification/identity.js";
 import type { IpcRoute } from "./server.js";
 
@@ -212,6 +218,43 @@ export const contactRoutes: IpcRoute[] = [
           verifiedAt: channel.verifiedAt,
           verifiedVia: channel.verifiedVia,
         },
+      });
+    },
+  },
+  {
+    method: "upsert_verified_channel",
+    schema: UpsertVerifiedChannelIpcParamsSchema,
+    handler: async (params?: Record<string, unknown>) => {
+      const { type, address, externalChatId, displayName, username, verifiedVia } =
+        UpsertVerifiedChannelIpcParamsSchema.parse(params);
+
+      const { verified } = await upsertVerifiedContactChannel({
+        sourceChannel: type,
+        externalUserId: address,
+        externalChatId,
+        displayName,
+        username,
+        verifiedVia,
+      });
+
+      // A blocked/revoked skip is not an error: surface it as verified:false
+      // with no channel rather than throwing.
+      if (!verified) {
+        return UpsertVerifiedChannelIpcResponseSchema.parse({
+          ok: true,
+          verified: false,
+        });
+      }
+
+      // Read the post-write state from the gateway (source of truth) by the
+      // canonical logical key the helper writes under.
+      const canonicalAddress =
+        canonicalizeInboundIdentity(type, address) ?? address;
+      const channel = getGatewayChannelByKey(type, canonicalAddress);
+      return UpsertVerifiedChannelIpcResponseSchema.parse({
+        ok: true,
+        verified: true,
+        ...(channel ? { channel } : {}),
       });
     },
   },

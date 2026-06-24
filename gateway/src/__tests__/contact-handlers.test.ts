@@ -90,6 +90,10 @@ const markChannelRevokedHandler = contactRoutes.find(
   (r) => r.method === "mark_channel_revoked",
 )!.handler;
 
+const upsertVerifiedChannelHandler = contactRoutes.find(
+  (r) => r.method === "upsert_verified_channel",
+)!.handler;
+
 beforeAll(async () => {
   await initGatewayDb();
 });
@@ -345,5 +349,129 @@ describe("mark_channel_revoked IPC handler", () => {
     await expect(
       markChannelRevokedHandler({ contactChannelId: "nonexistent" }),
     ).rejects.toThrow(/not found/);
+  });
+});
+
+describe("upsert_verified_channel IPC handler", () => {
+  test("creates + verifies a new gateway channel and returns it", async () => {
+    const before = Date.now();
+    const res = (await upsertVerifiedChannelHandler({
+      type: "vellum",
+      address: "addr-new",
+      externalChatId: "chat-new",
+    })) as {
+      ok: boolean;
+      verified: boolean;
+      channel: {
+        id: string;
+        contactId: string;
+        type: string;
+        address: string;
+        status: string;
+        verifiedAt: number | null;
+        verifiedVia: string | null;
+      };
+    };
+
+    expect(res.ok).toBe(true);
+    expect(res.verified).toBe(true);
+    expect(res.channel.type).toBe("vellum");
+    expect(res.channel.address).toBe("addr-new");
+    expect(res.channel.status).toBe("active");
+    expect(res.channel.verifiedVia).toBe("challenge");
+    expect(res.channel.verifiedAt!).toBeGreaterThanOrEqual(before);
+
+    const row = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.type, "vellum"))
+      .get();
+    expect(row!.status).toBe("active");
+  });
+
+  test("updates an existing unverified gateway channel to verified", async () => {
+    seedContact("c1", "contact");
+    seedChannel({ id: "ch1", contactId: "c1", status: "unverified" });
+
+    const res = (await upsertVerifiedChannelHandler({
+      type: "vellum",
+      address: "addr-ch1",
+      externalChatId: "chat-1",
+    })) as { ok: boolean; verified: boolean; channel: { status: string } };
+
+    expect(res.ok).toBe(true);
+    expect(res.verified).toBe(true);
+    expect(res.channel.status).toBe("active");
+
+    const row = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, "ch1"))
+      .get();
+    expect(row!.status).toBe("active");
+    expect(row!.verifiedAt).not.toBeNull();
+  });
+
+  test("does not reactivate a blocked gateway channel (verified:false, no channel)", async () => {
+    seedContact("c1", "contact");
+    seedChannel({ id: "ch1", contactId: "c1", status: "blocked" });
+
+    const res = (await upsertVerifiedChannelHandler({
+      type: "vellum",
+      address: "addr-ch1",
+      externalChatId: "chat-1",
+    })) as { ok: boolean; verified: boolean; channel?: unknown };
+
+    expect(res.ok).toBe(true);
+    expect(res.verified).toBe(false);
+    expect(res.channel).toBeUndefined();
+
+    const row = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, "ch1"))
+      .get();
+    expect(row!.status).toBe("blocked");
+  });
+
+  test("does not reactivate a revoked gateway channel (verified:false)", async () => {
+    seedContact("c1", "contact");
+    seedChannel({ id: "ch1", contactId: "c1", status: "revoked" });
+
+    const res = (await upsertVerifiedChannelHandler({
+      type: "vellum",
+      address: "addr-ch1",
+      externalChatId: "chat-1",
+    })) as { ok: boolean; verified: boolean };
+
+    expect(res.ok).toBe(true);
+    expect(res.verified).toBe(false);
+
+    const row = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, "ch1"))
+      .get();
+    expect(row!.status).toBe("revoked");
+  });
+
+  test("round-trips verifiedVia=\"invite\" (free string, not the restricted enum)", async () => {
+    const res = (await upsertVerifiedChannelHandler({
+      type: "vellum",
+      address: "addr-invite",
+      externalChatId: "chat-invite",
+      verifiedVia: "invite",
+    })) as { ok: boolean; verified: boolean; channel: { verifiedVia: string } };
+
+    expect(res.ok).toBe(true);
+    expect(res.verified).toBe(true);
+    expect(res.channel.verifiedVia).toBe("invite");
+
+    const row = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.address, "addr-invite"))
+      .get();
+    expect(row!.verifiedVia).toBe("invite");
   });
 });
