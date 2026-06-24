@@ -1695,6 +1695,10 @@ export async function handleSurfaceAction(
   surfaceId: string,
   actionId: string,
   data?: Record<string, unknown>,
+  // JWT-verified committer principal; threaded so enqueued turns can
+  // reconstruct the same-user binding for host proxies (CU / app-control),
+  // mirroring the normal message path.
+  sourceActorPrincipalId?: string,
 ): Promise<SurfaceActionResult> {
   // ── Standalone surface interception ──────────────────────────────
   // Daemon-driven surfaces (from `requestInteractiveUi`) register a
@@ -1987,6 +1991,7 @@ export async function handleSurfaceAction(
       requestId,
       activeSurfaceId: surfaceId,
       displayContent,
+      sourceActorPrincipalId,
     });
 
     if (result.rejected) {
@@ -2233,6 +2238,7 @@ export async function handleSurfaceAction(
     requestId,
     activeSurfaceId: surfaceId,
     displayContent,
+    sourceActorPrincipalId,
   });
   if (result.rejected) {
     ctx.surfaceActionRequestIds.delete(requestId);

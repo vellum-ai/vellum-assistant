@@ -2049,8 +2049,15 @@ export class Conversation {
     surfaceId: string,
     actionId: string,
     data?: Record<string, unknown>,
+    sourceActorPrincipalId?: string,
   ): Promise<SurfaceActionResult> {
-    return handleSurfaceActionImpl(this, surfaceId, actionId, data);
+    return handleSurfaceActionImpl(
+      this,
+      surfaceId,
+      actionId,
+      data,
+      sourceActorPrincipalId,
+    );
   }
 
   handleSurfaceUndo(surfaceId: string): void {

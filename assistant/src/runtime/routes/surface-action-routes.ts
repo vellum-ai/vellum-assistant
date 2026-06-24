@@ -181,6 +181,7 @@ async function handleSurfaceAction({
       surfaceId,
       actionId,
       data,
+      actorPrincipalId ?? undefined,
     );
     const result =
       raw && typeof raw === "object" && "accepted" in raw
