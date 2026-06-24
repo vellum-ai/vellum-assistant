@@ -63,6 +63,7 @@ import {
   shouldAttachHostProxyForCapability,
 } from "../../daemon/host-proxy-preactivation.js";
 import { getAssistantName } from "../../daemon/identity-helpers.js";
+import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type {
   HostProxyTransportMetadata,
@@ -1509,10 +1510,18 @@ export async function handleSendMessage(
   }
 
   const isInteractive = isInteractiveInterface(sourceInterface);
-  // Use the JWT-verified requester principal — not guardianPrincipalId,
-  // which is the workspace owner and would let a trusted contact's web
-  // turn match against the guardian's macOS client.
-  const sourceActorPrincipalId = actorPrincipalId ?? undefined;
+  // Translate the synthetic dev-bypass actor principal to the real local
+  // guardian's principalId when running with DISABLE_HTTP_AUTH=true, so the
+  // same-actor check in shouldAttachHostProxyForCapability matches the macOS
+  // client's SSE-registered principal (which events-routes already
+  // translates). Without this, a web turn's "dev-bypass" principal never
+  // matches the macOS client's real guardian principal → denied_no_clients →
+  // CU proxy never attaches → "no desktop client connected." Real JWT
+  // principals pass through unchanged in non-dev-bypass deployments. Mirrors
+  // the fix in surface-action-routes.ts for surface-action turns.
+  const sourceActorPrincipalId = await resolveActorPrincipalIdForLocalGuardian(
+    actorPrincipalId ?? undefined,
+  );
   // Bash/File/Transfer singletons are globally available via isAvailable() —
   // no per-conversation gating needed. CU is per-conversation (owns step
   // count, AX tree history, loop detection).

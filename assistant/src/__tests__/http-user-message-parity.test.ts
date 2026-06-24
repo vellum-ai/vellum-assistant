@@ -127,6 +127,44 @@ mock.module("../runtime/local-actor-identity.js", () => ({
     )?.principalId as string | undefined,
 }));
 
+// Capture the sourceActorPrincipalId that handleSendMessage threads into
+// shouldAttachHostProxyForCapability / preactivateHostProxySkills, so tests
+// can assert the dev-bypass translation landed before the CU proxy gate.
+// The macOS "native_support" path short-circuits before reading the
+// principal, so only web/ios turns exercise the same-actor branch.
+const hostProxyAttachCalls: Array<{
+  capability: string;
+  sourceInterface: unknown;
+  sourceActorPrincipalId: string | undefined;
+}> = [];
+const preactivateCalls: Array<{
+  sourceInterface: unknown;
+  sourceActorPrincipalId: string | undefined;
+}> = [];
+mock.module("../daemon/host-proxy-preactivation.js", () => ({
+  shouldAttachHostProxyForCapability: (
+    capability: string,
+    sourceInterface: unknown,
+    sourceActorPrincipalId: string | undefined,
+  ) => {
+    hostProxyAttachCalls.push({
+      capability,
+      sourceInterface,
+      sourceActorPrincipalId,
+    });
+    // Return false so the route skips proxy instantiation; we only care
+    // that the translated principal reached the gate.
+    return false;
+  },
+  preactivateHostProxySkills: (
+    _conversation: unknown,
+    sourceInterface: unknown,
+    sourceActorPrincipalId: string | undefined,
+  ) => {
+    preactivateCalls.push({ sourceInterface, sourceActorPrincipalId });
+  },
+}));
+
 let mockGuardians: Array<Record<string, unknown>> | null = [
   {
     channelType: "vellum",
@@ -611,5 +649,95 @@ describe("HTTP POST /v1/messages trust context from the gateway binding", () => 
     const ctx = await trustContextFor("test-user", "telegram");
     expect(ctx.trustClass).toBe("guardian");
     expect(ctx.sourceChannel).toBe("telegram");
+  });
+
+  // Regression: a web turn with the synthetic "dev-bypass" principal must
+  // translate to the real guardian principal BEFORE the CU/app-control
+  // same-actor proxy-attachment gate runs. Without the translation, the
+  // web turn's "dev-bypass" never matches the macOS client's SSE-registered
+  // guardian principal → denied_no_clients → CU proxy never attaches →
+  // "no desktop client connected." Mirrors the surface-action-routes fix
+  // (PR #35892) for the main message path.
+  test("dev-bypass is translated to the guardian principal before the CU proxy attach gate (web turn)", async () => {
+    hostProxyAttachCalls.length = 0;
+    preactivateCalls.length = 0;
+    const conversation = makeConversation();
+    const res = await callHandler(
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async () => conversation,
+            assistantEventHub: { publish: async () => {} } as any,
+            resolveAttachments: () => [],
+          },
+        }),
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-vellum-actor-principal-id": "dev-bypass",
+          "x-vellum-principal-type": "actor",
+        },
+        body: JSON.stringify({
+          conversationKey: "cu-attach-key",
+          content: "hi",
+          sourceChannel: "vellum",
+          interface: "web",
+        }),
+      }),
+      undefined,
+      202,
+    );
+    expect(res.status).toBe(202);
+
+    // The CU attach gate received the TRANSLATED guardian principal, not
+    // the raw "dev-bypass" string. Without the fix this would be
+    // "dev-bypass" and the same-actor filter would return zero matches.
+    const cuCall = hostProxyAttachCalls.find(
+      (c) => c.capability === "host_cu",
+    );
+    expect(cuCall).toBeDefined();
+    expect(cuCall?.sourceActorPrincipalId).toBe("test-user");
+    expect(cuCall?.sourceActorPrincipalId).not.toBe("dev-bypass");
+
+    // Preactivation receives the same translated principal.
+    const preactivateCall = preactivateCalls[0];
+    expect(preactivateCall?.sourceActorPrincipalId).toBe("test-user");
+  });
+
+  test("real (non-dev-bypass) principal passes through the CU proxy attach gate unchanged", async () => {
+    hostProxyAttachCalls.length = 0;
+    const conversation = makeConversation();
+    await callHandler(
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async () => conversation,
+            assistantEventHub: { publish: async () => {} } as any,
+            resolveAttachments: () => [],
+          },
+        }),
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-vellum-actor-principal-id": "real-jwt-principal",
+          "x-vellum-principal-type": "actor",
+        },
+        body: JSON.stringify({
+          conversationKey: "cu-attach-real-key",
+          content: "hi",
+          sourceChannel: "vellum",
+          interface: "web",
+        }),
+      }),
+      undefined,
+      202,
+    );
+
+    const cuCall = hostProxyAttachCalls.find(
+      (c) => c.capability === "host_cu",
+    );
+    expect(cuCall?.sourceActorPrincipalId).toBe("real-jwt-principal");
   });
 });
