@@ -734,6 +734,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
           apiErrorType?: string;
           apiErrorParam?: string;
           requestId?: string;
+          rawBody?: string;
         } = {};
         if (retryAfterMs !== undefined)
           errorOptions.retryAfterMs = retryAfterMs;
@@ -745,6 +746,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
         if (normalized.apiErrorParam)
           errorOptions.apiErrorParam = normalized.apiErrorParam;
         if (normalized.requestId) errorOptions.requestId = normalized.requestId;
+        if (normalized.rawBody) errorOptions.rawBody = normalized.rawBody;
         throw new ProviderError(
           formattedMessage,
           this.name,

@@ -14,6 +14,14 @@ export interface NormalizedOpenAIAPIError {
   apiErrorCode?: string;
   apiErrorType?: string;
   apiErrorParam?: string;
+  /**
+   * The captured raw upstream non-2xx body, verbatim (possibly truncated to
+   * MAX_CAPTURED_BODY_CHARS). Carried so callers can persist the actual
+   * provider payload for the inspector's Raw tab instead of only the
+   * extracted fields. Absent for retryable (429/5xx) errors, whose bodies
+   * `captureRawErrorBodyFetch` intentionally doesn't drain.
+   */
+  rawBody?: string;
 }
 
 const MAX_DETAIL_CHARS = 2000;
@@ -100,6 +108,7 @@ export function normalizeOpenAIAPIError(
   if (param) out.apiErrorParam = param;
   const requestId = readHeader(error.headers);
   if (requestId) out.requestId = requestId;
+  if (rawBody) out.rawBody = rawBody;
   return out;
 }
 

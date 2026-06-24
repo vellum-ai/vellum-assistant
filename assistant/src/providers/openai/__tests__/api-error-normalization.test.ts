@@ -170,6 +170,15 @@ describe("normalizeOpenAIAPIError", () => {
     expect(n.message).toBe("Request failed");
   });
 
+  test("surfaces the verbatim captured body as rawBody for downstream persistence", () => {
+    const raw = JSON.stringify({ detail: "model gone", extra: "kept" });
+    const n = normalizeOpenAIAPIError(apiError(400), raw);
+    // Extracted message is the clean detail...
+    expect(n.message).toBe("model gone");
+    // ...but the raw body is carried verbatim so the Raw tab can show it all.
+    expect(n.rawBody).toBe(raw);
+  });
+
   test("keeps sibling code/type/param when the body is {error: <string>}", () => {
     const n = normalizeOpenAIAPIError(
       apiError(400),

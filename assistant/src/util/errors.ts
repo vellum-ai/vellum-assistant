@@ -108,6 +108,12 @@ export class ProviderError extends AssistantError {
   public readonly apiErrorParam?: string;
   public readonly requestId?: string;
   /**
+   * Verbatim upstream non-2xx body (possibly truncated). Persisted so the
+   * inspector's Raw tab can show the actual provider error payload, not just
+   * the extracted fields.
+   */
+  public readonly rawBody?: string;
+  /**
    * Tagged daemon-owned abort reason carried over from the AbortSignal that
    * triggered this error. Untyped here to avoid a daemon→util import cycle;
    * `AbortReason` from `util/abort-reasons.ts` is the only producer and
@@ -127,6 +133,7 @@ export class ProviderError extends AssistantError {
       apiErrorType?: string;
       apiErrorParam?: string;
       requestId?: string;
+      rawBody?: string;
     },
   ) {
     super(message, ErrorCode.PROVIDER_ERROR, options);
@@ -136,6 +143,7 @@ export class ProviderError extends AssistantError {
     this.apiErrorType = options?.apiErrorType;
     this.apiErrorParam = options?.apiErrorParam;
     this.requestId = options?.requestId;
+    this.rawBody = options?.rawBody;
     this.abortReason = options?.abortReason;
   }
 }
