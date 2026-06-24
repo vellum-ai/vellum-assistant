@@ -166,6 +166,7 @@ export {
 export {
   MarkdownMessage,
   type MarkdownMessageProps,
+  type MarkdownImageComponent,
   type MarkdownLinkComponent,
 } from "./components/markdown-message";
 export {

@@ -7,6 +7,7 @@ import {
   type AnchorHTMLAttributes,
   memo,
   useCallback,
+  useState,
 } from "react";
 
 import {
@@ -14,6 +15,7 @@ import {
     shouldOpenMarkdownLinkInOAuthPopup,
 } from "@/domains/chat/utils/oauth-popup-links";
 import {
+    type MarkdownImageComponent,
     MarkdownMessage,
     type MarkdownMessageProps,
 } from "@vellumai/design-library";
@@ -66,7 +68,32 @@ function OAuthAwareLink({
   );
 }
 
-export interface ChatMarkdownMessageProps extends Omit<MarkdownMessageProps, "linkComponent"> {
+function InlineImage({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (failed) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded bg-[var(--surface-sunken)] px-1.5 py-0.5 text-body-small-default text-[var(--content-tertiary)]">
+        Image failed to load{alt ? ` (${alt})` : ""}
+      </span>
+    );
+  }
+
+  return (
+    <a href={src} target="_blank" rel="noopener noreferrer" className="block my-2">
+      <img
+        src={src}
+        alt={alt}
+        onError={() => setFailed(true)}
+        className="max-w-full max-h-[400px] rounded-lg border border-[var(--border-default)] object-contain"
+      />
+    </a>
+  );
+}
+
+const chatImageComponent: MarkdownImageComponent = InlineImage;
+
+export interface ChatMarkdownMessageProps extends Omit<MarkdownMessageProps, "linkComponent" | "imageComponent"> {
   /**
    * Callback invoked when a `vellum://` link is clicked. Receives the full
    * href (e.g. `vellum://workspace/scratch/report.pdf`) and the visible
@@ -119,6 +146,7 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
       className={className}
       hardLineBreaks={hardLineBreaks}
       linkComponent={linkComponent}
+      imageComponent={chatImageComponent}
       urlTransform={vellumUrlTransform}
     />
   );
