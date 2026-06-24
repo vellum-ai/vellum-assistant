@@ -66,8 +66,11 @@ interface OnboardingFocusState {
   endCheckin: () => void;
   /**
    * Set by the onboarding handoff so the chat side panel opens collapsed for a
-   * focused first impression; consumed (cleared) once by `ChatLayout`. A
-   * one-shot signal, not a persistent preference.
+   * focused first impression; consumed (cleared) once by `ChatLayout`. The
+   * signal is one-shot — set once at handoff and consumed on the next
+   * `ChatLayout` mount; honoring it flips the chat's ordinary persisted
+   * `collapsed` state, so the user lands collapsed and it remains their default
+   * until they expand it.
    */
   sidebarCollapseRequested: boolean;
   requestSidebarCollapse: () => void;
