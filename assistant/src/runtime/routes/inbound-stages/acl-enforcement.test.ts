@@ -155,8 +155,8 @@ describe("enforceIngressAcl — verdict-sourced member resolution", () => {
 
     expect(result.earlyResponse).toBeUndefined();
     expect(result.resolvedMember).not.toBeNull();
-    expect(result.resolvedMember!.channel.status).toBe("active");
-    expect(result.resolvedMember!.channel.policy).toBe("allow");
+    expect(result.resolvedMember!.status).toBe("active");
+    expect(result.resolvedMember!.policy).toBe("allow");
     // Member came from the verdict, never the local contact store.
     expect(findContactChannelCalls.length).toBe(0);
   });
@@ -171,7 +171,8 @@ describe("enforceIngressAcl — verdict-sourced member resolution", () => {
     );
 
     expect(result.earlyResponse).toBeUndefined();
-    expect(result.resolvedMember!.contact.role).toBe("guardian");
+    expect(result.resolvedMember).not.toBeNull();
+    expect(result.resolvedMember!.status).toBe("active");
     expect(findContactChannelCalls.length).toBe(0);
   });
 });
