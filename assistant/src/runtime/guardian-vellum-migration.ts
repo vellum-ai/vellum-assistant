@@ -7,6 +7,7 @@
  * assistant-side since it reacts to incoming JWT principals.
  */
 
+import type { ChannelId } from "../channels/types.js";
 import {
   findGuardianForChannel,
   updateContactPrincipalAndChannel,
@@ -15,7 +16,13 @@ import {
   getGuardianDelivery,
   guardianForChannel,
 } from "../contacts/guardian-delivery-reader.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import { getLogger } from "../util/logger.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
+import {
+  resolveTrustContext,
+  withSourceChannel,
+} from "./trust-context-resolver.js";
 
 const log = getLogger("guardian-vellum-migration");
 
@@ -93,4 +100,33 @@ export async function healGuardianBindingDrift(
   );
 
   return true;
+}
+
+/**
+ * Re-resolve trust from the local mirror only for the narrow vellum-principal
+ * reset-drift case; null when it isn't drift (caller keeps the gateway verdict).
+ */
+export async function reResolveTrustOnResetDrift(
+  incomingPrincipalId: string,
+  sourceChannel: ChannelId,
+): Promise<TrustContext | null> {
+  const guardians = await getGuardianDelivery({ channelTypes: ["vellum"] });
+  const gatewayPrincipal = guardians
+    ? guardianForChannel(guardians, "vellum")?.principalId
+    : undefined;
+  const isResetDrift =
+    incomingPrincipalId.startsWith("vellum-principal-") &&
+    !!gatewayPrincipal?.startsWith("vellum-principal-") &&
+    gatewayPrincipal !== incomingPrincipalId;
+  if (!isResetDrift) return null;
+  await healGuardianBindingDrift(incomingPrincipalId);
+  return withSourceChannel(
+    sourceChannel,
+    resolveTrustContext({
+      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+      sourceChannel: "vellum",
+      conversationExternalId: "local",
+      actorExternalId: incomingPrincipalId,
+    }),
+  );
 }

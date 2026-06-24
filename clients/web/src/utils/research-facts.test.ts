@@ -10,7 +10,10 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { parseResearchResultStreaming } from "@/utils/research-facts";
+import {
+  parseResearchResultStreaming,
+  pluginDisplayName,
+} from "@/utils/research-facts";
 
 describe("parseResearchResultStreaming — plugin tagging", () => {
   test("parses the optional plugin field on a suggestion", () => {
@@ -71,5 +74,89 @@ describe("parseResearchResultStreaming — plugin tagging", () => {
 
     expect(suggestions).toHaveLength(1);
     expect(suggestions[0]?.plugin).toBe("marketing-expert");
+  });
+});
+
+describe("parseResearchResultStreaming — completeness signal", () => {
+  test("a fully-formed payload is complete and keeps every suggestion", () => {
+    const text = JSON.stringify({
+      claims: [{ claim: "Founder", confidence: "confident", sources: [] }],
+      suggestions: [
+        { suggestion: "one", prompt: "one" },
+        { suggestion: "two", prompt: "two" },
+        { suggestion: "three", prompt: "three" },
+        { suggestion: "four", prompt: "four" },
+      ],
+    });
+
+    const { suggestions, complete } = parseResearchResultStreaming(text);
+
+    expect(complete).toBe(true);
+    expect(suggestions).toHaveLength(4);
+  });
+
+  test("a payload buried in surrounding prose still parses complete", () => {
+    const text =
+      'Here is what I found:\n' +
+      JSON.stringify({
+        suggestions: [
+          { suggestion: "a", prompt: "a" },
+          { suggestion: "b", prompt: "b" },
+        ],
+      }) +
+      "\nLet me know!";
+
+    const { suggestions, complete } = parseResearchResultStreaming(text);
+
+    expect(complete).toBe(true);
+    expect(suggestions).toHaveLength(2);
+  });
+
+  test("a still-streaming payload is reported incomplete", () => {
+    const partial =
+      '{ "claims": [], "suggestions": [ { "suggestion": "first", "prompt": "first" }, { "suggestion": "sec';
+
+    const { suggestions, complete } = parseResearchResultStreaming(partial);
+
+    expect(complete).toBe(false);
+    expect(suggestions).toHaveLength(1);
+  });
+
+  test("escaped quotes inside a value survive the whole-payload parse", () => {
+    // The card text legitimately contains an escaped double quote — JSON.parse
+    // handles it, so all suggestions must survive (the brace-counted fallback
+    // would otherwise desync and drop the rest).
+    const text = JSON.stringify({
+      suggestions: [
+        { suggestion: 'I\'ll track your "sends"', prompt: "Track my sends." },
+        { suggestion: "I'll plan your week", prompt: "Plan my week." },
+      ],
+    });
+
+    const { suggestions, complete } = parseResearchResultStreaming(text);
+
+    expect(complete).toBe(true);
+    expect(suggestions).toHaveLength(2);
+    expect(suggestions[0]?.suggestion).toBe('I\'ll track your "sends"');
+  });
+});
+
+describe("pluginDisplayName", () => {
+  test("title-cases a hyphenated install name", () => {
+    expect(pluginDisplayName("marketing-expert")).toBe("Marketing Expert");
+  });
+
+  test("handles underscores and extra whitespace", () => {
+    expect(pluginDisplayName("admin_copilot")).toBe("Admin Copilot");
+    expect(pluginDisplayName("  growth   coach ")).toBe("Growth Coach");
+  });
+
+  test("leaves a single word capitalized", () => {
+    expect(pluginDisplayName("recruiter")).toBe("Recruiter");
+  });
+
+  test("returns an empty string for blank input", () => {
+    expect(pluginDisplayName("   ")).toBe("");
+    expect(pluginDisplayName("")).toBe("");
   });
 });

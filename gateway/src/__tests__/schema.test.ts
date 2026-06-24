@@ -129,7 +129,7 @@ describe("buildSchema()", () => {
     const schemaNames = Object.keys(components.schemas);
     expect(schemaNames).toContain("HealthResponse");
     expect(schemaNames).toContain("ReadyResponse");
-    expect(schemaNames).toContain("DrainingResponse");
+    expect(schemaNames).toContain("ReadyUnavailableResponse");
     expect(schemaNames).toContain("ErrorResponse");
     expect(schemaNames).toContain("TelegramOk");
     expect(schemaNames).toContain("TelegramUpdate");

@@ -12,14 +12,12 @@ import { QuoteReplyBubble } from "@/domains/chat/components/quote-reply-bubble";
 import { StagedQuotesStrip } from "@/domains/chat/components/staged-quotes-strip";
 import { TextSelectionPopover } from "@/domains/chat/components/text-selection-popover";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 function resetQuoteReplyState() {
   useQuoteReplyStore.setState({
     stagedQuotes: [],
     replyBubble: null,
   });
-  useClientFeatureFlagStore.setState({ quoteReply: false });
 }
 
 function installFinePointer() {
@@ -117,10 +115,13 @@ describe("TextSelectionPopover", () => {
       }
 
       const button = await screen.findByRole("button", { name: "Reply" });
+      const popoverContent = document.body.querySelector(
+        '[data-slot="popover-content"]',
+      );
       expect(button.getAttribute("data-slot")).toBe("button");
-      expect(
-        document.body.querySelector('[data-slot="popover-content"]'),
-      ).toBeTruthy();
+      expect(popoverContent).toBeTruthy();
+      expect(popoverContent?.className).not.toContain("bg-transparent");
+      expect(popoverContent?.className).not.toContain("shadow-none");
       expect(screen.queryByRole("button", { name: "Quote & Reply" })).toBeNull();
     } finally {
       restoreAnimationFrame();
@@ -163,7 +164,6 @@ describe("QuoteReplyBubble", () => {
 
 describe("StagedQuotesStrip", () => {
   test("renders staged quote previews with shared card and button primitives", () => {
-    useClientFeatureFlagStore.setState({ quoteReply: true });
     useQuoteReplyStore.setState({
       stagedQuotes: [
         {

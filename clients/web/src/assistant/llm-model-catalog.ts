@@ -276,6 +276,14 @@ export const MODELS_BY_PROVIDER = {
       maxOutputTokens: 131_072,
       supportsThinking: true,
     },
+    {
+      id: "accounts/fireworks/models/deepseek-v4-flash",
+      displayName: "DeepSeek V4 Flash",
+      contextWindowTokens: 1_040_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+    },
   ],
   together: [
     {

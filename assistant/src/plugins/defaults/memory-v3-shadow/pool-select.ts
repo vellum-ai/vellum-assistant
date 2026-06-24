@@ -422,12 +422,6 @@ export async function selectPool(
   // (no usable tool_use, or tool input that fails the schema) re-prompts before
   // we give up. `null` from an attempt means "unusable, retry"; the provider
   // layer already backs off transient throws, so this loop adds no delay.
-  //
-  // `lastError` captures the most recent attempt's thrown provider error —
-  // `retryForResult` swallows attempt throws, so without this an infrastructure
-  // failure (e.g. an upstream HTTP 4xx/5xx) is indistinguishable from a 200 that
-  // carried no usable tool_use. It is cleared on every attempt that reaches a
-  // response, so it reflects the LAST attempt's failure mode.
   let lastError: unknown = null;
   const parsed = await retryForResult(async () => {
     attempt += 1;

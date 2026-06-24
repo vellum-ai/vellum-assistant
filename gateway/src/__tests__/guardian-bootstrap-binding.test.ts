@@ -246,3 +246,83 @@ describe("createGuardianBinding gateway dual-write", () => {
     expect(row.contactId).toBe(result.contactId);
   });
 });
+
+describe("createGuardianBinding id resolution (gateway reads)", () => {
+  test("reuses an existing gateway guardian by principal — no new id minted", async () => {
+    seedGwChannel({
+      contactId: "existing-guardian-contact",
+      channelId: "existing-guardian-channel",
+      type: "telegram",
+      address: "OTHER_ADDR",
+      principalId: "guardian-principal",
+    });
+
+    const result = await createGuardianBinding({
+      channel: "slack",
+      externalUserId: "U_OWNER",
+      deliveryChatId: "D_OWNER",
+      guardianPrincipalId: "guardian-principal",
+      displayName: "Example User",
+      verifiedVia: "challenge",
+    });
+
+    // Contact id is reused from the gateway guardian-by-principal lookup —
+    // no fresh uuid minted.
+    expect(result.contactId).toBe("existing-guardian-contact");
+  });
+
+  test("adopts a claimable gateway channel by (type, address COLLATE NOCASE)", async () => {
+    seedGwChannel({
+      contactId: "claimable-contact",
+      channelId: "claimable-channel",
+      type: "slack",
+      address: "u_owner", // lowercased — matched case-insensitively
+      principalId: "other-principal",
+      status: "unverified",
+    });
+
+    const result = await createGuardianBinding({
+      channel: "slack",
+      externalUserId: "U_OWNER",
+      deliveryChatId: "D_OWNER",
+      guardianPrincipalId: "guardian-principal",
+      displayName: "Example User",
+      verifiedVia: "challenge",
+    });
+
+    // No guardian-by-principal match, so contact + channel come from the
+    // claimable channel resolved via the case-insensitive address match.
+    expect(result.contactId).toBe("claimable-contact");
+    expect(result.channelId).toBe("claimable-channel");
+  });
+
+  test("mints a fresh id for a brand-new guardian, written to both DBs", async () => {
+    const result = await createGuardianBinding({
+      channel: "slack",
+      externalUserId: "U_FRESH",
+      deliveryChatId: "D_FRESH",
+      guardianPrincipalId: "fresh-principal",
+      displayName: "Example User",
+      verifiedVia: "challenge",
+    });
+
+    const gwRows = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.type, "slack"))
+      .all();
+    expect(gwRows).toHaveLength(1);
+    expect(gwRows[0]!.id).toBe(result.channelId);
+    expect(gwRows[0]!.contactId).toBe(result.contactId);
+
+    const asstRows = asstDb()
+      .query<
+        { id: string; contact_id: string },
+        []
+      >(`SELECT id, contact_id FROM contact_channels WHERE type = 'slack'`)
+      .all();
+    expect(asstRows).toEqual([
+      { id: result.channelId, contact_id: result.contactId },
+    ]);
+  });
+});

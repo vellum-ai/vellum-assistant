@@ -75,6 +75,28 @@ mock.module("@vellumai/design-library", () => ({
       {actions ? <div data-testid="notice-actions">{actions}</div> : null}
     </div>
   ),
+  Card: {
+    Root: ({
+      children,
+      padding: _padding,
+      bordered: _bordered,
+      elevated: _elevated,
+      ...props
+    }: {
+      children?: ReactNode;
+      padding?: unknown;
+      bordered?: unknown;
+      elevated?: unknown;
+    }) => <div {...props}>{children}</div>,
+    Body: ({
+      children,
+      padding: _padding,
+      ...props
+    }: {
+      children?: ReactNode;
+      padding?: unknown;
+    }) => <div {...props}>{children}</div>,
+  },
   ResizablePanel: () => <div data-testid="resizable-panel" />,
   Typography: ({ children }: { children?: ReactNode }) => (
     <span>{children}</span>

@@ -161,22 +161,23 @@ async function runSeedV2CliCommandEntries(generation: number): Promise<void> {
       seeds.push({ id: name, description, content });
     }
 
+    // Sparse (BM25/TF) encoding is computed locally; only the dense vectors
+    // require `embedWithBackend`, which is unconfigured during the cold-start
+    // window before a managed-proxy embedding credential is provisioned. A
+    // dense-embed failure is non-fatal to the in-memory cache: the v3 needle
+    // finder lane reads CLI capabilities from `entries` / the page index, NOT
+    // from Qdrant, so the cache is populated from the local Commander tree
+    // regardless of backend state and commands stay discoverable from first
+    // boot. Only the dense Qdrant upsert is skipped; the managed-credential
+    // reseed and the v3 maintain pass backfill the dense vectors on recovery.
     const nextEntries = new Map<string, CliCommandEntry>();
     let denseVectors: number[][] = [];
+    let denseAvailable = false;
+    let denseError: unknown = null;
     let encodeSparse: (
       input: string,
     ) => ReturnType<typeof generateSparseEmbedding> = generateSparseEmbedding;
     if (seeds.length > 0) {
-      const embedded = await embedWithBackend(
-        config,
-        seeds.map((s) => s.content),
-      );
-      denseVectors = await Promise.all(
-        embedded.vectors.map((v) =>
-          applyCorrectionIfCalibrated(v, embedded.provider, embedded.model),
-        ),
-      );
-
       // CLI commands share the concept-page Qdrant collection, so the sparse
       // vector must use the same stemmed BM25 encoding as the concept-page
       // documents. Fall back to the legacy TF encoder only during the cold-
@@ -190,6 +191,24 @@ async function runSeedV2CliCommandEntries(generation: number): Promise<void> {
               b: config.memory.v2.bm25_b,
             })
           : generateSparseEmbedding(input);
+      try {
+        const embedded = await embedWithBackend(
+          config,
+          seeds.map((s) => s.content),
+        );
+        denseVectors = await Promise.all(
+          embedded.vectors.map((v) =>
+            applyCorrectionIfCalibrated(v, embedded.provider, embedded.model),
+          ),
+        );
+        denseAvailable = true;
+      } catch (err) {
+        denseError = err;
+        log.warn(
+          { err },
+          "Embedding backend unavailable — seeding CLI-command cache without dense Qdrant vectors; the needle lane surfaces commands from the cache and the dense lane backfills when the backend recovers",
+        );
+      }
     }
 
     if (generation !== requestedSeedGeneration) {
@@ -201,7 +220,17 @@ async function runSeedV2CliCommandEntries(generation: number): Promise<void> {
       return;
     }
 
-    if (seeds.length > 0) {
+    // Populate the in-memory cache (and therefore the page index / needle lane)
+    // from the local Commander tree regardless of dense availability.
+    for (const seed of seeds) {
+      nextEntries.set(seed.id, seed);
+    }
+
+    // Write the dense+sparse Qdrant points only when dense vectors were
+    // produced. In the degraded (backend-unavailable) path we skip the upsert
+    // so we never write half-formed points; the dense lane backfills on
+    // recovery.
+    if (seeds.length > 0 && denseAvailable) {
       const now = Date.now();
       await Promise.all(
         seeds.map((seed, i) =>
@@ -214,40 +243,48 @@ async function runSeedV2CliCommandEntries(generation: number): Promise<void> {
           }),
         ),
       );
-      for (const seed of seeds) {
-        nextEntries.set(seed.id, seed);
-      }
     }
 
-    // The CLI tree is always available (no remote catalog), so pruning is
-    // unconditional. Run the legacy `kind` backfill once per process so
-    // pre-discriminator rows become prunable.
-    const knownIds = new Set(seeds.map((s) => s.id));
-    if (!legacyKindBackfillDone) {
-      try {
-        await backfillKindOnPointsWithPrefix(
-          CLI_COMMAND_SLUG_PREFIX,
-          CLI_COMMAND_PAYLOAD_KIND,
-          knownIds,
-        );
-        legacyKindBackfillDone = true;
-      } catch (err) {
-        log.warn(
-          { err },
-          "Failed to backfill kind on legacy CLI-command points — pruning may leave orphans this run",
-        );
+    // The CLI tree is always available (no remote catalog), so pruning to clear
+    // stale rows runs whenever we wrote the current set this run OR there was
+    // nothing to embed (empty tree). The cold-start degraded path (commands
+    // present but dense embedding unavailable) skips the prune so we never
+    // reconcile the collection against a set we did not persist. Run the legacy
+    // `kind` backfill once per process so pre-discriminator rows become prunable.
+    if (denseAvailable || seeds.length === 0) {
+      const knownIds = new Set(seeds.map((s) => s.id));
+      if (!legacyKindBackfillDone) {
+        try {
+          await backfillKindOnPointsWithPrefix(
+            CLI_COMMAND_SLUG_PREFIX,
+            CLI_COMMAND_PAYLOAD_KIND,
+            knownIds,
+          );
+          legacyKindBackfillDone = true;
+        } catch (err) {
+          log.warn(
+            { err },
+            "Failed to backfill kind on legacy CLI-command points — pruning may leave orphans this run",
+          );
+        }
       }
+      await pruneSlugsWithPrefixExcept(
+        CLI_COMMAND_SLUG_PREFIX,
+        seeds.map((s) => s.id),
+        { kind: CLI_COMMAND_PAYLOAD_KIND },
+      );
     }
-    await pruneSlugsWithPrefixExcept(
-      CLI_COMMAND_SLUG_PREFIX,
-      seeds.map((s) => s.id),
-      { kind: CLI_COMMAND_PAYLOAD_KIND },
-    );
 
-    // Atomically replace the cache only after every step above succeeds.
+    // Atomically replace the cache from the freshly enumerated commands. Drop
+    // the page-index cache so the next router invocation observes the new
+    // command set.
     entries = nextEntries;
     invalidatePageIndex();
-    lastSeedError = null;
+
+    // Surface a dense-embed failure to `throwOnError` callers so the existing
+    // retry + maintain machinery backfills the dense lane. The in-memory cache
+    // is already updated above, so the needle lane is fixed regardless.
+    lastSeedError = denseError;
   } catch (err) {
     lastSeedError = err;
     log.warn({ err }, "Failed to seed v2 CLI-command entries");

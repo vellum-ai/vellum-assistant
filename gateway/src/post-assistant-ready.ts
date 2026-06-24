@@ -8,9 +8,9 @@
  * assistant DB doesn't exist yet.
  *
  * This module polls the assistant IPC health route and, once the assistant
- * is ready, runs data migrations and other deferred tasks. It is awaited
- * during startup — the HTTP server does not start until this completes,
- * preventing auth traffic from racing with data migrations.
+ * is ready, runs data migrations and other deferred tasks. The gateway keeps
+ * readiness and regular traffic closed until this completes, preventing auth
+ * traffic from racing with data migrations.
  */
 
 import type { Database } from "bun:sqlite";
@@ -57,7 +57,7 @@ export async function waitForAssistant(): Promise<boolean> {
 
 /**
  * Wait for the assistant runtime to become healthy, then run deferred
- * startup tasks. Awaited at startup — blocks Bun.serve().
+ * startup tasks.
  */
 export async function runPostAssistantReady(): Promise<void> {
   const ready = await waitForAssistant();

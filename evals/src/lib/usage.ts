@@ -39,6 +39,13 @@ export function summarizeAssistantUsage(events: AgentEvent[]): UsageSummary {
     const usage = event.message.usage;
     if (!usage || typeof usage !== "object" || Array.isArray(usage)) continue;
     const record = usage as Record<string, unknown>;
+    // Harness grading traffic (the LLM judge, tagged `origin: "metric"` by
+    // the runner) is not assistant model spend — exclude it from the
+    // per-request breakdown, token totals, and `totalCostUsd` so the Cost
+    // tab reflects only what the agent itself spent. A metric record is
+    // dropped entirely here; if grading cost ever needs to surface, it
+    // should do so in its own section, never folded into the agent's bill.
+    if (record.origin === "metric") continue;
     const requestIndex = requests.length;
     requests.push(record);
 

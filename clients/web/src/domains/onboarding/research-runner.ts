@@ -50,11 +50,20 @@ import {
 const POLL_INTERVAL_MS = 1500;
 const MAX_POLL_MS = 120_000;
 /**
- * Consecutive identical non-empty reads that mark the turn settled. Two
- * matching polls (~3s apart) means generation has stopped, whether the daemon
- * persists the assistant message incrementally or only on completion.
+ * Consecutive identical non-empty reads that mark the turn settled once the
+ * reply has parsed as a COMPLETE JSON payload. Two matching polls (~3s apart)
+ * means generation has stopped, whether the daemon persists the assistant
+ * message incrementally or only on completion.
  */
 const STABLE_READS_TO_SETTLE = 2;
+/**
+ * Higher stable-read bar used while the reply has NOT yet parsed as a complete
+ * payload — a still-open (or malformed) `suggestions` array. This stops us
+ * settling on a partial array during a generation pause (which would render
+ * only the first card or two); a genuinely finished-but-malformed reply still
+ * settles here, well before `MAX_POLL_MS`, rather than hanging to the deadline.
+ */
+const STABLE_READS_TO_SETTLE_INCOMPLETE = 6;
 
 /**
  * Org that owns first-party, reviewed Vellum plugins. Onboarding only ever
@@ -363,7 +372,8 @@ export function useResearchRunner(): UseResearchRunner {
             const messages = listed.data?.messages ?? [];
             const text = latestAssistantText(messages);
             if (text) {
-              const { claims, suggestions } = parseResearchResultStreaming(text);
+              const { claims, suggestions, complete } =
+                parseResearchResultStreaming(text);
               setState({ status: "running", claims, suggestions });
               for (const s of suggestions) {
                 // Gate on the fetched catalog so a hallucinated name never hits
@@ -377,7 +387,12 @@ export function useResearchRunner(): UseResearchRunner {
               }
               stableReads = text === lastText ? stableReads + 1 : 0;
               lastText = text;
-              if (stableReads >= STABLE_READS_TO_SETTLE) break;
+              // Prefer to settle only once the payload is complete, so a pause
+              // mid-`suggestions` doesn't freeze the result on a partial array.
+              const settleAt = complete
+                ? STABLE_READS_TO_SETTLE
+                : STABLE_READS_TO_SETTLE_INCOMPLETE;
+              if (stableReads >= settleAt) break;
             }
           }
 

@@ -288,6 +288,13 @@ function summarize(input: {
   transcript: TranscriptTurn[];
   usage: UsageSummary;
   assistantEvents: AgentEvent[];
+  /**
+   * V2 ingest-turn events. Counted alongside `assistantEvents` so the
+   * Responses total reflects every conversation in the run, not just the
+   * question turn — mirroring the Transcript view, which folds both event
+   * streams together. Empty for V1 runs.
+   */
+  ingestAssistantEvents?: AgentEvent[];
   simulatorMessages: AgentMessage[];
 }): ReportRunSummary {
   return {
@@ -308,7 +315,10 @@ function summarize(input: {
     scoreTotal: scoreTotal(input.metrics),
     assistantResponses: countAssistantResponses(
       input.transcript,
-      input.assistantEvents,
+      // Fold both event streams so a two-conversation (ingest → ask) run
+      // counts the assistant's ingest replies too, not just the question
+      // turn — matches the Transcript view's `[...ingest, ...question]`.
+      [...(input.ingestAssistantEvents ?? []), ...input.assistantEvents],
     ),
     runtimeMs: runtimeMs(input.metadata),
     assistantEventCount: input.assistantEvents.length,
@@ -446,6 +456,7 @@ export async function readReportRun(runId: string): Promise<ReportRunDetail> {
     transcript,
     usage,
     assistantEvents,
+    ingestAssistantEvents,
     simulatorMessages,
   });
 

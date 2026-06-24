@@ -619,6 +619,86 @@ Write a local article draft.
     expect(after).toEqual(before);
   });
 
+  test("populates the cache from the local catalog on the first seed even when the embedding backend is unavailable (cold-start needle resilience)", async () => {
+    // Regression: on a brand-new managed assistant the startup seed runs before
+    // the platform provisions the managed embedding credential, so the very
+    // first `embedWithBackend` throws. The in-memory cache (which the v3 needle
+    // lane and the page index read) must still populate from the local catalog
+    // so skills are discoverable from first boot; only the dense Qdrant upsert
+    // is deferred until the backend recovers.
+    const skillA = makeSummary({
+      id: "example-skill-a",
+      displayName: "Skill A",
+    });
+    state.catalog = [skillA];
+    state.resolved = [{ summary: skillA, state: "enabled" }];
+    // No prior successful seed — the backend is unconfigured from the start.
+    state.embedThrows = new Error(
+      'Embedding backend "gemini" is not configured',
+    );
+
+    // Best-effort callers (the startup seed) must resolve.
+    await expect(seedV2SkillEntries()).resolves.toBeUndefined();
+
+    // The needle-lane cache is populated despite the dense-embed failure.
+    const entry = getSkillCapability("example-skill-a");
+    expect(entry).not.toBeNull();
+    expect(entry?.id).toBe("example-skill-a");
+    expect(entry?.content).toContain("Skill A");
+    expect(listSkillEntries().map((e) => e.id)).toEqual(["example-skill-a"]);
+
+    // No dense vectors were produced, so the Qdrant write is skipped entirely.
+    expect(state.upsertCalls).toHaveLength(0);
+    expect(state.pruneCalls).toHaveLength(0);
+  });
+
+  test("surfaces the dense-embed failure to throwOnError callers while still populating the needle cache", async () => {
+    // The managed-credential reseed and the operator reembed route pass
+    // `throwOnError` so they learn the dense lane didn't complete and the
+    // retry/maintain machinery backfills it — but the needle cache is fixed
+    // regardless before the error propagates.
+    const skillA = makeSummary({ id: "example-skill-a" });
+    state.catalog = [skillA];
+    state.resolved = [{ summary: skillA, state: "enabled" }];
+    state.embedThrows = new Error("backend down");
+
+    await expect(seedV2SkillEntries({ throwOnError: true })).rejects.toThrow(
+      "backend down",
+    );
+
+    expect(getSkillCapability("example-skill-a")).not.toBeNull();
+    expect(state.upsertCalls).toHaveLength(0);
+  });
+
+  test("drops a locally-disabled installed skill even when the catalog is unavailable (local state is authoritative)", async () => {
+    // Regression: the local resolution is authoritative, so a skill that is
+    // still installed but explicitly disabled must NOT be kept alive by remote-
+    // catalog uncertainty — `getSkillCapability` and the page index must drop it.
+    const skillA = makeSummary({ id: "example-skill-a" });
+    state.catalog = [skillA];
+    state.resolved = [{ summary: skillA, state: "enabled" }];
+    state.fullCatalog = [
+      { id: "example-skill-a", name: "example-skill-a", description: "A" },
+    ];
+    state.embedReturn = [[0.1, 0.2, 0.3]];
+
+    // First run: skillA enabled and cached.
+    await seedV2SkillEntries();
+    expect(getSkillCapability("example-skill-a")).not.toBeNull();
+
+    // Second run: skillA is still locally installed but now disabled; the remote
+    // catalog is unavailable. It stays in `installedIds`, so the carry-forward
+    // must skip it and the cache drops it.
+    state.resolved = [{ summary: skillA, state: "disabled" }];
+    state.fullCatalog = [];
+    state.fullCatalogThrows = new Error("catalog fetch failed");
+
+    await seedV2SkillEntries();
+
+    expect(getSkillCapability("example-skill-a")).toBeNull();
+    expect(listSkillEntries()).toEqual([]);
+  });
+
   test("no enabled skills yields empty cache and no prune when catalog is empty", async () => {
     state.catalog = [];
     state.resolved = [];

@@ -449,6 +449,15 @@ export const ToolDefinitionSchema = z.object({
       ) => Promise<ToolExecutionResult>
     >()
     .optional(),
+  /**
+   * When true, this tool runs alone in its turn. If the model emits it
+   * alongside other tool calls, the agent loop executes only this one and
+   * defers the siblings — returning them un-run with a benign notice — so the
+   * model incorporates this tool's output before acting on anything else. The
+   * `advisor` tool sets this so its guidance lands before the agent commits to
+   * a path. Default false (the loop runs sibling calls concurrently as usual).
+   */
+  exclusive: z.boolean().optional(),
 });
 
 /**
@@ -460,8 +469,14 @@ export const ToolDefinitionSchema = z.object({
  */
 export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
 
-/** Tool after the loader has derived its name and filled defaults. */
-export type Tool = Required<ToolDefinition>;
+/**
+ * Tool after the loader has derived its name and filled defaults. Every field
+ * is required except `exclusive`, which stays optional — most tools never set
+ * it, and the agent loop reads it as `?.exclusive === true`, so forcing every
+ * hand-built `Tool` (MCP/meet/test fixtures) to carry it would be noise.
+ */
+export type Tool = Required<Omit<ToolDefinition, "exclusive">> &
+  Pick<ToolDefinition, "exclusive">;
 
 /** The kind of extension that owns a tool. Core tools have no owner. */
 export type OwnerKind = "skill" | "mcp" | "plugin" | "workspace";
