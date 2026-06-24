@@ -14,7 +14,7 @@ import { downloadAttachment } from "@/domains/chat/components/chat-attachments/d
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
-import { SubagentInlineProgressCard } from "@/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card";
+import { SubagentSpawnGroup } from "@/domains/chat/components/subagent-inline-progress-card/subagent-spawn-group";
 import { WorkflowInlineProgressCard } from "@/domains/chat/components/workflow-inline-progress-card/workflow-inline-progress-card";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import { SingleActivity } from "@/domains/chat/components/single-activity/single-activity";
@@ -232,16 +232,11 @@ export function TranscriptMessageBody({
     );
     if (spawnedIds.length === 0) return null;
     return (
-      <div className="flex w-full flex-col gap-1.5">
-        {spawnedIds.map((subagentId) => (
-          <SubagentInlineProgressCard
-            key={subagentId}
-            subagentId={subagentId}
-            onSubagentClick={onSubagentClick}
-            onStopSubagent={onStopSubagent}
-          />
-        ))}
-      </div>
+      <SubagentSpawnGroup
+        subagentIds={spawnedIds}
+        onSubagentClick={onSubagentClick}
+        onStopSubagent={onStopSubagent}
+      />
     );
   };
 
