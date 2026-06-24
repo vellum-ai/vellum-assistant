@@ -52,7 +52,9 @@ interface GuardianDeliveryStub {
 }
 
 // Gateway guardian deliveries (first entry is the "any guardian" fallback).
-let mockGuardianDeliveries: GuardianDeliveryStub[] = [];
+// `null` models a FAILED gateway read (timeout / unreachable / malformed),
+// distinct from `[]` which models a definitive "no guardian" result.
+let mockGuardianDeliveries: GuardianDeliveryStub[] | null = [];
 // Local contact joined by the guardian delivery's (channelType, address).
 let mockLocalContact: MockContact | null = null;
 let mockSlugOverride: ((displayName: string) => string) | null = null;
@@ -211,6 +213,38 @@ describe("workspace migration 031-drop-user-md", () => {
 
     expect(existsSync(join(workspaceDir, "USER.md"))).toBe(false);
     expect(existsSync(join(workspaceDir, "users"))).toBe(false);
+    expect(updatedUserFiles).toEqual([]);
+  });
+
+  test("gateway read FAILS (null) — leaves customized USER.md intact and defers", async () => {
+    // Gateway IPC timeout / unreachable / malformed → reader returns null.
+    mockGuardianDeliveries = null;
+
+    const userMdPath = join(workspaceDir, "USER.md");
+    const content = customizedContent();
+    writeFileSync(userMdPath, content, "utf-8");
+
+    await dropUserMdMigration.run(workspaceDir);
+
+    // USER.md is preserved (NOT deleted) — the only copy survives the miss.
+    expect(existsSync(userMdPath)).toBe(true);
+    expect(readFileSync(userMdPath, "utf-8")).toBe(content);
+    // No users/ dir created, no backfill — fully deferred to the next run.
+    expect(existsSync(join(workspaceDir, "users"))).toBe(false);
+    expect(updatedUserFiles).toEqual([]);
+  });
+
+  test("gateway DEFINITIVELY reports no guardian ([]) with stale USER.md — deletes it", async () => {
+    // Empty list = gateway succeeded and there is genuinely no guardian.
+    mockGuardianDeliveries = [];
+
+    const userMdPath = join(workspaceDir, "USER.md");
+    writeFileSync(userMdPath, customizedContent(), "utf-8");
+
+    await dropUserMdMigration.run(workspaceDir);
+
+    // Pre-onboarding / no-guardian stale cleanup removes the lingering file.
+    expect(existsSync(userMdPath)).toBe(false);
     expect(updatedUserFiles).toEqual([]);
   });
 
