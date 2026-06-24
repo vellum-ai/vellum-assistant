@@ -98,6 +98,15 @@ describe("SubagentAvatarBadge", () => {
     ).not.toBeNull();
   });
 
+  test("the circle exposes a hover affordance (background + ring)", () => {
+    spawn("sa-hover", "running");
+    const { getByTestId } = render(<SubagentAvatarBadge subagentId="sa-hover" />);
+    const circle = getByTestId("subagent-avatar-badge");
+    expect(circle.className).toContain("hover:bg-[var(--surface-active)]");
+    expect(circle.className).toContain("hover:ring-2");
+    expect(circle.className).toContain("hover:ring-[var(--border-element)]");
+  });
+
   test("renders no status indicator before the entry lands in the store", () => {
     const { queryByTestId } = render(
       <SubagentAvatarBadge subagentId="missing" />,
