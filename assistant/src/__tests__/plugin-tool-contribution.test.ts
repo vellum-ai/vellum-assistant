@@ -16,28 +16,15 @@
  * - Direct `registerPluginTools` / `unregisterPluginTools` semantics,
  *   including the plugin-scoped ref count.
  *
- * Uses `mock.module` to stub the credential store so bootstrap doesn't hit
- * the real backend. `resetPluginRegistryForTests()` and
- * `__clearRegistryForTesting()` isolate registry state between cases so
- * this file can run alongside other plugin/tool-registry tests without
- * cross-contamination.
+ * `resetPluginRegistryForTests()` and `__clearRegistryForTesting()` isolate
+ * registry state between cases so this file can run alongside other
+ * plugin/tool-registry tests without cross-contamination.
  */
 
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-// Mock the credential store before importing the bootstrap so the module
-// under test captures the stubbed binding. Bootstrap only calls this for
-// plugins that declare `requiresCredential`; the tests in this file don't,
-// so the stub simply returns undefined.
-const getSecureKeyAsyncMock = mock(
-  async (_account: string): Promise<string | undefined> => undefined,
-);
-mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyAsync: getSecureKeyAsyncMock,
-}));
 
 import { bootstrapPlugins } from "../daemon/external-plugins-bootstrap.js";
 import { runShutdownHooks } from "../daemon/shutdown-registry.js";
@@ -134,8 +121,6 @@ describe("plugin tool contributions", () => {
     // assertions about which tools are present. We don't need any of the
     // eager/host tools for these tests.
     __clearRegistryForTesting();
-    getSecureKeyAsyncMock.mockReset();
-    getSecureKeyAsyncMock.mockImplementation(async () => undefined);
     await rm(TEST_WORKSPACE_DIR, { recursive: true, force: true });
   });
 

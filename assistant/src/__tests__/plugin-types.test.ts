@@ -38,7 +38,6 @@ describe("plugin core types", () => {
     const manifest: PluginManifest = {
       name: "sample-plugin",
       version: "0.1.0",
-      requiresCredential: ["SAMPLE_API_KEY"],
       requiresFlag: ["sample-feature"],
       config: { parse: (input: unknown) => input },
     };
@@ -61,7 +60,6 @@ describe("plugin core types", () => {
         async init(ctx: PluginInitContext) {
           // Touch every field so refactors that rename any of them break here.
           void ctx.config;
-          void ctx.credentials;
           void ctx.logger;
           void ctx.pluginStorageDir;
           void ctx.assistantVersion;
