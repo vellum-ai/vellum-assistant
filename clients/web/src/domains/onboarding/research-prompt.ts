@@ -57,7 +57,7 @@ function renderCapabilitiesBlock(capabilities: AvailableCapability[]): string {
 Capabilities you can offer me — specialized skillsets you can invoke on my behalf, not generic chat:
 ${lines}
 
-Optionally add a "plugin" key (exact name from the list above) to a suggestion, but ONLY when that skillset genuinely does that card's concrete work and fits what you researched about my real work — never to fill a quota. Tag AT MOST ONE suggestion; zero is fine and often correct. Shape: { "suggestion": "...", "prompt": "...", "plugin": "<exact name>" }.
+Add ONE more top-level key alongside "claims" and "suggestions": a "plugins" array naming the 1-2 capabilities from the list above (exact names) that best fit who I am — judged by what you researched about my real role, stack, and day-to-day work. These get set up for me automatically as part of getting started, so pick by overall fit to ME, not to any single suggestion. Prefer fewer over forcing a match; use [] if nothing clearly fits. Example: "plugins": ["<exact name from the list above>"]. Don't reference the setup in the claims or suggestions text.
 `;
 }
 
