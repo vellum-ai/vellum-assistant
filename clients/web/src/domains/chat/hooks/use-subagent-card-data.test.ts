@@ -824,7 +824,7 @@ describe("computeSubagentCardData — web tools match main-chat group labels", (
       ],
     });
     const step = computeSubagentCardData(entry).steps[0]!;
-    const details = buildSubagentStepDetails(entry);
+    const details = buildSubagentStepDetails(entry.events);
     if (step.kind === "thinking") {
       expect(step.detailKey).toBe("tu-wf");
       expect(details.has(step.detailKey!)).toBe(true);
@@ -1255,7 +1255,7 @@ describe("buildSubagentStepDetails", () => {
             1,
           ),
         ],
-      }),
+      }).events,
     );
     expect(details.size).toBe(1);
     const payload = details.get("tu-1")!;
@@ -1274,7 +1274,7 @@ describe("buildSubagentStepDetails", () => {
     const details = buildSubagentStepDetails(
       makeEntry({
         events: [makeEvent({ type: "text", content }, 0)],
-      }),
+      }).events,
     );
     expect(details.size).toBe(1);
     const payload = details.get("te-0")!;
@@ -1315,7 +1315,7 @@ describe("buildSubagentStepDetails", () => {
             1,
           ),
         ],
-      }),
+      }).events,
     );
     expect(details.size).toBe(1);
     const payload = details.get("tu-ws")!;
@@ -1349,7 +1349,7 @@ describe("buildSubagentStepDetails", () => {
             1,
           ),
         ],
-      }),
+      }).events,
     );
     const payload = details.get("tu-ws")!;
     expect(payload.kind).toBe("web_search");
@@ -1360,7 +1360,7 @@ describe("buildSubagentStepDetails", () => {
     const details = buildSubagentStepDetails(
       makeEntry({
         events: [makeEvent({ type: "text", content: "   \n  " }, 0)],
-      }),
+      }).events,
     );
     expect(details.size).toBe(0);
   });
@@ -1383,7 +1383,7 @@ describe("buildSubagentStepDetails", () => {
             1,
           ),
         ],
-      }),
+      }).events,
     );
     expect(details.get("tu-1")!.result).toBe("fallback output");
   });
@@ -1414,7 +1414,7 @@ describe("buildSubagentStepDetails", () => {
             1,
           ),
         ],
-      }),
+      }).events,
     );
     const payload = details.get("tu-1")!;
     expect(payload.status).toBe("error");
@@ -1440,7 +1440,7 @@ describe("buildSubagentStepDetails", () => {
             1,
           ),
         ],
-      }),
+      }).events,
     );
     const payload = details.get("tu-1")!;
     expect(payload.status).toBe("error");
@@ -1472,7 +1472,7 @@ describe("buildSubagentStepDetails", () => {
             1,
           ),
         ],
-      }),
+      }).events,
     );
     const payload = details.get("tu-ws")!;
     expect(payload).toBeDefined();
@@ -1496,7 +1496,7 @@ describe("buildSubagentStepDetails", () => {
             0,
           ),
         ],
-      }),
+      }).events,
     );
     expect(details.size).toBe(1);
     const payload = details.get("tu-1")!;
@@ -1510,7 +1510,7 @@ describe("buildSubagentStepDetails", () => {
     const details = buildSubagentStepDetails(
       makeEntry({
         events: [makeEvent({ type: "tool_call", toolName: "bash" })],
-      }),
+      }).events,
     );
     expect(details.size).toBe(0);
   });
@@ -1548,7 +1548,7 @@ describe("buildSubagentStepDetails", () => {
             2,
           ),
         ],
-      }),
+      }).events,
     );
     expect(details.size).toBe(2);
     const a = details.get("tu-A")!;
@@ -1580,7 +1580,7 @@ describe("buildSubagentStepDetails", () => {
             1,
           ),
         ],
-      }),
+      }).events,
     );
     const payload = details.get("tu-1")!;
     expect(payload.status).toBe("error");
@@ -1609,7 +1609,7 @@ describe("buildSubagentStepDetails", () => {
             1,
           ),
         ],
-      }),
+      }).events,
     );
     const payload = details.get("tu-1")!;
     expect(payload.status).toBe("error");
@@ -1635,7 +1635,7 @@ describe("buildSubagentStepDetails", () => {
             timestamp: NOW,
           }),
         ],
-      }),
+      }).events,
     );
     const payload = details.get("tu-1")!;
     expect(payload.status).toBe("completed");
@@ -1747,4 +1747,112 @@ describe("computeSubagentSteps / applyTimelineEvent reproduce computeSubagentCar
       expect(steps).toEqual(computeSubagentSteps(events).steps);
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Heavy-projection memoization keyed on `entry.events` (PR 2)
+//
+// The panel keys its two heavy O(n) walks (`computeSubagentSteps` and
+// `buildSubagentStepDetails`) on `entry.events`, not `entry`. The store bumps
+// `entry` identity on every token/status/usage update while keeping
+// `entry.events` reference-stable, so a memo on `[entry.events]` skips the walk
+// when only the status/usage changed — and re-runs when the event list itself
+// changes. These tests pin that contract: a `[entry.events]`-keyed memo is the
+// correct dependency.
+// ---------------------------------------------------------------------------
+
+describe("heavy projections are memoizable on entry.events (PR 2)", () => {
+  // Minimal stand-in for React's `useMemo`: recompute only when the dependency
+  // reference changes. Mirrors the panel's `useMemo(..., [entry.events])`.
+  function memoizeByDep<Dep, Result>(compute: (dep: Dep) => Result) {
+    let lastDep: Dep | undefined;
+    let lastResult: Result;
+    let calls = 0;
+    return {
+      run(dep: Dep): Result {
+        if (calls === 0 || dep !== lastDep) {
+          calls += 1;
+          lastDep = dep;
+          lastResult = compute(dep);
+        }
+        return lastResult;
+      },
+      get calls() {
+        return calls;
+      },
+    };
+  }
+
+  const events: SubagentTimelineEvent[] = [
+    makeEvent({ type: "text", content: "Investigating" }, 0),
+    makeEvent(
+      { type: "tool_call", toolName: "bash", toolUseId: "tu-1", content: "ls" },
+      1,
+    ),
+    makeEvent(
+      { type: "tool_result", toolName: "bash", toolUseId: "tu-1", result: "ok" },
+      2,
+    ),
+  ];
+
+  test("computeSubagentSteps memoized on entry.events skips the walk across a token/status update", () => {
+    // A token/status/usage update bumps `entry` identity but leaves
+    // `entry.events` reference-stable — the same array instance.
+    const entryA = makeEntry({ status: "running", events });
+    const entryB = makeEntry({
+      status: "completed",
+      // Same `events` reference — only the surrounding entry changed.
+      events: entryA.events,
+      outputTokens: 42,
+    });
+    expect(entryA).not.toBe(entryB);
+    expect(entryB.events).toBe(entryA.events);
+
+    const memo = memoizeByDep((evts: SubagentTimelineEvent[]) =>
+      computeSubagentSteps(evts),
+    );
+    const first = memo.run(entryA.events);
+    const second = memo.run(entryB.events);
+    // No recompute: the stable `events` reference is the only dependency.
+    expect(memo.calls).toBe(1);
+    expect(second).toBe(first);
+    // And the cached result is still correct.
+    expect(first.steps).toEqual(computeSubagentSteps(events).steps);
+  });
+
+  test("computeSubagentSteps memoized on entry.events re-runs when the event list changes", () => {
+    const entryA = makeEntry({ events });
+    // A new event appended → a new array reference (the store replaces it).
+    const entryB = makeEntry({
+      events: [...events, makeEvent({ type: "text", content: "done" }, 3)],
+    });
+    expect(entryB.events).not.toBe(entryA.events);
+
+    const memo = memoizeByDep((evts: SubagentTimelineEvent[]) =>
+      computeSubagentSteps(evts),
+    );
+    memo.run(entryA.events);
+    const after = memo.run(entryB.events);
+    expect(memo.calls).toBe(2);
+    expect(after.steps).toEqual(computeSubagentSteps(entryB.events).steps);
+  });
+
+  test("buildSubagentStepDetails memoized on entry.events skips the walk across a token/status update", () => {
+    const entryA = makeEntry({ status: "running", events });
+    const entryB = makeEntry({
+      status: "completed",
+      events: entryA.events,
+      inputTokens: 100,
+    });
+    expect(entryB.events).toBe(entryA.events);
+
+    const memo = memoizeByDep((evts: SubagentTimelineEvent[]) =>
+      buildSubagentStepDetails(evts),
+    );
+    const first = memo.run(entryA.events);
+    const second = memo.run(entryB.events);
+    expect(memo.calls).toBe(1);
+    expect(second).toBe(first);
+    expect(first.get("tu-1")?.status).toBe("completed");
+  });
 });

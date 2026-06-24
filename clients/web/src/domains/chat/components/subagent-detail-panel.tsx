@@ -37,7 +37,7 @@ import { WebFetchDetailView } from "@/domains/chat/components/web-fetch/web-fetc
 import { WebSearchDetailView } from "@/domains/chat/components/web-search/web-search-detail-view";
 import {
     buildSubagentStepDetails,
-    computeSubagentCardData,
+    computeSubagentSteps,
 } from "@/domains/chat/hooks/use-subagent-card-data";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
@@ -103,8 +103,16 @@ export function SubagentDetailPanel({
   // three separate times in the JSX below.
   const traits = useMemo(() => subagentTraits(entry.subagentId), [entry.subagentId]);
   // The panel re-renders when `entry` changes via the store subscription in
-  // chat-content-layout.tsx, so memoizing on `entry` keeps the steps fresh.
-  const cardData = useMemo(() => computeSubagentCardData(entry), [entry]);
+  // chat-content-layout.tsx. The store bumps `entry` identity on every
+  // token/status/usage update but keeps `entry.events` reference-stable, so the
+  // heavy O(n) timeline walk is keyed on `entry.events` — it re-runs only when
+  // the event list actually changes, not on every status/usage tick. The panel
+  // renders its own header from `entry` directly, so it needs only the projected
+  // `steps` (not the carousel meta `computeSubagentCardData` derives).
+  const { steps } = useMemo(
+    () => computeSubagentSteps(entry.events),
+    [entry.events],
+  );
 
   // `toolCallId`-keyed map of nested tool-detail payloads, used to swap the
   // panel body to a tool's input/output when its timeline pill is clicked —
@@ -117,7 +125,10 @@ export function SubagentDetailPanel({
   // `mapDetailEvents` carries through); thinking/text steps key on the source
   // event id and carry the full, un-truncated reasoning. Steps with no entry
   // here render as non-clickable pills — a graceful fallback, not an error.
-  const stepDetails = useMemo(() => buildSubagentStepDetails(entry), [entry]);
+  const stepDetails = useMemo(
+    () => buildSubagentStepDetails(entry.events),
+    [entry.events],
+  );
 
   // Which step's detail (if any) is shown nested inside this panel — the key
   // into `stepDetails` (a tool call or a thinking segment), or `null` to show
@@ -408,20 +419,20 @@ export function SubagentDetailPanel({
                * subagent's same-positioned phase.
                */}
               {/*
-               * Gate the empty state on the RAW `entry.events`, not on
-               * `cardData.steps`. `computeSubagentCardData` can intentionally
+               * Gate the empty state on the RAW `entry.events`, not on the
+               * projected `steps`. `computeSubagentSteps` can intentionally
                * DROP events (e.g. a `tool_result` with no preceding in-flight
-               * `tool_call`), so `entry.events` can be non-empty while
-               * `cardData.steps` is empty. Gating on steps would show a false
-               * "No events yet" AND — because `entry.events.length !== 0` — the
-               * detail-refetch effect above wouldn't fire to recover. When the
-               * store has events we render the timeline (which returns null for
-               * zero steps, an acceptable no-op).
+               * `tool_call`), so `entry.events` can be non-empty while `steps`
+               * is empty. Gating on steps would show a false "No events yet"
+               * AND — because `entry.events.length !== 0` — the detail-refetch
+               * effect above wouldn't fire to recover. When the store has events
+               * we render the timeline (which returns null for zero steps, an
+               * acceptable no-op).
                */}
               {entry.events.length > 0 ? (
                 <SubagentPhaseTimeline
                   key={entry.subagentId}
-                  steps={cardData.steps}
+                  steps={steps}
                   expandedKeys={expandedSectionKeys}
                   onExpandedKeysChange={setExpandedSectionKeys}
                   onStepDetailClick={(key) => {
