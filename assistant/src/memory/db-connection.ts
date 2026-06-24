@@ -8,6 +8,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getMemoryDbPath } from "../util/memory-db-path.js";
 import { ensureDataDir, getDbPath } from "../util/platform.js";
+import { getTelemetryDbPath } from "../util/telemetry-db-path.js";
 import { clearStoredDb, getStoredDb, setStoredDb } from "./db-singleton.js";
 import * as schema from "./schema.js";
 
@@ -136,7 +137,7 @@ export function getSqliteFrom(drizzleDb: DrizzleDb): Database {
  * path so this file stays import-light. Callers tolerate a `null` result.
  */
 function openDedicatedDb(
-  key: "logs" | "memory",
+  key: "logs" | "memory" | "telemetry",
   dbPath: string,
 ): DrizzleDb | null {
   assertTestDbIsIsolated();
@@ -193,10 +194,27 @@ export function getMemorySqlite(): Database | null {
 }
 
 /**
+ * The telemetry database (`assistant-telemetry.db`), opened lazily as its own
+ * connection. Houses telemetry event tables (starting with `watchdog_events`).
+ * Returns `null` if the file cannot be opened (logged; the daemon stays up).
+ */
+export function getTelemetryDb(): DrizzleDb | null {
+  const existing = getStoredDb<DrizzleDb>("telemetry");
+  if (existing) return existing;
+  return openDedicatedDb("telemetry", getTelemetryDbPath());
+}
+
+/** Underlying bun:sqlite Database for the telemetry connection, or `null`. */
+export function getTelemetrySqlite(): Database | null {
+  const db = getTelemetryDb();
+  return db ? getSqliteFrom(db) : null;
+}
+
+/**
  * Reset all DB singletons. Used by production callers that need to close the
  * live connections so the files can be replaced (post-migration, post-restore,
- * post-vbundle-import) and on graceful shutdown. Clears the main, logs, and
- * memory slots together so none lingers open against a swapped-out file.
+ * post-vbundle-import) and on graceful shutdown. Clears the main, logs, memory,
+ * and telemetry slots together so none lingers open against a swapped-out file.
  *
  * Tests should use `resetDbForTesting()` from
  * `__tests__/db-test-helpers.ts` instead so they don't depend on this
@@ -206,4 +224,5 @@ export function resetDb(): void {
   clearStoredDb("main");
   clearStoredDb("logs");
   clearStoredDb("memory");
+  clearStoredDb("telemetry");
 }

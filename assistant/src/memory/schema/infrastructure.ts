@@ -337,6 +337,26 @@ export const skillLoadedEvents = sqliteTable(
   ],
 );
 
+// One row per `watchdog` telemetry event, emitted when a daemon watchdog
+// check fires (event-loop block, stream-idle stall, restart, ...) — see
+// watchdog-events-store.ts for the data contract. Flushed by the usage
+// telemetry reporter. `value` is a REAL (BQ FLOAT) so the daemon need not
+// distinguish int vs float; the platform serializer coerces ints to float.
+// `detail` is a JSON bag stored as text and forwarded verbatim.
+export const watchdogEvents = sqliteTable(
+  "watchdog_events",
+  {
+    id: text("id").primaryKey(),
+    createdAt: integer("created_at").notNull(),
+    checkName: text("check_name").notNull(),
+    value: real("value"),
+    detail: text("detail"),
+  },
+  (table) => [
+    index("idx_watchdog_events_created_at_id").on(table.createdAt, table.id),
+  ],
+);
+
 export const traceEvents = sqliteTable(
   "trace_events",
   {
