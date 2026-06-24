@@ -2,9 +2,10 @@
  * Tests for `SubagentInlineProgressCard`.
  *
  * Drives the Zustand subagent store with fixture timelines and asserts
- * the rendered shell's title/info/pill transitions, the spawn-race
- * `null` fallback, and the deterministic avatar trait variation across
- * subagent IDs.
+ * the rendered row's title/info/step-count transitions, the
+ * steps-before-stop DOM order, the transparent-with-hover row chrome, the
+ * spawn-race `null` fallback, and the deterministic avatar trait variation
+ * across subagent IDs.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -63,9 +64,9 @@ describe("SubagentInlineProgressCard — fixture timeline", () => {
     // the live reasoning preview moves to the subtitle.
     expect(getByText("Research Agent")).toBeTruthy();
     expect(getByText("Checking the docs")).toBeTruthy();
-    // Single-step cards suppress the count pill — it only shows for 2+.
+    // Single-step rows suppress the step count — it only shows for 2+.
     expect(queryByText("1 step")).toBeNull();
-    expect(getByTestId("subagent-inline-card-shell")).toBeTruthy();
+    expect(getByTestId("subagent-inline-progress-card")).toBeTruthy();
   });
 
   test("transitions to Working when a tool_call lands after text", () => {
@@ -155,6 +156,31 @@ describe("SubagentInlineProgressCard — header action", () => {
     expect(seen).toEqual(["sa-open"]);
   });
 
+  test("Enter on the row opens the panel, but Enter from the stop button does not", () => {
+    spawn("sa-keydown");
+    const seen: string[] = [];
+    const { getByTestId } = render(
+      <SubagentInlineProgressCard
+        subagentId="sa-keydown"
+        onSubagentClick={(id) => seen.push(id)}
+        onStopSubagent={() => {}}
+      />,
+    );
+
+    const row = getByTestId("subagent-inline-progress-card");
+    const stop = getByTestId("subagent-inline-card-stop");
+
+    // Enter originating on the stop button bubbles to the row handler, but the
+    // row must ignore it (target !== currentTarget) so the button's own
+    // keyboard activation is not hijacked.
+    fireEvent.keyDown(stop, { key: "Enter" });
+    expect(seen).toEqual([]);
+
+    // Enter on the row itself still opens the panel.
+    fireEvent.keyDown(row, { key: "Enter" });
+    expect(seen).toEqual(["sa-keydown"]);
+  });
+
   test("no expand toggle is exposed — there is no inline body", () => {
     spawn("sa-no-expand");
     act(() => {
@@ -193,6 +219,50 @@ describe("SubagentInlineProgressCard — header action", () => {
       });
     });
     expect(queryByTestId("subagent-inline-card-stop")).toBeNull();
+  });
+
+  test("step count renders before the stop button in DOM order", () => {
+    spawn("sa-order");
+    const store = useSubagentStore.getState();
+    // Two steps so the step count is shown (single-step rows suppress it).
+    store.receiveEvent({
+      subagentId: "sa-order",
+      event: { type: "assistant_text_delta", text: "Searching" },
+      timestamp: NOW + 100,
+    });
+    store.receiveEvent({
+      subagentId: "sa-order",
+      event: {
+        type: "tool_use_start",
+        toolName: "bash",
+        input: { command: "ls -la" },
+      },
+      timestamp: NOW + 200,
+    });
+
+    const { getByTestId } = render(
+      <SubagentInlineProgressCard
+        subagentId="sa-order"
+        onStopSubagent={() => {}}
+      />,
+    );
+
+    const stepCount = getByTestId("subagent-inline-card-step-count");
+    const stop = getByTestId("subagent-inline-card-stop");
+    // The step count precedes the stop button in the rendered DOM.
+    expect(
+      stepCount.compareDocumentPosition(stop) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  test("the row is transparent by default and paints surface-active on hover", () => {
+    spawn("sa-hover");
+    const { getByTestId } = render(
+      <SubagentInlineProgressCard subagentId="sa-hover" />,
+    );
+    const row = getByTestId("subagent-inline-progress-card");
+    expect(row.className).toContain("hover:bg-[var(--surface-active)]");
   });
 });
 
