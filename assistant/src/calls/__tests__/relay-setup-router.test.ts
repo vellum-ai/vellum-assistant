@@ -404,8 +404,8 @@ function makeVerdict(overrides: Partial<TrustVerdict> = {}): TrustVerdict {
 }
 
 // A verdict carrying a fully-resolvable member ACL (contactId/channelId + valid
-// known status·policy enums). The REAL `resolvedMemberFromVerdict` synthesizes
-// a memberRecord from these, so the verdict path enforces blocked/revoked/deny.
+// known status·policy enums). The verdict path builds a memberRecord from
+// these, so it enforces blocked/revoked/deny.
 function makeMemberVerdict(
   trustClass: TrustVerdict["trustClass"],
   channel: { status: string; policy?: string },
