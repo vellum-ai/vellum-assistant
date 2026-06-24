@@ -40,6 +40,9 @@ describe("buildResearchPrompt — capabilities", () => {
     expect(prompt).toContain("- marketing-expert — Full-stack marketing.");
     expect(prompt).toContain("- admin-copilot — Proactive chief-of-staff.");
     expect(prompt).toContain('"plugins"');
+    // The canonical "exactly this shape" example must show plugins first, so a
+    // model following the schema literally still emits the install list.
+    expect(prompt.indexOf('"plugins"')).toBeLessThan(prompt.indexOf('"claims"'));
   });
 
   test("caps the injected list so a large catalog can't bloat the prompt", () => {
