@@ -94,9 +94,19 @@ const resolveGuardianList = async (input?: { channelTypes?: string[] }) => {
   return channels
     .map((channelType) => {
       const found = findGuardianForChannel(channelType);
-      return found ? { channelType, status: "active" } : null;
+      if (!found) return null;
+      return {
+        channelType,
+        contactId: found.contact.id,
+        principalId: found.contact.principalId ?? null,
+        displayName: found.contact.displayName ?? null,
+        address: found.channel.address,
+        externalChatId: found.channel.externalChatId ?? null,
+        status: "active",
+        verifiedAt: found.channel.verifiedAt ?? null,
+      };
     })
-    .filter((g): g is { channelType: string; status: string } => g !== null);
+    .filter((g) => g !== null);
 };
 
 mock.module("../contacts/guardian-delivery-reader.js", () => ({
@@ -345,12 +355,12 @@ describe("guardian service challenge validation", () => {
     }
   });
 
-  test("validateAndConsumeVerification does not create a guardian binding (caller responsibility)", () => {
+  test("validateAndConsumeVerification does not create a guardian binding (caller responsibility)", async () => {
     const { secret } = createInboundVerificationSession("telegram");
 
     validateAndConsumeVerification("telegram", secret, "user-42", "chat-42");
 
-    const binding = getGuardianBinding("asst-1", "telegram");
+    const binding = await getGuardianBinding("asst-1", "telegram");
     expect(binding).toBeNull();
   });
 
@@ -422,7 +432,7 @@ describe("guardian service challenge validation", () => {
     expect(result2.success).toBe(false);
   });
 
-  test("validateAndConsumeVerification succeeds with voice channel", () => {
+  test("validateAndConsumeVerification succeeds with voice channel", async () => {
     const { secret } = createInboundVerificationSession("phone");
 
     const result = validateAndConsumeVerification(
@@ -439,7 +449,7 @@ describe("guardian service challenge validation", () => {
 
     // validateAndConsumeVerification no longer creates bindings — that is
     // now handled by the gateway's verification intercepts.
-    const binding = getGuardianBinding("asst-1", "phone");
+    const binding = await getGuardianBinding("asst-1", "phone");
     expect(binding).toBeNull();
   });
 
@@ -475,7 +485,7 @@ describe("guardian service challenge validation", () => {
     expect(telegramResult.success).toBe(true);
   });
 
-  test("validateAndConsumeVerification succeeds even with existing binding (conflict check is caller responsibility)", () => {
+  test("validateAndConsumeVerification succeeds even with existing binding (conflict check is caller responsibility)", async () => {
     // Create initial guardian binding
     createGuardianBinding({
       channel: "telegram",
@@ -484,7 +494,7 @@ describe("guardian service challenge validation", () => {
       guardianDeliveryChatId: "old-chat",
     });
 
-    const oldBinding = getGuardianBinding("asst-1", "telegram");
+    const oldBinding = await getGuardianBinding("asst-1", "telegram");
     expect(oldBinding).not.toBeNull();
     expect(oldBinding!.guardianExternalUserId).toBe("old-user");
 
@@ -499,7 +509,7 @@ describe("guardian service challenge validation", () => {
     // Challenge validation succeeds — the caller decides how to handle binding conflicts
     expect(result.success).toBe(true);
 
-    const binding = getGuardianBinding("asst-1", "telegram");
+    const binding = await getGuardianBinding("asst-1", "telegram");
     expect(binding).not.toBeNull();
     expect(binding!.guardianExternalUserId).toBe("old-user");
   });
@@ -514,7 +524,7 @@ describe("guardian identity check", () => {
     resetTables();
   });
 
-  test("isGuardian returns true for matching user", () => {
+  test("isGuardian returns true for matching user", async () => {
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "user-42",
@@ -522,10 +532,10 @@ describe("guardian identity check", () => {
       guardianDeliveryChatId: "chat-42",
     });
 
-    expect(isGuardian("asst-1", "telegram", "user-42")).toBe(true);
+    expect(await isGuardian("asst-1", "telegram", "user-42")).toBe(true);
   });
 
-  test("isGuardian returns false for non-matching user", () => {
+  test("isGuardian returns false for non-matching user", async () => {
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "user-42",
@@ -533,14 +543,14 @@ describe("guardian identity check", () => {
       guardianDeliveryChatId: "chat-42",
     });
 
-    expect(isGuardian("asst-1", "telegram", "user-99")).toBe(false);
+    expect(await isGuardian("asst-1", "telegram", "user-99")).toBe(false);
   });
 
-  test("isGuardian returns false when no binding exists", () => {
-    expect(isGuardian("asst-1", "telegram", "user-42")).toBe(false);
+  test("isGuardian returns false when no binding exists", async () => {
+    expect(await isGuardian("asst-1", "telegram", "user-42")).toBe(false);
   });
 
-  test("isGuardian returns false after binding is revoked", () => {
+  test("isGuardian returns false after binding is revoked", async () => {
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "user-42",
@@ -550,10 +560,10 @@ describe("guardian identity check", () => {
 
     serviceRevokeBinding("asst-1", "telegram");
 
-    expect(isGuardian("asst-1", "telegram", "user-42")).toBe(false);
+    expect(await isGuardian("asst-1", "telegram", "user-42")).toBe(false);
   });
 
-  test("getGuardianBinding returns the active binding", () => {
+  test("getGuardianBinding returns the active binding", async () => {
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "user-42",
@@ -561,17 +571,17 @@ describe("guardian identity check", () => {
       guardianDeliveryChatId: "chat-42",
     });
 
-    const binding = getGuardianBinding("asst-1", "telegram");
+    const binding = await getGuardianBinding("asst-1", "telegram");
     expect(binding).not.toBeNull();
     expect(binding!.guardianExternalUserId).toBe("user-42");
   });
 
-  test("getGuardianBinding returns null when no binding exists", () => {
-    const binding = getGuardianBinding("asst-1", "telegram");
+  test("getGuardianBinding returns null when no binding exists", async () => {
+    const binding = await getGuardianBinding("asst-1", "telegram");
     expect(binding).toBeNull();
   });
 
-  test("isGuardian works for voice channel", () => {
+  test("isGuardian works for voice channel", async () => {
     createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "phone-user-1",
@@ -579,13 +589,13 @@ describe("guardian identity check", () => {
       guardianDeliveryChatId: "voice-chat-1",
     });
 
-    expect(isGuardian("asst-1", "phone", "phone-user-1")).toBe(true);
-    expect(isGuardian("asst-1", "phone", "phone-user-2")).toBe(false);
+    expect(await isGuardian("asst-1", "phone", "phone-user-1")).toBe(true);
+    expect(await isGuardian("asst-1", "phone", "phone-user-2")).toBe(false);
     // Telegram guardian should not match voice channel
-    expect(isGuardian("asst-1", "telegram", "phone-user-1")).toBe(false);
+    expect(await isGuardian("asst-1", "telegram", "phone-user-1")).toBe(false);
   });
 
-  test("serviceRevokeBinding revokes the active binding", () => {
+  test("serviceRevokeBinding revokes the active binding", async () => {
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "user-42",
@@ -595,7 +605,7 @@ describe("guardian identity check", () => {
 
     const result = serviceRevokeBinding("asst-1", "telegram");
     expect(result).toBe(true);
-    expect(getGuardianBinding("asst-1", "telegram")).toBeNull();
+    expect(await getGuardianBinding("asst-1", "telegram")).toBeNull();
   });
 });
 
@@ -886,7 +896,7 @@ describe("channel-scoped guardian resolution", () => {
     resetTables();
   });
 
-  test("isGuardian resolves independently per channel", () => {
+  test("isGuardian resolves independently per channel", async () => {
     // Create guardian binding on telegram
     createGuardianBinding({
       channel: "telegram",
@@ -903,15 +913,15 @@ describe("channel-scoped guardian resolution", () => {
     });
 
     // user-alpha is guardian for telegram but not voice
-    expect(isGuardian("self", "telegram", "user-alpha")).toBe(true);
-    expect(isGuardian("self", "phone", "user-alpha")).toBe(false);
+    expect(await isGuardian("self", "telegram", "user-alpha")).toBe(true);
+    expect(await isGuardian("self", "phone", "user-alpha")).toBe(false);
 
     // user-beta is guardian for voice but not telegram
-    expect(isGuardian("self", "phone", "user-beta")).toBe(true);
-    expect(isGuardian("self", "telegram", "user-beta")).toBe(false);
+    expect(await isGuardian("self", "phone", "user-beta")).toBe(true);
+    expect(await isGuardian("self", "telegram", "user-beta")).toBe(false);
   });
 
-  test("getGuardianBinding returns different bindings for different channels", () => {
+  test("getGuardianBinding returns different bindings for different channels", async () => {
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "user-alpha",
@@ -925,8 +935,8 @@ describe("channel-scoped guardian resolution", () => {
       guardianDeliveryChatId: "chat-beta",
     });
 
-    const bindingTelegram = getGuardianBinding("self", "telegram");
-    const bindingVoice = getGuardianBinding("self", "phone");
+    const bindingTelegram = await getGuardianBinding("self", "telegram");
+    const bindingVoice = await getGuardianBinding("self", "phone");
 
     expect(bindingTelegram).not.toBeNull();
     expect(bindingVoice).not.toBeNull();
@@ -934,7 +944,7 @@ describe("channel-scoped guardian resolution", () => {
     expect(bindingVoice!.guardianExternalUserId).toBe("user-beta");
   });
 
-  test("revoking binding for one channel does not affect another", () => {
+  test("revoking binding for one channel does not affect another", async () => {
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "user-alpha",
@@ -950,11 +960,11 @@ describe("channel-scoped guardian resolution", () => {
 
     serviceRevokeBinding("self", "telegram");
 
-    expect(getGuardianBinding("self", "telegram")).toBeNull();
-    expect(getGuardianBinding("self", "phone")).not.toBeNull();
+    expect(await getGuardianBinding("self", "telegram")).toBeNull();
+    expect(await getGuardianBinding("self", "phone")).not.toBeNull();
   });
 
-  test("validateAndConsumeVerification scoped to channel", () => {
+  test("validateAndConsumeVerification scoped to channel", async () => {
     // Create challenge on telegram
     const { secret: secretTelegram } =
       createInboundVerificationSession("telegram");
@@ -987,8 +997,8 @@ describe("channel-scoped guardian resolution", () => {
     );
     expect(resultVoice.success).toBe(true);
 
-    const bindingTelegram = getGuardianBinding("self", "telegram");
-    const bindingVoice = getGuardianBinding("self", "phone");
+    const bindingTelegram = await getGuardianBinding("self", "telegram");
+    const bindingVoice = await getGuardianBinding("self", "phone");
     expect(bindingTelegram).toBeNull();
     expect(bindingVoice).toBeNull();
   });
@@ -1303,7 +1313,7 @@ describe("voice guardian challenge validation", () => {
     }
   });
 
-  test("validateAndConsumeVerification does not create a guardian binding for voice (caller responsibility)", () => {
+  test("validateAndConsumeVerification does not create a guardian binding for voice (caller responsibility)", async () => {
     const { secret } = createInboundVerificationSession("phone");
 
     validateAndConsumeVerification(
@@ -1313,7 +1323,7 @@ describe("voice guardian challenge validation", () => {
       "voice-chat-1",
     );
 
-    const binding = getGuardianBinding("asst-1", "phone");
+    const binding = await getGuardianBinding("asst-1", "phone");
     expect(binding).toBeNull();
   });
 
@@ -1387,7 +1397,7 @@ describe("voice guardian challenge validation", () => {
     expect(result2.success).toBe(false);
   });
 
-  test("validateAndConsumeVerification succeeds even with existing voice binding (conflict check is caller responsibility)", () => {
+  test("validateAndConsumeVerification succeeds even with existing voice binding (conflict check is caller responsibility)", async () => {
     createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "old-voice-user",
@@ -1395,7 +1405,7 @@ describe("voice guardian challenge validation", () => {
       guardianDeliveryChatId: "old-voice-chat",
     });
 
-    const oldBinding = getGuardianBinding("asst-1", "phone");
+    const oldBinding = await getGuardianBinding("asst-1", "phone");
     expect(oldBinding).not.toBeNull();
     expect(oldBinding!.guardianExternalUserId).toBe("old-voice-user");
 
@@ -1411,7 +1421,7 @@ describe("voice guardian challenge validation", () => {
     expect(result.success).toBe(true);
 
     // The original binding is untouched (no side effects)
-    const binding = getGuardianBinding("asst-1", "phone");
+    const binding = await getGuardianBinding("asst-1", "phone");
     expect(binding).not.toBeNull();
     expect(binding!.guardianExternalUserId).toBe("old-voice-user");
   });
@@ -1426,7 +1436,7 @@ describe("voice guardian identity and revocation", () => {
     resetTables();
   });
 
-  test("isGuardian works for voice channel", () => {
+  test("isGuardian works for voice channel", async () => {
     createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "voice-user-1",
@@ -1434,13 +1444,13 @@ describe("voice guardian identity and revocation", () => {
       guardianDeliveryChatId: "voice-chat-1",
     });
 
-    expect(isGuardian("asst-1", "phone", "voice-user-1")).toBe(true);
-    expect(isGuardian("asst-1", "phone", "voice-user-2")).toBe(false);
+    expect(await isGuardian("asst-1", "phone", "voice-user-1")).toBe(true);
+    expect(await isGuardian("asst-1", "phone", "voice-user-2")).toBe(false);
     // Voice guardian should not match telegram channel
-    expect(isGuardian("asst-1", "telegram", "voice-user-1")).toBe(false);
+    expect(await isGuardian("asst-1", "telegram", "voice-user-1")).toBe(false);
   });
 
-  test("getGuardianBinding returns voice binding", () => {
+  test("getGuardianBinding returns voice binding", async () => {
     createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "voice-user-1",
@@ -1448,13 +1458,13 @@ describe("voice guardian identity and revocation", () => {
       guardianDeliveryChatId: "voice-chat-1",
     });
 
-    const binding = getGuardianBinding("asst-1", "phone");
+    const binding = await getGuardianBinding("asst-1", "phone");
     expect(binding).not.toBeNull();
     expect(binding!.channel).toBe("phone");
     expect(binding!.guardianExternalUserId).toBe("voice-user-1");
   });
 
-  test("revokeBinding clears active voice guardian binding", () => {
+  test("revokeBinding clears active voice guardian binding", async () => {
     createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "voice-user-1",
@@ -1464,10 +1474,10 @@ describe("voice guardian identity and revocation", () => {
 
     const result = serviceRevokeBinding("asst-1", "phone");
     expect(result).toBe(true);
-    expect(getGuardianBinding("asst-1", "phone")).toBeNull();
+    expect(await getGuardianBinding("asst-1", "phone")).toBeNull();
   });
 
-  test("revokeBinding for voice does not affect telegram binding", () => {
+  test("revokeBinding for voice does not affect telegram binding", async () => {
     createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "voice-user-1",
@@ -1483,8 +1493,8 @@ describe("voice guardian identity and revocation", () => {
 
     serviceRevokeBinding("asst-1", "phone");
 
-    expect(getGuardianBinding("asst-1", "phone")).toBeNull();
-    expect(getGuardianBinding("asst-1", "telegram")).not.toBeNull();
+    expect(await getGuardianBinding("asst-1", "phone")).toBeNull();
+    expect(await getGuardianBinding("asst-1", "telegram")).not.toBeNull();
   });
 });
 
@@ -1742,7 +1752,7 @@ describe("HTTP handler voice guardian verification", () => {
     expect(resp!.bound).toBe(false);
 
     // Verify binding is actually revoked
-    expect(getGuardianBinding("self", "phone")).toBeNull();
+    expect(await getGuardianBinding("self", "phone")).toBeNull();
   });
 
   test("revoke for voice does not affect telegram binding", async () => {
@@ -1768,8 +1778,8 @@ describe("HTTP handler voice guardian verification", () => {
 
     await handleChannelVerificationSession(msg);
 
-    expect(getGuardianBinding("self", "phone")).toBeNull();
-    expect(getGuardianBinding("self", "telegram")).not.toBeNull();
+    expect(await getGuardianBinding("self", "phone")).toBeNull();
+    expect(await getGuardianBinding("self", "telegram")).not.toBeNull();
   });
 });
 

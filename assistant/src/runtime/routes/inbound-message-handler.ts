@@ -935,7 +935,7 @@ export async function handleChannelInbound({
   }
 
   // ── Ingress escalation ──
-  const escalationResponse = handleEscalationIntercept({
+  const escalationResponse = await handleEscalationIntercept({
     resolvedMember,
     canonicalAssistantId,
     sourceChannel,

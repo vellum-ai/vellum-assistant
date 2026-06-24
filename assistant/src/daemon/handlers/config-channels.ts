@@ -140,13 +140,13 @@ export async function createInboundChallenge(
   };
 }
 
-export function getVerificationStatus(
+export async function getVerificationStatus(
   channel?: ChannelId,
-): ChannelVerificationSessionResult {
+): Promise<ChannelVerificationSessionResult> {
   const resolvedAssistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? "telegram";
 
-  const binding = getGuardianBinding(resolvedAssistantId, resolvedChannel);
+  const binding = await getGuardianBinding(resolvedAssistantId, resolvedChannel);
 
   // Read the contact directly to get displayName — getGuardianBinding is a
   // compatibility shim that doesn't carry metadataJson.
@@ -214,7 +214,10 @@ export async function revokeVerificationForChannel(
 
   // Capture binding before revoking so we can downgrade the guardian's
   // channel — without this, the guardian would still pass the ACL check.
-  const bindingBeforeRevoke = getGuardianBinding(assistantId, resolvedChannel);
+  const bindingBeforeRevoke = await getGuardianBinding(
+    assistantId,
+    resolvedChannel,
+  );
   if (!bindingBeforeRevoke) {
     return {
       success: true,
@@ -621,7 +624,7 @@ export async function handleChannelVerificationSession(
         });
       }
     } else if (msg.action === "status") {
-      const result = getVerificationStatus(channel);
+      const result = await getVerificationStatus(channel);
       broadcastMessage({
         type: "channel_verification_session_response",
         ...result,

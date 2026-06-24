@@ -112,9 +112,9 @@ type VerificationCallResult =
  * so the caller can apply side-effects (state mutations, TTS, session
  * updates) without this function needing access to the relay connection.
  */
-export function attemptVerificationCode(
+export async function attemptVerificationCode(
   params: VerificationCallParams,
-): VerificationCallResult {
+): Promise<VerificationCallResult> {
   const {
     verificationAssistantId,
     verificationFromNumber,
@@ -142,7 +142,7 @@ export function attemptVerificationCode(
     let canonicalPrincipal: string | undefined;
 
     if (result.verificationType === "guardian") {
-      const existingBinding = getGuardianBinding(
+      const existingBinding = await getGuardianBinding(
         verificationAssistantId,
         "phone",
       );
@@ -155,7 +155,7 @@ export function attemptVerificationCode(
         };
       } else {
         // Resolve canonical principal from the vellum channel binding
-        const vellumBinding = getGuardianBinding(
+        const vellumBinding = await getGuardianBinding(
           verificationAssistantId,
           "vellum",
         );

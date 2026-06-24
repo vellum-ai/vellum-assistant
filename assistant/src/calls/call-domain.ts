@@ -267,9 +267,9 @@ type CreateInboundVoiceSessionResult = {
  * returned without creating a duplicate. This handles Twilio webhook
  * replays gracefully.
  */
-export function createInboundVoiceSession(
+export async function createInboundVoiceSession(
   input: CreateInboundVoiceSessionInput,
-): CreateInboundVoiceSessionResult {
+): Promise<CreateInboundVoiceSessionResult> {
   const {
     callSid,
     fromNumber,
@@ -312,7 +312,7 @@ export function createInboundVoiceSession(
   updateCallSession(session.id, { providerCallSid: callSid });
   session.providerCallSid = callSid;
 
-  const callerIsGuardian = isGuardian(assistantId, "phone", fromNumber);
+  const callerIsGuardian = await isGuardian(assistantId, "phone", fromNumber);
   const metadataHints: string[] = [
     callerIsGuardian
       ? "Caller is the guardian"

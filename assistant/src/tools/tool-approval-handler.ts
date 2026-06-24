@@ -553,7 +553,7 @@ export class ToolApprovalHandler {
         const inputDigest =
           deferredConsumeParams?.inputDigest ??
           computeToolApprovalDigest(name, input);
-        const escalation = createOrReuseToolGrantRequest({
+        const escalation = await createOrReuseToolGrantRequest({
           assistantId: context.assistantId,
           sourceChannel: context.executionChannel as ChannelId,
           conversationId: context.conversationId,

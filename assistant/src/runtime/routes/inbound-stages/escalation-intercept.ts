@@ -49,9 +49,9 @@ export interface EscalationInterceptParams {
  * Returns a Response if the escalation was handled (the pipeline should
  * short-circuit), or null to continue the pipeline.
  */
-export function handleEscalationIntercept(
+export async function handleEscalationIntercept(
   params: EscalationInterceptParams,
-): Record<string, unknown> | null {
+): Promise<Record<string, unknown> | null> {
   const {
     resolvedMember,
     canonicalAssistantId,
@@ -76,7 +76,7 @@ export function handleEscalationIntercept(
     return null;
   }
 
-  const binding = getGuardianBinding(canonicalAssistantId, sourceChannel);
+  const binding = await getGuardianBinding(canonicalAssistantId, sourceChannel);
   if (!binding) {
     // Fail-closed: can't escalate without a guardian to route to
     log.info(
