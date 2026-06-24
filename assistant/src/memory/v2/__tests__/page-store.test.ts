@@ -208,6 +208,25 @@ describe("writePage + readPage round-trip", () => {
     ]);
   });
 
+  test("round-trips the skill: frontmatter link (procedural-knowledge fact)", async () => {
+    const page = makePage({
+      frontmatter: {
+        edges: [],
+        ref_files: [],
+        ref_urls: [],
+        skill: "deploy-preview",
+      },
+    });
+    await writePage(workspaceDir, page);
+
+    // The `skill:` link must survive the render → read round-trip so the edge
+    // graph can derive the `fact → skills/<id>` edge by reading it back from the
+    // rendered frontmatter.
+    const read = await readPage(workspaceDir, page.slug);
+    expect(read).not.toBeNull();
+    expect(read!.frontmatter.skill).toBe("deploy-preview");
+  });
+
   test("accepts and round-trips the v3 wiki-article frontmatter fields", async () => {
     // The full shape CONSOLIDATION_PROMPT_V3 teaches and migrated corpora
     // arrive in. readPage() throws on schema failure and one invalid page in

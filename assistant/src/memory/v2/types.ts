@@ -47,6 +47,14 @@ export const ConceptPageFrontmatterSchema = z
     // `renderPageContent` round-trips the field (the edge graph reads it back
     // from the rendered frontmatter).
     links: z.array(z.string()).optional(),
+    // Optional link to the one skill this page is procedural knowledge about
+    // (`skills/<skill>` capability page). Present only on the subset of memories
+    // that are facts about a skill; most pages carry none. Declared (not left to
+    // the `.passthrough()` catchall below) so it carries a real type and
+    // `renderPageContent` round-trips it — the edge graph derives the
+    // `fact → skills/<id>` edge by reading this field back from the rendered
+    // frontmatter.
+    skill: z.string().optional(),
     // The memory-v3 wiki-article fields — the shape CONSOLIDATION_PROMPT_V3
     // teaches and migrated corpora arrive in. Declared (not just tolerated by
     // the catchall) so `renderPageContent` round-trips them — a programmatic
