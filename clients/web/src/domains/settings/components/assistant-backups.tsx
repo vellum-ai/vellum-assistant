@@ -182,7 +182,6 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
       )}
       <Button
         variant="outlined"
-        size="compact"
         leftIcon={
           creatingBackup ? <Loader2 className="animate-spin" /> : <Save />
         }
