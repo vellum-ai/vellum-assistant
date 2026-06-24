@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
 import {
+  channelSectionKey,
   loadOpenCategories,
   saveOpenCategories,
 } from "@/domains/chat/utils/sidebar-group-collapse-storage";
@@ -50,6 +51,30 @@ describe("loadOpenCategories", () => {
   test("scopes lookups by assistant id", () => {
     memoryStorage.setItem(STORAGE_KEY, JSON.stringify(["scheduled"]));
     expect(loadOpenCategories("other_assistant")).toEqual([]);
+  });
+
+  test("keeps per-channel section keys", () => {
+    memoryStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify([
+        channelSectionKey("slack"),
+        channelSectionKey("telegram"),
+        "background",
+        "bogus",
+      ]),
+    );
+    expect(loadOpenCategories(ASSISTANT_ID)).toEqual([
+      "channel:slack",
+      "channel:telegram",
+      "background",
+    ]);
+  });
+});
+
+describe("channelSectionKey", () => {
+  test("prefixes the channel id", () => {
+    expect(channelSectionKey("telegram")).toBe("channel:telegram");
+    expect(channelSectionKey("slack")).toBe("channel:slack");
   });
 });
 

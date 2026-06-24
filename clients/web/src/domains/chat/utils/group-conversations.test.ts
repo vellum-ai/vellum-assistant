@@ -11,13 +11,25 @@ function makeConversation(overrides: Partial<Conversation>): Conversation {
   };
 }
 
+/** Conversation ids in a given channel's section, or [] when absent. */
+function channelSectionIds(
+  result: ReturnType<typeof groupConversations>,
+  channelId: string,
+): string[] {
+  return (
+    result.channelSections
+      .find((s) => s.channelId === channelId)
+      ?.conversations.map((c) => c.conversationId) ?? []
+  );
+}
+
 describe("groupConversations · bucket routing", () => {
   test("returns empty buckets for an empty input", () => {
     const result = groupConversations([]);
     expect(result.pinned).toEqual([]);
     expect(result.scheduled).toEqual([]);
     expect(result.background).toEqual([]);
-    expect(result.slack).toEqual([]);
+    expect(result.channelSections).toEqual([]);
     expect(result.recents).toEqual([]);
   });
 
@@ -35,7 +47,7 @@ describe("groupConversations · bucket routing", () => {
     expect(result.recents).toEqual([]);
     expect(result.scheduled).toEqual([]);
     expect(result.background).toEqual([]);
-    expect(result.slack).toEqual([]);
+    expect(result.channelSections).toEqual([]);
   });
 
   test("routes conversationType=scheduled into scheduled bucket", () => {
@@ -100,7 +112,7 @@ describe("groupConversations · bucket routing", () => {
       }),
     ]);
 
-    expect(result.slack.map((c) => c.conversationId)).toEqual([
+    expect(channelSectionIds(result, "slack")).toEqual([
       "slack-new",
       "slack-old",
       "slack-scheduled",
@@ -136,7 +148,7 @@ describe("groupConversations · bucket routing", () => {
       { groups },
     );
 
-    expect(result.slack).toEqual([]);
+    expect(result.channelSections).toEqual([]);
     expect(result.pinned.map((c) => c.conversationId)).toEqual([
       "pinned-slack",
     ]);
@@ -161,7 +173,7 @@ describe("groupConversations · bucket routing", () => {
       }),
     ]);
 
-    expect(result.slack).toEqual([]);
+    expect(result.channelSections).toEqual([]);
     expect(result.scheduled.map((c) => c.conversationId)).toEqual([
       "scheduled-slack",
     ]);
@@ -669,10 +681,53 @@ describe("groupConversations · surfaced promotion to recents", () => {
         surfacedAt: 1704067200000,
       }),
     ]);
-    expect(result.slack.map((c) => c.conversationId)).toEqual([
-      "slack-surfaced",
-    ]);
+    expect(channelSectionIds(result, "slack")).toEqual(["slack-surfaced"]);
     expect(result.recents).toEqual([]);
+  });
+
+  test("routes each non-Slack channel into its own section, ordered by channel id", () => {
+    const result = groupConversations([
+      makeConversation({ conversationId: "regular" }),
+      makeConversation({
+        conversationId: "tg-1",
+        originChannel: "telegram",
+        lastMessageAt: 1709251200000,
+      }),
+      makeConversation({
+        conversationId: "tg-2",
+        originChannel: "telegram",
+        lastMessageAt: 1704067200000,
+      }),
+      makeConversation({ conversationId: "wa-1", originChannel: "whatsapp" }),
+      makeConversation({ conversationId: "slack-1", originChannel: "slack" }),
+    ]);
+
+    // Sections are ordered by channel id (slack, telegram, whatsapp).
+    expect(result.channelSections.map((s) => s.channelId)).toEqual([
+      "slack",
+      "telegram",
+      "whatsapp",
+    ]);
+    // Within a section, conversations are recency-sorted.
+    expect(channelSectionIds(result, "telegram")).toEqual(["tg-1", "tg-2"]);
+    expect(channelSectionIds(result, "whatsapp")).toEqual(["wa-1"]);
+    expect(channelSectionIds(result, "slack")).toEqual(["slack-1"]);
+    expect(result.recents.map((c) => c.conversationId)).toEqual(["regular"]);
+  });
+
+  test("excludes native and notification origins from channel sections", () => {
+    const result = groupConversations([
+      makeConversation({ conversationId: "web", originChannel: "vellum" }),
+      makeConversation({
+        conversationId: "notif",
+        originChannel: "notification:slack",
+      }),
+    ]);
+    expect(result.channelSections).toEqual([]);
+    expect(result.recents.map((c) => c.conversationId).sort()).toEqual([
+      "notif",
+      "web",
+    ]);
   });
 
   test("archived surfaced conversations stay excluded", () => {
