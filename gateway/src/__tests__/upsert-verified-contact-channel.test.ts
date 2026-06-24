@@ -62,6 +62,11 @@ mock.module("../db/connection.js", () => ({
               return Array.from({ length: n }, () => ({ id: "x" }));
             },
           }),
+          // reassignChannelContact re-parents a channel via a bare update.
+          run: () => {
+            void table;
+            gwUpdates.push({ set, where });
+          },
         }),
       }),
     }),
@@ -596,6 +601,88 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
       c.sql.includes("UPDATE contact_channels"),
     );
     expect(update!.params).toContain("manual");
+  });
+});
+
+describe("upsertVerifiedContactChannel — invite target-contact binding", () => {
+  test("reassigns an existing channel to the supplied target contact", async () => {
+    // The redeemer's channel currently lives under a different contact (the
+    // guardian); the invite binds it to the target contact "mom".
+    queryRows = [
+      { channelId: "ch-redeemer", contactId: "co-guardian", channelStatus: "active" },
+    ];
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "redeemer-tg",
+      externalChatId: "redeemer-tg",
+      verifiedVia: "invite",
+      contactId: "co-mom",
+    });
+
+    // Assistant mirror re-parents the channel to the target contact.
+    const reparent = runCalls.find(
+      (c) =>
+        c.sql.includes("UPDATE contact_channels") &&
+        c.sql.includes("contact_id = ?"),
+    );
+    expect(reparent).toBeTruthy();
+    expect(reparent!.params).toEqual(["co-mom", "ch-redeemer"]);
+
+    // Gateway channel re-parented to the target contact too.
+    const gwReparent = gwUpdates.find(
+      (u) => (u.set as { contactId?: string }).contactId === "co-mom",
+    );
+    expect(gwReparent).toBeTruthy();
+
+    // The verified gateway write lands under the bound (target) contact.
+    expect(
+      gwUpdates.some(
+        (u) => (u.set as { status?: string }).status === "active",
+      ),
+    ).toBe(true);
+  });
+
+  test("does not reassign when the channel already belongs to the target contact", async () => {
+    queryRows = [
+      { channelId: "ch-x", contactId: "co-mom", channelStatus: "active" },
+    ];
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "redeemer-tg",
+      externalChatId: "redeemer-tg",
+      verifiedVia: "invite",
+      contactId: "co-mom",
+    });
+
+    const reparent = runCalls.find(
+      (c) =>
+        c.sql.includes("UPDATE contact_channels") &&
+        c.sql.includes("contact_id = ?"),
+    );
+    expect(reparent).toBeUndefined();
+  });
+
+  test("creates a fresh channel under the supplied target contact", async () => {
+    queryRows = [];
+    gwSelectStatus = null;
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "fresh-tg",
+      externalChatId: "fresh-tg",
+      verifiedVia: "invite",
+      contactId: "co-target",
+    });
+
+    // The assistant contact INSERT uses the supplied target contactId, not a
+    // freshly minted UUID.
+    const contactInsert = runCalls.find((c) =>
+      c.sql.includes("INSERT OR IGNORE INTO contacts"),
+    );
+    expect(contactInsert).toBeTruthy();
+    expect(contactInsert!.params[0]).toBe("co-target");
   });
 });
 

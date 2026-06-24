@@ -6,13 +6,108 @@
  * never throws and never gates the gateway-owned outcome.
  */
 
-import { MarkChannelRevokedIpcResponseSchema } from "@vellumai/gateway-client/gateway-ipc-contracts";
+import {
+  MarkChannelRevokedIpcResponseSchema,
+  UpsertVerifiedChannelIpcResponseSchema,
+} from "@vellumai/gateway-client/gateway-ipc-contracts";
 
 import { log } from "../daemon/handlers/shared.js";
 import { ipcCallPersistent } from "../ipc/gateway-client.js";
 import { getChannelById } from "./contact-store.js";
-import { revokeMember } from "./contacts-write.js";
+import { revokeMember, upsertContactChannel } from "./contacts-write.js";
 import type { ContactWriteResult } from "./types.js";
+
+// ── Activate ─────────────────────────────────────────────────────────
+
+export interface ActivateMemberChannelParams {
+  sourceChannel: string;
+  externalUserId?: string;
+  externalChatId?: string;
+  contactId?: string;
+  displayName?: string;
+  username?: string;
+  inviteId?: string;
+  verifiedAt?: number;
+  verifiedVia?: string;
+  policy?: string;
+}
+
+/**
+ * Activate a member channel gateway-first, then mirror the activation to the
+ * assistant DB best-effort. The gateway owns the ACL outcome; the local mirror
+ * supplies the native contact/channel callers still wire downstream.
+ *
+ * A gateway failure fails open with a logged warning (matching the redemption
+ * service's record_invite_redemption posture) so a transient gateway outage
+ * never drops a legitimate activation — the local mirror still stands.
+ *
+ * Returns the local ContactWriteResult, or null when the mirror yields none.
+ */
+export async function activateMemberChannel(
+  params: ActivateMemberChannelParams,
+): Promise<ContactWriteResult | null> {
+  const address = params.externalUserId ?? params.externalChatId;
+  const externalChatId = params.externalChatId ?? params.externalUserId;
+
+  if (address && externalChatId) {
+    try {
+      const result = await ipcCallPersistent("upsert_verified_channel", {
+        type: params.sourceChannel,
+        address,
+        externalChatId,
+        displayName: params.displayName,
+        username: params.username,
+        verifiedVia: params.verifiedVia ?? "invite",
+        contactId: params.contactId,
+      });
+      const parsed = UpsertVerifiedChannelIpcResponseSchema.parse(result);
+      // The gateway refused the actor (blocked/revoked): do NOT mirror an
+      // active local channel for an actor the gateway has denied.
+      if (!parsed.verified) {
+        log.warn(
+          { sourceChannel: params.sourceChannel },
+          "Gateway refused the channel activation; skipping the local mirror",
+        );
+        return null;
+      }
+    } catch (err) {
+      log.warn(
+        { err, sourceChannel: params.sourceChannel },
+        "upsert_verified_channel relay unavailable — failing open (local mirror still applies)",
+      );
+    }
+  }
+
+  return mirrorLocalActivation(params);
+}
+
+/** Best-effort local mirror of the activation. Swallows failures. */
+function mirrorLocalActivation(
+  params: ActivateMemberChannelParams,
+): ContactWriteResult | null {
+  try {
+    return upsertContactChannel({
+      sourceChannel: params.sourceChannel,
+      externalUserId: params.externalUserId,
+      externalChatId: params.externalChatId,
+      displayName: params.displayName,
+      username: params.username,
+      role: "contact",
+      status: "active",
+      policy: params.policy ?? "allow",
+      inviteId: params.inviteId,
+      verifiedAt: params.verifiedAt,
+      verifiedVia: params.verifiedVia ?? "invite",
+      contactId: params.contactId,
+    });
+  } catch (err) {
+    log.error(
+      { err, sourceChannel: params.sourceChannel },
+      "Local activation mirror failed after gateway activation; gateway outcome stands",
+    );
+    return null;
+  }
+}
 
 // ── Revoke ───────────────────────────────────────────────────────────
 

@@ -64,6 +64,28 @@ mock.module("../runtime/approval-message-composer.js", () => ({
   composeApprovalMessageGenerative: async () => "mock generative message",
 }));
 
+// Stub the gateway IPC so redemption claims + activation relays resolve
+// deterministically without a running gateway socket.
+const gatewayIpcCalls: Array<{
+  method: string;
+  params?: Record<string, unknown>;
+}> = [];
+mock.module("../ipc/gateway-client.js", () => ({
+  ipcCallPersistent: async (
+    method: string,
+    params?: Record<string, unknown>,
+  ) => {
+    gatewayIpcCalls.push({ method, params });
+    if (method === "record_invite_redemption") {
+      return { ok: true, updated: true, mirrored: true };
+    }
+    if (method === "upsert_verified_channel") {
+      return { ok: true, verified: true };
+    }
+    return undefined;
+  },
+}));
+
 import {
   findContactChannel,
   upsertContact,
@@ -98,6 +120,7 @@ function resetState(): void {
   db.run("DELETE FROM contacts");
   emitSignalCalls.length = 0;
   deliverReplyCalls.length = 0;
+  gatewayIpcCalls.length = 0;
   msgCounter = 0;
 }
 
@@ -176,6 +199,11 @@ describe("inbound invite redemption intercept", () => {
     });
     expect(result).not.toBeNull();
     expect(result!.channel.status).toBe("active");
+
+    // The activation is written to the gateway via upsert_verified_channel.
+    expect(
+      gatewayIpcCalls.some((c) => c.method === "upsert_verified_channel"),
+    ).toBe(true);
 
     // Verify a welcome reply was delivered
     expect(deliverReplyCalls.length).toBe(1);

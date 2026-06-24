@@ -30,6 +30,9 @@ mock.module("../ipc/gateway-client.js", () => ({
       if (gatewayIpc.claimThrows) throw new Error("gateway unreachable");
       return gatewayIpc.claim;
     }
+    if (method === "upsert_verified_channel") {
+      return { ok: true, verified: true };
+    }
     return undefined;
   },
 }));
@@ -102,6 +105,11 @@ describe("invite-redemption-service", () => {
       memberId: expect.any(String),
       inviteId: invite.id,
     });
+
+    // The activation is written to the gateway via upsert_verified_channel.
+    expect(
+      gatewayIpc.calls.some((c) => c.method === "upsert_verified_channel"),
+    ).toBe(true);
   });
 
   test("marks channel as verified via invite on redemption", async () => {
@@ -359,6 +367,18 @@ describe("invite-redemption-service", () => {
     // Should succeed — redeemer's channel is bound to Mom
     expect(outcome.ok).toBe(true);
     expect((outcome as { type: string }).type).toBe("redeemed");
+
+    // Gateway-first: the activation relays the target contactId so the gateway
+    // binds the channel to Mom (not the guardian) — the binding is not lost.
+    const upsert = gatewayIpc.calls.find(
+      (c) => c.method === "upsert_verified_channel",
+    );
+    expect(upsert).toBeDefined();
+    expect(upsert!.params).toMatchObject({
+      type: "telegram",
+      address: "guardian-tg-id",
+      contactId: momContact.id,
+    });
 
     // Verify the redeemer's Telegram ID is now bound to Mom's contact
     const result = findContactChannel({
