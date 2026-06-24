@@ -100,7 +100,12 @@ describe("post-tool-use hook", () => {
   test("skips error results", async () => {
     const ctx = baseCtx({
       command: "git push origin main",
-      toolResponse: { content: "error", is_error: true },
+      toolResponse: {
+        type: "tool_result",
+        tool_use_id: "tu-1",
+        content: "error",
+        is_error: true,
+      },
     });
     await postToolUse(ctx);
     expect(getPrLink("c1")).toBeUndefined();
