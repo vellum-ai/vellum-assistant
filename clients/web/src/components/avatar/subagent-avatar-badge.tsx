@@ -54,7 +54,7 @@ export function SubagentAvatarBadge({
     >
       <SubagentAvatarChip
         subagentId={subagentId}
-        size={14}
+        size={16}
         className="absolute top-[6px]"
       />
 
