@@ -46,7 +46,6 @@ const REPLYABLE_CHANNELS = new Set([
   "telegram",
   "whatsapp",
   "email",
-  "discord",
 ]);
 
 const CHANNEL_ICONS: Record<string, LucideIcon> = {

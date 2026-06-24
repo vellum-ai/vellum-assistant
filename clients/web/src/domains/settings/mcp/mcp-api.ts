@@ -17,7 +17,6 @@ interface McpServerTransport {
   command?: string;
   args?: string[];
   url?: string;
-  headers?: Record<string, string>;
 }
 
 export interface McpServerEntry {
@@ -27,6 +26,9 @@ export interface McpServerEntry {
   enabled: boolean;
   defaultRiskLevel: string;
   hasOAuth: boolean;
+  hasStaticAuth: boolean;
+  authType: "none" | "bearer" | "api-key";
+  authHeaderName?: string;
   allowedTools?: string[];
   blockedTools?: string[];
 }
