@@ -17,7 +17,6 @@ import type { LLMCallSite } from "../config/schemas/llm.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
-import { advisorEnabledForProfile } from "../plugins/defaults/advisor/advisor-gate.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
@@ -572,15 +571,6 @@ export function isToolActiveForContext(
     } catch {
       return true;
     }
-  }
-  if (name === "advisor") {
-    // Gated per chat-profile (`ProfileEntry.advisorEnabled`): when the resolved
-    // profile disables the advisor, omit the tool from the wire list so the
-    // model never sees a tool it can only no-op on. Resolves the profile the
-    // same way the advisor's execution-time guard does (the per-turn override,
-    // else the active profile). The wire list is fixed before PRE_MODEL_CALL
-    // hooks run, so later profile changes from hooks are not reflected here.
-    return advisorEnabledForProfile(ctx.currentTurnOverrideProfile ?? null);
   }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
     if (
