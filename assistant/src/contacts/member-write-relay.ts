@@ -47,13 +47,14 @@ export type ActivateMemberOutcome =
  * assistant DB best-effort. The gateway owns the ACL outcome; the local mirror
  * supplies the native contact/channel callers still wire downstream.
  *
- * A gateway failure fails open with a logged warning (matching the redemption
- * service's record_invite_redemption posture) so a transient gateway outage
- * never drops a legitimate activation — the local mirror still stands.
+ * A gateway write failure fails closed: the mirror is identity-only, so a
+ * gateway that did not persist the activation must surface as `refused` rather
+ * than reporting success off a local row the gateway never verified.
  *
  * Returns an `activated` outcome with a stable memberId on success, or
- * `refused` when the gateway denies the actor. A best-effort local-mirror
- * failure never downgrades a verified gateway activation.
+ * `refused` when the gateway denies the actor or the gateway write fails. A
+ * best-effort local-mirror failure never downgrades a verified gateway
+ * activation.
  */
 export async function activateMemberChannel(
   params: ActivateMemberChannelParams,
@@ -89,12 +90,14 @@ export async function activateMemberChannel(
       }
       gatewayChannelId = parsed.channel?.id;
     } catch (err) {
-      // Fail-open: the gateway write may or may not have landed. Proceed to the
-      // local mirror so a transient outage never drops a legitimate activation.
+      // Fail-closed: the gateway owns the ACL verdict and the local mirror is
+      // identity-only. If the gateway write did not land, the activation is not
+      // persisted to the source of truth, so we must not report success.
       log.warn(
         { err, sourceChannel: params.sourceChannel },
-        "upsert_verified_channel relay unavailable — failing open (local mirror still applies)",
+        "upsert_verified_channel relay failed — refusing activation (gateway write did not land)",
       );
+      return { status: "refused" };
     }
   }
 

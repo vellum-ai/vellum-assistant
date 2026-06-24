@@ -437,7 +437,7 @@ describe("invite-redemption-service", () => {
   });
 
   test("matches an active member by (type,address) when the gateway row has a divergent uuid", async () => {
-    const member = upsertContactChannel({
+    const member = seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "divergent-user",
       status: "active",
@@ -448,16 +448,16 @@ describe("invite-redemption-service", () => {
     gatewayIpc.richOverride = () => ({
       ok: true,
       contact: {
-        id: member!.contact.id,
-        displayName: member!.contact.displayName,
-        role: member!.contact.role,
+        id: member.contactId,
+        displayName: "divergent-user",
+        role: "contact",
         interactionCount: 0,
         createdAt: 1,
         updatedAt: 1,
         channels: [
           {
             id: "gateway-divergent-uuid",
-            contactId: member!.contact.id,
+            contactId: member.contactId,
             type: "telegram",
             address: "divergent-user",
             isPrimary: false,
@@ -478,7 +478,7 @@ describe("invite-redemption-service", () => {
 
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
-      contactId: member!.contact.id,
+      contactId: member.contactId,
       maxUses: 5,
     });
 
@@ -493,7 +493,7 @@ describe("invite-redemption-service", () => {
   });
 
   test("blocks via the (type,address) match when the gateway row has a divergent uuid", async () => {
-    const member = upsertContactChannel({
+    const member = seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "divergent-blocked",
       status: "blocked",
@@ -502,16 +502,16 @@ describe("invite-redemption-service", () => {
     gatewayIpc.richOverride = () => ({
       ok: true,
       contact: {
-        id: member!.contact.id,
-        displayName: member!.contact.displayName,
-        role: member!.contact.role,
+        id: member.contactId,
+        displayName: "divergent-blocked",
+        role: "contact",
         interactionCount: 0,
         createdAt: 1,
         updatedAt: 1,
         channels: [
           {
             id: "gateway-divergent-blocked-uuid",
-            contactId: member!.contact.id,
+            contactId: member.contactId,
             type: "telegram",
             // Case-divergent address must still match (COLLATE NOCASE).
             address: "DIVERGENT-BLOCKED",
@@ -533,7 +533,7 @@ describe("invite-redemption-service", () => {
 
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
-      contactId: member!.contact.id,
+      contactId: member.contactId,
       maxUses: 5,
     });
 
@@ -549,7 +549,7 @@ describe("invite-redemption-service", () => {
   test("fails open (no throw) when the gateway gate-status read is unreachable", async () => {
     // No verdict member and an unreachable gateway read must degrade to the
     // fail-open path: redemption still resolves rather than throwing.
-    const member = upsertContactChannel({
+    const member = seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "readfail-user",
       status: "revoked",
@@ -559,7 +559,7 @@ describe("invite-redemption-service", () => {
 
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
-      contactId: member!.contact.id,
+      contactId: member.contactId,
       maxUses: 1,
     });
 

@@ -346,30 +346,30 @@ describe("redeemVoiceInviteCode", () => {
 
   test("matches an active member by (type,address) when the gateway row has a divergent uuid", async () => {
     const phone = "+15551234567";
-    const member = upsertContactChannel({
+    const member = seedContactChannel({
       sourceChannel: "phone",
       externalUserId: phone,
       status: "active",
     });
     const { code } = createVoiceInvite({
       callerPhone: phone,
-      contactId: member!.contact.id,
+      contactId: member.contactId,
     });
 
     // Gateway row for the same (type,address) under a DIFFERENT id.
     gatewayIpc.richOverride = () => ({
       ok: true,
       contact: {
-        id: member!.contact.id,
-        displayName: member!.contact.displayName,
-        role: member!.contact.role,
+        id: member.contactId,
+        displayName: phone,
+        role: "contact",
         interactionCount: 0,
         createdAt: 1,
         updatedAt: 1,
         channels: [
           {
             id: "gateway-divergent-uuid",
-            contactId: member!.contact.id,
+            contactId: member.contactId,
             type: "phone",
             address: phone,
             isPrimary: false,
@@ -400,14 +400,14 @@ describe("redeemVoiceInviteCode", () => {
 
   test("fails open (no throw) when the gateway gate-status read is unreachable", async () => {
     const phone = "+15551234567";
-    const member = upsertContactChannel({
+    const member = seedContactChannel({
       sourceChannel: "phone",
       externalUserId: phone,
       status: "revoked",
     });
     const { code } = createVoiceInvite({
       callerPhone: phone,
-      contactId: member!.contact.id,
+      contactId: member.contactId,
     });
 
     gatewayIpc.richThrows = true;
