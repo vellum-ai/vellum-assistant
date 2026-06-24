@@ -26,6 +26,7 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { routes } from "@/utils/routes";
 import { DEFAULT_GROUP_ID } from "@/domains/onboarding/prechat-names";
 import {
+  setPendingAssistantName,
   setPendingPreChatContext,
   type PreChatOnboardingContext,
 } from "@/domains/onboarding/prechat";
@@ -168,8 +169,9 @@ export function ResearchOnboardingRoute() {
   // provision + poll an assistant before being bounced away.
   useEffect(() => {
     exitFocus();
+    setPendingAvatarTraits(null);
     if (enabled && flagsHydrated) startHatch();
-  }, [exitFocus, startHatch, enabled, flagsHydrated]);
+  }, [exitFocus, setPendingAvatarTraits, startHatch, enabled, flagsHydrated]);
 
   // If we're sitting on the results step when the research turn resolves empty
   // (it was still streaming when we arrived), skip ahead to the suggestions.
@@ -236,6 +238,8 @@ export function ResearchOnboardingRoute() {
     };
 
     setPendingPreChatContext(context);
+    const assistantName = face?.name?.trim();
+    if (assistantName) setPendingAssistantName(assistantName);
 
     // Stage the chosen avatar traits; OnboardingAvatarApplier applies them once
     // the assistant is hatched (they're not part of the pre-chat context).
