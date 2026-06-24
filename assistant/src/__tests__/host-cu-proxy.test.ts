@@ -477,6 +477,128 @@ describe("HostCuProxy", () => {
       expect(result2.content).not.toContain("NO VISIBLE EFFECT");
     });
 
+    test("skips unchanged warning and counter after a selection-only key (cmd+a)", async () => {
+      setup();
+
+      // Establish previous AX tree
+      const p1 = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const sent1 = sentMessages[0] as Record<string, unknown>;
+      proxy.processObservation(sent1.requestId as string, {
+        axTree: "TextField [1]",
+      });
+      await p1;
+
+      // cmd+a only changes selection — AX tree can't show it, so empty diff
+      // is expected and must NOT warn or bump the unchanged counter.
+      const p2 = proxy.request(
+        "computer_use_key",
+        { key: "cmd+a" },
+        "session-1",
+        2,
+      );
+      proxy.recordAction("computer_use_key", { key: "cmd+a" });
+      const sent2 = sentMessages[1] as Record<string, unknown>;
+      proxy.processObservation(sent2.requestId as string, {
+        axTree: "TextField [1]",
+        // No axDiff — selection change is invisible in the AX tree
+      });
+      const result2 = await p2;
+      expect(result2.content).not.toContain("NO VISIBLE EFFECT");
+      expect(proxy.consecutiveUnchangedSteps).toBe(0);
+    });
+
+    test("still warns for a non-exempt key (enter) with no diff", async () => {
+      setup();
+
+      // Establish previous AX tree
+      const p1 = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const sent1 = sentMessages[0] as Record<string, unknown>;
+      proxy.processObservation(sent1.requestId as string, {
+        axTree: "Button [1]",
+      });
+      await p1;
+
+      // enter is not in the exempt set — an empty diff should still warn.
+      const p2 = proxy.request(
+        "computer_use_key",
+        { key: "enter" },
+        "session-1",
+        2,
+      );
+      proxy.recordAction("computer_use_key", { key: "enter" });
+      const sent2 = sentMessages[1] as Record<string, unknown>;
+      proxy.processObservation(sent2.requestId as string, {
+        axTree: "Button [1]",
+      });
+      const result2 = await p2;
+      expect(result2.content).toContain("NO VISIBLE EFFECT");
+      expect(proxy.consecutiveUnchangedSteps).toBe(1);
+    });
+
+    test("still warns for a non-exempt action (click) with no diff", async () => {
+      setup();
+
+      // Establish previous AX tree
+      const p1 = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const sent1 = sentMessages[0] as Record<string, unknown>;
+      proxy.processObservation(sent1.requestId as string, {
+        axTree: "Button [1]",
+      });
+      await p1;
+
+      const p2 = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        2,
+      );
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const sent2 = sentMessages[1] as Record<string, unknown>;
+      proxy.processObservation(sent2.requestId as string, {
+        axTree: "Button [1]",
+      });
+      const result2 = await p2;
+      expect(result2.content).toContain("NO VISIBLE EFFECT");
+      expect(proxy.consecutiveUnchangedSteps).toBe(1);
+    });
+
+    test("loop detection still fires for repeated identical exempt keys", () => {
+      setup();
+
+      // Even though `up` is exempt from the unchanged-effect warning, repeating
+      // the same key must still be caught by loop detection.
+      proxy.recordAction("computer_use_key", { key: "up" });
+      proxy.recordAction("computer_use_key", { key: "up" });
+      proxy.recordAction("computer_use_key", { key: "up" });
+
+      const result = proxy.formatObservation({
+        axTree: "Button [1]",
+      });
+
+      expect(result.content).toContain(
+        "WARNING: You've repeated the same action (computer_use_key) 3 times",
+      );
+      expect(result.content).not.toContain("NO VISIBLE EFFECT");
+    });
+
     test("resets consecutive count when diff is present", async () => {
       setup();
 

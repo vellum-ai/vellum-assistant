@@ -44,6 +44,22 @@ const MAX_HISTORY_ENTRIES = 10;
 const LOOP_DETECTION_WINDOW = 3;
 const CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD = 2;
 
+// computer_use_key actions that change only selection/cursor/clipboard state.
+// The AX tree models none of these, so they always produce an empty diff —
+// exempt them from the "NO VISIBLE EFFECT" signal (mirrors computer_use_wait).
+const NO_AX_DIFF_KEYS = new Set([
+  "cmd+a",
+  "command+a",
+  "cmd+c",
+  "command+c",
+  "up",
+  "down",
+  "left",
+  "right",
+  "shift+tab",
+  "option+tab",
+]);
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -67,6 +83,19 @@ export interface ActionRecord {
   toolName: string;
   input: Record<string, unknown>;
   reasoning?: string;
+}
+
+/**
+ * True when `action` is a computer_use_key press whose key only mutates
+ * selection/cursor/clipboard state — changes the AX tree cannot represent, so
+ * an empty diff is expected rather than a sign the action did nothing.
+ */
+function isNoDiffKeyAction(action: ActionRecord | undefined): boolean {
+  if (action?.toolName !== "computer_use_key") return false;
+  const key = action.input.key;
+  return (
+    typeof key === "string" && NO_AX_DIFF_KEYS.has(key.trim().toLowerCase())
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -385,8 +414,9 @@ export class HostCuProxy {
           ? this._actionHistory[this._actionHistory.length - 1]
           : undefined;
       const isWaitAction = lastAction?.toolName === "computer_use_wait";
+      const isNoDiffKey = isNoDiffKeyAction(lastAction);
 
-      if (!isWaitAction) {
+      if (!isWaitAction && !isNoDiffKey) {
         if (
           this._consecutiveUnchangedSteps >=
           CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD
@@ -505,10 +535,15 @@ export class HostCuProxy {
 
   private updateStateFromObservation(obs: CuObservationResult): void {
     if (this._stepCount > 0) {
+      const lastAction =
+        this._actionHistory.length > 0
+          ? this._actionHistory[this._actionHistory.length - 1]
+          : undefined;
       if (
         obs.axDiff == null &&
         this._previousAXTree != null &&
-        obs.axTree != null
+        obs.axTree != null &&
+        !isNoDiffKeyAction(lastAction)
       ) {
         this._consecutiveUnchangedSteps++;
       } else if (obs.axDiff != null) {
