@@ -1,8 +1,3 @@
-// Floating "Active Subagents" overlay: a collapsed avatar pill that expands
-// into a scrollable panel of SubagentInlineProgressCard rows. Purely
-// presentational and props-driven (PR 3 wires it from chat-route-content).
-// Renders nothing when there are no active subagents.
-
 import { useEffect, useRef, useState } from "react";
 
 import { Typography } from "@vellumai/design-library";
@@ -59,6 +54,7 @@ export function ActiveSubagentsOverlay({
     <div
       ref={containerRef}
       data-testid="active-subagents-overlay"
+      // Panel max width per Figma node 6063:149685 (narrower than the chat column).
       className="pointer-events-auto flex w-full max-w-[589px] flex-col items-center gap-2"
     >
       <ActiveSubagentsPill
