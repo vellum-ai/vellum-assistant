@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNotNull, like, sql } from "drizzle-orm";
+import { and, asc, desc, eq, like, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type { ChannelId } from "../channels/types.js";
@@ -225,7 +225,6 @@ export function upsertContact(params: {
   notes?: string | null;
   role?: ContactRole;
   contactType?: ContactType;
-  principalId?: string | null;
   userFile?: string | null;
   channels?: SyncChannelData[];
   /** When true, conflicting channels on other contacts are reassigned to this
@@ -313,27 +312,13 @@ export function upsertContact(params: {
 
   // Create new contact
   contactId = contactId ?? uuid();
-  // Sibling contacts sharing a principal_id must share a user_file so every
-  // channel for one principal resolves to the same persona + journal slug.
-  let resolvedUserFile: string | null;
-  if (params.userFile !== undefined) {
-    resolvedUserFile = params.userFile;
-  } else if (params.principalId) {
-    const sibling = db
-      .select({ userFile: contacts.userFile })
-      .from(contacts)
-      .where(
-        and(
-          eq(contacts.principalId, params.principalId),
-          isNotNull(contacts.userFile),
-        ),
-      )
-      .get();
-    resolvedUserFile =
-      sibling?.userFile ?? generateUserFileSlug(params.displayName);
-  } else {
-    resolvedUserFile = generateUserFileSlug(params.displayName);
-  }
+  // principalId is gateway-owned and no longer a local key; sibling persona
+  // sharing is resolved upstream, so a new contact takes its explicit userFile
+  // or a freshly slugified one.
+  const resolvedUserFile =
+    params.userFile !== undefined
+      ? params.userFile
+      : generateUserFileSlug(params.displayName);
   db.insert(contacts)
     .values({
       id: contactId,
@@ -451,7 +436,6 @@ export function searchContacts(params: {
   query?: string;
   channelAddress?: string;
   channelType?: string;
-  role?: ContactRole;
   contactType?: ContactType;
   limit?: number;
 }): ContactWithChannels[] {
@@ -491,7 +475,6 @@ export function searchContacts(params: {
       const contact = getContactInternal(id);
       if (
         contact &&
-        (!params.role || contact.role === params.role) &&
         (!params.contactType || contact.contactType === params.contactType) &&
         (!sanitizedQuery ||
           (contact.displayName &&
@@ -521,7 +504,6 @@ export function searchContacts(params: {
       const contact = getContactInternal(id);
       if (
         contact &&
-        (!params.role || contact.role === params.role) &&
         (!params.contactType || contact.contactType === params.contactType)
       ) {
         results.push(contact);
@@ -534,13 +516,10 @@ export function searchContacts(params: {
   const conditions = [];
   if (params.query) {
     const sanitized = escapeLike(params.query);
-    if (!sanitized && !params.role && !params.contactType) return [];
+    if (!sanitized && !params.contactType) return [];
     if (sanitized) {
       conditions.push(like(contacts.displayName, `%${sanitized}%`));
     }
-  }
-  if (params.role) {
-    conditions.push(eq(contacts.role, params.role));
   }
   if (params.contactType) {
     conditions.push(eq(contacts.contactType, params.contactType));
@@ -590,20 +569,16 @@ export function searchContacts(params: {
 
 export function listContacts(
   limit = 50,
-  role?: ContactRole,
   contactType?: ContactType,
   opts?: { uncapped?: boolean },
 ): ContactWithChannels[] {
   const db = getDb();
   const effectiveLimit = opts?.uncapped ? limit : Math.min(limit, 200);
-  const conditions = [];
-  if (role) conditions.push(eq(contacts.role, role));
-  if (contactType) conditions.push(eq(contacts.contactType, contactType));
   const rows = db
     .select()
     .from(contacts)
-    .where(conditions.length === 1 ? conditions[0] : and(...conditions))
-    .orderBy(sql`${contacts.role} = 'guardian' DESC`, desc(contacts.updatedAt))
+    .where(contactType ? eq(contacts.contactType, contactType) : undefined)
+    .orderBy(desc(contacts.updatedAt))
     .limit(effectiveLimit)
     .all();
   return rows.map((r) => withChannels(parseContact(r)));
@@ -715,7 +690,8 @@ export function findContactByAddress(
 /**
  * Find a contact by channel external chat ID. Fallback for callers that only
  * have a chat ID (no user-level address) — matches by (type, externalChatId).
- * No unique constraint exists on externalChatId, so ORDER BY is needed.
+ * No unique constraint exists on externalChatId, so ORDER BY is needed for a
+ * deterministic pick; channel ranking (status) is owned by the gateway now.
  */
 function findContactByChannelExternalChatId(
   channelType: string,
@@ -731,14 +707,7 @@ function findContactByChannelExternalChatId(
         eq(contactChannels.externalChatId, externalChatId),
       ),
     )
-    .orderBy(
-      sql`CASE ${contactChannels.status}
-        WHEN 'active' THEN 0
-        WHEN 'unverified' THEN 1
-        ELSE 2
-      END`,
-      desc(contactChannels.updatedAt),
-    )
+    .orderBy(desc(contactChannels.updatedAt), desc(contactChannels.createdAt))
     .get();
   if (!channel) return null;
   return getContactInternal(channel.contactId);
