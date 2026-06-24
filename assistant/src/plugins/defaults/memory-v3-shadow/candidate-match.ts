@@ -31,15 +31,16 @@
 import { getConfig } from "../../../config/loader.js";
 import { loadSkillCatalog } from "../../../config/skills.js";
 import type { AssistantConfig } from "../../../config/types.js";
-import { embedWithRetry } from "../../../memory/embed.js";
-import { hybridQueryConceptPages } from "../../../memory/v2/qdrant.js";
-import { fuseHalf } from "../../../memory/v2/sim.js";
-import { generateBm25QueryEmbedding } from "../../../memory/v2/sparse-bm25.js";
-import { getLogger } from "../../../util/logger.js";
 import {
-  listCandidatesByStatus,
-  type ProcCandidateStatus,
-} from "./proc-candidate-store.js";
+  EMBED_BASE_DELAY_MS,
+  EMBED_MAX_RETRIES,
+  isAbortError,
+  isTransientEmbeddingError,
+} from "../../../memory/embed.js";
+import { simBatch } from "../../../memory/v2/sim.js";
+import { skillSlugFor } from "../../../memory/v2/skill-store.js";
+import { getLogger } from "../../../util/logger.js";
+import { abortableSleep, computeRetryDelay } from "../../../util/retry.js";
 
 const log = getLogger("memory-v3-candidate-match");
 
@@ -73,18 +74,6 @@ export const CLUSTER_MATCH_THRESHOLD = 0.78;
  */
 export const GRAY_BAND_THRESHOLD = 0.7;
 
-/**
- * Per-channel ANN fetch limit. The candidate/skill pools are small (tens to low
- * thousands of pages), and we only ever read the single best hit, so a modest
- * limit is plenty of headroom while keeping each Qdrant round-trip cheap.
- */
-const ANN_LIMIT = 32;
-
-/** Prefix under which a skill `<id>` is embedded as a capability page. */
-function skillSlug(id: string): string {
-  return `skills/${id}`;
-}
-
 /** A scored ANN hit: a corpus slug and its fused dense+sparse similarity. */
 export interface ScoredSlug {
   slug: string;
@@ -92,10 +81,12 @@ export interface ScoredSlug {
 }
 
 /**
- * The injectable scoring seam. Given the embedded goal and a slug restriction,
+ * The injectable scoring seam. Given the goal text and a slug restriction,
  * return each restricted slug's fused dense+sparse similarity to the goal.
- * Defaults to a real Qdrant-backed query (`scoreSlugsWithQdrant`); tests pass a
- * fake so the tier logic runs without a live collection.
+ * Defaults to {@link simBatch} (the v2 slug-restricted hybrid scorer, including
+ * its adaptive dense/sparse reweighting, so candidate-match scores stay on the
+ * same scale as v2 recall); tests pass a fake so the tier logic runs without a
+ * live collection.
  */
 export type ScoreSlugsFn = (
   goal: string,
@@ -115,19 +106,20 @@ export interface CandidateClusterRef {
 }
 
 export interface MatchCandidateOptions {
-  /** Config used for embedding + fusion weights. Defaults to `getConfig()`. */
-  config?: AssistantConfig;
-  /** ANN scorer (Tier 0 + Tier 1). Defaults to the Qdrant-backed scorer. */
-  scoreSlugs?: ScoreSlugsFn;
-  /** Live skill catalog (Tier 0 targets). Defaults to `loadSkillCatalog()`. */
-  loadCatalog?: () => { id: string }[];
   /**
    * Existing candidate clusters (Tier 1 targets), each carrying its `clusterId`
    * and its embedded member-note slugs. The matcher ANN-restricts to the union
-   * of member-note slugs but maps any hit back to its owning `clusterId`.
-   * Defaults to every registered cluster across the tracked statuses.
+   * of member-note slugs but maps any hit back to its owning `clusterId`. The
+   * caller owns enumeration of the candidate pool (the trigger re-reads it per
+   * note so a cluster opened earlier in the pass is visible to later notes).
    */
-  listCandidateClusters?: () => CandidateClusterRef[];
+  listCandidateClusters: () => CandidateClusterRef[];
+  /** Config used for embedding + fusion weights. Defaults to `getConfig()`. */
+  config?: AssistantConfig;
+  /** ANN scorer (Tier 0 + Tier 1). Defaults to the {@link simBatch} scorer. */
+  scoreSlugs?: ScoreSlugsFn;
+  /** Live skill catalog (Tier 0 targets). Defaults to `loadSkillCatalog()`. */
+  loadCatalog?: () => { id: string }[];
 }
 
 /** The matcher's verdict — which tier (if any) claimed the goal. */
@@ -155,21 +147,20 @@ export type MatchResult =
  */
 export async function matchCandidate(
   goal: string,
-  opts: MatchCandidateOptions = {},
+  opts: MatchCandidateOptions,
 ): Promise<MatchResult> {
   const config = opts.config ?? getConfig();
   const scoreSlugs =
-    opts.scoreSlugs ?? ((g, slugs) => scoreSlugsWithQdrant(config, g, slugs));
+    opts.scoreSlugs ?? ((g, slugs) => scoreSlugsWithSimBatch(config, g, slugs));
   const loadCatalog = opts.loadCatalog ?? (() => loadSkillCatalog());
-  const listCandidateClusters =
-    opts.listCandidateClusters ?? defaultCandidateClusters;
+  const { listCandidateClusters } = opts;
 
   // ── Tier 0 — existing skill. ───────────────────────────────────────────────
   // Map each skill id to its capability-page slug, score them, and resolve the
   // best back to its id.
   const slugToSkillId = new Map<string, string>();
   for (const skill of loadCatalog()) {
-    slugToSkillId.set(skillSlug(skill.id), skill.id);
+    slugToSkillId.set(skillSlugFor(skill.id), skill.id);
   }
   const skillBest = await bestHit(scoreSlugs, goal, [...slugToSkillId.keys()]);
   if (skillBest && skillBest.score >= EXISTING_SKILL_THRESHOLD) {
@@ -225,102 +216,69 @@ async function bestHit(
 }
 
 /**
- * Default Tier-1 target set: every registered candidate cluster across the
- * tracked statuses, each carrying its `clusterId` and embedded member-note
- * slugs. Read-only — `listCandidatesByStatus` only SELECTs.
+ * Default scorer: delegate to {@link simBatch}, the v2 slug-restricted hybrid
+ * scorer. `simBatch` embeds the goal (dense + BM25 sparse), runs the
+ * slug-restricted hybrid query, applies the adaptive dense/sparse reweighting,
+ * and fuses the body/summary halves — so candidate-match scores land on the
+ * same scale as v2 recall scores against the configured thresholds.
+ *
+ * `simBatch` embeds via `embedWithBackend` ONCE (not `embedWithRetry`), so a
+ * brief provider blip (429 / 5xx / transient network error) would throw and
+ * make this scorer return `[]` — a no-hit. For the matcher that silently means
+ * "treat as new", so a momentary outage could miss an existing skill or fork a
+ * duplicate cluster (a permanent bad catalog entry). To prevent that we wrap
+ * the `simBatch` call in a bounded retry mirroring {@link embedWithRetry}'s
+ * policy (same max-retries / base-delay / exponential backoff, same transient
+ * predicate, same abort handling). Only AFTER retries are exhausted — or on a
+ * non-transient error (a real Qdrant/config bug, where retrying is pointless) —
+ * do we degrade to `[]`, logged at warn.
  */
-const CANDIDATE_STATUSES: ProcCandidateStatus[] = [
-  "observing",
-  "ready",
-  "distilled",
-];
-
-function defaultCandidateClusters(): CandidateClusterRef[] {
-  const clusters: CandidateClusterRef[] = [];
-  for (const status of CANDIDATE_STATUSES) {
-    for (const candidate of listCandidatesByStatus(status)) {
-      clusters.push({
-        clusterId: candidate.clusterId,
-        memberNoteSlugs: candidate.memberNoteSlugs,
-      });
-    }
-  }
-  return clusters;
-}
-
-/**
- * Default scorer: embed `goal` (dense via `embedWithRetry`, sparse via
- * `generateBm25QueryEmbedding` — the same pair `sources/memory-v2.ts` builds),
- * run a slug-restricted hybrid query, and fuse each hit's dense+sparse channels
- * into one similarity via `fuseHalf` with the configured `dense_weight` /
- * `sparse_weight`. Body and summary halves are fused independently and the max
- * is taken per slug, exactly as the recall source does. Returns `[]` on any
- * embedding/Qdrant failure (logged at warn) so a matcher outage degrades to
- * "treat as new" rather than throwing.
- */
-async function scoreSlugsWithQdrant(
+async function scoreSlugsWithSimBatch(
   config: AssistantConfig,
   goal: string,
   restrictToSlugs: readonly string[],
 ): Promise<ScoredSlug[]> {
-  const trimmed = goal.trim();
-  if (trimmed.length === 0 || restrictToSlugs.length === 0) return [];
-
   try {
-    const denseResult = await embedWithRetry(config, [trimmed]);
-    const denseVector = denseResult.vectors[0] ?? [];
-    const sparseVector = generateBm25QueryEmbedding(trimmed);
-
-    const hits = await hybridQueryConceptPages(
-      denseVector,
-      sparseVector,
-      ANN_LIMIT,
-      restrictToSlugs,
-    );
-    if (hits.length === 0) return [];
-
-    const { dense_weight: denseWeight, sparse_weight: sparseWeight } =
-      config.memory.v2;
-
-    // Normalize each sparse channel against its own per-batch max, mirroring
-    // sim.ts / the v2 recall source so scores are comparable to the thresholds.
-    let maxBodySparse = 0;
-    let maxSummarySparse = 0;
-    for (const hit of hits) {
-      if (hit.sparseScore !== undefined && hit.sparseScore > maxBodySparse) {
-        maxBodySparse = hit.sparseScore;
-      }
-      if (
-        hit.summarySparseScore !== undefined &&
-        hit.summarySparseScore > maxSummarySparse
-      ) {
-        maxSummarySparse = hit.summarySparseScore;
-      }
-    }
-
-    return hits.map((hit) => {
-      const bodyScore = fuseHalf(
-        hit.denseScore,
-        hit.sparseScore,
-        maxBodySparse,
-        denseWeight,
-        sparseWeight,
-      );
-      const summaryScore = fuseHalf(
-        hit.summaryDenseScore,
-        hit.summarySparseScore,
-        maxSummarySparse,
-        denseWeight,
-        sparseWeight,
-      );
-      const score = Math.max(bodyScore ?? 0, summaryScore ?? bodyScore ?? 0);
-      return { slug: hit.slug, score };
-    });
+    const scores = await simBatchWithRetry(config, goal, restrictToSlugs);
+    return [...scores].map(([slug, score]) => ({ slug, score }));
   } catch (err) {
     log.warn(
       { err },
-      "candidate-match scorer failed; degrading to no hits (treat as new)",
+      "candidate-match scorer failed after retries; degrading to no hits (treat as new)",
     );
     return [];
   }
+}
+
+/**
+ * Run {@link simBatch} with the same bounded retry policy as `embedWithRetry`
+ * (`simBatch` itself embeds via `embedWithBackend` with no retry). Retries only
+ * transient embedding failures (429 / 5xx / retryable network error); a
+ * non-transient error or an exhausted retry budget rethrows so the caller can
+ * degrade to no-hit. Aborts propagate immediately and are never retried.
+ */
+async function simBatchWithRetry(
+  config: AssistantConfig,
+  goal: string,
+  restrictToSlugs: readonly string[],
+): Promise<Map<string, number>> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= EMBED_MAX_RETRIES; attempt++) {
+    try {
+      return await simBatch(goal, restrictToSlugs, config);
+    } catch (err) {
+      lastError = err;
+      if (isAbortError(err)) throw err;
+      if (!isTransientEmbeddingError(err) || attempt === EMBED_MAX_RETRIES) {
+        throw err;
+      }
+      const delay = computeRetryDelay(attempt, EMBED_BASE_DELAY_MS);
+      log.warn(
+        { err, attempt: attempt + 1, delayMs: Math.round(delay) },
+        "transient candidate-match embedding failure, retrying",
+      );
+      await abortableSleep(delay);
+    }
+  }
+  throw lastError;
 }

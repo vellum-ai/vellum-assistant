@@ -29,8 +29,39 @@ import { describe, expect, mock, test } from "bun:test";
 import { makeMockLogger } from "../../../../__tests__/helpers/mock-logger.js";
 import type { CandidateClusterRef, ScoredSlug } from "../candidate-match.js";
 
+// Spread the real logger module so we override ONLY `getLogger`. The matcher's
+// import graph transitively reaches CLI modules that import `getCliLogger` from
+// this same module (candidate-match → config/skills → … → cli/program), so a
+// mock that dropped `getCliLogger` would crash module evaluation with
+// "export 'getCliLogger' not found in '../util/logger.js'".
+const realLogger = await import("../../../../util/logger.js");
 mock.module("../../../../util/logger.js", () => ({
+  ...realLogger,
   getLogger: () => makeMockLogger(),
+}));
+
+// `simBatch` is the matcher's DEFAULT scorer (used only when the caller does not
+// inject `scoreSlugs`). The retry tests below drive this default path, so the
+// real `simBatch` is replaced by a programmable stub whose behavior each test
+// sets via `simBatchImpl`. The tier-logic tests inject their own `scoreSlugs`
+// and never touch this stub.
+let simBatchImpl: (
+  text: string,
+  slugs: readonly string[],
+) => Promise<Map<string, number>> = async () => new Map();
+const realSim = await import("../../../../memory/v2/sim.js");
+mock.module("../../../../memory/v2/sim.js", () => ({
+  ...realSim,
+  simBatch: (text: string, slugs: readonly string[]) =>
+    simBatchImpl(text, slugs),
+}));
+
+// Make the retry backoff instant so the persistent-failure test does not wait
+// out the real exponential delays.
+const realRetry = await import("../../../../util/retry.js");
+mock.module("../../../../util/retry.js", () => ({
+  ...realRetry,
+  abortableSleep: async () => {},
 }));
 
 const {
@@ -285,5 +316,91 @@ describe("matchCandidate — thresholds are ordered for precision bias", () => {
     expect(CLUSTER_MATCH_THRESHOLD).toBeLessThanOrEqual(
       EXISTING_SKILL_THRESHOLD,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Default-scorer retry. These tests do NOT inject `scoreSlugs`, so the matcher
+// uses its real `scoreSlugsWithSimBatch` path, which calls the (stubbed)
+// `simBatch`. `simBatch` embeds via `embedWithBackend` ONCE with no retry, so a
+// transient provider blip would throw and degrade the matcher to a no-hit —
+// silently missing an existing skill or forking a duplicate cluster. The
+// matcher wraps `simBatch` in a bounded retry mirroring `embedWithRetry`'s
+// policy and degrades to no-hit ONLY after the budget is exhausted.
+// ---------------------------------------------------------------------------
+
+// A 429 / 5xx-shaped transient error (recognized by `isTransientEmbeddingError`
+// via its `status` field) versus a non-transient one (no status, non-matching
+// message) that must NOT be retried.
+const transientError = () =>
+  Object.assign(new Error("rate limited"), { status: 429 });
+const persistentError = () => new Error("qdrant collection not found");
+
+// A config stub — the stubbed `simBatch` ignores it, but `matchCandidate` reads
+// `opts.config ?? getConfig()`, and passing one keeps the test off the real
+// config loader.
+const fakeConfig = {} as never;
+
+describe("matchCandidate — default scorer retries transient embedding failures", () => {
+  test("a transient embedding error that succeeds on retry yields the correct hit, not []", async () => {
+    let calls = 0;
+    simBatchImpl = async (_text, slugs) => {
+      calls++;
+      if (calls === 1) throw transientError();
+      // Second attempt succeeds: the skill's capability page scores high.
+      return new Map(
+        slugs
+          .filter((s) => s === "skills/deploy-web")
+          .map((s) => [s, 0.95] as const),
+      );
+    };
+
+    const result = await matchCandidate("ship the web app to prod", {
+      config: fakeConfig,
+      loadCatalog: catalog("deploy-web"),
+      listCandidateClusters: clusters(),
+    });
+
+    // Without retry the first throw would degrade to `new`; with retry we get
+    // the existing-skill hit on the second attempt.
+    expect(result).toEqual({ kind: "existing-skill", skillId: "deploy-web" });
+    expect(calls).toBe(2);
+  });
+
+  test("a persistent transient error still degrades to no-hit after the retry budget", async () => {
+    let calls = 0;
+    simBatchImpl = async () => {
+      calls++;
+      throw transientError();
+    };
+
+    const result = await matchCandidate("ship the web app to prod", {
+      config: fakeConfig,
+      loadCatalog: catalog("deploy-web"),
+      listCandidateClusters: clusters(),
+    });
+
+    // Retries exhausted → scorer returns [] → matcher treats the goal as new.
+    expect(result).toEqual({ kind: "new" });
+    // 1 initial attempt + EMBED_MAX_RETRIES (3) retries = 4 calls.
+    expect(calls).toBe(4);
+  });
+
+  test("a non-transient error is NOT retried — degrades to no-hit immediately", async () => {
+    let calls = 0;
+    simBatchImpl = async () => {
+      calls++;
+      throw persistentError();
+    };
+
+    const result = await matchCandidate("ship the web app to prod", {
+      config: fakeConfig,
+      loadCatalog: catalog("deploy-web"),
+      listCandidateClusters: clusters(),
+    });
+
+    expect(result).toEqual({ kind: "new" });
+    // No retry on a non-transient failure: exactly one attempt.
+    expect(calls).toBe(1);
   });
 });
