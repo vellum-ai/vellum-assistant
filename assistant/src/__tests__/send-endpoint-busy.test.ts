@@ -109,22 +109,38 @@ mock.module("../daemon/approval-generators.js", () => ({
   createApprovalConversationGenerator: () => _approvalGenerator,
 }));
 
-// Dev-bypass resolves the real guardian principal, then maps it through the
-// local-principal trust mapper. Both are stubbed to the principal the canonical
-// requests in these tests use.
+// Dev-bypass resolves the real guardian principal, then runs the real
+// local-principal trust mapper against the gateway delivery read.
 mock.module("../runtime/local-actor-identity.js", () => ({
   findLocalGuardianPrincipalId: async () => "test-principal-id",
 }));
 
-mock.module("../runtime/local-principal-trust.js", () => ({
-  resolveLocalPrincipalTrustContext: async () => ({
-    sourceChannel: "vellum",
-    trustClass: "guardian",
-    guardianPrincipalId: "test-principal-id",
-    guardianExternalUserId: "test-principal-id",
-  }),
+// Mock the IPC transport rather than local-principal-trust.js so the sibling
+// resolver unit test (which mocks guardian-delivery-reader, not ipcCall) isn't
+// shadowed when both files run in one Bun process. resolve_guardian_delivery
+// returns a single active vellum guardian whose principal matches the
+// dev-bypass-resolved id; any other method throws so unexpected IPC surfaces.
+mock.module("../ipc/gateway-client.js", () => ({
+  ipcCall: async (method: string) => {
+    if (method === "resolve_guardian_delivery") {
+      return {
+        guardians: [
+          {
+            channelType: "vellum",
+            contactId: "test-contact-id",
+            principalId: "test-principal-id",
+            address: "test-principal-id",
+            externalChatId: "test-principal-id",
+            status: "active",
+          },
+        ],
+      };
+    }
+    throw new Error(`Unexpected ipcCall in test: ${method}`);
+  },
 }));
 
+import { __resetGuardianDeliveryCacheForTest } from "../contacts/guardian-delivery-reader.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
@@ -348,6 +364,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
     pendingInteractions.clear();
+    __resetGuardianDeliveryCacheForTest();
 
     createGuardianBinding({
       channel: "vellum",
