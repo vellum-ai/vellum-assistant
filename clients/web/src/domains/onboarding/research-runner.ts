@@ -21,6 +21,8 @@
 
 import { useCallback, useRef, useState } from "react";
 
+import { useQueryClient } from "@tanstack/react-query";
+
 import {
   conversationsPost,
   messagesGet,
@@ -28,6 +30,8 @@ import {
   pluginsInstallPost,
   pluginsSearchGet,
 } from "@/generated/daemon/sdk.gen";
+import { archiveResearchConversation } from "@/domains/onboarding/archive-research-conversation";
+import { invalidateConversationQueries } from "@/utils/conversation-cache";
 import type {
   MessagesGetResponses,
   MessagesPostData,
@@ -292,6 +296,7 @@ export function useResearchRunner(): UseResearchRunner {
   // so ordinary clicks (plugins disabled / none picked / already installed)
   // aren't frozen until the whole reply settles.
   const pluginsReadyRef = useRef<Promise<void>>(Promise.resolve());
+  const queryClient = useQueryClient();
 
   const start = useCallback(
     ({ awaitAssistantId, subject, conversationTitle }: StartResearchOptions) => {
@@ -440,6 +445,11 @@ export function useResearchRunner(): UseResearchRunner {
 
           if (isStale()) return;
           setState((s) => ({ ...s, status: "done" }));
+          // The research conversation is a throwaway side channel; archive +
+          // invalidate so the sidebar that mounts on handoff never shows
+          // "Getting to know X". Best-effort, after delivery — never blocks.
+          await archiveResearchConversation(assistantId, conversationId);
+          void invalidateConversationQueries(queryClient, assistantId);
         } catch (err) {
           if (isStale()) return;
           captureError(err, { context: "research_onboarding_runner" });
@@ -452,7 +462,7 @@ export function useResearchRunner(): UseResearchRunner {
         }
       })();
     },
-    [],
+    [queryClient],
   );
 
   const awaitPluginInstalls = useCallback(async (): Promise<void> => {
