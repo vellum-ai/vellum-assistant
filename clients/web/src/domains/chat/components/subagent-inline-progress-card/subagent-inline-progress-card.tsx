@@ -1,29 +1,8 @@
-/**
- * Inline subagent progress card rendered per-subagent in the assistant
- * transcript. A transparent, full-width list row (Figma node
- * `6063:148642`): a status indicator (running dots or terminal icon), the
- * subagent avatar, the `Task Name | detail` carousel, then a plain
- * "X steps" count and an in-flight stop button — laid out left→right.
- * Transparent by default; the whole row paints `--surface-active` at
- * `rounded-md` on hover.
- *
- * Subscribes to the subagent store via `useSubagentCardData(subagentId)`.
- * Returns `null` when the entry isn't in the store yet — handles the
- * spawn race where the assistant message containing the inline card
- * mounts a hair before the `subagent_spawned` SSE event lands. PR 8
- * wires this into the transcript; this PR ships the component standalone.
- *
- * Interaction model:
- *   - The leading content cluster (status indicator + avatar + carousel) is
- *     the open affordance: a `<span role="button">` carrying the
- *     `onSubagentClick` activation. Activating it opens the subagent's full
- *     timeline panel. There is no inline expand — the panel is the only
- *     detail view. The open affordance does not enclose the stop button, so
- *     the stop control stays an independent, separately focusable button.
- *   - Stop is exposed via `onStopSubagent`; a small stop button renders in
- *     the right cluster while the subagent is in-flight, as a sibling of the
- *     open affordance.
- */
+// Inline per-subagent progress row in the transcript (Figma 6063:148642):
+// status indicator → avatar → Task Name | detail carousel → "X steps" → stop,
+// with a full-row --surface-active hover. The leading cluster is the open
+// affordance (role="button"); the stop button stays a separate sibling so it
+// isn't nested inside an interactive element.
 
 import { AlertCircle, CheckCircle2, Square } from "lucide-react";
 import { useCallback, type KeyboardEvent, type MouseEvent } from "react";
@@ -38,15 +17,9 @@ import { useSubagentStore } from "@/domains/chat/subagent-store";
 
 export interface SubagentInlineProgressCardProps {
   subagentId: string;
-  /**
-   * Invoked when the user activates the row (anywhere but the stop button).
-   * Routes to the subagent detail panel.
-   */
+  /** Open the subagent detail panel (row activation, not the stop button). */
   onSubagentClick?: (subagentId: string) => void;
-  /**
-   * Invoked when the user activates the stop button while the subagent
-   * is in-flight. Omitted callers hide the button entirely.
-   */
+  /** Stop an in-flight subagent; omit to hide the stop button. */
   onStopSubagent?: (subagentId: string) => void;
 }
 
@@ -56,13 +29,8 @@ export function SubagentInlineProgressCard({
   onStopSubagent,
 }: SubagentInlineProgressCardProps) {
   const data = useSubagentCardData(subagentId);
-  // The subagent's task name (e.g. "research-car-brands") titles the row so it
-  // reads as "which subagent"; the derived live status/detail moves to the
-  // detail slot (below).
   const label = useSubagentStore((s) => s.byId[subagentId]?.label);
-  // The `loading` state subsumes running / pending / awaiting_input
-  // (see `deriveCardState` in use-subagent-card-data) — exactly the window
-  // where stopping the subagent is a meaningful action.
+  // "loading" = running / pending / awaiting_input (see deriveCardState).
   const isRunning = data?.state === "loading";
 
   const handleOpenClick = useCallback(() => {
@@ -71,8 +39,7 @@ export function SubagentInlineProgressCard({
 
   const handleOpenKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      // Only react when the open affordance itself is focused, so a stray
-      // bubbled keydown can't hijack activation away from its origin.
+      // Ignore keydowns bubbled from children (e.g. the stop button).
       if (e.target !== e.currentTarget) return;
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
@@ -90,26 +57,19 @@ export function SubagentInlineProgressCard({
     [onStopSubagent, subagentId],
   );
 
-  // Spawn-race: assistant message references a subagent before the
-  // `subagent_spawned` event lands. Render `null` rather than a blank
-  // row so the transcript doesn't flicker an empty card.
+  // Spawn race: card mounts before the subagent_spawned event lands.
   if (!data) return null;
 
-  // Title = the subagent's task name. The derived status `data.currentStepTitle`
-  // ("Working", "Searching the web") and its detail collapse into the detail
-  // slot: prefer the specific detail, falling back to the status word when a
-  // step carries none (e.g. a web_search, whose detail is empty) or when the
-  // only "detail" is the label itself (no steps yet) — so the detail never
-  // reads blank or echoes the title.
+  // Title = task name; detail prefers the live step info, else the status word
+  // (so it never reads blank or just echoes the title).
   const headerTitle = label ?? data.currentStepTitle;
   const headerInfo =
     data.currentStepInfo && data.currentStepInfo !== label
       ? data.currentStepInfo
       : data.currentStepTitle;
 
-  // Leading status indicator. Mirrors the shared shell's `StatusIndicator`:
-  // running → animated three-dot; terminal → green check / red alert. Kept
-  // local rather than coupling the row to the shell's chrome.
+  // Local copy of the shell's StatusIndicator — avoids coupling the row to the
+  // shared shell's chrome.
   const statusIndicator = isRunning ? (
     <ThreeDotIndicator
       className="shrink-0"
@@ -129,16 +89,14 @@ export function SubagentInlineProgressCard({
     />
   );
 
-  // Plain tertiary "X steps" — hidden for 0/1-step rows where it's noise
-  // next to the carousel detail that already describes the single step.
+  // Hidden for 0/1-step rows where the carousel detail already says it.
   const stepCount = data.stepCount;
   const showStepCount =
     !!stepCount &&
     !stepCount.startsWith("0 ") &&
     !stepCount.startsWith("1 ");
 
-  // Absent `onSubagentClick`, the leading cluster is inert content — not
-  // announced as a button and not focusable.
+  // Without a click handler the leading cluster is inert (not a button).
   const canOpen = !!onSubagentClick;
 
   return (

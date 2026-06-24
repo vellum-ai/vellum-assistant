@@ -1,18 +1,5 @@
-/**
- * Collapsed-summary subagent avatar unit (Figma node `6063:148535`, 32×32).
- *
- * Renders a 32px white circle holding the deterministic
- * `SubagentAvatarChip`, with a state-respective status indicator beneath
- * the avatar: pulsing running dots while in-flight, a green check when the
- * subagent completes, and a red ✕ when it's canceled (aborted) or fails.
- * The indicator reflects the subagent's ACTUAL live status — it never
- * shows a stuck running indicator on a finished subagent.
- *
- * The status buckets mirror `deriveCardState`'s loading / complete / error
- * split in `use-subagent-card-data` so the collapsed badge and the expanded
- * row read consistently. Badge state is exposed non-visually (via
- * `aria-label` + a `data-status` attr), not by colour alone.
- */
+// Collapsed-summary avatar unit: a 32px circle with an under-avatar status
+// indicator (running dots / green check / red ✕). Figma node 6063:148535.
 
 import { Check, X } from "lucide-react";
 
@@ -26,15 +13,8 @@ export interface SubagentAvatarBadgeProps {
   className?: string;
 }
 
-/** Three display buckets for the under-avatar indicator. */
 type BadgeState = "in-flight" | "completed" | "errored";
 
-/**
- * Map a subagent status to its badge bucket. Mirrors the loading / complete
- * / error split of `deriveCardState` in `use-subagent-card-data`:
- * `running` / `pending` / `awaiting_input` are in-flight, `completed` is a
- * clean finish, and `failed` / `aborted` (canceled) read as an error.
- */
 function deriveBadgeState(status: SubagentStatus): BadgeState {
   switch (status) {
     case "completed":
@@ -47,11 +27,7 @@ function deriveBadgeState(status: SubagentStatus): BadgeState {
   }
 }
 
-/**
- * Accessible label for the indicator, exposing the precise state to
- * assistive tech (so canceled reads differently from failed even though they
- * share the red ✕ glyph). Keyed by the raw status, not the coarse bucket.
- */
+// Per-status (not per-bucket) so "canceled" reads distinctly from "failed".
 const STATUS_ARIA_LABEL: Record<SubagentStatus, string> = {
   running: "running",
   pending: "pending",
@@ -65,23 +41,17 @@ export function SubagentAvatarBadge({
   subagentId,
   className,
 }: SubagentAvatarBadgeProps) {
-  // Atomic selector: re-render only when this subagent's status changes.
+  // Atomic selector — re-render only when this subagent's status changes.
   const status = useSubagentStore((s) => s.byId[subagentId]?.status);
 
-  // Entry not in the store yet (spawn race) — render the circle without an
-  // indicator rather than a stuck running state.
+  // Spawn race: no entry yet → circle with no indicator.
   const badgeState = status ? deriveBadgeState(status) : undefined;
 
   return (
     <div
       data-testid="subagent-avatar-badge"
-      // Hover affordance per the Figma mock (`6063:148556`): the circle
-      // background swaps from `--surface-lift` (#FFFFFF) to `--surface-active`
-      // (#F2F0EE) — nothing else (no ring/border/scale).
       className={`relative flex h-8 w-8 items-center justify-center rounded-full bg-[var(--surface-lift)] transition-colors hover:bg-[var(--surface-active)] ${className ?? ""}`.trim()}
     >
-      {/* Avatar sits slightly above centre (~6px from top) to leave room for
-          the indicator beneath it, per the mock. */}
       <SubagentAvatarChip
         subagentId={subagentId}
         size={14}
@@ -90,10 +60,7 @@ export function SubagentAvatarBadge({
 
       {badgeState && (
         <span
-          // `role="img"` makes the `aria-label` a reliably-exposed accessible
-          // name: the indicator is a small graphic conveying state, and its
-          // running dots / lucide glyphs are hidden from assistive tech, so a
-          // bare generic <span> would leave the status non-visually invisible.
+          // role="img" exposes aria-label; the dots/glyphs are aria-hidden.
           role="img"
           data-testid="subagent-avatar-badge-status"
           data-status={status}

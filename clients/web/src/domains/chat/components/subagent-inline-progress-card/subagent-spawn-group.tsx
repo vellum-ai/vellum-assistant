@@ -1,15 +1,5 @@
-/**
- * Collapsible wrapper for a set of spawned subagents.
- *
- * Resting (collapsed) state shows the compact `SubagentAvatarRow` summary
- * (capped avatars + `+N` overflow + a "Details" toggle). Activating "Details"
- * expands into the full per-subagent list of `SubagentInlineProgressCard`
- * rows, capped by a "Collapse" toggle (Figma node `6063:148770`) that returns
- * to the summary.
- *
- * `onSubagentClick` / `onStopSubagent` are threaded straight through to each
- * expanded row. Renders `null` for an empty id set.
- */
+// Collapsible wrapper for a set of spawned subagents: the SubagentAvatarRow
+// summary when collapsed, the SubagentInlineProgressCard list when expanded.
 
 import { ChevronUp } from "lucide-react";
 import { useState } from "react";

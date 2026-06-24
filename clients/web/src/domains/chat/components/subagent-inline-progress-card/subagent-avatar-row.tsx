@@ -1,25 +1,13 @@
-/**
- * Collapsed subagent summary (Figma nodes `6063:148533` few / `6063:148462`
- * many).
- *
- * Renders a capped row of `SubagentAvatarBadge`s for a set of spawned
- * subagents, an overflow `+N` chip when the count exceeds the visible cap,
- * and a "Details" toggle that expands into the full per-subagent view.
- */
+// Collapsed subagent summary: capped avatar badges + "+N" overflow chip + a
+// "Details" toggle. Figma nodes 6063:148533 (few) / 6063:148462 (many).
 
 import { ChevronDown } from "lucide-react";
 
 import { SubagentAvatarBadge } from "@/components/avatar/subagent-avatar-badge";
 import { Typography } from "@vellumai/design-library";
 
-/**
- * Number of subagent avatars shown before collapsing the remainder into a
- * `+N` overflow chip.
- *
- * Set to 6 to match the Figma spec (`6063:148462`), which shows 6 avatars
- * followed by a `+6` chip. Exposed as a named constant so the threshold stays
- * tunable.
- */
+// Visible-avatar cap before the "+N" overflow chip; 6 matches the Figma mock
+// (6063:148462: 6 avatars + "+6").
 export const MAX_VISIBLE_SUBAGENT_AVATARS = 6;
 
 export interface SubagentAvatarRowProps {
