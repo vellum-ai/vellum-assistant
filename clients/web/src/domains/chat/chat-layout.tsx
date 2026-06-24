@@ -128,6 +128,10 @@ export function ChatLayout() {
   // toggles — otherwise a suggestion click's navigate + `?prompt=` auto-send
   // gets raced by the remount and the message is lost.
   const isFocused = useOnboardingFocusStore.use.focused();
+  const sidebarCollapseRequested =
+    useOnboardingFocusStore.use.sidebarCollapseRequested();
+  const consumeSidebarCollapse =
+    useOnboardingFocusStore.use.consumeSidebarCollapse();
 
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantStateKind = useAssistantLifecycleStore(
@@ -259,6 +263,14 @@ export function ChatLayout() {
   useEffect(() => {
     setLocalBool(SIDEBAR_COLLAPSED_STORAGE_KEY, collapsed);
   }, [collapsed]);
+
+  useEffect(() => {
+    if (!sidebarCollapseRequested) return;
+    // One-shot: research-onboarding asked us to open collapsed. Honor it on
+    // desktop (mobile uses the drawer, which is already closed), then clear.
+    if (!window.matchMedia(MOBILE_MEDIA_QUERY).matches) setCollapsed(true);
+    consumeSidebarCollapse();
+  }, [sidebarCollapseRequested, consumeSidebarCollapse]);
 
   const handleSidebarWidthChange = useCallback((width: number) => {
     setSidebarWidth(width);
