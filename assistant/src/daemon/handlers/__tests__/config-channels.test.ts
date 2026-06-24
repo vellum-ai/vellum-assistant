@@ -20,11 +20,14 @@ mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
       input.channelTypes!.includes(g.channelType),
     );
   },
+  guardianForChannel: (
+    list: GuardianDelivery[],
+    channelType: string,
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
 mock.module("../../../contacts/contact-store.js", () => ({
   findContactChannel: () => mockContactChannel,
-  findGuardianForChannel: () => null,
   getChannelById: () => mockChannel,
   getContact: () => ({ id: "contact-1", displayName: "Pat" }),
 }));

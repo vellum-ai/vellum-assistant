@@ -105,23 +105,37 @@ mock.module("../ipc/gateway-client.js", () => ({
 // existence from the gateway. Derive the list from the local binding state so
 // the gateway-backed presence guard mirrors the DB the rest of the test sets up.
 const resolveGuardianList = async (input?: { channelTypes?: string[] }) => {
-  const { findGuardianForChannel } = await import(
-    "../contacts/contact-store.js"
-  );
+  const { getDb } = await import("../memory/db-connection.js");
+  const { contacts, contactChannels } = await import("../memory/schema.js");
+  const { and, eq } = await import("drizzle-orm");
   const channels = input?.channelTypes ?? [];
   return channels
     .map((channelType) => {
-      const found = findGuardianForChannel(channelType);
-      if (!found) return null;
+      const row = getDb()
+        .select({ contact: contacts, channel: contactChannels })
+        .from(contacts)
+        .innerJoin(
+          contactChannels,
+          eq(contacts.id, contactChannels.contactId),
+        )
+        .where(
+          and(
+            eq(contacts.role, "guardian"),
+            eq(contactChannels.type, channelType),
+            eq(contactChannels.status, "active"),
+          ),
+        )
+        .get();
+      if (!row) return null;
       return {
         channelType,
-        contactId: found.contact.id,
-        principalId: found.contact.principalId ?? null,
-        displayName: found.contact.displayName ?? null,
-        address: found.channel.address,
-        externalChatId: found.channel.externalChatId ?? null,
+        contactId: row.contact.id,
+        principalId: row.contact.principalId ?? null,
+        displayName: row.contact.displayName ?? null,
+        address: row.channel.address,
+        externalChatId: row.channel.externalChatId ?? null,
         status: "active",
-        verifiedAt: found.channel.verifiedAt ?? null,
+        verifiedAt: row.channel.verifiedAt ?? null,
       };
     })
     .filter((g) => g !== null);

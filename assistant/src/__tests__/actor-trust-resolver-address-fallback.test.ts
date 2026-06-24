@@ -23,13 +23,16 @@ mock.module("../util/logger.js", () => ({
 let _byAddress: ReturnType<
   (typeof import("../contacts/contact-store.js"))["findContactByAddress"]
 > = null;
-let _guardian: ReturnType<
-  (typeof import("../contacts/contact-store.js"))["findGuardianForChannel"]
-> = null;
 
 mock.module("../contacts/contact-store.js", () => ({
   findContactByAddress: (_type: string, _addr: string) => _byAddress,
-  findGuardianForChannel: (_channel: string) => _guardian,
+}));
+
+// Guardian resolution now reads the gateway delivery cache; these suites only
+// exercise the member/address path, so the cache peek stays empty.
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  peekCachedGuardianDelivery: () => undefined,
+  guardianForChannel: () => undefined,
 }));
 
 // ── Real import after mocks ───────────────────────────────────────────────────
@@ -87,7 +90,6 @@ function makeContact(
 describe("resolveActorTrust — address fallback", () => {
   beforeEach(() => {
     _byAddress = null;
-    _guardian = null;
   });
 
   test("finds unverified channel via address when externalUserId is null", () => {

@@ -10,10 +10,10 @@
  *   4. Idempotent re-run — running twice has no additional effect.
  *   5. Guardian with missing users/ directory — migration creates the directory.
  *
- * The migration imports `findGuardianForChannel`, `listGuardianChannels`,
- * and `generateUserFileSlug` from `contacts/contact-store.js`, and calls
- * `getDb()` to persist backfilled slugs. These tests stub the contact
- * store and DB layer so no real DB is exercised.
+ * The migration resolves the guardian identity from the gateway delivery
+ * reader, joins the local contact via `findContactByAddress`, and calls
+ * `getDb()` to persist backfilled slugs. These tests stub the reader, contact
+ * store, and DB layer so no real DB is exercised.
  */
 
 import {
@@ -45,25 +45,51 @@ interface MockContact {
   userFile: string | null;
 }
 
-let mockVellumGuardian: {
-  contact: MockContact;
-  channel: Record<string, unknown>;
-} | null = null;
-let mockAnyGuardian: {
-  contact: MockContact;
-  channels: Record<string, unknown>[];
-} | null = null;
+interface GuardianDeliveryStub {
+  channelType: string;
+  address: string;
+  status: string;
+}
+
+// Gateway guardian deliveries (first entry is the "any guardian" fallback).
+let mockGuardianDeliveries: GuardianDeliveryStub[] = [];
+// Local contact joined by the guardian delivery's (channelType, address).
+let mockLocalContact: MockContact | null = null;
 let mockSlugOverride: ((displayName: string) => string) | null = null;
 
 // Records drizzle `.update(contacts).set({userFile: ...}).where(...).run()` calls.
 let updatedUserFiles: Array<{ contactId: string; userFile: string }> = [];
 
+/**
+ * Seed a guardian: a gateway delivery for `deliveryChannel` and the local
+ * contact joined by that delivery's address.
+ */
+function seedGuardian(input: {
+  deliveryChannel: string;
+  address: string;
+  contact: MockContact;
+}): void {
+  mockGuardianDeliveries = [
+    {
+      channelType: input.deliveryChannel,
+      address: input.address,
+      status: "active",
+    },
+  ];
+  mockLocalContact = input.contact;
+}
+
 // ── Mock modules (must precede migration import) ──────────────────
 
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => mockGuardianDeliveries,
+  guardianForChannel: (list: GuardianDeliveryStub[], channelType: string) =>
+    list.find((g) => g.channelType === channelType && g.status === "active"),
+  anyGuardian: (list: GuardianDeliveryStub[]) => list[0],
+}));
+
 mock.module("../contacts/contact-store.js", () => ({
-  findGuardianForChannel: (channelType: string) =>
-    channelType === "vellum" ? mockVellumGuardian : null,
-  listGuardianChannels: () => mockAnyGuardian,
+  findContactByAddress: () => mockLocalContact,
   generateUserFileSlug: (displayName: string) => {
     if (mockSlugOverride) return mockSlugOverride(displayName);
     const base =
@@ -86,12 +112,10 @@ mock.module("../memory/db-connection.js", () => ({
       set: (values: { userFile: string }) => ({
         where: () => ({
           run: () => {
-            const guardian =
-              mockVellumGuardian?.contact ?? mockAnyGuardian?.contact ?? null;
-            if (guardian) {
-              guardian.userFile = values.userFile;
+            if (mockLocalContact) {
+              mockLocalContact.userFile = values.userFile;
               updatedUserFiles.push({
-                contactId: guardian.id,
+                contactId: mockLocalContact.id,
                 userFile: values.userFile,
               });
             }
@@ -161,8 +185,8 @@ afterAll(() => {
 
 beforeEach(() => {
   workspaceDir = mkdtempSync(join(testRoot, "ws-"));
-  mockVellumGuardian = null;
-  mockAnyGuardian = null;
+  mockGuardianDeliveries = [];
+  mockLocalContact = null;
   mockSlugOverride = null;
   updatedUserFiles = [];
 });
@@ -181,31 +205,28 @@ describe("workspace migration 031-drop-user-md", () => {
     );
   });
 
-  test("fresh install (no guardian, no USER.md) is a no-op", () => {
+  test("fresh install (no guardian, no USER.md) is a no-op", async () => {
     // No guardian stubbed in, no USER.md on disk.
-    dropUserMdMigration.run(workspaceDir);
+    await dropUserMdMigration.run(workspaceDir);
 
     expect(existsSync(join(workspaceDir, "USER.md"))).toBe(false);
     expect(existsSync(join(workspaceDir, "users"))).toBe(false);
     expect(updatedUserFiles).toEqual([]);
   });
 
-  test("pre-017 customized USER.md with guardian missing userFile backfills slug and migrates content", () => {
+  test("pre-017 customized USER.md with guardian missing userFile backfills slug and migrates content", async () => {
     // Guardian exists on the 'vellum' channel but has no userFile.
-    mockVellumGuardian = {
-      contact: {
-        id: "guardian-1",
-        displayName: "Chris",
-        userFile: null,
-      },
-      channel: { type: "vellum" },
-    };
+    seedGuardian({
+      deliveryChannel: "vellum",
+      address: "vellum:self",
+      contact: { id: "guardian-1", displayName: "Chris", userFile: null },
+    });
 
     const userMdPath = join(workspaceDir, "USER.md");
     const content = customizedContent();
     writeFileSync(userMdPath, content, "utf-8");
 
-    dropUserMdMigration.run(workspaceDir);
+    await dropUserMdMigration.run(workspaceDir);
 
     // Backfill happened: drizzle update was called with the generated slug.
     expect(updatedUserFiles).toHaveLength(1);
@@ -221,16 +242,13 @@ describe("workspace migration 031-drop-user-md", () => {
     expect(existsSync(userMdPath)).toBe(false);
   });
 
-  test("post-017 users/<slug>.md already populated, USER.md still on disk as template — does not overwrite dest, deletes USER.md", () => {
+  test("post-017 users/<slug>.md already populated, USER.md still on disk as template — does not overwrite dest, deletes USER.md", async () => {
     // Guardian already has a userFile from a prior 017 run.
-    mockVellumGuardian = {
-      contact: {
-        id: "guardian-2",
-        displayName: "Chris",
-        userFile: "chris.md",
-      },
-      channel: { type: "vellum" },
-    };
+    seedGuardian({
+      deliveryChannel: "vellum",
+      address: "vellum:self",
+      contact: { id: "guardian-2", displayName: "Chris", userFile: "chris.md" },
+    });
 
     // Pre-populated persona file (post-017 state).
     const usersDir = join(workspaceDir, "users");
@@ -243,7 +261,7 @@ describe("workspace migration 031-drop-user-md", () => {
     const userMdPath = join(workspaceDir, "USER.md");
     writeFileSync(userMdPath, templateContent(), "utf-8");
 
-    dropUserMdMigration.run(workspaceDir);
+    await dropUserMdMigration.run(workspaceDir);
 
     // users/chris.md is untouched.
     expect(readFileSync(destPath, "utf-8")).toBe(existingPersona);
@@ -255,21 +273,18 @@ describe("workspace migration 031-drop-user-md", () => {
     expect(updatedUserFiles).toEqual([]);
   });
 
-  test("idempotent: second run is a no-op after the first run deleted USER.md", () => {
-    mockVellumGuardian = {
-      contact: {
-        id: "guardian-3",
-        displayName: "Alice",
-        userFile: "alice.md",
-      },
-      channel: { type: "vellum" },
-    };
+  test("idempotent: second run is a no-op after the first run deleted USER.md", async () => {
+    seedGuardian({
+      deliveryChannel: "vellum",
+      address: "vellum:self",
+      contact: { id: "guardian-3", displayName: "Alice", userFile: "alice.md" },
+    });
 
     const userMdPath = join(workspaceDir, "USER.md");
     writeFileSync(userMdPath, customizedContent(), "utf-8");
 
     // First run: migrates content and deletes USER.md.
-    dropUserMdMigration.run(workspaceDir);
+    await dropUserMdMigration.run(workspaceDir);
     expect(existsSync(userMdPath)).toBe(false);
     const destPath = join(workspaceDir, "users", "alice.md");
     expect(existsSync(destPath)).toBe(true);
@@ -277,28 +292,25 @@ describe("workspace migration 031-drop-user-md", () => {
 
     // Second run: no USER.md remains, users/alice.md already has content,
     // so the destination is not rewritten and USER.md is still absent.
-    dropUserMdMigration.run(workspaceDir);
+    await dropUserMdMigration.run(workspaceDir);
     expect(existsSync(userMdPath)).toBe(false);
     expect(existsSync(destPath)).toBe(true);
     expect(readFileSync(destPath, "utf-8")).toBe(afterFirst);
   });
 
-  test("guardian exists but users/ directory is missing — migration creates the directory", () => {
-    mockVellumGuardian = {
-      contact: {
-        id: "guardian-4",
-        displayName: "Bob",
-        userFile: "bob.md",
-      },
-      channel: { type: "vellum" },
-    };
+  test("guardian exists but users/ directory is missing — migration creates the directory", async () => {
+    seedGuardian({
+      deliveryChannel: "vellum",
+      address: "vellum:self",
+      contact: { id: "guardian-4", displayName: "Bob", userFile: "bob.md" },
+    });
 
     // USER.md present but no users/ dir yet.
     const userMdPath = join(workspaceDir, "USER.md");
     writeFileSync(userMdPath, customizedContent(), "utf-8");
     expect(existsSync(join(workspaceDir, "users"))).toBe(false);
 
-    dropUserMdMigration.run(workspaceDir);
+    await dropUserMdMigration.run(workspaceDir);
 
     expect(existsSync(join(workspaceDir, "users"))).toBe(true);
     const destPath = join(workspaceDir, "users", "bob.md");
@@ -309,21 +321,19 @@ describe("workspace migration 031-drop-user-md", () => {
 
   // ─── Bonus coverage for edge cases ───────────────────────────────
 
-  test("falls back to listGuardianChannels when no vellum-channel guardian exists", () => {
-    mockVellumGuardian = null;
-    mockAnyGuardian = {
-      contact: {
-        id: "guardian-5",
-        displayName: "Carol",
-        userFile: "carol.md",
-      },
-      channels: [{ type: "telegram" }],
-    };
+  test("falls back to any guardian when no vellum-channel guardian exists", async () => {
+    // No vellum delivery — the first (telegram) delivery is the any-guardian
+    // fallback, and its local contact carries the userFile.
+    seedGuardian({
+      deliveryChannel: "telegram",
+      address: "carol-tg",
+      contact: { id: "guardian-5", displayName: "Carol", userFile: "carol.md" },
+    });
 
     const userMdPath = join(workspaceDir, "USER.md");
     writeFileSync(userMdPath, customizedContent(), "utf-8");
 
-    dropUserMdMigration.run(workspaceDir);
+    await dropUserMdMigration.run(workspaceDir);
 
     const destPath = join(workspaceDir, "users", "carol.md");
     expect(existsSync(destPath)).toBe(true);
@@ -331,20 +341,17 @@ describe("workspace migration 031-drop-user-md", () => {
     expect(existsSync(userMdPath)).toBe(false);
   });
 
-  test("template-shaped USER.md with no destination file — seeds scaffold and deletes USER.md", () => {
-    mockVellumGuardian = {
-      contact: {
-        id: "guardian-6",
-        displayName: "Dana",
-        userFile: "dana.md",
-      },
-      channel: { type: "vellum" },
-    };
+  test("template-shaped USER.md with no destination file — seeds scaffold and deletes USER.md", async () => {
+    seedGuardian({
+      deliveryChannel: "vellum",
+      address: "vellum:self",
+      contact: { id: "guardian-6", displayName: "Dana", userFile: "dana.md" },
+    });
 
     const userMdPath = join(workspaceDir, "USER.md");
     writeFileSync(userMdPath, templateContent(), "utf-8");
 
-    dropUserMdMigration.run(workspaceDir);
+    await dropUserMdMigration.run(workspaceDir);
 
     // USER.md is gone.
     expect(existsSync(userMdPath)).toBe(false);

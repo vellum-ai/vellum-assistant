@@ -8,12 +8,14 @@ import type { ChannelId } from "../../channels/types.js";
 import { emitContactChange } from "../../contacts/contact-events.js";
 import {
   findContactChannel,
-  findGuardianForChannel,
   getChannelById,
   getContact,
 } from "../../contacts/contact-store.js";
 import { gatewayContactChannelState } from "../../contacts/gateway-channel-read.js";
-import { getGuardianDelivery } from "../../contacts/guardian-delivery-reader.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../../contacts/guardian-delivery-reader.js";
 import type { ContactChannel } from "../../contacts/types.js";
 import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { getBindingByChannelChat } from "../../memory/external-conversation-store.js";
@@ -149,10 +151,14 @@ export async function getVerificationStatus(
 
   const binding = await getGuardianBinding(resolvedAssistantId, resolvedChannel);
 
-  // Read the contact directly to get displayName — getGuardianBinding is a
-  // compatibility shim that doesn't carry metadataJson.
-  const guardianResult = findGuardianForChannel(resolvedChannel);
-  const bindingDisplayName = guardianResult?.contact.displayName;
+  // Read the guardian displayName from the gateway delivery — getGuardianBinding
+  // is a compatibility shim that doesn't carry metadataJson.
+  const guardians = await getGuardianDelivery({
+    channelTypes: [resolvedChannel],
+  });
+  const bindingDisplayName = guardians
+    ? (guardianForChannel(guardians, resolvedChannel)?.displayName ?? undefined)
+    : undefined;
   const guardianDisplayName = resolveGuardianName(bindingDisplayName);
 
   // Resolve username from external conversation store.

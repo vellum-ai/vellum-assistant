@@ -17,7 +17,7 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
     list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
-import { findGuardianForChannel } from "../contacts/contact-store.js";
+import { findContactByAddress } from "../contacts/contact-store.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { healGuardianBindingDrift } from "../runtime/guardian-vellum-migration.js";
@@ -31,15 +31,29 @@ function resetTables(): void {
   db.run("DELETE FROM contacts");
 }
 
-/** Gateway delivery mirroring the local guardian binding's principal. */
-function gatewayGuardian(principalId: string): GuardianDelivery {
+/**
+ * Gateway delivery for the vellum guardian. `principalId` is the gateway-owned
+ * binding principal; `address` is the local channel address the heal resolves
+ * its write target by (defaults to the principal for same-principal bindings).
+ */
+function gatewayGuardian(
+  principalId: string,
+  address: string = principalId,
+): GuardianDelivery {
   return {
     channelType: "vellum",
     contactId: "guardian-contact",
     principalId,
-    address: principalId,
+    address,
     status: "active",
   };
+}
+
+/** Read the local vellum guardian channel/contact by its channel address. */
+function localVellumGuardian(address: string) {
+  const contact = findContactByAddress("vellum", address);
+  const channel = contact?.channels.find((c) => c.type === "vellum");
+  return contact && channel ? { contact, channel } : null;
 }
 
 describe("healGuardianBindingDrift", () => {
@@ -65,7 +79,7 @@ describe("healGuardianBindingDrift", () => {
 
     // The heal repairs the channel identity address to match the JWT. The
     // principalId column is gateway-owned and no longer written locally.
-    const guardian = findGuardianForChannel("vellum");
+    const guardian = localVellumGuardian("vellum-principal-old-uuid");
     expect(guardian).not.toBeNull();
     expect(guardian!.channel.address).toBe("vellum-principal-old-uuid");
   });
@@ -81,7 +95,11 @@ describe("healGuardianBindingDrift", () => {
       guardianPrincipalId: "vellum-principal-stale-local",
       verifiedVia: "startup-migration",
     });
-    mockGuardians = [gatewayGuardian("vellum-principal-gateway")];
+    // Gateway address matches the local channel address so the heal can resolve
+    // its local write target; only the gateway principal has drifted.
+    mockGuardians = [
+      gatewayGuardian("vellum-principal-gateway", "vellum-principal-stale-local"),
+    ];
 
     const healed = await healGuardianBindingDrift("vellum-principal-jwt");
     expect(healed).toBe(true);
@@ -89,7 +107,7 @@ describe("healGuardianBindingDrift", () => {
     // The local mirror's identity address now matches the JWT, so a subsequent
     // local trust resolution classifies the actor as guardian rather than
     // unknown. The principalId column is gateway-owned and not written locally.
-    const guardian = findGuardianForChannel("vellum");
+    const guardian = localVellumGuardian("vellum-principal-jwt");
     expect(guardian!.channel.address).toBe("vellum-principal-jwt");
   });
 
@@ -122,7 +140,7 @@ describe("healGuardianBindingDrift", () => {
     expect(healed).toBe(false);
 
     // Guardian unchanged
-    const guardian = findGuardianForChannel("vellum");
+    const guardian = localVellumGuardian("vellum-principal-aaa");
     expect(guardian!.contact.principalId).toBe("vellum-principal-aaa");
   });
 
@@ -140,7 +158,7 @@ describe("healGuardianBindingDrift", () => {
     const healed = await healGuardianBindingDrift("vellum-principal-attacker");
     expect(healed).toBe(false);
 
-    const guardian = findGuardianForChannel("vellum");
+    const guardian = localVellumGuardian("verified-phone-guardian");
     expect(guardian!.contact.principalId).toBe("verified-phone-guardian");
   });
 
