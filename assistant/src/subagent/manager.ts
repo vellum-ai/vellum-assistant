@@ -605,7 +605,16 @@ export class SubagentManager {
       // the fork tends to continue the parent conversation instead of
       // pivoting to the task — the inherited context is louder than a bare
       // objective buried after 100k+ tokens of chat history.
-      const message = managed.state.isFork
+      //
+      // The advisor consult is the exception: it is a fork, but its
+      // `systemPromptOverride` already frames the inherited context as advice
+      // ("you are a senior advisor … do not write its final deliverable"), so
+      // the generic "complete this task and return your findings" wrapper would
+      // fight that framing. The advisor's objective is already the bare advice
+      // request (`advisorRequestText()`), so it is sent uncontested.
+      const useForkFraming =
+        managed.state.isFork && managed.state.config.role !== "advisor";
+      const message = useForkFraming
         ? [
             "⎯⎯⎯ FORK TASK ⎯⎯⎯",
             "You have been forked from the parent conversation to execute a specific task.",

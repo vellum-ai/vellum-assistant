@@ -2,15 +2,26 @@
  * Verifies the agent loop's provider-native web-search gate (used by the
  * tool-less advisor consult): when `enableNativeWebSearch` is set, the loop
  * appends a `web_search`-named SERVER tool to the outbound request and forces
- * `tool_choice: auto` — but ONLY when the resolved provider reports
- * `supportsNativeWebSearch === true`. A non-native provider gets nothing, and
- * the consult stays tool-less (no client `web_search` tool surfaced). Drives the
- * REAL loop, mocking only the provider boundary.
+ * `tool_choice: auto` — but ONLY when the provider/model the call ACTUALLY
+ * routes to reports native-search support. A non-native target gets nothing,
+ * and the consult stays tool-less (no client `web_search` tool surfaced).
+ *
+ * The gate prefers the routing-aware `supportsNativeWebSearchFor(options)` (the
+ * routed (provider, model)'s capability) over the construction-time
+ * `supportsNativeWebSearch` snapshot. The advisor's `advisorProfile` can route
+ * `subagentSpawn` to a provider/model whose native-search support DIFFERS from
+ * the default, so the routed capability — not the default's — must drive the
+ * decision in both directions. Drives the REAL loop, mocking only the provider
+ * boundary.
  */
 import { describe, expect, test } from "bun:test";
 
 import { createMockProvider } from "../__tests__/helpers/mock-provider.js";
-import type { Provider, ProviderResponse } from "../providers/types.js";
+import type {
+  Provider,
+  ProviderResponse,
+  SendMessageOptions,
+} from "../providers/types.js";
 import { AgentLoop } from "./loop.js";
 
 const endTurn = (text: string): ProviderResponse => ({
@@ -121,5 +132,69 @@ describe("AgentLoop — provider-native web search gate", () => {
 
     const sent = calls[0];
     expect(sent.tools?.filter((t) => t.name === "web_search")).toHaveLength(1);
+  });
+
+  // ── Routed capability drives the decision (not the static default) ────────
+
+  test("false positive: static flag is native but the ROUTED target is not — attaches nothing", async () => {
+    const { provider, calls } = createMockProvider([endTurn("guidance")]);
+    // The construction-time default supports native search…
+    (
+      provider as { supportsNativeWebSearch?: boolean }
+    ).supportsNativeWebSearch = true;
+    // …but the advisorProfile routes `subagentSpawn` to a provider/model that
+    // does NOT. The routing-aware probe wins, so no unexecutable client tool is
+    // surfaced to the otherwise tool-less advisor.
+    (
+      provider as {
+        supportsNativeWebSearchFor?: (o?: SendMessageOptions) => boolean;
+      }
+    ).supportsNativeWebSearchFor = () => false;
+
+    const loop = buildAdvisorLoop(provider, true);
+    await loop.run({ ...baseRun, messages: userMessages });
+
+    const sent = calls[0];
+    expect(sent.tools).toBeUndefined();
+    expect(sent.options?.config?.tool_choice).toBeUndefined();
+  });
+
+  test("false negative: static flag is non-native but the ROUTED target is — attaches the tool", async () => {
+    const { provider, calls } = createMockProvider([endTurn("guidance")]);
+    // The construction-time default lacks native search (flag absent/falsy)…
+    // …but the advisorProfile routes to a provider/model that has it.
+    (
+      provider as {
+        supportsNativeWebSearchFor?: (o?: SendMessageOptions) => boolean;
+      }
+    ).supportsNativeWebSearchFor = () => true;
+
+    const loop = buildAdvisorLoop(provider, true);
+    await loop.run({ ...baseRun, messages: userMessages });
+
+    const sent = calls[0];
+    expect(sent.tools?.map((t) => t.name)).toEqual(["web_search"]);
+    expect(sent.options?.config?.tool_choice).toEqual({ type: "auto" });
+  });
+
+  test("the routing probe receives the loop's callSite", async () => {
+    const { provider, calls } = createMockProvider([endTurn("guidance")]);
+    const probeOptions: (SendMessageOptions | undefined)[] = [];
+    (
+      provider as {
+        supportsNativeWebSearchFor?: (o?: SendMessageOptions) => boolean;
+      }
+    ).supportsNativeWebSearchFor = (o) => {
+      probeOptions.push(o);
+      return true;
+    };
+
+    const loop = buildAdvisorLoop(provider, true);
+    await loop.run({ ...baseRun, messages: userMessages });
+
+    expect(calls).toHaveLength(1);
+    // The probe is resolved against the same callSite the dispatch uses
+    // (`subagentSpawn` per `baseRun`), so the routed (provider, model) matches.
+    expect(probeOptions[0]?.config?.callSite).toBe("subagentSpawn");
   });
 });

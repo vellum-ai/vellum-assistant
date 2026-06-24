@@ -34,6 +34,7 @@ import {
 } from "./connection-resolution.js";
 import { listConnections } from "./inference/connections.js";
 import type { ProvidersConfig } from "./registry.js";
+import { shouldUseNativeWebSearch } from "./registry.js";
 import type {
   Message,
   Provider,
@@ -128,6 +129,36 @@ export class CallSiteRoutingProvider implements Provider {
     return isRouted
       ? this._activeProviderContext.run(target.name, doSend)
       : doSend();
+  }
+
+  /**
+   * Native web-search capability of the provider/model THIS call routes to.
+   *
+   * `selectProvider` picks the transport from the routed connection, but each
+   * leaf provider's static `supportsNativeWebSearch` was fixed to the DEFAULT
+   * (provider, model) at boot. Resolving the call-site here — same
+   * `resolveCallSiteConfig` inputs `selectProvider` uses — and recomputing
+   * `shouldUseNativeWebSearch(resolved.provider, resolved.model)` yields the
+   * capability of the routed target instead of the construction-time default.
+   *
+   * Falls back to the default provider's static flag when no `callSite` is set
+   * (the legacy short-circuit `selectProvider` also takes).
+   */
+  supportsNativeWebSearchFor(options?: SendMessageOptions): boolean {
+    const callSite = options?.config?.callSite;
+    if (!callSite) {
+      return this.defaultProvider.supportsNativeWebSearch === true;
+    }
+    const resolved = resolveCallSiteConfig(callSite, getConfig().llm, {
+      overrideProfile: options?.config?.overrideProfile,
+      forceOverrideProfile: options?.config?.forceOverrideProfile,
+      selectionSeed: options?.config?.selectionSeed,
+    });
+    return shouldUseNativeWebSearch(
+      getConfig(),
+      resolved.provider,
+      resolved.model,
+    );
   }
 
   /**

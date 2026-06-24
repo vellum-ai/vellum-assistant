@@ -262,7 +262,6 @@ async function runAdvisorConsult(args: {
         role: "advisor",
         fork: true,
         parentMessages: sanitizedMessages,
-        parentSystemPrompt,
         systemPromptOverride: buildAdvisorSystem(parentSystemPrompt),
         ...(overrideProfile ? { overrideProfile } : {}),
         ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),

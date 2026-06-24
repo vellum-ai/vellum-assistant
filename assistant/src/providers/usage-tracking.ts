@@ -35,6 +35,12 @@ export class UsageTrackingProvider implements Provider {
     }
   }
 
+  supportsNativeWebSearchFor(options?: SendMessageOptions): boolean {
+    return this.inner.supportsNativeWebSearchFor
+      ? this.inner.supportsNativeWebSearchFor(options)
+      : this.inner.supportsNativeWebSearch === true;
+  }
+
   async sendMessage(
     messages: Message[],
     options?: SendMessageOptions,
