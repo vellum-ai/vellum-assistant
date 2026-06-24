@@ -44,6 +44,18 @@ Each subagent is spawned with a role that determines its tool access. Choose the
 
 All specialized roles (`researcher`, `coder`, `planner`) include `notify_parent` for mid-run communication with the parent.
 
+## Consulting the Advisor
+
+The `advisor` role is the one role you spawn on your own judgment, unprompted — you do NOT wait for the user to ask for a subagent. The other roles (`researcher`, `coder`, `planner`, `investigator`, `general`) stay delegation-driven: reach for them to offload work, typically when the user's request calls for it. The advisor is different: proactively consult it whenever the conditions below are met.
+
+Orient yourself first (read the relevant files, understand the task), then consult the advisor:
+
+- **Before you commit to an approach and start building** — to shape a plan when you don't have one, or to pressure-test and sharpen a plan you've already drafted.
+- **When you get stuck or are weighing a change in direction.**
+- **Once before you declare the task done.**
+
+The consult is synchronous and read-only: spawning an `advisor` subagent BLOCKS until it returns guidance. It runs on a stronger model and inherits your full context, so it sees the task, your tool calls, and their results without you re-explaining. Give its guidance serious weight; only override it when primary-source evidence contradicts a specific claim — and say so when you do.
+
 ## Parent Communication
 
 Subagents use `notify_parent` to send messages to the parent conversation while still running. Each notification has an urgency level:
