@@ -1,13 +1,12 @@
 /**
- * A single conversation row in the assistant sidebar.
+ * A single conversation row in the assistant sidebar: a pin/processing
+ * toggle, the title, an actions menu, an optional right-click context
+ * menu, and optional drag-reorder. Action callbacks, active/processing
+ * state, and the drag controller come from
+ * {@link useConversationListContext}.
  *
- * Replaces the parent-bound `renderThreadRow` / `renderThreadPinToggle` /
- * `renderThreadActions` / `buildConversationMenuProps` / `buildDragProps`
- * closures: each row now reads its action callbacks, active/processing
- * state, and the drag controller from {@link useConversationListContext}.
- *
- * Used by every list surface — Pinned, Recents, channel sections, custom
- * groups, and the collapsed-rail flyout. The flyout passes
+ * Rendered in every list surface — Pinned, Recents, channel sections,
+ * custom groups, and the collapsed-rail flyout. The flyout passes
  * `withContextMenu={false}` (no right-click menu) and `marquee={false}`.
  */
 

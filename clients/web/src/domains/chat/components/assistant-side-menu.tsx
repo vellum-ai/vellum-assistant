@@ -126,8 +126,7 @@ function SearchButton({ onClose }: { onClose?: () => void }) {
  * The conversation rows, row lists, and collapsible sections are
  * components ({@link ConversationRow} / {@link ConversationRowList} /
  * {@link ConversationNavSection}); their shared action callbacks and state
- * flow through {@link ConversationListProvider} rather than being threaded
- * as props.
+ * flow through {@link ConversationListProvider}.
  */
 export function AssistantSideMenu({
   assistantId,
@@ -221,9 +220,8 @@ export function AssistantSideMenu({
   );
 
   // Shared context for every conversation row (Pinned, Recents, channel
-  // sections, custom groups, rail flyout) — lifts the action callbacks,
-  // active/processing/attention state, and drag controller out of the
-  // per-row closures this component used to carry.
+  // sections, custom groups, rail flyout): the action callbacks,
+  // active/processing/attention state, and drag controller the rows read.
   const listContext: ConversationListContextValue = {
     activeConversationId,
     activeConversationProcessing,

@@ -9,8 +9,8 @@
  *   shell (icon + label + trailing + context menu) wrapping a
  *   `ConversationRowList`. Used by channel sections and custom groups.
  *
- * Both read row callbacks/state from {@link useConversationListContext}
- * via `ConversationRow`, so neither needs the row wiring threaded through.
+ * Row callbacks and state come from {@link useConversationListContext}
+ * (via `ConversationRow`), so neither takes them as props.
  */
 
 import { type ReactNode } from "react";

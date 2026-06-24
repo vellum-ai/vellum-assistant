@@ -4,12 +4,9 @@
  * Every conversation row (in Pinned, Recents, a channel section, a custom
  * group, or the collapsed-rail flyout) needs the same ~12 action callbacks
  * plus the active/processing/attention state and the drag-reorder
- * controller. Threading all of that through section → list → row as props
- * is what kept the rendering as inline closures inside `AssistantSideMenu`.
- *
- * Lifting it into a context lets {@link ConversationRow} read what it needs
- * directly, so the row/list/section pieces become real components instead
- * of parent-bound render closures.
+ * controller. Providing them through context lets {@link ConversationRow}
+ * read what it needs directly, so the row, list, and section components
+ * don't each take a dozen props.
  */
 
 import { createContext, useContext } from "react";
