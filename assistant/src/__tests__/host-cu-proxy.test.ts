@@ -513,6 +513,47 @@ describe("HostCuProxy", () => {
       expect(proxy.consecutiveUnchangedSteps).toBe(0);
     });
 
+    test("exempts key combos regardless of spacing, case, alias, or modifier order", async () => {
+      // All of these normalize to an exempt combo the mac helper would execute
+      // identically: spaced, uppercase, alt->option alias, command->cmd alias,
+      // and reversed modifier order.
+      const variants = ["cmd + a", "CMD+A", "alt+tab", "command+c", "tab+shift"];
+
+      for (const [i, variant] of variants.entries()) {
+        setup();
+
+        // Establish previous AX tree
+        const p1 = proxy.request(
+          "computer_use_click",
+          { element_id: 1 },
+          `session-${i}`,
+          1,
+        );
+        proxy.recordAction("computer_use_click", { element_id: 1 });
+        const sent1 = sentMessages[0] as Record<string, unknown>;
+        proxy.processObservation(sent1.requestId as string, {
+          axTree: "TextField [1]",
+        });
+        await p1;
+
+        const p2 = proxy.request(
+          "computer_use_key",
+          { key: variant },
+          `session-${i}`,
+          2,
+        );
+        proxy.recordAction("computer_use_key", { key: variant });
+        const sent2 = sentMessages[1] as Record<string, unknown>;
+        proxy.processObservation(sent2.requestId as string, {
+          axTree: "TextField [1]",
+          // No axDiff — invisible-by-design change
+        });
+        const result2 = await p2;
+        expect(result2.content).not.toContain("NO VISIBLE EFFECT");
+        expect(proxy.consecutiveUnchangedSteps).toBe(0);
+      }
+    });
+
     test("exempt key clears the no-effect streak between non-exempt no-ops", async () => {
       setup();
 

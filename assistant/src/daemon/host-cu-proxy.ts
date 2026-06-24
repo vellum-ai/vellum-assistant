@@ -44,14 +44,15 @@ const MAX_HISTORY_ENTRIES = 10;
 const LOOP_DETECTION_WINDOW = 3;
 const CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD = 2;
 
-// computer_use_key actions that change only selection/cursor/clipboard state.
+// computer_use_key combos that change only selection/cursor/clipboard state.
 // The AX tree models none of these, so they always produce an empty diff —
 // exempt them from the "NO VISIBLE EFFECT" signal (mirrors computer_use_wait).
-const NO_AX_DIFF_KEYS = new Set([
+// Stored in canonical form (see canonicalizeKeyCombo): modifier aliases
+// normalized and ordered, so `cmd + a`, `command+a`, `alt+tab`, `tab+shift`
+// all match.
+const NO_AX_DIFF_KEY_COMBOS = new Set([
   "cmd+a",
-  "command+a",
   "cmd+c",
-  "command+c",
   "up",
   "down",
   "left",
@@ -59,6 +60,39 @@ const NO_AX_DIFF_KEYS = new Set([
   "shift+tab",
   "option+tab",
 ]);
+
+// Modifier aliases mirror the mac helper's ActionExecutor.pressKey so the
+// exemption check matches exactly what the helper will execute.
+const KEY_MODIFIER_ALIASES: Record<string, string> = {
+  cmd: "cmd",
+  command: "cmd",
+  option: "option",
+  alt: "option",
+  ctrl: "ctrl",
+  control: "ctrl",
+  shift: "shift",
+};
+const KEY_MODIFIER_ORDER = ["cmd", "ctrl", "option", "shift"];
+
+/**
+ * Normalize a key combo the way the mac helper does (lowercase, split on `+`,
+ * trim, alias modifiers) into a canonical `mods…+base` string with modifiers
+ * in a fixed order — so order/alias/whitespace variants compare equal.
+ */
+function canonicalizeKeyCombo(key: string): string {
+  const mods = new Set<string>();
+  let base = "";
+  for (const raw of key.toLowerCase().split("+")) {
+    const part = raw.trim();
+    if (part.length === 0) continue;
+    const mod = KEY_MODIFIER_ALIASES[part];
+    if (mod) mods.add(mod);
+    else base = part; // last non-modifier wins, matching the executor
+  }
+  return [...KEY_MODIFIER_ORDER.filter((m) => mods.has(m)), base]
+    .filter((s) => s.length > 0)
+    .join("+");
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -94,7 +128,8 @@ function isNoDiffKeyAction(action: ActionRecord | undefined): boolean {
   if (action?.toolName !== "computer_use_key") return false;
   const key = action.input.key;
   return (
-    typeof key === "string" && NO_AX_DIFF_KEYS.has(key.trim().toLowerCase())
+    typeof key === "string" &&
+    NO_AX_DIFF_KEY_COMBOS.has(canonicalizeKeyCombo(key))
   );
 }
 
