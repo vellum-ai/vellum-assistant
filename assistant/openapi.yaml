@@ -14723,6 +14723,37 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/internal/mcp/auth/revoke:
+    post:
+      operationId: internal_mcp_auth_revoke_post
+      summary: Revoke MCP OAuth credentials
+      description: Deletes stored OAuth tokens for an MCP server and triggers a reload.
+      tags:
+        - internal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                serverId:
+                  type: string
+              required:
+                - serverId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked:
+                    type: boolean
+                required:
+                  - revoked
+                additionalProperties: false
   /v1/internal/mcp/auth/start:
     post:
       operationId: internal_mcp_auth_start_post
@@ -14802,6 +14833,8 @@ paths:
                           type: boolean
                         defaultRiskLevel:
                           type: string
+                        hasOAuth:
+                          type: boolean
                         allowedTools:
                           type: array
                           items:
@@ -14816,6 +14849,7 @@ paths:
                         - transport
                         - enabled
                         - defaultRiskLevel
+                        - hasOAuth
                       additionalProperties: false
                 required:
                   - servers
