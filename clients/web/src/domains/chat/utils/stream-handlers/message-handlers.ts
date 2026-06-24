@@ -61,7 +61,7 @@ function resolveConversationId(
  * per-token streaming path never pays for this lookup.
  */
 function resolveHistoryTwin(
-  event: { conversationId?: string; messageId?: string },
+  event: AssistantTextDeltaEvent | AssistantThinkingDeltaEvent,
   ctx: StreamHandlerContext,
 ): DisplayMessage | undefined {
   const { messageId } = event;
