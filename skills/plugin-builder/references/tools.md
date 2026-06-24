@@ -33,7 +33,7 @@ These are the fields a tool definition can set. Names and types come from `ToolD
 | Field                           | Type                                       | Description                                                                                                                   |
 | ------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
 | `conversationId`                | `string`                                   | Conversation this tool invocation belongs to.                                                                                 |
-| `workingDir`                    | `string`                                   | Working directory the daemon was launched from.                                                                               |
+| `workingDir`                    | `string`                                   | Working directory the assistant was launched from.                                                                            |
 | `requestId`                     | `string?`                                  | Per-turn request id for cross-component log correlation.                                                                      |
 | `signal`                        | `AbortSignal?`                             | Cooperative cancellation. Check `signal.aborted` periodically, or forward it to `fetch` and child-process options.            |
 | `onOutput`                      | `(chunk: string) => void?`                 | Incremental-output callback for streaming tools. Fall back to returning the full result in `content` when it is absent.       |
@@ -89,6 +89,17 @@ All tools (built-in, plugin, workspace, and MCP) land in one shared catalog. Whe
 5. **User plugin tools.** Registered at boot, ordered by the plugin's original install date (same ordering as hooks: `install-meta.json` -> directory birthtime -> unknown). A user plugin tool that collides with a core, workspace, MCP, or default plugin tool is skipped. A collision between two different user plugins with the same tool name fails registration.
 
 The model sees the full catalog regardless of source. Pick distinctive tool names to avoid collisions. The loader derives the name from the file basename, so namespacing with a prefix (for example `myplugin_search`) is the simplest way to stay clear.
+
+## @vellumai/plugin-api exports for tools
+
+These are the tool-related exports from [`@vellumai/plugin-api`](https://github.com/vellum-ai/vellum-assistant/tree/main/assistant/src/plugin-api). The full field contracts are documented in the sections above.
+
+| Export                | Kind | Purpose                                                                         |
+| --------------------- | ---- | ------------------------------------------------------------------------------- |
+| `ToolDefinition`      | type | Author-facing tool spec, the default-export shape for a `tools/<name>.ts` file. |
+| `ToolContext`         | type | Runtime context passed as the second argument to a tool's execute.              |
+| `ToolExecutionResult` | type | Return shape of a tool's execute: `{ content, isError }`.                       |
+| `RiskLevel`           | enum | Risk bands (low, medium, high) that drive default permission gating for a tool. |
 
 ## Anatomy of a tool
 

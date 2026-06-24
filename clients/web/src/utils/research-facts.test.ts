@@ -1,11 +1,13 @@
 /**
- * Contract tests for the research-fact parser's plugin tagging.
+ * Contract tests for the research-fact parser's top-level `plugins` install
+ * list.
  *
- * The research-onboarding flow lets the assistant tag a suggestion with the
- * marketplace plugin (`plugin`) whose skills its prompt should trigger; the
- * runner background-installs any tagged plugin. These tests pin that the
- * optional `plugin` field round-trips, stays absent for ordinary suggestions,
- * and survives the streaming-tolerant extraction unchanged.
+ * The research-onboarding flow lets the assistant pick the marketplace
+ * capabilities that best fit the person (a persona-level `plugins` array, NOT
+ * tied to any one suggestion); the runner installs them for the assistant. These
+ * tests pin that the array round-trips, normalizes (trim/dedupe/drop non-string)
+ * and — because the runner must never act on a half-written array — is only
+ * honored once the whole payload parses complete.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -15,65 +17,84 @@ import {
   pluginDisplayName,
 } from "@/utils/research-facts";
 
-describe("parseResearchResultStreaming — plugin tagging", () => {
-  test("parses the optional plugin field on a suggestion", () => {
+describe("parseResearchResultStreaming — plugins install list", () => {
+  test("parses the top-level plugins array", () => {
     const text = JSON.stringify({
       claims: [],
-      suggestions: [
-        {
-          suggestion: "I'll sharpen your positioning and run a teardown",
-          prompt: "Sharpen my positioning and run a competitive teardown",
-          plugin: "marketing-expert",
-        },
-      ],
+      suggestions: [{ suggestion: "a", prompt: "a" }],
+      plugins: ["marketing-expert", "admin-copilot"],
     });
 
-    const { suggestions } = parseResearchResultStreaming(text);
+    const { plugins } = parseResearchResultStreaming(text);
 
-    expect(suggestions).toHaveLength(1);
-    expect(suggestions[0]?.plugin).toBe("marketing-expert");
+    expect(plugins).toEqual(["marketing-expert", "admin-copilot"]);
   });
 
-  test("leaves plugin undefined for an ordinary suggestion", () => {
+  test("defaults to an empty array when the key is absent", () => {
     const text = JSON.stringify({
       claims: [],
-      suggestions: [
-        { suggestion: "I'll plan your trip", prompt: "Plan my trip" },
-      ],
+      suggestions: [{ suggestion: "I'll plan your trip", prompt: "Plan my trip" }],
     });
 
-    const { suggestions } = parseResearchResultStreaming(text);
+    const { plugins } = parseResearchResultStreaming(text);
 
-    expect(suggestions[0]).toBeDefined();
-    expect(suggestions[0]?.plugin).toBeUndefined();
+    expect(plugins).toEqual([]);
   });
 
-  test("trims plugin whitespace and drops blank tags", () => {
+  test("trims, de-dupes, and drops blank or non-string entries", () => {
     const text = JSON.stringify({
-      suggestions: [
-        { suggestion: "a", prompt: "a", plugin: "  admin-copilot  " },
-        { suggestion: "b", prompt: "b", plugin: "   " },
-      ],
+      suggestions: [{ suggestion: "a", prompt: "a" }],
+      plugins: ["  admin-copilot  ", "admin-copilot", "   ", 7, "growth-coach"],
     });
 
-    const { suggestions } = parseResearchResultStreaming(text);
+    const { plugins } = parseResearchResultStreaming(text);
 
-    expect(suggestions[0]?.plugin).toBe("admin-copilot");
-    expect(suggestions[1]?.plugin).toBeUndefined();
+    expect(plugins).toEqual(["admin-copilot", "growth-coach"]);
   });
 
-  test("surfaces a tagged suggestion mid-stream before the array closes", () => {
-    // Unterminated payload: suggestions array still open, trailing object
-    // half-written. The first, complete object must still surface with its tag.
+  test("is honored as soon as its array closes, before the payload completes", () => {
+    // The prompt emits `plugins` first so installs can start ASAP. A closed
+    // plugins array is honored — and marked resolved — even while claims/
+    // suggestions are still streaming.
     const partial =
-      '{ "claims": [], "suggestions": [ ' +
-      '{ "suggestion": "I\'ll run GTM", "prompt": "Run my GTM", "plugin": "marketing-expert" }, ' +
-      '{ "suggestion": "half';
+      '{ "plugins": ["github", "marketing-expert"], "claims": [ { "claim": "Founder';
 
-    const { suggestions } = parseResearchResultStreaming(partial);
+    const { plugins, pluginsResolved, complete } =
+      parseResearchResultStreaming(partial);
 
-    expect(suggestions).toHaveLength(1);
-    expect(suggestions[0]?.plugin).toBe("marketing-expert");
+    expect(complete).toBe(false);
+    expect(pluginsResolved).toBe(true);
+    expect(plugins).toEqual(["github", "marketing-expert"]);
+  });
+
+  test("a closed-but-empty array is resolved (the model picked none)", () => {
+    // `[]` that has fully closed is a final decision, not a not-yet — so the
+    // click gate can release without waiting on the rest of the turn.
+    const partial = '{ "plugins": [], "claims": [ { "claim": "Founder';
+
+    const { plugins, pluginsResolved } = parseResearchResultStreaming(partial);
+
+    expect(pluginsResolved).toBe(true);
+    expect(plugins).toEqual([]);
+  });
+
+  test("a still-open plugins array is unresolved (avoids a truncated name)", () => {
+    // Half-written array, no closing `]`: acting on it could install a truncated
+    // name, so it stays empty AND unresolved until the array terminates.
+    const partial = '{ "plugins": [ "marketing-exp';
+
+    const { plugins, pluginsResolved } = parseResearchResultStreaming(partial);
+
+    expect(plugins).toEqual([]);
+    expect(pluginsResolved).toBe(false);
+  });
+
+  test("plugins are unresolved before the array appears", () => {
+    const partial = '{ "claims": [ { "claim": "Founder';
+
+    const { pluginsResolved } = parseResearchResultStreaming(partial);
+
+    expect(pluginsResolved).toBe(false);
   });
 });
 

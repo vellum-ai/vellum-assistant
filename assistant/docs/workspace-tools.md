@@ -5,9 +5,9 @@ add a brand-new one) by dropping a single file under their
 `<workspaceDir>/tools/` directory. The override survives assistant restarts,
 takes effect during the same startup phase as core tool initialization,
 and is recoverable: removing the file restores the original core behavior.
-When the `workspace-tools-watcher` feature flag is enabled, overrides are
-also hot-reloaded by a filesystem watcher (no restart required after the
-initial boot).
+Overrides are reconciled from disk on every conversation read, so edits
+under `tools/` take effect on the next conversation with no restart and no
+filesystem watcher.
 
 This page explains the file convention, lifecycle position, and the
 "single canonical source per name" invariant the design is built around.
@@ -100,8 +100,8 @@ Workspace tools are the highest-priority origin in the tool registry:
 
 - **Same name as a core tool** → the original core tool is moved into an
   internal stash (`getCoreToolOverride(name)`) and the workspace tool takes
-  its place. Removing the workspace file causes the watcher to restore
-  the original — workspace tools are not destructive to the core baseline.
+  its place. Removing the workspace file restores the original on the next
+  reconcile — workspace tools are not destructive to the core baseline.
 - **Brand-new name** → registers as a net-new entry. No stash.
 - **`<name>.removed` sentinel for a core tool** → the core tool is
   stripped (stashed in the same map as override-style stashing) and no
@@ -128,35 +128,44 @@ on the incoming tool.
 
 ```
 initializeTools()             # core tools register
-  → loadWorkspaceTools()      # initial workspace tool scan
+  → loadWorkspaceTools()      # initial workspace tool reconcile
     → MCP tool registration
     → loadUserPlugins()
     → bootstrapPlugins()
 
-# after providers-setup completes:
-DaemonServer.start()
-  → WorkspaceToolsWatcher.getInstance().start()   # hot register/unregister via fs.watch
+# on every conversation turn (createResolveToolsCallback):
+resolveTools(history)
+  → loadWorkspaceTools()                # reconcile registry against disk (fire-and-forget)
+  → getWorkspaceToolDefinitions()       # re-read workspace tools from the registry
+  → getMcpToolDefinitions()             # re-read MCP tools (same pattern)
 ```
 
 Workspace tools register _after_ core tools and _before_ every other
-extension surface during the initial scan so that every subsequent
-registration sees the workspace tool as already-owned. The initial scan
-(`loadWorkspaceTools()`) always runs, so workspace tools load from disk
-at every boot regardless of the flag.
+extension surface during the initial reconcile so that every subsequent
+registration sees the workspace tool as already-owned. The initial
+reconcile always runs at boot, so workspace tools load from disk at every
+startup.
 
-The filesystem watcher is gated on the `workspace-tools-watcher` feature
-flag (default off). When enabled, it runs for the lifetime of the
-assistant, picking up add/change/delete events on `<workspaceDir>/tools/`
-and reconciling the registry without requiring a restart. When disabled,
-no watch loop is mounted and live edits to `<workspaceDir>/tools/` take
-effect only on the next daemon restart. The flag is read at startup, so
-toggling it takes effect on restart rather than mid-process.
+There is no filesystem watcher. Instead, `loadWorkspaceTools()` is
+idempotent and is re-invoked by the per-turn tool resolver
+(`createResolveToolsCallback`), which then re-reads workspace tools from
+the registry the same way it re-reads MCP tools. Each reconcile re-derives
+the world from disk ("given what's on disk right now under `tools/`, what
+registry state should the assistant be in?") and applies the delta —
+registering added files, re-importing changed files, unregistering deleted
+files, and restoring core tools whose `.removed` sentinel was deleted. A
+conversation therefore picks up on-disk edits on its next turn, with no
+restart and without being recreated.
 
-The watcher debounces per filename stem and reconciles by re-deriving
-the world from disk ("given what's on disk right now for `<stem>.*`,
-what registry state should the assistant be in?") rather than routing
-on `fs.watch`'s unreliable add/change/rename event types. This is the
-same eventual-consistency pattern the plugin source watcher uses.
+The reconcile is fire-and-forget and eventually consistent: an edit lands
+in the registry during one turn's reconcile and is read on a subsequent
+turn. Unchanged files are skipped via an mtime cache, so a no-op reconcile
+costs one `readdir` plus a `stat` per file and never re-imports. Concurrent
+callers coalesce onto a single in-flight reconcile so their
+unregister/register sequences never interleave. This is the same
+eventual-consistency, re-derive-from-disk approach the plugin loader's
+mtime cache uses, with the per-turn tool read — rather than a watcher —
+kicking the reconcile.
 
 ## Per-tool isolation
 
@@ -182,15 +191,15 @@ the whole call without partially populating the registry.
 
 ## Unregistering
 
-Deleting `<workspaceDir>/tools/<name>.{ts,js,json}` triggers the file
-watcher's reconcile, which calls `unregisterWorkspaceTool(name)` and
-restores the stashed core tool when one exists, or simply deletes the
-entry when the workspace tool was net-new. No assistant restart is
-required.
+Deleting `<workspaceDir>/tools/<name>.{ts,js,json}` is picked up by the
+next reconcile, which calls `unregisterWorkspaceTool(name)` and restores
+the stashed core tool when one exists, or simply deletes the entry when
+the workspace tool was net-new. The change takes effect on the next
+conversation — no assistant restart is required.
 
 To strip a core tool without substituting a replacement, drop an empty
 `<workspaceDir>/tools/<name>.removed` file. Removing that sentinel
 restores the core tool on the next reconcile. The two states (override
 vs. strip) are mutually exclusive — placing both `<name>.ts` and
-`<name>.removed` for the same stem causes the watcher to tear down
+`<name>.removed` for the same stem causes the reconcile to tear down
 both states until the conflict is resolved on disk.

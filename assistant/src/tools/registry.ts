@@ -827,6 +827,20 @@ export function getWorkspaceToolNames(): string[] {
 }
 
 /**
+ * Return tool definitions for all currently registered workspace-origin
+ * tools. Used by the conversation tool resolver to re-read workspace tools
+ * from the registry each turn, the same way {@link getMcpToolDefinitions}
+ * lets a conversation pick up MCP tools registered after it was created —
+ * here so reconciled edits under `<workspaceDir>/tools/` are picked up
+ * without recreating the conversation.
+ */
+export function getWorkspaceToolDefinitions(): Tool[] {
+  return Array.from(tools.values()).filter(
+    (t) => ownersByName.get(t.name)?.kind === "workspace",
+  );
+}
+
+/**
  * Return the names of core tools currently stripped via workspace
  * `.removed` sentinels — i.e. names where the stash holds an entry but
  * no live tool sits in the registry.
@@ -967,6 +981,10 @@ export async function initializeTools(): Promise<void> {
   //   core registrations → workspace tools → MCP → plugins.
   // Workspace tools land after the core snapshot above so they're never
   // baked into the test-reset baseline.
+  //
+  // `loadWorkspaceTools` is idempotent: this is the first reconcile, and
+  // conversation reads re-run it later to pick up on-disk edits without a
+  // restart (see workspace-tools/loader.ts).
   //
   // Imported dynamically because the loader imports back from this module
   // (registerWorkspaceTools / removeCoreToolViaWorkspace); a static import

@@ -56,36 +56,7 @@ Every plugin has a `package.json`. The loader reads three fields and passes ever
 
 Plugins import everything they need from a single package, [`@vellumai/plugin-api`](https://github.com/vellum-ai/vellum-assistant/tree/main/assistant/src/plugin-api). It is the only supported contract: anything not exported from there is assistant-internal and can change without notice. Most of the surface is types (the contexts the host hands your code), with a small set of runtime handles that resolve to the assistant's live singletons.
 
-### Hook contexts and constants
-
-The context shape the host hands to each lifecycle hook, the hook signature itself, and the wired hook-name constant. Each context's full field contract is documented in `references/hooks.md`.
-
-| Export                    | Kind  | Purpose                                                                                                                           |
-| ------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `HOOKS`                   | const | Wired hook names keyed by constant (INIT, PRE_MODEL_CALL, and so on). Reference hooks by this instead of free-form strings.       |
-| `HookName`                | type  | Union of every wired hook name declared in HOOKS.                                                                                 |
-| `PluginHookFn`            | type  | Signature every hook implements: `(ctx) => Promise<Partial<ctx> \| void>`.                                                        |
-| `PluginInitContext`       | type  | Passed to the init hook at bootstrap.                                                                                             |
-| `PluginShutdownContext`   | type  | Passed to the shutdown hook at teardown.                                                                                          |
-| `UserPromptSubmitContext` | type  | Passed to user-prompt-submit, before a turn's messages reach the agent loop.                                                      |
-| `PreModelCallContext`     | type  | Passed to pre-model-call, before each provider call.                                                                              |
-| `PostToolUseContext`      | type  | Passed to post-tool-use, once per tool result.                                                                                    |
-| `PostModelCallContext`    | type  | Passed to post-model-call at every model-call outcome (a finalized reply or a provider rejection); carries the continue decision. |
-| `PostCompactContext`      | type  | Passed to post-compact, after the loop compacts a conversation mid-turn.                                                          |
-| `StopContext`             | type  | Passed to stop, the terminal hook, once the turn has committed to ending.                                                         |
-| `PostModelCallDecision`   | type  | The post-model-call decision shape: whether to end the turn or continue.                                                          |
-| `AgentLoopExitReason`     | type  | Which terminal state a turn reached, carried on StopContext.                                                                      |
-
-### Tool types
-
-The author-facing tool spec and the shapes passed to and returned from a tool's `execute` method. Each is documented in full in `references/tools.md`.
-
-| Export                | Kind | Purpose                                                                         |
-| --------------------- | ---- | ------------------------------------------------------------------------------- |
-| `ToolDefinition`      | type | Author-facing tool spec, the default-export shape for a `tools/<name>.ts` file. |
-| `ToolContext`         | type | Runtime context passed as the second argument to a tool's execute.              |
-| `ToolExecutionResult` | type | Return shape of a tool's execute: `{ content, isError }`.                       |
-| `RiskLevel`           | enum | Risk bands (low, medium, high) that drive default permission gating for a tool. |
+The hook-related exports (context types, `HOOKS` constant, `PluginHookFn` signature) are documented in `references/hooks.md`. The tool-related exports (`ToolDefinition`, `ToolContext`, `ToolExecutionResult`, `RiskLevel`) are documented in `references/tools.md`. The remaining exports are covered below.
 
 ### Logging
 

@@ -146,7 +146,7 @@ Restart the assistant to pick up the upgrade.
 
 The same drift check backs the in-product Plugins tab, so you do not have to drop to the CLI to stay current. When an installed plugin is behind the pin, its row shows an **Update available** badge and its detail page surfaces an **Upgrade** button that moves the install to the current pin and reloads the list.
 
-If inspect reports local edits, the Upgrade button first asks you to confirm, since the upgrade will overwrite those changes. The button stays hidden whenever there is nothing to upgrade: an up-to-date install, a plugin not in the catalog, or a daemon too old to expose the drift check.
+If inspect reports local edits, the Upgrade button first asks you to confirm, since the upgrade will overwrite those changes. The button stays hidden whenever there is nothing to upgrade: an up-to-date install, a plugin not in the catalog, or an assistant too old to expose the drift check.
 
 ## The marketplace manifest
 

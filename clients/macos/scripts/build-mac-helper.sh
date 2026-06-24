@@ -7,7 +7,7 @@ OUTPUT_DIR="$ROOT_DIR/resources"
 OUTPUT_BUNDLE="$OUTPUT_DIR/vellum-mac-helper.app"
 OUTPUT="$OUTPUT_BUNDLE/Contents/MacOS/vellum-mac-helper"
 OUTPUT_INFO_PLIST="$OUTPUT_BUNDLE/Contents/Info.plist"
-INFO_PLIST="$PACKAGE_DIR/Sources/MacHelperExecutable/Info.plist"
+TEMPLATE_PLIST="$PACKAGE_DIR/Sources/MacHelperExecutable/Info.plist"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "build-mac-helper: skipping non-macOS host"
@@ -27,18 +27,42 @@ if [ -n "${ELECTRON_TARGET_ARCH:-}" ]; then
   esac
 fi
 
-# Embed Info.plist (bundle id + microphone / speech-recognition usage
-# strings) into the bare executable so TCC can attribute permission
-# prompts for the dictation-partials session without a full .app bundle.
-INFO_PLIST="$PACKAGE_DIR/Sources/MacHelperExecutable/Info.plist"
+# Per-environment helper identity so side-by-side installs (e.g. Vellum +
+# Vellum Dev) get distinct TCC entries instead of colliding on one shared
+# bundle id. Mirrors the app's appId/productName scheme in
+# electron-builder.config.cjs; production keeps the bare id + name so existing
+# grants persist.
+ENV="${VELLUM_ENVIRONMENT:-local}"
+if [ "$ENV" = "production" ]; then
+  HELPER_BUNDLE_ID="ai.vellum.assistant.mac-helper"
+  HELPER_DISPLAY_NAME="Vellum Helper"
+else
+  ENV_CAP="$(printf '%s' "${ENV:0:1}" | tr '[:lower:]' '[:upper:]')${ENV:1}"
+  HELPER_BUNDLE_ID="ai.vellum.assistant-${ENV}.mac-helper"
+  HELPER_DISPLAY_NAME="Vellum Helper ${ENV_CAP}"
+fi
+
+mkdir -p "$OUTPUT_DIR"
+# Render the templated Info.plist, then embed it into the bare executable's
+# __info_plist section so TCC can attribute permission prompts for the
+# dictation-partials session without a full .app bundle. Content-address the
+# filename: llbuild ignores content changes to a fixed -sectcreate input path
+# and would skip relinking on an env switch, embedding a stale plist — a new
+# identity must yield a new path to force the relink.
+rm -f "$OUTPUT_DIR"/.vellum-mac-helper.*.Info.plist
+RENDERED_TMP="$(mktemp)"
+sed -e "s|__HELPER_BUNDLE_ID__|${HELPER_BUNDLE_ID}|g" \
+    -e "s|__HELPER_DISPLAY_NAME__|${HELPER_DISPLAY_NAME}|g" \
+    "$TEMPLATE_PLIST" > "$RENDERED_TMP"
+RENDERED_PLIST="$OUTPUT_DIR/.vellum-mac-helper.$(shasum -a 256 "$RENDERED_TMP" | cut -c1-16).Info.plist"
+mv -f "$RENDERED_TMP" "$RENDERED_PLIST"
 BUILD_ARGS+=(
   -Xlinker -sectcreate
   -Xlinker __TEXT
   -Xlinker __info_plist
-  -Xlinker "$INFO_PLIST"
+  -Xlinker "$RENDERED_PLIST"
 )
 
-mkdir -p "$OUTPUT_DIR"
 # Legacy layouts (bare binary / old name) — always clear.
 rm -f "$OUTPUT_DIR/hotkey-helper" "$OUTPUT_DIR/vellum-mac-helper" "$OUTPUT_DIR/Info.plist"
 xcrun swift build "${BUILD_ARGS[@]}"
@@ -55,7 +79,7 @@ ICON_SRC="$ROOT_DIR/build/icon.icns"
 # no-op rebuild (e.g. `bun run dev`'s postinstall) would re-prompt. The
 # signed binary never byte-matches the unsigned build output, so compare
 # against a hash marker of the inputs recorded at install time.
-HASH_INPUTS=("$BUILD_DIR/vellum-mac-helper" "$INFO_PLIST" "$ROOT_DIR/scripts/entitlements/helper.plist")
+HASH_INPUTS=("$BUILD_DIR/vellum-mac-helper" "$RENDERED_PLIST" "$ROOT_DIR/scripts/entitlements/helper.plist")
 [ -f "$ICON_SRC" ] && HASH_INPUTS+=("$ICON_SRC")
 SOURCE_HASH="$(cat "${HASH_INPUTS[@]}" | shasum -a 256 | cut -d' ' -f1)"
 HASH_MARKER="$OUTPUT_DIR/.vellum-mac-helper.source-hash"
@@ -68,7 +92,7 @@ else
   rm -rf "$OUTPUT_BUNDLE"
   mkdir -p "$OUTPUT_BUNDLE/Contents/MacOS"
   cp "$BUILD_DIR/vellum-mac-helper" "$OUTPUT"
-  cp "$INFO_PLIST" "$OUTPUT_INFO_PLIST"
+  cp "$RENDERED_PLIST" "$OUTPUT_INFO_PLIST"
   chmod 755 "$OUTPUT"
   if [ -f "$ICON_SRC" ]; then
     mkdir -p "$OUTPUT_BUNDLE/Contents/Resources"

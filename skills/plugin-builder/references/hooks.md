@@ -161,6 +161,26 @@ When multiple plugins define the same hook, they execute in a fixed order so the
 
 Within a single plugin, hooks for the same name are not duplicated: each plugin contributes at most one hook per boundary. The chain is linear: the output of hook N is the input of hook N+1, and the final output is what the Assistant acts on.
 
+## @vellumai/plugin-api exports for hooks
+
+These are the hook-related exports from [`@vellumai/plugin-api`](https://github.com/vellum-ai/vellum-assistant/tree/main/assistant/src/plugin-api). Each context type's full field contract is documented in the hook sections above.
+
+| Export                    | Kind  | Purpose                                                                                                                           |
+| ------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `HOOKS`                   | const | Wired hook names keyed by constant (INIT, PRE_MODEL_CALL, and so on). Reference hooks by this instead of free-form strings.       |
+| `HookName`                | type  | Union of every wired hook name declared in HOOKS.                                                                                 |
+| `PluginHookFn`            | type  | Signature every hook implements: `(ctx) => Promise<Partial<ctx> \| void>`.                                                        |
+| `PluginInitContext`       | type  | Passed to the init hook at bootstrap.                                                                                             |
+| `PluginShutdownContext`   | type  | Passed to the shutdown hook at teardown.                                                                                          |
+| `UserPromptSubmitContext` | type  | Passed to user-prompt-submit, before a turn's messages reach the agent loop.                                                      |
+| `PreModelCallContext`     | type  | Passed to pre-model-call, before each provider call.                                                                              |
+| `PostToolUseContext`      | type  | Passed to post-tool-use, once per tool result.                                                                                    |
+| `PostModelCallContext`    | type  | Passed to post-model-call at every model-call outcome (a finalized reply or a provider rejection); carries the continue decision. |
+| `PostCompactContext`      | type  | Passed to post-compact, after the loop compacts a conversation mid-turn.                                                          |
+| `StopContext`             | type  | Passed to stop, the terminal hook, once the turn has committed to ending.                                                         |
+| `PostModelCallDecision`   | type  | The post-model-call decision shape: whether to end the turn or continue.                                                          |
+| `AgentLoopExitReason`     | type  | Which terminal state a turn reached, carried on StopContext.                                                                      |
+
 ## Anatomy of a hook
 
 Every hook has the same shape: it receives a typed context and either mutates it in place and returns nothing, or returns a **partial** context. A returned partial is merged onto the threaded context - only the keys it includes are overwritten, every other field is preserved - so a hook can edit just the subset of fields it cares about without re-specifying the rest. The runtime threads the merged context to the next plugin and then to the Assistant.
