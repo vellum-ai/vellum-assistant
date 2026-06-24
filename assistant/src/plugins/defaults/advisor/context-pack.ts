@@ -67,10 +67,42 @@ function summarize(description: string | undefined, max = 160): string {
   return truncate(firstSentence, max);
 }
 
-/** Pull the most recent user-authored text to seed the memory recall query. */
+/**
+ * Short acknowledgements that carry no recall signal. When the latest user turn
+ * is just "go ahead" / "yes" / "do it", keying the recall off it returns
+ * nothing useful — the advisor's actual subject is in the substantive request
+ * that preceded it. `deriveRecallQuery` skips these and recalls on the real ask.
+ */
+const TRIVIAL_ACKS: ReadonlySet<string> = new Set([
+  "yes", "yep", "yeah", "ya", "y", "ok", "okay", "k", "kk", "sure",
+  "sounds good", "go ahead", "go for it", "go", "do it", "do that",
+  "please do", "please", "proceed", "continue", "go on", "keep going",
+  "next", "makes sense", "agreed", "thanks", "thank you", "ty", "perfect",
+  "great", "nice", "cool", "awesome", "lgtm", "done", "right", "correct",
+  "exactly", "yes please", "that works", "works", "yup",
+]);
+
+/** Whether a user turn is a contentless acknowledgement with no recall signal. */
+function isTrivialAck(text: string): boolean {
+  const normalized = text
+    .trim()
+    .toLowerCase()
+    // Strip surrounding punctuation/symbols ("go ahead!", "yes." , "👍").
+    .replace(/^[\p{P}\p{S}\s]+|[\p{P}\p{S}\s]+$/gu, "");
+  return normalized.length === 0 || TRIVIAL_ACKS.has(normalized);
+}
+
+/**
+ * Seed the memory recall query from the transcript. Prefers the most recent
+ * *substantive* user message, skipping trivial acknowledgements ("go ahead",
+ * "yes") whose recall would be noise. Falls back to the most recent non-empty
+ * user text when every turn is an acknowledgement, so a query is still produced
+ * whenever the user has said anything.
+ */
 export function deriveRecallQuery(
   transcript: ReadonlyArray<Message>,
 ): string | null {
+  let fallback: string | null = null;
   for (let i = transcript.length - 1; i >= 0; i--) {
     const message = transcript[i];
     if (message.role !== "user") continue;
@@ -78,9 +110,11 @@ export function deriveRecallQuery(
       .map((block) => (block.type === "text" ? block.text : ""))
       .join(" ")
       .trim();
-    if (text.length > 0) return truncate(text, 500);
+    if (text.length === 0) continue;
+    if (fallback === null) fallback = truncate(text, 500);
+    if (!isTrivialAck(text)) return truncate(text, 500);
   }
-  return null;
+  return fallback;
 }
 
 /** `## Available tools` — the live tool set the agent can act with this turn. */

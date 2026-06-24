@@ -26,6 +26,30 @@ describe("deriveRecallQuery", () => {
     ).toBeNull();
     expect(deriveRecallQuery([])).toBeNull();
   });
+
+  test("skips a trivial acknowledgement and recalls the substantive request", () => {
+    const query = deriveRecallQuery([
+      userMsg("refactor the auth worker pool to drain on shutdown"),
+      { role: "assistant", content: [{ type: "text", text: "here's a plan…" }] },
+      userMsg("go ahead"),
+    ]);
+    expect(query).toBe("refactor the auth worker pool to drain on shutdown");
+  });
+
+  test("treats punctuated/cased acknowledgements as trivial too", () => {
+    for (const ack of ["Go ahead!", "Yes.", "do it", "  ok  ", "👍"]) {
+      const query = deriveRecallQuery([
+        userMsg("design the streaming protocol"),
+        userMsg(ack),
+      ]);
+      expect(query).toBe("design the streaming protocol");
+    }
+  });
+
+  test("falls back to the latest user text when every turn is an acknowledgement", () => {
+    const query = deriveRecallQuery([userMsg("yes"), userMsg("go ahead")]);
+    expect(query).toBe("go ahead");
+  });
 });
 
 describe("buildAdvisorContext", () => {

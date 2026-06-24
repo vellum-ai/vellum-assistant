@@ -74,6 +74,8 @@ const advisorTool: ToolDefinition = {
         systemPrompt: capture?.systemPrompt ?? null,
         messages,
         runtimeContext,
+        // The advisor's `read_file` tool is path-confined to this directory.
+        workingDir: ctx.workingDir,
         signal: ctx.signal,
         // Stream the advisor's guidance live as it generates: each delta is
         // surfaced as a `tool_output_chunk` for this tool call and rendered in

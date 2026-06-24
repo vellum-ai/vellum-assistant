@@ -11,6 +11,12 @@ let providerResolves = true;
 let providerSupportsWeb = false;
 let streamDeltas: string[] = [];
 let streamEvents: Array<Record<string, unknown>> = [];
+// Multi-turn scripting for the tool-loop tests: each queued entry is returned
+// by one `sendMessage` call (e.g. a `tool_use` turn followed by a final turn).
+// When empty, the provider returns the default single `responseText` turn.
+let responseQueue: Array<{ content: unknown[]; stopReason: string }> = [];
+// Snapshot of every call's messages, so tests can assert what was fed back.
+let sendMessageCalls: Array<{ messages: unknown[]; options: unknown }> = [];
 
 const fakeProvider = {
   name: "mock-advisor-provider",
@@ -19,6 +25,10 @@ const fakeProvider = {
   },
   async sendMessage(messages: unknown, options: unknown) {
     sendMessageArgs = { messages, options } as Record<string, unknown>;
+    sendMessageCalls.push({
+      messages: Array.isArray(messages) ? [...messages] : [],
+      options,
+    });
     if (sendMessageError) throw sendMessageError;
     const onEvent = (
       options as { onEvent?: (e: Record<string, unknown>) => void }
@@ -28,14 +38,36 @@ const fakeProvider = {
       for (const ev of streamEvents) onEvent(ev);
       for (const text of streamDeltas) onEvent({ type: "text_delta", text });
     }
+    const scripted = responseQueue.shift();
     return {
-      content: [{ type: "text", text: responseText }],
+      content: scripted?.content ?? [{ type: "text", text: responseText }],
       model: "mock-model",
       usage: { inputTokens: 1, outputTokens: 1 },
-      stopReason: "end_turn",
+      stopReason: scripted?.stopReason ?? "end_turn",
     };
   },
 };
+
+// The advisor's `read_file` tool reads through these shared filesystem modules;
+// stub them so the loop tests never touch disk. The returned content echoes the
+// requested path, so tests can assert the file content was fed back.
+mock.module("../../../../tools/shared/filesystem/path-policy.js", () => ({
+  sandboxPolicy: (path: string, dir: string) => ({
+    ok: true,
+    resolved: `${dir}/${path}`,
+  }),
+}));
+mock.module("../../../../tools/shared/filesystem/file-ops-service.js", () => ({
+  FileSystemOps: class {
+    constructor(_policy: unknown) {}
+    readFileSafe({ path }: { path: string }) {
+      if (path.includes("missing")) {
+        return { ok: false, error: { code: "NOT_FOUND", message: "no such file" } };
+      }
+      return { ok: true, value: { content: `1\tCONTENTS OF ${path}` } };
+    }
+  },
+}));
 
 const realPsm = await import("../../../../providers/provider-send-message.js");
 mock.module("../../../../providers/provider-send-message.js", () => ({
@@ -74,6 +106,8 @@ beforeEach(() => {
   providerSupportsWeb = false;
   streamDeltas = [];
   streamEvents = [];
+  responseQueue = [];
+  sendMessageCalls = [];
   resetAdvisorStateForTests();
 });
 
@@ -143,6 +177,114 @@ describe("consultAdvisor", () => {
     expect(options.tools?.map((t) => t.name)).toEqual(["web_search"]);
     // tool_choice must not be `none`, or the provider suppresses its server tool.
     expect(optionConfig().tool_choice).toEqual({ type: "auto" });
+  });
+
+  test("attaches read_file only when a workingDir is provided", async () => {
+    await consultAdvisor({
+      systemPrompt: null,
+      messages: [userMsg("hi")],
+      workingDir: "/work",
+    });
+    let opts = sendMessageArgs?.options as { tools?: Array<{ name: string }> };
+    expect(opts.tools?.map((t) => t.name)).toContain("read_file");
+
+    await consultAdvisor({ systemPrompt: null, messages: [userMsg("hi")] });
+    opts = sendMessageArgs?.options as { tools?: Array<{ name: string }> };
+    expect(opts.tools?.some((t) => t.name === "read_file") ?? false).toBe(false);
+  });
+
+  test("reads a workspace file the advisor requests, then advises with it", async () => {
+    // Turn 1: advisor asks to read a file. Turn 2: it gives advice.
+    responseQueue = [
+      {
+        content: [
+          { type: "tool_use", id: "r1", name: "read_file", input: { path: "src/app.ts" } },
+        ],
+        stopReason: "tool_use",
+      },
+      {
+        content: [{ type: "text", text: "Given src/app.ts, drain the pool on shutdown." }],
+        stopReason: "end_turn",
+      },
+    ];
+    const chunks: string[] = [];
+
+    const advice = await consultAdvisor({
+      systemPrompt: null,
+      messages: [userMsg("review my plan")],
+      workingDir: "/work",
+      onText: (c) => chunks.push(c),
+    });
+
+    // The final advice is returned...
+    expect(advice).toContain("drain the pool on shutdown");
+    // ...a read note streamed to the drawer...
+    expect(chunks.join("")).toContain("Read src/app.ts");
+    // ...and the file content was fed back to the model on the 2nd call.
+    expect(JSON.stringify(sendMessageCalls[1]?.messages)).toContain(
+      "CONTENTS OF src/app.ts",
+    );
+    expect(sendMessageCalls).toHaveLength(2);
+  });
+
+  test("feeds an error result back when a requested file can't be read", async () => {
+    responseQueue = [
+      {
+        content: [
+          { type: "tool_use", id: "r1", name: "read_file", input: { path: "missing.ts" } },
+        ],
+        stopReason: "tool_use",
+      },
+      {
+        content: [{ type: "text", text: "Can't see that file; here's my best guidance." }],
+        stopReason: "end_turn",
+      },
+    ];
+    const chunks: string[] = [];
+
+    const advice = await consultAdvisor({
+      systemPrompt: null,
+      messages: [userMsg("review my plan")],
+      workingDir: "/work",
+      onText: (c) => chunks.push(c),
+    });
+
+    expect(chunks.join("")).toContain("Couldn't read missing.ts");
+    expect(JSON.stringify(sendMessageCalls[1]?.messages)).toContain("no such file");
+    expect(advice).toContain("best guidance");
+  });
+
+  test("caps total file reads so a runaway consult terminates", async () => {
+    // The model asks to read one file every turn, forever. The loop must stop.
+    for (let i = 0; i < 30; i++) {
+      responseQueue.push({
+        content: [
+          { type: "tool_use", id: `r${i}`, name: "read_file", input: { path: `f${i}.ts` } },
+        ],
+        stopReason: "tool_use",
+      });
+    }
+
+    await consultAdvisor({
+      systemPrompt: null,
+      messages: [userMsg("review my plan")],
+      workingDir: "/work",
+    });
+
+    // Bounded by ADVISOR_MAX_TOOL_ITERATIONS (12) + the initial call — never 31.
+    expect(sendMessageCalls.length).toBeLessThanOrEqual(13);
+  });
+
+  test("does not attach read_file or loop when no workingDir is set", async () => {
+    // Even if the model returns a tool_use, with no workingDir there is no
+    // read_file tool, so the consult stays a one-shot and doesn't loop.
+    responseText = "Just advice, no tools.";
+    const advice = await consultAdvisor({
+      systemPrompt: null,
+      messages: [userMsg("hi")],
+    });
+    expect(advice).toBe("Just advice, no tools.");
+    expect(sendMessageCalls).toHaveLength(1);
   });
 
   test("streams web-search activity to onText, not just the final advice", async () => {
