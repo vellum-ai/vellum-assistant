@@ -382,7 +382,16 @@ export class SubagentManager {
       systemPrompt,
       wrappedSendToClient,
       workingDir,
-      { maxTokens, cacheTtl: "5m" },
+      {
+        maxTokens,
+        cacheTtl: "5m",
+        // The advisor consult runs tool-less for CLIENT tools but should ground
+        // its guidance with provider-native web search when the resolved
+        // provider supports it. This is a server tool the provider runs itself,
+        // so it stays one-shot — no client tool surfaced, allowlist unchanged.
+        // Other roles keep the default (no native search appended).
+        ...(role === "advisor" ? { enableNativeWebSearch: true } : {}),
+      },
     );
 
     // Mark conversation as having no direct client — it routes through parent.
