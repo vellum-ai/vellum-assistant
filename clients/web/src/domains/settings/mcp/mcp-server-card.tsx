@@ -126,7 +126,7 @@ export function McpServerCard({
             {isUpdating || isAuthenticating ? (
               <Loader2 className="h-4 w-4 animate-spin text-[var(--content-tertiary)]" />
             ) : null}
-            {(server.status === "needs-auth" || server.status === "error") && server.transport.type !== "stdio" && !server.hasOAuth ? (
+            {server.status === "needs-auth" && server.transport.type !== "stdio" && !server.hasOAuth ? (
               <Button
                 variant="ghost"
                 size="compact"
