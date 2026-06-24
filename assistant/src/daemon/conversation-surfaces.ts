@@ -2048,6 +2048,7 @@ export async function handleSurfaceAction(
         requestId,
         activeSurfaceId: surfaceId,
         displayContent,
+        sourceActorPrincipalId,
       })
       .catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
@@ -2342,6 +2343,7 @@ export async function handleSurfaceAction(
       requestId,
       activeSurfaceId: surfaceId,
       displayContent,
+      sourceActorPrincipalId,
     })
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
