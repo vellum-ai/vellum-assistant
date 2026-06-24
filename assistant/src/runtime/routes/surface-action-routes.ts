@@ -14,11 +14,7 @@ import type { TrustContext } from "../../daemon/trust-context.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { processGuardianDecision } from "../guardian-action-service.js";
-import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
-import {
-  resolveActorPrincipalIdForLocalGuardian,
-  resolveLocalTrustContext,
-} from "../local-actor-identity.js";
+import { reResolveTrustOnResetDrift } from "../guardian-vellum-migration.js";
 import {
   findLocalGuardianPrincipalId,
   resolveActorPrincipalIdForLocalGuardian,
@@ -180,12 +176,6 @@ async function handleSurfaceAction({
 
   const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
   await applyTrustContext(conversation, actorPrincipalId);
-
-  // Translate dev-bypass → real guardian so the surface turn's principal matches
-  // the SSE host-proxy client's registered principal; otherwise CU/app-control
-  // same-actor checks reject the turn. Real principals pass through unchanged.
-  const resolvedActorPrincipalId =
-    await resolveActorPrincipalIdForLocalGuardian(actorPrincipalId ?? undefined);
 
   // Translate dev-bypass → real guardian so the surface turn's principal matches
   // the SSE host-proxy client's registered principal; otherwise CU/app-control
