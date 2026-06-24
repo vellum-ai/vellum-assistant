@@ -38,13 +38,16 @@ mock.module("../../../../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-let procToSkillsEnabledSlot = true;
+// The job gates on `isProcToSkillsActive` (flag on AND v3 live); this slot
+// drives the active predicate so the disabled-path test can flip it off.
+let procToSkillsActiveSlot = true;
 // Replace the whole gate module (mock.module is process-global). The
 // distillation launcher transitively imports the background-job runner, whose
-// import graph pulls `isMemoryV3Live`, so both gate exports must be present.
+// import graph pulls these gate exports, so all three must be present.
 mock.module("../../../../config/memory-v3-gate.js", () => ({
-  isProcToSkillsEnabled: () => procToSkillsEnabledSlot,
-  isMemoryV3Live: () => false,
+  isProcToSkillsActive: () => procToSkillsActiveSlot,
+  isProcToSkillsEnabled: () => procToSkillsActiveSlot,
+  isMemoryV3Live: () => true,
 }));
 
 const { procDistillTriggerJob, skillIdForGoal } =
@@ -61,7 +64,7 @@ const JOB = {
 } as unknown as MemoryJob;
 
 afterEach(() => {
-  procToSkillsEnabledSlot = true;
+  procToSkillsActiveSlot = true;
 });
 
 function config(minRecurrence = 2): AssistantConfig {
@@ -346,8 +349,8 @@ describe("procDistillTriggerJob — distillation", () => {
     expect(outcome.distillFailures).toBe(1);
   });
 
-  test("flag off → distillation phase no-ops", async () => {
-    procToSkillsEnabledSlot = false;
+  test("inactive (flag off / v3 not live) → distillation phase no-ops", async () => {
+    procToSkillsActiveSlot = false;
     const { reg, deps, distillCalls } = harness({
       seed: [
         cluster({

@@ -676,16 +676,16 @@ export async function classifyRisk(
 // loading the `skill-management` skill (`skill_load skill-management`, which
 // exposes that tool) require an interactive approval. The memory-consolidation
 // background job runs without any connected client, so it can never answer that
-// prompt. When a turn is the consolidation background source — guardian trust,
-// `vellum` source channel, `memory_consolidation` origin (set in
-// consolidation-job.ts) — these two tools resolve to ALLOW non-interactively.
+// prompt. The grant resolves these two tools to ALLOW non-interactively, and
+// ONLY when all of these hold:
+//   - procedural-memory-as-skills is active (`policyContext.procToSkillsActive`,
+//     precomputed by buildPolicyContext: the flag is on AND memory-v3 is live),
+//   - the turn is the consolidation background source — guardian trust, `vellum`
+//     source channel, `memory_consolidation` origin (set in proc-distill-trigger.ts).
 //
 // The grant is intentionally narrow: it matches exactly these two tools AND the
-// consolidation origin, so no interactive session or other origin is affected.
-// It is inert until a later PR actually drives `scaffold_managed_skill` from
-// consolidation; no current caller sets `requestOrigin` to this origin. Once the
-// `isProcToSkillsEnabled` flag helper lands (sibling PR), this grant can also be
-// gated on that flag.
+// consolidation origin under the active flag, so no interactive session, other
+// origin, or feature-off install is affected.
 const MEMORY_CONSOLIDATION_ORIGIN = "memory_consolidation";
 const SKILL_MANAGEMENT_SKILL_ID = "skill-management";
 
@@ -695,7 +695,8 @@ function isMemoryConsolidationSkillAuthoringGrant(
   policyContext?: PolicyContext,
 ): boolean {
   if (
-    policyContext?.requestOrigin !== MEMORY_CONSOLIDATION_ORIGIN ||
+    policyContext?.procToSkillsActive !== true ||
+    policyContext.requestOrigin !== MEMORY_CONSOLIDATION_ORIGIN ||
     policyContext.trustClass !== "guardian" ||
     policyContext.sourceChannel !== "vellum"
   ) {

@@ -36,6 +36,16 @@ mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => false,
 }));
 
+// `buildPolicyContext` (used by the integration tests below) precomputes the
+// proc-to-skills gate via `isProcToSkillsActive`. Drive it through this slot so
+// a test can put the production threading path in the active / inactive state.
+let mockProcToSkillsActive = true;
+mock.module("../config/memory-v3-gate.js", () => ({
+  isProcToSkillsActive: () => mockProcToSkillsActive,
+  isProcToSkillsEnabled: () => mockProcToSkillsActive,
+  isMemoryV3Live: () => mockProcToSkillsActive,
+}));
+
 // Mock skill resolution — return null by default (no skill found).
 mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => [],
@@ -158,6 +168,7 @@ describe("Permission Checker (gateway IPC)", () => {
     mockIpcClassifyRiskResult = undefined;
     mockCachedThreshold = "low";
     mockRefreshedThreshold = null;
+    mockProcToSkillsActive = true;
   });
 
   // ── classifyRisk ──────────────────────────────────────────────────────────
@@ -617,13 +628,15 @@ describe("Permission Checker (gateway IPC)", () => {
     // trustClass "guardian", origin "memory_consolidation") cannot answer
     // interactive prompts, so `scaffold_managed_skill` and
     // `skill_load skill-management` resolve to allow without prompting. The
-    // grant is scoped to that origin + those two tools only.
+    // grant is scoped to that origin + those two tools, and ONLY fires when the
+    // feature is active (`procToSkillsActive: true`).
 
     const consolidationContext = {
       requestOrigin: "memory_consolidation",
       trustClass: "guardian",
       sourceChannel: "vellum",
       executionContext: "background" as const,
+      procToSkillsActive: true,
     };
 
     test("allows scaffold_managed_skill for the consolidation origin without prompting", async () => {
@@ -741,6 +754,25 @@ describe("Permission Checker (gateway IPC)", () => {
       expect(result.decision).toBe("prompt");
     });
 
+    test("does not grant scaffold when proc-to-skills is inactive (flag off / v3 not live)", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      // The exact consolidation origin/trust/channel, but the feature is
+      // inactive — `procToSkillsActive` is not true — so the grant must NOT
+      // fire and the high-risk tool prompts.
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        { ...consolidationContext, procToSkillsActive: false },
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
     // ── Integration: production `buildPolicyContext` → `check` path ──────────
     // The hand-built-PolicyContext tests above prove the grant LOGIC. These
     // exercise the WIRING: a `ToolContext` (the shape the agent loop actually
@@ -776,10 +808,12 @@ describe("Permission Checker (gateway IPC)", () => {
         scaffoldTool,
         consolidationToolContext,
       );
-      // Prove the threading: buildPolicyContext copied the ToolContext signals.
+      // Prove the threading: buildPolicyContext copied the ToolContext signals
+      // and stamped the active proc-to-skills gate.
       expect(policyContext.requestOrigin).toBe("memory_consolidation");
       expect(policyContext.trustClass).toBe("guardian");
       expect(policyContext.sourceChannel).toBe("vellum");
+      expect(policyContext.procToSkillsActive).toBe(true);
 
       const result = await check(
         "scaffold_managed_skill",
@@ -812,6 +846,33 @@ describe("Permission Checker (gateway IPC)", () => {
         interactiveContext,
       );
       expect(policyContext.requestOrigin).toBeUndefined();
+
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        policyContext,
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("grant does NOT fire when proc-to-skills is inactive, even for the consolidation turn", async () => {
+      // Same consolidation ToolContext, but the feature is inactive (flag off
+      // or v3 not live). buildPolicyContext stamps `procToSkillsActive: false`,
+      // so the grant is dead and the high-risk scaffold prompts.
+      mockProcToSkillsActive = false;
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const policyContext = buildPolicyContext(
+        scaffoldTool,
+        consolidationToolContext,
+      );
+      expect(policyContext.procToSkillsActive).toBe(false);
+      expect(policyContext.requestOrigin).toBe("memory_consolidation");
 
       const result = await check(
         "scaffold_managed_skill",

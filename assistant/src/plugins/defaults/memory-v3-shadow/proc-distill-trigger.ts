@@ -1,7 +1,8 @@
 /**
  * Memory v3 — `memory_proc_distill` job handler (recurrence/distillation trigger).
  *
- * A flag-gated, best-effort follow-up to consolidation. Consolidation captures a
+ * A gated, best-effort follow-up to consolidation (active only when the
+ * procedural-memory-as-skills flag is on AND memory-v3 is live). Consolidation captures a
  * freshly-seen procedure as a `kind: proc-candidate` note (PR 6); this pass
  * decides whether that note is a NEW procedure or another run of one we have
  * already been tracking, tallies recurrence in the candidate registry (PR 3),
@@ -57,9 +58,10 @@
  * Qdrant, an LLM provider, or a SQLite database.
  */
 
-import { isProcToSkillsEnabled } from "../../../config/memory-v3-gate.js";
+import { isProcToSkillsActive } from "../../../config/memory-v3-gate.js";
 import { loadSkillCatalog } from "../../../config/skills.js";
 import type { AssistantConfig } from "../../../config/types.js";
+import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../../daemon/trust-context.js";
 import type { MemoryJob } from "../../../memory/jobs-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../../memory/v2/constants.js";
 import { getPageIndex } from "../../../memory/v2/page-index.js";
@@ -96,12 +98,14 @@ import {
 
 const log = getLogger("memory-v3-proc-distill");
 
-/** The lifecycle statuses a note can already be a member of (idempotency set). */
-const TRACKED_STATUSES: ProcCandidateStatus[] = [
-  "observing",
-  "ready",
-  "distilled",
-];
+/**
+ * The lifecycle statuses whose clusters feed BOTH the Tier-1 match target set
+ * and the idempotency skip set. `distilled` clusters are omitted: their member
+ * notes are deleted at distillation, so they carry no live members to skip, and
+ * a re-seen procedure that already has a skill is caught by Tier 0 (the skill
+ * catalog) — carrying them here would be dead weight.
+ */
+const TRACKED_STATUSES: ProcCandidateStatus[] = ["observing", "ready"];
 
 /** Frontmatter marker identifying a procedure candidate note (PR 6). */
 const PROC_CANDIDATE_KIND = "proc-candidate";
@@ -122,12 +126,6 @@ const DISTILL_JOB_NAME = "memory.proc_distill";
 
 /** Hard timeout for a single distillation agent run. */
 const DISTILL_TIMEOUT_MS = 10 * 60 * 1000;
-
-/** Guardian trust context the distillation run executes under (matches the grant). */
-const DISTILL_TRUST_CONTEXT = {
-  sourceChannel: "vellum",
-  trustClass: "guardian",
-} as const;
 
 /**
  * A `kind: proc-candidate` note projected to what the trigger needs: its slug
@@ -248,7 +246,7 @@ export interface DistillRunResult {
 
 /** Outcome of one trigger pass, for the log summary and test assertions. */
 export interface ProcDistillOutcome {
-  /** True when the feature flag was off — the pass no-ops. */
+  /** True when the feature was inactive (flag off or v3 not live) — the pass no-ops. */
   disabled: boolean;
   /** Candidate notes that were already cluster members and so were skipped. */
   skippedAssigned: number;
@@ -276,9 +274,11 @@ export interface ProcDistillOutcome {
 /**
  * Run one recurrence/distillation-trigger pass.
  *
- * No-ops (returns a disabled outcome) unless the `procedural-memory-as-skills`
- * flag is on. Best-effort: a failure tallying one note is logged and recorded
- * but never aborts the rest of the pass.
+ * No-ops (returns a disabled outcome) unless procedural-memory-as-skills is
+ * active — the flag is on AND memory-v3 is live (see {@link isProcToSkillsActive}).
+ * The candidate notes this pass tallies are only written under v3-live, so the
+ * pass has nothing to do when v3 is not live. Best-effort: a failure tallying
+ * one note is logged and recorded but never aborts the rest of the pass.
  */
 export async function procDistillTriggerJob(
   _job: MemoryJob,
@@ -298,7 +298,7 @@ export async function procDistillTriggerJob(
     failures: 0,
   };
 
-  if (!isProcToSkillsEnabled(config)) {
+  if (!isProcToSkillsActive(config)) {
     outcome.disabled = true;
     return outcome;
   }
@@ -726,7 +726,7 @@ async function launchDistillation(
       notes: input.notes,
     }),
     systemHint: "Procedure distillation",
-    trustContext: DISTILL_TRUST_CONTEXT,
+    trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
     callSite: "memoryV2Consolidation",
     timeoutMs: DISTILL_TIMEOUT_MS,
     origin: DISTILL_ORIGIN,

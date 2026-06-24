@@ -37,17 +37,22 @@ mock.module("../../../../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-// The gate is driven through this slot rather than the feature-flag override
+// The gate is driven through these slots rather than the feature-flag override
 // cache: `mock.module` is process-global, and a sibling file in a directory run
 // (e.g. `consolidation-job.test.ts`) replaces `memory-v3-gate.js` wholesale —
-// owning the mock here keeps this file's gate under this file's control.
-let procToSkillsEnabledSlot = true;
+// owning the mock here keeps this file's gate under this file's control. The job
+// gates on `isProcToSkillsActive` (flag on AND v3 live), so the two slots model
+// each input independently — both default on so the recurrence suites run with
+// the feature active.
+let procToSkillsFlagSlot = true;
+let memoryV3LiveSlot = true;
 mock.module("../../../../config/memory-v3-gate.js", () => ({
-  isProcToSkillsEnabled: () => procToSkillsEnabledSlot,
-  // The distillation launcher transitively imports the background-job runner,
-  // whose import graph pulls `isMemoryV3Live`, so both gate exports must be
-  // present when this mock replaces the module wholesale.
-  isMemoryV3Live: () => false,
+  isProcToSkillsEnabled: () => procToSkillsFlagSlot,
+  isMemoryV3Live: () => memoryV3LiveSlot,
+  // Active = flag on AND v3 live. The distillation launcher transitively imports
+  // the background-job runner, whose import graph pulls these gate exports, so
+  // all three must be present when this mock replaces the module wholesale.
+  isProcToSkillsActive: () => procToSkillsFlagSlot && memoryV3LiveSlot,
 }));
 
 const { procDistillTriggerJob } = await import("../proc-distill-trigger.js");
@@ -61,9 +66,10 @@ const JOB = {
   type: "memory_proc_distill",
 } as unknown as MemoryJob;
 
-// The gating test flips the slot off; reset it so later tests stay enabled.
+// The gating tests flip the slots off; reset them so later tests stay active.
 afterEach(() => {
-  procToSkillsEnabledSlot = true;
+  procToSkillsFlagSlot = true;
+  memoryV3LiveSlot = true;
 });
 
 function config(minRecurrence = 2): AssistantConfig {
@@ -237,11 +243,16 @@ function harness(opts: HarnessOpts) {
 }
 
 describe("procDistillTriggerJob — gating", () => {
-  test("flag off → disabled no-op (matcher never called)", async () => {
-    procToSkillsEnabledSlot = false;
+  // Deps that count whether the matcher ran — an inactive pass must short-circuit
+  // before touching any candidate note.
+  function gatingDeps(): {
+    deps: ProcDistillTriggerDeps;
+    matched: () => number;
+    rows: Map<string, ProcCandidate>;
+  } {
     let matched = 0;
     const { rows } = fakeRegistry();
-    const outcome = await procDistillTriggerJob(JOB, config(), {
+    const deps: ProcDistillTriggerDeps = {
       config: config(),
       loadCandidateNotes: async () => [note("proc/a", "do a")],
       listClusters: () => [],
@@ -261,9 +272,29 @@ describe("procDistillTriggerJob — gating", () => {
       distill: async () => ({ ok: false }),
       skillExists: () => false,
       deleteNote: async () => {},
-    });
+    };
+    return { deps, matched: () => matched, rows };
+  }
+
+  test("flag off → disabled no-op (matcher never called)", async () => {
+    procToSkillsFlagSlot = false;
+    memoryV3LiveSlot = true;
+    const { deps, matched, rows } = gatingDeps();
+    const outcome = await procDistillTriggerJob(JOB, deps.config, deps);
     expect(outcome.disabled).toBe(true);
-    expect(matched).toBe(0);
+    expect(matched()).toBe(0);
+    expect(rows.size).toBe(0);
+  });
+
+  test("flag on but v3 not live → disabled no-op (matcher never called)", async () => {
+    // The candidate notes this pass tallies only exist under v3-live, so the
+    // job must short-circuit even with the flag on when v3 is not live.
+    procToSkillsFlagSlot = true;
+    memoryV3LiveSlot = false;
+    const { deps, matched, rows } = gatingDeps();
+    const outcome = await procDistillTriggerJob(JOB, deps.config, deps);
+    expect(outcome.disabled).toBe(true);
+    expect(matched()).toBe(0);
     expect(rows.size).toBe(0);
   });
 });
