@@ -78,11 +78,11 @@ export interface ConsultParams {
   runtimeContext?: string | null;
   signal?: AbortSignal;
   /**
-   * Optional sink for the advisor's generated text as it streams. Each call
-   * receives an incremental chunk (a provider `text_delta`). Wiring this to the
-   * tool's `onOutput` surfaces the consult live as `tool_output_chunk` while the
-   * advisor model is still generating; the complete guidance is still returned
-   * as the resolved string.
+   * Optional sink for the advisor's live activity as it generates: incremental
+   * advice text, the reasoning summary (when surfaced), and a note per web
+   * search. Wiring this to the tool's `onOutput` surfaces the consult live as
+   * `tool_output_chunk` while the advisor is still working; the complete
+   * guidance is still returned as the resolved string. See `advisorActivitySink`.
    */
   onText?: (chunk: string) => void;
 }
@@ -91,6 +91,47 @@ export interface ConsultParams {
 function withTimeout(signal: AbortSignal | undefined, ms: number): AbortSignal {
   const timeout = AbortSignal.timeout(ms);
   return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
+/**
+ * Build the streaming sink for a consult: forward the advisor's live activity
+ * to `onText` so the tool-output drawer streams *throughout* the consult rather
+ * than sitting silent until the final advice lands.
+ *
+ * Before web search the consult was a tool-less one-shot, so the only live
+ * activity was the advice text. With full context + native web search the
+ * advisor now searches (up to 5×) and reasons before writing — forwarding only
+ * `text_delta` left the drawer blank for that whole prefix, which read as "not
+ * streaming". We now also surface the reasoning summary (when the model emits
+ * one) and a one-line note per web search. The complete guidance is still
+ * returned by `consultAdvisor`; the renderer swaps it in once the tool result
+ * arrives.
+ */
+function advisorActivitySink(
+  onText: (chunk: string) => void,
+): (event: ProviderEvent) => void {
+  return (event) => {
+    switch (event.type) {
+      case "text_delta":
+        if (event.text) onText(event.text);
+        break;
+      case "thinking_delta":
+        if (event.thinking) onText(event.thinking);
+        break;
+      case "server_tool_start":
+        if (event.name === "web_search") onText("\n🔎 Searching the web…\n");
+        break;
+      case "server_tool_complete": {
+        const rawQuery = event.resolvedInput?.["query"];
+        if (typeof rawQuery === "string" && rawQuery.trim().length > 0) {
+          onText(`\n🔎 Searched: ${rawQuery.trim()}\n`);
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  };
 }
 
 /**
@@ -131,14 +172,10 @@ export async function consultAdvisor(params: ConsultParams): Promise<string> {
       params.runtimeContext,
     ),
     ...(webEnabled ? { tools: [ADVISOR_WEB_SEARCH_TOOL] } : {}),
-    // Forward the model's visible text deltas to the caller's sink so the
-    // guidance streams live. Other event types (thinking, usage) ride their
-    // own channels and are intentionally not surfaced as tool output.
-    onEvent: onText
-      ? (event: ProviderEvent) => {
-          if (event.type === "text_delta" && event.text) onText(event.text);
-        }
-      : undefined,
+    // Stream the consult's activity live (advice text, reasoning summary, and a
+    // note per web search) so the drawer isn't blank while the advisor searches
+    // and reasons before writing its guidance. See `advisorActivitySink`.
+    onEvent: onText ? advisorActivitySink(onText) : undefined,
     config: {
       callSite: ADVISOR_CALL_SITE,
       ...override,
