@@ -1,29 +1,30 @@
 /**
- * Tests for the incremental step projector (`createIncrementalStepProjection`).
+ * Tests for the incremental detail-map projector
+ * (`createIncrementalDetailProjection`).
  *
  * The core safety net is the **no-drift property test**: it drives the projector
  * one store-mutation at a time (append vs text-coalesce mutate-last, exactly as
- * `subagent-store.receiveEvent` does) and asserts the incremental output always
- * deep-equals a full `computeSubagentSteps` rebuild — so the O(Δ) replay can
- * never diverge from the O(n) source of truth.
+ * `subagent-store.receiveEvent` does) and asserts the incremental `Map` always
+ * deep-equals a full `buildSubagentStepDetails` rebuild — so the O(Δ) replay can
+ * never diverge from the O(n) source of truth, including failed web_search
+ * payloads keyed by `toolUseId` and thinking payloads keyed by event id.
  */
 
 import { describe, expect, test } from "bun:test";
 
-import { createIncrementalStepProjection } from "@/domains/chat/subagent-step-projection";
+import { createIncrementalDetailProjection } from "@/domains/chat/subagent-detail-projection";
 import {
-  applyTimelineEvent,
-  computeSubagentSteps,
-  type ToolCallCardStep,
-  type ToolMeta,
+  applyDetailEvent,
+  buildSubagentStepDetails,
 } from "@/domains/chat/hooks/use-subagent-card-data";
 import type { SubagentTimelineEvent } from "@/domains/chat/subagent-store";
+import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 const NOW = 1700000000000;
 
 let eventSeq = 0;
 function nextEventId(): string {
-  return `te-${eventSeq++}`;
+  return `de-${eventSeq++}`;
 }
 
 function makeEvent(
@@ -40,15 +41,31 @@ function makeEvent(
   };
 }
 
+/**
+ * Stable, order-independent serialization of a detail map for deep comparison:
+ * sort by key, then compare key→payload pairs. (`Map` equality in bun's `toEqual`
+ * is order-sensitive on insertion; the incremental and full paths build the same
+ * payloads but we compare the canonical content, not insertion order.)
+ */
+function mapToSortedEntries(
+  map: Map<string, ToolDetailPayload>,
+): Array<[string, ToolDetailPayload]> {
+  return [...map.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+function expectMapsEqual(
+  incremental: Map<string, ToolDetailPayload>,
+  full: Map<string, ToolDetailPayload>,
+): void {
+  expect(mapToSortedEntries(incremental)).toEqual(mapToSortedEntries(full));
+}
+
 // ---------------------------------------------------------------------------
 // Store-mutation simulator — mirrors `subagent-store.receiveEvent`'s two
 // incremental array shapes so the projector is fed precisely what it sees live.
 // ---------------------------------------------------------------------------
 
-/**
- * Append a fresh event to the events array, returning a NEW array (every prior
- * element shared by reference). Models the store's "Append-1" shape.
- */
+/** Append a fresh event, returning a NEW array (prior elements shared). */
 function appendEvent(
   events: SubagentTimelineEvent[],
   event: SubagentTimelineEvent,
@@ -83,42 +100,51 @@ function coalesceText(
 // Per-diff-class unit tests
 // ---------------------------------------------------------------------------
 
-describe("createIncrementalStepProjection — per-diff-class", () => {
+describe("createIncrementalDetailProjection — per-diff-class", () => {
   test("first call / empty cache builds via full rebuild", () => {
-    const p = createIncrementalStepProjection();
+    const p = createIncrementalDetailProjection();
     const events: SubagentTimelineEvent[] = [
       makeEvent({ type: "text", content: "Investigating" }),
     ];
-    expect(p.project(events)).toEqual(computeSubagentSteps(events));
+    expectMapsEqual(p.project(events), buildSubagentStepDetails(events));
   });
 
-  test("identity: same array reference returns the cached result unchanged", () => {
-    const p = createIncrementalStepProjection();
+  test("identity: same array reference returns the cached Map by reference", () => {
+    const p = createIncrementalDetailProjection();
     const events: SubagentTimelineEvent[] = [
       makeEvent({ type: "text", content: "hi" }),
     ];
     const first = p.project(events);
     const second = p.project(events);
-    // The projector returns the cached ARRAY references unchanged on identity
-    // (the `useSubagentSteps` hook layers wrapper-object stability on top).
-    expect(second.steps).toBe(first.steps);
-    expect(second.toolMeta).toBe(first.toolMeta);
+    expect(second).toBe(first);
   });
 
-  test("append-1 text: new tail thinking step", () => {
-    const p = createIncrementalStepProjection();
+  test("thinking payload is keyed by the source event id", () => {
+    const p = createIncrementalDetailProjection();
+    const textEv = makeEvent({ type: "text", content: "deep reasoning here" });
+    const events = [textEv];
+    const map = p.project(events);
+    const payload = map.get(textEv.id);
+    expect(payload?.kind).toBe("thinking");
+    expect(payload?.toolCallId).toBe(textEv.id);
+    expect(payload?.thinkingText).toBe("deep reasoning here");
+  });
+
+  test("append-1 text: new thinking payload keyed by event id", () => {
+    const p = createIncrementalDetailProjection();
     let events: SubagentTimelineEvent[] = [
       makeEvent({ type: "text", content: "first" }),
     ];
     p.project(events);
-    events = appendEvent(events, makeEvent({ type: "text", content: "second" }));
-    const out = p.project(events);
-    expect(out).toEqual(computeSubagentSteps(events));
-    expect(out.steps).toHaveLength(2);
+    const second = makeEvent({ type: "text", content: "second" });
+    events = appendEvent(events, second);
+    const map = p.project(events);
+    expectMapsEqual(map, buildSubagentStepDetails(events));
+    expect(map.get(second.id)?.thinkingText).toBe("second");
   });
 
-  test("append-1 tool_call: new in-flight tool step", () => {
-    const p = createIncrementalStepProjection();
+  test("append-1 tool_call: new in-flight tool payload keyed by toolUseId", () => {
+    const p = createIncrementalDetailProjection();
     let events: SubagentTimelineEvent[] = [
       makeEvent({ type: "text", content: "thinking" }),
     ];
@@ -127,18 +153,13 @@ describe("createIncrementalStepProjection — per-diff-class", () => {
       events,
       makeEvent({ type: "tool_call", toolName: "bash", toolUseId: "tu-1", content: "ls" }),
     );
-    const out = p.project(events);
-    expect(out).toEqual(computeSubagentSteps(events));
-    const last = out.steps[out.steps.length - 1]!;
-    expect(last.kind).toBe("tool");
-    if (last.kind === "tool") expect(last.status).toBe("running");
+    const map = p.project(events);
+    expectMapsEqual(map, buildSubagentStepDetails(events));
+    expect(map.get("tu-1")?.status).toBe("running");
   });
 
-  test("append-1 tool_result closes an EARLIER in-flight tool (not the tail)", () => {
-    const p = createIncrementalStepProjection();
-    // tool_call, then a trailing text event, then the tool_result lands — so the
-    // result must close the tool at an earlier index, exercising the
-    // append-MOSTLY path through the real reducer.
+  test("append-1 tool_result closes an earlier in-flight tool (full untruncated result)", () => {
+    const p = createIncrementalDetailProjection();
     let events: SubagentTimelineEvent[] = [
       makeEvent({ type: "tool_call", toolName: "bash", toolUseId: "tu-1", content: "ls", timestamp: NOW }),
       makeEvent({ type: "text", content: "waiting" }, NOW + 100),
@@ -146,92 +167,58 @@ describe("createIncrementalStepProjection — per-diff-class", () => {
     p.project(events);
     events = appendEvent(
       events,
-      makeEvent({ type: "tool_result", toolName: "bash", toolUseId: "tu-1", content: "ok", timestamp: NOW + 2500 }),
+      makeEvent({ type: "tool_result", toolName: "bash", toolUseId: "tu-1", result: "file-a\nfile-b", timestamp: NOW + 2500 }),
     );
-    const out = p.project(events);
-    expect(out).toEqual(computeSubagentSteps(events));
-    const toolStep = out.steps.find((s) => s.kind === "tool")!;
-    expect(toolStep.kind).toBe("tool");
-    if (toolStep.kind === "tool") expect(toolStep.status).toBe("completed");
+    const map = p.project(events);
+    expectMapsEqual(map, buildSubagentStepDetails(events));
+    expect(map.get("tu-1")?.status).toBe("completed");
+    expect(map.get("tu-1")?.result).toBe("file-a\nfile-b");
   });
 
-  test("append-1 error closes in-flight tool + appends a tool_error step", () => {
-    const p = createIncrementalStepProjection();
+  test("append-1 error closes in-flight tool as error", () => {
+    const p = createIncrementalDetailProjection();
     let events: SubagentTimelineEvent[] = [
       makeEvent({ type: "tool_call", toolName: "bash", toolUseId: "tu-1", content: "rm -rf /", timestamp: NOW }),
     ];
     p.project(events);
     events = appendEvent(
       events,
-      makeEvent({ type: "error", content: "permission denied", timestamp: NOW + 500 }),
+      makeEvent({ type: "error", toolName: "bash", toolUseId: "tu-1", content: "permission denied", result: "permission denied", isError: true, timestamp: NOW + 500 }),
     );
-    const out = p.project(events);
-    expect(out).toEqual(computeSubagentSteps(events));
-    const toolStep = out.steps.find((s) => s.kind === "tool")!;
-    if (toolStep.kind === "tool") expect(toolStep.status).toBe("error");
-    expect(out.steps[out.steps.length - 1]!.kind).toBe("tool_error");
+    const map = p.project(events);
+    expectMapsEqual(map, buildSubagentStepDetails(events));
+    expect(map.get("tu-1")?.status).toBe("error");
   });
 
-  test("mutate-last under the 160-char clamp: new tail identity, content grows", () => {
-    const p = createIncrementalStepProjection();
+  test("mutate-last thinking payload grows with the full untruncated content", () => {
+    const p = createIncrementalDetailProjection();
     let events: SubagentTimelineEvent[] = [
       makeEvent({ type: "text", content: "short" }),
     ];
     const first = p.project(events);
-    const firstTail = first.steps[0]!;
-    // Grow the text but stay well under 160 chars.
-    events = coalesceText(events, " more text", events[0]!.timestamp);
+    const id = events[0]!.id;
+    expect(first.get(id)?.thinkingText).toBe("short");
+    // Grow past 160 chars — unlike steps, the thinking payload carries the FULL
+    // content, so it keeps changing every delta (no clamp shortcut).
+    const tail = "x".repeat(300);
+    events = coalesceText(events, tail, events[0]!.timestamp);
     const second = p.project(events);
-    expect(second).toEqual(computeSubagentSteps(events));
-    // A new tail step (preview changed), so the array is a fresh reference.
-    expect(second.steps).not.toBe(first.steps);
-    const secondTail = second.steps[0]!;
-    if (firstTail.kind === "thinking" && secondTail.kind === "thinking") {
-      expect(secondTail.text.length).toBeGreaterThan(firstTail.text.length);
-    }
-  });
-
-  test("mutate-last PAST the clamp: tail identity preserved (same steps reference)", () => {
-    const p = createIncrementalStepProjection();
-    // Seed with content already well past 160 chars so the preview is clamped.
-    let events: SubagentTimelineEvent[] = [
-      makeEvent({ type: "text", content: "y".repeat(300) }),
-    ];
-    const a = p.project(events);
-    // Append more identical chars — the clamped 160-char preview is unchanged.
-    events = coalesceText(events, "y".repeat(50), events[0]!.timestamp);
-    const b = p.project(events);
-    expect(b.steps).toBe(a.steps);
-    expect(b.toolMeta).toBe(a.toolMeta);
-    // Still correct vs the full rebuild.
-    expect(b.steps).toEqual(computeSubagentSteps(events).steps);
-  });
-
-  test("mutate-last that grows past the clamp from under it: still deep-equals rebuild", () => {
-    const p = createIncrementalStepProjection();
-    let events: SubagentTimelineEvent[] = [
-      makeEvent({ type: "text", content: "z".repeat(100) }),
-    ];
-    p.project(events);
-    events = coalesceText(events, "z".repeat(200), events[0]!.timestamp);
-    const out = p.project(events);
-    expect(out).toEqual(computeSubagentSteps(events));
+    expectMapsEqual(second, buildSubagentStepDetails(events));
+    expect(second.get(id)?.thinkingText).toBe("short" + tail);
   });
 
   test("full-replace (history hydration) falls back to a full rebuild", () => {
-    const p = createIncrementalStepProjection();
+    const p = createIncrementalDetailProjection();
     p.project([makeEvent({ type: "text", content: "live" })]);
-    // A wholesale swap — entirely new array, no shared prefix.
     const hydrated: SubagentTimelineEvent[] = [
       makeEvent({ type: "text", content: "hydrated-1" }),
       makeEvent({ type: "tool_call", toolName: "bash", toolUseId: "h-1", content: "echo" }),
     ];
-    const out = p.project(hydrated);
-    expect(out).toEqual(computeSubagentSteps(hydrated));
+    expectMapsEqual(p.project(hydrated), buildSubagentStepDetails(hydrated));
   });
 
   test("subagent switch (totally different array) falls back to a full rebuild", () => {
-    const p = createIncrementalStepProjection();
+    const p = createIncrementalDetailProjection();
     p.project([
       makeEvent({ type: "tool_call", toolName: "web_search", toolUseId: "ws-a", input: { query: "a" } }),
     ]);
@@ -239,52 +226,64 @@ describe("createIncrementalStepProjection — per-diff-class", () => {
       makeEvent({ type: "text", content: "different subagent" }),
       makeEvent({ type: "tool_call", toolName: "web_fetch", toolUseId: "wf-b", input: { url: "https://x.dev" } }),
     ];
-    const out = p.project(other);
-    expect(out).toEqual(computeSubagentSteps(other));
+    expectMapsEqual(p.project(other), buildSubagentStepDetails(other));
   });
 
   test("truncation (shorter array) falls back to a full rebuild", () => {
-    const p = createIncrementalStepProjection();
+    const p = createIncrementalDetailProjection();
     const full: SubagentTimelineEvent[] = [
       makeEvent({ type: "text", content: "a" }),
       makeEvent({ type: "text", content: "b" }),
     ];
     p.project(full);
     const truncated = full.slice(0, 1);
-    const out = p.project(truncated);
-    expect(out).toEqual(computeSubagentSteps(truncated));
+    expectMapsEqual(p.project(truncated), buildSubagentStepDetails(truncated));
   });
 
-  test("parallel same-name tool calls: result closes the correct match index", () => {
-    const p = createIncrementalStepProjection();
-    // Two concurrent bash calls; the result for tu-2 must close the SECOND, not
-    // the first — exercises `findMatchingInFlightToolIndex` through the append.
+  test("failed web_search payload is keyed by toolUseId and carries the full error", () => {
+    const p = createIncrementalDetailProjection();
     let events: SubagentTimelineEvent[] = [
-      makeEvent({ type: "tool_call", toolName: "bash", toolUseId: "tu-1", content: "ls", timestamp: NOW }),
-      makeEvent({ type: "tool_call", toolName: "bash", toolUseId: "tu-2", content: "pwd", timestamp: NOW + 100 }),
+      makeEvent({ type: "tool_call", toolName: "web_search", toolUseId: "ws-1", input: { query: "vellum" }, timestamp: NOW }),
     ];
     p.project(events);
     events = appendEvent(
       events,
-      makeEvent({ type: "tool_result", toolName: "bash", toolUseId: "tu-2", content: "/home", timestamp: NOW + 1500 }),
+      makeEvent({ type: "tool_result", toolName: "web_search", toolUseId: "ws-1", isError: true, result: "upstream 503 backend overloaded", content: "search failed", timestamp: NOW + 900 }),
     );
-    const out = p.project(events);
-    expect(out).toEqual(computeSubagentSteps(events));
-    const toolSteps = out.steps.filter((s) => s.kind === "tool");
-    // First still running, second completed.
-    if (toolSteps[0]!.kind === "tool") expect(toolSteps[0]!.status).toBe("running");
-    if (toolSteps[1]!.kind === "tool") expect(toolSteps[1]!.status).toBe("completed");
+    const map = p.project(events);
+    expectMapsEqual(map, buildSubagentStepDetails(events));
+    const failed = map.get("ws-1");
+    expect(failed?.kind).toBe("web_search");
+    expect(failed?.status).toBe("error");
+    expect(failed?.result).toBe("upstream 503 backend overloaded");
+  });
+
+  test("successful web_search payload flips to completed with parsed sources", () => {
+    const p = createIncrementalDetailProjection();
+    let events: SubagentTimelineEvent[] = [
+      makeEvent({ type: "tool_call", toolName: "web_search", toolUseId: "ws-2", input: { query: "vellum" }, timestamp: NOW }),
+    ];
+    p.project(events);
+    events = appendEvent(
+      events,
+      makeEvent({ type: "tool_result", toolName: "web_search", toolUseId: "ws-2", result: "Vellum\nhttps://vellum.ai", timestamp: NOW + 900 }),
+    );
+    const map = p.project(events);
+    expectMapsEqual(map, buildSubagentStepDetails(events));
+    const search = map.get("ws-2");
+    expect(search?.status).toBe("completed");
+    expect(search?.searchResults?.length).toBeGreaterThan(0);
   });
 
   test("cross-subagent id collision (detail-1 reused) is NOT misclassified as mutate-last", () => {
     // `mapDetailEvents` restarts event ids at `detail-1` for EACH subagent. When
     // the panel is reused across a subagent switch and both subagents have
     // exactly ONE event, the last ids collide on `detail-1`. The previous (tool)
-    // step must NOT survive into subagent B's steps — only id equality would have
+    // entry must NOT survive into subagent B's map — only id equality would have
     // let it through; the text-coalescing content-shape guards force a full
     // rebuild instead.
-    const p = createIncrementalStepProjection();
-    // Subagent A: a single tool_call (web payload).
+    const p = createIncrementalDetailProjection();
+    // Subagent A: a single tool_call (web payload) keyed by toolUseId.
     const subagentA: SubagentTimelineEvent[] = [
       {
         id: "detail-1",
@@ -300,10 +299,10 @@ describe("createIncrementalStepProjection — per-diff-class", () => {
     const subagentB: SubagentTimelineEvent[] = [
       { id: "detail-1", type: "text", content: "B is thinking", timestamp: NOW },
     ];
-    const out = p.project(subagentB);
-    // Must deep-equal a full rebuild of B — no stale tool step from A.
-    expect(out).toEqual(computeSubagentSteps(subagentB));
-    expect(out.steps.some((s) => s.kind === "tool")).toBe(false);
+    const map = p.project(subagentB);
+    // Must deep-equal a full rebuild of B — no stale tool entry from A.
+    expectMapsEqual(map, buildSubagentStepDetails(subagentB));
+    expect(map.has("tu-a")).toBe(false);
   });
 
   test("genuine text coalescing (same id, text→text, content extends) still takes the incremental path", () => {
@@ -312,41 +311,40 @@ describe("createIncrementalStepProjection — per-diff-class", () => {
     // the result still deep-equals a full rebuild.
     let calls = 0;
     const counting = (
-      steps: ToolCallCardStep[],
-      toolMeta: Array<ToolMeta | undefined>,
+      payloads: ToolDetailPayload[],
+      meta: Array<{ startTs: number; running: boolean }>,
       event: SubagentTimelineEvent,
     ) => {
       calls++;
-      applyTimelineEvent(steps, toolMeta, event);
+      applyDetailEvent(payloads, meta, event);
     };
-    const p = createIncrementalStepProjection(counting);
+    const p = createIncrementalDetailProjection(counting);
     let events: SubagentTimelineEvent[] = [
       makeEvent({ type: "text", content: "Investig" }),
     ];
     p.project(events);
     const callsAfterFirst = calls;
     events = coalesceText(events, "ating the bug", events[0]!.timestamp);
-    const out = p.project(events);
+    const map = p.project(events);
     // Incremental path: exactly one more reducer call (re-derive the grown tail),
     // not a full re-walk of every event.
     expect(calls - callsAfterFirst).toBe(1);
-    expect(out).toEqual(computeSubagentSteps(events));
+    expectMapsEqual(map, buildSubagentStepDetails(events));
   });
 
-  test("web_search result flips the placeholder to 'Searched the web'", () => {
-    const p = createIncrementalStepProjection();
+  test("tool_call with an empty id is skipped (not keyed/clickable)", () => {
+    const p = createIncrementalDetailProjection();
     let events: SubagentTimelineEvent[] = [
-      makeEvent({ type: "tool_call", toolName: "web_search", toolUseId: "ws-1", input: { query: "vellum" }, timestamp: NOW }),
+      makeEvent({ type: "text", content: "thinking" }),
     ];
     p.project(events);
     events = appendEvent(
       events,
-      makeEvent({ type: "tool_result", toolName: "web_search", toolUseId: "ws-1", result: "Vellum\nhttps://vellum.ai", timestamp: NOW + 900 }),
+      makeEvent({ type: "tool_call", toolName: "bash", content: "ls" }),
     );
-    const out = p.project(events);
-    expect(out).toEqual(computeSubagentSteps(events));
-    const search = out.steps[0]!;
-    if (search.kind === "web_search") expect(search.title).toBe("Searched the web");
+    const map = p.project(events);
+    expectMapsEqual(map, buildSubagentStepDetails(events));
+    expect(map.has("")).toBe(false);
   });
 });
 
@@ -409,7 +407,7 @@ function generateStream(seed: number, n: number): Mutation[] {
         });
         openTools.push({ id, toolName: "web_search" });
       } else if (toolRoll < 0.35) {
-        // web_fetch has no follow-up — a thinking step, no open tracking.
+        // web_fetch has no follow-up — keyed by id, no open tracking.
         mutations.push({
           kind: "append",
           event: makeEvent({ type: "tool_call", toolName: "web_fetch", toolUseId: id, input: { url: `https://ex${i}.dev` } }, ts),
@@ -450,10 +448,10 @@ function generateStream(seed: number, n: number): Mutation[] {
     if (openTools.length > 0) {
       // Close an open tool with a raw error event.
       const idx = Math.floor(rng() * openTools.length);
-      openTools.splice(idx, 1);
+      const open = openTools.splice(idx, 1)[0]!;
       mutations.push({
         kind: "append",
-        event: makeEvent({ type: "error", content: `err-${i}` }, ts),
+        event: makeEvent({ type: "error", toolName: open.toolName, toolUseId: open.id, isError: true, result: `err-${i}`, content: `err-${i}` }, ts),
       });
       continue;
     }
@@ -481,11 +479,11 @@ function applyMutation(
 // No-drift property test — the core safety net.
 // ---------------------------------------------------------------------------
 
-describe("createIncrementalStepProjection — no-drift property", () => {
+describe("createIncrementalDetailProjection — no-drift property", () => {
   const seeds = [1, 7, 42, 1337, 99999];
   for (const seed of seeds) {
-    test(`seed ${seed}: incremental deep-equals full rebuild after every mutation (N=300)`, () => {
-      const projector = createIncrementalStepProjection();
+    test(`seed ${seed}: incremental Map deep-equals full rebuild after every mutation (N=300)`, () => {
+      const projector = createIncrementalDetailProjection();
       const mutations = generateStream(seed, 300);
       let events: SubagentTimelineEvent[] = [];
       // Prime with the empty array.
@@ -494,9 +492,8 @@ describe("createIncrementalStepProjection — no-drift property", () => {
       for (let i = 0; i < mutations.length; i++) {
         events = applyMutation(events, mutations[i]!);
         const incremental = projector.project(events);
-        const full = computeSubagentSteps(events);
-        expect(incremental.steps).toEqual(full.steps);
-        expect(incremental.toolMeta).toEqual(full.toolMeta);
+        const full = buildSubagentStepDetails(events);
+        expectMapsEqual(incremental, full);
       }
     });
   }
@@ -506,22 +503,19 @@ describe("createIncrementalStepProjection — no-drift property", () => {
 // Incremental-work guard — reducer invocations must be ~O(N), not O(N²).
 // ---------------------------------------------------------------------------
 
-describe("createIncrementalStepProjection — incremental-work guard", () => {
-  function countReducerCalls(n: number): { calls: number; toolResults: number } {
+describe("createIncrementalDetailProjection — incremental-work guard", () => {
+  function countReducerCalls(n: number): number {
     let calls = 0;
     const counting = (
-      steps: ToolCallCardStep[],
-      toolMeta: Array<ToolMeta | undefined>,
+      payloads: ToolDetailPayload[],
+      meta: Array<{ startTs: number; running: boolean }>,
       event: SubagentTimelineEvent,
     ) => {
       calls++;
-      applyTimelineEvent(steps, toolMeta, event);
+      applyDetailEvent(payloads, meta, event);
     };
-    const projector = createIncrementalStepProjection(counting);
+    const projector = createIncrementalDetailProjection(counting);
     const mutations = generateStream(2024, n);
-    const toolResults = mutations.filter(
-      (m) => m.kind === "append" && (m.event.type === "tool_result" || m.event.type === "error"),
-    ).length;
 
     let events: SubagentTimelineEvent[] = [];
     projector.project(events);
@@ -529,12 +523,12 @@ describe("createIncrementalStepProjection — incremental-work guard", () => {
       events = applyMutation(events, m);
       projector.project(events);
     }
-    return { calls, toolResults };
+    return calls;
   }
 
   for (const n of [50, 150, 300]) {
-    test(`N=${n}: reducer invocations are ~linear (≤ N + small constant), not O(N²)`, () => {
-      const { calls } = countReducerCalls(n);
+    test(`N=${n}: reducer invocations are ~linear (≤ N), not O(N²)`, () => {
+      const calls = countReducerCalls(n);
       // Each store mutation replays at most ONE event through the reducer
       // (append-1 → 1 call; mutate-last → exactly 1 re-derive call). So the
       // total is bounded by the number of mutations, far below N² for large N.
@@ -545,9 +539,9 @@ describe("createIncrementalStepProjection — incremental-work guard", () => {
   }
 
   test("reducer call count grows linearly across N ∈ {50,150,300}", () => {
-    const c50 = countReducerCalls(50).calls;
-    const c150 = countReducerCalls(150).calls;
-    const c300 = countReducerCalls(300).calls;
+    const c50 = countReducerCalls(50);
+    const c150 = countReducerCalls(150);
+    const c300 = countReducerCalls(300);
     // Linear growth: tripling N roughly triples the work (within a small band).
     // Quadratic growth would make c300/c50 ≈ 36, not ≈ 6.
     expect(c300 / Math.max(c50, 1)).toBeLessThan(12);
