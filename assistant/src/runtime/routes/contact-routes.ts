@@ -17,8 +17,6 @@ import { IpcCallError } from "@vellumai/gateway-client/ipc-client";
 import { z } from "zod";
 
 import {
-  getAssistantContactMetadata,
-  getContact,
   listContacts,
   mergeContacts,
   searchContacts,
@@ -139,9 +137,10 @@ const contactSchema = z.object({
 
 /**
  * Relay a non-search contact list read to the gateway (source of truth for ACL
- * fields), falling back to the assistant DB on IPC failure. Shared by the GET
- * `contacts` list and the `search_contacts` no-filter case so both serve
- * gateway-sourced data consistently.
+ * fields). Shared by the GET `contacts` list and the `search_contacts`
+ * no-filter case so both serve gateway-sourced data consistently. Fail-closed:
+ * a relay failure surfaces as an error rather than reading ACL from the
+ * assistant DB.
  */
 async function relayListContacts(
   limit: number,
@@ -158,15 +157,7 @@ async function relayListContacts(
       contacts: contacts.map(prepareContactResponse),
     };
   } catch (err) {
-    log.warn(
-      { err },
-      "relayListContacts: gateway relay failed; falling back to assistant DB",
-    );
-    const contacts = listContacts(limit, role);
-    return {
-      ok: true,
-      contacts: contacts.map(prepareContactResponse),
-    };
+    rethrowGatewayError(err);
   }
 }
 
@@ -240,25 +231,10 @@ export async function handleGetContact(contactId: string) {
       assistantMetadata: assistantMetadata ?? undefined,
     };
   } catch (err) {
-    // A clean not-found is a real 404 — don't fall back or mask it.
+    // A clean not-found is a real 404. Any other relay failure fails closed
+    // rather than reading ACL from the assistant DB.
     if (err instanceof NotFoundError) throw err;
-    log.warn(
-      { err, contactId },
-      "handleGetContact: gateway relay failed; falling back to assistant DB",
-    );
-    const contact = getContact(contactId);
-    if (!contact) {
-      throw new NotFoundError(`Contact "${contactId}" not found`);
-    }
-    const assistantMeta =
-      contact.contactType === "assistant"
-        ? getAssistantContactMetadata(contact.id)
-        : undefined;
-    return {
-      ok: true,
-      contact: prepareContactResponse(contact),
-      assistantMetadata: assistantMeta ?? undefined,
-    };
+    rethrowGatewayError(err);
   }
 }
 
