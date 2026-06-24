@@ -495,6 +495,12 @@ export function computeSubagentSteps(events: SubagentTimelineEvent[]): {
 /**
  * Pure projection of (entry) → card props. Split from the hook so tests
  * can drive it without instantiating the Zustand store.
+ *
+ * The heavy O(n) timeline walk is isolated in `computeSubagentSteps` so callers
+ * that re-render on every status/usage tick — like `subagent-detail-panel.tsx`,
+ * which renders its own header from `entry` and consumes only `steps` — can
+ * memoize the walk on `entry.events` (reference-stable across those ticks)
+ * rather than re-running it here on every `entry` identity bump.
  */
 export function computeSubagentCardData(
   entry: SubagentEntry,
@@ -659,7 +665,7 @@ export function useSubagentCardData(
  *    the parsed result sources, keyed by `toolUseId` (matching the `detailKey`
  *    `computeSubagentCardData` stamps on the search step).
  *
- * Walks `entry.events` in order, tracking in-flight tool payloads and resolving
+ * Walks `events` in order, tracking in-flight tool payloads and resolving
  * `tool_result` / `error` follow-ups against them with `matchInFlightTool` —
  * the same precedence `computeSubagentCardData` uses, so the two stay aligned.
  * Risk fields (`riskLevel`/`riskReason`) are omitted — subagent timeline events
@@ -799,14 +805,14 @@ export function applyDetailEvent(
 }
 
 export function buildSubagentStepDetails(
-  entry: SubagentEntry,
+  events: SubagentTimelineEvent[],
 ): Map<string, ToolDetailPayload> {
   const payloads: ToolDetailPayload[] = [];
   // Parallel array: start timestamp + running flag per payload, used for
   // matching follow-ups and duration calc. Indexed by `payloads` position.
   const meta: Array<{ startTs: number; running: boolean }> = [];
 
-  for (const event of entry.events) applyDetailEvent(payloads, meta, event);
+  for (const event of events) applyDetailEvent(payloads, meta, event);
 
   // Every payload (including a failed web_search) is kept and keyed by its tool
   // id. The timeline's `web_search_error` step carries the same id as its
