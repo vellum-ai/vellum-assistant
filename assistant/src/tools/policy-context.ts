@@ -32,17 +32,31 @@ export function buildPolicyContext(
 
   const conversationId = context?.conversationId;
 
+  // Origin/trust/channel signals the checker uses to scope narrow
+  // non-interactive auto-grants (e.g. the memory-consolidation skill-authoring
+  // grant) to a specific internal origin. Background-job turns populate
+  // `requestOrigin`; `trustClass`/`executionChannel` come from the turn's
+  // resolved trust context. Undefined for normal interactive turns, so no
+  // origin-scoped grant can fire for them.
+  const originSignals = {
+    requestOrigin: context?.requestOrigin,
+    trustClass: context?.trustClass,
+    sourceChannel: context?.executionChannel,
+  };
+
   const ownerKind = getToolOwner(tool.name)?.kind;
   if (ownerKind === "skill" || ownerKind === "plugin") {
     return {
       executionTarget: tool.executionTarget,
       executionContext,
       conversationId,
+      ...originSignals,
     };
   }
 
   return {
     executionContext,
     conversationId,
+    ...originSignals,
   };
 }
