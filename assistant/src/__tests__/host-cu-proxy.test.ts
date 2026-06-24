@@ -513,6 +513,71 @@ describe("HostCuProxy", () => {
       expect(proxy.consecutiveUnchangedSteps).toBe(0);
     });
 
+    test("exempt key clears the no-effect streak between non-exempt no-ops", async () => {
+      setup();
+
+      // Establish previous AX tree
+      const p1 = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const sent1 = sentMessages[0] as Record<string, unknown>;
+      proxy.processObservation(sent1.requestId as string, {
+        axTree: "TextField [1]",
+      });
+      await p1;
+
+      // Non-exempt no-diff click — streak = 1
+      const p2 = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        2,
+      );
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const sent2 = sentMessages[1] as Record<string, unknown>;
+      proxy.processObservation(sent2.requestId as string, {
+        axTree: "TextField [1]",
+      });
+      await p2;
+      expect(proxy.consecutiveUnchangedSteps).toBe(1);
+
+      // Exempt cmd+a no-diff — must CLEAR the streak, not just skip it
+      const p3 = proxy.request(
+        "computer_use_key",
+        { key: "cmd+a" },
+        "session-1",
+        3,
+      );
+      proxy.recordAction("computer_use_key", { key: "cmd+a" });
+      const sent3 = sentMessages[2] as Record<string, unknown>;
+      proxy.processObservation(sent3.requestId as string, {
+        axTree: "TextField [1]",
+      });
+      await p3;
+      expect(proxy.consecutiveUnchangedSteps).toBe(0);
+
+      // Next non-exempt no-diff click — streak = 1 again, NOT a "2 consecutive"
+      // escalation bridged across the exempt keypress.
+      const p4 = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        4,
+      );
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const sent4 = sentMessages[3] as Record<string, unknown>;
+      proxy.processObservation(sent4.requestId as string, {
+        axTree: "TextField [1]",
+      });
+      const result4 = await p4;
+      expect(proxy.consecutiveUnchangedSteps).toBe(1);
+      expect(result4.content).not.toContain("2 consecutive");
+    });
+
     test("still warns for a non-exempt key (enter) with no diff", async () => {
       setup();
 

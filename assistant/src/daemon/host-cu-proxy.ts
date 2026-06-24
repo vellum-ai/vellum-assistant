@@ -539,15 +539,14 @@ export class HostCuProxy {
         this._actionHistory.length > 0
           ? this._actionHistory[this._actionHistory.length - 1]
           : undefined;
-      if (
-        obs.axDiff == null &&
-        this._previousAXTree != null &&
-        obs.axTree != null &&
-        !isNoDiffKeyAction(lastAction)
-      ) {
-        this._consecutiveUnchangedSteps++;
-      } else if (obs.axDiff != null) {
+      if (obs.axDiff != null || isNoDiffKeyAction(lastAction)) {
+        // A real diff, or an exempt key whose effect is invisible by design,
+        // breaks the no-effect streak — clear it rather than preserving a
+        // stale count so an intervening cmd+a can't bridge two no-op actions
+        // into a false "consecutive" escalation.
         this._consecutiveUnchangedSteps = 0;
+      } else if (this._previousAXTree != null && obs.axTree != null) {
+        this._consecutiveUnchangedSteps++;
       }
     }
 
