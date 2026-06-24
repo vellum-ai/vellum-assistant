@@ -58,7 +58,6 @@ import { initQdrantClient, resolveQdrantUrl } from "../memory/qdrant-client.js";
 import { QdrantManager } from "../memory/qdrant-manager.js";
 import { rotateToolInvocations } from "../memory/tool-usage-store.js";
 import { sweepConceptPageFrontmatter } from "../memory/v2/frontmatter-sweep.js";
-import { spawnMemoryWorkerProcess } from "../memory/worker-control.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
@@ -967,33 +966,12 @@ export async function runDaemon(): Promise<void> {
         }
       }
 
-      // `memory.worker.enabled` selects which worker implementation the daemon
-      // starts: the out-of-process worker (spawned like `assistant memory
-      // worker start`) or the in-process worker on the daemon's event loop.
-      // This flag only affects startup — shutdown stops whichever worker is
-      // actually running (see shutdown-handlers.ts).
-      if (config.memory.worker.enabled) {
-        log.info(
-          "Daemon startup: starting memory worker as a separate process",
-        );
-        try {
-          const { pid, alreadyRunning } = await spawnMemoryWorkerProcess();
-          log.info(
-            { pid, alreadyRunning },
-            alreadyRunning
-              ? "Memory worker process already running — reusing it"
-              : "Memory worker process started",
-          );
-        } catch (err) {
-          log.warn(
-            { err },
-            "Failed to start memory worker process — memory jobs will not be processed",
-          );
-        }
-      } else {
-        log.info("Daemon startup: starting memory worker");
-        bgRefs.memoryWorker = startMemoryJobsWorker();
-      }
+      // `startMemoryJobsWorker` selects the worker implementation based on
+      // `memory.worker.enabled` (in-process vs. a separate OS process).
+      // Shutdown stops whichever worker is actually running — see
+      // shutdown-handlers.ts.
+      log.info("Daemon startup: starting memory worker");
+      bgRefs.memoryWorker = startMemoryJobsWorker();
 
       // Seed capability graph nodes (new memory graph system)
       try {
