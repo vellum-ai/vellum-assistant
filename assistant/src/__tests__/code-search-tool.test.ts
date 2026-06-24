@@ -203,12 +203,13 @@ describe("codeSearchTool", () => {
     expect(result.content).toContain("size limit");
   });
 
-  test("a single >4 MiB matching line yields a truncated result that acknowledges the match", async () => {
+  test("a single multi-MiB matching line is found but its printed output is display-bounded", async () => {
     const dir = makeTempDir();
-    // One matching line whose output alone exceeds MAX_OUTPUT_BYTES (4 MiB) but
-    // whose file stays under MAX_FILE_BYTES (8 MiB) so it isn't skipped. The
-    // match must be counted and the truncation attributed to the output budget,
-    // not reported as "no matches / scan cap".
+    // One matching line many megabytes wide whose file stays under MAX_FILE_BYTES
+    // (8 MiB) so it isn't skipped. The match is on the full line (so it's found),
+    // but the EMITTED line is truncated to the display cap — so a single wide
+    // line cannot, by itself, blow the output-byte budget anymore. The result is
+    // a clean single match, not truncated, with the printed line bounded.
     const lineLen = 5 * 1024 * 1024;
     writeFileSync(join(dir, "wide.txt"), "needle" + "z".repeat(lineLen) + "\n");
 
@@ -218,13 +219,17 @@ describe("codeSearchTool", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(result.status).toBe("truncated");
-    // The match was found: the output budget message, not the scan-cap or
-    // no-match message.
-    expect(result.content).toContain("Output capped");
+    // Found on the full line — never a false "No matches" or scan-cap message.
     expect(result.content).not.toContain("No matches found");
     expect(result.content).not.toContain("scan cap");
     expect(result.content).toContain("wide.txt:1:");
+    // The printed line is display-truncated, so the output stays tiny and the
+    // output budget is never hit — single match => not truncated.
+    expect(result.content).toContain("…[line truncated]");
+    expect(result.status).toBeUndefined();
+    expect(result.content).not.toContain("Output capped");
+    // The multi-MiB body never reaches the emitted output.
+    expect(Buffer.byteLength(result.content, "utf8")).toBeLessThan(64 * 1024);
   });
 
   test("single-file search still honors the denied-basename guard", async () => {
@@ -276,12 +281,13 @@ describe("codeSearchTool", () => {
     expect(result.content).toContain("a.txt:3- after");
   });
 
-  test("bounds the regex to the leading slice of very long lines", async () => {
+  test("matches a token past the display cap on a long line, truncating only the printed output", async () => {
     const dir = makeTempDir();
-    // A line far longer than MAX_MATCH_LINE_LENGTH (2000). The matchable token
-    // sits well beyond the cap, so the bounded regex slice must not see it,
-    // while a token inside the cap on the same file is still found. This also
-    // exercises that a huge line is handled without throwing/hanging.
+    // A line far longer than MAX_DISPLAY_LINE_LENGTH (2000) whose matchable token
+    // sits well beyond column 2000. With RE2's linear-time matching the pattern
+    // is run against the FULL line, so the token MUST be found — but the emitted
+    // line is truncated for display with a clear marker. This also exercises that
+    // a huge line is handled without throwing/hanging.
     const prefix = "x".repeat(5000);
     writeFileSync(
       join(dir, "huge.txt"),
@@ -293,8 +299,17 @@ describe("codeSearchTool", () => {
       makeToolContext(dir),
     );
     expect(beyond.isError).toBe(false);
-    // The token only appears past the bounded slice, so it must not match.
-    expect(beyond.content).toContain("No matches found");
+    // The token appears past column 2000, but matching runs against the full
+    // line, so it IS found (correct grep behavior — no false "No matches").
+    expect(beyond.content).not.toContain("No matches found");
+    expect(beyond.content).toContain("huge.txt:1:");
+    // The displayed line is truncated with a marker, so the multi-kilobyte line
+    // never balloons the output...
+    expect(beyond.content).toContain("…[line truncated]");
+    // ...and the matched token (which sits beyond the display cap) is NOT echoed
+    // back in the bounded output even though the match was found.
+    expect(beyond.content).not.toContain("BEYOND_CAP_TOKEN\n");
+    expect(beyond.content.length).toBeLessThan(prefix.length);
 
     const inside = await codeSearchTool.execute(
       { pattern: "INSIDE_CAP_TOKEN", activity: "search" },
@@ -302,6 +317,9 @@ describe("codeSearchTool", () => {
     );
     expect(inside.isError).toBe(false);
     expect(inside.content).toContain("huge.txt:2:");
+    // A short line is emitted verbatim — no truncation marker.
+    expect(inside.content).toContain("inside INSIDE_CAP_TOKEN here");
+    expect(inside.content).not.toContain("…[line truncated]");
   });
 
   test("caps output via the byte budget when many matches have context", async () => {
@@ -367,35 +385,63 @@ describe("codeSearchTool", () => {
     expect(result.content).not.toContain("No matches found");
   });
 
-  test(
-    "a catastrophic-backtracking pattern returns near-instantly (linear-time RE2)",
-    async () => {
-      const dir = makeTempDir();
-      // The classic ReDoS proof: `(a+)+$` against many non-matching lines of the
-      // form `'a'.repeat(50) + '!'`. Under V8's backtracking RegExp a single
-      // `regex.test()` on one such line blocks the event loop for seconds, and
-      // the synchronous scan never yields so neither the wall-clock deadline nor
-      // the promise timeout can interrupt it — the call would hang. With the
-      // linear-time RE2 engine the whole file scans in milliseconds and returns
-      // a clean, non-truncated "No matches found". The small per-call timeout
-      // below would trip if matching ever fell back to backtracking.
-      const evilLine = "a".repeat(50) + "!"; // forces backtracking, no match
-      const body = Array.from({ length: 200 }, () => evilLine).join("\n");
-      writeFileSync(join(dir, "evil.txt"), body + "\n");
+  test("an already-aborted signal stops the directory traversal, not just per-line scanning", async () => {
+    const dir = makeTempDir();
+    // Build a small tree of subdirectories and files. The traversal deadline /
+    // abort check now lives at the top of walk() and inside its per-entry loop
+    // (shared with the per-line checkpoint), so an already-aborted signal must
+    // stop the walk before it descends/scans the whole tree, returning a
+    // truncated/timed-out result rather than scanning everything.
+    for (let d = 0; d < 5; d++) {
+      const sub = join(dir, `sub${d}`);
+      mkdirSync(sub);
+      for (let f = 0; f < 5; f++) {
+        writeFileSync(join(sub, `f${f}.txt`), "needle here\n");
+      }
+    }
 
-      const result = await codeSearchTool.execute(
-        { pattern: "(a+)+$", activity: "search" },
-        makeToolContext(dir),
-      );
+    const controller = new AbortController();
+    controller.abort();
+    const context = { ...makeToolContext(dir), signal: controller.signal };
 
-      expect(result.isError).toBe(false);
-      // Linear-time matching completes well within the deadline, so this is a
-      // definitive miss, not a timed-out/truncated result.
-      expect(result.status).toBeUndefined();
-      expect(result.content).toContain("No matches found");
-    },
-    5_000,
-  );
+    const result = await codeSearchTool.execute(
+      { pattern: "needle", activity: "search" },
+      context,
+    );
+
+    // The traversal honored the abort: stopped promptly with a timed-out /
+    // incomplete result instead of a definitive miss or full scan.
+    expect(result.isError).toBe(false);
+    expect(result.status).toBe("truncated");
+    expect(result.content).toContain("timed out");
+    expect(result.content).not.toContain("No matches found");
+  });
+
+  test("a catastrophic-backtracking pattern returns near-instantly (linear-time RE2)", async () => {
+    const dir = makeTempDir();
+    // The classic ReDoS proof: `(a+)+$` against many non-matching lines of the
+    // form `'a'.repeat(50) + '!'`. Under V8's backtracking RegExp a single
+    // `regex.test()` on one such line blocks the event loop for seconds, and
+    // the synchronous scan never yields so neither the wall-clock deadline nor
+    // the promise timeout can interrupt it — the call would hang. With the
+    // linear-time RE2 engine the whole file scans in milliseconds and returns
+    // a clean, non-truncated "No matches found". The small per-call timeout
+    // below would trip if matching ever fell back to backtracking.
+    const evilLine = "a".repeat(50) + "!"; // forces backtracking, no match
+    const body = Array.from({ length: 200 }, () => evilLine).join("\n");
+    writeFileSync(join(dir, "evil.txt"), body + "\n");
+
+    const result = await codeSearchTool.execute(
+      { pattern: "(a+)+$", activity: "search" },
+      makeToolContext(dir),
+    );
+
+    expect(result.isError).toBe(false);
+    // Linear-time matching completes well within the deadline, so this is a
+    // definitive miss, not a timed-out/truncated result.
+    expect(result.status).toBeUndefined();
+    expect(result.content).toContain("No matches found");
+  }, 5_000);
 
   test("an unsupported pattern (backreference) returns a clean error, not a throw", async () => {
     const dir = makeTempDir();

@@ -26,11 +26,21 @@ const MAX_FILES_SCANNED = 20_000;
 const MAX_TOTAL_BYTES = 256 * 1024 * 1024; // 256 MiB
 const MAX_FILE_BYTES = 8 * 1024 * 1024; // skip files larger than 8 MiB
 
-// Per-line work/output cap (ripgrep-style long-line bound). The pattern is run
-// against only the leading slice of each line, so a single pathological line
-// (e.g. a minified bundle on one line) can't dominate matching time or emit a
-// multi-megabyte match line. Normal code/log lines are well under the cap.
-const MAX_MATCH_LINE_LENGTH = 2000;
+// Hard cap on directory entries visited during the walk, independent of
+// wall-clock time. `MAX_FILES_SCANNED`/`MAX_TOTAL_BYTES` only count files that
+// are actually READ, so a pathological tree full of oversized, unreadable,
+// permission-denied, or glob-filtered files (which never increment those
+// counters) could otherwise traverse unbounded. This bounds the readdir/stat
+// work even when every individual operation is fast.
+const MAX_ENTRIES_TRAVERSED = 200_000;
+
+// Display-only cap on emitted output lines (ripgrep-style long-line bound). The
+// pattern is matched against the FULL line, so a token anywhere on a long line
+// is found; this cap only bounds the PRINTED line text (matched and context
+// lines) so a single pathological line (e.g. a minified bundle on one line)
+// can't emit a multi-megabyte output line. Normal code/log lines are well under
+// the cap and print verbatim.
+const MAX_DISPLAY_LINE_LENGTH = 2000;
 
 // Output-byte budget: when `context_lines` is large and many nearby lines
 // match, the surrounding block is appended for every match, so a single large
@@ -74,7 +84,8 @@ export const codeSearchTool = {
     properties: {
       pattern: {
         type: "string",
-        description: "Regular-expression pattern to search for in file contents",
+        description:
+          "Regular-expression pattern to search for in file contents",
       },
       path: {
         type: "string",
@@ -143,7 +154,10 @@ export const codeSearchTool = {
     // clean error below.
     let regex: RE2JS;
     try {
-      regex = RE2JS.compile(pattern, caseInsensitive ? RE2JS.CASE_INSENSITIVE : 0);
+      regex = RE2JS.compile(
+        pattern,
+        caseInsensitive ? RE2JS.CASE_INSENSITIVE : 0,
+      );
     } catch (err) {
       return {
         content: `Error: invalid or unsupported pattern "${pattern}": ${
@@ -206,10 +220,23 @@ export const codeSearchTool = {
     let skippedLargeFile = false;
     let filesScanned = 0;
     let totalBytes = 0;
+    // Number of directory entries visited during the walk (files + subdirs),
+    // bounded by MAX_ENTRIES_TRAVERSED so a pathological tree can't run the
+    // synchronous readdir/stat work unbounded even when no file is ever read.
+    let entriesTraversed = 0;
     // Running size of the accumulated output (lines joined by "\n") so we can
     // stop before allocating an unbounded result. Each pushed line contributes
     // its UTF-8 byte length plus one byte for the joining newline.
     let outputBytes = 0;
+
+    // Bound a single emitted line's length for display only. Matching always
+    // runs against the full line; this just keeps the PRINTED text readable and
+    // prevents one pathological line (minified bundle, huge JSON/log line) from
+    // emitting a multi-megabyte output line. Normal lines pass through verbatim.
+    const truncateForDisplay = (text: string): string =>
+      text.length > MAX_DISPLAY_LINE_LENGTH
+        ? `${text.slice(0, MAX_DISPLAY_LINE_LENGTH)} …[line truncated]`
+        : text;
 
     // Append an output line, tracking its byte cost. Returns false once the
     // output-byte budget is exhausted so callers can stop accumulating.
@@ -229,6 +256,16 @@ export const codeSearchTool = {
     const scanFile = (full: string): void => {
       if (truncated) return;
 
+      // Honor the wall-clock deadline / abort signal before doing any stat/size
+      // work, not just inside the per-line loop. A tree full of oversized or
+      // unreadable files (which never reach the per-line loop) could otherwise
+      // run far past the advertised deadline.
+      if (Date.now() - searchStart > MAX_SEARCH_MS || context.signal?.aborted) {
+        truncated = true;
+        timedOut = true;
+        return;
+      }
+
       // Never read files the assistant is forbidden from touching, even if a
       // broad pattern would otherwise match them. Reuses the same denylist as
       // file_read/file_write so the policies stay in sync.
@@ -240,7 +277,10 @@ export const codeSearchTool = {
       // relative path. dot so dotfiles aren't silently excluded. When the root
       // is a single file, `rel` is empty, so match against the basename.
       const globTarget = rel.length > 0 ? rel : basename(full);
-      if (glob && !minimatch(globTarget, glob, { matchBase: true, dot: true })) {
+      if (
+        glob &&
+        !minimatch(globTarget, glob, { matchBase: true, dot: true })
+      ) {
         return;
       }
 
@@ -286,23 +326,22 @@ export const codeSearchTool = {
         // .aborted reads are negligible next to a catastrophic-backtracking
         // test). When either trips, mark the search timed out / aborted and
         // stop the whole walk so partial results are still reported.
-        if (Date.now() - searchStart > MAX_SEARCH_MS || context.signal?.aborted) {
+        if (
+          Date.now() - searchStart > MAX_SEARCH_MS ||
+          context.signal?.aborted
+        ) {
           truncated = true;
           timedOut = true;
           return;
         }
-        // Only run the pattern against the leading slice of each line so a
-        // single very long line (e.g. a minified bundle) can't dominate match
-        // time or emit a huge match line. Normal code/log lines are well under
-        // the cap.
+        // Match against the FULL line so a token that appears past any display
+        // cap (e.g. after column 2000 on a long log/JSON/minified line) is still
+        // found. RE2's linear-time matching makes this safe — there is no
+        // backtracking blowup to bound, so no need to slice before matching.
         const line = fileLines[i];
-        const probe =
-          line.length > MAX_MATCH_LINE_LENGTH
-            ? line.slice(0, MAX_MATCH_LINE_LENGTH)
-            : line;
-        // Unanchored partial match anywhere in the slice — the RE2 equivalent of
+        // Unanchored partial match anywhere in the line — the RE2 equivalent of
         // RegExp.prototype.test(). The compiled pattern is stateless per call.
-        if (!regex.test(probe)) continue;
+        if (!regex.test(line)) continue;
         if (matchCount >= maxResults) {
           truncated = true;
           return;
@@ -318,17 +357,35 @@ export const codeSearchTool = {
           const end = Math.min(fileLines.length - 1, i + contextLines);
           for (let j = start; j <= end; j++) {
             const sep = j === i ? ":" : "-";
-            if (!pushLine(`${display}:${j + 1}${sep} ${fileLines[j]}`)) return;
+            if (
+              !pushLine(
+                `${display}:${j + 1}${sep} ${truncateForDisplay(fileLines[j])}`,
+              )
+            )
+              return;
           }
           if (!pushLine("--")) return;
         } else {
-          if (!pushLine(`${display}:${lineNo}: ${fileLines[i]}`)) return;
+          if (
+            !pushLine(
+              `${display}:${lineNo}: ${truncateForDisplay(fileLines[i])}`,
+            )
+          )
+            return;
         }
       }
     };
 
     const walk = (dir: string): void => {
       if (truncated) return;
+      // Bound the traversal itself, not just file reads: a deep/wide tree of
+      // directories (or many entries that never get read) could otherwise run
+      // the synchronous readdir/stat work far past the advertised deadline.
+      if (Date.now() - searchStart > MAX_SEARCH_MS || context.signal?.aborted) {
+        truncated = true;
+        timedOut = true;
+        return;
+      }
       let entries: import("node:fs").Dirent[];
       try {
         entries = readdirSync(dir, { withFileTypes: true });
@@ -337,6 +394,22 @@ export const codeSearchTool = {
       }
       for (const entry of entries) {
         if (truncated) return;
+        // Per-entry deadline/abort check (the Date.now()/.aborted reads are
+        // negligible) plus a hard entry cap independent of wall-clock time so a
+        // pathological tree is bounded even when every operation is fast.
+        if (
+          Date.now() - searchStart > MAX_SEARCH_MS ||
+          context.signal?.aborted
+        ) {
+          truncated = true;
+          timedOut = true;
+          return;
+        }
+        entriesTraversed++;
+        if (entriesTraversed > MAX_ENTRIES_TRAVERSED) {
+          truncated = true;
+          return;
+        }
         const full = join(dir, entry.name);
         if (entry.isDirectory()) {
           if (IGNORED_DIRS.has(entry.name)) continue;
@@ -371,9 +444,10 @@ export const codeSearchTool = {
 
     if (matchCount === 0) {
       // With zero matches, `truncated` can only have been set by a scan cap
-      // (MAX_FILES_SCANNED / MAX_TOTAL_BYTES) or the wall-clock deadline, never
-      // the max-results path. In either case the tree was only partially
-      // scanned, so a definitive "No matches found" would be a false negative.
+      // (MAX_FILES_SCANNED / MAX_TOTAL_BYTES / MAX_ENTRIES_TRAVERSED) or the
+      // wall-clock deadline, never the max-results path. In either case the tree
+      // was only partially scanned, so a definitive "No matches found" would be
+      // a false negative.
       if (timedOut) {
         return {
           content: `Search timed out after ${MAX_SEARCH_MS / 1000}s before finding any match for /${pattern}/${caseInsensitive ? "i" : ""} under ${basename(root)}. Results are incomplete — narrow your pattern, glob, or path and search again.`,
