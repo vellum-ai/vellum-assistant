@@ -14,6 +14,12 @@ const gatewayIpc = {
     mirrored: boolean;
   },
   claimThrows: false,
+  // When set, contacts_get_rich throws (gateway read unreachable) so the
+  // gate-status fallback must fail open.
+  richThrows: false,
+  // When set, overrides the contacts_get_rich response (e.g. a gateway row
+  // under a divergent UUID for the same (type,address)).
+  richOverride: null as ((contactId: string | undefined) => unknown) | null,
   // Drives the upsert_verified_channel relay verdict; false refuses the actor.
   activationVerified: true,
   calls: [] as { method: string; params?: Record<string, unknown> }[],
@@ -25,6 +31,13 @@ mock.module("../ipc/gateway-client.js", () => ({
     params?: Record<string, unknown>,
   ) => {
     gatewayIpc.calls.push({ method, params });
+    if (method === "contacts_get_rich") {
+      if (gatewayIpc.richThrows) throw new Error("gateway read unreachable");
+      if (gatewayIpc.richOverride) {
+        return gatewayIpc.richOverride(params?.contactId as string);
+      }
+      return richContactForId(params?.contactId as string);
+    }
     if (method === "record_invite_redemption") {
       if (gatewayIpc.claimThrows) throw new Error("gateway unreachable");
       return gatewayIpc.claim;
@@ -39,9 +52,48 @@ mock.module("../ipc/gateway-client.js", () => ({
   },
 }));
 
+// Serves contacts_get_rich (the gateway ACL read backing the gate-status
+// fallback) from the seeded local contact, so gate resolution sources status
+// from the gateway path rather than the local channel column.
+function richContactForId(contactId: string | undefined) {
+  if (!contactId) return undefined;
+  const contact = getContact(contactId);
+  if (!contact) return undefined;
+  return {
+    ok: true,
+    contact: {
+      id: contact.id,
+      displayName: contact.displayName,
+      role: contact.role,
+      interactionCount: contact.interactionCount,
+      createdAt: contact.createdAt,
+      updatedAt: contact.updatedAt,
+      channels: contact.channels.map((c) => ({
+        id: c.id,
+        contactId: c.contactId,
+        type: c.type,
+        address: c.address,
+        isPrimary: c.isPrimary,
+        externalUserId: c.externalChatId,
+        status: c.status,
+        policy: c.policy,
+        verifiedAt: c.verifiedAt,
+        verifiedVia: c.verifiedVia,
+        lastSeenAt: c.lastSeenAt,
+        interactionCount: c.interactionCount,
+        lastInteraction: c.lastInteraction,
+        revokedReason: c.revokedReason,
+        blockedReason: c.blockedReason,
+      })),
+    },
+  };
+}
+
 function resetGatewayIpc() {
   gatewayIpc.claim = { ok: true, updated: true, mirrored: true };
   gatewayIpc.claimThrows = false;
+  gatewayIpc.richThrows = false;
+  gatewayIpc.richOverride = null;
   gatewayIpc.activationVerified = true;
   gatewayIpc.calls = [];
 }
@@ -290,6 +342,83 @@ describe("redeemVoiceInviteCode", () => {
     expect(
       findContactChannel({ channelType: "phone", address: phone }),
     ).not.toBeNull();
+  });
+
+  test("matches an active member by (type,address) when the gateway row has a divergent uuid", async () => {
+    const phone = "+15551234567";
+    const member = upsertContactChannel({
+      sourceChannel: "phone",
+      externalUserId: phone,
+      status: "active",
+    });
+    const { code } = createVoiceInvite({
+      callerPhone: phone,
+      contactId: member!.contact.id,
+    });
+
+    // Gateway row for the same (type,address) under a DIFFERENT id.
+    gatewayIpc.richOverride = () => ({
+      ok: true,
+      contact: {
+        id: member!.contact.id,
+        displayName: member!.contact.displayName,
+        role: member!.contact.role,
+        interactionCount: 0,
+        createdAt: 1,
+        updatedAt: 1,
+        channels: [
+          {
+            id: "gateway-divergent-uuid",
+            contactId: member!.contact.id,
+            type: "phone",
+            address: phone,
+            isPrimary: false,
+            externalUserId: null,
+            status: "active",
+            policy: "allow",
+            verifiedAt: 1,
+            verifiedVia: "invite",
+            lastSeenAt: null,
+            interactionCount: 0,
+            lastInteraction: null,
+            revokedReason: null,
+            blockedReason: null,
+          },
+        ],
+      },
+    });
+
+    const result = await redeemVoiceInviteCode({
+      callerExternalUserId: phone,
+      sourceChannel: "phone",
+      code,
+    });
+
+    expect(result.ok).toBe(true);
+    expect((result as { type: string }).type).toBe("already_member");
+  });
+
+  test("fails open (no throw) when the gateway gate-status read is unreachable", async () => {
+    const phone = "+15551234567";
+    const member = upsertContactChannel({
+      sourceChannel: "phone",
+      externalUserId: phone,
+      status: "revoked",
+    });
+    const { code } = createVoiceInvite({
+      callerPhone: phone,
+      contactId: member!.contact.id,
+    });
+
+    gatewayIpc.richThrows = true;
+
+    const result = await redeemVoiceInviteCode({
+      callerExternalUserId: phone,
+      sourceChannel: "phone",
+      code,
+    });
+
+    expect(result.ok).toBe(true);
   });
 
   test("marks channel as verified via invite on voice redemption", async () => {
