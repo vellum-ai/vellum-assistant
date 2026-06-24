@@ -211,6 +211,11 @@ export const codeSearchTool = {
     // so the result can report that the search timed out and is incomplete —
     // distinct from the scan-cap and output-budget truncation notes.
     let timedOut = false;
+    // Set when the search stopped because it reached the `max_results` cap (as
+    // opposed to a scan/traversal cap). Only this cause is helped by raising
+    // `max_results`, so the matched-branch truncation note keys off this flag to
+    // avoid suggesting a larger `max_results` when a scan cap stopped the walk.
+    let maxResultsHit = false;
     // Set when a file was skipped mid-walk because it exceeds MAX_FILE_BYTES.
     // Unlike the truncation flags this does NOT halt the walk — other files may
     // still match — but it does mark the overall result incomplete, since the
@@ -356,6 +361,7 @@ export const codeSearchTool = {
         if (!regex.test(line)) continue;
         if (matchCount >= maxResults) {
           truncated = true;
+          maxResultsHit = true;
           return;
         }
         // Count the match before emitting its lines: a single match whose output
@@ -388,7 +394,7 @@ export const codeSearchTool = {
       }
     };
 
-    const walk = (dir: string): void => {
+    const walk = (dir: string, isExplicitRoot = false): void => {
       if (truncated) return;
       // Bound the traversal itself, not just file reads: a deep/wide tree of
       // directories (or many entries that never get read) could otherwise run
@@ -401,7 +407,15 @@ export const codeSearchTool = {
       let entries: import("node:fs").Dirent[];
       try {
         entries = readdirSync(dir, { withFileTypes: true });
-      } catch {
+      } catch (err) {
+        // A child directory discovered mid-walk is optional — skip it silently.
+        // But an explicit directory root that can't be read (e.g. EACCES/EPERM)
+        // was never searched, so record the failure for the caller to surface
+        // as an error instead of a false "No matches found".
+        if (isExplicitRoot) {
+          const code = (err as NodeJS.ErrnoException)?.code;
+          rootReadError = `Error: failed to read directory (${code ?? "unreadable"}): ${rawPath}`;
+        }
         return;
       }
       for (const entry of entries) {
@@ -434,7 +448,13 @@ export const codeSearchTool = {
     };
 
     if (rootStat.isDirectory()) {
-      walk(root);
+      walk(root, true);
+      // An explicit directory root that statSync sees but readdirSync can't read
+      // (EACCES/EPERM) was never searched — surface a hard error instead of a
+      // false "No matches found", mirroring the unreadable explicit-file root.
+      if (rootReadError) {
+        return { content: rootReadError, isError: true };
+      }
     } else if (rootStat.isFile()) {
       // A regular-file root is a valid single-file search. Unlike an oversized
       // file skipped mid-walk (where other files may still match), an oversized
@@ -492,12 +512,18 @@ export const codeSearchTool = {
 
     let content = lines.join("\n");
     if (truncated) {
+      // Distinguish the truncation cause in priority order so the note doesn't
+      // mislead. Only `maxResultsHit` is helped by raising `max_results`; a
+      // scan/traversal cap (MAX_FILES_SCANNED / MAX_TOTAL_BYTES /
+      // MAX_ENTRIES_TRAVERSED) is not, so it gets its own note.
       if (timedOut) {
         content += `\n\n[Search timed out after ${MAX_SEARCH_MS / 1000}s. Results are incomplete. Narrow your pattern, glob, or path to see more.]`;
+      } else if (outputBudgetHit) {
+        content += `\n\n[Output capped at ${Math.round(MAX_OUTPUT_BYTES / (1024 * 1024))} MiB. Narrow your pattern, glob, or path, or reduce context_lines, to see more.]`;
+      } else if (maxResultsHit) {
+        content += `\n\n[Results truncated at ${maxResults} matches. Narrow your pattern, glob, or path to see more.]`;
       } else {
-        content += outputBudgetHit
-          ? `\n\n[Output capped at ${Math.round(MAX_OUTPUT_BYTES / (1024 * 1024))} MiB. Narrow your pattern, glob, or path, or reduce context_lines, to see more.]`
-          : `\n\n[Results truncated at ${maxResults} matches. Narrow your pattern, glob, or path to see more.]`;
+        content += `\n\n[Search stopped early after hitting a scan/traversal cap — some files weren't searched. Narrow your glob or path (raising max_results won't help).]`;
       }
     }
     if (skippedLargeFile) {
