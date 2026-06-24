@@ -223,4 +223,38 @@ describe("captureRawErrorBodyFetch", () => {
       globalThis.fetch = original;
     }
   });
+
+  test("caps the captured body for oversized terminal errors", async () => {
+    const big = "y".repeat(40_000);
+    const original = globalThis.fetch;
+    globalThis.fetch = fakeFetch(JSON.stringify({ detail: big }), 400);
+    try {
+      const res = await captureRawErrorBodyFetch("https://x/v1/chat", {});
+      const encoded = res.headers.get("x-vellum-captured-error-body");
+      const decoded = Buffer.from(encoded ?? "", "base64").toString("utf8");
+      expect(decoded.length).toBeLessThanOrEqual(16_384);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  test("does not drain retryable (429/5xx) bodies", async () => {
+    const original = globalThis.fetch;
+    for (const status of [429, 500, 503]) {
+      globalThis.fetch = fakeFetch(
+        JSON.stringify({ detail: "retry me" }),
+        status,
+      );
+      try {
+        const res = await captureRawErrorBodyFetch("https://x/v1/chat", {});
+        // Pass-through: no captured header, and the body is still readable by
+        // the SDK (we never consumed it).
+        expect(res.headers.get("x-vellum-captured-error-body")).toBeNull();
+        expect(res.status).toBe(status);
+        expect(await res.text()).toContain("retry me");
+      } finally {
+        globalThis.fetch = original;
+      }
+    }
+  });
 });

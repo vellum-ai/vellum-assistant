@@ -46,6 +46,12 @@ export const captureRawErrorBodyFetch = async (
 ): Promise<Response> => {
   const res = await globalThis.fetch(url, init);
   if (res.ok) return res;
+  // Don't drain retryable bodies: the SDK retries 429/5xx, and reading a large
+  // or slow upstream error page on every attempt would delay those retries and
+  // buffer the whole body before the cap applies. We still capture terminal
+  // (non-retryable) errors — that's where the actionable upstream detail lives
+  // (unsupported model, invalid key, malformed request, etc.).
+  if (res.status === 429 || res.status >= 500) return res;
   // clone() so the empty-body passthrough below leaves the SDK's own read intact.
   const body = await res
     .clone()
