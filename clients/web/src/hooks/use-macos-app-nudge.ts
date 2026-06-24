@@ -136,9 +136,10 @@ export function useMacOsNudgeState(): {
   }, []);
 
   return {
-    // Unchanged — drives the iOS/macOS → GitHub → Discord cascade.
+    // Drives the iOS/macOS → GitHub → Discord cascade: true until the user
+    // downloads or dismisses.
     bannerShouldShow: !downloaded && !bannerDismissed,
-    // New — drives whether the macOS banner has waited long enough to render.
+    // True once the banner has waited the minimum age (24h) to render.
     ageEligible,
     handleDownload,
     handleBannerDismiss,
