@@ -6,8 +6,9 @@
  *
  * - A changed hook file triggers a re-import of just that hook, not a full
  *   plugin rebuild.
- * - The same machinery extends to workspace-driven hooks and tools in the
- *   future (PR B), since each surface is cached independently.
+ * - The same machinery serves both per-plugin hooks (under
+ *   `<workspace>/plugins/<name>/hooks/`) and standalone workspace hooks
+ *   (under `<workspace>/hooks/`), since each surface is cached independently.
  * - Plugins are never "registered" as a unit — we just register their tools
  *   and hooks into the global registries, then cache-bust them using mtime
  *   on reads.
@@ -18,7 +19,13 @@
  * cached entry.
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
@@ -36,7 +43,11 @@ import {
 import { finalizeTool } from "../tools/tool-defaults.js";
 import type { Tool, ToolDefinition } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir, getWorkspacePluginsDir } from "../util/platform.js";
+import {
+  getWorkspaceDir,
+  getWorkspaceHooksDir,
+  getWorkspacePluginsDir,
+} from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
 import {
   deriveToolName,
@@ -50,6 +61,17 @@ import {
 export type { PluginHookFn } from "./types.js";
 
 const log = getLogger("plugin-mtime-cache");
+
+/**
+ * Synthetic owner name for standalone hooks that live directly under
+ * `<workspace>/hooks/` rather than inside a plugin's `hooks/` directory.
+ *
+ * Used as the cache-key prefix (`__workspace__/<hookName>`) so workspace
+ * hooks never collide with a plugin's hooks. The leading/trailing double
+ * underscores keep it disjoint from any scope-stripped npm package name a
+ * real plugin could carry.
+ */
+const WORKSPACE_HOOKS_OWNER = "__workspace__";
 
 /**
  * Import timeout for surface file imports. Set by `populateCacheAtBoot` from
@@ -213,12 +235,77 @@ function hookKey(pluginName: string, hookName: string): string {
 }
 
 /**
- * Get all hooks for a given event name from user plugins, re-importing
- * any whose source files have changed since the cache was populated.
+ * Resolve a single hook file through the mtime cache: return the cached hook
+ * when its source mtime is unchanged, otherwise re-import and refresh the
+ * entry. Returns `undefined` when the file was deleted (evicting any stale
+ * entry) or the import failed / produced a non-function default export.
+ *
+ * Shared by the plugin-hooks loop and the workspace-hooks scan in
+ * {@link getUserHooksFor} so both surfaces get identical cache, timeout, and
+ * attribution semantics. `ownerName` is the cache-key prefix and the
+ * attribution label in logs (a plugin name, or {@link WORKSPACE_HOOKS_OWNER}).
+ */
+async function resolveCachedHook<TCtx>(
+  ownerName: string,
+  hookName: string,
+  filePath: string,
+): Promise<PluginHookFn<TCtx> | undefined> {
+  const key = hookKey(ownerName, hookName);
+  const currentMtime = getMtime(filePath);
+
+  // Cache hit — same mtime.
+  const cached = hookCache.get(key);
+  if (
+    cached !== undefined &&
+    cached.sourceMtime === currentMtime &&
+    currentMtime > 0
+  ) {
+    return cached.hook as PluginHookFn<TCtx>;
+  }
+
+  // Cache miss — re-import.
+  if (currentMtime === 0) {
+    // File was deleted between listing and stat — evict the cache entry.
+    hookCache.delete(key);
+    return undefined;
+  }
+
+  try {
+    const hook = await importWithTimeout<PluginHookFn>(
+      filePath,
+      importTimeoutMs,
+    );
+    if (hook === undefined || typeof hook !== "function") {
+      log.error(
+        { plugin: ownerName, hook: hookName, path: filePath },
+        `hook ${hookName} default export must be a function (got ${typeof hook}) — skipping`,
+      );
+      return undefined;
+    }
+    hookCache.set(key, { hook, sourceMtime: currentMtime });
+    return hook as PluginHookFn<TCtx>;
+  } catch (err) {
+    log.error(
+      { err, plugin: ownerName, hook: hookName, path: filePath },
+      `Failed to import hook ${hookName} from ${filePath}`,
+    );
+    return undefined;
+  }
+}
+
+/**
+ * Get all hooks for a given event name from user plugins and from standalone
+ * workspace hooks, re-importing any whose source files have changed since the
+ * cache was populated.
  *
  * Also scans for newly added plugins and hooks (via directory listing).
  * Deleted plugins/hooks are skipped naturally (their directories/files
  * no longer appear in the listing).
+ *
+ * Ordering: each plugin's hook (in install-date order) runs first, then the
+ * standalone workspace hook under `<workspace>/hooks/<hookName>.{ts,js}`, so a
+ * plugin can shape the threaded context before a workspace-wide hook observes
+ * or finalizes it.
  */
 export async function getUserHooksFor<TCtx = unknown>(
   hookName: string,
@@ -228,52 +315,31 @@ export async function getUserHooksFor<TCtx = unknown>(
   const out: PluginHookFn<TCtx>[] = [];
 
   for (const [pluginDir, pluginName] of discoveredPluginDirs) {
-    const hooksDir = join(pluginDir, "hooks");
-    const surfaceFiles = listSurfaceDir(hooksDir);
-    const hookFile = surfaceFiles.find((f) => f.name === hookName);
+    const hookFile = listSurfaceDir(join(pluginDir, "hooks")).find(
+      (f) => f.name === hookName,
+    );
     if (hookFile === undefined) continue;
 
-    const key = hookKey(pluginName, hookName);
-    const currentMtime = getMtime(hookFile.path);
+    const hook = await resolveCachedHook<TCtx>(
+      pluginName,
+      hookName,
+      hookFile.path,
+    );
+    if (hook !== undefined) out.push(hook);
+  }
 
-    // Cache hit — same mtime.
-    const cached = hookCache.get(key);
-    if (
-      cached !== undefined &&
-      cached.sourceMtime === currentMtime &&
-      currentMtime > 0
-    ) {
-      out.push(cached.hook as PluginHookFn<TCtx>);
-      continue;
-    }
-
-    // Cache miss — re-import.
-    if (currentMtime === 0) {
-      // File was deleted — evict cache entry.
-      hookCache.delete(key);
-      continue;
-    }
-
-    try {
-      const hook = await importWithTimeout<PluginHookFn>(
-        hookFile.path,
-        importTimeoutMs,
-      );
-      if (hook === undefined || typeof hook !== "function") {
-        log.error(
-          { plugin: pluginName, hook: hookName, path: hookFile.path },
-          `hook ${hookName} default export must be a function (got ${typeof hook}) — skipping`,
-        );
-        continue;
-      }
-      hookCache.set(key, { hook, sourceMtime: currentMtime });
-      out.push(hook as PluginHookFn<TCtx>);
-    } catch (err) {
-      log.error(
-        { err, plugin: pluginName, hook: hookName, path: hookFile.path },
-        `Failed to import hook ${hookName} from ${hookFile.path}`,
-      );
-    }
+  // Standalone workspace hooks: files directly under `<workspace>/hooks/`
+  // that are not part of any plugin (no package.json, no tools — just hooks).
+  const wsHookFile = listSurfaceDir(getWorkspaceHooksDir()).find(
+    (f) => f.name === hookName,
+  );
+  if (wsHookFile !== undefined) {
+    const hook = await resolveCachedHook<TCtx>(
+      WORKSPACE_HOOKS_OWNER,
+      hookName,
+      wsHookFile.path,
+    );
+    if (hook !== undefined) out.push(hook);
   }
 
   return out;
@@ -494,10 +560,17 @@ async function evictPlugin(
 }
 
 /**
- * Evict all cache entries (when the plugins directory is gone entirely).
+ * Evict all plugin-owned cache entries (when the plugins directory is gone
+ * entirely). Workspace hooks under `<workspace>/hooks/` are preserved: they
+ * live outside the plugins directory, so the absence of any plugin must not
+ * evict them. Their own deletion is handled per-file in {@link resolveCachedHook}.
  */
 async function evictAll(): Promise<void> {
-  hookCache.clear();
+  for (const key of hookCache.keys()) {
+    if (!key.startsWith(`${WORKSPACE_HOOKS_OWNER}/`)) {
+      hookCache.delete(key);
+    }
+  }
   toolCache.clear();
   discoveredPluginDirs.clear();
   installDateCache.clear();
@@ -563,6 +636,66 @@ async function importWithDedup<T>(filePath: string): Promise<T> {
 // ─── Boot population ─────────────────────────────────────────────────────────
 
 /**
+ * Pre-import every hook file under `hooksDir` and cache it keyed by
+ * `${ownerName}/${hookName}`, so the first turn doesn't pay the import cost.
+ * Best-effort per file: a failing import is logged and skipped. A missing
+ * directory yields no files (handled by {@link listSurfaceDir}).
+ */
+async function preImportHooksDir(
+  hooksDir: string,
+  ownerName: string,
+): Promise<void> {
+  for (const file of listSurfaceDir(hooksDir)) {
+    const key = hookKey(ownerName, file.name);
+    const currentMtime = getMtime(file.path);
+    if (currentMtime === 0) continue;
+
+    try {
+      const hook = await importWithTimeout<PluginHookFn>(
+        file.path,
+        importTimeoutMs,
+      );
+      if (hook !== undefined && typeof hook === "function") {
+        hookCache.set(key, { hook, sourceMtime: currentMtime });
+      }
+    } catch (err) {
+      log.error(
+        { err, plugin: ownerName, hook: file.name, path: file.path },
+        `Failed to pre-import hook ${file.name}`,
+      );
+    }
+  }
+}
+
+/**
+ * Run the `init` hook for `ownerName` if one was pre-imported into the cache.
+ * Shared by user plugins and standalone workspace hooks so both get the same
+ * init-context shape and per-owner isolation (a thrown `init` is logged and
+ * swallowed, never blocking boot).
+ */
+async function runInitHook(ownerName: string): Promise<void> {
+  const initHookEntry = hookCache.get(hookKey(ownerName, HOOKS.INIT));
+  if (initHookEntry === undefined) return;
+
+  try {
+    const initContext: PluginInitContext = {
+      config: getConfig().plugins?.[ownerName],
+      credentials: {},
+      logger: log.child({ plugin: ownerName }),
+      pluginStorageDir: ensurePluginStorageDir(ownerName),
+      assistantVersion: APP_VERSION,
+    };
+    await initHookEntry.hook(initContext);
+    log.info({ plugin: ownerName }, "user plugin initialized");
+  } catch (err) {
+    log.error(
+      { err, plugin: ownerName },
+      `User plugin ${ownerName} init() failed — continuing`,
+    );
+  }
+}
+
+/**
  * Plugins that were fully activated at boot (tools registered + init hook
  * run). Used by the shutdown hook to tear down only what was actually
  * brought up.
@@ -598,28 +731,7 @@ export async function populateCacheAtBoot(
 
   for (const [pluginDir, pluginName] of discoveredPluginDirs) {
     // Pre-import all hooks so the first turn doesn't pay the import cost.
-    const hooksDir = join(pluginDir, "hooks");
-    const hookFiles = listSurfaceDir(hooksDir);
-    for (const file of hookFiles) {
-      const key = hookKey(pluginName, file.name);
-      const currentMtime = getMtime(file.path);
-      if (currentMtime === 0) continue;
-
-      try {
-        const hook = await importWithTimeout<PluginHookFn>(
-          file.path,
-          importTimeoutMs,
-        );
-        if (hook !== undefined && typeof hook === "function") {
-          hookCache.set(key, { hook, sourceMtime: currentMtime });
-        }
-      } catch (err) {
-        log.error(
-          { err, plugin: pluginName, hook: file.name, path: file.path },
-          `Failed to pre-import hook ${file.name}`,
-        );
-      }
-    }
+    await preImportHooksDir(join(pluginDir, "hooks"), pluginName);
 
     // Register user plugin tools into the global tool registry so
     // `getAllTools()` and `getTool()` can find them. Tools were already
@@ -643,27 +755,21 @@ export async function populateCacheAtBoot(
     }
 
     // Run the `init` hook if present.
-    const initHookEntry = hookCache.get(hookKey(pluginName, HOOKS.INIT));
-    if (initHookEntry !== undefined) {
-      try {
-        const initContext: PluginInitContext = {
-          config: getConfig().plugins?.[pluginName],
-          credentials: {},
-          logger: log.child({ plugin: pluginName }),
-          pluginStorageDir: ensurePluginStorageDir(pluginName),
-          assistantVersion: APP_VERSION,
-        };
-        await initHookEntry.hook(initContext);
-        log.info({ plugin: pluginName }, "user plugin initialized");
-      } catch (err) {
-        log.error(
-          { err, plugin: pluginName },
-          `User plugin ${pluginName} init() failed — continuing`,
-        );
-      }
-    }
+    await runInitHook(pluginName);
 
     activatedPlugins.push({ name: pluginName });
+  }
+
+  // Activate standalone workspace hooks under `<workspace>/hooks/`. These
+  // carry no package.json, no tools, and no install-date ordering — just hook
+  // files. Pre-import them and run their `init` hook so a workspace-wide
+  // `init`/`shutdown` lifecycle works the same way a plugin's does. Only
+  // register for teardown when at least one hook file is actually present, so
+  // an empty/absent directory adds no shutdown work.
+  if (listSurfaceDir(getWorkspaceHooksDir()).length > 0) {
+    await preImportHooksDir(getWorkspaceHooksDir(), WORKSPACE_HOOKS_OWNER);
+    await runInitHook(WORKSPACE_HOOKS_OWNER);
+    activatedPlugins.push({ name: WORKSPACE_HOOKS_OWNER });
   }
 
   // Register a single shutdown hook that walks all activated user plugins

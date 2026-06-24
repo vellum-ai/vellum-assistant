@@ -7,7 +7,7 @@
  * cache miss (changed mtime → re-import), plugin deletion (eviction),
  * and hook collection across multiple plugins.
  */
-import { mkdirSync, rmSync, utimesSync,writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -62,7 +62,15 @@ function writeHook(dir: string, hookName: string, body: string): void {
 function writeInstallMeta(dir: string, installedAt: string): void {
   writeFileSync(
     join(dir, "install-meta.json"),
-    JSON.stringify({ name: "test", installedAt, source: { kind: "github", owner: "test", repo: "test", ref: "main" } }, null, 2),
+    JSON.stringify(
+      {
+        name: "test",
+        installedAt,
+        source: { kind: "github", owner: "test", repo: "test", ref: "main" },
+      },
+      null,
+      2,
+    ),
   );
 }
 
@@ -70,6 +78,20 @@ function writeTool(dir: string, toolName: string, body: string): void {
   const toolsDir = join(dir, "tools");
   mkdirSync(toolsDir, { recursive: true });
   writeFileSync(join(toolsDir, `${toolName}.ts`), body);
+}
+
+/** The standalone workspace hooks directory (`<workspace>/hooks/`). */
+const WORKSPACE_HOOKS_DIR = join(ROOT, "hooks");
+
+function ensureWorkspaceHooksDir(): void {
+  rmSync(WORKSPACE_HOOKS_DIR, { recursive: true, force: true });
+  mkdirSync(WORKSPACE_HOOKS_DIR, { recursive: true });
+}
+
+/** Write a standalone hook file directly under `<workspace>/hooks/`. */
+function writeWorkspaceHook(hookName: string, body: string): void {
+  mkdirSync(WORKSPACE_HOOKS_DIR, { recursive: true });
+  writeFileSync(join(WORKSPACE_HOOKS_DIR, `${hookName}.ts`), body);
 }
 
 /**
@@ -97,6 +119,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   ensurePluginsDir();
+  ensureWorkspaceHooksDir();
   resetPluginCacheForTests();
 });
 
@@ -338,7 +361,9 @@ describe("plugin mtime cache (per-surface)", () => {
     expect(hooks).toHaveLength(2);
 
     // beta was installed earlier (Jan 1) so it should come first.
-    const results = hooks.map((fn) => (fn as unknown as () => { tag: string })());
+    const results = hooks.map((fn) =>
+      (fn as unknown as () => { tag: string })(),
+    );
     expect(results[0]!.tag).toBe("beta");
     expect(results[1]!.tag).toBe("alpha");
   });
@@ -368,8 +393,124 @@ describe("plugin mtime cache (per-surface)", () => {
     const hooks = await getUserHooksFor("user-prompt-submit");
     expect(hooks).toHaveLength(2);
 
-    const results = hooks.map((fn) => (fn as unknown as () => { tag: string })());
+    const results = hooks.map((fn) =>
+      (fn as unknown as () => { tag: string })(),
+    );
     expect(results[0]!.tag).toBe("dated");
     expect(results[1]!.tag).toBe("undated");
+  });
+});
+
+describe("workspace hooks (<workspace>/hooks/)", () => {
+  test("getUserHooksFor loads a standalone workspace hook", async () => {
+    writeWorkspaceHook(
+      "user-prompt-submit",
+      `export default () => ({ ws: 1 });`,
+    );
+
+    await populateCacheAtBoot();
+
+    const hooks = await getUserHooksFor("user-prompt-submit");
+    expect(hooks).toHaveLength(1);
+  });
+
+  test("workspace hooks load even when no plugins directory exists", async () => {
+    rmSync(PLUGINS_DIR, { recursive: true, force: true });
+    writeWorkspaceHook("post-tool-use", `export default () => ({ ws: 1 });`);
+
+    await populateCacheAtBoot();
+
+    const hooks = await getUserHooksFor("post-tool-use");
+    expect(hooks).toHaveLength(1);
+    expect(getCachedUserTools()).toHaveLength(0);
+  });
+
+  // NB: each test below uses a distinct hook event name so the workspace
+  // hook file path is unique. Bun caches dynamic import() by URL and does not
+  // bust on content change, so reusing `<workspace>/hooks/<name>.ts` across
+  // tests would return a stale module (the existing plugin tests dodge this
+  // by using a fresh plugin directory per test).
+  test("plugin hooks run before the workspace hook for the same event", async () => {
+    const dir = freshPluginDir("ordering-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "ordering-plugin" });
+    writeHook(
+      dir,
+      "pre-model-call",
+      `export default () => ({ tag: "plugin" });`,
+    );
+    writeWorkspaceHook(
+      "pre-model-call",
+      `export default () => ({ tag: "workspace" });`,
+    );
+
+    await populateCacheAtBoot();
+
+    const hooks = await getUserHooksFor("pre-model-call");
+    expect(hooks).toHaveLength(2);
+    const results = hooks.map((fn) =>
+      (fn as unknown as () => { tag: string })(),
+    );
+    expect(results[0]!.tag).toBe("plugin");
+    expect(results[1]!.tag).toBe("workspace");
+  });
+
+  test("editing a workspace hook file triggers re-import", async () => {
+    const hookFile = join(WORKSPACE_HOOKS_DIR, "post-model-call.ts");
+    writeWorkspaceHook("post-model-call", `export default () => ({ v: 1 });`);
+
+    await populateCacheAtBoot();
+
+    const before = _inspectHookCacheForTests().find((c) =>
+      c.key.startsWith("__workspace__/"),
+    );
+    expect(before).toBeDefined();
+
+    touchFile(hookFile);
+    await getUserHooksFor("post-model-call");
+
+    const after = _inspectHookCacheForTests().find((c) =>
+      c.key.startsWith("__workspace__/"),
+    );
+    expect(after?.sourceMtime).not.toBe(before?.sourceMtime);
+  });
+
+  test("deleting a workspace hook file evicts it on next read", async () => {
+    const hookFile = join(WORKSPACE_HOOKS_DIR, "stop.ts");
+    writeWorkspaceHook("stop", `export default () => ({ v: 1 });`);
+
+    await populateCacheAtBoot();
+    expect(await getUserHooksFor("stop")).toHaveLength(1);
+
+    rmSync(hookFile, { force: true });
+
+    const hooks = await getUserHooksFor("stop");
+    expect(hooks).toHaveLength(0);
+  });
+
+  test("a newly added workspace hook is picked up without restart", async () => {
+    await populateCacheAtBoot();
+    expect(await getUserHooksFor("post-compact")).toHaveLength(0);
+
+    writeWorkspaceHook("post-compact", `export default () => ({ v: 1 });`);
+
+    expect(await getUserHooksFor("post-compact")).toHaveLength(1);
+  });
+
+  test("a workspace init hook runs once at boot", async () => {
+    // The init hook writes a sentinel file so we can observe it ran exactly
+    // once during populateCacheAtBoot.
+    const sentinel = join(ROOT, "ws-init-ran.txt");
+    rmSync(sentinel, { force: true });
+    writeWorkspaceHook(
+      "init",
+      `import { appendFileSync } from "node:fs";
+       export default () => { appendFileSync(${JSON.stringify(sentinel)}, "x"); };`,
+    );
+
+    await populateCacheAtBoot();
+
+    const { readFileSync: rf, existsSync: ex } = await import("node:fs");
+    expect(ex(sentinel)).toBe(true);
+    expect(rf(sentinel, "utf8")).toBe("x");
   });
 });
