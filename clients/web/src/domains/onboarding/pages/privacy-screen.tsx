@@ -15,6 +15,7 @@ import {
     resolveOnboardingFunnelVariant,
 } from "@/domains/onboarding/funnel-events";
 import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
+import { isLocalMode } from "@/lib/local-mode";
 import {
     usePrivacyConsent,
     useShareAnalytics,
@@ -82,7 +83,11 @@ export function PrivacyScreen() {
     const params = new URLSearchParams();
     if (hostingParam) params.set("hosting", hostingParam);
     const qs = params.toString();
-    const destination = onboardingDestinationAfterConsent({ researchOnboardingEnabled, isNative });
+    const destination = onboardingDestinationAfterConsent({
+      researchOnboardingEnabled,
+      isNative,
+      isLocalMode: isLocalMode(),
+    });
     void navigate(`${destination}${qs ? `?${qs}` : ""}`);
   }, [
     privacyConsent,

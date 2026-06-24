@@ -9,6 +9,7 @@ describe("onboardingDestinationAfterConsent", () => {
       onboardingDestinationAfterConsent({
         researchOnboardingEnabled: true,
         isNative: false,
+        isLocalMode: false,
       }),
     ).toBe(routes.onboarding.research);
   });
@@ -18,6 +19,17 @@ describe("onboardingDestinationAfterConsent", () => {
       onboardingDestinationAfterConsent({
         researchOnboardingEnabled: true,
         isNative: true,
+        isLocalMode: false,
+      }),
+    ).toBe(routes.onboarding.hatching);
+  });
+
+  test("flag enabled in local mode keeps the hatching path (research is managed-only)", () => {
+    expect(
+      onboardingDestinationAfterConsent({
+        researchOnboardingEnabled: true,
+        isNative: false,
+        isLocalMode: true,
       }),
     ).toBe(routes.onboarding.hatching);
   });
@@ -27,6 +39,7 @@ describe("onboardingDestinationAfterConsent", () => {
       onboardingDestinationAfterConsent({
         researchOnboardingEnabled: false,
         isNative: false,
+        isLocalMode: false,
       }),
     ).toBe(routes.onboarding.hatching);
   });

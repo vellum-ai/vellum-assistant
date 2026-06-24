@@ -43,6 +43,8 @@ mock.module("@/runtime/is-electron", () => ({ isElectron: () => true }));
 // Mutable platform/flag state so individual tests can flip them.
 let nativePlatform = false;
 let researchFlag = false;
+let localMode = false;
+mock.module("@/lib/local-mode", () => ({ isLocalMode: () => localMode }));
 mock.module("@/runtime/native-auth", () => ({
   useIsNativePlatform: () => nativePlatform,
 }));
@@ -104,11 +106,13 @@ describe("PrivacyScreen — Start navigation", () => {
     emitFunnelStepCompletedMock.mockClear();
     researchFlag = false;
     nativePlatform = false;
+    localMode = false;
   });
   afterEach(() => {
     cleanup();
     researchFlag = false;
     nativePlatform = false;
+    localMode = false;
   });
 
   test("preview mode replays forward into prechat without persisting consent", () => {
@@ -154,6 +158,18 @@ describe("PrivacyScreen — Start navigation", () => {
   test("flag on but native keeps the standard hatching flow", () => {
     researchFlag = true;
     nativePlatform = true;
+    searchParamsValue = new URLSearchParams();
+    render(<PrivacyScreen />);
+
+    clickStart();
+
+    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.hatching);
+  });
+
+  test("flag on but local mode keeps the standard hatching flow (research is managed-only)", () => {
+    researchFlag = true;
+    nativePlatform = false;
+    localMode = true;
     searchParamsValue = new URLSearchParams();
     render(<PrivacyScreen />);
 
