@@ -138,11 +138,98 @@ export const codeSearchTool = {
         ? Math.floor(input.max_results)
         : DEFAULT_MAX_RESULTS;
 
+    // Validate the search root before walking so a missing/unreadable/typo'd
+    // path surfaces a hard error instead of being swallowed like an unreadable
+    // child directory and returning a false "No matches found". Mirrors the
+    // NOT_FOUND / NOT_A_DIRECTORY reporting in file_list.
+    let rootStat: import("node:fs").Stats;
+    try {
+      rootStat = statSync(root);
+    } catch {
+      return {
+        content: `Error: path not found: ${rawPath}`,
+        isError: true,
+      };
+    }
+
     const lines: string[] = [];
     let matchCount = 0;
     let truncated = false;
     let filesScanned = 0;
     let totalBytes = 0;
+
+    // Scan a single regular file for matches. Applies the denied-basename guard
+    // and per-file size caps. Returns nothing; mutates the shared accumulators.
+    const scanFile = (full: string): void => {
+      if (truncated) return;
+
+      // Never read files the assistant is forbidden from touching, even if a
+      // broad pattern would otherwise match them. Reuses the same denylist as
+      // file_read/file_write so the policies stay in sync.
+      if (isDeniedBasename(full)) return;
+
+      const rel = relative(root, full);
+      // matchBase lets a slash-free pattern like "*.ts" match files at any
+      // depth (against the basename); patterns with slashes match the full
+      // relative path. dot so dotfiles aren't silently excluded. When the root
+      // is a single file, `rel` is empty, so match against the basename.
+      const globTarget = rel.length > 0 ? rel : basename(full);
+      if (glob && !minimatch(globTarget, glob, { matchBase: true, dot: true })) {
+        return;
+      }
+
+      if (filesScanned >= MAX_FILES_SCANNED) {
+        truncated = true;
+        return;
+      }
+
+      let size: number;
+      try {
+        size = statSync(full).size;
+      } catch {
+        return;
+      }
+      if (size > MAX_FILE_BYTES) return;
+      if (totalBytes + size > MAX_TOTAL_BYTES) {
+        truncated = true;
+        return;
+      }
+
+      let buf: Buffer;
+      try {
+        buf = readFileSync(full);
+      } catch {
+        return;
+      }
+      filesScanned++;
+      totalBytes += buf.length;
+      if (looksBinary(buf)) return;
+
+      // Display path: when searching a single file at the root, `rel` is empty;
+      // fall back to the basename so output stays readable.
+      const display = rel.length > 0 ? rel : basename(full);
+      const fileLines = buf.toString("utf8").split("\n");
+      for (let i = 0; i < fileLines.length; i++) {
+        if (!regex.test(fileLines[i])) continue;
+        if (matchCount >= maxResults) {
+          truncated = true;
+          return;
+        }
+        const lineNo = i + 1;
+        if (contextLines > 0) {
+          const start = Math.max(0, i - contextLines);
+          const end = Math.min(fileLines.length - 1, i + contextLines);
+          for (let j = start; j <= end; j++) {
+            const sep = j === i ? ":" : "-";
+            lines.push(`${display}:${j + 1}${sep} ${fileLines[j]}`);
+          }
+          lines.push("--");
+        } else {
+          lines.push(`${display}:${lineNo}: ${fileLines[i]}`);
+        }
+        matchCount++;
+      }
+    };
 
     const walk = (dir: string): void => {
       if (truncated) return;
@@ -161,72 +248,21 @@ export const codeSearchTool = {
           continue;
         }
         if (!entry.isFile()) continue;
-
-        // Never read files the assistant is forbidden from touching, even if a
-        // broad pattern would otherwise match them. Reuses the same denylist as
-        // file_read/file_write so the policies stay in sync.
-        if (isDeniedBasename(entry.name)) continue;
-
-        const rel = relative(root, full);
-        // matchBase lets a slash-free pattern like "*.ts" match files at any
-        // depth (against the basename); patterns with slashes match the full
-        // relative path. dot so dotfiles aren't silently excluded.
-        if (glob && !minimatch(rel, glob, { matchBase: true, dot: true })) {
-          continue;
-        }
-
-        if (filesScanned >= MAX_FILES_SCANNED) {
-          truncated = true;
-          return;
-        }
-
-        let size: number;
-        try {
-          size = statSync(full).size;
-        } catch {
-          continue;
-        }
-        if (size > MAX_FILE_BYTES) continue;
-        if (totalBytes + size > MAX_TOTAL_BYTES) {
-          truncated = true;
-          return;
-        }
-
-        let buf: Buffer;
-        try {
-          buf = readFileSync(full);
-        } catch {
-          continue;
-        }
-        filesScanned++;
-        totalBytes += buf.length;
-        if (looksBinary(buf)) continue;
-
-        const fileLines = buf.toString("utf8").split("\n");
-        for (let i = 0; i < fileLines.length; i++) {
-          if (!regex.test(fileLines[i])) continue;
-          if (matchCount >= maxResults) {
-            truncated = true;
-            return;
-          }
-          const lineNo = i + 1;
-          if (contextLines > 0) {
-            const start = Math.max(0, i - contextLines);
-            const end = Math.min(fileLines.length - 1, i + contextLines);
-            for (let j = start; j <= end; j++) {
-              const sep = j === i ? ":" : "-";
-              lines.push(`${rel}:${j + 1}${sep} ${fileLines[j]}`);
-            }
-            lines.push("--");
-          } else {
-            lines.push(`${rel}:${lineNo}: ${fileLines[i]}`);
-          }
-          matchCount++;
-        }
+        scanFile(full);
       }
     };
 
-    walk(root);
+    if (rootStat.isDirectory()) {
+      walk(root);
+    } else if (rootStat.isFile()) {
+      // A regular-file root is a valid single-file search.
+      scanFile(root);
+    } else {
+      return {
+        content: `Error: path not found: ${rawPath}`,
+        isError: true,
+      };
+    }
 
     if (matchCount === 0) {
       // With zero matches, `truncated` can only have been set by a scan cap

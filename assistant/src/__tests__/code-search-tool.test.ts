@@ -117,6 +117,50 @@ describe("codeSearchTool", () => {
     expect(result.content).toContain("No matches found");
   });
 
+  test("non-existent root path returns a path error, not a false 'No matches'", async () => {
+    const dir = makeTempDir();
+    writeFileSync(join(dir, "a.ts"), "needle\n");
+
+    // A typo'd subdirectory (e.g. "srcc") must surface an actionable path error
+    // rather than being swallowed and reported as a successful empty search.
+    const result = await codeSearchTool.execute(
+      { pattern: "needle", path: "srcc", activity: "search" },
+      makeToolContext(dir),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("path not found");
+    expect(result.content).not.toContain("No matches found");
+  });
+
+  test("searches a single file when the root resolves to a regular file", async () => {
+    const dir = makeTempDir();
+    writeFileSync(join(dir, "a.ts"), "const foo = 1;\nconst needle = 2;\n");
+
+    const result = await codeSearchTool.execute(
+      { pattern: "needle", path: "a.ts", activity: "search" },
+      makeToolContext(dir),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toBe("a.ts:2: const needle = 2;");
+  });
+
+  test("single-file search still honors the denied-basename guard", async () => {
+    const dir = makeTempDir();
+    writeFileSync(join(dir, "backup.key"), "supersecret token\n");
+
+    const result = await codeSearchTool.execute(
+      { pattern: "supersecret", path: "backup.key", activity: "search" },
+      makeToolContext(dir),
+    );
+
+    // The denied basename is rejected by the sandbox policy before any read,
+    // so the secret never surfaces in the result.
+    expect(result.isError).toBe(true);
+    expect(result.content).not.toContain("supersecret");
+  });
+
   test("max_results truncates and reports it", async () => {
     const dir = makeTempDir();
     const body = Array.from({ length: 10 }, () => "match").join("\n");
