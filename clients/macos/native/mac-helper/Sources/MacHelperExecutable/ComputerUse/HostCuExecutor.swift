@@ -174,6 +174,13 @@ enum HostCuActionRunner {
             } catch {
                 log.warning("Post-action delay interrupted: \(error)")
             }
+        } else {
+            // Observe-only skips the action-path gate, but AX enumeration silently
+            // returns an empty tree without Accessibility. Surface the same hint the
+            // action path gives instead of returning a bare empty observation.
+            if !ActionExecutor.checkAccessibilityPermission(prompt: true) {
+                executionError = "Accessibility permission not granted. Grant Vellum access in System Settings > Privacy & Security > Accessibility, then retry."
+            }
         }
 
         // OBSERVE — capture AX tree, screenshot, etc.
