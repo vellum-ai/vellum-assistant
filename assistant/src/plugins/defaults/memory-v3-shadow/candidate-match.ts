@@ -31,9 +31,16 @@
 import { getConfig } from "../../../config/loader.js";
 import { loadSkillCatalog } from "../../../config/skills.js";
 import type { AssistantConfig } from "../../../config/types.js";
+import {
+  EMBED_BASE_DELAY_MS,
+  EMBED_MAX_RETRIES,
+  isAbortError,
+  isTransientEmbeddingError,
+} from "../../../memory/embed.js";
 import { simBatch } from "../../../memory/v2/sim.js";
 import { skillSlugFor } from "../../../memory/v2/skill-store.js";
 import { getLogger } from "../../../util/logger.js";
+import { abortableSleep, computeRetryDelay } from "../../../util/retry.js";
 
 const log = getLogger("memory-v3-candidate-match");
 
@@ -213,9 +220,18 @@ async function bestHit(
  * scorer. `simBatch` embeds the goal (dense + BM25 sparse), runs the
  * slug-restricted hybrid query, applies the adaptive dense/sparse reweighting,
  * and fuses the body/summary halves — so candidate-match scores land on the
- * same scale as v2 recall scores against the configured thresholds. Returns
- * `[]` on any embedding/Qdrant failure (logged at warn) so a matcher outage
- * degrades to "treat as new" rather than throwing.
+ * same scale as v2 recall scores against the configured thresholds.
+ *
+ * `simBatch` embeds via `embedWithBackend` ONCE (not `embedWithRetry`), so a
+ * brief provider blip (429 / 5xx / transient network error) would throw and
+ * make this scorer return `[]` — a no-hit. For the matcher that silently means
+ * "treat as new", so a momentary outage could miss an existing skill or fork a
+ * duplicate cluster (a permanent bad catalog entry). To prevent that we wrap
+ * the `simBatch` call in a bounded retry mirroring {@link embedWithRetry}'s
+ * policy (same max-retries / base-delay / exponential backoff, same transient
+ * predicate, same abort handling). Only AFTER retries are exhausted — or on a
+ * non-transient error (a real Qdrant/config bug, where retrying is pointless) —
+ * do we degrade to `[]`, logged at warn.
  */
 async function scoreSlugsWithSimBatch(
   config: AssistantConfig,
@@ -223,13 +239,46 @@ async function scoreSlugsWithSimBatch(
   restrictToSlugs: readonly string[],
 ): Promise<ScoredSlug[]> {
   try {
-    const scores = await simBatch(goal, restrictToSlugs, config);
+    const scores = await simBatchWithRetry(config, goal, restrictToSlugs);
     return [...scores].map(([slug, score]) => ({ slug, score }));
   } catch (err) {
     log.warn(
       { err },
-      "candidate-match scorer failed; degrading to no hits (treat as new)",
+      "candidate-match scorer failed after retries; degrading to no hits (treat as new)",
     );
     return [];
   }
+}
+
+/**
+ * Run {@link simBatch} with the same bounded retry policy as `embedWithRetry`
+ * (`simBatch` itself embeds via `embedWithBackend` with no retry). Retries only
+ * transient embedding failures (429 / 5xx / retryable network error); a
+ * non-transient error or an exhausted retry budget rethrows so the caller can
+ * degrade to no-hit. Aborts propagate immediately and are never retried.
+ */
+async function simBatchWithRetry(
+  config: AssistantConfig,
+  goal: string,
+  restrictToSlugs: readonly string[],
+): Promise<Map<string, number>> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= EMBED_MAX_RETRIES; attempt++) {
+    try {
+      return await simBatch(goal, restrictToSlugs, config);
+    } catch (err) {
+      lastError = err;
+      if (isAbortError(err)) throw err;
+      if (!isTransientEmbeddingError(err) || attempt === EMBED_MAX_RETRIES) {
+        throw err;
+      }
+      const delay = computeRetryDelay(attempt, EMBED_BASE_DELAY_MS);
+      log.warn(
+        { err, attempt: attempt + 1, delayMs: Math.round(delay) },
+        "transient candidate-match embedding failure, retrying",
+      );
+      await abortableSleep(delay);
+    }
+  }
+  throw lastError;
 }
