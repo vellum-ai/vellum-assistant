@@ -152,6 +152,44 @@ function isChannelPolicy(value: string): value is ChannelPolicy {
 }
 
 /**
+ * The ACL fields a gateway verdict carries for a resolved member, decoupled
+ * from the schema-derived {@link ContactChannel}.
+ */
+export interface VerdictMember {
+  contactId: string;
+  channelId: string;
+  status: ChannelStatus;
+  policy: ChannelPolicy;
+  verifiedAt: number | null;
+  displayName: string | null;
+}
+
+/**
+ * Extract the narrow {@link VerdictMember} ACL view from a gateway verdict.
+ *
+ * Mirrors {@link resolvedMemberFromVerdict}'s guards (contactId/channelId
+ * present + known status/policy enums), failing closed to null otherwise.
+ */
+export function verdictMemberFromVerdict(
+  verdict: TrustVerdict,
+): VerdictMember | null {
+  if (!verdict.contactId || !verdict.channelId) return null;
+  if (!verdict.status || !verdict.policy) return null;
+  if (!isChannelStatus(verdict.status) || !isChannelPolicy(verdict.policy)) {
+    return null;
+  }
+
+  return {
+    contactId: verdict.contactId,
+    channelId: verdict.channelId,
+    status: verdict.status,
+    policy: verdict.policy,
+    verifiedAt: verdict.verifiedAt ?? null,
+    displayName: verdict.memberDisplayName ?? null,
+  };
+}
+
+/**
  * Build a synthetic {@link ResolvedMember} from a gateway verdict.
  *
  * ACL + identity only; info fields are placeholders, re-joined locally by

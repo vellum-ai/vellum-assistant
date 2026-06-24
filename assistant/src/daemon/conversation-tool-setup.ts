@@ -22,7 +22,12 @@ import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
-import { getMcpToolDefinitions, getTool } from "../tools/registry.js";
+import {
+  getMcpToolDefinitions,
+  getTool,
+  getWorkspaceToolDefinitions,
+  getWorkspaceToolNames,
+} from "../tools/registry.js";
 import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
@@ -41,6 +46,7 @@ import {
   type ToolExecutionResult,
   type ToolLifecycleEventHandler,
 } from "../tools/types.js";
+import { loadWorkspaceTools } from "../tools/workspace-tools/loader.js";
 import {
   resolveUsageAttribution,
   type UsageAttributionSnapshot,
@@ -653,11 +659,13 @@ export function isToolActiveForContext(
  * allowedToolNames so newly-activated skill tools aren't blocked by
  * the executor's stale gate.
  *
- * Core (non-MCP) tool definitions are captured at conversation creation and
- * reused on each turn. MCP tool definitions are re-read from the global
- * registry on each turn so that tools registered after conversation creation
- * (e.g. via `vellum mcp reload`) are automatically picked up without
- * requiring conversation disposal or app restart.
+ * Core (non-MCP, non-workspace) tool definitions are captured at conversation
+ * creation and reused on each turn. MCP and workspace tool definitions are
+ * re-read from the global registry on each turn so that tools registered or
+ * changed after conversation creation are automatically picked up without
+ * requiring conversation disposal or app restart — MCP via `vellum mcp
+ * reload`, workspace tools via edits under `<workspaceDir>/tools/` that the
+ * per-turn reconcile (kicked below) folds into the registry.
  */
 export function createResolveToolsCallback(
   toolDefs: ToolDefinition[],
@@ -665,16 +673,21 @@ export function createResolveToolsCallback(
 ): ((history: Message[]) => ToolDefinition[]) | undefined {
   if (toolDefs.length === 0) return undefined;
 
-  // Separate the initial tool defs into core (stable) and MCP (dynamic).
-  // We keep core tools from the snapshot and re-read MCP tools each turn.
+  // Separate the initial tool defs into core (stable) and the two dynamic
+  // categories (MCP, workspace). We keep core tools from the snapshot and
+  // re-read MCP + workspace tools from the registry each turn.
   const initialMcpDefs = getMcpToolDefinitions();
   const initialMcpNames = new Set(initialMcpDefs.map((d) => d.name));
-  const coreToolDefs = toolDefs.filter((d) => !initialMcpNames.has(d.name));
+  const initialWorkspaceNames = new Set(getWorkspaceToolNames());
+  const coreToolDefs = toolDefs.filter(
+    (d) => !initialMcpNames.has(d.name) && !initialWorkspaceNames.has(d.name),
+  );
   log.debug(
     {
       coreCount: coreToolDefs.length,
       mcpCount: initialMcpDefs.length,
       mcpTools: initialMcpDefs.map((d) => d.name),
+      workspaceCount: initialWorkspaceNames.size,
     },
     "Conversation tool resolver initialized",
   );
@@ -687,6 +700,13 @@ export function createResolveToolsCallback(
       ctx.allowedToolNames = new Set<string>();
       return [];
     }
+
+    // Reconcile workspace tool overrides under `<workspaceDir>/tools/` into
+    // the registry, then re-read them below — the on-read replacement for a
+    // filesystem watcher. Fire-and-forget: the reconcile is idempotent,
+    // mtime-cached (a no-op costs one readdir + a stat per file) and
+    // serialized, so the registry settles for a subsequent turn to read.
+    void loadWorkspaceTools();
 
     // Filter core tools based on current conversation context so that tools
     // irrelevant to this turn (e.g. UI tools when no client is connected)
@@ -708,24 +728,34 @@ export function createResolveToolsCallback(
       ? filteredCoreDefs.filter((d) => wireAllowlist.has(d.name))
       : filteredCoreDefs;
 
-    // Re-read MCP tool definitions from the registry each turn so conversations
-    // automatically pick up tools added/removed by `vellum mcp reload`.
+    // Re-read MCP and workspace tool definitions from the registry each turn
+    // so conversations automatically pick up tools added/removed by `vellum
+    // mcp reload` and workspace-tool edits reconciled from disk, without
+    // recreating the conversation.
     const currentMcpDefs = getMcpToolDefinitions();
+    const currentWorkspaceDefs = getWorkspaceToolDefinitions();
     log.debug(
       {
         coreCount: scopedCoreDefs.length,
         mcpCount: currentMcpDefs.length,
         mcpTools: currentMcpDefs.map((d) => d.name),
+        workspaceCount: currentWorkspaceDefs.length,
+        workspaceTools: currentWorkspaceDefs.map((d) => d.name),
       },
-      "MCP tools resolved for turn",
+      "MCP and workspace tools resolved for turn",
     );
     const scopedMcpDefs = wireAllowlist
       ? currentMcpDefs.filter((d) => wireAllowlist.has(d.name))
       : currentMcpDefs;
+    const scopedWorkspaceDefs = wireAllowlist
+      ? currentWorkspaceDefs.filter((d) => wireAllowlist.has(d.name))
+      : currentWorkspaceDefs;
     const excluded = new Set(getConfig().tools.exclude);
-    const allBaseDefs = [...scopedCoreDefs, ...scopedMcpDefs].filter(
-      (d) => !excluded.has(d.name),
-    );
+    const allBaseDefs = [
+      ...scopedCoreDefs,
+      ...scopedWorkspaceDefs,
+      ...scopedMcpDefs,
+    ].filter((d) => !excluded.has(d.name));
 
     const effectivePreactivated = [
       ...DEFAULT_PREACTIVATED_SKILL_IDS,

@@ -1547,11 +1547,11 @@ describe("UsageTelemetryReporter", () => {
     // No HTTP call should have been made
     expect(mockFetch).not.toHaveBeenCalled();
 
-    // All 7 timestamp watermarks should have been advanced, and all 7 ID
+    // All 8 timestamp watermarks should have been advanced, and all 8 ID
     // watermarks pinned to the high-sorting sentinel (a truthy value keeps
     // the compound-cursor branch active while closing its same-millisecond
     // arm against opt-out rows).
-    expect(mockSetMemoryCheckpoint).toHaveBeenCalledTimes(14);
+    expect(mockSetMemoryCheckpoint).toHaveBeenCalledTimes(16);
 
     const calls = mockSetMemoryCheckpoint.mock.calls;
     const keys = calls.map((c) => c[0]);
@@ -1563,6 +1563,7 @@ describe("UsageTelemetryReporter", () => {
       "auth_fallback",
       "tool_executed",
       "skill_loaded",
+      "watchdog",
     ];
     for (const eventType of eventTypes) {
       expect(keys).toContain(`telemetry:${eventType}:last_reported_at`);

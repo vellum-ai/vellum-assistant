@@ -14,6 +14,7 @@ import {
   resolvedMemberFromVerdict,
   trustContextFromVerdict,
   verdictHasMemberIdentity,
+  verdictMemberFromVerdict,
   verdictMemberUnresolvable,
 } from "../trust-verdict-consumer.js";
 
@@ -604,6 +605,84 @@ describe("resolvedMemberFromVerdict", () => {
       expect(member!.channel.status).toBe(status);
       expect(member!.channel.policy).toBe("deny");
     }
+  });
+});
+
+describe("verdictMemberFromVerdict", () => {
+  test("active member verdict yields the narrow ACL view", () => {
+    const verdict = {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "u-1",
+      contactId: "contact-1",
+      channelId: "channel-1",
+      type: "slack",
+      address: "u-1",
+      status: "active",
+      policy: "allow",
+      verifiedAt: 1700000000,
+      memberDisplayName: "Dora",
+    } satisfies TrustVerdict;
+
+    expect(verdictMemberFromVerdict(verdict)).toEqual({
+      contactId: "contact-1",
+      channelId: "channel-1",
+      status: "active",
+      policy: "allow",
+      verifiedAt: 1700000000,
+      displayName: "Dora",
+    });
+  });
+
+  test("blocked member verdict surfaces status/policy verbatim, null defaults", () => {
+    const verdict = {
+      trustClass: "unknown",
+      canonicalSenderId: "u-3",
+      contactId: "contact-3",
+      channelId: "channel-3",
+      status: "blocked",
+      policy: "deny",
+    } satisfies TrustVerdict;
+
+    expect(verdictMemberFromVerdict(verdict)).toEqual({
+      contactId: "contact-3",
+      channelId: "channel-3",
+      status: "blocked",
+      policy: "deny",
+      verifiedAt: null,
+      displayName: null,
+    });
+  });
+
+  test("memberless verdict (no contactId/channelId) returns null", () => {
+    expect(
+      verdictMemberFromVerdict({
+        trustClass: "unknown",
+        canonicalSenderId: "u-2",
+      } satisfies TrustVerdict),
+    ).toBeNull();
+  });
+
+  test("invalid enum (unknown status/policy) returns null (fail-closed)", () => {
+    expect(
+      verdictMemberFromVerdict({
+        trustClass: "trusted_contact",
+        canonicalSenderId: "u-7",
+        contactId: "contact-7",
+        channelId: "channel-7",
+        status: "quarantined",
+        policy: "allow",
+      } satisfies TrustVerdict),
+    ).toBeNull();
+    expect(
+      verdictMemberFromVerdict({
+        trustClass: "trusted_contact",
+        canonicalSenderId: "u-6",
+        contactId: "contact-6",
+        channelId: "channel-6",
+        status: "active",
+        policy: "bogus",
+      } satisfies TrustVerdict),
+    ).toBeNull();
   });
 });
 

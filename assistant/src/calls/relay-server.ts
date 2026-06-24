@@ -1164,7 +1164,7 @@ export class RelayConnection {
     const assistantId = this.verificationAssistantId;
     const fromNumber = this.verificationFromNumber;
 
-    const result = attemptVerificationCode({
+    const result = await attemptVerificationCode({
       verificationAssistantId: assistantId,
       verificationFromNumber: fromNumber,
       enteredCode,

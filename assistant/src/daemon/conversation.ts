@@ -50,6 +50,7 @@ import {
   getMessages,
   resolveOverrideProfile,
   setConversationHistoryStrippedAt,
+  setConversationProcessingStartedAt,
 } from "../memory/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
@@ -1339,6 +1340,13 @@ export class Conversation {
   setProcessing(value: boolean): void {
     const wasProcessing = this._processing;
     this._processing = value;
+    // Persist the cross-process source of truth so out-of-process callers
+    // (retrospective CLI, future detached workers) can detect mid-turn state
+    // by reading the conversations row directly.
+    setConversationProcessingStartedAt(
+      this.conversationId,
+      value ? Date.now() : null,
+    );
     if (wasProcessing && !value) {
       void publishSyncInvalidation([
         conversationMetadataSyncTag(this.conversationId),
@@ -2052,8 +2060,15 @@ export class Conversation {
     surfaceId: string,
     actionId: string,
     data?: Record<string, unknown>,
+    sourceActorPrincipalId?: string,
   ): Promise<SurfaceActionResult> {
-    return handleSurfaceActionImpl(this, surfaceId, actionId, data);
+    return handleSurfaceActionImpl(
+      this,
+      surfaceId,
+      actionId,
+      data,
+      sourceActorPrincipalId,
+    );
   }
 
   handleSurfaceUndo(surfaceId: string): void {

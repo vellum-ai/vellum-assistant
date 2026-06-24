@@ -299,7 +299,7 @@ async function processVoiceWebhook(
       "Inbound voice webhook — creating/reusing session",
     );
 
-    const { session } = createInboundVoiceSession({
+    const { session } = await createInboundVoiceSession({
       callSid,
       fromNumber: callerFrom,
       toNumber: callerTo,

@@ -16,8 +16,13 @@
     <string>vellum-mac-helper</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
+    <!-- User-facing name + icon in System Settings → Privacy & Security. -->
     <key>CFBundleName</key>
-    <string>vellum-mac-helper</string>
+    <string>Vellum Helper</string>
+    <key>CFBundleDisplayName</key>
+    <string>Vellum Helper</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

@@ -22,6 +22,8 @@ mock.module("../memory/conversation-key-store.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   getConversation: mockGetConversation,
   getMessages: mockGetMessages,
   createConversation: mockCreateConversation,

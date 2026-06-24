@@ -28,6 +28,7 @@ import {
   assembleBoundedTurnTrace,
   isTurnSettled,
 } from "../memory/turn-trace-store.js";
+import { queryUnreportedWatchdogEvents } from "../memory/watchdog-events-store.js";
 import { VellumPlatformClient } from "../platform/client.js";
 import {
   getCachedShareAnalytics,
@@ -76,6 +77,9 @@ const CHECKPOINT_KEY_SKILL_LOADED_WATERMARK =
   "telemetry:skill_loaded:last_reported_at";
 const CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID =
   "telemetry:skill_loaded:last_reported_id";
+const CHECKPOINT_KEY_WATCHDOG_WATERMARK = "telemetry:watchdog:last_reported_at";
+const CHECKPOINT_KEY_WATCHDOG_WATERMARK_ID =
+  "telemetry:watchdog:last_reported_id";
 // Written into the `*_id` watermark checkpoints by the opt-out flush branch.
 // Sorts lexicographically above every real row ID (all event stores generate
 // lowercase v4 UUIDs), so the compound cursor's same-millisecond arm
@@ -100,6 +104,7 @@ const WATERMARK_KEY_PAIRS: ReadonlyArray<readonly [string, string]> = [
     CHECKPOINT_KEY_SKILL_LOADED_WATERMARK,
     CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID,
   ],
+  [CHECKPOINT_KEY_WATCHDOG_WATERMARK, CHECKPOINT_KEY_WATCHDOG_WATERMARK_ID],
 ];
 const REPORT_INTERVAL_MS = 5 * 60 * 1000;
 const INITIAL_FLUSH_DELAY_MS = 30_000; // Delay first flush to let CES handshake complete
@@ -121,6 +126,37 @@ export function setUsageTelemetryReporter(
   reporter: UsageTelemetryReporter | null,
 ): void {
   _instance = reporter;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a stored `watchdog_events.detail` JSON text column into the object the
+ * platform expects. Returns null for a null column or an unparseable/corrupted
+ * blob (mirroring the turn `client` metadata parse: a bad blob emits null
+ * rather than failing the batch). A non-object (e.g. a bare number or string)
+ * also resolves to null, since the platform serializer treats `detail` as a
+ * JSON object bag.
+ */
+function parseWatchdogDetail(
+  raw: string | null,
+): Record<string, unknown> | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    return null;
+  } catch {
+    log.warn(
+      { rawDetail: raw.slice(0, 200) },
+      "Telemetry watchdog: failed to parse detail; emitting null",
+    );
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -307,13 +343,23 @@ export class UsageTelemetryReporter {
         undefined;
 
       // Read skill-loaded watermark (compound cursor: createdAt + id).
-      // Brand-new table, so the standard 0 default is safe.
+      // Writes are gated on share_analytics consent, so opted-out rows
+      // cannot exist and the standard 0 default is safe.
       const skillLoadedWatermark = Number(
         getMemoryCheckpoint(CHECKPOINT_KEY_SKILL_LOADED_WATERMARK) ?? "0",
       );
       const skillLoadedWatermarkId =
         getMemoryCheckpoint(CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID) ??
         undefined;
+
+      // Read watchdog watermark (compound cursor: createdAt + id).
+      // Writes are gated on share_analytics consent, so opted-out rows
+      // cannot exist and the standard 0 default is safe.
+      const watchdogWatermark = Number(
+        getMemoryCheckpoint(CHECKPOINT_KEY_WATCHDOG_WATERMARK) ?? "0",
+      );
+      const watchdogWatermarkId =
+        getMemoryCheckpoint(CHECKPOINT_KEY_WATCHDOG_WATERMARK_ID) ?? undefined;
 
       // Query unreported events
       const events = queryUnreportedUsageEvents(
@@ -349,6 +395,11 @@ export class UsageTelemetryReporter {
       const skillLoadedEvents = queryUnreportedSkillLoadedEvents(
         skillLoadedWatermark,
         skillLoadedWatermarkId,
+        BATCH_SIZE,
+      );
+      const watchdogEvents = queryUnreportedWatchdogEvents(
+        watchdogWatermark,
+        watchdogWatermarkId,
         BATCH_SIZE,
       );
 
@@ -418,7 +469,8 @@ export class UsageTelemetryReporter {
         onboardingEvents.length === 0 &&
         authFallbackEvents.length === 0 &&
         toolExecutedEvents.length === 0 &&
-        skillLoadedEvents.length === 0
+        skillLoadedEvents.length === 0 &&
+        watchdogEvents.length === 0
       )
         return;
 
@@ -442,6 +494,7 @@ export class UsageTelemetryReporter {
           authFallbackCount: authFallbackEvents.length,
           toolExecutedCount: toolExecutedEvents.length,
           skillLoadedCount: skillLoadedEvents.length,
+          watchdogCount: watchdogEvents.length,
         },
         "Telemetry flush: resolved auth context",
       );
@@ -674,6 +727,23 @@ export class UsageTelemetryReporter {
             assistant_version: APP_VERSION,
           }),
         ),
+        ...watchdogEvents.map(
+          (e): TelemetryEvent => ({
+            type: "watchdog",
+            daemon_event_id: e.id,
+            recorded_at: e.createdAt,
+            check_name: e.checkName,
+            value: e.value,
+            // `detail` is stored as JSON text; parse defensively so a
+            // corrupted blob never fails the batch flush. A parse failure
+            // emits null rather than dropping the event.
+            detail: parseWatchdogDetail(e.detail),
+            // `watchdog_events` has no record-time version column — same
+            // upload-time APP_VERSION stamping as the other non-llm_usage
+            // event types.
+            assistant_version: APP_VERSION,
+          }),
+        ),
       ];
 
       const organizationId = getPlatformOrganizationId() || undefined;
@@ -796,6 +866,19 @@ export class UsageTelemetryReporter {
         );
       }
 
+      // Advance watchdog watermark (compound cursor)
+      if (watchdogEvents.length > 0) {
+        const lastWatchdog = watchdogEvents[watchdogEvents.length - 1];
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_WATCHDOG_WATERMARK,
+          String(lastWatchdog.createdAt),
+        );
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_WATCHDOG_WATERMARK_ID,
+          lastWatchdog.id,
+        );
+      }
+
       // If we got a full batch of any type, there may be more — recurse.
       // Turns use the REPORTED count: when the completeness barrier truncates
       // the batch, the deferred turns must wait for a later flush (by which
@@ -808,7 +891,8 @@ export class UsageTelemetryReporter {
         onboardingEvents.length === BATCH_SIZE ||
         authFallbackEvents.length === BATCH_SIZE ||
         toolExecutedEvents.length === BATCH_SIZE ||
-        skillLoadedEvents.length === BATCH_SIZE
+        skillLoadedEvents.length === BATCH_SIZE ||
+        watchdogEvents.length === BATCH_SIZE
       ) {
         await this._doFlush(batchCount + 1);
       }

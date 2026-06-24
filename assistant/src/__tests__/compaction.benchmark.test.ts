@@ -17,6 +17,8 @@ mock.module("../util/logger.js", () => ({
 // The compactor reads the conversation's image attachments from the DB to
 // build its manifest; with no images these return empty.
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   getMessages: () => [],
 }));
 mock.module("../memory/attachments-store.js", () => ({

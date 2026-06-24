@@ -111,6 +111,8 @@ mock.module("../security/secret-allowlist.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   setConversationHistoryStrippedAt: () => {},
   provenanceFromTrustContext: () => ({

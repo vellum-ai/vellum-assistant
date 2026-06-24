@@ -72,15 +72,13 @@ export type PluginHookFn<TCtx = unknown> = (
 // ─── Init context ────────────────────────────────────────────────────────────
 
 /**
- * Context passed to `Plugin.init()` during bootstrap. Carries resolved
- * config/credentials, a pino-compatible logger scoped to the plugin, a
- * per-plugin writable data directory, and the assistant's version metadata.
+ * Context passed to `Plugin.init()` during bootstrap. Carries the resolved
+ * config, a pino-compatible logger scoped to the plugin, a per-plugin
+ * writable data directory, and the assistant's version metadata.
  */
 export interface PluginInitContext {
   /** Parsed config for this plugin (may be `unknown` until the manifest validates). */
   config: unknown;
-  /** Resolved credential values keyed by the entries of `manifest.requiresCredential`. */
-  credentials: Record<string, string>;
   /** Pino-compatible child logger bound to `{ plugin: <name> }`. */
   logger: PluginLogger;
   /** Absolute path to `<workspaceDir>/plugins-data/<plugin>/` (created by bootstrap). */

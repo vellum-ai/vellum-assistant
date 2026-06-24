@@ -52,6 +52,15 @@ export const conversations = sqliteTable(
     inferenceProfileSessionId: text("inference_profile_session_id"),
     inferenceProfileExpiresAt: integer("inference_profile_expires_at"),
     lastNotifiedInferenceProfile: text("last_notified_inference_profile"),
+    /**
+     * Epoch-ms timestamp set when the agent loop starts a turn for this
+     * conversation, cleared (NULL) when the turn ends. NULL means not
+     * processing. This is the cross-process source of truth for processing
+     * state — the in-memory `Conversation._processing` flag is the hot-path
+     * read for resident conversations, but CLI-side and other out-of-process
+     * callers read this column directly.
+     */
+    processingStartedAt: integer("processing_started_at"),
   },
   (table) => [
     index("idx_conversations_updated_at").on(table.updatedAt),

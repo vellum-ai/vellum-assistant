@@ -335,7 +335,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
     };
   });
 
-  test("trusted-contact confirmation_request emits guardian.question and creates delivery records", () => {
+  test("trusted-contact confirmation_request emits guardian.question and creates delivery records", async () => {
     const canonicalRequest = createCanonicalGuardianRequest({
       id: `req-bridge-${Date.now()}`,
       kind: "tool_approval",
@@ -352,7 +352,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
 
     const trustContext = makeTrustedContactTrustContext();
 
-    const result = bridgeConfirmationRequestToGuardian({
+    const result = await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-bridge-1",
@@ -371,7 +371,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
     expect(payload.requesterIdentifier).toBe("@requester");
   });
 
-  test("bridge + tool_grant_request both use guardian.question for unified routing", () => {
+  test("bridge + tool_grant_request both use guardian.question for unified routing", async () => {
     // The confirmation_request bridge and tool_grant_request helper both
     // use 'guardian.question' as the notification signal, ensuring consistent
     // guardian routing regardless of the approval path.
@@ -391,7 +391,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
 
     const trustContext = makeTrustedContactTrustContext();
 
-    bridgeConfirmationRequestToGuardian({
+    await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-unified-1",
@@ -432,7 +432,7 @@ describe("(c) no-binding flow: trusted contact fails fast without guardian bindi
     expect(state.promptWaitingAllowed).toBe(false);
   });
 
-  test("bridge skips when no guardian binding exists for channel", () => {
+  test("bridge skips when no guardian binding exists for channel", async () => {
     const canonicalRequest = createCanonicalGuardianRequest({
       id: `req-nobinding-${Date.now()}`,
       kind: "tool_approval",
@@ -449,7 +449,7 @@ describe("(c) no-binding flow: trusted contact fails fast without guardian bindi
 
     const trustContext = makeTrustedContactTrustContext();
 
-    const result = bridgeConfirmationRequestToGuardian({
+    const result = await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-nobinding",
@@ -543,7 +543,7 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
     expect(resolveRoutingState(withoutRoute).canBeInteractive).toBe(false);
   });
 
-  test("bridge skips unknown actor sessions entirely", () => {
+  test("bridge skips unknown actor sessions entirely", async () => {
     const canonicalRequest = createCanonicalGuardianRequest({
       id: `req-unknown-${Date.now()}`,
       kind: "tool_approval",
@@ -563,7 +563,7 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
       trustClass: "unknown",
     };
 
-    const result = bridgeConfirmationRequestToGuardian({
+    const result = await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-unknown",
@@ -965,7 +965,7 @@ describe("cross-milestone integration checks", () => {
     );
   });
 
-  test("M2+M4: bridge and tool_grant_request target the same guardian identity", () => {
+  test("M2+M4: bridge and tool_grant_request target the same guardian identity", async () => {
     // Both the confirmation_request bridge (M2) and tool grant request escalation (M4)
     // use the guardian binding's guardianExternalUserId to route notifications.
     // Verify this consistency:
@@ -986,7 +986,7 @@ describe("cross-milestone integration checks", () => {
 
     const trustContext = makeTrustedContactTrustContext();
 
-    const bridgeResult = bridgeConfirmationRequestToGuardian({
+    const bridgeResult = await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-consistency",

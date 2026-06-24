@@ -1386,6 +1386,8 @@ export interface ProcessMessageOptions {
    */
   overrideProfile?: string;
   displayContent?: string;
+  /** JWT-verified committer principal for turn-scoped host-proxy authorization. */
+  sourceActorPrincipalId?: string;
 }
 
 // ── processMessage ───────────────────────────────────────────────────
@@ -1409,6 +1411,7 @@ export async function processMessage(
     callSite,
     overrideProfile,
     displayContent,
+    sourceActorPrincipalId,
   } = options;
   await conversation.ensureActorScopedHistory();
   // Snapshot persona context at turn start so later tool turns can't pick up
@@ -1416,7 +1419,7 @@ export async function processMessage(
   conversation.currentTurnTrustContext = conversation.trustContext;
   conversation.currentTurnAuthContext = conversation.authContext;
   conversation.currentTurnSourceActorPrincipalId =
-    conversation.authContext?.actorPrincipalId;
+    sourceActorPrincipalId ?? conversation.authContext?.actorPrincipalId;
   conversation.currentTurnChannelCapabilities =
     conversation.channelCapabilities;
   conversation.currentActiveSurfaceId = activeSurfaceId;

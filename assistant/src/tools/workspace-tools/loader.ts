@@ -30,13 +30,30 @@
  *       → loadWorkspaceTools()       ← this module (first scan)
  *         → loadUserPlugins()
  *           → bootstrapPlugins()
- *         → start file watcher       ← hot register/unregister (no restart)
  *
  * Plugins load *after* the initial workspace-tool scan so the registry
  * hands them a stable view of which workspace tools exist before any
- * plugin code runs. The file watcher then runs for the lifetime of the
- * assistant, picking up add/change/delete events to keep the registry
- * in sync with disk.
+ * plugin code runs.
+ *
+ * ## Reconcile on read, not on a watcher
+ *
+ * {@link loadWorkspaceTools} is idempotent and safe to call repeatedly:
+ * after the initial scan it reconciles the registry against on-disk
+ * state. Each call re-derives "given what's on disk right now under
+ * `tools/`, what registry state should the assistant be in?" and applies
+ * the delta — registering newly added tools, re-importing changed tools
+ * (mtime-gated, cache-busting via the per-import URL query string),
+ * unregistering deleted tools, stripping core tools when a `.removed`
+ * sentinel appears, and restoring them when it disappears.
+ *
+ * Instead of a long-lived filesystem watcher, the per-turn tool resolver
+ * (`createResolveToolsCallback` in `conversation-tool-setup.ts`) kicks this
+ * reconcile and then re-reads workspace tools from the registry — the same
+ * way it re-reads MCP tools — so a conversation picks up on-disk edits
+ * without a restart and without recreating the conversation. The "edit a
+ * file, see the change" loop closes on the next turn. Unchanged files are
+ * skipped via the mtime cache, so a no-op reconcile costs one `readdir`
+ * plus a `stat` per file and never re-imports.
  *
  * Per-tool isolation:
  *
@@ -62,12 +79,19 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
-import { pathToFileURL } from "node:url";
 
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceToolsDir } from "../../util/platform.js";
 import { isProviderSafeToolName } from "../provider-tool-name.js";
-import { registerWorkspaceTools, removeCoreToolViaWorkspace } from "../registry.js";
+import {
+  getCoreToolOverride,
+  getTool,
+  getToolOwner,
+  registerWorkspaceTools,
+  removeCoreToolViaWorkspace,
+  restoreStrippedCoreTool,
+  unregisterWorkspaceTool,
+} from "../registry.js";
 import { finalizeTool } from "../tool-defaults.js";
 import type {
   RiskLevel,
@@ -139,14 +163,21 @@ function isValidToolFilenameStem(stem: string): boolean {
  */
 function classifyEntry(
   entry: string,
-): { kind: "live"; stem: string; ext: LiveToolExtension } | { kind: "removed"; stem: string } | undefined {
+):
+  | { kind: "live"; stem: string; ext: LiveToolExtension }
+  | { kind: "removed"; stem: string }
+  | undefined {
   const ext = extname(entry);
   if (ext === REMOVED_EXTENSION) {
     return { kind: "removed", stem: entry.slice(0, -REMOVED_EXTENSION.length) };
   }
   for (const candidate of LIVE_TOOL_EXTENSIONS) {
     if (ext === candidate) {
-      return { kind: "live", stem: entry.slice(0, -candidate.length), ext: candidate };
+      return {
+        kind: "live",
+        stem: entry.slice(0, -candidate.length),
+        ext: candidate,
+      };
     }
   }
   return undefined;
@@ -162,7 +193,9 @@ interface LiveSelection {
   shadowed: LiveToolExtension[];
 }
 
-function selectLiveExtension(extensions: Set<LiveToolExtension>): LiveSelection {
+function selectLiveExtension(
+  extensions: Set<LiveToolExtension>,
+): LiveSelection {
   for (const candidate of LIVE_TOOL_EXTENSIONS) {
     if (extensions.has(candidate)) {
       const shadowed: LiveToolExtension[] = [];
@@ -192,14 +225,19 @@ function selectLiveExtension(extensions: Set<LiveToolExtension>): LiveSelection 
  * The tool still loads cleanly with these defaults — a broken tool must
  * never block daemon boot. Always sets `category: "workspace"` so the
  * registry can distinguish workspace overrides from other origins.
+ *
+ * The registered name is pinned to the filename stem (`name`), overriding
+ * any `name` field on the file's own export. This is the documented
+ * "filename stem is the tool name verbatim" contract — `finalizeTool`
+ * would otherwise prefer `tool.name` — and it keeps the registered name in
+ * lockstep with the stem the reconcile keys its mtime cache by, so a later
+ * delete of the file unregisters the right tool.
  */
-function applyWorkspaceToolDefaults(
-  tool: ToolDefinition,
-  name: string,
-): Tool {
+function applyWorkspaceToolDefaults(tool: ToolDefinition, name: string): Tool {
   const finalized = finalizeTool(
     {
       ...tool,
+      name,
       defaultRiskLevel:
         tool.defaultRiskLevel ?? WORKSPACE_TOOL_DEFAULTS.defaultRiskLevel,
       category: tool.category ?? "workspace",
@@ -221,10 +259,18 @@ function applyWorkspaceToolDefaults(
  * module's default export, or `undefined` if the import times out, has
  * no default export, or throws.
  *
- * A cache-busting `?v=<counter>` query string is appended so the loader's
- * later re-imports (driven by the file watcher) pick up disk changes
- * instead of node's cached module. The counter is per-call, so every
- * import gets a fresh module identity.
+ * A cache-busting `?v=<counter>` query string is appended so a reconcile
+ * that re-imports a changed file picks up the new contents instead of the
+ * module bun already transpiled. The counter is per-call, so every import
+ * gets a fresh module identity.
+ *
+ * The specifier is the raw absolute path (not a `file://` URL): bun honors
+ * the `?v=` query for cache-busting on a bare absolute path but collapses
+ * it to the same cached module for a `file://` URL, which would silently
+ * serve stale source on re-import. Absolute paths (and embedded spaces)
+ * import cleanly; only `?`/`#` in the path would confuse the query, and
+ * tool stems are provider-safe so the directory prefix is the only place
+ * those could appear.
  *
  * All failure paths log with file attribution so operators can find the
  * broken tool quickly.
@@ -235,7 +281,7 @@ async function importToolDefaultBounded(
   entryPath: string,
   timeoutMs: number,
 ): Promise<unknown> {
-  const url = `${pathToFileURL(entryPath).href}?v=${++importCounter}`;
+  const url = `${entryPath}?v=${++importCounter}`;
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   try {
     const timeoutSentinel = Symbol("workspace-tool-import-timeout");
@@ -285,7 +331,9 @@ async function importToolDefaultBounded(
  * exist for declarative use cases — schema-only tool stubs, override
  * placeholders, etc.
  */
-async function readJsonToolSpec(entryPath: string): Promise<ToolDefinition | undefined> {
+async function readJsonToolSpec(
+  entryPath: string,
+): Promise<ToolDefinition | undefined> {
   let raw: string;
   try {
     raw = await readFile(entryPath, "utf8");
@@ -326,53 +374,62 @@ export interface LoadWorkspaceToolsOptions {
 }
 
 /**
- * Result of a {@link loadWorkspaceTools} call — exposes which tool names
- * were registered and which were stripped so callers (notably the file
- * watcher) can compute deltas against subsequent re-scans.
+ * Result of a {@link loadWorkspaceTools} call — the names workspace tools
+ * currently own and the core-tool names currently stripped via
+ * `<name>.removed` sentinels, reflecting the registry state after the
+ * reconcile applied its delta.
  */
 export interface LoadWorkspaceToolsResult {
-  /** Tool names successfully registered as workspace tools. */
+  /** Tool names currently registered as workspace tools. */
   readonly registered: string[];
-  /** Tool names stripped from the registry via `<name>.removed` sentinels. */
+  /** Core-tool names currently stripped via `<name>.removed` sentinels. */
   readonly removed: string[];
 }
 
 /**
- * Scan `<workspaceDir>/tools/` and register every well-formed
- * `<name>.{ts,js,json}` as a workspace tool. Files matching
- * `<name>.removed` strip the core tool of that name from the registry
- * via {@link removeCoreToolViaWorkspace}.
- *
- * Invariants:
- *
- * - No-ops silently when the tools directory does not exist. A clean
- *   install with zero workspace tools must produce no log noise beyond
- *   the eventual "0 workspace tools registered" debug line.
- * - Per-tool isolation: any single broken tool is logged and skipped
- *   without aborting the scan. The function resolves normally even when
- *   every candidate fails.
- * - Idempotency is the registry's job: a second call without a
- *   preceding unregister will throw on the duplicate-workspace-tool
- *   check. Callers (daemon startup) are expected to call once; the file
- *   watcher uses the per-event entry points instead.
- *
- * Caller responsibilities:
- *
- * - Must be invoked between {@link initializeTools} and
- *   {@link loadUserPlugins}. Calling earlier risks racing core
- *   registrations; calling later means plugins see an incomplete
- *   registry and may register over a name a workspace tool will later
- *   try to own.
+ * What the loader last established on disk for a given stem. The mtime
+ * cache lets a repeat {@link loadWorkspaceTools} call skip re-importing a
+ * file that hasn't changed since the previous reconcile — a no-op
+ * reconcile costs one `readdir` plus a `stat` per file and never touches
+ * the registry.
  */
-export async function loadWorkspaceTools(
-  options: LoadWorkspaceToolsOptions = {},
-): Promise<LoadWorkspaceToolsResult> {
-  const importTimeoutMs = options.importTimeoutMs ?? IMPORT_TIMEOUT_MS;
-  const toolsDir = getWorkspaceToolsDir();
+type ManagedEntry =
+  | { kind: "live"; ext: LiveToolExtension; mtimeMs: number }
+  | { kind: "removed" };
+
+/**
+ * Per-stem record of the workspace-tool state this module installed on the
+ * last reconcile. Module-level (process-wide) because the registry it
+ * mirrors is also process-wide. Reset between tests via
+ * {@link __resetWorkspaceToolCacheForTesting}.
+ */
+const managed = new Map<string, ManagedEntry>();
+
+/**
+ * The winning live file for a stem, resolved from the on-disk scan.
+ */
+interface DesiredLiveEntry {
+  readonly ext: LiveToolExtension;
+  readonly mtimeMs: number;
+  readonly path: string;
+}
+
+/**
+ * Pure (no registry mutation) scan of `<workspaceDir>/tools/`. Resolves
+ * each stem to its winning live file (with mtime) and the set of stems
+ * carrying a `.removed` sentinel, applying the same validation and
+ * shadow/ambiguity rules the reconcile relies on. Returns empty maps when
+ * the directory is missing or unreadable.
+ */
+function scanWorkspaceToolsDir(toolsDir: string): {
+  desiredLive: Map<string, DesiredLiveEntry>;
+  removedStems: Set<string>;
+} {
+  const desiredLive = new Map<string, DesiredLiveEntry>();
+  const removedStems = new Set<string>();
 
   if (!existsSync(toolsDir)) {
-    log.debug({ toolsDir }, "Workspace tools directory does not exist — skipping");
-    return { registered: [], removed: [] };
+    return { desiredLive, removedStems };
   }
 
   let entries: string[];
@@ -383,16 +440,15 @@ export async function loadWorkspaceTools(
       { err, toolsDir },
       "loadWorkspaceTools: failed to read tools directory — continuing with no workspace tools",
     );
-    return { registered: [], removed: [] };
+    return { desiredLive, removedStems };
   }
 
   // Group entries by stem so we can detect multi-extension shadowing
   // (e.g. `foo.ts` + `foo.js` claiming the same name) before we kick off
-  // any imports. Each stem maps to a Set of extensions; .removed sentinels
-  // are tracked in a separate set since they're mutually exclusive with
-  // live tool files (you don't strip AND register a name at once).
-  const liveByStem = new Map<string, Set<LiveToolExtension>>();
-  const removedStems = new Set<string>();
+  // any imports. Each stem maps to its live extensions (with mtimes);
+  // .removed sentinels are tracked separately since they're mutually
+  // exclusive with live tool files (you don't strip AND register at once).
+  const liveByStem = new Map<string, Map<LiveToolExtension, number>>();
 
   for (const entry of entries) {
     const fullPath = join(toolsDir, entry);
@@ -429,10 +485,10 @@ export async function loadWorkspaceTools(
     }
     let extensions = liveByStem.get(classified.stem);
     if (!extensions) {
-      extensions = new Set<LiveToolExtension>();
+      extensions = new Map<LiveToolExtension, number>();
       liveByStem.set(classified.stem, extensions);
     }
-    extensions.add(classified.ext);
+    extensions.set(classified.ext, stats.mtimeMs);
   }
 
   // A stem cannot both be live AND removed. Operator intent is ambiguous;
@@ -448,226 +504,274 @@ export async function loadWorkspaceTools(
     }
   }
 
-  // Apply removals before registrations so the batch validation in
-  // registerWorkspaceTools sees the post-removal registry state.
-  const removed: string[] = [];
-  for (const stem of removedStems) {
-    try {
-      removeCoreToolViaWorkspace(stem);
-      removed.push(stem);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      log.error(
-        { err, stem },
-        `loadWorkspaceTools: failed to strip core tool "${stem}": ${message}`,
-      );
-    }
-  }
-
-  // Resolve each live stem to its winning entry, import it, and add to
-  // the registration batch. Multi-extension shadowing warns once per
-  // ignored sibling so the operator can clean up the redundant file.
-  const batch: Array<{ tool: Tool; workspacePath: string }> = [];
-
+  // Resolve each live stem to its winning extension. Multi-extension
+  // shadowing warns once per ignored sibling so the operator can clean up
+  // the redundant file.
   for (const [stem, extensions] of liveByStem) {
-    const { ext: winningExt, shadowed } = selectLiveExtension(extensions);
+    const { ext: winningExt, shadowed } = selectLiveExtension(
+      new Set(extensions.keys()),
+    );
     if (shadowed.length > 0) {
       log.warn(
         { stem, winningExt, shadowed, toolsDir },
         `loadWorkspaceTools: "${stem}" has multiple files (${[winningExt, ...shadowed].join(", ")}) — using ${winningExt} and ignoring the rest`,
       );
     }
-    const entryPath = join(toolsDir, `${stem}${winningExt}`);
-
-    let toolSpec: ToolDefinition | undefined;
-    if (winningExt === ".json") {
-      toolSpec = await readJsonToolSpec(entryPath);
-    } else {
-      const defaultExport = await importToolDefaultBounded(entryPath, importTimeoutMs);
-      if (defaultExport === undefined) continue; // Failure already logged.
-      if (defaultExport === null || typeof defaultExport !== "object") {
-        log.error(
-          { entryPath, type: typeof defaultExport },
-          `Workspace tool at ${entryPath} default export must be an object — skipping`,
-        );
-        continue;
-      }
-      toolSpec = defaultExport as ToolDefinition;
-    }
-    if (!toolSpec) continue;
-
-    const loaded = applyWorkspaceToolDefaults(toolSpec, stem);
-    batch.push({ tool: loaded, workspacePath: entryPath });
+    desiredLive.set(stem, {
+      ext: winningExt,
+      mtimeMs: extensions.get(winningExt) ?? 0,
+      path: join(toolsDir, `${stem}${winningExt}`),
+    });
   }
 
-  if (batch.length === 0) {
-    if (removed.length === 0) {
-      log.debug(
-        { toolsDir },
-        "loadWorkspaceTools: no workspace tools to register or strip",
-      );
-    } else {
-      log.info(
-        { toolsDir, removedCount: removed.length, removed },
-        `Stripped ${removed.length} core tool${removed.length === 1 ? "" : "s"} via workspace .removed sentinels`,
-      );
-    }
-    return { registered: [], removed };
-  }
+  return { desiredLive, removedStems };
+}
 
-  try {
-    const accepted = registerWorkspaceTools(batch);
-    log.info(
-      { count: accepted.length, toolsDir, removedCount: removed.length },
-      `Registered ${accepted.length} workspace tool${accepted.length === 1 ? "" : "s"}${removed.length > 0 ? ` (and stripped ${removed.length} core tool${removed.length === 1 ? "" : "s"})` : ""}`,
-    );
-    return { registered: accepted.map((t) => t.name), removed };
-  } catch (err) {
-    // A throw from registerWorkspaceTools means a hard conflict (e.g.
-    // duplicate name in batch, lifecycle-order regression). The batch
-    // validation phase guarantees no partial application landed, so
-    // every workspace tool from this load attempt is absent from the
-    // registry. Surface the error loudly but do NOT rethrow — assistant
-    // startup must still complete.
-    const message = err instanceof Error ? err.message : String(err);
-    log.error(
-      { err, toolsDir, batchSize: batch.length },
-      `loadWorkspaceTools: registry rejected batch — ${message}`,
-    );
-    return { registered: [], removed };
+/**
+ * Tear down any workspace-tool state this module owns for `stem`:
+ * unregister a live workspace tool (restoring a stashed core tool if the
+ * workspace tool overrode one), and restore a core tool previously
+ * stripped via a `.removed` sentinel. Both are no-ops when there is
+ * nothing to undo, so this is safe to call for any stem.
+ */
+function teardownStem(stem: string): void {
+  if (getToolOwner(stem)?.kind === "workspace") {
+    unregisterWorkspaceTool(stem);
+  }
+  if (getCoreToolOverride(stem) && !getTool(stem)) {
+    restoreStrippedCoreTool(stem);
   }
 }
 
-// ─── Single-entry helpers for the file watcher ───────────────────────────────
-//
-// The watcher calls these on each fs event. The initial-scan path
-// ({@link loadWorkspaceTools}) batches for transactional registration;
-// the per-event path takes the simpler one-tool-at-a-time route since
-// fs events arrive serially and the registry handles each as an
-// atomic operation.
-
 /**
- * Load and register a single workspace tool file. Returns the registered
- * tool name on success or `undefined` if the file failed to load (errors
- * are logged with file attribution and never thrown to the caller).
- *
- * Used by the file watcher's `add` event. The caller is expected to
- * have already unregistered any prior workspace tool for the same name.
+ * Import and finalize the winning live file for `stem`, returning the
+ * registry-ready {@link Tool} or `undefined` when the file fails to load
+ * (every failure is logged with file attribution and never thrown).
  */
-export async function loadSingleWorkspaceTool(
-  entryPath: string,
-  options: LoadWorkspaceToolsOptions = {},
-): Promise<string | undefined> {
-  const importTimeoutMs = options.importTimeoutMs ?? IMPORT_TIMEOUT_MS;
-  const filename = entryPath.split("/").pop() ?? "";
-  const classified = classifyEntry(filename);
-  if (!classified || classified.kind !== "live") {
-    log.debug(
-      { entryPath },
-      "loadSingleWorkspaceTool: file is not a live tool entry — skipping",
-    );
-    return undefined;
-  }
-  if (!isValidToolFilenameStem(classified.stem)) {
-    log.error(
-      { entryPath, stem: classified.stem },
-      `loadSingleWorkspaceTool: filename stem "${classified.stem}" is not a provider-safe tool name — skipping`,
-    );
-    return undefined;
-  }
-
+async function loadDesiredLiveTool(
+  stem: string,
+  entry: DesiredLiveEntry,
+  importTimeoutMs: number,
+): Promise<Tool | undefined> {
   let toolSpec: ToolDefinition | undefined;
-  if (classified.ext === ".json") {
-    toolSpec = await readJsonToolSpec(entryPath);
+  if (entry.ext === ".json") {
+    toolSpec = await readJsonToolSpec(entry.path);
   } else {
-    const defaultExport = await importToolDefaultBounded(entryPath, importTimeoutMs);
-    if (defaultExport === undefined) return undefined;
+    const defaultExport = await importToolDefaultBounded(
+      entry.path,
+      importTimeoutMs,
+    );
+    if (defaultExport === undefined) return undefined; // Failure already logged.
     if (defaultExport === null || typeof defaultExport !== "object") {
       log.error(
-        { entryPath, type: typeof defaultExport },
-        `Workspace tool at ${entryPath} default export must be an object — skipping`,
+        { entryPath: entry.path, type: typeof defaultExport },
+        `Workspace tool at ${entry.path} default export must be an object — skipping`,
       );
       return undefined;
     }
     toolSpec = defaultExport as ToolDefinition;
   }
   if (!toolSpec) return undefined;
-
-  const loaded = applyWorkspaceToolDefaults(toolSpec, classified.stem);
-  try {
-    registerWorkspaceTools([{ tool: loaded, workspacePath: entryPath }]);
-    return classified.stem;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error(
-      { err, entryPath },
-      `loadSingleWorkspaceTool: registry rejected "${classified.stem}": ${message}`,
-    );
-    return undefined;
-  }
+  return applyWorkspaceToolDefaults(toolSpec, stem);
 }
 
 /**
- * Classify a single filesystem entry. Exposed for the file watcher so
- * it can route events without re-implementing the extension logic.
+ * The currently-running reconcile, if any. Concurrent callers coalesce onto
+ * it so the per-turn fire-and-forget kicks from many conversations can't
+ * pile up or interleave their unregister/register sequences against the
+ * shared registry. Once it settles this is cleared, so a later caller (the
+ * next turn, or a sequential awaiter like boot/tests) starts a fresh scan.
  */
-export function classifyWorkspaceToolEntry(
-  filename: string,
-):
-  | { kind: "live"; stem: string; ext: LiveToolExtension }
-  | { kind: "removed"; stem: string }
-  | undefined {
-  return classifyEntry(filename);
-}
+let inflightReconcile: Promise<LoadWorkspaceToolsResult> | null = null;
 
 /**
- * Scan `toolsDir` for all entries matching `stem` and return the winning
- * live file's absolute path (if any) plus whether a `.removed` sentinel
- * exists for the same stem.
+ * Reconcile the registry's workspace-tool layer against
+ * `<workspaceDir>/tools/`.
  *
- * Multi-extension precedence: `.js` > `.ts` > `.json`. Shadowed siblings
- * are not reported here — the caller decides whether to warn (the full
- * scan path does; the per-stem watcher does not, because shadow events
- * are noisy in editor save flows).
+ * Idempotent and safe to call repeatedly: the first call registers every
+ * well-formed `<name>.{ts,js,json}` as a workspace tool and strips core
+ * tools named by `<name>.removed` sentinels; subsequent calls apply only
+ * the delta since the previous reconcile — registering added files,
+ * re-importing changed files (detected by mtime), unregistering deleted
+ * files, and restoring core tools whose sentinel was removed.
+ *
+ * Invariants:
+ *
+ * - No-ops to an empty registry footprint when the tools directory does
+ *   not exist, tearing down anything a previous reconcile installed.
+ * - Per-tool isolation: any single broken tool is logged and skipped
+ *   without aborting the reconcile. The function resolves normally even
+ *   when every candidate fails.
+ * - Concurrency-safe: concurrent callers coalesce onto a single in-flight
+ *   reconcile, so the unregister/register sequence for a changed tool never
+ *   races another reconcile.
+ *
+ * Caller responsibilities:
+ *
+ * - The first call must run between {@link initializeTools} and
+ *   {@link loadUserPlugins}. Calling earlier risks racing core
+ *   registrations; calling later means plugins see an incomplete
+ *   registry and may register over a name a workspace tool will later
+ *   try to own. Later calls (driven by the per-turn tool resolver) are
+ *   free to run any time — the reconcile only ever touches
+ *   workspace-owned and core-stashed names.
  */
-export function findWinningWorkspaceToolPath(
-  toolsDir: string,
-  stem: string,
-): { livePath: string | null; liveExt: LiveToolExtension | null; hasRemovedSentinel: boolean } {
-  if (!existsSync(toolsDir)) {
-    return { livePath: null, liveExt: null, hasRemovedSentinel: false };
-  }
-  let entries: string[];
-  try {
-    entries = readdirSync(toolsDir);
-  } catch (err) {
-    log.warn(
-      { err, toolsDir, stem },
-      "findWinningWorkspaceToolPath: failed to read tools directory",
-    );
-    return { livePath: null, liveExt: null, hasRemovedSentinel: false };
-  }
+export function loadWorkspaceTools(
+  options: LoadWorkspaceToolsOptions = {},
+): Promise<LoadWorkspaceToolsResult> {
+  if (inflightReconcile) return inflightReconcile;
+  // `reconcileWorkspaceTools` never rejects (all failures are caught and
+  // logged); `.finally` clears the slot either way so the next caller scans
+  // fresh.
+  inflightReconcile = reconcileWorkspaceTools(options).finally(() => {
+    inflightReconcile = null;
+  });
+  return inflightReconcile;
+}
 
-  const liveExtensions = new Set<LiveToolExtension>();
-  let hasRemovedSentinel = false;
+async function reconcileWorkspaceTools(
+  options: LoadWorkspaceToolsOptions,
+): Promise<LoadWorkspaceToolsResult> {
+  const importTimeoutMs = options.importTimeoutMs ?? IMPORT_TIMEOUT_MS;
+  const toolsDir = getWorkspaceToolsDir();
 
-  for (const entry of entries) {
-    const classified = classifyEntry(entry);
-    if (!classified || classified.stem !== stem) continue;
-    if (classified.kind === "removed") {
-      hasRemovedSentinel = true;
-    } else {
-      liveExtensions.add(classified.ext);
+  const { desiredLive, removedStems } = scanWorkspaceToolsDir(toolsDir);
+
+  // Snapshot what we managed before so we can detect stems that vanished
+  // from disk entirely (present last time, absent now) and tear them down.
+  const prevManaged = new Map(managed);
+
+  // 1. Tear down stems we previously managed that disk no longer mentions
+  //    (neither a live file nor a .removed sentinel). Stems still present
+  //    are handled by the live/removed passes below.
+  for (const stem of prevManaged.keys()) {
+    if (!desiredLive.has(stem) && !removedStems.has(stem)) {
+      teardownStem(stem);
+      managed.delete(stem);
     }
   }
 
-  if (liveExtensions.size === 0) {
-    return { livePath: null, liveExt: null, hasRemovedSentinel };
+  // 2. `.removed` sentinels — strip the named core tool. Unregister any
+  //    prior workspace registration for the stem first so the strip path
+  //    sees a core (or empty) baseline rather than a workspace override.
+  for (const stem of removedStems) {
+    if (getToolOwner(stem)?.kind === "workspace") {
+      unregisterWorkspaceTool(stem);
+    }
+    try {
+      removeCoreToolViaWorkspace(stem);
+      managed.set(stem, { kind: "removed" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(
+        { err, stem },
+        `loadWorkspaceTools: failed to strip core tool "${stem}": ${message}`,
+      );
+      managed.delete(stem);
+    }
   }
-  const { ext } = selectLiveExtension(liveExtensions);
-  return {
-    livePath: join(toolsDir, `${stem}${ext}`),
-    liveExt: ext,
-    hasRemovedSentinel,
-  };
+
+  // 3. Live tools — register new files, re-import changed files (mtime
+  //    differs), skip unchanged ones. Each entry is imported and registered
+  //    on its own so one broken or conflicting file cannot drop the others
+  //    (per-tool isolation): the import is bounded/caught, and registration
+  //    goes through registerWorkspaceTools one tool at a time. Stems are the
+  //    map keys here, so there are no intra-reconcile duplicate names that a
+  //    batch would otherwise need to validate.
+  for (const [stem, entry] of desiredLive) {
+    const prev = prevManaged.get(stem);
+    const unchanged =
+      prev?.kind === "live" &&
+      prev.ext === entry.ext &&
+      prev.mtimeMs === entry.mtimeMs &&
+      getToolOwner(stem)?.kind === "workspace";
+    if (unchanged) {
+      managed.set(stem, {
+        kind: "live",
+        ext: entry.ext,
+        mtimeMs: entry.mtimeMs,
+      });
+      continue;
+    }
+
+    // Changed, or a fresh import is needed. Import FIRST and only mutate the
+    // registry once we hold a valid tool, so a failed re-import leaves the
+    // previously-registered version in place rather than tearing it down.
+    const tool = await loadDesiredLiveTool(stem, entry, importTimeoutMs);
+    if (!tool) {
+      // Import failed (already logged). Leave any prior registration intact
+      // and keep the managed entry so a later fix re-imports cleanly.
+      continue;
+    }
+
+    // Drop any prior workspace registration so the loader re-registers
+    // cleanly, and restore a previously-stripped core tool so the override
+    // path sees the expected baseline (core present → stash + replace).
+    if (getToolOwner(stem)?.kind === "workspace") {
+      unregisterWorkspaceTool(stem);
+    }
+    if (getCoreToolOverride(stem) && !getTool(stem)) {
+      restoreStrippedCoreTool(stem);
+    }
+
+    try {
+      registerWorkspaceTools([{ tool, workspacePath: entry.path }]);
+      managed.set(stem, {
+        kind: "live",
+        ext: entry.ext,
+        mtimeMs: entry.mtimeMs,
+      });
+    } catch (err) {
+      // A throw means a hard conflict for this name (e.g. a plugin/MCP tool
+      // already owns it — a lifecycle-order regression). Surface it loudly,
+      // but do NOT rethrow and do NOT abort the other tools — startup /
+      // conversation reads must still complete.
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(
+        { err, stem, toolsDir },
+        `loadWorkspaceTools: registry rejected "${stem}" — ${message}`,
+      );
+      managed.delete(stem);
+    }
+  }
+
+  // Derive the result from the final registry state so it reflects what
+  // actually landed rather than what we attempted.
+  const registered: string[] = [];
+  const removed: string[] = [];
+  for (const [stem, entry] of managed) {
+    if (entry.kind === "live" && getToolOwner(stem)?.kind === "workspace") {
+      registered.push(stem);
+    } else if (
+      entry.kind === "removed" &&
+      getCoreToolOverride(stem) &&
+      !getTool(stem)
+    ) {
+      removed.push(stem);
+    }
+  }
+
+  if (registered.length === 0 && removed.length === 0) {
+    log.debug(
+      { toolsDir },
+      "loadWorkspaceTools: no workspace tools registered or stripped",
+    );
+  } else {
+    log.info(
+      { count: registered.length, toolsDir, removedCount: removed.length },
+      `Workspace tools reconciled: ${registered.length} registered${removed.length > 0 ? `, ${removed.length} core tool${removed.length === 1 ? "" : "s"} stripped` : ""}`,
+    );
+  }
+
+  return { registered, removed };
+}
+
+/**
+ * Test-only — drop the mtime cache and serialization chain so a fresh
+ * test starts from a clean reconcile baseline. The registry itself is
+ * reset separately via `__clearRegistryForTesting`.
+ */
+export function __resetWorkspaceToolCacheForTesting(): void {
+  managed.clear();
+  inflightReconcile = null;
 }

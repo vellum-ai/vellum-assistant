@@ -18,7 +18,13 @@
  * cached entry.
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
@@ -648,7 +654,6 @@ export async function populateCacheAtBoot(
       try {
         const initContext: PluginInitContext = {
           config: getConfig().plugins?.[pluginName],
-          credentials: {},
           logger: log.child({ plugin: pluginName }),
           pluginStorageDir: ensurePluginStorageDir(pluginName),
           assistantVersion: APP_VERSION,

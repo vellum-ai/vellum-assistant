@@ -44,7 +44,6 @@ import {
 } from "../channels/types.js";
 import type { AssistantConfig } from "../config/types.js";
 import { extractTurnContextTimestamp } from "../context/compactor.js";
-import { findConversation } from "../daemon/conversation-registry.js";
 import {
   formatLocalTimestamp,
   resolveTurnTimezoneContext,
@@ -63,6 +62,7 @@ import {
   forkConversationForRetrospective,
   getConversation,
   getMessagesAfter,
+  isConversationProcessing,
   resolveOverrideProfile,
 } from "./conversation-crud.js";
 import {
@@ -145,14 +145,15 @@ export async function runForkBasedRetrospective(
 
   // Forking mid-turn would capture a half-finished display turn — incremental
   // checkpoint persistence writes complete tool turns to the DB while the
-  // agent loop is still running. Peek the in-memory registry only (an
-  // unloaded conversation is by definition not processing); never load the
-  // conversation just to check. Bump `lastRunAt` so the cooldown gate
-  // applies, leave `lastProcessedMessageId` untouched so the next
-  // interval/message-count trigger re-processes the same messages — nothing
-  // is lost. Returning (not throwing) keeps the jobs-worker from
+  // agent loop is still running. Check the persisted `processing_started_at`
+  // column (the cross-process source of truth) instead of the in-memory
+  // registry, so this guard works even when running in a separate CLI
+  // process with an empty conversation registry. Bump `lastRunAt` so the
+  // cooldown gate applies, leave `lastProcessedMessageId` untouched so the
+  // next interval/message-count trigger re-processes the same messages —
+  // nothing is lost. Returning (not throwing) keeps the jobs-worker from
   // retry-with-backoff.
-  if (findConversation(sourceConversationId)?.isProcessing()) {
+  if (isConversationProcessing(sourceConversationId)) {
     bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
     log.info(
       { sourceConversationId },

@@ -37,6 +37,8 @@ mock.module("../memory/attachments-store.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   addMessage: async (
     conversationId: string,
     role: string,

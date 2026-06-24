@@ -47,8 +47,6 @@ export interface PluginManifest {
    * own version at load time.
    */
   version: string;
-  /** Credential keys the plugin needs resolved before `init()` runs. */
-  requiresCredential?: string[];
   /**
    * Assistant feature-flag keys that must all be enabled for this plugin to
    * activate. Checked by `bootstrapPlugins` via `isAssistantFeatureFlagEnabled`
