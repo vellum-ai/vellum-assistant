@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 
 import { minimatch } from "minimatch";
+import { RE2JS } from "re2js";
 
 import { RiskLevel } from "../../permissions/types.js";
 import { registerTool } from "../registry.js";
@@ -25,13 +26,10 @@ const MAX_FILES_SCANNED = 20_000;
 const MAX_TOTAL_BYTES = 256 * 1024 * 1024; // 256 MiB
 const MAX_FILE_BYTES = 8 * 1024 * 1024; // skip files larger than 8 MiB
 
-// A user-supplied pattern is run synchronously against every line. A
-// catastrophic-backtracking regex against a very long line can monopolize the
-// event loop, which prevents the tool's promise timeout from ever firing
-// (nothing yields). Bounding the slice the regex sees caps worst-case
-// backtracking per line while still covering normal code/log lines. A future
-// enhancement could run matching in an interruptible worker for full isolation;
-// the prefix bound is the pragmatic guard here.
+// Per-line work/output cap (ripgrep-style long-line bound). The pattern is run
+// against only the leading slice of each line, so a single pathological line
+// (e.g. a minified bundle on one line) can't dominate matching time or emit a
+// multi-megabyte match line. Normal code/log lines are well under the cap.
 const MAX_MATCH_LINE_LENGTH = 2000;
 
 // Output-byte budget: when `context_lines` is large and many nearby lines
@@ -41,12 +39,11 @@ const MAX_MATCH_LINE_LENGTH = 2000;
 // report the result as truncated.
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024; // 4 MiB
 
-// Wall-clock deadline for the whole search. Even with the per-line slice bound
-// above, a catastrophic-backtracking regex can take ~1s on a single 2000-char
-// slice, so a file with many such lines could block the event loop for a long
-// time — long enough that the promise-based tool timeout / abort signal can't
-// fire (nothing yields). Checking this deadline every line bounds the total
-// event-loop block to roughly MAX_SEARCH_MS plus one line's worst case.
+// Wall-clock deadline for the whole search. The synchronous scan never yields,
+// so the promise-based tool timeout / abort signal can't fire mid-scan. Checking
+// this deadline (and the abort signal) once per line bounds how long a search
+// over a very large tree can block the event loop and lets an external abort
+// stop the walk promptly.
 const MAX_SEARCH_MS = 10_000; // 10 s
 
 const DEFAULT_MAX_RESULTS = 200;
@@ -138,14 +135,20 @@ export const codeSearchTool = {
     const root = pathCheck.resolved;
 
     const caseInsensitive = input.case_insensitive === true;
-    let regex: RegExp;
+    // Match with the linear-time RE2 engine (via re2js) instead of V8's
+    // backtracking RegExp. RE2 guarantees linear-time matching, so a
+    // user/subagent-supplied pattern cannot trigger catastrophic backtracking
+    // and block the synchronous scan. The trade-off is that RE2 rejects
+    // backreferences and lookarounds; compile() throws on those, surfaced as a
+    // clean error below.
+    let regex: RE2JS;
     try {
-      regex = new RegExp(pattern, caseInsensitive ? "i" : "");
+      regex = RE2JS.compile(pattern, caseInsensitive ? RE2JS.CASE_INSENSITIVE : 0);
     } catch (err) {
       return {
-        content: `Error: invalid pattern "${pattern}": ${
+        content: `Error: invalid or unsupported pattern "${pattern}": ${
           err instanceof Error ? err.message : String(err)
-        }`,
+        }. The RE2 engine does not support backreferences or lookarounds.`,
         isError: true,
       };
     }
@@ -288,17 +291,17 @@ export const codeSearchTool = {
           timedOut = true;
           return;
         }
-        // Only run the regex against the leading slice of each line so a single
-        // pathological line can't monopolize the event loop via catastrophic
-        // backtracking. Normal code/log lines are well under the cap.
+        // Only run the pattern against the leading slice of each line so a
+        // single very long line (e.g. a minified bundle) can't dominate match
+        // time or emit a huge match line. Normal code/log lines are well under
+        // the cap.
         const line = fileLines[i];
         const probe =
           line.length > MAX_MATCH_LINE_LENGTH
             ? line.slice(0, MAX_MATCH_LINE_LENGTH)
             : line;
-        // Reset lastIndex defensively in case a future change adds the global
-        // flag; with a fresh slice each iteration this is otherwise a no-op.
-        regex.lastIndex = 0;
+        // Unanchored partial match anywhere in the slice — the RE2 equivalent of
+        // RegExp.prototype.test(). The compiled pattern is stateless per call.
         if (!regex.test(probe)) continue;
         if (matchCount >= maxResults) {
           truncated = true;

@@ -368,17 +368,19 @@ describe("codeSearchTool", () => {
   });
 
   test(
-    "a catastrophic-backtracking pattern over many lines terminates",
+    "a catastrophic-backtracking pattern returns near-instantly (linear-time RE2)",
     async () => {
       const dir = makeTempDir();
-      // A classic catastrophic-backtracking pattern against crafted lines that
-      // never match. Each individual line is small enough to backtrack quickly,
-      // but the file has many of them — the wall-clock deadline is checked once
-      // per line, so the scan must terminate (it does not block indefinitely).
-      // Kept deterministically fast: the whole file scans well under the
-      // deadline, so we assert it returns a clean result rather than hanging.
-      const evilLine = "a".repeat(20) + "!"; // forces backtracking, no match
-      const body = Array.from({ length: 50 }, () => evilLine).join("\n");
+      // The classic ReDoS proof: `(a+)+$` against many non-matching lines of the
+      // form `'a'.repeat(50) + '!'`. Under V8's backtracking RegExp a single
+      // `regex.test()` on one such line blocks the event loop for seconds, and
+      // the synchronous scan never yields so neither the wall-clock deadline nor
+      // the promise timeout can interrupt it — the call would hang. With the
+      // linear-time RE2 engine the whole file scans in milliseconds and returns
+      // a clean, non-truncated "No matches found". The small per-call timeout
+      // below would trip if matching ever fell back to backtracking.
+      const evilLine = "a".repeat(50) + "!"; // forces backtracking, no match
+      const body = Array.from({ length: 200 }, () => evilLine).join("\n");
       writeFileSync(join(dir, "evil.txt"), body + "\n");
 
       const result = await codeSearchTool.execute(
@@ -386,18 +388,30 @@ describe("codeSearchTool", () => {
         makeToolContext(dir),
       );
 
-      // It must terminate gracefully. Depending on host speed it either
-      // finishes under the deadline (clean "No matches found") or trips the
-      // deadline (truncated/timed-out) — both are acceptable; hanging is not.
       expect(result.isError).toBe(false);
-      if (result.status === "truncated") {
-        expect(result.content).toContain("timed out");
-      } else {
-        expect(result.content).toContain("No matches found");
-      }
+      // Linear-time matching completes well within the deadline, so this is a
+      // definitive miss, not a timed-out/truncated result.
+      expect(result.status).toBeUndefined();
+      expect(result.content).toContain("No matches found");
     },
-    30_000,
+    5_000,
   );
+
+  test("an unsupported pattern (backreference) returns a clean error, not a throw", async () => {
+    const dir = makeTempDir();
+    writeFileSync(join(dir, "a.txt"), "aa\n");
+
+    // RE2 does not support backreferences (or lookarounds). The pattern must be
+    // rejected at compile time and surfaced as an isError result rather than
+    // throwing out of execute().
+    const result = await codeSearchTool.execute(
+      { pattern: "(a)\\1", activity: "search" },
+      makeToolContext(dir),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("invalid or unsupported pattern");
+  });
 
   test("does not return contents of denied-basename files", async () => {
     const dir = makeTempDir();
