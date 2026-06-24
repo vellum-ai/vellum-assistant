@@ -54,7 +54,7 @@ describe("runMigrationSteps — checkpointing", () => {
 
   test("records step completions in the shared memory_checkpoints ledger", async () => {
     /**
-     * Step bookkeeping lives in the same memory_checkpoints table the registry
+     * Step bookkeeping lives in the same memory_checkpoints table the step runner
      * uses, under the `step:` namespace — one ledger for all applied state.
      */
 
@@ -110,7 +110,7 @@ describe("runMigrationSteps — checkpointing", () => {
      * before the loop so a migration interrupted mid-flight re-runs this boot.
      */
 
-    // GIVEN a database with a stalled registry checkpoint left by a crash
+    // GIVEN a database with a stalled step checkpoint left by a crash
     const db = createTestDb();
     const raw = getSqliteFrom(db);
     raw.run(
