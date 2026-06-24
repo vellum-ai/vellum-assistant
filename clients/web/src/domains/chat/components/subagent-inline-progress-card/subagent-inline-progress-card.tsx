@@ -14,13 +14,15 @@
  * wires this into the transcript; this PR ships the component standalone.
  *
  * Interaction model:
- *   - Clicking anywhere on the row (other than the stop button) opens the
- *     subagent's full timeline panel via `onSubagentClick`. There is no
- *     inline expand — the panel is the only detail view. The row is a
- *     `<div role="button">` (not a `<button>`) because it nests the stop
- *     `<button>`, and nested buttons are invalid HTML.
+ *   - The leading content cluster (status indicator + avatar + carousel) is
+ *     the open affordance: a `<span role="button">` carrying the
+ *     `onSubagentClick` activation. Activating it opens the subagent's full
+ *     timeline panel. There is no inline expand — the panel is the only
+ *     detail view. The open affordance does not enclose the stop button, so
+ *     the stop control stays an independent, separately focusable button.
  *   - Stop is exposed via `onStopSubagent`; a small stop button renders in
- *     the right cluster while the subagent is in-flight.
+ *     the right cluster while the subagent is in-flight, as a sibling of the
+ *     open affordance.
  */
 
 import { AlertCircle, CheckCircle2, Square } from "lucide-react";
@@ -63,16 +65,14 @@ export function SubagentInlineProgressCard({
   // where stopping the subagent is a meaningful action.
   const isRunning = data?.state === "loading";
 
-  const handleRowClick = useCallback(() => {
+  const handleOpenClick = useCallback(() => {
     onSubagentClick?.(subagentId);
   }, [onSubagentClick, subagentId]);
 
-  const handleRowKeyDown = useCallback(
+  const handleOpenKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      // Only react when the row itself is focused. A focusable child (the
-      // stop button) bubbles its Enter/Space keydown here before its own
-      // click fires; without this guard the row would hijack that activation
-      // — opening the panel and `preventDefault()`-ing the button's click.
+      // Only react when the open affordance itself is focused, so a stray
+      // bubbled keydown can't hijack activation away from its origin.
       if (e.target !== e.currentTarget) return;
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
@@ -137,17 +137,23 @@ export function SubagentInlineProgressCard({
     !stepCount.startsWith("0 ") &&
     !stepCount.startsWith("1 ");
 
+  // Absent `onSubagentClick`, the leading cluster is inert content — not
+  // announced as a button and not focusable.
+  const canOpen = !!onSubagentClick;
+
   return (
     <div
-      role="button"
-      tabIndex={0}
       data-testid="subagent-inline-progress-card"
-      aria-label={onSubagentClick ? "Open subagent" : undefined}
-      onClick={handleRowClick}
-      onKeyDown={handleRowKeyDown}
       className="group flex w-full items-center justify-between gap-2 rounded-md p-2 text-left hover:bg-[var(--surface-active)]"
     >
-      <span className="flex min-w-0 flex-1 items-center gap-1">
+      <span
+        role={canOpen ? "button" : undefined}
+        tabIndex={canOpen ? 0 : undefined}
+        aria-label={canOpen ? "Open subagent" : undefined}
+        onClick={canOpen ? handleOpenClick : undefined}
+        onKeyDown={canOpen ? handleOpenKeyDown : undefined}
+        className="flex min-w-0 flex-1 items-center gap-1 text-left"
+      >
         {statusIndicator}
         <span className="mx-1 flex shrink-0 items-center">
           <SubagentAvatarChip subagentId={subagentId} size={16} />

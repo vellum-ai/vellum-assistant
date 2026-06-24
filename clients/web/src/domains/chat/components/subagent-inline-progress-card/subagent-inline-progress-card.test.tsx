@@ -141,7 +141,7 @@ describe("SubagentInlineProgressCard — fixture timeline", () => {
 });
 
 describe("SubagentInlineProgressCard — header action", () => {
-  test("clicking the header row invokes onSubagentClick", () => {
+  test("clicking the open affordance invokes onSubagentClick", () => {
     spawn("sa-open");
     const seen: string[] = [];
     const { getByRole } = render(
@@ -150,16 +150,16 @@ describe("SubagentInlineProgressCard — header action", () => {
         onSubagentClick={(id) => seen.push(id)}
       />,
     );
-    // The whole header row IS the open affordance — no separate icon
-    // button anymore. The shell uses the aria-label we passed through.
+    // The leading content cluster carries role="button" + the open
+    // aria-label; the outer row is a plain div.
     fireEvent.click(getByRole("button", { name: /open subagent/i }));
     expect(seen).toEqual(["sa-open"]);
   });
 
-  test("Enter on the row opens the panel, but Enter from the stop button does not", () => {
+  test("Enter on the open affordance opens the panel, but Enter from the stop button does not", () => {
     spawn("sa-keydown");
     const seen: string[] = [];
-    const { getByTestId } = render(
+    const { getByRole, getByTestId } = render(
       <SubagentInlineProgressCard
         subagentId="sa-keydown"
         onSubagentClick={(id) => seen.push(id)}
@@ -167,17 +167,19 @@ describe("SubagentInlineProgressCard — header action", () => {
       />,
     );
 
-    const row = getByTestId("subagent-inline-progress-card");
+    const openAffordance = getByRole("button", { name: /open subagent/i });
     const stop = getByTestId("subagent-inline-card-stop");
 
-    // Enter originating on the stop button bubbles to the row handler, but the
-    // row must ignore it (target !== currentTarget) so the button's own
-    // keyboard activation is not hijacked.
+    // The stop button is a sibling of the open affordance, not a descendant,
+    // so its keydown never reaches the open handler.
+    expect(openAffordance.contains(stop)).toBe(false);
+
+    // Enter originating on the stop button must not open the panel.
     fireEvent.keyDown(stop, { key: "Enter" });
     expect(seen).toEqual([]);
 
-    // Enter on the row itself still opens the panel.
-    fireEvent.keyDown(row, { key: "Enter" });
+    // Enter on the open affordance opens the panel.
+    fireEvent.keyDown(openAffordance, { key: "Enter" });
     expect(seen).toEqual(["sa-keydown"]);
   });
 
