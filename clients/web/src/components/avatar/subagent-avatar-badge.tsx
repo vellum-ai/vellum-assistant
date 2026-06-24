@@ -75,13 +75,10 @@ export function SubagentAvatarBadge({
   return (
     <div
       data-testid="subagent-avatar-badge"
-      // Hover affordance: the avatar fills the circle's centre, so a
-      // background-only shift reads faintly — pair it with a subtle ring so
-      // each badge gives clear, individual hover feedback. `--surface-active`
-      // matches the expanded row's hover; `--border-element` is the standard
-      // outline token. `ring-2` (2px) fits inside the row's `gap-1` (4px), so
-      // adjacent badges never clip.
-      className={`relative flex h-8 w-8 items-center justify-center rounded-full bg-[var(--surface-lift)] transition hover:bg-[var(--surface-active)] hover:ring-2 hover:ring-[var(--border-element)] ${className ?? ""}`.trim()}
+      // Hover affordance per the Figma mock (`6063:148556`): the circle
+      // background swaps from `--surface-lift` (#FFFFFF) to `--surface-active`
+      // (#F2F0EE) — nothing else (no ring/border/scale).
+      className={`relative flex h-8 w-8 items-center justify-center rounded-full bg-[var(--surface-lift)] transition-colors hover:bg-[var(--surface-active)] ${className ?? ""}`.trim()}
     >
       {/* Avatar sits slightly above centre (~6px from top) to leave room for
           the indicator beneath it, per the mock. */}

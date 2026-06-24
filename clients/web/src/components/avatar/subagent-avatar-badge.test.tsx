@@ -98,13 +98,13 @@ describe("SubagentAvatarBadge", () => {
     ).not.toBeNull();
   });
 
-  test("the circle exposes a hover affordance (background + ring)", () => {
+  test("the circle swaps background to --surface-active on hover (per Figma)", () => {
     spawn("sa-hover", "running");
     const { getByTestId } = render(<SubagentAvatarBadge subagentId="sa-hover" />);
     const circle = getByTestId("subagent-avatar-badge");
+    // The whole hover state is a background swap: --surface-lift → --surface-active.
+    expect(circle.className).toContain("bg-[var(--surface-lift)]");
     expect(circle.className).toContain("hover:bg-[var(--surface-active)]");
-    expect(circle.className).toContain("hover:ring-2");
-    expect(circle.className).toContain("hover:ring-[var(--border-element)]");
   });
 
   test("renders no status indicator before the entry lands in the store", () => {
