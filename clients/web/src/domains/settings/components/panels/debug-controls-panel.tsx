@@ -1,4 +1,4 @@
-import { Loader2, RotateCw, Wrench } from "lucide-react";
+import { HardDrive, Loader2, RotateCw, Wrench } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
@@ -138,9 +138,12 @@ export function DebugControlsPanel() {
           )}
           {platformGate !== "disabled" && (
             <div className="rounded-lg border border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
-              <h3 className="mb-3 text-body-medium-default text-[var(--content-default)]">
-                Backups
-              </h3>
+              <div className="mb-3 flex items-center gap-2">
+                <HardDrive className="h-4 w-4 text-[var(--content-secondary)]" />
+                <h3 className="text-body-medium-default text-[var(--content-default)]">
+                  Backups
+                </h3>
+              </div>
               <AssistantBackups assistantId={assistant.id} />
             </div>
           )}

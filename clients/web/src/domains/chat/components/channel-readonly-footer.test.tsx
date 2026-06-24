@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 
 import { client } from "@/generated/daemon/client.gen";
-import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer";
+import { ChannelReadonlyFooter } from "@/domains/chat/components/channel-readonly-footer";
 
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
-describe("SlackChannelFooter lazy channel name resolution", () => {
+describe("ChannelReadonlyFooter Slack lazy channel name resolution", () => {
   const originalPost = client.post;
   let postCalls: Array<Parameters<typeof client.post>[0]> = [];
   let nextResolveResponse: {
@@ -39,7 +39,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
 
   test("resolves an ID-only Slack channel fallback", async () => {
     render(
-      <SlackChannelFooter
+      <ChannelReadonlyFooter
         assistantId="assistant-1"
         conversation={{
           conversationId: "conv-lazy-resolve",
@@ -71,7 +71,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
 
   test("renders the Slack read-only notice with an open-in-Slack action", async () => {
     render(
-      <SlackChannelFooter
+      <ChannelReadonlyFooter
         assistantId="assistant-1"
         conversation={{
           conversationId: "conv-slack-readonly",
@@ -105,7 +105,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
 
   test("does not resolve when the binding already has a friendly name", async () => {
     render(
-      <SlackChannelFooter
+      <ChannelReadonlyFooter
         assistantId="assistant-1"
         conversation={{
           conversationId: "conv-friendly-name",
@@ -126,7 +126,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
 
   test("does not resolve Slack direct-message channels", async () => {
     render(
-      <SlackChannelFooter
+      <ChannelReadonlyFooter
         assistantId="assistant-1"
         conversation={{
           conversationId: "conv-direct-message",
@@ -148,7 +148,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
 
   test("labels Slack direct-message channels from message sender metadata", async () => {
     render(
-      <SlackChannelFooter
+      <ChannelReadonlyFooter
         assistantId="assistant-1"
         conversation={{
           conversationId: "conv-direct-message-message-sender",
@@ -180,7 +180,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
 
   test("labels Slack direct-message channels from a known channel binding name", async () => {
     render(
-      <SlackChannelFooter
+      <ChannelReadonlyFooter
         assistantId="assistant-1"
         conversation={{
           conversationId: "conv-direct-message-channel-name",
@@ -202,7 +202,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
 
   test("uses a generic Slack DM label when the participant name is unavailable", async () => {
     render(
-      <SlackChannelFooter
+      <ChannelReadonlyFooter
         assistantId="assistant-1"
         conversation={{
           conversationId: "conv-direct-message-unknown",
@@ -233,7 +233,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
     };
 
     render(
-      <SlackChannelFooter
+      <ChannelReadonlyFooter
         assistantId="assistant-1"
         conversation={{
           conversationId: "conv-unresolved",
@@ -254,7 +254,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
 
   test("prefers a refreshed binding name over a cached lazy resolution", async () => {
     const { rerender } = render(
-      <SlackChannelFooter
+      <ChannelReadonlyFooter
         assistantId="assistant-1"
         conversation={{
           conversationId: "conv-refreshed-name",
@@ -272,7 +272,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
     });
 
     rerender(
-      <SlackChannelFooter
+      <ChannelReadonlyFooter
         assistantId="assistant-1"
         conversation={{
           conversationId: "conv-refreshed-name",
@@ -301,7 +301,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
 
     render(
       <>
-        <SlackChannelFooter
+        <ChannelReadonlyFooter
           assistantId="assistant-1"
           conversation={{
             conversationId: "conv-deduped",
@@ -312,7 +312,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
             },
           }}
         />
-        <SlackChannelFooter
+        <ChannelReadonlyFooter
           assistantId="assistant-1"
           conversation={{
             conversationId: "conv-deduped",
@@ -344,5 +344,92 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
     await waitFor(() => {
       expect(screen.queryAllByText("shared-channel")).toHaveLength(2);
     });
+  });
+});
+
+describe("ChannelReadonlyFooter non-Slack channels", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  test("labels a Telegram conversation as read-only with the sender name", () => {
+    render(
+      <ChannelReadonlyFooter
+        conversation={{
+          conversationId: "conv-telegram",
+          originChannel: "telegram",
+          channelBinding: {
+            sourceChannel: "telegram",
+            externalChatId: "123456789",
+            displayName: "Alice",
+          },
+        }}
+      />,
+    );
+
+    expect(
+      screen.queryByText(
+        "This Telegram conversation is read-only. You can reply in Telegram.",
+      ),
+    ).not.toBeNull();
+    expect(screen.queryByText("Alice")).not.toBeNull();
+    // No message-level deep link exists for Telegram yet.
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  test("renders the Telegram read-only notice even without a friendly name", () => {
+    render(
+      <ChannelReadonlyFooter
+        conversation={{
+          conversationId: "conv-telegram-bare",
+          originChannel: "telegram",
+          channelBinding: {
+            sourceChannel: "telegram",
+            externalChatId: "123456789",
+          },
+        }}
+      />,
+    );
+
+    expect(
+      screen.queryByText(
+        "This Telegram conversation is read-only. You can reply in Telegram.",
+      ),
+    ).not.toBeNull();
+    // The raw numeric chat id is not a human label and must not be shown.
+    expect(screen.queryByText("123456789")).toBeNull();
+  });
+
+  test("omits the reply hint for one-way channels like phone", () => {
+    render(
+      <ChannelReadonlyFooter
+        conversation={{
+          conversationId: "conv-phone",
+          originChannel: "phone",
+          channelBinding: {
+            sourceChannel: "phone",
+            externalChatId: "+15551234567",
+          },
+        }}
+      />,
+    );
+
+    expect(
+      screen.queryByText("This Phone conversation is read-only."),
+    ).not.toBeNull();
+    expect(screen.queryByText(/You can reply/)).toBeNull();
+  });
+
+  test("renders nothing for native Vellum conversations", () => {
+    const { container } = render(
+      <ChannelReadonlyFooter
+        conversation={{
+          conversationId: "conv-native",
+          originChannel: "vellum",
+        }}
+      />,
+    );
+
+    expect(container.firstChild).toBeNull();
   });
 });

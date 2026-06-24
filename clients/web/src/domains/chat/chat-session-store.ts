@@ -1,11 +1,14 @@
 /**
  * Zustand store for per-conversation ephemeral chat session state.
  *
- * Owns the mutable data (messages, errors, pagination, transient maps/sets)
- * that hooks and stream handlers read and write during a conversation.
+ * Owns client-only state: the in-flight turn (`liveTurn`), errors, transient
+ * maps/sets, and UI expansion state that hooks and stream handlers read and
+ * write during a conversation. Persisted history is NOT owned here — it lives
+ * in the TanStack Query cache (`useHistoryPagination`). The rendered transcript
+ * is the union of the two, derived by `selectTranscriptMessages`.
  *
  * All mutations go through store actions that call `set()`, producing new
- * collection instances. Reactive state (messages, error, isLoadingHistory, …)
+ * collection instances. Reactive state (liveTurn, error, isLoadingHistory, …)
  * drives UI via `.use.*` selectors. Non-reactive state (streamingMessageIds,
  * pendingLocalDeletions, …) is read via `getState()` in async callbacks and
  * stream handlers — it never triggers re-renders directly but still uses
@@ -43,8 +46,12 @@ import type { TranscriptPaginationState } from "@/domains/chat/transcript/types"
 
 /** Reactive state — drives UI via `.use.*` selectors. */
 export interface ChatSessionState {
-  // --- Core message state ---
-  messages: DisplayMessage[];
+  // --- In-flight turn ---
+  // The current turn's client-owned rows only: the optimistic user message and
+  // the assistant row(s) still streaming. Persisted history is NOT here — it
+  // lives in the TanStack Query cache. The rendered transcript is the union of
+  // cached history and this live turn (`selectTranscriptMessages`).
+  liveTurn: DisplayMessage[];
   error: ChatError | null;
   isLoadingHistory: boolean;
 
@@ -96,17 +103,6 @@ export interface ChatSessionState {
   previousConversationId: string | null;
   previousAssistantId: string | null;
   draftConversationIdResolution: boolean;
-
-  // --- History data-apply coordination ---
-  /** True when the most recent switch-reset has fired and the data-apply
-   *  effect hasn't yet consumed it. Consumers set this to `false` after
-   *  using it so subsequent background refetches reconcile instead of
-   *  replace. */
-  switchResetPending: boolean;
-  /** Timestamp (matching TanStack Query's `dataUpdatedAt`) of the last
-   *  history payload applied. Reset to `0` on every switch so the next
-   *  payload always triggers an apply. */
-  lastAppliedDataTimestamp: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -115,7 +111,7 @@ export interface ChatSessionState {
 
 export interface ChatSessionActions {
   // --- Setters ---
-  setMessages: (updater: DisplayMessage[] | ((prev: DisplayMessage[]) => DisplayMessage[])) => void;
+  setLiveTurn: (updater: DisplayMessage[] | ((prev: DisplayMessage[]) => DisplayMessage[])) => void;
   setError: (updater: ChatError | null | ((prev: ChatError | null) => ChatError | null)) => void;
   setIsLoadingHistory: (value: boolean) => void;
   setTranscriptPagination: (
@@ -176,10 +172,6 @@ export interface ChatSessionActions {
   // --- Ephemeral meta-command results ---
   addEphemeralMetaResult: (result: EphemeralMetaResult) => void;
   clearEphemeralMetaResults: () => void;
-
-  // --- Data-apply coordination ---
-  consumeSwitchReset: () => void;
-  setLastAppliedDataTimestamp: (ts: number) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -201,7 +193,7 @@ const INITIAL_PAGINATION: Omit<TranscriptPaginationState, "items"> = {
 
 function initialState(): ChatSessionState {
   return {
-    messages: [],
+    liveTurn: [],
     error: null,
     isLoadingHistory: true,
     transcriptPagination: { ...INITIAL_PAGINATION },
@@ -220,8 +212,6 @@ function initialState(): ChatSessionState {
     previousConversationId: null,
     previousAssistantId: null,
     draftConversationIdResolution: false,
-    switchResetPending: false,
-    lastAppliedDataTimestamp: 0,
   };
 }
 
@@ -243,8 +233,8 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
   ...initialState(),
 
   // --- Setters ---
-  setMessages: (updater) =>
-    set((s) => ({ messages: applyUpdater(s.messages, updater) })),
+  setLiveTurn: (updater) =>
+    set((s) => ({ liveTurn: applyUpdater(s.liveTurn, updater) })),
 
   setError: (updater) =>
     set((s) => ({ error: applyUpdater(s.error, updater) })),
@@ -327,7 +317,7 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       : state.contextWindowUsageByConversation;
 
     set({
-      messages: [],
+      liveTurn: [],
       ephemeralMetaResults: [],
       error: shouldSuppressGenericChatErrorNotice(state.error) ? state.error : null,
       isLoadingHistory: true,
@@ -347,8 +337,6 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       previousConversationId: activeConversationId,
       previousAssistantId: assistantId,
       draftConversationIdResolution: false,
-      switchResetPending: true,
-      lastAppliedDataTimestamp: 0,
     });
   },
 
@@ -481,13 +469,6 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
         ? s
         : { ephemeralMetaResults: [] },
     ),
-
-  // --- Data-apply coordination ---
-  consumeSwitchReset: () =>
-    set({ switchResetPending: false }),
-
-  setLastAppliedDataTimestamp: (ts) =>
-    set({ lastAppliedDataTimestamp: ts }),
 }));
 
 export const useChatSessionStore = createSelectors(useChatSessionStoreBase);

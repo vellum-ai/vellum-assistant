@@ -33,9 +33,12 @@ export interface StreamHandlerContext {
   streamContext: StreamContext | null;
   assistantId: string | null;
 
-  // --- Messages ---
+  // --- In-flight turn ---
+  // Handlers patch the client-owned in-flight turn — the optimistic send and
+  // the still-streaming rows. Persisted history lives in the TanStack Query
+  // cache and is never mutated here; the store routes these onto `liveTurn`.
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
-  /** Current messages snapshot — read from store via `getState().messages`. */
+  /** The in-flight turn snapshot — `getState().liveTurn`. */
   messages: DisplayMessage[];
 
   // --- Turn state ---

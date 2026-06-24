@@ -21,6 +21,8 @@
 
 import { useCallback, useRef, useState } from "react";
 
+import { useQueryClient } from "@tanstack/react-query";
+
 import {
   conversationsPost,
   messagesGet,
@@ -28,6 +30,8 @@ import {
   pluginsInstallPost,
   pluginsSearchGet,
 } from "@/generated/daemon/sdk.gen";
+import { archiveResearchConversation } from "@/domains/onboarding/archive-research-conversation";
+import { invalidateConversationQueries } from "@/utils/conversation-cache";
 import type {
   MessagesGetResponses,
   MessagesPostData,
@@ -39,6 +43,7 @@ import {
   type AvailableCapability,
   type ResearchSubject,
 } from "@/domains/onboarding/research-prompt";
+import { resolveDeterministicPlugins } from "@/domains/onboarding/onboarding-plugin-affinity";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import {
   parseResearchResultStreaming,
@@ -184,10 +189,11 @@ export interface ResearchRunnerState {
   claims: ResearchFact[];
   suggestions: ResearchSuggestion[];
   /**
-   * Capabilities being installed for the assistant this run — the model's
-   * top-level `plugins` picks, narrowed to names present in the fetched catalog.
-   * Persona-level (not tied to a suggestion); surfaced so the UI can confirm
-   * what was set up. Empty when plugins are disabled or nothing fit.
+   * Capabilities being installed for the assistant this run — the deterministic
+   * floor (always-install baseline + role affinity) unioned with the model's
+   * top-level `plugins` picks, each narrowed to names present in the fetched
+   * catalog. Persona-level (not tied to a suggestion); surfaced so the UI can
+   * confirm what was set up. Empty when plugins are disabled or nothing fit.
    */
   installedPlugins: string[];
 }
@@ -292,6 +298,7 @@ export function useResearchRunner(): UseResearchRunner {
   // so ordinary clicks (plugins disabled / none picked / already installed)
   // aren't frozen until the whole reply settles.
   const pluginsReadyRef = useRef<Promise<void>>(Promise.resolve());
+  const queryClient = useQueryClient();
 
   const start = useCallback(
     ({ awaitAssistantId, subject, conversationTitle }: StartResearchOptions) => {
@@ -317,8 +324,11 @@ export function useResearchRunner(): UseResearchRunner {
       });
 
       void (async () => {
+        let resolvedAssistantId: string | undefined;
+        let createdConversationId: string | undefined;
         try {
           const assistantId = await awaitAssistantId();
+          resolvedAssistantId = assistantId;
           if (isStale()) return;
 
           // Advertise the live marketplace catalog to the research turn so it can
@@ -337,6 +347,29 @@ export function useResearchRunner(): UseResearchRunner {
           // click gate now so suggestion clicks never wait on the research turn.
           if (validNames.size === 0) resolvePluginsReady();
 
+          // Tracks every install fired this run (deterministic floor + the model's
+          // later picks), keyed by name so the suggestion click can await them and
+          // a name is never installed twice.
+          const installs = installPromisesRef.current;
+          // Deterministic floor: the always-install baseline plus the role's
+          // affinity matches, narrowed to the live catalog. Fired here — right
+          // after the catalog fetch, before the model has replied — so these
+          // materialize while the research turn is still streaming. The model's
+          // `plugins` picks (handled in the poll loop) union on top for the long
+          // tail of roles this map doesn't enumerate.
+          const deterministicPlugins = resolveDeterministicPlugins(
+            subject.occupation,
+            validNames,
+          );
+          for (const name of deterministicPlugins) {
+            if (!installs.has(name)) {
+              installs.set(name, installCapabilityBestEffort(assistantId, name));
+            }
+          }
+          if (deterministicPlugins.length > 0) {
+            setState((s) => ({ ...s, installedPlugins: deterministicPlugins }));
+          }
+
           const conversation = await conversationsPost({
             path: { assistant_id: assistantId },
             body: {
@@ -345,6 +378,11 @@ export function useResearchRunner(): UseResearchRunner {
             },
             throwOnError: false,
           });
+          // Capture the created conversation id BEFORE the stale check so a
+          // superseded run still archives its throwaway side conversation in the
+          // finally block. The finally already guards on truthiness, so an
+          // undefined id here is harmless.
+          createdConversationId = conversation.data?.id;
           if (isStale()) return;
           const conversationId = conversation.data?.id;
           if (!conversation.response?.ok || !conversationId) {
@@ -385,13 +423,10 @@ export function useResearchRunner(): UseResearchRunner {
           const deadline = Date.now() + MAX_POLL_MS;
           let lastText = "";
           let stableReads = 0;
-          // Installs fire as soon as the model's `plugins` array closes — emitted
+          // The model's `plugins` picks fire as soon as its array closes — emitted
           // first in the reply, so this lands early while claims/suggestions are
-          // still streaming, overlapping the user's results-review screens so the
-          // capabilities are materialized before the click opens the chat. Tracked
-          // by promise so the click can await still-running ones. Idempotent, so
-          // racing the same name is fine.
-          const installs = installPromisesRef.current;
+          // still streaming. These union on top of the deterministic floor already
+          // installing (see above); idempotent, so racing the same name is fine.
           while (Date.now() < deadline) {
             await sleep(POLL_INTERVAL_MS);
             if (isStale()) return;
@@ -425,7 +460,11 @@ export function useResearchRunner(): UseResearchRunner {
                 status: "running",
                 claims,
                 suggestions,
-                installedPlugins: validPlugins,
+                // Surface the full set actually installing: the deterministic
+                // floor plus the model's picks, deduped, baseline first.
+                installedPlugins: [
+                  ...new Set([...deterministicPlugins, ...validPlugins]),
+                ],
               });
               stableReads = text === lastText ? stableReads + 1 : 0;
               lastText = text;
@@ -449,10 +488,21 @@ export function useResearchRunner(): UseResearchRunner {
           // a stale bail-out, or a reply that never emitted a `plugins` array) so
           // `awaitPluginInstalls` can never hang.
           resolvePluginsReady();
+          // Archive the throwaway research conversation on every exit path (settled,
+          // errored, or superseded by a newer run) once it has been created, so the
+          // side channel never lingers in the sidebar on handoff. Best-effort +
+          // idempotent; awaiting lets the cache invalidation reflect the archived state.
+          if (resolvedAssistantId && createdConversationId) {
+            await archiveResearchConversation(
+              resolvedAssistantId,
+              createdConversationId,
+            );
+            void invalidateConversationQueries(queryClient, resolvedAssistantId);
+          }
         }
       })();
     },
-    [],
+    [queryClient],
   );
 
   const awaitPluginInstalls = useCallback(async (): Promise<void> => {

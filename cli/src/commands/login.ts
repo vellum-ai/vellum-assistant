@@ -1,4 +1,3 @@
-import { spawn } from "child_process";
 import { randomBytes } from "crypto";
 import { createServer } from "http";
 import type { AddressInfo } from "net";
@@ -11,6 +10,7 @@ import {
   setActiveAssistant,
 } from "../lib/assistant-config";
 import { computeDeviceId } from "../lib/guardian-token";
+import { openBrowser } from "../lib/open-browser";
 import {
   clearPlatformToken,
   ensureSelfHostedLocalRegistration,
@@ -167,24 +167,6 @@ function renderLoginPage(
   </div>
 </body>
 </html>`;
-}
-
-/**
- * Open a URL in the user's default browser.
- */
-function openBrowser(url: string): void {
-  const platform = process.platform;
-  const cmd =
-    platform === "darwin" ? "open" : platform === "win32" ? "cmd" : "xdg-open";
-  const args =
-    platform === "win32"
-      ? ["/c", "start", '""', url.replace(/&/g, "^&")]
-      : [url];
-  const child = spawn(cmd, args, { stdio: "ignore", detached: true });
-  child.on("error", () => {
-    // Silently ignore — the user can still copy the URL from the console
-  });
-  child.unref();
 }
 
 export interface LoopbackListener {

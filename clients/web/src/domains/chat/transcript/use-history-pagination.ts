@@ -17,7 +17,11 @@
  * - https://tanstack.com/query/latest/docs/framework/react/guides/query-cancellation
  */
 
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQueryClient,
+  type InfiniteData,
+} from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 
 import {
@@ -61,6 +65,9 @@ export function aggregateSubagentNotifications(
   }
   return acc.length > 0 ? acc : undefined;
 }
+
+/** The shape `useInfiniteQuery` stores under a conversation-history key. */
+export type HistoryCache = InfiniteData<PaginatedHistoryResult>;
 
 // ---------------------------------------------------------------------------
 // Types
