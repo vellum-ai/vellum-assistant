@@ -45,7 +45,7 @@ const SETUP_LINE = "You’ve used AI that just answers questions";
 const HELP_LINE = "The more I help";
 const PUNCH_LINE = "I’m different";
 const BETTER_LINE = "The better I get";
-const LESS_LINE = "The less you do";
+const LESS_LINE = "and the less you have to do";
 
 // The little team that peeks in from the top-right on the second line, then
 // retracts. (Kept in sync with TOP_TEAM in onboarding-toned-backdrop.tsx.)
