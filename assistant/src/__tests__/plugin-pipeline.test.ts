@@ -50,4 +50,47 @@ describe("plugin pipeline", () => {
 
     expect(result).toEqual({ value: 2 });
   });
+
+  test("discards in-place mutations from a failed hook", async () => {
+    registerPlugin({
+      manifest: {
+        name: "test-first-hook",
+        version: "1.0.0",
+      },
+      hooks: {
+        "user-prompt-submit": async (ctx: { items: string[] }) => {
+          ctx.items.push("first");
+        },
+      },
+    });
+    registerPlugin({
+      manifest: {
+        name: "test-throwing-hook",
+        version: "1.0.0",
+      },
+      hooks: {
+        "user-prompt-submit": async (ctx: { items: string[] }) => {
+          ctx.items.push("failed");
+          throw new Error("hook failed");
+        },
+      },
+    });
+    registerPlugin({
+      manifest: {
+        name: "test-final-hook",
+        version: "1.0.0",
+      },
+      hooks: {
+        "user-prompt-submit": async (ctx: { items: string[] }) => {
+          ctx.items.push("final");
+        },
+      },
+    });
+
+    const result = await runHook<{ items: string[] }>("user-prompt-submit", {
+      items: [],
+    });
+
+    expect(result.items).toEqual(["first", "final"]);
+  });
 });
