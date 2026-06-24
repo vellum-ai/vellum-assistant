@@ -175,15 +175,15 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       if (e.key === "Escape") {
         e.preventDefault();
         onClose();
-      } else if (e.key === "ArrowLeft") {
+      } else if (e.key === "ArrowLeft" && hasPrev) {
         e.preventDefault();
         goToPrev();
-      } else if (e.key === "ArrowRight") {
+      } else if (e.key === "ArrowRight" && hasNext) {
         e.preventDefault();
         goToNext();
       }
     },
-    [onClose, goToPrev, goToNext],
+    [onClose, goToPrev, goToNext, hasPrev, hasNext],
   );
 
   const handleBackdropClick = useCallback(
