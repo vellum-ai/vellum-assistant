@@ -863,12 +863,10 @@ function normalizeOAuthConnectShowData(
 function normalizeFileUploadShowData(
   rawData: Record<string, unknown>,
 ): FileUploadSurfaceData {
-  // The schema is tolerant (every field optional, coerced) and recovers the
-  // common malformed `acceptedTypes` shapes — a comma-joined string or a bare
-  // string the model sends instead of string[] — into the array the renderer
-  // requires, so a non-array can no longer reach `acceptedTypes.join` and crash
-  // the surface (LUM-2574). Parse, don't assert, so an unmodelled shape yields a
-  // renderable surface rather than a passthrough that throws downstream.
+  // Parse against the canonical schema so the surface carries the shape the
+  // renderer expects. The schema is tolerant (every field optional and coerced)
+  // and recovers the common malformed `acceptedTypes` shapes — a comma-joined or
+  // bare string — into the `string[]` the renderer requires.
   const parsed = FileUploadSurfaceDataSchema.safeParse(rawData);
   if (parsed.success) {
     return parsed.data;

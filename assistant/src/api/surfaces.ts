@@ -11,9 +11,9 @@
  * normalizer *supports* — anything the model sends outside these fields is
  * dropped (and logged) there, which is how we learn the shapes to recover.
  *
- * Card and file_upload are migrated to canonical schemas; the remaining types
- * still live as hand-written interfaces in `daemon/message-types/surfaces.ts`
- * pending migration.
+ * Card and file_upload use canonical schemas; the remaining types are
+ * hand-written interfaces in `daemon/message-types/surfaces.ts` pending
+ * migration.
  */
 
 import { z } from "zod";
@@ -35,14 +35,12 @@ export type CardSurfaceData = z.infer<typeof CardSurfaceDataSchema>;
 /**
  * Accepted MIME-type / extension patterns for a `file_upload` surface.
  *
- * The contract is `string[]`, but the model frequently emits a single
- * comma-joined string ("image/*, application/pdf") or a bare string instead.
- * The renderer calls `.join`/`.some`/`.length` on this value, so a non-array
- * here throws `acceptedTypes.join is not a function` and crashes the surface
- * (LUM-2574) — `?.` guards nullish, not a wrong type. Coerce every shape to a
- * clean `string[]` so the array contract the renderer relies on always holds:
- * a string is split on commas; array entries are stringified and trimmed;
- * blanks and anything non-array collapse to `undefined` (no restriction).
+ * The renderer consumes this as a `string[]` — it calls `.join`/`.some`/
+ * `.length` on the value — but the model may emit a single comma-joined string
+ * ("image/*, application/pdf") or a bare string. Coercing every shape to a
+ * clean `string[]` keeps that array invariant intact: a string is split on
+ * commas; array entries are stringified and trimmed; blanks and any non-array
+ * value collapse to `undefined` (no restriction).
  */
 const FileUploadAcceptedTypesSchema = z.preprocess((value) => {
   const items =

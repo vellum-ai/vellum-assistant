@@ -96,10 +96,9 @@ function readFileAsBase64(file: File): Promise<string> {
 
 export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps) {
   // The wire keeps surface `data` opaque; narrow it with the canonical schema
-  // (every field optional/coerced, so a real surface never fails to parse)
-  // rather than an unchecked cast. The schema also normalizes `acceptedTypes`
-  // into a string[], so a model-sent string can't reach `.join`/`.some` and
-  // crash the render (LUM-2574).
+  // (every field optional/coerced, so a real surface never fails to parse). The
+  // schema also coerces `acceptedTypes` to a string[], the shape this
+  // component's `.join`/`.some` calls require.
   const parsed = FileUploadSurfaceDataSchema.safeParse(surface.data);
   const data = parsed.success ? parsed.data : {};
   const fileInputRef = useRef<HTMLInputElement>(null);

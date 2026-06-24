@@ -106,13 +106,12 @@ describe("UI surface tool registration", () => {
 });
 
 // ---------------------------------------------------------------------------
-// FileUploadSurfaceDataSchema coercion (LUM-2574)
+// FileUploadSurfaceDataSchema coercion
 // ---------------------------------------------------------------------------
 //
 // `acceptedTypes` is contractually a string[], but the model frequently emits a
 // comma-joined string or a bare string. The renderer calls `.join`/`.some` on
-// it, so a non-array used to throw `acceptedTypes.join is not a function` and
-// crash the surface. The schema coerces every shape back to the array contract.
+// it, so the schema coerces every shape to the array contract.
 
 describe("FileUploadSurfaceDataSchema coercion", () => {
   test("passes a well-formed payload through unchanged", () => {
@@ -145,11 +144,11 @@ describe("FileUploadSurfaceDataSchema coercion", () => {
     ).toEqual(["application/pdf"]);
   });
 
-  test("the parsed acceptedTypes always supports .join (the crash site)", () => {
+  test("the parsed acceptedTypes always supports .join", () => {
     const parsed = FileUploadSurfaceDataSchema.parse({
       acceptedTypes: "image/*,application/pdf",
     });
-    // This call is exactly what threw in production before the fix.
+    // `.join` is the call the renderer makes on `acceptedTypes`.
     expect(parsed.acceptedTypes?.join(",")).toBe("image/*,application/pdf");
   });
 

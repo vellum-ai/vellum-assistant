@@ -340,9 +340,8 @@ describe("task_progress surface compatibility", () => {
     const sent: ServerMessage[] = [];
     const ctx = makeContext(sent);
 
-    // The model sometimes emits acceptedTypes as a string instead of string[];
-    // the renderer calls `.join`/`.some` on it (LUM-2574), so the daemon must
-    // hand the client a clean array.
+    // The model may emit acceptedTypes as a comma-joined string; the renderer
+    // calls `.join`/`.some` on it, so the daemon hands the client a clean array.
     const result = await surfaceProxyResolver(ctx, "ui_show", {
       surface_type: "file_upload",
       title: "Upload a receipt",
