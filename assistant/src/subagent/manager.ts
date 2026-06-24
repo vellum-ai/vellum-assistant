@@ -502,13 +502,16 @@ export class SubagentManager {
     // is already aborted, abort immediately so the run rejects promptly.
     const signal = opts?.signal;
     const onAbort = (): void => {
-      managed.conversation?.abort(
-        createAbortReason(
-          "subagent_aborted",
-          "SubagentManager.spawnAndAwait",
-          managed.state.conversationId,
-        ),
-      );
+      // Route through the manager abort path so the subagent is marked terminal
+      // ("aborted") and broadcast as such. A bare conversation.abort() leaves
+      // status non-terminal, so runSubagent's success branch would record the
+      // run as "completed" once runAgentLoop resolves the consumed cancellation.
+      // Suppress the parent notification: the awaiting caller observes the abort
+      // as a thrown rejection, so a "do NOT re-spawn" injection would be
+      // redundant noise.
+      this.abort(subagentId, managed.parentSendToClient, undefined, {
+        suppressNotification: true,
+      });
     };
     if (signal) {
       if (signal.aborted) onAbort();
@@ -546,6 +549,13 @@ export class SubagentManager {
     // synchronous `spawnAndAwait` caller; the fire-and-forget `spawn` caller
     // ignores it.
     let finalText = "";
+
+    // Aborted before the run started (e.g. an already-aborted signal on the
+    // synchronous spawnAndAwait path): the subagent is already terminal. Do not
+    // start the agent loop or reset status back to "running".
+    if (TERMINAL_STATUSES.has(managed.state.status)) {
+      return finalText;
+    }
 
     // Read the current parent sender so reconnects are picked up.
     const getSender = () => managed.parentSendToClient;

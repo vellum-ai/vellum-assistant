@@ -28,11 +28,20 @@ interface FakeConversationConfig {
    * Used to exercise the external-signal abort path.
    */
   waitForAbort?: boolean;
+  /**
+   * When true, runAgentLoop blocks until `abort()` is called, then RESOLVES
+   * normally (does not throw). Simulates the real `runAgentLoop`, which
+   * consumes the cancellation internally and resolves — the case where a
+   * timed-out run would otherwise reach the success branch.
+   */
+  resolveOnAbort?: boolean;
   /** Deltas to emit through sendToClient before runAgentLoop resolves. */
   emitDeltas?: ServerMessage[];
 }
 
 let nextConversationConfig: FakeConversationConfig = {};
+/** Set true when any FakeConversation's runAgentLoop is invoked. */
+let runLoopInvoked = false;
 
 class FakeConversation {
   messages: Message[];
@@ -82,17 +91,20 @@ class FakeConversation {
   }
 
   async runAgentLoop() {
+    runLoopInvoked = true;
     for (const delta of this.cfg.emitDeltas ?? []) {
       this.sendToClient(delta);
     }
-    if (this.cfg.waitForAbort) {
-      // Reject promptly if abort already fired (already-aborted signal), else
-      // block until abort() resolves the gate.
+    if (this.cfg.waitForAbort || this.cfg.resolveOnAbort) {
+      // Block until abort() resolves the gate (unless abort already fired, e.g.
+      // an already-aborted signal). resolveOnAbort RESOLVES normally to mimic
+      // the real runAgentLoop consuming the cancellation; waitForAbort throws.
       if (!this.aborted) {
         await new Promise<void>((resolve) => {
           this.resolveAbort = resolve;
         });
       }
+      if (this.cfg.resolveOnAbort) return;
       throw new Error("aborted");
     }
     if (this.cfg.runError) {
@@ -178,6 +190,13 @@ function makeConfig(overrides: Record<string, unknown> = {}) {
     objective: "do the thing",
     ...overrides,
   };
+}
+
+/** Statuses broadcast to the parent via `subagent_status_changed` events. */
+function broadcastStatuses(events: ServerMessage[]): string[] {
+  return events
+    .filter((m) => m.type === "subagent_status_changed")
+    .map((m) => (m as { status: string }).status);
 }
 
 /** A fake parent conversation that records injected (enqueued) messages. */
@@ -309,6 +328,56 @@ describe("SubagentManager.spawnAndAwait", () => {
         signal: controller.signal,
       }),
     ).rejects.toThrow();
+  });
+
+  test("a live-signal abort records status 'aborted', never broadcasts 'completed'", async () => {
+    // runAgentLoop RESOLVES normally on abort (the real loop consumes the
+    // cancellation). Before the fix, runSubagent's success branch then
+    // recorded the run as "completed"; the manager-routed abort must mark it
+    // terminal first so this is recorded and broadcast as "aborted".
+    nextConversationConfig = { resolveOnAbort: true };
+
+    const events: ServerMessage[] = [];
+    const controller = new AbortController();
+    const manager = new SubagentManager();
+    const promise = manager.spawnAndAwait(
+      makeConfig(),
+      (msg) => events.push(msg),
+      { signal: controller.signal },
+    );
+
+    // Abort once the run is in flight (runAgentLoop is awaiting the gate).
+    queueMicrotask(() => controller.abort());
+
+    await expect(promise).rejects.toThrow();
+
+    const statuses = broadcastStatuses(events);
+    expect(statuses).toContain("aborted");
+    expect(statuses).not.toContain("completed");
+  });
+
+  test("an already-aborted signal does not run the agent loop", async () => {
+    nextConversationConfig = { resolveOnAbort: true };
+    runLoopInvoked = false;
+
+    const controller = new AbortController();
+    controller.abort();
+
+    const events: ServerMessage[] = [];
+    const manager = new SubagentManager();
+    await expect(
+      manager.spawnAndAwait(makeConfig(), (msg) => events.push(msg), {
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow();
+
+    // The early-return guard fires before setStatus("running") and before the
+    // agent loop starts: no loop invocation, no "running"/"completed" broadcast.
+    expect(runLoopInvoked).toBe(false);
+    const statuses = broadcastStatuses(events);
+    expect(statuses).not.toContain("running");
+    expect(statuses).not.toContain("completed");
+    expect(statuses).toContain("aborted");
   });
 
   test("a failing run rejects (does not silently resolve)", async () => {
