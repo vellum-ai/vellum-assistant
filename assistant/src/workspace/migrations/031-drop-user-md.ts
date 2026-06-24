@@ -12,10 +12,14 @@ import { basename, join } from "node:path";
 import { eq } from "drizzle-orm";
 
 import {
-  findGuardianForChannel,
+  findContactByAddress,
   generateUserFileSlug,
-  listGuardianChannels,
 } from "../../contacts/contact-store.js";
+import {
+  anyGuardian,
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../../contacts/guardian-delivery-reader.js";
 import { getDb } from "../../memory/db-connection.js";
 import { contacts } from "../../memory/schema/contacts.js";
 import { getLogger } from "../../util/logger.js";
@@ -142,49 +146,60 @@ export const dropUserMdMigration: WorkspaceMigration = {
   description:
     "Delete legacy workspace-root USER.md after migrating content to users/<slug>.md",
 
-  run(workspaceDir: string): void {
+  async run(workspaceDir: string): Promise<void> {
     const userMdPath = join(workspaceDir, "USER.md");
 
     // Resolve the guardian contact. Prefer the vellum-channel binding
     // (the canonical local/native guardian); fall back to whichever
-    // guardian has the most recently verified active channel.
+    // guardian has the most recently verified active channel. Guardian
+    // identity comes from the gateway delivery; local INFO (id/displayName/
+    // userFile) is joined from the local contact by the guardian's address.
     let guardian: { id: string; displayName: string; userFile: string | null };
     try {
-      const vellumGuardian = findGuardianForChannel("vellum");
-      if (vellumGuardian) {
-        guardian = {
-          id: vellumGuardian.contact.id,
-          displayName: vellumGuardian.contact.displayName,
-          userFile: vellumGuardian.contact.userFile ?? null,
-        };
-      } else {
-        const anyGuardian = listGuardianChannels();
-        if (!anyGuardian) {
-          // Fresh install or pre-onboarding. If a stale USER.md somehow
-          // remains on disk (e.g. leftover from an older build), best-
-          // effort remove it so future first runs are clean.
-          if (existsSync(userMdPath)) {
-            try {
-              unlinkSync(userMdPath);
-              log.info(
-                { path: userMdPath },
-                "Deleted stale pre-onboarding USER.md with no guardian",
-              );
-            } catch (err) {
-              log.warn(
-                { err, path: userMdPath },
-                "Failed to delete pre-onboarding USER.md; leaving in place",
-              );
-            }
-          }
-          return;
-        }
-        guardian = {
-          id: anyGuardian.contact.id,
-          displayName: anyGuardian.contact.displayName,
-          userFile: anyGuardian.contact.userFile ?? null,
-        };
+      const guardians = await getGuardianDelivery();
+      // `null` means the gateway read FAILED (timeout / unreachable /
+      // malformed). Treat that as DATA-PRESERVING: leave USER.md in place and
+      // defer. The migration is idempotent and re-runs on the next startup, so
+      // deferring is safe; deleting on a failed read could destroy the only
+      // copy of a customized root USER.md. `[]` means the gateway DEFINITIVELY
+      // reported no guardian, which proceeds normally.
+      if (guardians === null) {
+        log.warn(
+          {},
+          "Gateway guardian read failed; deferring USER.md cleanup",
+        );
+        return;
       }
+      const delivery =
+        guardianForChannel(guardians, "vellum") ?? anyGuardian(guardians);
+      const localContact = delivery
+        ? findContactByAddress(delivery.channelType, delivery.address)
+        : null;
+      if (!localContact) {
+        // Fresh install or pre-onboarding. If a stale USER.md somehow
+        // remains on disk (e.g. leftover from an older build), best-
+        // effort remove it so future first runs are clean.
+        if (existsSync(userMdPath)) {
+          try {
+            unlinkSync(userMdPath);
+            log.info(
+              { path: userMdPath },
+              "Deleted stale pre-onboarding USER.md with no guardian",
+            );
+          } catch (err) {
+            log.warn(
+              { err, path: userMdPath },
+              "Failed to delete pre-onboarding USER.md; leaving in place",
+            );
+          }
+        }
+        return;
+      }
+      guardian = {
+        id: localContact.id,
+        displayName: localContact.displayName,
+        userFile: localContact.userFile ?? null,
+      };
     } catch (err) {
       // DB not ready or query failed — leave USER.md alone. The next
       // startup after DB init will try again.

@@ -9,7 +9,7 @@
 
 import type { ChannelId } from "../channels/types.js";
 import {
-  findGuardianForChannel,
+  findContactByAddress,
   updateContactPrincipalAndChannel,
 } from "../contacts/contact-store.js";
 import {
@@ -67,13 +67,18 @@ export async function healGuardianBindingDrift(
   if (currentPrincipalId === incomingPrincipalId) return false;
 
   // Resolve the assistant-mirror row to repair so local trust resolution
-  // converges on the JWT principal.
-  const guardianResult = findGuardianForChannel("vellum");
-  if (!guardianResult) return false;
+  // converges on the JWT principal. The gateway delivery supplies the guardian
+  // identity (channel + address) but not the local channel UUID write target,
+  // so resolve that locally by the guardian's vellum-channel address.
+  const localContact = findContactByAddress("vellum", guardian.address);
+  const localChannel = localContact?.channels.find(
+    (c) => c.type === "vellum",
+  );
+  if (!localContact || !localChannel) return false;
 
   const updated = updateContactPrincipalAndChannel(
-    guardianResult.contact.id,
-    guardianResult.channel.id,
+    localContact.id,
+    localChannel.id,
     incomingPrincipalId,
   );
 

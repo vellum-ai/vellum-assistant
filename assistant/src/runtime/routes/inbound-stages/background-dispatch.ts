@@ -8,7 +8,6 @@
  * focused on orchestration.
  */
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
-import { findGuardianForChannel } from "../../../contacts/contact-store.js";
 import {
   getGuardianDelivery,
   guardianForChannel,
@@ -964,17 +963,14 @@ function startTrustedContactApprovalNotifier(params: {
 
         if (info && !globalNotifiedApprovalRequestIds.has(info.requestId)) {
           globalNotifiedApprovalRequestIds.set(info.requestId, conversationId);
-          // Gateway-resolved guardian display name with the transitional
-          // local fallback on null/no-match (display-only). Removed in Combo 11.
+          // Gateway-resolved guardian display name (display-only).
           const guardians = await getGuardianDelivery({
             channelTypes: [sourceChannel],
           });
-          const gatewayDisplayName = guardians
-            ? guardianForChannel(guardians, sourceChannel)?.displayName
+          const displayName = guardians
+            ? (guardianForChannel(guardians, sourceChannel)?.displayName ??
+              undefined)
             : undefined;
-          const displayName =
-            gatewayDisplayName ??
-            findGuardianForChannel(sourceChannel)?.contact.displayName;
           const guardianName = resolveGuardianName(displayName);
           const waitingText = `Waiting for ${guardianName}'s approval...`;
           try {

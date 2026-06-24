@@ -17,10 +17,11 @@
  */
 
 import type { ChannelId } from "../channels/types.js";
+import { findContactByAddress } from "../contacts/contact-store.js";
 import {
-  findContactByAddress,
-  findGuardianForChannel,
-} from "../contacts/contact-store.js";
+  guardianForChannel,
+  peekCachedGuardianDelivery,
+} from "../contacts/guardian-delivery-reader.js";
 import { channelStatusToMemberStatus } from "../contacts/member-status.js";
 import type { ContactChannel, ContactWithChannels } from "../contacts/types.js";
 import type { TrustContext } from "../daemon/trust-context.js";
@@ -175,21 +176,27 @@ export function resolveActorTrust(
   }
 
   // --- Guardian lookup ---
-  const guardianResult = findGuardianForChannel(input.sourceChannel);
+  // Sync read of the gateway guardian delivery from the IO-free cache snapshot
+  // (kept warm by the async hot paths + daemon-startup warm). A cold cache
+  // yields no guardian match, the same outcome as no binding.
+  const cachedGuardians = peekCachedGuardianDelivery({
+    channelTypes: [input.sourceChannel],
+  });
+  const guardianDelivery = cachedGuardians
+    ? guardianForChannel(cachedGuardians, input.sourceChannel)
+    : undefined;
   let guardianBindingMatch: ActorTrustContext["guardianBindingMatch"] = null;
   let guardianPrincipalId: string | undefined;
   let isGuardian = false;
 
-  if (guardianResult) {
-    const { contact: guardianContact, channel: guardianChannel } =
-      guardianResult;
+  if (guardianDelivery) {
     guardianBindingMatch = {
-      guardianExternalUserId: guardianChannel.address,
-      guardianDeliveryChatId: guardianChannel.externalChatId,
+      guardianExternalUserId: guardianDelivery.address,
+      guardianDeliveryChatId: guardianDelivery.externalChatId ?? null,
     };
-    guardianPrincipalId = guardianContact.principalId ?? undefined;
+    guardianPrincipalId = guardianDelivery.principalId ?? undefined;
     isGuardian =
-      guardianChannel.address.toLowerCase() === canonicalSenderId.toLowerCase();
+      guardianDelivery.address.toLowerCase() === canonicalSenderId.toLowerCase();
   }
 
   log.debug(

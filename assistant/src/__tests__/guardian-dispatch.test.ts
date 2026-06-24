@@ -24,11 +24,56 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-// The pending_question request principal is resolved via the SAME local source
-// the Vellum actor uses — findGuardianForChannel("vellum")?.contact.principalId
-// — so the stamped principal always equals the submitting actor principal. The
-// real contacts DB is seeded in resetTables(); tests model drift / missing
-// guardian by reseeding or clearing that local binding directly.
+// The pending_question request principal is resolved via the gateway guardian
+// delivery for the vellum channel — the SAME source the Vellum actor uses — so
+// the stamped principal always equals the submitting actor principal. The real
+// contacts DB is seeded in resetTables(); the reader mock below derives the
+// gateway delivery from that DB binding so tests model drift / missing guardian
+// by reseeding or clearing the local binding directly.
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async (input?: { channelTypes?: string[] }) => {
+    const { getDb } = await import("../memory/db-connection.js");
+    const { contacts, contactChannels } = await import("../memory/schema.js");
+    const { and, eq } = await import("drizzle-orm");
+    const channels = input?.channelTypes ?? [];
+    return channels
+      .map((channelType) => {
+        const row = getDb()
+          .select({ contact: contacts, channel: contactChannels })
+          .from(contacts)
+          .innerJoin(
+            contactChannels,
+            eq(contacts.id, contactChannels.contactId),
+          )
+          .where(
+            and(
+              eq(contacts.role, "guardian"),
+              eq(contactChannels.type, channelType),
+              eq(contactChannels.status, "active"),
+            ),
+          )
+          .get();
+        if (!row) return null;
+        return {
+          channelType,
+          contactId: row.contact.id,
+          principalId: row.contact.principalId ?? null,
+          displayName: row.contact.displayName ?? null,
+          address: row.channel.address,
+          externalChatId: row.channel.externalChatId ?? null,
+          status: "active",
+          verifiedAt: row.channel.verifiedAt ?? null,
+        };
+      })
+      .filter((g) => g !== null);
+  },
+  guardianForChannel: (
+    list: Array<{ channelType: string; status: string }>,
+    channelType: string,
+  ) =>
+    list.find((g) => g.channelType === channelType && g.status === "active"),
+}));
+
 const emitCalls: unknown[] = [];
 let conversationCreatedFromMock: ConversationCreatedInfo | null = null;
 let mockEmitResult: {

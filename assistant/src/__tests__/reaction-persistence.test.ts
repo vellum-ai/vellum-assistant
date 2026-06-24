@@ -42,6 +42,37 @@ mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: async () => {},
 }));
 
+// Guardian identity resolves via the gateway delivery cache, not the local
+// contacts DB. Seed it per-test via seedGatewayGuardian so the guardian
+// reactor classifies as `trustClass === "guardian"`.
+interface GatewayGuardian {
+  channelType: string;
+  address: string;
+  principalId?: string | null;
+  externalChatId?: string | null;
+  status: string;
+}
+let gatewayGuardians: GatewayGuardian[] = [];
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => gatewayGuardians,
+  peekCachedGuardianDelivery: (input?: { channelTypes?: string[] }) => {
+    if (!input?.channelTypes) return gatewayGuardians;
+    return gatewayGuardians.filter((g) =>
+      input.channelTypes!.includes(g.channelType),
+    );
+  },
+  guardianForChannel: (list: GatewayGuardian[], channelType: string) =>
+    list.find((g) => g.channelType === channelType && g.status === "active"),
+  anyGuardian: (list: GatewayGuardian[]) => list[0],
+}));
+
+function seedGatewayGuardian(g: Partial<GatewayGuardian> & {
+  channelType: string;
+  address: string;
+}): void {
+  gatewayGuardians.push({ status: "active", ...g });
+}
+
 import { eq } from "drizzle-orm";
 
 import type { Conversation } from "../daemon/conversation.js";
@@ -83,6 +114,7 @@ function resetState(): void {
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
+  gatewayGuardians = [];
 }
 
 function seedActiveMember(): void {
@@ -408,6 +440,12 @@ const GUARDIAN_REACTION_TOOL = "execute_shell";
 const GUARDIAN_REACTION_INPUT = { command: "rm -rf /tmp/test" };
 
 function seedGuardianForChannel(): void {
+  seedGatewayGuardian({
+    channelType: "slack",
+    address: GUARDIAN_USER_ID,
+    principalId: GUARDIAN_USER_ID,
+    externalChatId: SLACK_CHANNEL_ID,
+  });
   createGuardianBinding({
     channel: "slack",
     guardianExternalUserId: GUARDIAN_USER_ID,
@@ -480,6 +518,7 @@ describe("guardian approval-by-reaction integration via handleChannelInbound", (
     db.run("DELETE FROM contacts");
     db.run("DELETE FROM canonical_guardian_requests");
     db.run("DELETE FROM canonical_guardian_deliveries");
+    gatewayGuardians = [];
     pendingInteractions.clear();
     msgCounter = 0;
   });
@@ -610,6 +649,12 @@ describe("reaction access control (no verification handshake)", () => {
     getDb().run("DELETE FROM channel_verification_sessions");
     // The assistant has a guardian (as in production); the reactors below are
     // different users.
+    seedGatewayGuardian({
+      channelType: "slack",
+      address: GUARDIAN_USER_ID,
+      principalId: GUARDIAN_USER_ID,
+      externalChatId: GUARDIAN_DM_CHAT,
+    });
     createGuardianBinding({
       channel: "slack",
       guardianExternalUserId: GUARDIAN_USER_ID,

@@ -67,7 +67,6 @@ mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
 }));
 
 mock.module("../../../contacts/contact-store.js", () => ({
-  findGuardianForChannel: (_channelType: string) => null,
   findContactByAddress: () => null,
 }));
 
