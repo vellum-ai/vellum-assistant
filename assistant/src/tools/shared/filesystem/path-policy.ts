@@ -148,10 +148,7 @@ export function sandboxPolicy(
 
   // Check both the logical path and the symlink-resolved path so a symlink
   // with a non-denied name pointing at a denied file is still caught.
-  if (
-    DENIED_BASENAMES.has(basename(resolved)) ||
-    DENIED_BASENAMES.has(basename(realResolved))
-  ) {
+  if (isDeniedBasename(resolved) || isDeniedBasename(realResolved)) {
     return {
       ok: false,
       reason: "denied",
@@ -178,7 +175,7 @@ export function hostPolicy(rawPath: string): PathResult {
       error: `path must be absolute for host file access: ${rawPath}`,
     };
   }
-  if (DENIED_BASENAMES.has(basename(rawPath))) {
+  if (isDeniedBasename(rawPath)) {
     return {
       ok: false,
       reason: "denied",
