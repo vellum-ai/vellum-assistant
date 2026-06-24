@@ -3,8 +3,10 @@ import {
   getActiveAssistant,
   getLocalGatewayUrl,
   getPlatformRuntimeUrl,
+  getSelectedAssistant,
   isLocalAssistant,
   isLocalMode,
+  isPlatformDisabled,
   isRemoteGatewayMode,
   primeLocalGatewayConnectionWithRepair,
   type LockfileAssistant,
@@ -57,16 +59,31 @@ type ReprovisionApiKeyResponse = {
   };
 };
 
+type BootstrapLocalAssistantPlatformIdentityOptions = {
+  allowGatewayRepair?: boolean;
+  onError?: (error: unknown) => void;
+};
+
+type ResolveLocalAssistantPlatformIdentityOptions = {
+  allowGatewayRepair?: boolean;
+};
+
 const platformAssistantIdCache = new Map<string, Promise<string>>();
 
-export function resetLocalManagedOAuthIdentityCacheForTesting(): void {
+export function resetLocalPlatformIdentityCacheForTesting(): void {
   platformAssistantIdCache.clear();
 }
 
-export async function resolveManagedOAuthPlatformAssistantId(
+export async function resolveLocalAssistantPlatformIdentity(
   assistantId: string,
+  options: ResolveLocalAssistantPlatformIdentityOptions = {},
 ): Promise<string> {
-  if (!isLocalMode() || isRemoteGatewayMode() || isUuid(assistantId)) {
+  if (
+    !isLocalMode() ||
+    isRemoteGatewayMode() ||
+    isPlatformDisabled() ||
+    isUuid(assistantId)
+  ) {
     return assistantId;
   }
 
@@ -78,7 +95,9 @@ export async function resolveManagedOAuthPlatformAssistantId(
   const cached = platformAssistantIdCache.get(assistant.assistantId);
   if (cached) return cached;
 
-  const promise = ensureLocalAssistantPlatformIdentity(assistant);
+  const promise = ensureLocalAssistantPlatformIdentity(assistant, {
+    allowGatewayRepair: options.allowGatewayRepair ?? true,
+  });
   platformAssistantIdCache.set(assistant.assistantId, promise);
   try {
     return await promise;
@@ -88,18 +107,46 @@ export async function resolveManagedOAuthPlatformAssistantId(
   }
 }
 
+export function bootstrapLocalAssistantPlatformIdentity(
+  assistantId?: string,
+  options: BootstrapLocalAssistantPlatformIdentityOptions = {},
+): void {
+  if (!isLocalMode() || isRemoteGatewayMode() || isPlatformDisabled()) return;
+
+  let targetAssistantId = assistantId;
+  if (!targetAssistantId) {
+    const assistant = getSelectedAssistant();
+    if (!assistant || !isLocalAssistant(assistant)) return;
+    targetAssistantId = assistant.assistantId;
+  }
+
+  void resolveLocalAssistantPlatformIdentity(targetAssistantId, {
+    allowGatewayRepair: options.allowGatewayRepair ?? false,
+  }).catch(
+    options.onError ??
+      ((error: unknown) => {
+        console.warn("local assistant platform bootstrap failed", error);
+      }),
+  );
+}
+
 function resolveLocalAssistant(assistantId: string): LockfileAssistant | null {
   const active = getActiveAssistant();
   if (active?.assistantId === assistantId && isLocalAssistant(active)) {
     return active;
+  }
+  const selected = getSelectedAssistant();
+  if (selected?.assistantId === assistantId && isLocalAssistant(selected)) {
+    return selected;
   }
   return null;
 }
 
 async function ensureLocalAssistantPlatformIdentity(
   assistant: LockfileAssistant,
+  options: { allowGatewayRepair: boolean },
 ): Promise<string> {
-  const gateway = await ensureGatewayAccess(assistant);
+  const gateway = await ensureGatewayAccess(assistant, options);
   const status = await fetchPlatformStatus(gateway, assistant.assistantId);
   const statusPlatformAssistantId =
     status?.assistantId && isUuid(status.assistantId)
@@ -114,7 +161,7 @@ async function ensureLocalAssistantPlatformIdentity(
     assistant,
   );
   if (!organizationId) {
-    throw new Error("Sign in to Vellum and select an organization to connect managed OAuth providers.");
+    throw new Error("Sign in to Vellum and select an organization to register this local assistant.");
   }
 
   const registration = await ensureRegistration(assistant, organizationId);
@@ -149,11 +196,12 @@ async function ensureLocalAssistantPlatformIdentity(
 
 async function ensureGatewayAccess(
   assistant: LockfileAssistant,
+  options: { allowGatewayRepair: boolean },
 ): Promise<{ gatewayUrl: string; actorToken: string }> {
   let gatewayUrl = getSelfHostedIngressUrl();
   let actorToken = getSelfHostedActorToken();
 
-  if (!gatewayUrl || !actorToken) {
+  if (options.allowGatewayRepair && (!gatewayUrl || !actorToken)) {
     await primeLocalGatewayConnectionWithRepair(assistant);
     gatewayUrl = getSelfHostedIngressUrl();
     actorToken = getSelfHostedActorToken();
@@ -167,7 +215,7 @@ async function ensureGatewayAccess(
   }
 
   if (!gatewayUrl || !actorToken) {
-    throw new Error("Unable to reach the local assistant for managed OAuth setup.");
+    throw new Error("Unable to reach the local assistant for platform identity setup.");
   }
 
   return { gatewayUrl, actorToken };
@@ -248,7 +296,7 @@ async function platformPost<T>(
 ): Promise<T> {
   const deviceId = getDeviceId();
   if (!deviceId) {
-    throw new Error("Unable to identify this device for managed OAuth setup.");
+    throw new Error("Unable to identify this device for local assistant platform registration.");
   }
 
   const headers = new Headers({
@@ -267,7 +315,7 @@ async function platformPost<T>(
   const sessionToken = getElectronSessionToken();
   if (isElectron()) {
     if (!sessionToken) {
-      throw new Error("Sign in to Vellum to connect managed OAuth providers.");
+      throw new Error("Sign in to Vellum to register this local assistant.");
     }
     headers.set(
       ELECTRON_RENDERER_ORIGIN_HEADER,

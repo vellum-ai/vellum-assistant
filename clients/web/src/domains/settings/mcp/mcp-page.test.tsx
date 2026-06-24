@@ -66,6 +66,7 @@ mock.module("./mcp-api", () => ({
   pollMcpAuthStatus: mock(async () => ({ status: "pending" })),
   reloadMcpServers: mock(async () => {}),
   removeMcpServer: mock(async () => {}),
+  revokeMcpOAuth: mock(async () => {}),
   updateMcpServer: mock(async () => {}),
 }));
 

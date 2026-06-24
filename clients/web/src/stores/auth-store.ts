@@ -51,6 +51,7 @@ import {
   primeLocalGatewayConnectionWithRepair,
   syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
+import { bootstrapLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 import { listAssistants } from "@/assistant/api";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
@@ -470,6 +471,7 @@ function probePlatformSession(
           platformSessionRestoredOffline: false,
           ...userUpdate,
         });
+        bootstrapLocalAssistantPlatformIdentity();
       } else if (options.clearOnFailure) {
         set({ platformSession: "absent" });
       }
@@ -738,6 +740,14 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     await setSelectedAssistant(assistantId);
     set(authenticatedLocalUser());
     await lifecycleService.checkAssistant();
+    if (
+      isConfirmedPlatformSession(
+        get().platformSession,
+        get().platformSessionRestoredOffline,
+      )
+    ) {
+      bootstrapLocalAssistantPlatformIdentity(assistantId);
+    }
     probePlatformSessionIfReachable(set);
   },
 
