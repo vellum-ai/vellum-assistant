@@ -209,11 +209,11 @@ export interface UseResearchRunner extends ResearchRunnerState {
    */
   start: (options: StartResearchOptions) => void;
   /**
-   * Block a suggestion click until the persona plugins are ready: first waits
-   * for the run to settle (so the `plugins` picks are parsed and their installs
-   * enqueued — even if the click beat the parse), then for every install to
-   * finish, so the chat never opens before each `<workspace>/plugins/<name>`
-   * exists. Resolves quickly once the run is done and nothing is pending.
+   * Block a suggestion click only as long as the persona plugins need: waits for
+   * the `plugins` decision to be final (so a click that beat the parse doesn't
+   * skip selection), then for those installs to finish — never for the rest of
+   * the research turn. Resolves instantly when nothing is installable (plugins
+   * disabled, none picked, or already installed), so ordinary clicks don't hang.
    */
   awaitPluginInstalls: () => Promise<void>;
 }
@@ -284,13 +284,14 @@ export function useResearchRunner(): UseResearchRunner {
   // them all before opening the chat (see `awaitPluginInstalls`). Promises stay
   // resolved in the map, so awaiting a settled one is instant.
   const installPromisesRef = useRef<Map<string, Promise<void>>>(new Map());
-  // Resolves when the current run settles (done/error) — by which point the
-  // model's `plugins` picks have been parsed and their installs kicked off. The
-  // suggestion click awaits this BEFORE awaiting the installs, so a click that
-  // lands while research is still streaming can't open the chat before the
-  // persona plugins have even been selected (the empty install map would
-  // otherwise resolve instantly).
-  const runSettledRef = useRef<Promise<void>>(Promise.resolve());
+  // Resolves once the `plugins` DECISION is final for the current run — the
+  // model's array has closed (installs, if any, enqueued), or there was nothing
+  // installable, or the run ended. The suggestion click awaits this BEFORE the
+  // installs, so a click that beats the parse still can't open the chat on an
+  // empty install map — yet it does NOT wait on the rest of the research turn,
+  // so ordinary clicks (plugins disabled / none picked / already installed)
+  // aren't frozen until the whole reply settles.
+  const pluginsReadyRef = useRef<Promise<void>>(Promise.resolve());
 
   const start = useCallback(
     ({ awaitAssistantId, subject, conversationTitle }: StartResearchOptions) => {
@@ -301,10 +302,11 @@ export function useResearchRunner(): UseResearchRunner {
       runIdRef.current = runId;
       const isStale = () => runIdRef.current !== runId;
       // Fresh run — drop installs tracked for a superseded subject, and arm a new
-      // settle latch the click can await (resolved in the runner's `finally`).
-      let resolveSettled: () => void = () => {};
-      runSettledRef.current = new Promise<void>((res) => {
-        resolveSettled = res;
+      // plugins-ready latch the click can await (resolved once the plugin
+      // decision is final; the `finally` is the backstop on every exit path).
+      let resolvePluginsReady: () => void = () => {};
+      pluginsReadyRef.current = new Promise<void>((res) => {
+        resolvePluginsReady = res;
       });
       installPromisesRef.current.clear();
       setState({
@@ -331,6 +333,9 @@ export function useResearchRunner(): UseResearchRunner {
             ? await fetchAvailableCapabilities(assistantId)
             : EMPTY_CAPABILITIES;
           if (isStale()) return;
+          // Nothing installable (plugins disabled or empty catalog) — release the
+          // click gate now so suggestion clicks never wait on the research turn.
+          if (validNames.size === 0) resolvePluginsReady();
 
           const conversation = await conversationsPost({
             path: { assistant_id: assistantId },
@@ -399,7 +404,7 @@ export function useResearchRunner(): UseResearchRunner {
             const messages = listed.data?.messages ?? [];
             const text = latestAssistantText(messages);
             if (text) {
-              const { claims, suggestions, plugins, complete } =
+              const { claims, suggestions, plugins, pluginsResolved, complete } =
                 parseResearchResultStreaming(text);
               // Narrow the model's picks to the catalog we actually fetched so a
               // hallucinated name never hits the install route; fire each new one.
@@ -412,6 +417,10 @@ export function useResearchRunner(): UseResearchRunner {
                   );
                 }
               }
+              // Once the plugin decision is final (array closed, even if empty),
+              // the install set is complete — release the click gate so it waits
+              // only on the installs themselves, not the rest of the turn.
+              if (pluginsResolved) resolvePluginsReady();
               setState({
                 status: "running",
                 claims,
@@ -436,9 +445,10 @@ export function useResearchRunner(): UseResearchRunner {
           captureError(err, { context: "research_onboarding_runner" });
           setState((s) => ({ ...s, status: "error" }));
         } finally {
-          // Release the click gate on every exit path (done, error, or a stale
-          // bail-out) so `awaitPluginInstalls` can never hang on a superseded run.
-          resolveSettled();
+          // Backstop: release the click gate on every exit path (done, error, or
+          // a stale bail-out, or a reply that never emitted a `plugins` array) so
+          // `awaitPluginInstalls` can never hang.
+          resolvePluginsReady();
         }
       })();
     },
@@ -446,11 +456,10 @@ export function useResearchRunner(): UseResearchRunner {
   );
 
   const awaitPluginInstalls = useCallback(async (): Promise<void> => {
-    // First wait for the run to settle so the model's `plugins` picks have been
-    // parsed and their installs enqueued — otherwise a click that beats the
-    // parse would await an empty map and open the chat before any plugin exists.
-    // Then await the installs themselves.
-    await runSettledRef.current;
+    // Wait only for the plugin decision to be final (so a click that beats the
+    // parse doesn't await an empty map), then for those installs — never for the
+    // rest of the research turn. Resolves instantly when nothing is installable.
+    await pluginsReadyRef.current;
     await Promise.all([...installPromisesRef.current.values()]);
   }, []);
 

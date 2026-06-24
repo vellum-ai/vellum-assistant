@@ -54,24 +54,47 @@ describe("parseResearchResultStreaming — plugins install list", () => {
 
   test("is honored as soon as its array closes, before the payload completes", () => {
     // The prompt emits `plugins` first so installs can start ASAP. A closed
-    // plugins array is honored even while claims/suggestions are still streaming.
+    // plugins array is honored — and marked resolved — even while claims/
+    // suggestions are still streaming.
     const partial =
       '{ "plugins": ["github", "marketing-expert"], "claims": [ { "claim": "Founder';
 
-    const { plugins, complete } = parseResearchResultStreaming(partial);
+    const { plugins, pluginsResolved, complete } =
+      parseResearchResultStreaming(partial);
 
     expect(complete).toBe(false);
+    expect(pluginsResolved).toBe(true);
     expect(plugins).toEqual(["github", "marketing-expert"]);
   });
 
-  test("a still-open plugins array is not honored (avoids a truncated name)", () => {
+  test("a closed-but-empty array is resolved (the model picked none)", () => {
+    // `[]` that has fully closed is a final decision, not a not-yet — so the
+    // click gate can release without waiting on the rest of the turn.
+    const partial = '{ "plugins": [], "claims": [ { "claim": "Founder';
+
+    const { plugins, pluginsResolved } = parseResearchResultStreaming(partial);
+
+    expect(pluginsResolved).toBe(true);
+    expect(plugins).toEqual([]);
+  });
+
+  test("a still-open plugins array is unresolved (avoids a truncated name)", () => {
     // Half-written array, no closing `]`: acting on it could install a truncated
-    // name, so it stays empty until the array terminates.
+    // name, so it stays empty AND unresolved until the array terminates.
     const partial = '{ "plugins": [ "marketing-exp';
 
-    const { plugins } = parseResearchResultStreaming(partial);
+    const { plugins, pluginsResolved } = parseResearchResultStreaming(partial);
 
     expect(plugins).toEqual([]);
+    expect(pluginsResolved).toBe(false);
+  });
+
+  test("plugins are unresolved before the array appears", () => {
+    const partial = '{ "claims": [ { "claim": "Founder';
+
+    const { pluginsResolved } = parseResearchResultStreaming(partial);
+
+    expect(pluginsResolved).toBe(false);
   });
 });
 

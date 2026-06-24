@@ -169,16 +169,18 @@ function normalizePlugins(raw: unknown): string[] {
 }
 
 /**
- * Parse the top-level `plugins` array as soon as it has fully CLOSED, even while
- * the rest of the payload is still streaming. The prompt emits `plugins` first
+ * Parse the top-level `plugins` array once it has fully CLOSED, even while the
+ * rest of the payload is still streaming. The prompt emits `plugins` first
  * precisely so installs can start early — but we only act on a `]`-terminated
  * array, never a half-written one (a truncated name must never hit the install
- * route). Returns [] until the array closes. String-aware so a `]` inside a
- * value doesn't end the scan early.
+ * route). Returns the normalized names once the array closes (possibly `[]` when
+ * the model picked none), or `null` while it's still absent or unterminated — so
+ * callers can tell "decided, none" from "not decided yet". String-aware so a `]`
+ * inside a value doesn't end the scan early.
  */
-function parseClosedPluginsArray(body: string): string[] {
+function parseClosedPluginsArray(body: string): string[] | null {
   const scope = arrayScopeFor(body, "plugins");
-  if (scope === null) return [];
+  if (scope === null) return null;
   let depth = 0;
   let inString = false;
   let escaped = false;
@@ -200,11 +202,11 @@ function parseClosedPluginsArray(body: string): string[] {
       try {
         return normalizePlugins(JSON.parse(`[${scope.slice(0, i + 1)}`));
       } catch {
-        return [];
+        return null;
       }
     }
   }
-  return [];
+  return null;
 }
 
 /** Body after a `"key": [` opening, or null if that array isn't present yet. */
@@ -232,6 +234,13 @@ export interface ResearchResult {
    * start installs ASAP; `[]` until the array is fully terminated.
    */
   plugins: string[];
+  /**
+   * True once the `plugins` decision is final — the array has fully closed (even
+   * if empty) or the whole payload parsed. Lets the runner gate a suggestion
+   * click on just the plugin decision + its installs, NOT the entire research
+   * turn: `false` only while `plugins` is still absent or mid-stream.
+   */
+  pluginsResolved: boolean;
   /**
    * True once the reply parses as ONE complete, well-formed JSON object — i.e.
    * the full payload has arrived and was parsed by `JSON.parse` (not the
@@ -276,7 +285,14 @@ function parseWholePayload(body: string): Record<string, unknown> | null {
  * top-level array as `claims` for back-compat.
  */
 export function parseResearchResultStreaming(text: string): ResearchResult {
-  if (!text) return { claims: [], suggestions: [], plugins: [], complete: false };
+  if (!text)
+    return {
+      claims: [],
+      suggestions: [],
+      plugins: [],
+      pluginsResolved: false,
+      complete: false,
+    };
   const body = stripFence(text);
 
   // Fast path: the whole payload parsed in one shot. Correct (handles escaping)
@@ -290,6 +306,7 @@ export function parseResearchResultStreaming(text: string): ResearchResult {
       claims: mapEntries(whole.claims, toFact),
       suggestions: mapEntries(whole.suggestions, toSuggestion),
       plugins: normalizePlugins(whole.plugins),
+      pluginsResolved: true,
       complete: true,
     };
   }
@@ -318,10 +335,12 @@ export function parseResearchResultStreaming(text: string): ResearchResult {
           .map(toSuggestion)
           .filter((s): s is ResearchSuggestion => s !== null);
 
+  const closedPlugins = parseClosedPluginsArray(body);
   return {
     claims,
     suggestions,
-    plugins: parseClosedPluginsArray(body),
+    plugins: closedPlugins ?? [],
+    pluginsResolved: closedPlugins !== null,
     complete: false,
   };
 }
