@@ -10,6 +10,7 @@ import {
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
 import { maintainJob as memoryV3MaintainJob } from "../plugins/defaults/memory-v3-shadow/maintain-job.js";
+import { procDistillTriggerJob } from "../plugins/defaults/memory-v3-shadow/proc-distill-trigger.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
@@ -748,6 +749,9 @@ async function processJob(
       return;
     case "memory_v3_maintain":
       await memoryV3MaintainJob(job, config);
+      return;
+    case "memory_proc_distill":
+      await procDistillTriggerJob(job, config);
       return;
     case "memory_retrospective":
       await memoryRetrospectiveJob(job, config);

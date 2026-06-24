@@ -61,6 +61,7 @@ export type MemoryJobType =
   | "memory_v2_reembed"
   | "memory_v2_activation_recompute"
   | "memory_v3_maintain"
+  | "memory_proc_distill"
   // Retired/legacy — no live handler; persisted rows drop via LEGACY_JOB_TYPES.
   | "memory_v3_consolidate"
   | "memory_v3_index_maintenance"
@@ -89,6 +90,7 @@ export const SLOW_LLM_JOB_TYPES: MemoryJobType[] = [
   "memory_v2_sweep",
   "memory_v2_consolidate",
   "memory_v3_maintain",
+  "memory_proc_distill",
   "memory_v2_migrate",
   "memory_retrospective",
   "backfill",
