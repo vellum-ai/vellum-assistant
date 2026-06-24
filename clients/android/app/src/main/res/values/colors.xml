@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="vellum_green">#216C37</color>
+    <color name="colorPrimary">#216C37</color>
+    <color name="colorPrimaryDark">#174B26</color>
+    <color name="colorAccent">#F6C744</color>
+</resources>
