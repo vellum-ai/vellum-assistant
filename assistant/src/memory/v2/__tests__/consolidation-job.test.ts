@@ -123,6 +123,12 @@ mock.module("../../../config/assistant-feature-flags.js", () => ({
 // it alongside shadow for the existing on/off tests).
 mock.module("../../../config/memory-v3-gate.js", () => ({
   isMemoryV3Live: () => flagStates["memory-v3-live"] ?? v3FlagOn,
+  // Proc-to-skills routing is gated by the `procedural-memory-as-skills`
+  // assistant flag (default off). Drive it through `flagStates` so suites that
+  // need the proc-to-skills consolidation section ON can flip it the same way
+  // they flip the other gates, while existing cases keep the default-off shape.
+  isProcToSkillsEnabled: () =>
+    flagStates["procedural-memory-as-skills"] ?? false,
 }));
 
 // ── Workspace pin ───────────────────────────────────────────────────
