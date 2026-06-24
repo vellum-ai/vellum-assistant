@@ -6,6 +6,7 @@ import {
   computerUseDoneTool,
   computerUseDragTool,
   computerUseKeyTool,
+  computerUseObserveTool,
   computerUseOpenAppTool,
   computerUseRespondTool,
   computerUseRunAppleScriptTool,
@@ -55,6 +56,18 @@ describe("computer-use tool definitions", () => {
     for (const tool of allComputerUseTools) {
       expect(tool.description!.length).toBeGreaterThan(0);
     }
+  });
+});
+
+// ── observe ─────────────────────────────────────────────────────────
+
+describe("computer_use_observe", () => {
+  test("supports target_client_id", () => {
+    const props = schema(computerUseObserveTool).properties as Record<
+      string,
+      { type: string }
+    >;
+    expect(props.target_client_id.type).toBe("string");
   });
 });
 
