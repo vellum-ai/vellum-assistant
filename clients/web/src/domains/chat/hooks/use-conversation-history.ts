@@ -149,7 +149,11 @@ export function useConversationHistory({
           changed = true;
           return { ...page, messages: next };
         });
-        return changed ? { ...old, pages } : old;
+        // Return `undefined` (a setQueryData no-op) when no page changed —
+        // a live-turn-only patch must not bump this query's dataUpdatedAt,
+        // or it would needlessly re-trigger the dataUpdatedAt-keyed snapshot
+        // effect (subagent rebuild + surface re-verify) on every patch.
+        return changed ? { ...old, pages } : undefined;
       });
     });
     return () => registerHistoryCachePatcher(null);
