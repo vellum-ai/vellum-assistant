@@ -19,6 +19,7 @@
 
 import { type Dispatch, type MutableRefObject, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
+import { useActiveSubagentIds } from "@/domains/chat/hooks/use-active-subagent-ids";
 import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
 import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
@@ -35,6 +36,7 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
 import { useComposerStore } from "@/domains/chat/composer-store";
+import { ActiveSubagentsOverlay } from "@/domains/chat/components/active-subagents-overlay/active-subagents-overlay";
 import { ChatBody } from "@/domains/chat/components/chat-body";
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
 import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-modal";
@@ -258,6 +260,8 @@ export function ChatMainPanel({
     haptic.light();
     if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
   }, [assistantId]);
+
+  const activeSubagentIds = useActiveSubagentIds();
 
   const onSubagentClick = useCallback((id: string) => {
     useViewerStore.getState().openSubagentDetail(id);
@@ -810,6 +814,15 @@ export function ChatMainPanel({
     transcriptProps: chatTranscriptProps,
   };
 
+  const activeSubagentsSlot =
+    activeSubagentIds.length > 0 ? (
+      <ActiveSubagentsOverlay
+        subagentIds={activeSubagentIds}
+        onSubagentClick={onSubagentClick}
+        onStopSubagent={onStopSubagent}
+      />
+    ) : undefined;
+
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
@@ -845,6 +858,7 @@ export function ChatMainPanel({
         queuedDrawerSlot={isSidePanel ? undefined : mainQueuedDrawerSlot}
         readonlyBannerSlot={channelReadonlyBannerSlot}
         startersSlot={startersSlot}
+        activeSubagentsSlot={activeSubagentsSlot}
       />
       <MicPermissionPrimer
         open={showPrimer}

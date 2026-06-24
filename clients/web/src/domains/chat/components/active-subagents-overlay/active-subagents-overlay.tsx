@@ -59,7 +59,7 @@ export function ActiveSubagentsOverlay({
     <div
       ref={containerRef}
       data-testid="active-subagents-overlay"
-      className="pointer-events-auto flex flex-col items-center gap-2"
+      className="pointer-events-auto flex w-full max-w-[589px] flex-col items-center gap-2"
     >
       <ActiveSubagentsPill
         subagentIds={subagentIds}
@@ -68,7 +68,7 @@ export function ActiveSubagentsOverlay({
       />
 
       {expanded && (
-        <div className="flex w-[min(589px,calc(100vw-2rem))] max-w-[589px] flex-col gap-4 rounded-xl bg-[var(--surface-lift)] p-4 shadow-lg">
+        <div className="flex w-full flex-col gap-4 rounded-xl bg-[var(--surface-lift)] p-4 shadow-lg">
           <Typography
             variant="title-small"
             className="text-[var(--content-emphasised)]"
