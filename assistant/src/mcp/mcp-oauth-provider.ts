@@ -570,6 +570,14 @@ export class McpOAuthProvider implements OAuthClientProvider {
 // --- Static helpers ---
 
 /**
+ * Check whether OAuth tokens exist in the credential store for a server.
+ */
+export async function hasMcpOAuthTokens(serverId: string): Promise<boolean> {
+  const raw = await getSecureKeyAsync(tokensKey(serverId));
+  return raw != null && raw.length > 0;
+}
+
+/**
  * Delete all OAuth credentials for a given MCP server.
  * Used by `mcp remove` for cleanup.
  */

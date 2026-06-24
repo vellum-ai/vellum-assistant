@@ -6,7 +6,9 @@ import {
   KeyRound,
   Loader2,
   LogIn,
+  LogOut,
   Power,
+  RefreshCw,
   Trash2,
 } from "lucide-react";
 import { useCallback, useState } from "react";
@@ -32,8 +34,10 @@ interface McpServerCardProps {
   onRemove: (serverId: string) => void;
   onConfigure: (serverId: string) => void;
   onAuthenticate: (serverId: string) => void;
+  onRevokeOAuth: (serverId: string) => void;
   isUpdating: boolean;
   isAuthenticating: boolean;
+  isRevoking: boolean;
 }
 
 export function McpServerCard({
@@ -43,8 +47,10 @@ export function McpServerCard({
   onRemove,
   onConfigure,
   onAuthenticate,
+  onRevokeOAuth,
   isUpdating,
   isAuthenticating,
+  isRevoking,
 }: McpServerCardProps) {
   const [toolsExpanded, setToolsExpanded] = useState(false);
   const statusInfo = STATUS_CONFIG[server.status] ?? DEFAULT_STATUS;
@@ -70,6 +76,11 @@ export function McpServerCard({
     [onAuthenticate, server.id],
   );
 
+  const handleRevokeOAuth = useCallback(
+    () => onRevokeOAuth(server.id),
+    [onRevokeOAuth, server.id],
+  );
+
   const toggleToolsExpanded = useCallback(
     () => setToolsExpanded((prev) => !prev),
     [],
@@ -89,6 +100,11 @@ export function McpServerCard({
                   <StatusIcon className="h-3.5 w-3.5" />
                   {statusInfo.label}
                 </span>
+                {server.hasOAuth ? (
+                  <span className="rounded-full bg-[var(--surface-lift)] px-2 py-0.5 text-label-small-default text-[var(--content-secondary)]">
+                    OAuth
+                  </span>
+                ) : null}
               </div>
               <div className="mt-0.5 flex items-center gap-2 text-body-small-default text-[var(--content-tertiary)]">
                 <span>{server.transport.type}</span>
@@ -120,6 +136,30 @@ export function McpServerCard({
               >
                 {isAuthenticating ? "Authenticating..." : "Authenticate"}
               </Button>
+            ) : null}
+            {server.hasOAuth ? (
+              <>
+                <Button
+                  variant="ghost"
+                  size="compact"
+                  leftIcon={<RefreshCw />}
+                  onClick={handleAuthenticate}
+                  disabled={isAuthenticating}
+                  tooltip="Re-authenticate OAuth"
+                >
+                  Re-auth
+                </Button>
+                <Button
+                  variant="dangerGhost"
+                  size="compact"
+                  leftIcon={<LogOut />}
+                  onClick={handleRevokeOAuth}
+                  disabled={isRevoking}
+                  tooltip="Revoke OAuth credentials"
+                >
+                  {isRevoking ? "Revoking..." : "Revoke"}
+                </Button>
+              </>
             ) : null}
             <Toggle
               checked={server.enabled}

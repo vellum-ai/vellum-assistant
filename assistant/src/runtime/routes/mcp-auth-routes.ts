@@ -21,7 +21,10 @@ import { reloadMcpServers } from "../../daemon/mcp-reload-service.js";
 import { McpClient } from "../../mcp/client.js";
 import { orchestrateMcpOAuthConnect } from "../../mcp/mcp-auth-orchestrator.js";
 import { getMcpAuthState } from "../../mcp/mcp-auth-state.js";
-import { deleteMcpOAuthCredentials } from "../../mcp/mcp-oauth-provider.js";
+import {
+  deleteMcpOAuthCredentials,
+  hasMcpOAuthTokens,
+} from "../../mcp/mcp-oauth-provider.js";
 import { getMcpToolsByServer } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -173,6 +176,7 @@ interface McpServerEntry {
   transport: McpServerConfig["transport"];
   enabled: boolean;
   defaultRiskLevel: string;
+  hasOAuth: boolean;
   allowedTools?: string[];
   blockedTools?: string[];
 }
@@ -196,12 +200,18 @@ async function handleMcpList(_args: {
         } else {
           status = await checkMachineReadableHealth(id, config);
         }
+        const hasOAuth =
+          config.transport.type !== "stdio"
+            ? await hasMcpOAuthTokens(id)
+            : false;
+
         return {
           id,
           status,
           transport: config.transport,
           enabled,
           defaultRiskLevel: config.defaultRiskLevel ?? "high",
+          hasOAuth,
           ...(config.allowedTools && { allowedTools: config.allowedTools }),
           ...(config.blockedTools && { blockedTools: config.blockedTools }),
         };
@@ -428,6 +438,37 @@ async function handleMcpAdd({
 }
 
 // ---------------------------------------------------------------------------
+// Revoke OAuth
+// ---------------------------------------------------------------------------
+
+async function handleMcpAuthRevoke({
+  body,
+}: {
+  body?: Record<string, unknown>;
+}): Promise<{ revoked: true }> {
+  const { serverId } = body as { serverId: string };
+
+  const raw = loadRawConfig();
+  const servers = (raw.mcp as Partial<McpConfig> | undefined)?.servers ?? {};
+  const serverConfig = servers[serverId];
+
+  if (!serverConfig) {
+    throw new NotFoundError(`MCP server "${serverId}" not found`);
+  }
+
+  try {
+    await deleteMcpOAuthCredentials(serverId);
+  } catch (err) {
+    throw new InternalError(
+      `Failed to revoke OAuth credentials: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  triggerReload("internal_mcp_auth_revoke");
+  return { revoked: true };
+}
+
+// ---------------------------------------------------------------------------
 // Remove
 // ---------------------------------------------------------------------------
 
@@ -542,6 +583,7 @@ export const ROUTES: RouteDefinition[] = [
             .passthrough(),
           enabled: z.boolean(),
           defaultRiskLevel: z.string(),
+          hasOAuth: z.boolean(),
           allowedTools: z.array(z.string()).optional(),
           blockedTools: z.array(z.string()).optional(),
         }),
@@ -627,6 +669,22 @@ export const ROUTES: RouteDefinition[] = [
       headers: z.record(z.string(), z.string()).optional(),
     }),
     handler: handleMcpAdd,
+  },
+  {
+    operationId: "internal_mcp_auth_revoke",
+    endpoint: "internal/mcp/auth/revoke",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Revoke MCP OAuth credentials",
+    description:
+      "Deletes stored OAuth tokens for an MCP server and triggers a reload.",
+    tags: ["internal"],
+    requestBody: z.object({ serverId: z.string() }),
+    responseBody: z.object({ revoked: z.boolean() }),
+    handler: handleMcpAuthRevoke,
   },
   {
     operationId: "internal_mcp_remove",
