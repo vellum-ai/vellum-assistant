@@ -101,3 +101,5 @@ The assistant supports these surfaces today, but they are not yet contributed th
 | Bin            | CLI commands the assistant exposes as tools.                                                                  |
 | Integrations   | OAuth-connected and MCP-connected external services (Google, Linear, Slack, etc.) with credential management. |
 | Slash commands | Shortcuts triggered by typing `/` in the conversation, expanding into prompts or actions.                     |
+| Agents         | Delegated sub-agents with scoped roles, tools, and context windows.                                           |
+| Workflows      | Multi-step automated processes that chain tools, hooks, and model calls into reusable pipelines.              |
