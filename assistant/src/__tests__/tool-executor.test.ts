@@ -447,6 +447,11 @@ describe("ToolExecutor policy context plumbing", () => {
       conversationId: "conversation-1",
       executionContext: "conversation",
       executionTarget: "sandbox",
+      // Origin-scoping signal: buildPolicyContext now copies the turn's trust
+      // class onto the PolicyContext so the checker can scope narrow
+      // non-interactive auto-grants. requestOrigin/sourceChannel are unset for
+      // this interactive turn (omitted — toEqual ignores undefined-valued keys).
+      trustClass: "guardian",
     });
   });
 
@@ -466,6 +471,8 @@ describe("ToolExecutor policy context plumbing", () => {
     expect(lastCheckArgs!.policyContext).toEqual({
       conversationId: "conversation-1",
       executionContext: "conversation",
+      // Trust class is now threaded onto the PolicyContext (see above).
+      trustClass: "guardian",
     });
   });
 
@@ -495,6 +502,8 @@ describe("ToolExecutor policy context plumbing", () => {
     expect(lastCheckArgs!.policyContext).toEqual({
       conversationId: "conversation-1",
       executionContext: "conversation",
+      // Trust class is now threaded onto the PolicyContext (see above).
+      trustClass: "guardian",
     });
   });
 
@@ -526,6 +535,8 @@ describe("ToolExecutor policy context plumbing", () => {
       conversationId: "conversation-1",
       executionContext: "conversation",
       executionTarget: "host",
+      // Trust class is now threaded onto the PolicyContext (see above).
+      trustClass: "guardian",
     });
   });
 });

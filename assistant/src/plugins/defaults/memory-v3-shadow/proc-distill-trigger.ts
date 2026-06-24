@@ -15,10 +15,13 @@
  *   2. DISTILL — for each `ready` cluster, launch a guardian background agent
  *      run that reads the cluster's member notes, synthesizes the canonical
  *      procedure across the ≥ N traces, and registers it as a managed skill via
- *      `scaffold_managed_skill`. On success the member notes are deleted (the
- *      procedure now lives only in the skill) and the cluster is marked
- *      `distilled` with its new skill id; on failure the cluster stays `ready`
- *      and its notes are preserved so the next pass can retry safely.
+ *      `scaffold_managed_skill`. Success is CONFIRMED by verifying the skill now
+ *      exists — NOT by the run's `ok` flag, which is also `true` for a skipped
+ *      run (the pre-first-message gate) or a turn that finished without
+ *      scaffolding. Only once the skill is verified are the member notes deleted
+ *      (the procedure now lives only in the skill) and the cluster marked
+ *      `distilled`; on any other outcome the cluster stays `ready` and its notes
+ *      are preserved so the next pass can retry safely without data loss.
  *
  * Per candidate note (its `goal:` frontmatter is the identity key — see the
  * design doc's "Candidate-identity matching"):
@@ -55,6 +58,7 @@
  */
 
 import { isProcToSkillsEnabled } from "../../../config/memory-v3-gate.js";
+import { loadSkillCatalog } from "../../../config/skills.js";
 import type { AssistantConfig } from "../../../config/types.js";
 import type { MemoryJob } from "../../../memory/jobs-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../../memory/v2/constants.js";
@@ -203,6 +207,14 @@ export interface ProcDistillTriggerDeps {
    * so the permission grant fires.
    */
   distill: (input: DistillRunInput) => Promise<DistillRunResult>;
+  /**
+   * Confirm that a skill with this id now genuinely exists (it appears in the
+   * managed-skill catalog). This is the ONLY proof a distillation run actually
+   * scaffolded its skill — `distill` reporting `ok` does not establish it (a
+   * skipped/no-scaffold/errored run also reports `ok`). Injected so tests never
+   * depend on a real on-disk catalog.
+   */
+  skillExists: (skillId: string) => boolean;
   /** Delete a candidate note once its cluster has been distilled into a skill. */
   deleteNote: (slug: string) => Promise<void>;
 }
@@ -218,8 +230,20 @@ export interface DistillRunInput {
 
 /** Outcome of one distillation agent run. */
 export interface DistillRunResult {
-  /** True when the agent ran to completion and scaffolded the skill. */
+  /**
+   * True when the background run *finished without throwing*. This is NOT a
+   * statement that the skill was scaffolded: the runner also returns `ok: true`
+   * when the pre-first-message gate skipped the run, or when the agent turn
+   * completed but never called `scaffold_managed_skill` (or the tool errored).
+   * The caller MUST confirm the skill actually exists before retiring notes.
+   */
   ok: boolean;
+  /**
+   * Set when the runner declined to execute the run (e.g. the pre-first-message
+   * gate tripped). A skipped run did NOT distill anything: the cluster must be
+   * left `ready` with its notes intact for a later retry.
+   */
+  skipReason?: string;
 }
 
 /** Outcome of one trigger pass, for the log summary and test assertions. */
@@ -383,11 +407,15 @@ export async function procDistillTriggerJob(
  * Distill one `ready` cluster into a managed skill.
  *
  * Reads the cluster's member candidate notes (the observed traces), launches
- * the distillation agent run, and — only on a successful scaffold — deletes the
- * member notes (the procedure now lives only in the skill) and marks the
- * cluster `distilled`. The order is deliberate: notes are deleted AFTER the
- * skill is registered, so a failed/empty run leaves both the cluster `ready`
- * and its notes on disk, making the next pass a safe retry.
+ * the distillation agent run, and — only once the skill is CONFIRMED to exist —
+ * deletes the member notes (the procedure now lives only in the skill) and
+ * marks the cluster `distilled`. Confirmation is by `skillExists`, not by the
+ * run's `ok` flag: a skipped run, or a turn that finished without scaffolding
+ * (or a scaffold-tool error), also reports `ok: true`, and retiring the notes
+ * on that signal would destroy the captured procedure while pointing a phantom
+ * `distilled` cluster at a skill that does not exist. The order is deliberate:
+ * notes are deleted AFTER the skill is verified, so a failed/skipped/empty run
+ * leaves both the cluster `ready` and its notes on disk for a safe retry.
  *
  * A cluster with no readable member notes is left `ready` untouched — there is
  * nothing to synthesize, and dropping it would lose the recurrence evidence.
@@ -433,9 +461,37 @@ async function distillCluster(
     return;
   }
 
-  // Skill registered — retire the candidate notes, then mark the cluster
-  // `distilled`. Member-note deletion is best-effort: a stray note left on
-  // disk is harmless (its slug is already a cluster member, so the trigger
+  // A skipped run (e.g. the pre-first-message gate tripped) reports `ok: true`
+  // but bootstrapped no conversation — nothing was distilled. Leave the cluster
+  // `ready` with its notes intact so a later pass retries once the gate clears.
+  if (result.skipReason) {
+    outcome.distillFailures += 1;
+    log.info(
+      { clusterId: cluster.clusterId, skillId, skipReason: result.skipReason },
+      "proc-distill: distillation run was skipped; left ready for retry",
+    );
+    return;
+  }
+
+  // `ok` only means the run finished without throwing — it does NOT prove the
+  // agent scaffolded the skill (the turn may have completed without ever
+  // calling `scaffold_managed_skill`, or the tool may have errored). Retiring
+  // the notes now would destroy the captured procedure AND leave a phantom
+  // `distilled` cluster pointing at a skill that does not exist. So verify the
+  // skill genuinely exists before touching anything; otherwise leave the
+  // cluster `ready` with its notes intact for a safe retry.
+  if (!deps.skillExists(skillId)) {
+    outcome.distillFailures += 1;
+    log.warn(
+      { clusterId: cluster.clusterId, skillId },
+      "proc-distill: distillation run finished but the skill was not created; left ready for retry",
+    );
+    return;
+  }
+
+  // Skill registered AND verified — retire the candidate notes, then mark the
+  // cluster `distilled`. Member-note deletion is best-effort: a stray note left
+  // on disk is harmless (its slug is already a cluster member, so the trigger
   // skips it), whereas re-distilling would re-scaffold the same skill.
   for (const slug of cluster.memberNoteSlugs) {
     try {
@@ -569,6 +625,7 @@ function defaultDeps(config: AssistantConfig): ProcDistillTriggerDeps {
     loadClusterNotes: (slugs) =>
       loadClusterNotesFromWorkspace(workspaceDir, slugs),
     distill: launchDistillation,
+    skillExists: skillExistsInCatalog,
     deleteNote: (slug) => deletePage(workspaceDir, slug),
   };
 }
@@ -649,12 +706,13 @@ async function loadClusterNotesFromWorkspace(
  * `scaffold_managed_skill` without an interactive prompt (the run has no client
  * to answer one).
  *
- * Reports `ok` from `runBackgroundJob` only — whether the agent actually
- * scaffolded the skill is the agent's own responsibility; a run that completes
- * without scaffolding still leaves the cluster `ready` because the next pass
- * re-reads `ready` clusters. `ok: false` (timeout, provider error, bootstrap
- * failure, or the pre-first-message gate) keeps the cluster `ready` with notes
- * intact for a safe retry.
+ * Reports `ok` and any `skipReason` from `runBackgroundJob`. `ok` only means
+ * the run finished without throwing — it does NOT establish that the agent
+ * scaffolded the skill (the gate may have skipped the run, or the turn may have
+ * completed without calling `scaffold_managed_skill`). The caller verifies the
+ * skill actually exists (`skillExists`) before retiring the cluster's notes;
+ * `ok: false`, a `skipReason`, or a missing skill all keep the cluster `ready`
+ * with its notes intact for a safe retry.
  */
 async function launchDistillation(
   input: DistillRunInput,
@@ -675,7 +733,18 @@ async function launchDistillation(
     requestOrigin: DISTILL_ORIGIN,
     suppressFailureNotifications: true,
   });
-  return { ok: result.ok };
+  return { ok: result.ok, skipReason: result.skipReason };
+}
+
+/**
+ * Production skill-existence check: does a managed skill with this id appear in
+ * the live catalog? `loadSkillCatalog()` includes scaffolded managed skills, so
+ * a successful `scaffold_managed_skill` from the distillation run shows up here.
+ * This is what proves the run actually created the skill before we retire the
+ * cluster's candidate notes.
+ */
+function skillExistsInCatalog(skillId: string): boolean {
+  return loadSkillCatalog().some((skill) => skill.id === skillId);
 }
 
 /**

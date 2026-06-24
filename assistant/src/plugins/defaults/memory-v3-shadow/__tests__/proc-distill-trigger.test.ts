@@ -230,6 +230,7 @@ function harness(opts: HarnessOpts) {
     // `ready`. Distillation behavior is covered in `proc-distill.test.ts`.
     loadClusterNotes: async () => [],
     distill: async () => ({ ok: false }),
+    skillExists: () => false,
     deleteNote: async () => {},
   };
   return { rows, deps, judgeCalls };
@@ -258,6 +259,7 @@ describe("procDistillTriggerJob — gating", () => {
       listReadyClusters: () => [],
       loadClusterNotes: async () => [],
       distill: async () => ({ ok: false }),
+      skillExists: () => false,
       deleteNote: async () => {},
     });
     expect(outcome.disabled).toBe(true);

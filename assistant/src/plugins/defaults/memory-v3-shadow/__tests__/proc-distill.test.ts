@@ -111,6 +111,13 @@ interface HarnessOpts {
   seed: ProcCandidate[];
   noteBodies?: Record<string, string>;
   distillResult?: DistillRunResult;
+  /**
+   * Skill ids the (fake) catalog reports as existing AFTER the distill run. The
+   * production check is `loadSkillCatalog().some(...)`; here it is a fixed set.
+   * Defaults to "every requested skill id exists" so a plain successful run
+   * verifies — tests exercising the no-skill path pass an explicit `[]`.
+   */
+  existingSkillIds?: string[];
 }
 
 function harness(opts: HarnessOpts) {
@@ -118,6 +125,10 @@ function harness(opts: HarnessOpts) {
   const bodies = opts.noteBodies ?? {};
   const distillCalls: DistillRunInput[] = [];
   const deletedSlugs: string[] = [];
+  // `undefined` → the skill always verifies (default happy path). An explicit
+  // array → only those ids verify (used to simulate a run that scaffolded
+  // nothing, where the target skill is absent afterward).
+  const existingSkillIds = opts.existingSkillIds;
 
   const deps: ProcDistillTriggerDeps = {
     config: config(),
@@ -141,6 +152,10 @@ function harness(opts: HarnessOpts) {
       distillCalls.push(input);
       return opts.distillResult ?? { ok: true };
     },
+    skillExists: (skillId) =>
+      existingSkillIds === undefined
+        ? true
+        : existingSkillIds.includes(skillId),
     deleteNote: async (slug) => {
       deletedSlugs.push(slug);
     },
@@ -170,7 +185,7 @@ describe("skillIdForGoal", () => {
 });
 
 describe("procDistillTriggerJob — distillation", () => {
-  test("a ready cluster is distilled, its notes deleted, and marked distilled", async () => {
+  test("a verified skill creation → notes deleted and cluster marked distilled", async () => {
     const { reg, deps, distillCalls, deletedSlugs } = harness({
       seed: [
         cluster({
@@ -183,6 +198,8 @@ describe("procDistillTriggerJob — distillation", () => {
         "proc/deploy-1": "ran build, then pushed to prod via the CLI",
         "proc/deploy-2": "rebuilt, retried once, pushed to prod via the CLI",
       },
+      // The run actually scaffolded the skill — it now appears in the catalog.
+      existingSkillIds: ["deploy-the-web-app"],
     });
 
     const outcome = await procDistillTriggerJob(JOB, deps.config, deps);
@@ -243,6 +260,65 @@ describe("procDistillTriggerJob — distillation", () => {
 
     // The run was attempted, but nothing was retired and the cluster is still
     // ready — the next pass can safely retry.
+    expect(distillCalls).toHaveLength(1);
+    expect(deletedSlugs).toEqual([]);
+    expect(reg.rows.get("cluster/proc/deploy-1")!.status).toBe("ready");
+    expect(outcome.distilled).toEqual([]);
+    expect(outcome.distillFailures).toBe(1);
+  });
+
+  test("a skipped run (skipReason) is NOT distilled; cluster stays ready, notes intact", async () => {
+    const { reg, deps, distillCalls, deletedSlugs } = harness({
+      seed: [
+        cluster({
+          clusterId: "cluster/proc/deploy-1",
+          goal: "deploy the web app",
+          memberNoteSlugs: ["proc/deploy-1", "proc/deploy-2"],
+        }),
+      ],
+      noteBodies: {
+        "proc/deploy-1": "trace one",
+        "proc/deploy-2": "trace two",
+      },
+      // The pre-first-message gate tripped: the runner returns ok:true but ran
+      // no conversation. Even if the skill somehow "exists", a skip never
+      // distills — the notes must be preserved.
+      distillResult: { ok: true, skipReason: "pre_first_user_message" },
+      existingSkillIds: ["deploy-the-web-app"],
+    });
+
+    const outcome = await procDistillTriggerJob(JOB, deps.config, deps);
+
+    // The run was attempted but skipped — nothing retired, cluster still ready.
+    expect(distillCalls).toHaveLength(1);
+    expect(deletedSlugs).toEqual([]);
+    expect(reg.rows.get("cluster/proc/deploy-1")!.status).toBe("ready");
+    expect(outcome.distilled).toEqual([]);
+    expect(outcome.distillFailures).toBe(1);
+  });
+
+  test("a run that finishes but the skill does not exist → stays ready, notes intact", async () => {
+    const { reg, deps, distillCalls, deletedSlugs } = harness({
+      seed: [
+        cluster({
+          clusterId: "cluster/proc/deploy-1",
+          goal: "deploy the web app",
+          memberNoteSlugs: ["proc/deploy-1", "proc/deploy-2"],
+        }),
+      ],
+      noteBodies: {
+        "proc/deploy-1": "trace one",
+        "proc/deploy-2": "trace two",
+      },
+      // The turn completed (ok:true, no skip) but never scaffolded the skill —
+      // the catalog has nothing for this id afterward.
+      distillResult: { ok: true },
+      existingSkillIds: [],
+    });
+
+    const outcome = await procDistillTriggerJob(JOB, deps.config, deps);
+
+    // Skill was never created → the captured procedure must be preserved.
     expect(distillCalls).toHaveLength(1);
     expect(deletedSlugs).toEqual([]);
     expect(reg.rows.get("cluster/proc/deploy-1")!.status).toBe("ready");
