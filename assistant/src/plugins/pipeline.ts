@@ -16,9 +16,13 @@
  */
 
 import type { HookName } from "../plugin-api/constants.js";
+import { getLogger } from "../util/logger.js";
 import { getHooksFor } from "./registry.js";
+import type { PluginHookFn } from "./types.js";
 
 // ─── Hook runner ────────────────────────────────────────────────────────────
+
+const log = getLogger("plugin-pipeline");
 
 /**
  * Execute a hook chain: walk every registered plugin's hook for `name` in
@@ -38,12 +42,29 @@ export async function runHook<TCtx>(
   name: HookName,
   initialCtx: TCtx,
 ): Promise<TCtx> {
-  const hooks = await getHooksFor<TCtx>(name);
+  let hooks: PluginHookFn<TCtx>[];
+  try {
+    hooks = await getHooksFor<TCtx>(name);
+  } catch (err) {
+    log.error(
+      { err, hookName: name },
+      "plugin hook discovery failed — proceeding without hooks",
+    );
+    return initialCtx;
+  }
+
   let active = initialCtx;
   for (const hook of hooks) {
-    const result = await hook(active);
-    if (result !== undefined) {
-      active = { ...active, ...result };
+    try {
+      const result = await hook(active);
+      if (result !== undefined) {
+        active = { ...active, ...result };
+      }
+    } catch (err) {
+      log.error(
+        { err, hookName: name },
+        "plugin hook failed — proceeding with current context",
+      );
     }
   }
   return active;
