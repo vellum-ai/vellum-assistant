@@ -156,6 +156,31 @@ describe("SubagentInlineProgressCard — header action", () => {
     expect(seen).toEqual(["sa-open"]);
   });
 
+  test("Enter on the row opens the panel, but Enter from the stop button does not", () => {
+    spawn("sa-keydown");
+    const seen: string[] = [];
+    const { getByTestId } = render(
+      <SubagentInlineProgressCard
+        subagentId="sa-keydown"
+        onSubagentClick={(id) => seen.push(id)}
+        onStopSubagent={() => {}}
+      />,
+    );
+
+    const row = getByTestId("subagent-inline-progress-card");
+    const stop = getByTestId("subagent-inline-card-stop");
+
+    // Enter originating on the stop button bubbles to the row handler, but the
+    // row must ignore it (target !== currentTarget) so the button's own
+    // keyboard activation is not hijacked.
+    fireEvent.keyDown(stop, { key: "Enter" });
+    expect(seen).toEqual([]);
+
+    // Enter on the row itself still opens the panel.
+    fireEvent.keyDown(row, { key: "Enter" });
+    expect(seen).toEqual(["sa-keydown"]);
+  });
+
   test("no expand toggle is exposed — there is no inline body", () => {
     spawn("sa-no-expand");
     act(() => {

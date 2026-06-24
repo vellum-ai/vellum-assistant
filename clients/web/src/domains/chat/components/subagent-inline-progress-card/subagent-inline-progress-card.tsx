@@ -69,6 +69,11 @@ export function SubagentInlineProgressCard({
 
   const handleRowKeyDown = useCallback(
     (e: KeyboardEvent) => {
+      // Only react when the row itself is focused. A focusable child (the
+      // stop button) bubbles its Enter/Space keydown here before its own
+      // click fires; without this guard the row would hijack that activation
+      // — opening the panel and `preventDefault()`-ing the button's click.
+      if (e.target !== e.currentTarget) return;
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         onSubagentClick?.(subagentId);
