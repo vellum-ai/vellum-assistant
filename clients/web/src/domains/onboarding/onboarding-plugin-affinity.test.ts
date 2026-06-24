@@ -68,6 +68,31 @@ describe("pluginsForRole", () => {
     expect(pluginsForRole("Architect")).toEqual([]); // building architect, not software
   });
 
+  test("non-software engineering disciplines do NOT get git-workflow", () => {
+    // The bare "engineer"/"software" tokens used to over-match these.
+    for (const role of [
+      "Mechanical Engineer",
+      "Civil Engineer",
+      "Biomedical Engineer",
+      "Electrical Engineer",
+      "Chemical Engineer",
+      "Aerospace Engineer",
+    ]) {
+      expect(pluginsForRole(role)).not.toContain("git-workflow");
+    }
+  });
+
+  test("'software' as a qualifier on a non-eng title does not fire git-workflow", () => {
+    // "Software Product Manager" must stay a PM (unmapped), not match on "software".
+    expect(pluginsForRole("Software Product Manager")).toEqual([]);
+  });
+
+  test("Sales Engineer is treated as sales, not a git user", () => {
+    const result = pluginsForRole("Sales Engineer");
+    expect(result).toContain("marketing-expert");
+    expect(result).not.toContain("git-workflow");
+  });
+
   test("git-adjacent non-engineering roles are left to the model", () => {
     expect(pluginsForRole("Data Scientist")).toEqual([]);
     expect(pluginsForRole("Product Manager")).toEqual([]);

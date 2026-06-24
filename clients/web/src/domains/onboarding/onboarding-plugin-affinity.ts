@@ -14,6 +14,17 @@
  * Keep the keyword lists lean and high-precision; a false match silently installs
  * an off-topic plugin for a new user, which is worse than a miss the model can
  * still catch.
+ *
+ * INTENTIONAL EXCEPTION to the "Assistant-Driven Judgement" rule in the root
+ * AGENTS.md (judgement calls route through the daemon, not client heuristics).
+ * This is a stakeholder-agreed deterministic FLOOR layered under the model's own
+ * picks, not a replacement for them: the research turn already asks the assistant
+ * to judge fit, but its prompt biases toward fewer picks, so the cases we require
+ * to be reliable (admin-copilot for everyone; marketing for a founder) kept
+ * getting dropped. The always-install baseline is a product POLICY, not a
+ * judgement; the role map is a narrow, high-precision safety net for the obvious
+ * hits while the model continues to cover the long tail. Prefer a miss (let the
+ * model decide) over a loose keyword that mis-installs.
  */
 
 /**
@@ -70,31 +81,51 @@ const PLUGIN_AFFINITIES: readonly PluginAffinity[] = [
     ],
   },
   {
-    // Software-engineering roles. Keep to roles that live in git day-to-day;
-    // git-adjacent roles (data scientist, analyst) are left to the model so we
-    // don't push code tooling on someone who doesn't ship code.
+    // Software-engineering roles only. Deliberately NO bare "engineer" or
+    // "software" token — those over-match the non-software engineering
+    // disciplines ("Mechanical Engineer", "Civil Engineer") and adjacent titles
+    // ("Software Product Manager"), silently installing code tooling for someone
+    // who doesn't ship code. Match the qualified phrases instead; "developer"
+    // stays bare since its dominant occupational sense is software (the rare
+    // "real estate developer" is an acceptable miss). Genuinely git-adjacent
+    // roles (data scientist, analyst, PM) are left to the model.
     plugin: "git-workflow",
     keywords: [
-      "engineer",
-      "engineering",
       "developer",
       "swe",
-      "software",
       "programmer",
       "coder",
       "devops",
+      "dev ops",
       "sre",
-      "backend",
-      "back end",
-      "frontend",
-      "front end",
-      "full stack",
-      "fullstack",
-      "platform engineer",
-      "infrastructure",
-      "solutions architect",
+      "site reliability",
+      "software engineer",
       "software architect",
+      "backend engineer",
+      "back end engineer",
+      "frontend engineer",
+      "front end engineer",
+      "full stack engineer",
+      "fullstack engineer",
+      "platform engineer",
+      "infrastructure engineer",
+      "data engineer",
+      "machine learning engineer",
+      "ml engineer",
+      "qa engineer",
+      "embedded engineer",
+      "security engineer",
+      "staff engineer",
+      "principal engineer",
+      "solutions architect",
       "tech lead",
+      "technical lead",
+      "engineering manager",
+      "engineering lead",
+      "head of engineering",
+      "director of engineering",
+      "vp of engineering",
+      "vp engineering",
       "cto",
     ],
   },
