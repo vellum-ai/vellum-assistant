@@ -62,7 +62,7 @@ Ask before building. Five questions, in this order. Stop if the user is unclear 
 
 1. **What job does the plugin do?** One sentence, plain language. If you cannot write this, the plugin should not be built yet.
 2. **Which surfaces does it ship?** Tools (model calls), hooks (lifecycle transforms), and skills (on-demand instructions) are the three. Most plugins ship one or two, not all three. See `references/plugins.md` for the directory layout and manifest, and the surface-specific references for each surface's contract.
-3. **Does it need credentials?** An API key, OAuth token, or webhook secret is not a value that belongs in a `.ts` file. Use `getConfiguredProvider()` from `@vellumai/plugin-api` to route through the workspace's stored credentials without handling plaintext.
+3. **Does it need credentials?** An API key, OAuth token, or webhook secret is not a value that belongs in a `.ts` file. For LLM inference credentials, use `getConfiguredProvider()` from `@vellumai/plugin-api` to route through the workspace's stored credentials without handling plaintext. For other credential types (OAuth tokens, webhook secrets), store them via the credential vault and resolve at runtime through the assistant's credential system.
 4. **Where will the source live?** A GitHub repo, ideally under the user's own namespace. The marketplace entry pins to a full commit SHA.
 5. **Is the user writing TypeScript or compiling ahead?** In-repo Bun/Node compile on assistant start is the default. If they want a different build, ask now.
 
@@ -95,7 +95,7 @@ See `references/distribution.md` for the full marketplace manifest schema, CLI c
 2. Pin `source.ref` to a full commit SHA. Tags and branches are rejected.
 3. Wait for the Vellum team's review. The catalog is curated.
 
-Once merged, users install by name: `assistant plugins install my-plugin`. The new code is picked up on the next boot or plugin reload.
+Once merged, users install by name: `assistant plugins install my-plugin`. The new plugin is picked up automatically.
 
 ## SKILL COMPLETE WHEN
 

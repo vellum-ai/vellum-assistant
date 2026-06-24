@@ -89,15 +89,15 @@ Values, not just types, that a plugin consumes at module-load or init time. A bo
 
 The assistant supports these surfaces today, but they are not yet contributed through the plugin system. They may be added in the future.
 
-| Surface        | What it does                                                                                |
-| -------------- | ------------------------------------------------------------------------------------------- |
-| Schedules      | Cron-style triggers that fire on a recurring schedule.                                      |
-| Apps           | Persistent interactive apps (dashboards, games, tools) served in the workspace panel.       |
-| Routes         | HTTP routes the assistant exposes, used for webhooks and integrations.                      |
-| Artifacts      | Versioned outputs the assistant produces and tracks (documents, diagrams, generated files). |
-| Webhooks       | Inbound HTTP endpoints that deliver external events into the assistant.                     |
-| Prompts        | Reusable system prompt fragments and templates.                                             |
-| UIs            | Custom UI surfaces rendered in the conversation or workspace.                               |
-| Bin            | CLI commands the assistant exposes as tools.                                                |
-| Integrations   | OAuth-connected external services (Google, Linear, Slack, etc.) with credential management. |
-| Slash commands | Shortcuts triggered by typing `/` in the conversation, expanding into prompts or actions.   |
+| Surface        | What it does                                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------- |
+| Schedules      | Cron-style triggers that fire on a recurring schedule.                                                        |
+| Apps           | Persistent interactive apps (dashboards, games, tools) served in the workspace panel.                         |
+| Routes         | HTTP routes the assistant exposes, used for webhooks and integrations.                                        |
+| Artifacts      | Versioned outputs the assistant produces and tracks (documents, diagrams, generated files).                   |
+| Webhooks       | Inbound HTTP endpoints that deliver external events into the assistant.                                       |
+| Prompts        | Reusable system prompt fragments and templates.                                                               |
+| UIs            | Custom UI surfaces rendered in the conversation or workspace.                                                 |
+| Bin            | CLI commands the assistant exposes as tools.                                                                  |
+| Integrations   | OAuth-connected and MCP-connected external services (Google, Linear, Slack, etc.) with credential management. |
+| Slash commands | Shortcuts triggered by typing `/` in the conversation, expanding into prompts or actions.                     |
