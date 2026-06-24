@@ -198,18 +198,11 @@ export function usePlatformGate(
   // does not loop. See CONVENTIONS.md § State management — `useShallow`
   // is not introduced in new code; atomic selectors avoid the need.
   //
-  // `platformReachable` is the platform-reachability signal both branches
-  // gate on. `useHasPlatformSession()` is `hasLivePlatformSession(platformSession)`
-  // — the same credential `canReachAssistant` checks for a platform-hosted
-  // assistant — so the gate and the per-assistant connection predicate agree
-  // on "is the platform reachable." It stays the bare identity signal rather
-  // than `canReachAssistant(activeAssistant)`: that wrapper forks on
-  // `isRemoteGatewayMode()` / `isLocalMode()` and the active assistant's
-  // hosting, which would change the self-hosted rows (states 3–5) of the
-  // truth table. A live session reads `"present"`, while both `"absent"` and
-  // the pre-settle `"unknown"` gate the surface; a re-probe keeps the last
-  // `"present"`/`"absent"` until the new result lands, so the gate does not
-  // flicker to `"disabled"` on app resume.
+  // Gate on the bare platform-session signal, not
+  // `canReachAssistant(activeAssistant)`: that wrapper forks on hosting type and
+  // would change the self-hosted rows (states 3–5) of the truth table.
+  // `"unknown"` (pre-settle) gates the surface like `"absent"`, and a re-probe
+  // keeps the last `"present"`/`"absent"` so the gate doesn't flicker on resume.
   const platformReachable = useHasPlatformSession();
   const platformDisabled = isPlatformDisabled();
   const activeIsSelfHosted = useActiveAssistantIsSelfHosted();

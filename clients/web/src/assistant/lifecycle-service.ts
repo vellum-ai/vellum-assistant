@@ -229,12 +229,11 @@ class AssistantLifecycleService {
    */
   async respondToInputs(): Promise<void> {
     if (!this.ready) return;
-    // Local (gateway) and platform are independent session authorities —
-    // a platform-session loss must not reset a local lifecycle. The
-    // gateway authority is evaluated before the platform-identity reset
-    // below so a `sessionStatus` flip to `"unauthenticated"` can't tear
-    // down a local assistant; gateway-auth drives the lifecycle from its
-    // own token.
+    // Local (gateway) and platform are independent session authorities, so a
+    // platform-session loss must not reset a local lifecycle. Evaluate the
+    // gateway authority before the platform-identity reset below: a
+    // `sessionStatus` flip to `"unauthenticated"` then can't tear down a local
+    // assistant — gateway-auth drives the lifecycle from its own token.
     if (isGatewayAuthMode()) {
       this.applyGatewayAuthShortCircuit();
       return;

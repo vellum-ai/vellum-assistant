@@ -257,9 +257,8 @@ mock.module("@/lib/auth/session-cleanup", () => ({
 }));
 
 // Use the REAL resolved-assistants store: the auth-store init path calls its
-// `.getState().setFromApi(...)`, which a plain `getState` stub cannot provide.
-// The store is dependency-light (its local-mode deps are already mocked above),
-// so loading it for real is cheap.
+// `.getState().setFromApi(...)`, which a plain stub can't provide. It's
+// dependency-light, so loading it for real is cheap.
 
 // Auth-store writes the selection through the public wrapper, not the store
 // action — mock the wrapper module so the real one (and its local-mode deps)
@@ -1293,9 +1292,7 @@ describe("offline session restore (LUM-2412)", () => {
   });
 });
 
-// The `kind` discriminator separates a real platform account from local
-// gateway access. Local keeps its stable `gateway-local` id (storage
-// namespacing) yet is not a platform identity; platform users are.
+// `kind` separates a real platform account from synthetic local gateway access.
 describe("identity kind (platform vs local gateway access)", () => {
   test("a local gateway session is kind 'local' and not a platform identity, but keeps its stable id", async () => {
     mockIsLocalMode = true;
@@ -1341,7 +1338,7 @@ describe("identity kind (platform vs local gateway access)", () => {
   });
 });
 
-// The pure form route middleware will use in a later PR: identity OR connection.
+// The pure app-access predicate: identity OR connection.
 describe("hasAppAccess (pure predicate)", () => {
   test.each([
     [false, false, false],

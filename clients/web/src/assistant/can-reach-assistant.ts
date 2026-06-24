@@ -17,12 +17,10 @@ import {
  */
 export interface ReachabilitySignals {
   /**
-   * Whether the gateway token currently valid for THIS target assistant is
-   * present. Callers MUST supply a per-assistant signal: a bare
-   * `getGatewayToken() !== null` is incorrect when multiple local assistants
-   * exist, because a token minted for a different assistant would make this
-   * assistant report reachable. Callers gate the global token by the active
-   * assistant id so it only counts for the assistant the lifecycle activated.
+   * Whether the gateway token valid for THIS assistant is present. Must be a
+   * per-assistant signal: a bare `getGatewayToken() !== null` is wrong with
+   * multiple local assistants, since a token minted for another assistant would
+   * make this one report reachable. Callers gate the global token by active id.
    */
   gatewayTokenPresent: boolean;
   platformSession: PlatformSessionStatus;

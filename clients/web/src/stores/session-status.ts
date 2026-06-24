@@ -68,21 +68,18 @@ export const hasLivePlatformSession = (
 ): boolean => status === "present";
 
 /**
- * Is this a real platform account, as opposed to local gateway access? The
- * local gateway user is a synthetic, platform-shaped identity kept for storage
- * namespacing, so reading the `kind` discriminator distinguishes it from a real
- * platform account instead of treating any non-null user as one. A null user is
- * never a platform identity.
+ * Is this a real platform account, not local gateway access? The local gateway
+ * user is a synthetic, platform-shaped identity, so read the `kind` discriminator
+ * rather than treating any non-null user as a platform account.
  */
 export const isPlatformIdentity = (user: AuthUser | null): boolean =>
   user?.kind === "platform";
 
 /**
- * The two orthogonal authorities behind app access: a real platform identity
- * and the ability to reach the currently selected assistant. Either one alone
- * grants access — a local-only desktop user has no platform identity but is
- * reachable through the gateway, and a platform user with a live session has
- * access regardless of any selected assistant.
+ * The two orthogonal authorities behind app access: a real platform identity OR
+ * the ability to reach the selected assistant. Either alone grants access — a
+ * local-only user has no identity but is gateway-reachable; a platform user with
+ * a live session has access regardless of the selected assistant.
  */
 export interface AppAccessSignals {
   hasPlatformIdentity: boolean;
@@ -90,10 +87,10 @@ export interface AppAccessSignals {
 }
 
 /**
- * Does the user have access to the app? True with a real platform identity OR
- * a reachable selected assistant. This is the gate routing/UI should ask
- * instead of bare `isAuthenticated`, so a platform-session loss can't lock a
- * local-only user out of an assistant they can still reach.
+ * Does the user have access to the app? True with a real platform identity OR a
+ * reachable selected assistant — the orthogonal "identity vs connection" gate,
+ * so a platform-session loss can't lock out a local user who can still reach
+ * their assistant.
  */
 export const hasAppAccess = (s: AppAccessSignals): boolean =>
   s.hasPlatformIdentity || s.canReachSelected;

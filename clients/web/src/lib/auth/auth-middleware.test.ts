@@ -34,10 +34,8 @@ mock.module("@/lib/auth/gateway-session", () => ({
   isGatewayAuthMode: () => false,
 }));
 
-// Consent prefs are read by buildNavigationState. Pin them current so the
-// platform-session consent gate (which applies to a local client that has a
-// live platform session) does not interfere with the session-admission
-// assertions below.
+// Consent prefs are read by buildNavigationState; pin them current so the
+// consent gate doesn't interfere with the session-admission assertions below.
 const prefsActual = await import("@/domains/onboarding/prefs");
 mock.module("@/domains/onboarding/prefs", () => ({
   ...prefsActual,
