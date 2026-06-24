@@ -13,8 +13,8 @@ import {
 } from "../calls/inbound-trust-reader.js";
 import type { ChannelId } from "../channels/types.js";
 import { findContactChannel, getContact } from "../contacts/contact-store.js";
-import type { ChannelStatus } from "../contacts/types.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
+import type { ChannelStatus } from "../contacts/types.js";
 import { ipcCallPersistent } from "../ipc/gateway-client.js";
 import { getSqlite } from "../memory/db-connection.js";
 import {

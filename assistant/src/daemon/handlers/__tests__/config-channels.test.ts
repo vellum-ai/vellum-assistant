@@ -8,6 +8,8 @@ let mockGuardians: GuardianDelivery[] | null = null;
 let mockBinding: { guardianExternalUserId: string; guardianDeliveryChatId: string } | null = null;
 let mockContactChannel: { channel: ContactChannel } | null = null;
 let mockChannel: ContactChannel | null = null;
+let mockGwContactChannels: Array<{ id: string; status: string; verifiedAt: number | null }> | null =
+  null;
 let ipcCalls: Array<{ method: string; payload: unknown }> = [];
 
 mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
@@ -35,6 +37,37 @@ mock.module("../../../contacts/contact-events.js", () => ({
 mock.module("../../../ipc/gateway-client.js", () => ({
   ipcCallPersistent: async (method: string, payload: unknown) => {
     ipcCalls.push({ method, payload });
+    if (method === "contacts_get_rich") {
+      if (mockGwContactChannels == null) return { ok: true, contact: null };
+      return {
+        ok: true,
+        contact: {
+          id: "contact-1",
+          displayName: "Pat",
+          role: "contact",
+          interactionCount: 0,
+          createdAt: 0,
+          updatedAt: 0,
+          channels: mockGwContactChannels.map((c) => ({
+            id: c.id,
+            contactId: "contact-1",
+            type: "telegram",
+            address: "user-123",
+            isPrimary: true,
+            externalUserId: null,
+            status: c.status,
+            policy: "allow",
+            verifiedAt: c.verifiedAt,
+            verifiedVia: null,
+            lastSeenAt: null,
+            interactionCount: 0,
+            lastInteraction: null,
+            revokedReason: null,
+            blockedReason: null,
+          })),
+        },
+      };
+    }
     return {
       ok: true,
       didWrite: true,
@@ -159,26 +192,33 @@ describe("revokeVerificationForChannel", () => {
 describe("verifyTrustedContact already-verified gate", () => {
   beforeEach(() => {
     mockGuardians = null;
+    mockGwContactChannels = null;
     mockChannel = channel();
   });
 
-  test("short-circuits when the gateway delivery is active and verified", async () => {
-    mockGuardians = [delivery({ status: "active", verifiedAt: 1700000000 })];
+  test("short-circuits when the gateway contact channel is active and verified", async () => {
+    // Arbitrary trusted contact (non-guardian) — read from the contact-channel
+    // gateway read, which covers all contacts.
+    mockGwContactChannels = [
+      { id: "ch-1", status: "active", verifiedAt: 1700000000 },
+    ];
     const result = await verifyTrustedContact("ch-1", "assistant-1");
     expect(result.success).toBe(false);
     expect(result.error).toBe("already_verified");
   });
 
-  test("does not short-circuit when the gateway delivery has no verifiedAt", async () => {
-    // DB column says verified, but the gateway delivery is unverified — proceed.
+  test("does not short-circuit when the gateway channel has no verifiedAt", async () => {
+    // DB column says verified, but the gateway channel is unverified — proceed.
     mockChannel = channel({ status: "active", verifiedAt: 1700000000 });
-    mockGuardians = [delivery({ status: "active", verifiedAt: null })];
+    mockGwContactChannels = [
+      { id: "ch-1", status: "pending", verifiedAt: null },
+    ];
     const result = await verifyTrustedContact("ch-1", "assistant-1");
     expect(result.error).not.toBe("already_verified");
   });
 
-  test("does not short-circuit when the gateway has no delivery", async () => {
-    mockGuardians = [];
+  test("does not short-circuit when the gateway has no matching channel", async () => {
+    mockGwContactChannels = [];
     const result = await verifyTrustedContact("ch-1", "assistant-1");
     expect(result.error).not.toBe("already_verified");
   });

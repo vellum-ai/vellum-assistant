@@ -1,7 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 
 import type { GuardianDelivery } from "@vellumai/gateway-client";
-import { MarkChannelRevokedIpcResponseSchema } from "@vellumai/gateway-client/gateway-ipc-contracts";
+import {
+  GetContactIpcResponseSchema,
+  MarkChannelRevokedIpcResponseSchema,
+} from "@vellumai/gateway-client/gateway-ipc-contracts";
 
 import { startVerificationCall } from "../../calls/call-domain.js";
 import type { ChannelId } from "../../channels/types.js";
@@ -100,6 +103,25 @@ async function deliveryForChannel(
         (channel.externalChatId != null &&
           g.externalChatId === channel.externalChatId)),
   );
+}
+
+/**
+ * Read a contact channel's verified state from the gateway contact-channel read
+ * (ACL source of truth). Covers all contacts, not just guardian deliveries.
+ * Returns `undefined` when the gateway is unreachable or has no such channel.
+ */
+async function gatewayContactChannelState(
+  channel: Pick<ContactChannel, "id" | "contactId">,
+): Promise<{ status: string; verifiedAt: number | null } | undefined> {
+  const result = await ipcCallPersistent("contacts_get_rich", {
+    contactId: channel.contactId,
+  });
+  if (!result || (result as { contact?: unknown }).contact == null) {
+    return undefined;
+  }
+  const { contact } = GetContactIpcResponseSchema.parse(result);
+  const ch = contact.channels.find((c) => c.id === channel.id);
+  return ch ? { status: ch.status, verifiedAt: ch.verifiedAt } : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -325,10 +347,10 @@ export async function verifyTrustedContact(
     };
   }
 
-  // Already-verified short-circuit derived from the gateway delivery (ACL SoT)
-  // rather than the assistant DB status/verifiedAt columns.
-  const delivery = await deliveryForChannel(channel);
-  if (delivery?.status === "active" && delivery.verifiedAt != null) {
+  // Already-verified short-circuit derived from the gateway contact-channel read
+  // (ACL SoT), which covers all contacts — not just guardian deliveries.
+  const gwState = await gatewayContactChannelState(channel);
+  if (gwState?.status === "active" && gwState.verifiedAt != null) {
     return {
       success: false,
       error: "already_verified",

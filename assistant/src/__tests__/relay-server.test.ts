@@ -187,9 +187,12 @@ mock.module("../calls/channel-admission-reader.js", () => ({
 let mockMidCallVerdict:
   | import("@vellumai/gateway-client").TrustVerdict
   | null = null;
-// When set, the mid-call verdict reader blocks on this gate before returning,
-// simulating a slow gateway round-trip so a test can drive a prompt into the
-// re-resolution await window.
+// When set, the mid-call re-resolution verdict reader blocks on this gate
+// before returning, simulating a slow gateway round-trip so a test can drive a
+// prompt into the re-resolution await window. The gate targets the mid-call
+// re-resolution read (getInboundTrustVerdict) only — the per-caller redemption
+// gate read (getPhoneCallerVerdict) resolves immediately so invite redemption
+// reaches activation before the gated re-resolution runs.
 let mockMidCallVerdictGate: Promise<void> | null = null;
 const realInboundTrustReaderModule = {
   ...(await import("../calls/inbound-trust-reader.js")),
@@ -205,6 +208,14 @@ mock.module("../calls/inbound-trust-reader.js", () => ({
       return realInboundTrustReaderModule.getInboundTrustVerdict(input);
     }
     if (mockMidCallVerdictGate) await mockMidCallVerdictGate;
+    return mockMidCallVerdict;
+  },
+  getPhoneCallerVerdict: async (otherPartyNumber: string | undefined) => {
+    if (!inboundTrustMockActive) {
+      return realInboundTrustReaderModule.getPhoneCallerVerdict(
+        otherPartyNumber,
+      );
+    }
     return mockMidCallVerdict;
   },
 }));
@@ -5990,7 +6001,10 @@ describe("relay-server", () => {
     const redemptionDone = relay.handleMessage(
       JSON.stringify({ type: "dtmf", digit: digits[digits.length - 1] }),
     );
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Let the redemption chain (gateway claim, caller-verdict read, DB write)
+    // drain up to activation, which flips the state to "connected" before
+    // entering the gated re-resolution.
+    await new Promise((resolve) => setTimeout(resolve, 50));
     // Activation already reached the terminal state before re-resolution.
     expect(relay.getConnectionState()).toBe("connected");
 

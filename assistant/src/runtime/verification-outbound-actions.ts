@@ -21,7 +21,7 @@ import {
   countRecentSendsToDestination,
   createOutboundSession,
   findActiveSession,
-  getGuardianBinding,
+  isGuardianBoundForChannel,
   updateSessionDelivery,
   updateSessionStatus,
 } from "./channel-verification-service.js";
@@ -274,8 +274,8 @@ async function startOutboundTelegram(
     };
   }
 
-  const existingBinding = await getGuardianBinding(assistantId, channel);
-  if (existingBinding && !rebind) {
+  const alreadyBound = await isGuardianBoundForChannel(channel);
+  if (alreadyBound && !rebind) {
     return {
       success: false,
       error: "already_bound",
@@ -422,8 +422,8 @@ async function startOutboundVoice(
     };
   }
 
-  const existingBinding = await getGuardianBinding(assistantId, channel);
-  if (existingBinding && !rebind) {
+  const alreadyBound = await isGuardianBoundForChannel(channel);
+  if (alreadyBound && !rebind) {
     return {
       success: false,
       error: "already_bound",
@@ -607,8 +607,8 @@ async function startOutboundSlack(
     };
   }
 
-  const existingBinding = await getGuardianBinding(assistantId, channel);
-  if (existingBinding && !rebind) {
+  const alreadyBound = await isGuardianBoundForChannel(channel);
+  if (alreadyBound && !rebind) {
     return {
       success: false,
       error: "already_bound",
@@ -688,8 +688,8 @@ async function startOutboundEmail(
 
   const normalizedEmail = destination.trim().toLowerCase();
 
-  const existingBinding = await getGuardianBinding(assistantId, channel);
-  if (existingBinding && !rebind) {
+  const alreadyBound = await isGuardianBoundForChannel(channel);
+  if (alreadyBound && !rebind) {
     return {
       success: false,
       error: "already_bound",
