@@ -14,7 +14,7 @@
  * 2. Finds a vision-capable profile for captioning via `findVisionProfile`.
  *    If none exists, images are replaced with a fail-open placeholder so the
  *    model at least knows an image was present.
- * 3. Replaces each `ImageContent` block with a `[Image …]` text caption via
+ * 3. Replaces each image block with a `[Image …]` text caption via
  *    {@link captionImageBlocks} (which also persists the original and caches
  *    captions across turns).
  *
@@ -23,13 +23,14 @@
  */
 
 import {
-  doesSupportVision,
-  getModelProfiles,
   type PluginHookFn,
   type UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
 
-import { captionImageBlocks } from "../src/caption-blocks.js";
+import {
+  captionImageBlocks,
+  needsImageFallback,
+} from "../src/caption-blocks.js";
 import { findVisionProfile } from "../src/vision-caption.js";
 
 const userPromptSubmit: PluginHookFn<UserPromptSubmitContext> = async (ctx) => {
