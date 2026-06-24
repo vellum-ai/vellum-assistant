@@ -42,6 +42,8 @@ interface AssistantChannelsDetailProps {
    */
   channelPolicies?: Partial<Record<ChannelKey, AdmissionPolicy>>;
   policySavingKey?: ChannelKey | null;
+  policiesLoading?: boolean;
+  policiesError?: boolean;
   onChannelPolicyChange?: (channelKey: ChannelKey, policy: AdmissionPolicy) => void;
   onSetup?: (channelKey: ChannelKey) => void;
   onDisconnect?: (channelKey: ChannelKey) => void;
@@ -84,6 +86,8 @@ export function AssistantChannelsDetail({
   slackThreadModePending = false,
   channelPolicies,
   policySavingKey = null,
+  policiesLoading = false,
+  policiesError = false,
   onChannelPolicyChange,
   onSetup,
   onDisconnect,
@@ -162,6 +166,8 @@ export function AssistantChannelsDetail({
                 onSaveTwilioCredentials={onSaveTwilioCredentials}
                 policy={channelPolicies?.[channel.key]}
                 policySaving={policySavingKey === channel.key}
+                policyLoading={policiesLoading}
+                policyError={policiesError}
                 onPolicyChange={
                   onChannelPolicyChange
                     ? (next) => handlePolicyChange(channel.key, next)
@@ -232,6 +238,8 @@ interface ChannelRowProps {
   onSaveTwilioCredentials?: (accountSid: string, authToken: string) => Promise<void>;
   policy?: AdmissionPolicy;
   policySaving?: boolean;
+  policyLoading?: boolean;
+  policyError?: boolean;
   onPolicyChange?: (policy: AdmissionPolicy) => void;
 }
 
@@ -250,6 +258,8 @@ function ChannelRow({
   onSaveTwilioCredentials,
   policy,
   policySaving = false,
+  policyLoading = false,
+  policyError = false,
   onPolicyChange,
 }: ChannelRowProps) {
   const meta = CHANNEL_META[channel.key];
@@ -336,6 +346,8 @@ function ChannelRow({
             <ChannelTrustFloorSection
               policy={policy}
               saving={policySaving}
+              loading={policyLoading}
+              error={policyError}
               onChange={onPolicyChange}
             />
           ) : null}
@@ -368,12 +380,16 @@ function ChannelRow({
 interface ChannelTrustFloorSectionProps {
   policy?: AdmissionPolicy;
   saving?: boolean;
+  loading?: boolean;
+  error?: boolean;
   onChange: (policy: AdmissionPolicy) => void;
 }
 
 function ChannelTrustFloorSection({
   policy,
   saving = false,
+  loading = false,
+  error = false,
   onChange,
 }: ChannelTrustFloorSectionProps) {
   const value = policy ?? ADMISSION_POLICY_DEFAULT;
@@ -387,22 +403,45 @@ function ChannelTrustFloorSection({
       >
         Who Can Reach
       </Typography>
-      <div style={{ maxWidth: 280 }}>
-        <Dropdown<AdmissionPolicy>
-          value={value}
-          onChange={onChange}
-          options={TRUST_FLOOR_OPTIONS}
-          disabled={saving}
-          aria-label="Channel trust floor"
-        />
-      </div>
-      <Typography
-        as="span"
-        variant="body-small-default"
-        className="text-[color:var(--content-tertiary)]"
-      >
-        {POLICY_DESCRIPTIONS[value]}
-      </Typography>
+      {loading ? (
+        // Hold off on rendering a concrete floor until the GET succeeds — the
+        // default would otherwise misreport a channel with a stored non-default
+        // (e.g. `no_one`) policy and let the user overwrite it.
+        <Typography
+          as="span"
+          variant="body-small-default"
+          className="text-[color:var(--content-tertiary)]"
+        >
+          Loading…
+        </Typography>
+      ) : error ? (
+        <Typography
+          as="span"
+          variant="body-small-default"
+          className="text-[color:var(--content-negative)]"
+        >
+          Couldn’t load this setting. Try reopening this page.
+        </Typography>
+      ) : (
+        <>
+          <div style={{ maxWidth: 280 }}>
+            <Dropdown<AdmissionPolicy>
+              value={value}
+              onChange={onChange}
+              options={TRUST_FLOOR_OPTIONS}
+              disabled={saving}
+              aria-label="Channel trust floor"
+            />
+          </div>
+          <Typography
+            as="span"
+            variant="body-small-default"
+            className="text-[color:var(--content-tertiary)]"
+          >
+            {POLICY_DESCRIPTIONS[value]}
+          </Typography>
+        </>
+      )}
     </div>
   );
 }

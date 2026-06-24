@@ -640,6 +640,8 @@ export function ContactsPage({
             slackThreadModePending={slackThreadModeMutation.isPending}
             channelPolicies={channelTrustFloors.policies}
             policySavingKey={channelTrustFloors.savingKey}
+            policiesLoading={channelTrustFloors.isLoading}
+            policiesError={channelTrustFloors.isError}
             onChannelPolicyChange={channelTrustFloors.onChange}
             onSetup={onStartSetupConversation ? handleAssistantSetup : undefined}
             onDisconnect={handleDisconnect}

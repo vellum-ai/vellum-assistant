@@ -25,6 +25,10 @@ export interface ChannelTrustFloors {
   policies?: Partial<Record<ChannelKey, AdmissionPolicy>>;
   /** Channel whose floor write is in flight, or `null`. */
   savingKey: ChannelKey | null;
+  /** True until the floors have loaded at least once. */
+  isLoading: boolean;
+  /** True when the floors failed to load. */
+  isError: boolean;
   /** Persist a floor, or `undefined` when the feature is off. */
   onChange?: (channelKey: ChannelKey, policy: AdmissionPolicy) => void;
 }
@@ -79,7 +83,13 @@ export function useChannelTrustFloors(assistantId: string): ChannelTrustFloors {
   );
 
   if (!enabled) {
-    return { policies: undefined, savingKey: null, onChange: undefined };
+    return {
+      policies: undefined,
+      savingKey: null,
+      isLoading: false,
+      isError: false,
+      onChange: undefined,
+    };
   }
 
   return {
@@ -87,6 +97,11 @@ export function useChannelTrustFloors(assistantId: string): ChannelTrustFloors {
     savingKey: mutation.isPending
       ? mutation.variables?.channelKey ?? null
       : null,
+    // `isPending` stays true until the first successful fetch, so callers can
+    // hold the control disabled instead of flashing the default floor over a
+    // channel that actually has a stored non-default (e.g. `no_one`) policy.
+    isLoading: query.isPending,
+    isError: query.isError,
     onChange,
   };
 }
