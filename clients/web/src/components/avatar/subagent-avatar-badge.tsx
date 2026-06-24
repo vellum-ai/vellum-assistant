@@ -1,7 +1,7 @@
 // Collapsed-summary avatar unit: a 32px circle with an under-avatar status
-// indicator (running dots / green check / red ✕). Figma node 6063:148535.
+// indicator (running dots / green check / red !). Figma node 6063:148535.
 
-import { Check, X } from "lucide-react";
+import { Check } from "lucide-react";
 
 import { SubagentAvatarChip } from "@/components/avatar/subagent-avatar-chip";
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
@@ -71,10 +71,12 @@ export function SubagentAvatarBadge({
             <ThreeDotIndicator dotSize={3} gap={2} />
           )}
           {badgeState === "completed" && (
-            <Check className="h-3 w-3 text-[var(--system-positive-strong)]" />
+            <Check className="h-2.5 w-2.5 text-[var(--system-positive-strong)]" />
           )}
           {badgeState === "errored" && (
-            <X className="h-3 w-3 text-[var(--system-negative-strong)]" />
+            <span className="text-[11px] font-bold leading-none text-[var(--system-negative-strong)]">
+              !
+            </span>
           )}
         </span>
       )}

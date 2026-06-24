@@ -3,7 +3,7 @@
  *
  * Drives the Zustand subagent store (spawn + changeStatus) and asserts the
  * under-avatar indicator reflects the subagent's real status: running dots
- * while in-flight, a green check on `completed`, and a red ✕ on `aborted`
+ * while in-flight, a green check on `completed`, and a red ! on `aborted`
  * (canceled) / `failed`. Confirms the deterministic avatar chip renders and
  * that state is exposed via `data-status` (not colour alone).
  */
@@ -70,7 +70,7 @@ describe("SubagentAvatarBadge", () => {
     ).not.toBeNull();
   });
 
-  test("aborted → red ✕ with data-status=aborted", () => {
+  test("aborted → red ! with data-status=aborted", () => {
     spawn("sa-aborted", "aborted");
     const { getByTestId } = render(
       <SubagentAvatarBadge subagentId="sa-aborted" />,
@@ -85,7 +85,7 @@ describe("SubagentAvatarBadge", () => {
     ).not.toBeNull();
   });
 
-  test("failed → red ✕ with data-status=failed", () => {
+  test("failed → red ! with data-status=failed", () => {
     spawn("sa-failed", "failed");
     const { getByTestId } = render(
       <SubagentAvatarBadge subagentId="sa-failed" />,
