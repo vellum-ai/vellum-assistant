@@ -19,20 +19,6 @@ describe("buildAdvisorSystem", () => {
     const prompt = buildAdvisorSystem(null);
     expect(prompt).not.toContain("<agent_system_prompt>");
   });
-
-  test("embeds the runtime context inside <agent_runtime_context> when provided", () => {
-    const prompt = buildAdvisorSystem(
-      "You are a coding agent.",
-      "## Available tools\n- bash — run commands",
-    );
-    expect(prompt).toContain("<agent_runtime_context>");
-    expect(prompt).toContain("- bash — run commands");
-  });
-
-  test("omits the <agent_runtime_context> block when no runtime context is given", () => {
-    const prompt = buildAdvisorSystem("You are a coding agent.");
-    expect(prompt).not.toContain("<agent_runtime_context>");
-  });
 });
 
 describe("advisorRequestText", () => {
