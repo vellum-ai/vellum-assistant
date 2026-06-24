@@ -12,6 +12,7 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 import { recordLocalSeq } from "@/lib/streaming/local-seq";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { selectTranscriptMessages } from "@/domains/chat/transcript/select-transcript-messages";
+import { mergeAdjacentAssistantMessages } from "@/domains/chat/utils/message-merge";
 import { conversationHistoryQueryKey } from "@/domains/chat/transcript/use-history-pagination";
 import {
   serverHasAssistantProgress,
@@ -92,9 +93,13 @@ export function useMessageReconciliation({
             conversationHistoryQueryKey(assistantId, conversationId),
           )
         : undefined;
-      // pages[0] is the latest page; flatten oldest-first to match render order.
+      // pages[0] is the latest page; flatten oldest-first AND fold adjacent
+      // page-boundary assistant rows exactly as the transcript does, so a
+      // straddling answer isn't seen as "new server content" on every poll.
       const history = cached
-        ? [...cached.pages].reverse().flatMap((page) => page.messages)
+        ? mergeAdjacentAssistantMessages(
+            [...cached.pages].reverse().flatMap((page) => page.messages),
+          )
         : [];
       return selectTranscriptMessages(
         history,

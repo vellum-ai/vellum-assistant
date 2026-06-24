@@ -56,6 +56,10 @@ import {
   type HistoryPaginationResult,
 } from "@/domains/chat/transcript/use-history-pagination";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
+import {
+  registerHistoryCachePatcher,
+  type MessagesUpdater,
+} from "@/domains/chat/transcript/patch-transcript-messages";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -106,6 +110,35 @@ export function useConversationHistory({
       activeConversationId,
     });
   }, [assistantStateKind, assistantId, activeConversationId]);
+
+  // -------------------------------------------------------------------------
+  // Register the history-cache writer for `patchTranscriptMessages`, so
+  // imperative actions (confirmation cleanup, surface completion) can reach a
+  // row that has already been handed off to the history cache — not just the
+  // live turn. The updater no-ops on pages that don't contain the row, so the
+  // cache ref stays stable when the target is live-only.
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (!assistantId || !activeConversationId) {
+      registerHistoryCachePatcher(null);
+      return;
+    }
+    const key = conversationHistoryQueryKey(assistantId, activeConversationId);
+    registerHistoryCachePatcher((updater: MessagesUpdater) => {
+      queryClient.setQueryData<HistoryCache>(key, (old) => {
+        if (!old) return old;
+        let changed = false;
+        const pages = old.pages.map((page) => {
+          const next = updater(page.messages);
+          if (next === page.messages) return page;
+          changed = true;
+          return { ...page, messages: next };
+        });
+        return changed ? { ...old, pages } : old;
+      });
+    });
+    return () => registerHistoryCachePatcher(null);
+  }, [assistantId, activeConversationId, queryClient]);
 
   // -------------------------------------------------------------------------
   // React to a newly committed snapshot. Keyed on `dataUpdatedAt` so it runs

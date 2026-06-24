@@ -9,6 +9,7 @@
 import { captureError } from "@/lib/sentry/capture-error";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { completeSubmittedSurface } from "@/domains/chat/utils/send-message-utils";
@@ -80,7 +81,7 @@ export async function handleSurfaceAction(
       ? formatDecisionReason(result.reason)
       : result.replyText;
 
-  useChatSessionStore.getState().setLiveTurn((prev: DisplayMessage[]) =>
+  patchTranscriptMessages((prev: DisplayMessage[]) =>
     completeSubmittedSurface(prev, surfaceId, actionId, completionText),
   );
 }
