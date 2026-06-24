@@ -367,11 +367,12 @@ export function useResearchRunner(): UseResearchRunner {
           const deadline = Date.now() + MAX_POLL_MS;
           let lastText = "";
           let stableReads = 0;
-          // Installs fire as soon as the model's `plugins` picks parse (which the
-          // parser only honors once the payload is complete), overlapping the
-          // user's results-review screens so the capabilities are materialized
-          // before the click opens the chat. Tracked by promise so the click can
-          // await still-running ones. Idempotent, so racing the same name is fine.
+          // Installs fire as soon as the model's `plugins` array closes — emitted
+          // first in the reply, so this lands early while claims/suggestions are
+          // still streaming, overlapping the user's results-review screens so the
+          // capabilities are materialized before the click opens the chat. Tracked
+          // by promise so the click can await still-running ones. Idempotent, so
+          // racing the same name is fine.
           const installs = installPromisesRef.current;
           while (Date.now() < deadline) {
             await sleep(POLL_INTERVAL_MS);

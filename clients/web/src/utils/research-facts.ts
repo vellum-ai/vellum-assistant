@@ -168,6 +168,45 @@ function normalizePlugins(raw: unknown): string[] {
   return names;
 }
 
+/**
+ * Parse the top-level `plugins` array as soon as it has fully CLOSED, even while
+ * the rest of the payload is still streaming. The prompt emits `plugins` first
+ * precisely so installs can start early — but we only act on a `]`-terminated
+ * array, never a half-written one (a truncated name must never hit the install
+ * route). Returns [] until the array closes. String-aware so a `]` inside a
+ * value doesn't end the scan early.
+ */
+function parseClosedPluginsArray(body: string): string[] {
+  const scope = arrayScopeFor(body, "plugins");
+  if (scope === null) return [];
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < scope.length; i++) {
+    const c = scope[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === "\\") escaped = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') inString = true;
+    else if (c === "[") depth++;
+    else if (c === "]") {
+      if (depth > 0) {
+        depth--;
+        continue;
+      }
+      try {
+        return normalizePlugins(JSON.parse(`[${scope.slice(0, i + 1)}`));
+      } catch {
+        return [];
+      }
+    }
+  }
+  return [];
+}
+
 /** Body after a `"key": [` opening, or null if that array isn't present yet. */
 function arrayScopeFor(body: string, key: string): string | null {
   const k = body.indexOf(`"${key}"`);
@@ -188,8 +227,9 @@ export interface ResearchResult {
    * Marketplace capability install names the model judged a good overall fit for
    * the user (top-level `plugins` array). Persona-level, NOT tied to any single
    * suggestion: the runner installs these for the assistant globally and gates
-   * them against the fetched catalog first. Only populated once the payload
-   * parses complete (`complete: true`); `[]` while still streaming.
+   * them against the fetched catalog first. The prompt emits this array first so
+   * it's honored as soon as it closes — even mid-stream, before `complete` — to
+   * start installs ASAP; `[]` until the array is fully terminated.
    */
   plugins: string[];
   /**
@@ -278,7 +318,12 @@ export function parseResearchResultStreaming(text: string): ResearchResult {
           .map(toSuggestion)
           .filter((s): s is ResearchSuggestion => s !== null);
 
-  return { claims, suggestions, plugins: [], complete: false };
+  return {
+    claims,
+    suggestions,
+    plugins: parseClosedPluginsArray(body),
+    complete: false,
+  };
 }
 
 /**

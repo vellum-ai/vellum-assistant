@@ -52,15 +52,25 @@ describe("parseResearchResultStreaming — plugins install list", () => {
     expect(plugins).toEqual(["admin-copilot", "growth-coach"]);
   });
 
-  test("is not honored while the payload is still streaming", () => {
-    // The plugins array trails the JSON; acting on a half-written one would risk
-    // a truncated name. Until the whole payload parses, plugins stays empty.
+  test("is honored as soon as its array closes, before the payload completes", () => {
+    // The prompt emits `plugins` first so installs can start ASAP. A closed
+    // plugins array is honored even while claims/suggestions are still streaming.
     const partial =
-      '{ "claims": [], "suggestions": [ { "suggestion": "a", "prompt": "a" } ], "plugins": [ "marketing-exp';
+      '{ "plugins": ["github", "marketing-expert"], "claims": [ { "claim": "Founder';
 
     const { plugins, complete } = parseResearchResultStreaming(partial);
 
     expect(complete).toBe(false);
+    expect(plugins).toEqual(["github", "marketing-expert"]);
+  });
+
+  test("a still-open plugins array is not honored (avoids a truncated name)", () => {
+    // Half-written array, no closing `]`: acting on it could install a truncated
+    // name, so it stays empty until the array terminates.
+    const partial = '{ "plugins": [ "marketing-exp';
+
+    const { plugins } = parseResearchResultStreaming(partial);
+
     expect(plugins).toEqual([]);
   });
 });
