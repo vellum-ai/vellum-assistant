@@ -4,17 +4,15 @@ import { join } from "node:path";
 import type { WorkspaceMigration } from "./types.js";
 
 /**
- * Remove a persisted `llm.callSites.advisor` entry from existing config files.
+ * Strip a persisted `llm.callSites.advisor` entry from existing config files.
  *
- * `advisor` was a real, user-facing LLM call site (catalog entry + seeded
- * default), so a workspace could have saved `llm.callSites.advisor.profile`
- * via the config UI/API. It has since been removed from `LLMCallSiteEnum`.
- * Because `callSites` is a `z.partialRecord(LLMCallSiteEnum, ...)`, the stale
- * `advisor` key is now an invalid enum key and is *rejected* on parse — the
- * loader recovers (logs `Invalid config at "llm.callSites.advisor"...`,
- * deletes the key, re-parses), so it is not a crash, but the warning is logged
- * on every boot and `GET /config` serves the raw file so the web "Overrides"
- * badge keeps counting the dead key with no reset path.
+ * `advisor` is not a valid `LLMCallSiteEnum` key, so a saved
+ * `llm.callSites.advisor.profile` is rejected on parse by the
+ * `z.partialRecord(LLMCallSiteEnum, ...)` schema. The loader recovers (logs
+ * `Invalid config at "llm.callSites.advisor"...`, deletes the key, re-parses),
+ * so it is not a crash — but the warning is logged on every boot, and because
+ * `GET /config` serves the raw file the web "Overrides" badge keeps counting
+ * the invalid key with no reset path.
  *
  * This migration strips the key once. The now-empty `llm.callSites` object is
  * pruned if `advisor` was its only key (the schema defaults `callSites` to
