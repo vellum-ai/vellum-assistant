@@ -52,7 +52,7 @@ export function SubagentSpawnGroup({
         onClick={() => setExpanded(false)}
         aria-label="Collapse subagent details"
         data-testid="subagent-spawn-group-collapse"
-        className="mt-2 flex items-center gap-1"
+        className="mt-2 flex cursor-pointer items-center gap-1"
       >
         <Typography
           variant="body-medium-default"

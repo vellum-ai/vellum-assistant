@@ -50,7 +50,7 @@ export function SubagentAvatarRow({
         onClick={onExpand}
         aria-label="Show subagent details"
         data-testid="subagent-avatar-row-details"
-        className="flex items-center gap-1"
+        className="flex cursor-pointer items-center gap-1"
       >
         <Typography
           variant="body-medium-default"
