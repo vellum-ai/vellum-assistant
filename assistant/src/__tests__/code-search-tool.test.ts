@@ -146,6 +146,48 @@ describe("codeSearchTool", () => {
     expect(result.content).toBe("a.ts:2: const needle = 2;");
   });
 
+  test("an oversized explicit-file root returns an error, not a false 'No matches'", async () => {
+    const dir = makeTempDir();
+    // A single-file root larger than MAX_FILE_BYTES (8 MiB) was never searched,
+    // so reporting "No matches found" would be a silent false negative. Surface
+    // a hard error instead.
+    const oversize = 8 * 1024 * 1024 + 1;
+    writeFileSync(join(dir, "huge.txt"), "x".repeat(oversize));
+
+    const result = await codeSearchTool.execute(
+      { pattern: "x", path: "huge.txt", activity: "search" },
+      makeToolContext(dir),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("file too large to search");
+    expect(result.content).not.toContain("No matches found");
+  });
+
+  test("a single >4 MiB matching line yields a truncated result that acknowledges the match", async () => {
+    const dir = makeTempDir();
+    // One matching line whose output alone exceeds MAX_OUTPUT_BYTES (4 MiB) but
+    // whose file stays under MAX_FILE_BYTES (8 MiB) so it isn't skipped. The
+    // match must be counted and the truncation attributed to the output budget,
+    // not reported as "no matches / scan cap".
+    const lineLen = 5 * 1024 * 1024;
+    writeFileSync(join(dir, "wide.txt"), "needle" + "z".repeat(lineLen) + "\n");
+
+    const result = await codeSearchTool.execute(
+      { pattern: "needle", path: "wide.txt", activity: "search" },
+      makeToolContext(dir),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.status).toBe("truncated");
+    // The match was found: the output budget message, not the scan-cap or
+    // no-match message.
+    expect(result.content).toContain("Output capped");
+    expect(result.content).not.toContain("No matches found");
+    expect(result.content).not.toContain("scan cap");
+    expect(result.content).toContain("wide.txt:1:");
+  });
+
   test("single-file search still honors the denied-basename guard", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "backup.key"), "supersecret token\n");

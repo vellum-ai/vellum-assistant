@@ -265,6 +265,11 @@ export const codeSearchTool = {
           truncated = true;
           return;
         }
+        // Count the match before emitting its lines: a single match whose output
+        // alone exceeds the output-byte budget would otherwise leave matchCount
+        // at 0, making the zero-match branch report a false "no matches / scan
+        // cap" instead of a truncated result that acknowledges the match.
+        matchCount++;
         const lineNo = i + 1;
         if (contextLines > 0) {
           const start = Math.max(0, i - contextLines);
@@ -277,7 +282,6 @@ export const codeSearchTool = {
         } else {
           if (!pushLine(`${display}:${lineNo}: ${fileLines[i]}`)) return;
         }
-        matchCount++;
       }
     };
 
@@ -305,7 +309,16 @@ export const codeSearchTool = {
     if (rootStat.isDirectory()) {
       walk(root);
     } else if (rootStat.isFile()) {
-      // A regular-file root is a valid single-file search.
+      // A regular-file root is a valid single-file search. Unlike an oversized
+      // file skipped mid-walk (where other files may still match), an oversized
+      // explicit root means nothing was searched at all — surface a hard error
+      // instead of falling through to a false "No matches found".
+      if (rootStat.size > MAX_FILE_BYTES) {
+        return {
+          content: `Error: file too large to search (${rootStat.size} bytes): ${rawPath}`,
+          isError: true,
+        };
+      }
       scanFile(root);
     } else {
       return {
