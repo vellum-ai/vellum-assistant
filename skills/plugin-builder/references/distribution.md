@@ -4,6 +4,56 @@ Plugins ship through a curated marketplace and install by name from the CLI. Thi
 
 A plugin does not have to live in your workspace to be installed. Vellum keeps a curated catalog of external plugins, and the CLI installs any of them by name. The catalog is a single manifest the Vellum team reviews and approves, so installing a plugin only ever pulls code that has been vetted into that list.
 
+## Publishing your plugin
+
+Once your plugin works locally, you can list it in the marketplace catalog so anyone can install it by name. The catalog is a curated allowlist: you open a PR adding an entry, the Vellum team reviews it, and once merged the plugin is discoverable via `assistant plugins search` and installable via `assistant plugins install`.
+
+### 1. Push your plugin to a public GitHub repo
+
+The marketplace resolves plugins from GitHub repositories. Push your plugin to a public repo, then note the full commit SHA you want to pin:
+
+```
+# Get the full 40-char commit SHA of the revision to publish
+$ git rev-parse HEAD
+e83c5163316f89bfbde7d9ab23ca2e25604af290
+```
+
+The SHA must be a full commit hash (40 or 64 hex chars). Tags and branches are rejected because they are mutable. If you want to pin a release tag, resolve it to the underlying commit first (see "Why entries pin a commit" below).
+
+Your plugin can live at the root of its own repo or in a subdirectory. If it is not at the root, use `source.path` to point at the subdirectory.
+
+### 2. Add your entry to `marketplace.json`
+
+Open a PR against [`vellum-ai/vellum-assistant`](https://github.com/vellum-ai/vellum-assistant) adding your plugin to `plugins/marketplace.json`. Copy this template and fill in your details:
+
+```json
+{
+  "name": "my-plugin",
+  "source": {
+    "source": "github",
+    "repo": "you/my-plugin",
+    "ref": "e83c5163316f89bfbde7d9ab23ca2e25604af290"
+  },
+  "description": "One-line summary shown in the catalog.",
+  "category": "productivity",
+  "homepage": "https://github.com/you/my-plugin",
+  "license": "MIT"
+}
+```
+
+The `name` must be a single kebab-case segment (e.g. `my-plugin`, not `myPlugin` or `my_plugin`). Only `name`, `source.source`, `source.repo`, and `source.ref` are required; the rest are optional but recommended for discoverability. See "The marketplace manifest" below for the full schema.
+
+### 3. Wait for review
+
+The Vellum team reviews each entry before it lands in the catalog. The review checks that:
+
+- The pinned commit matches a public, reachable revision of the repo.
+- The plugin has a valid `package.json` with a `@vellumai/plugin-api` peer dependency.
+- The plugin loads cleanly (hooks register, tools validate, no import errors at boot).
+- The surfaces the plugin claims (hooks, tools, skills) contribute something on boot rather than silently failing.
+
+Once the review approves and the PR merges, the plugin appears in `assistant plugins search` and is installable by name.
+
 ## The marketplace catalog
 
 The catalog is computed live from [`plugins/marketplace.json`](https://github.com/vellum-ai/vellum-assistant/blob/main/plugins/marketplace.json) in the assistant repo. It lets Vellum surface plugins that live in other repositories without copying their code, and its shape is a subset of the [Claude Code marketplace schema](https://code.claude.com/docs/en/plugin-marketplaces), so the format is familiar if you have published there.
