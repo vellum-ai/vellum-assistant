@@ -29,13 +29,31 @@ mock.module("../ipc/gateway-client.js", () => ({
     if (method === "record_invite_redemption") {
       return { ok: true, updated: true, mirrored: true };
     }
+    if (method === "upsert_verified_channel") {
+      // Gateway-as-SoT activation: return a verified channel so the gateway-first
+      // relay lands its write before mirroring identity locally.
+      return {
+        ok: true,
+        verified: true,
+        channel: {
+          id: "gw-channel-1",
+          contactId: (params?.contactId as string) ?? "gw-contact-1",
+          type: (params?.type as string) ?? "telegram",
+          address: (params?.address as string) ?? "",
+          status: "active",
+          verifiedAt: Date.now(),
+          verifiedVia: (params?.verifiedVia as string) ?? "invite",
+        },
+      };
+    }
     return undefined;
   },
 }));
 
 // Serves contacts_get_rich (the gateway ACL read backing the gate-status
-// fallback) from the seeded local contact, so the already_member gate resolves
-// via the gateway path rather than the dropped local channel column.
+// fallback) from the seeded local contact identity. Channel ACL state is
+// gateway-owned, so a contact with a mirrored channel reports "active" here —
+// the local status column is drained and never consulted.
 function richContactForId(contactId: string | undefined) {
   if (!contactId) return undefined;
   const contact = getContact(contactId);
@@ -56,7 +74,7 @@ function richContactForId(contactId: string | undefined) {
         address: c.address,
         isPrimary: c.isPrimary,
         externalUserId: c.externalChatId,
-        status: c.status,
+        status: "active",
         policy: c.policy,
         verifiedAt: c.verifiedAt,
         verifiedVia: c.verifiedVia,

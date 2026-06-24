@@ -13,7 +13,7 @@
 
 import { answerCall } from "../calls/call-domain.js";
 import { findContactChannel } from "../contacts/contact-store.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
+import { activateMemberChannel } from "../contacts/member-write-relay.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import {
   type CanonicalGuardianRequest,
@@ -602,19 +602,31 @@ const accessRequestResolver: GuardianRequestResolver = {
     // a verification session. The caller is already on the line and the
     // relay server's in-call wait loop will detect the approved status.
     if (channel === "phone") {
+      let activation: Awaited<ReturnType<typeof activateMemberChannel>>;
       try {
-        upsertContactChannel({
+        // Gateway-first activation: the gateway owns the ACL verdict, the local
+        // mirror persists the caller's contact/channel identity.
+        activation = await activateMemberChannel({
           sourceChannel: "phone",
           externalUserId: requesterExternalUserId,
           externalChatId: requesterChatId,
-          status: "active",
-          policy: "allow",
         });
       } catch (err) {
         log.error(
           { err, requesterExternalUserId },
           "Access request resolver: failed to activate voice caller as trusted contact",
         );
+        return { ok: false, reason: "voice_activation_failed" };
+      }
+
+      // Fail-closed: a refused activation did not land on the gateway source of
+      // truth, so the caller is not actually trusted — do not report success.
+      if (activation.status === "refused") {
+        log.error(
+          { requesterExternalUserId },
+          "Access request resolver: gateway refused voice caller activation",
+        );
+        return { ok: false, reason: "voice_activation_refused" };
       }
 
       log.info(

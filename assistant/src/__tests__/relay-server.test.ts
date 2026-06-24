@@ -50,11 +50,31 @@ let inviteClaimCalls = 0;
 let inviteClaimGate: Promise<void> | null = null;
 mock.module("../ipc/gateway-client.js", () => ({
   ipcCall: async () => undefined,
-  ipcCallPersistent: async (method: string) => {
+  ipcCallPersistent: async (
+    method: string,
+    params?: Record<string, unknown>,
+  ) => {
     if (method === "record_invite_redemption") {
       inviteClaimCalls += 1;
       if (inviteClaimGate) await inviteClaimGate;
       return { ok: true, updated: true, mirrored: true };
+    }
+    // The gateway owns the ACL verdict; activation fails closed when the relay
+    // does not land, so model a verified upsert for the redemption paths.
+    if (method === "upsert_verified_channel") {
+      return {
+        ok: true,
+        verified: true,
+        channel: {
+          id: "gw-channel-id",
+          contactId: (params?.contactId as string) ?? "gw-contact",
+          type: (params?.type as string) ?? "phone",
+          address: (params?.address as string) ?? "gw-addr",
+          status: "active",
+          verifiedAt: 1,
+          verifiedVia: (params?.verifiedVia as string) ?? "invite",
+        },
+      };
     }
     return undefined;
   },
@@ -388,7 +408,6 @@ import {
 } from "../calls/relay-server.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import { upsertContact } from "../contacts/contact-store.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
 import {
   listCanonicalGuardianRequests,
   resolveCanonicalGuardianRequest,
@@ -410,6 +429,7 @@ import {
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { seedContactChannel } from "./helpers/seed-contact-channel.js";
 
 await initializeDb();
 
@@ -500,7 +520,7 @@ function createTargetContact(displayName = "Test Contact"): string {
 }
 
 function addTrustedVoiceContact(phoneNumber: string): void {
-  upsertContactChannel({
+  seedContactChannel({
     sourceChannel: "phone",
     externalUserId: phoneNumber,
     externalChatId: phoneNumber,
@@ -2811,7 +2831,7 @@ describe("relay-server", () => {
       toNumber: "+15551111111",
     });
 
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "phone",
       externalUserId: "+15558886666",
       externalChatId: "+15558886666",
@@ -2874,7 +2894,7 @@ describe("relay-server", () => {
       toNumber: "+15551111111",
     });
 
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "phone",
       externalUserId: "+15558887777",
       externalChatId: "+15558887777",
@@ -3173,7 +3193,7 @@ describe("relay-server", () => {
     });
 
     // Create a blocked member
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "phone",
       externalUserId: "+15558881111",
       externalChatId: "+15558881111",

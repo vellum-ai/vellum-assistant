@@ -131,11 +131,13 @@ import {
   getContact,
   upsertContact,
 } from "../contacts/contact-store.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { createInvite, revokeInvite } from "../memory/invite-store.js";
-import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
+import {
+  handleChannelInbound,
+  seedContactChannel,
+} from "./helpers/channel-test-adapter.js";
 
 await initializeDb();
 
@@ -233,13 +235,13 @@ describe("inbound invite redemption intercept", () => {
     expect(json.memberId).toEqual(expect.any(String));
     expect(json.denied).toBeUndefined();
 
-    // Verify the user is now an active member
+    // The local mirror persists the member identity row; the gateway owns the
+    // active ACL verdict.
     const result = findContactChannel({
       channelType: "telegram",
       address: "user-invite-123",
     });
     expect(result).not.toBeNull();
-    expect(result!.channel.status).toBe("active");
 
     // The activation is written to the gateway via upsert_verified_channel.
     expect(
@@ -378,7 +380,7 @@ describe("inbound invite redemption intercept", () => {
 
   test("existing active member sending normal message is unaffected", async () => {
     // Pre-create an active member
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "user-active-member",
       externalChatId: "chat-active",
@@ -432,7 +434,7 @@ describe("inbound invite redemption intercept", () => {
     });
 
     // Pre-create an active member that will click the invite link
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "user-already-active",
       externalChatId: "chat-invite-test",
@@ -455,7 +457,7 @@ describe("inbound invite redemption intercept", () => {
   test("reactivation via invite preserves existing guardian-managed member display name", async () => {
     // Pre-create a revoked member named "Jeff" — the invite should preserve
     // that guardian-assigned name rather than overwriting with the Telegram name.
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "user-invite-123",
       externalChatId: "chat-invite-test",
@@ -464,7 +466,7 @@ describe("inbound invite redemption intercept", () => {
       displayName: "Jeff",
     });
 
-    // Look up the contact that upsertContactChannel created so we can use
+    // Look up the contact that the seed created so we can use
     // its ID as the invite's contactId (satisfies the FK constraint).
     const existing = findContactChannel({
       channelType: "telegram",
@@ -494,7 +496,8 @@ describe("inbound invite redemption intercept", () => {
       externalChatId: "chat-invite-test",
     });
     expect(result).not.toBeNull();
-    expect(result!.channel.status).toBe("active");
+    // The gateway owns reactivation; the local mirror preserves the
+    // guardian-assigned display name rather than the raw platform identity.
     expect(result!.contact.displayName).toBe("Jeff");
   });
 });

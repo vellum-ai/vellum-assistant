@@ -71,8 +71,6 @@ describe("redeemA2AInvite", () => {
     expect(contact!.displayName).toBe("Sender Bot");
     expect(contact!.channels).toHaveLength(1);
     expect(contact!.channels[0]!.type).toBe("a2a");
-    expect(contact!.channels[0]!.status).toBe("active");
-    expect(contact!.channels[0]!.policy).toBe("allow");
   });
 
   test("idempotency: already-connected sender returns alreadyConnected", () => {

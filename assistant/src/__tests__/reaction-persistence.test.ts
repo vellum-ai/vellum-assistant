@@ -44,7 +44,6 @@ mock.module("../runtime/gateway-client.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { upsertContactChannel } from "../contacts/contacts-write.js";
 import type { Conversation } from "../daemon/conversation.js";
 import {
   createCanonicalGuardianDelivery,
@@ -60,7 +59,10 @@ import {
   isSlackReactionEvent,
   parseSlackReactionCallbackData,
 } from "../runtime/routes/inbound-stages/reaction-intercept.js";
-import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
+import {
+  handleChannelInbound,
+  seedContactChannel,
+} from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 await initializeDb();
@@ -84,7 +86,7 @@ function resetState(): void {
 }
 
 function seedActiveMember(): void {
-  upsertContactChannel({
+  seedContactChannel({
     sourceChannel: "slack",
     externalUserId: SLACK_USER_ID,
     externalChatId: SLACK_CHANNEL_ID,
@@ -655,7 +657,7 @@ describe("reaction access control (no verification handshake)", () => {
     // A pending contact classifies as `unverified_contact` — a known tier, so
     // its reactions are recorded. On a real message it would be re-challenged,
     // but a reaction must not trigger that.
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "slack",
       externalUserId: CONTACT_USER_ID,
       externalChatId: SLACK_CHANNEL_ID,

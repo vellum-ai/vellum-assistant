@@ -260,11 +260,8 @@ export function upsertContact(params: {
         updatedAt: now,
       };
       if (params.notes !== undefined) updateSet.notes = params.notes;
-      if (params.role !== undefined) updateSet.role = params.role;
       if (params.contactType !== undefined)
         updateSet.contactType = params.contactType;
-      if (params.principalId !== undefined)
-        updateSet.principalId = params.principalId;
       if (params.userFile !== undefined) updateSet.userFile = params.userFile;
 
       db.update(contacts)
@@ -298,11 +295,8 @@ export function upsertContact(params: {
           updatedAt: now,
         };
         if (params.notes !== undefined) updateSet.notes = params.notes;
-        if (params.role !== undefined) updateSet.role = params.role;
         if (params.contactType !== undefined)
           updateSet.contactType = params.contactType;
-        if (params.principalId !== undefined)
-          updateSet.principalId = params.principalId;
         if (params.userFile !== undefined) updateSet.userFile = params.userFile;
 
         db.update(contacts)
@@ -345,9 +339,7 @@ export function upsertContact(params: {
       id: contactId,
       displayName: params.displayName,
       notes: params.notes ?? null,
-      role: params.role ?? "contact",
       contactType: params.contactType ?? "human",
-      principalId: params.principalId ?? null,
       userFile: resolvedUserFile,
       createdAt: now,
       updatedAt: now,
@@ -396,27 +388,12 @@ function syncChannels(
       .get();
 
     if (existing) {
-      // Preserve guardian blocks: if the channel is blocked, do not overwrite
-      // its status/policy — mirrors the guard in the cross-contact reassignment
-      // path so a blocked channel cannot be unblocked via a same-contact sync.
-      const isBlocked = existing.status === "blocked";
-
       const updateSet: Record<string, unknown> = {};
       // Self-heal legacy lowercased addresses to canonical form.
       if (existing.address !== ch.address) updateSet.address = ch.address;
       if (ch.isPrimary !== undefined) updateSet.isPrimary = ch.isPrimary;
       if (ch.externalChatId !== undefined)
         updateSet.externalChatId = ch.externalChatId;
-      if (!isBlocked) {
-        if (ch.status !== undefined) updateSet.status = ch.status;
-        if (ch.policy !== undefined) updateSet.policy = ch.policy;
-        if (ch.revokedReason !== undefined)
-          updateSet.revokedReason = ch.revokedReason;
-        if (ch.blockedReason !== undefined)
-          updateSet.blockedReason = ch.blockedReason;
-      }
-      if (ch.verifiedAt !== undefined) updateSet.verifiedAt = ch.verifiedAt;
-      if (ch.verifiedVia !== undefined) updateSet.verifiedVia = ch.verifiedVia;
       if (ch.inviteId !== undefined) updateSet.inviteId = ch.inviteId;
 
       if (Object.keys(updateSet).length > 0) {
@@ -434,11 +411,6 @@ function syncChannels(
 
     if (conflicting) {
       if (reassignConflicting) {
-        // Preserve guardian blocks: if the existing channel is blocked, do not
-        // overwrite its status/policy — a valid invite must not bypass an
-        // explicit guardian block on a different contact.
-        const isBlocked = conflicting.status === "blocked";
-
         // Reassign the channel to the target contact. Used by invite redemption
         // to bind a redeemer's existing channel identity to the invite's target.
         const reassignSet: Record<string, unknown> = {
@@ -447,17 +419,6 @@ function syncChannels(
         };
         if (ch.externalChatId !== undefined)
           reassignSet.externalChatId = ch.externalChatId;
-        if (!isBlocked) {
-          if (ch.status !== undefined) reassignSet.status = ch.status;
-          if (ch.policy !== undefined) reassignSet.policy = ch.policy;
-          if (ch.revokedReason !== undefined)
-            reassignSet.revokedReason = ch.revokedReason;
-          if (ch.blockedReason !== undefined)
-            reassignSet.blockedReason = ch.blockedReason;
-        }
-        if (ch.verifiedAt !== undefined) reassignSet.verifiedAt = ch.verifiedAt;
-        if (ch.verifiedVia !== undefined)
-          reassignSet.verifiedVia = ch.verifiedVia;
         if (ch.inviteId !== undefined) reassignSet.inviteId = ch.inviteId;
 
         db.update(contactChannels)
@@ -478,10 +439,6 @@ function syncChannels(
         address: ch.address,
         isPrimary: ch.isPrimary ?? false,
         externalChatId: ch.externalChatId ?? null,
-        status: ch.status ?? "unverified",
-        policy: ch.policy ?? "allow",
-        verifiedAt: ch.verifiedAt ?? null,
-        verifiedVia: ch.verifiedVia ?? null,
         inviteId: ch.inviteId ?? null,
         createdAt: now,
         updatedAt: now,
@@ -901,60 +858,10 @@ export function listGuardianChannels(): {
 }
 
 /**
- * Update a channel's access-control fields (status, policy, reasons).
- * Returns the updated channel, or null if the channel does not exist.
- */
-export function updateChannelStatus(
-  channelId: string,
-  params: {
-    status?: ChannelStatus;
-    policy?: ChannelPolicy;
-    revokedReason?: string | null;
-    blockedReason?: string | null;
-  },
-): ContactChannel | null {
-  const db = getDb();
-  const existing = db
-    .select()
-    .from(contactChannels)
-    .where(eq(contactChannels.id, channelId))
-    .get();
-
-  if (!existing) return null;
-
-  const updateSet: Record<string, unknown> = {};
-  if (params.status !== undefined) updateSet.status = params.status;
-  if (params.policy !== undefined) updateSet.policy = params.policy;
-  if (params.revokedReason !== undefined)
-    updateSet.revokedReason = params.revokedReason;
-  if (params.blockedReason !== undefined)
-    updateSet.blockedReason = params.blockedReason;
-
-  if (Object.keys(updateSet).length > 0) {
-    updateSet.updatedAt = Date.now();
-    db.update(contactChannels)
-      .set(updateSet)
-      .where(eq(contactChannels.id, channelId))
-      .run();
-
-    const updated = db
-      .select()
-      .from(contactChannels)
-      .where(eq(contactChannels.id, channelId))
-      .get();
-
-    const result = updated ? parseChannel(updated) : null;
-    emitContactChange();
-    return result;
-  }
-
-  return parseChannel(existing);
-}
-
-/**
- * Update a guardian contact's principalId and its channel's identity fields.
- * Used for healing guardian binding drift when the JWT principal no longer
- * matches the stored guardian binding after a DB reset.
+ * Heal a guardian channel's identity address when the JWT principal no longer
+ * matches the stored guardian binding after a DB reset. The principalId ACL
+ * column is gateway-owned and no longer written here; only the channel identity
+ * address is repaired.
  *
  * Returns false if the update would violate the unique (type, address)
  * constraint on contact_channels — e.g. when the incoming principal already
@@ -962,7 +869,7 @@ export function updateChannelStatus(
  * In that case the heal is skipped and trust stays `unknown`.
  */
 export function updateContactPrincipalAndChannel(
-  contactId: string,
+  _contactId: string,
   channelId: string,
   newPrincipalId: string,
 ): boolean {
@@ -983,20 +890,13 @@ export function updateContactPrincipalAndChannel(
     return false;
   }
 
-  db.transaction(() => {
-    db.update(contacts)
-      .set({ principalId: newPrincipalId, updatedAt: now })
-      .where(eq(contacts.id, contactId))
-      .run();
-
-    db.update(contactChannels)
-      .set({
-        address: newPrincipalId,
-        updatedAt: now,
-      })
-      .where(eq(contactChannels.id, channelId))
-      .run();
-  });
+  db.update(contactChannels)
+    .set({
+      address: newPrincipalId,
+      updatedAt: now,
+    })
+    .where(eq(contactChannels.id, channelId))
+    .run();
 
   emitContactChange();
   return true;

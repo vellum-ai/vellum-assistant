@@ -70,7 +70,6 @@ describe("upsertContact user_file selection", () => {
     const primary = upsertContact({
       displayName: "Chris",
       role: "guardian",
-      principalId: "principal-abc",
       channels: [
         {
           type: "vellum",
@@ -78,6 +77,12 @@ describe("upsertContact user_file selection", () => {
         },
       ],
     });
+    // principalId is gateway-owned and no longer written by upsertContact; stamp
+    // it directly so the (still-present) sibling lookup resolves it.
+    getSqlite().run("UPDATE contacts SET principal_id = ? WHERE id = ?", [
+      "principal-abc",
+      primary.id,
+    ]);
     expect(primary.userFile).toBe("chris.md");
 
     // Second contact for the same principal on Slack — must inherit the

@@ -44,7 +44,6 @@ mock.module("../daemon/approval-generators.js", () => ({
   createApprovalConversationGenerator: () => undefined,
 }));
 
-import { upsertContact } from "../contacts/contact-store.js";
 import {
   linkAttachmentToMessage,
   uploadAttachment,
@@ -58,7 +57,10 @@ import { resetTestTables } from "../memory/raw-query.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
-import { resolveLocalTrustVerdict } from "./helpers/channel-test-adapter.js";
+import {
+  resolveLocalTrustVerdict,
+  seedContactChannel,
+} from "./helpers/channel-test-adapter.js";
 
 await initializeDb();
 
@@ -251,16 +253,12 @@ describe("WhatsApp channel ingress attachment resolution", () => {
   }
 
   function ensureWhatsAppContact(): void {
-    upsertContact({
+    seedContactChannel({
+      sourceChannel: "whatsapp",
+      externalUserId: WHATSAPP_USER_ID,
       displayName: "WhatsApp Test User",
-      channels: [
-        {
-          type: "whatsapp",
-          address: WHATSAPP_USER_ID,
-          status: "active",
-          policy: "allow",
-        },
-      ],
+      status: "active",
+      policy: "allow",
     });
   }
 

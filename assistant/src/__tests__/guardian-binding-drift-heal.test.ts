@@ -63,10 +63,10 @@ describe("healGuardianBindingDrift", () => {
     const healed = await healGuardianBindingDrift("vellum-principal-old-uuid");
     expect(healed).toBe(true);
 
-    // Guardian binding now matches the old JWT
+    // The heal repairs the channel identity address to match the JWT. The
+    // principalId column is gateway-owned and no longer written locally.
     const guardian = findGuardianForChannel("vellum");
     expect(guardian).not.toBeNull();
-    expect(guardian!.contact.principalId).toBe("vellum-principal-old-uuid");
     expect(guardian!.channel.address).toBe("vellum-principal-old-uuid");
   });
 
@@ -86,10 +86,10 @@ describe("healGuardianBindingDrift", () => {
     const healed = await healGuardianBindingDrift("vellum-principal-jwt");
     expect(healed).toBe(true);
 
-    // Local mirror now matches the JWT, so a subsequent local trust
-    // resolution classifies the actor as guardian rather than unknown.
+    // The local mirror's identity address now matches the JWT, so a subsequent
+    // local trust resolution classifies the actor as guardian rather than
+    // unknown. The principalId column is gateway-owned and not written locally.
     const guardian = findGuardianForChannel("vellum");
-    expect(guardian!.contact.principalId).toBe("vellum-principal-jwt");
     expect(guardian!.channel.address).toBe("vellum-principal-jwt");
   });
 
