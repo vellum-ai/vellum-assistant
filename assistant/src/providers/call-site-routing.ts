@@ -143,6 +143,16 @@ export class CallSiteRoutingProvider implements Provider {
    *
    * Falls back to the default provider's static flag when no `callSite` is set
    * (the legacy short-circuit `selectProvider` also takes).
+   *
+   * Known limitation: this reports the *resolved* target's capability and does
+   * not replay `selectProvider`'s async soft-credential fallback. If the routed
+   * connection has a transient credential failure at send time, `selectProvider`
+   * falls back to the default provider while this probe still reports the routed
+   * target — so a non-native default + native routed target with a credential
+   * blip can attach `web_search` to the fallback non-native provider. The probe
+   * stays sync (the loop assembles tools synchronously) and the worst case is
+   * bounded: the advisor consult that hits it degrades benignly (the unhandled
+   * tool surfaces as a caught failure → "(advisor unavailable)"), not a crash.
    */
   supportsNativeWebSearchFor(options?: SendMessageOptions): boolean {
     const callSite = options?.config?.callSite;
