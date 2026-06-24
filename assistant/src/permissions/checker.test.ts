@@ -606,6 +606,135 @@ describe("Permission Checker (gateway IPC)", () => {
       );
       expect(result.decision).toBe("prompt");
     });
+
+    // ── Memory-consolidation skill-authoring auto-grant ─────────────────────
+    // The background consolidation guardian session (sourceChannel "vellum",
+    // trustClass "guardian", origin "memory_consolidation") cannot answer
+    // interactive prompts, so `scaffold_managed_skill` and
+    // `skill_load skill-management` resolve to allow without prompting. The
+    // grant is scoped to that origin + those two tools only.
+
+    const consolidationContext = {
+      requestOrigin: "memory_consolidation",
+      trustClass: "guardian",
+      sourceChannel: "vellum",
+      executionContext: "background" as const,
+    };
+
+    test("allows scaffold_managed_skill for the consolidation origin without prompting", async () => {
+      // High risk would normally force a prompt — the grant short-circuits
+      // before classification, so no IPC result is needed.
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        consolidationContext,
+      );
+      expect(result.decision).toBe("allow");
+    });
+
+    test("allows skill_load skill-management for the consolidation origin without prompting", async () => {
+      const result = await check(
+        "skill_load",
+        { skill: "skill-management" },
+        "/home/user/project",
+        consolidationContext,
+      );
+      expect(result.decision).toBe("allow");
+    });
+
+    test("does not grant skill_load for a non skill-management skill", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Dynamic skill load",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const result = await check(
+        "skill_load",
+        { skill: "some-other-skill" },
+        "/home/user/project",
+        consolidationContext,
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("does not grant for tools outside the scaffold/skill_load pair", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Managed skill delete",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const result = await check(
+        "delete_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        consolidationContext,
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("does not grant scaffold for an interactive (non-background) session", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      // A normal interactive turn carries no consolidation origin signals.
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        { executionContext: "conversation" },
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("does not grant scaffold for a different background origin", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      // Same guardian/vellum background trust, but a different origin (e.g.
+      // the memory sweep job) must not inherit the consolidation grant.
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        {
+          requestOrigin: "schedule",
+          trustClass: "guardian",
+          sourceChannel: "vellum",
+          executionContext: "background",
+        },
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("does not grant scaffold when trust is not guardian", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        {
+          requestOrigin: "memory_consolidation",
+          trustClass: "unknown",
+          sourceChannel: "vellum",
+          executionContext: "background",
+        },
+      );
+      expect(result.decision).toBe("prompt");
+    });
   });
 
   // ── generateAllowlistOptions ──────────────────────────────────────────────

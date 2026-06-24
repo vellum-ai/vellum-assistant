@@ -671,6 +671,46 @@ export async function classifyRisk(
   return result;
 }
 
+// ── Background memory-consolidation skill-authoring auto-grant ────────────────
+// Skill scaffolding (`scaffold_managed_skill`, risk: high + allowlist-gated) and
+// loading the `skill-management` skill (`skill_load skill-management`, which
+// exposes that tool) require an interactive approval. The memory-consolidation
+// background job runs without any connected client, so it can never answer that
+// prompt. When a turn is the consolidation background source — guardian trust,
+// `vellum` source channel, `memory_consolidation` origin (set in
+// consolidation-job.ts) — these two tools resolve to ALLOW non-interactively.
+//
+// The grant is intentionally narrow: it matches exactly these two tools AND the
+// consolidation origin, so no interactive session or other origin is affected.
+// It is inert until a later PR actually drives `scaffold_managed_skill` from
+// consolidation; no current caller sets `requestOrigin` to this origin. Once the
+// `isProcToSkillsEnabled` flag helper lands (sibling PR), this grant can also be
+// gated on that flag.
+const MEMORY_CONSOLIDATION_ORIGIN = "memory_consolidation";
+const SKILL_MANAGEMENT_SKILL_ID = "skill-management";
+
+function isMemoryConsolidationSkillAuthoringGrant(
+  toolName: string,
+  input: Record<string, unknown>,
+  policyContext?: PolicyContext,
+): boolean {
+  if (
+    policyContext?.requestOrigin !== MEMORY_CONSOLIDATION_ORIGIN ||
+    policyContext.trustClass !== "guardian" ||
+    policyContext.sourceChannel !== "vellum"
+  ) {
+    return false;
+  }
+  if (toolName === "scaffold_managed_skill") return true;
+  if (toolName === "skill_load") {
+    return (
+      getStringField(input, "skill", "skill_id").trim() ===
+      SKILL_MANAGEMENT_SKILL_ID
+    );
+  }
+  return false;
+}
+
 export async function check(
   toolName: string,
   input: Record<string, unknown>,
@@ -680,6 +720,16 @@ export async function check(
   signal?: AbortSignal,
 ): Promise<PermissionCheckResult> {
   signal?.throwIfAborted();
+
+  if (
+    isMemoryConsolidationSkillAuthoringGrant(toolName, input, policyContext)
+  ) {
+    return {
+      decision: "allow",
+      reason:
+        "Memory consolidation background session: skill authoring auto-approved",
+    };
+  }
 
   const classification = await classifyRisk(
     toolName,

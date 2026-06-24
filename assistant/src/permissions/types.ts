@@ -74,4 +74,17 @@ export interface PolicyContext {
   executionContext?: "conversation" | "background" | "headless";
   /** Conversation ID for per-conversation threshold overrides. */
   conversationId?: string;
+  /**
+   * Origin tag of the turn driving this permission check (the conversation's
+   * `TitleOrigin`, e.g. "memory_consolidation"). Background jobs cannot answer
+   * interactive approval prompts, so the checker uses this — together with
+   * {@link trustClass} / {@link sourceChannel} — to scope narrow non-interactive
+   * auto-grants to a specific internal origin without broadening any other
+   * session.
+   */
+  requestOrigin?: string;
+  /** Trust classification of the actor driving the turn (e.g. "guardian"). */
+  trustClass?: string;
+  /** Source channel the turn arrived on (e.g. "vellum" for internal jobs). */
+  sourceChannel?: string;
 }
