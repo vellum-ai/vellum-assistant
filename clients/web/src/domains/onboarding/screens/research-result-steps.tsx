@@ -4,7 +4,7 @@
  * SPIKE — research-onboarding flow.
  *
  * These render the visual sequence that follows the calendar step:
- *   - MeetingCreatedStep   a brief "Meeting Created!" confirmation
+ *   - MeetingCreatedStep   a brief "Check-in scheduled…" confirmation
  *   - LookingYouUpStep     a loading carousel ("looking you up")
  *   - ResearchResultsStep  the editable "Alright, this is what I got:" claims
  *   - SuggestionsStep      tappable suggestions that open a new chat
@@ -71,31 +71,53 @@ export function MiniAssistant({ size = 48 }: { size?: number }) {
 
 const MINI = 48;
 
+// The confirmation animation runs ~2.6s; that's the minimum on-screen time.
+const MEETING_MIN_MS = 2600;
+// Cap how long we hold for a slow-but-pending booking before advancing anyway.
+const MEETING_MAX_MS = 6000;
+
 /**
  * Reverse of the Introduction grow-in. The toned backdrop (behind) blends to
  * black and hides its bottom eyes; here the eyes lead — shrinking and rising
  * up out of the bottom (the opposite of growing + sinking) — and the body
- * follows a beat later, shrinking into a small avatar beside the "Meeting
- * Created!" text. The edge characters stay (they live in the backdrop).
+ * follows a beat later, shrinking into a small avatar beside the "Check-in
+ * scheduled…" text. The edge characters stay (they live in the backdrop).
  */
 export function MeetingCreatedStep({
   onDone,
   onBack,
   onForward,
+  scheduledTime,
+  awaitingTime,
 }: {
   onDone: () => void;
   onBack: () => void;
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
+  /** Pre-formatted wall-clock time (e.g. "2:30 PM"); generic copy when absent. */
+  scheduledTime?: string;
+  /** True while the check-in booking is still in flight; holds the step (capped) so a slow-but-successful booking can still reveal the time. */
+  awaitingTime?: boolean;
 }) {
   const { components, chosen } = useChosenAvatar();
   const reduce = useReducedMotion();
   const { w, h } = useViewportSize();
 
+  const title = scheduledTime
+    ? `Check-in scheduled for tomorrow at ${scheduledTime}!`
+    : "Check-in scheduled!";
+
+  // Hold the step long enough to reveal the booked time. While a booking is
+  // still in flight and we don't yet have the time, wait up to the cap; once
+  // the time lands (or the booking settles, or we were never waiting) advance
+  // after the normal minimum. The effect re-runs when those inputs change, so
+  // the timer re-anchors to the moment the time arrives.
   useEffect(() => {
-    const t = setTimeout(onDone, 2600);
+    const holdForBooking = awaitingTime && !scheduledTime;
+    const delay = holdForBooking ? MEETING_MAX_MS : MEETING_MIN_MS;
+    const t = setTimeout(onDone, delay);
     return () => clearTimeout(t);
-  }, [onDone]);
+  }, [onDone, awaitingTime, scheduledTime]);
 
   // Mini avatar slot: left of the title, in a left-anchored group.
   const groupLeft = w / 2 - 170;
@@ -144,13 +166,13 @@ export function MeetingCreatedStep({
           )}
         </div>
         <motion.span
-          className="whitespace-nowrap text-[2.6rem] leading-none"
+          className="max-w-[60vw] text-[2.6rem] leading-none"
           style={{ fontFamily: "var(--font-serif)" }}
           initial={reduce ? false : { opacity: 0, x: -8 }}
           animate={{ opacity: 1, x: 0 }}
           transition={reduce ? { duration: 0 } : { duration: 0.4, delay: 0.9 }}
         >
-          Meeting Created!
+          {title}
         </motion.span>
       </div>
     </div>
