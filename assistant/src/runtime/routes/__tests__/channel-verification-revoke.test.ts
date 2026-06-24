@@ -10,6 +10,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { GuardianDelivery } from "@vellumai/gateway-client";
 import { IpcCallError } from "@vellumai/gateway-client/ipc-client";
 
 type IpcCall = { method: string; params?: Record<string, unknown> };
@@ -73,14 +74,36 @@ mock.module("../../channel-verification-service.js", () => ({
   getGuardianBinding: mock(() => guardianBinding),
 }));
 
-// Contact-store lookup that resolves the guardian's channel to downgrade.
-let contactChannel: { id: string; status: string } | null = null;
+// Contact-store lookup that resolves the guardian's channel to downgrade. The
+// channel carries the type/address/externalChatId the gateway delivery is
+// matched against (see deliveryForChannel).
+let contactChannel: {
+  id: string;
+  status: string;
+  type: string;
+  address: string;
+  externalChatId: string;
+} | null = null;
 const actualContactStore = await import("../../../contacts/contact-store.js");
 mock.module("../../../contacts/contact-store.js", () => ({
   ...actualContactStore,
   findContactChannel: mock(() =>
     contactChannel ? { channel: contactChannel, contact: { id: "c1" } } : null,
   ),
+}));
+
+// Gateway delivery (ACL source of truth). The revoke gate relays only when the
+// matching delivery is live (active/pending/unverified); already-revoked or a
+// missing delivery short-circuits the relay.
+let guardianDeliveries: GuardianDelivery[] | null = null;
+mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: mock(async (input?: { channelTypes?: string[] }) => {
+    if (guardianDeliveries == null) return null;
+    if (!input?.channelTypes) return guardianDeliveries;
+    return guardianDeliveries.filter((g) =>
+      input.channelTypes!.includes(g.channelType),
+    );
+  }),
 }));
 
 // Guard: the contact-channel ACL write moves to the gateway relay and must
@@ -122,7 +145,24 @@ describe("verification revoke relay", () => {
       guardianExternalUserId: "guardian-user",
       guardianDeliveryChatId: "chat-1",
     };
-    contactChannel = { id: "ch1", status: "active" };
+    contactChannel = {
+      id: "ch1",
+      status: "active",
+      type: "telegram",
+      address: "guardian-user",
+      externalChatId: "chat-1",
+    };
+    // Gateway delivery is live by default, so the revoke relay fires.
+    guardianDeliveries = [
+      {
+        channelType: "telegram",
+        contactId: "c1",
+        address: "guardian-user",
+        externalChatId: "chat-1",
+        status: "active",
+        verifiedAt: 1700000000,
+      },
+    ];
     ipcCallPersistentMock.mockClear();
     cancelOutboundMock.mockClear();
     revokePendingSessionsMock.mockClear();
@@ -263,8 +303,19 @@ describe("verification revoke relay", () => {
     expect(result.bound).toBe(false);
   });
 
-  test("skips the relay when the resolved channel is already revoked", async () => {
-    contactChannel = { id: "ch1", status: "revoked" };
+  test("skips the relay when the gateway delivery is already revoked", async () => {
+    // The gateway (source of truth) already shows the channel revoked, so the
+    // redundant relay is skipped even though session/binding teardown runs.
+    guardianDeliveries = [
+      {
+        channelType: "telegram",
+        contactId: "c1",
+        address: "guardian-user",
+        externalChatId: "chat-1",
+        status: "revoked",
+        verifiedAt: 1700000000,
+      },
+    ];
 
     await revokeHandler({ body: { channel: "telegram" } });
 
