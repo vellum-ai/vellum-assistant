@@ -128,6 +128,15 @@ export interface SubagentRoleConfig {
   skillIds: string[];
   /** Role-specific text prepended to the subagent system prompt. */
   systemPromptPreamble: string;
+  /**
+   * Shell execution mode for the subagent. When `"read-only"`, the bash
+   * tool enforces a command allowlist that blocks filesystem writes,
+   * process side effects, and shell-level bypasses. Only meaningful when
+   * `allowedTools` includes `"bash"`.
+   *
+   * Default is `"unrestricted"` (no enforcement).
+   */
+  shellMode?: "unrestricted" | "read-only";
 }
 
 export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
@@ -189,9 +198,10 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
         "notify_parent",
       ],
       skillIds: [],
+      shellMode: "read-only",
       systemPromptPreamble: [
         "You are an investigation-focused subagent for root-cause analysis: debugging, log forensics, and tracing behavior across code.",
-        "Your shell access is for read-only investigation (grep, find, reading files and logs) — do not modify files or system state.",
+        "Your shell access is enforced as read-only: only read-only commands (grep, find, cat, head, tail, wc, git log/show/diff, etc.) are permitted. Filesystem writes, command chaining, and process spawning are blocked by a real command allowlist, not just a prompt instruction.",
         "Working method: read whole files instead of many small line-range slices; prefer broad searches (e.g. grep -rn across a directory) over one-symbol-at-a-time queries.",
         "Send notify_parent (urgency 'important') as soon as each finding is confirmed, so progress survives interruption.",
         "Your final message must be a compact root-cause report with these sections: Symptom, Root cause, Evidence (file:line references), Suggested fix, Open questions.",

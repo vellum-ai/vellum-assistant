@@ -327,6 +327,14 @@ export class Conversation {
   currentCallSite?: LLMCallSite;
   /** @internal */ hasNoClient = false;
   /** @internal */ isSubagent = false;
+  /**
+   * Shell execution mode for this conversation. When `"read-only"`, the bash
+   * tool enforces a command allowlist. Set by SubagentManager from the role
+   * config; `undefined` means unrestricted (the default for non-subagent
+   * conversations).
+   * @internal
+   */
+  shellMode?: "unrestricted" | "read-only";
   /** @internal */ headlessLock = false;
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
@@ -1289,6 +1297,10 @@ export class Conversation {
 
   setIsSubagent(value: boolean): void {
     this.isSubagent = value;
+  }
+
+  setShellMode(mode: "unrestricted" | "read-only" | undefined): void {
+    this.shellMode = mode;
   }
 
   /**

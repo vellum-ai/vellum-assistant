@@ -38,7 +38,7 @@
               "planner",
               "investigator"
             ],
-            "description": "Agent specialization that controls tool access. 'researcher': read-only (web, files, memory). 'coder': file and bash access. 'planner': read-only analysis. 'investigator': root-cause analysis — debugging, log forensics, tracing behavior across many files; has bash for read-only investigation (grep/find/log inspection) and returns a compact root-cause report. 'general': full access (default). Ignored when fork: true (forks always use general)."
+            "description": "Agent specialization that controls tool access. 'researcher': read-only (web, files, memory). 'coder': file and bash access. 'planner': read-only analysis. 'investigator': root-cause analysis — debugging, log forensics, tracing behavior across many files; has bash with a read-only command allowlist (grep/find/log inspection only — filesystem writes and command chaining are blocked by enforcement, not just preamble) and returns a compact root-cause report. 'general': full access (default). Ignored when fork: true (forks always use general)."
           },
           "inference_profile": {
             "type": "string",
