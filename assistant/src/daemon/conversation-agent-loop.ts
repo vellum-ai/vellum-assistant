@@ -101,6 +101,10 @@ import {
 } from "./conversation-error.js";
 import { raceWithTimeout } from "./conversation-media-retry.js";
 import {
+  clearConversationNotices,
+  drainConversationNotices,
+} from "./conversation-notices.js";
+import {
   getSlackCompactionWatermarkForPrefix,
   loadSlackChronologicalContext,
   resolveTurnInboundActorContext,
@@ -1017,6 +1021,19 @@ export async function runAgentLoopImpl(
       );
     }
 
+    if (
+      !overflowTerminalReason &&
+      !yieldedForHandoff &&
+      !state.providerErrorUserMessage &&
+      !abortController.signal.aborted
+    ) {
+      for (const notice of drainConversationNotices(ctx.conversationId)) {
+        onEvent(notice);
+      }
+    } else {
+      clearConversationNotices(ctx.conversationId);
+    }
+
     // Flush remaining tool results. On a normal turn these drain at the next
     // `message_complete`; an aborted or yielded loop exits with them still
     // buffered, so finalize the (possibly already on-arrival-reserved) grouped
@@ -1413,6 +1430,7 @@ export async function runAgentLoopImpl(
       }
     }
   } catch (err) {
+    clearConversationNotices(ctx.conversationId);
     const errorCtx = {
       phase: "agent_loop" as const,
       aborted: abortController.signal.aborted,

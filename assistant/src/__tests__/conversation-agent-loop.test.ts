@@ -10,6 +10,10 @@ import {
 } from "bun:test";
 
 import type { LoopToolExecutor } from "../agent/loop.js";
+import {
+  queueConversationNotice,
+  resetConversationNoticesForTests,
+} from "../daemon/conversation-notices.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
@@ -870,6 +874,7 @@ beforeEach(() => {
   projectAssistantMessageMock.mockClear();
   publishSyncInvalidationMock.mockClear();
   mockMessageById = null;
+  resetConversationNoticesForTests();
   // The compaction pipeline runs through the plugin registry; reset and
   // re-register every default so it dispatches to middleware backed by the
   // mocked collaborators these tests install (`syncMessageToDisk`, etc.)
@@ -924,6 +929,38 @@ describe("session-agent-loop", () => {
       expect(
         events.find((event) => event.type === "conversation_error"),
       ).toBeUndefined();
+      expect(
+        events.find((event) => event.type === "message_complete"),
+      ).toBeDefined();
+    });
+  });
+
+  describe("conversation notices", () => {
+    test("emits queued billing notices after a successful turn", async () => {
+      const events: ServerMessage[] = [];
+      const ctx = makeCtx({ providerResponses: [textResponse("ok")] });
+      queueConversationNotice(ctx.conversationId, "memory-v3-test", {
+        source: "memory_v3",
+        code: "PROVIDER_BILLING",
+        userMessage: "You've run out of credits.",
+        errorCategory: "credits_exhausted",
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(
+        events.find((event) => event.type === "conversation_error"),
+      ).toBeUndefined();
+      expect(
+        events.find((event) => event.type === "conversation_notice"),
+      ).toEqual({
+        type: "conversation_notice",
+        conversationId: "test-conv",
+        source: "memory_v3",
+        code: "PROVIDER_BILLING",
+        userMessage: "You've run out of credits.",
+        errorCategory: "credits_exhausted",
+      });
       expect(
         events.find((event) => event.type === "message_complete"),
       ).toBeDefined();
