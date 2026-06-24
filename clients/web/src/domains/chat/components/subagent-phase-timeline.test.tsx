@@ -9,10 +9,13 @@
  * for 1); and contiguous same-phase collapsing into a single row.
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
+
+import { useState } from "react";
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
+import * as phaseGroupedStepList from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import { SubagentPhaseTimeline } from "@/domains/chat/components/subagent-phase-timeline";
 import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 
@@ -739,9 +742,13 @@ describe("SubagentPhaseTimeline — controlled expand state", () => {
   // When `expandedKeys`/`onExpandedKeysChange` are supplied the parent owns the
   // expansion (so it can outlive an unmount): the component renders from the
   // prop and reports toggles instead of self-managing, and does not expand
-  // until the parent feeds the new set back.
+  // until the parent feeds the new set back. `onExpandedKeysChange` receives a
+  // functional updater (the `setState`-style contract that keeps the internal
+  // `toggle` callback stable), so the next set is derived by applying it to the
+  // previous one.
   test("renders expansion from `expandedKeys` and reports toggles to the parent", () => {
-    const onExpandedKeysChange = mock((_next: Set<string>) => {});
+    const onExpandedKeysChange =
+      mock((_updater: (prev: Set<string>) => Set<string>) => {});
     const steps: ToolCallCardStep[] = [
       bash("ls", "completed", "1s", "tc-a"),
       bash("pwd", "completed", "2s", "tc-b"),
@@ -758,14 +765,15 @@ describe("SubagentPhaseTimeline — controlled expand state", () => {
     // Controlled + collapsed: no pills yet.
     expect(queryAllByTestId("phase-step-pill").length).toBe(0);
 
-    // Clicking the header reports the next set but does NOT self-expand.
+    // Clicking the header reports an updater but does NOT self-expand.
     fireEvent.click(getByTestId("subagent-phase-header"));
     expect(onExpandedKeysChange).toHaveBeenCalledTimes(1);
-    const nextKeys = onExpandedKeysChange.mock.calls[0]![0];
+    const updater = onExpandedKeysChange.mock.calls[0]![0];
+    const nextKeys = updater(new Set());
     expect(nextKeys.size).toBe(1);
     expect(queryAllByTestId("phase-step-pill").length).toBe(0);
 
-    // Feeding the reported set back expands the section.
+    // Feeding the derived set back expands the section.
     rerender(
       <SubagentPhaseTimeline
         steps={steps}
@@ -774,5 +782,80 @@ describe("SubagentPhaseTimeline — controlled expand state", () => {
       />,
     );
     expect(queryAllByTestId("phase-step-pill").length).toBe(2);
+  });
+});
+
+describe("SubagentPhaseTimeline — row render isolation", () => {
+  // `SubagentPhaseRow` is `React.memo`-wrapped, and both the `toggle` callback
+  // and the parent's stable `onExpandedKeysChange` setter keep every prop a row
+  // receives reference-stable across an expand/collapse and across a no-op
+  // parent re-render. We count actual row renders by spying on
+  // `phaseHeaderStatus`, which each row calls exactly once at the top of its
+  // render — so the spy's call count is precisely the number of rows whose
+  // render function ran. `spyOn` + `mockRestore` is local to this test (it does
+  // NOT use `mock.module`), so it leaves no cross-file pollution.
+  function toolStep(id: string): ToolCallCardStep {
+    return bash(id, "completed", "1s", `tc-${id}`);
+  }
+
+  // Five phases: tool / thinking / tool / thinking / tool — each step kind
+  // change opens a new phase, so this yields five independent rows.
+  const FIVE_PHASE_STEPS: ToolCallCardStep[] = [
+    toolStep("a"),
+    thinking("t1"),
+    toolStep("b"),
+    thinking("t2"),
+    toolStep("c"),
+  ];
+
+  test("toggling one phase re-renders only that row; a no-op parent re-render re-renders zero rows", () => {
+    const renderSpy = spyOn(phaseGroupedStepList, "phaseHeaderStatus");
+    try {
+      // Harness owns the expanded state via a stable `setState` setter (the
+      // contract the real panel uses) and exposes a `forceRerender` that bumps
+      // unrelated state without touching the stable `steps` array — modelling a
+      // parent re-render driven by an `entry` identity bump that didn't change
+      // the projected steps.
+      let forceRerender: () => void = () => {};
+      function Harness() {
+        const [expanded, setExpanded] = useState<Set<string>>(new Set());
+        const [, setTick] = useState(0);
+        forceRerender = () => setTick((n) => n + 1);
+        return (
+          <SubagentPhaseTimeline
+            steps={FIVE_PHASE_STEPS}
+            expandedKeys={expanded}
+            onExpandedKeysChange={setExpanded}
+          />
+        );
+      }
+
+      const { getAllByTestId } = render(<Harness />);
+
+      // Mount renders every row once.
+      const rows = getAllByTestId("subagent-phase-header");
+      expect(rows.length).toBe(5);
+      expect(renderSpy.mock.calls.length).toBe(5);
+
+      // Toggling one phase open re-renders ONLY that row (the memoized siblings
+      // bail because `section`, `onToggle`, and `onStepDetailClick` are all
+      // reference-stable).
+      renderSpy.mockClear();
+      fireEvent.click(rows[0]!);
+      expect(renderSpy.mock.calls.length).toBe(1);
+
+      // Toggling it back also re-renders only that one row.
+      renderSpy.mockClear();
+      fireEvent.click(rows[0]!);
+      expect(renderSpy.mock.calls.length).toBe(1);
+
+      // A parent re-render that leaves `steps` (and thus the memoized `sections`
+      // array) reference-stable re-renders ZERO rows.
+      renderSpy.mockClear();
+      forceRerender();
+      expect(renderSpy.mock.calls.length).toBe(0);
+    } finally {
+      renderSpy.mockRestore();
+    }
   });
 });

@@ -14,7 +14,7 @@
  */
 
 import { Brain, Globe } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 
 import { Typography } from "@vellumai/design-library";
 
@@ -149,7 +149,15 @@ export function SubagentPhaseTimeline({
    * manages the state internally.
    */
   expandedKeys?: Set<string>;
-  onExpandedKeysChange?: (next: Set<string>) => void;
+  /**
+   * Controlled-expansion setter. Takes a functional updater so the parent can
+   * pass a stable `setState`-style setter (React's
+   * `Dispatch<SetStateAction<Set<string>>>` satisfies this). Receiving a stable
+   * identity here lets `toggle` below stay `useCallback`-stable across
+   * expand/collapse, which keeps the memoized rows from all re-rendering on a
+   * single toggle.
+   */
+  onExpandedKeysChange?: (updater: (prev: Set<string>) => Set<string>) => void;
   /**
    * Whether the owning subagent is still active. When `true`, the LAST phase's
    * node keeps pulsing (a `ThreeDotIndicator`) even after its own steps settle,
@@ -169,23 +177,26 @@ export function SubagentPhaseTimeline({
     new Set(),
   );
   const expanded = expandedKeys ?? internalExpanded;
+  // Both branches toggle via a functional updater, so `toggle` never closes over
+  // the current `expanded` set — its identity stays stable across expand/collapse
+  // (the parent passes a stable `setState`-style `onExpandedKeysChange`). A
+  // stable `toggle` is what lets the memoized `SubagentPhaseRow`s bail on a
+  // single toggle instead of all re-rendering.
   const toggle = useCallback(
     (key: string) => {
-      if (onExpandedKeysChange) {
-        const next = new Set(expanded);
-        if (next.has(key)) next.delete(key);
-        else next.add(key);
-        onExpandedKeysChange(next);
-        return;
-      }
-      setInternalExpanded((prev) => {
+      const update = (prev: Set<string>): Set<string> => {
         const next = new Set(prev);
         if (next.has(key)) next.delete(key);
         else next.add(key);
         return next;
-      });
+      };
+      if (onExpandedKeysChange) {
+        onExpandedKeysChange(update);
+        return;
+      }
+      setInternalExpanded(update);
     },
-    [expanded, onExpandedKeysChange],
+    [onExpandedKeysChange],
   );
 
   // Memoized so the O(n) grouping + fresh section allocations don't re-run on
@@ -219,7 +230,13 @@ export function SubagentPhaseTimeline({
   );
 }
 
-function SubagentPhaseRow({
+// Memoized so a single expand/collapse re-renders only the toggled row and a
+// no-op parent re-render re-renders none. The bail relies on every prop being
+// reference-stable on those re-renders: `section` (from the stable `sections`
+// `useMemo`) and the `onToggle` / `onStepDetailClick` callbacks. A genuine
+// `steps` change re-runs `groupStepsByPhase`, producing fresh `section` objects
+// that correctly bust the memo for the rows that changed.
+const SubagentPhaseRow = memo(function SubagentPhaseRow({
   section,
   isLast,
   isActiveTail,
@@ -589,4 +606,4 @@ function SubagentPhaseRow({
       )}
     </div>
   );
-}
+});
