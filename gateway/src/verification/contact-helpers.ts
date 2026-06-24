@@ -176,6 +176,41 @@ function writeVerifiedGatewayChannel(params: {
 }
 
 /**
+ * Re-parent a gateway channel to the invite's target contact, ensuring the
+ * target contact row exists first. Best-effort: a gateway DB error is logged,
+ * not thrown, so a legitimate activation still proceeds.
+ */
+function reassignChannelContact(params: {
+  channelId: string;
+  toContactId: string;
+  displayName: string;
+  now: number;
+}): void {
+  const { channelId, toContactId, displayName, now } = params;
+  try {
+    const gwDb = getGatewayDb();
+    gwDb
+      .insert(gwContacts)
+      .values({
+        id: toContactId,
+        displayName,
+        role: "contact",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing()
+      .run();
+    gwDb
+      .update(gwContactChannels)
+      .set({ contactId: toContactId, updatedAt: now })
+      .where(eq(gwContactChannels.id, channelId))
+      .run();
+  } catch (gwErr) {
+    log.warn({ err: gwErr }, "Gateway channel reassignment dual-write failed");
+  }
+}
+
+/**
  * Read the authoritative gateway row status for an actor by the logical key
  * (type, address) COLLATE NOCASE. The gateway is the source of truth; the
  * assistant mirror can lag behind a block/revoke landed gateway-side.
@@ -260,9 +295,16 @@ export async function upsertVerifiedContactChannel(params: {
   displayName?: string;
   username?: string;
   verifiedVia?: string;
+  contactId?: string;
 }): Promise<{ verified: boolean }> {
   const now = Date.now();
-  const { sourceChannel, externalChatId, displayName, username } = params;
+  const {
+    sourceChannel,
+    externalChatId,
+    displayName,
+    username,
+    contactId: targetContactId,
+  } = params;
   const verifiedVia = params.verifiedVia ?? "challenge";
 
   const address =
@@ -315,6 +357,26 @@ export async function upsertVerifiedContactChannel(params: {
       return { verified: false };
     }
 
+    // Bind to the invite's target contact when supplied: an invite can attach a
+    // redeemer's existing channel to a different contact, so reassign the
+    // channel's parent (gateway + assistant mirror) before activating.
+    const boundContactId =
+      targetContactId && targetContactId !== row.contactId
+        ? targetContactId
+        : row.contactId;
+    if (boundContactId !== row.contactId) {
+      reassignChannelContact({
+        channelId: row.channelId,
+        toContactId: boundContactId,
+        displayName: contactDisplayName,
+        now,
+      });
+      await assistantDbRun(
+        `UPDATE contact_channels SET contact_id = ? WHERE id = ?`,
+        [boundContactId, row.channelId],
+      );
+    }
+
     // Gateway is source of truth: write it FIRST, then activate the assistant
     // mirror only if the gateway accepted the write. The assistant channel id
     // may not exist in the gateway DB (legacy/unmirrored) or live under a
@@ -323,7 +385,7 @@ export async function upsertVerifiedContactChannel(params: {
     try {
       const wrote = writeVerifiedGatewayChannel({
         assistantChannelId: row.channelId,
-        contactId: row.contactId,
+        contactId: boundContactId,
         type: sourceChannel,
         address,
         externalChatId,
@@ -374,8 +436,9 @@ export async function upsertVerifiedContactChannel(params: {
   // No existing channel: create contact + channel. Gateway is source of truth,
   // so write it FIRST and create the assistant mirror only if the gateway
   // accepted the write — never leave an active assistant channel for an actor
-  // the gateway has blocked/revoked.
-  const contactId = crypto.randomUUID();
+  // the gateway has blocked/revoked. Bind to the invite's target contact when
+  // supplied so the new channel lands under it.
+  const contactId = targetContactId ?? crypto.randomUUID();
   const channelId = crypto.randomUUID();
 
   // The parent contact is conflict-tolerant (a pre-existing contact is fine).

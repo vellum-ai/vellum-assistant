@@ -146,6 +146,11 @@ export const UpsertVerifiedChannelIpcParamsSchema = z.object({
   // Audit source for the verification. Free text (DB column is text) so the
   // invite-activation path can pass "invite"; do not narrow to an enum.
   verifiedVia: z.string().optional(),
+  // Target contact to bind the channel to (invite redemption). When set, an
+  // existing channel for the same (type,address) under a different contact is
+  // reassigned to this contact, mirroring the assistant's
+  // reassignConflictingChannels.
+  contactId: z.string().min(1).optional(),
 });
 
 export type UpsertVerifiedChannelIpcParams = z.infer<

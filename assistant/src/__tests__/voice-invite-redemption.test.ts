@@ -27,6 +27,9 @@ mock.module("../ipc/gateway-client.js", () => ({
       if (gatewayIpc.claimThrows) throw new Error("gateway unreachable");
       return gatewayIpc.claim;
     }
+    if (method === "upsert_verified_channel") {
+      return { ok: true, verified: true };
+    }
     return undefined;
   },
 }));
@@ -204,6 +207,13 @@ describe("redeemVoiceInviteCode", () => {
     );
     expect(claim).toBeDefined();
     expect(claim!.params).toMatchObject({ redeemedByExternalUserId: phone });
+
+    // The activation is written to the gateway via upsert_verified_channel.
+    const upsert = gatewayIpc.calls.find(
+      (c) => c.method === "upsert_verified_channel",
+    );
+    expect(upsert).toBeDefined();
+    expect(upsert!.params).toMatchObject({ type: "phone", address: phone });
   });
 
   test("rejects voice redemption when the gateway claim is not consumable (no mutation)", async () => {

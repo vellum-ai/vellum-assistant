@@ -225,8 +225,15 @@ export const contactRoutes: IpcRoute[] = [
     method: "upsert_verified_channel",
     schema: UpsertVerifiedChannelIpcParamsSchema,
     handler: async (params?: Record<string, unknown>) => {
-      const { type, address, externalChatId, displayName, username, verifiedVia } =
-        UpsertVerifiedChannelIpcParamsSchema.parse(params);
+      const {
+        type,
+        address,
+        externalChatId,
+        displayName,
+        username,
+        verifiedVia,
+        contactId,
+      } = UpsertVerifiedChannelIpcParamsSchema.parse(params);
 
       const { verified } = await upsertVerifiedContactChannel({
         sourceChannel: type,
@@ -235,6 +242,7 @@ export const contactRoutes: IpcRoute[] = [
         displayName,
         username,
         verifiedVia,
+        contactId,
       });
 
       // A blocked/revoked skip is not an error: surface it as verified:false
