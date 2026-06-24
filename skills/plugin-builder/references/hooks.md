@@ -4,6 +4,8 @@ Run your own code at fixed points in a turn. Hooks let a plugin read or transfor
 
 A hook is a function that the Assistant calls at a known boundary in its lifecycle. The harness owns the loop, and your code runs at named points along the way. Each hook lives in its own file under `hooks/<name>.ts`, and the filename is the hook name.
 
+Hooks load from two places. Inside a plugin they live under `<plugin>/hooks/<name>.ts`. You can also drop a **standalone hook** directly under `<workspace>/hooks/<name>.ts` — no `package.json`, no plugin scaffolding, just the hook file. Standalone workspace hooks behave identically to plugin hooks (same contexts, same `init`/`shutdown` lifecycle); for a given event, plugin hooks run first and the workspace hook runs last.
+
 ## The Agent Loop
 
 The loop moves a conversation turn through a series of **lifecycle events**. The **hooks** are the places your code can run as the turn moves from one event to the next.
