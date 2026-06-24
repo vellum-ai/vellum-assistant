@@ -190,6 +190,18 @@ mock.module("../runtime/trust-context-resolver.js", () => ({
   }),
 }));
 
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => [
+    {
+      channelType: "vellum",
+      contactId: "guardian-contact",
+      principalId: "test-user",
+      address: "test-user",
+      status: "active",
+    },
+  ],
+}));
+
 const ipcCallMock = mock(
   async (): Promise<Record<string, unknown> | undefined> => ({ ok: true }),
 );
