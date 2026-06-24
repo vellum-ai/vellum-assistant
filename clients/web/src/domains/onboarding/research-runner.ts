@@ -209,10 +209,11 @@ export interface UseResearchRunner extends ResearchRunnerState {
    */
   start: (options: StartResearchOptions) => void;
   /**
-   * Await every background plugin install this run kicked off, so the click
-   * doesn't open the chat before each `<workspace>/plugins/<name>` exists —
-   * otherwise the installed skills aren't discoverable in the new conversation.
-   * Resolves immediately when nothing is pending.
+   * Block a suggestion click until the persona plugins are ready: first waits
+   * for the run to settle (so the `plugins` picks are parsed and their installs
+   * enqueued — even if the click beat the parse), then for every install to
+   * finish, so the chat never opens before each `<workspace>/plugins/<name>`
+   * exists. Resolves quickly once the run is done and nothing is pending.
    */
   awaitPluginInstalls: () => Promise<void>;
 }
@@ -283,6 +284,13 @@ export function useResearchRunner(): UseResearchRunner {
   // them all before opening the chat (see `awaitPluginInstalls`). Promises stay
   // resolved in the map, so awaiting a settled one is instant.
   const installPromisesRef = useRef<Map<string, Promise<void>>>(new Map());
+  // Resolves when the current run settles (done/error) — by which point the
+  // model's `plugins` picks have been parsed and their installs kicked off. The
+  // suggestion click awaits this BEFORE awaiting the installs, so a click that
+  // lands while research is still streaming can't open the chat before the
+  // persona plugins have even been selected (the empty install map would
+  // otherwise resolve instantly).
+  const runSettledRef = useRef<Promise<void>>(Promise.resolve());
 
   const start = useCallback(
     ({ awaitAssistantId, subject, conversationTitle }: StartResearchOptions) => {
@@ -292,7 +300,12 @@ export function useResearchRunner(): UseResearchRunner {
       const runId = runIdRef.current + 1;
       runIdRef.current = runId;
       const isStale = () => runIdRef.current !== runId;
-      // Fresh run — drop installs tracked for a superseded subject.
+      // Fresh run — drop installs tracked for a superseded subject, and arm a new
+      // settle latch the click can await (resolved in the runner's `finally`).
+      let resolveSettled: () => void = () => {};
+      runSettledRef.current = new Promise<void>((res) => {
+        resolveSettled = res;
+      });
       installPromisesRef.current.clear();
       setState({
         status: "running",
@@ -422,6 +435,10 @@ export function useResearchRunner(): UseResearchRunner {
           if (isStale()) return;
           captureError(err, { context: "research_onboarding_runner" });
           setState((s) => ({ ...s, status: "error" }));
+        } finally {
+          // Release the click gate on every exit path (done, error, or a stale
+          // bail-out) so `awaitPluginInstalls` can never hang on a superseded run.
+          resolveSettled();
         }
       })();
     },
@@ -429,6 +446,11 @@ export function useResearchRunner(): UseResearchRunner {
   );
 
   const awaitPluginInstalls = useCallback(async (): Promise<void> => {
+    // First wait for the run to settle so the model's `plugins` picks have been
+    // parsed and their installs enqueued — otherwise a click that beats the
+    // parse would await an empty map and open the chat before any plugin exists.
+    // Then await the installs themselves.
+    await runSettledRef.current;
     await Promise.all([...installPromisesRef.current.values()]);
   }, []);
 
