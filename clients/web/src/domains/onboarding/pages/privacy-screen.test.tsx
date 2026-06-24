@@ -40,15 +40,20 @@ mock.module("@/domains/onboarding/funnel-events", () => ({
 }));
 
 mock.module("@/runtime/is-electron", () => ({ isElectron: () => true }));
+// Mutable platform/flag state so individual tests can flip them.
+let nativePlatform = false;
+let researchFlag = false;
 mock.module("@/runtime/native-auth", () => ({
-  useIsNativePlatform: () => false,
+  useIsNativePlatform: () => nativePlatform,
 }));
 mock.module("@/stores/auth-store", () => ({
   useAuthStore: { use: { user: () => ({ id: "user-1" }) } },
   useHasPlatformSession: () => false,
 }));
 mock.module("@/stores/client-feature-flag-store", () => ({
-  useClientFeatureFlagStore: { use: { stringFlags: () => ({}) } },
+  useClientFeatureFlagStore: {
+    use: { stringFlags: () => ({}), researchOnboarding: () => researchFlag },
+  },
 }));
 
 // Light passthroughs for layout/design-library so the screen renders in happy-dom.
@@ -97,8 +102,14 @@ describe("PrivacyScreen — Start navigation", () => {
     navigateMock.mockClear();
     saveConsentMock.mockClear();
     emitFunnelStepCompletedMock.mockClear();
+    researchFlag = false;
+    nativePlatform = false;
   });
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    researchFlag = false;
+    nativePlatform = false;
+  });
 
   test("preview mode replays forward into prechat without persisting consent", () => {
     searchParamsValue = new URLSearchParams("preview=true");
@@ -122,6 +133,32 @@ describe("PrivacyScreen — Start navigation", () => {
     clickStart();
 
     expect(saveConsentMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.hatching);
+  });
+
+  test("flag on (web) persists consent and advances to the research flow, preserving hosting", () => {
+    researchFlag = true;
+    nativePlatform = false;
+    searchParamsValue = new URLSearchParams("hosting=managed");
+    render(<PrivacyScreen />);
+
+    clickStart();
+
+    expect(saveConsentMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+    const target = navigateMock.mock.calls[0]?.[0] as string;
+    expect(target.startsWith(routes.onboarding.research)).toBe(true);
+    expect(target).toContain("hosting=managed");
+  });
+
+  test("flag on but native keeps the standard hatching flow", () => {
+    researchFlag = true;
+    nativePlatform = true;
+    searchParamsValue = new URLSearchParams();
+    render(<PrivacyScreen />);
+
+    clickStart();
+
     expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.hatching);
   });
 

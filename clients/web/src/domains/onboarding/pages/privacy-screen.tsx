@@ -14,6 +14,7 @@ import {
     onboardingFunnelVariantFromExperiment,
     resolveOnboardingFunnelVariant,
 } from "@/domains/onboarding/funnel-events";
+import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
 import {
     usePrivacyConsent,
     useShareAnalytics,
@@ -36,6 +37,7 @@ export function PrivacyScreen() {
   const isNative = useIsNativePlatform();
   const preChatExperimentArm =
     useClientFeatureFlagStore.use.stringFlags().preChatOnboardingExperiment20260606 ?? "control";
+  const researchOnboardingEnabled = useClientFeatureFlagStore.use.researchOnboarding();
   const preferredFunnelVariant =
     onboardingFunnelVariantFromExperiment(preChatExperimentArm);
   const [shareAnalytics, setShareAnalyticsReal] = useShareAnalytics();
@@ -80,7 +82,8 @@ export function PrivacyScreen() {
     const params = new URLSearchParams();
     if (hostingParam) params.set("hosting", hostingParam);
     const qs = params.toString();
-    void navigate(`${routes.onboarding.hatching}${qs ? `?${qs}` : ""}`);
+    const destination = onboardingDestinationAfterConsent({ researchOnboardingEnabled, isNative });
+    void navigate(`${destination}${qs ? `?${qs}` : ""}`);
   }, [
     privacyConsent,
     hasPlatformSession,
@@ -88,6 +91,7 @@ export function PrivacyScreen() {
     isPreview,
     navigate,
     preferredFunnelVariant,
+    researchOnboardingEnabled,
     searchParams,
     shareAnalytics,
     shareDiagnostics,
