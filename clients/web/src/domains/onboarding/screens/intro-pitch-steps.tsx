@@ -157,12 +157,12 @@ export function PitchStep({
   const teamPeek = -teamSize * 0.42; // ~42% cut off, peeking down
   const teamY = useMotionValue(-320);
 
-  const [reveal1, setReveal1] = useState(reduce);
-  const [reveal2, setReveal2] = useState(reduce);
-  const [carousel1, setCarousel1] = useState(reduce);
-  const [carousel2, setCarousel2] = useState(reduce);
+  const [reveal1, setReveal1] = useState(!!reduce);
+  const [reveal2, setReveal2] = useState(!!reduce);
+  const [carousel1, setCarousel1] = useState(!!reduce);
+  const [carousel2, setCarousel2] = useState(!!reduce);
   const [ready, setReady] = useState(false);
-  const [landed, setLanded] = useState(reduce);
+  const [landed, setLanded] = useState(!!reduce);
 
   // Measure each line's slot height from a hidden copy so the carousel window
   // is tall enough for the taller of its two phrases (re-measured on resize).
