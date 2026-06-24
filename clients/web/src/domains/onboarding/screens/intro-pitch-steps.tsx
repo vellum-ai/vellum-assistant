@@ -167,10 +167,13 @@ export function PitchStep({
   const teamPeek = -teamSize * 0.42; // ~42% cut off, peeking down
   const teamY = useMotionValue(-320);
 
+  // Under reduced motion the setup lines show first (reveal true) but the
+  // carousel starts unrolled (false) so the reduced-motion effect can swap to
+  // the payoff after a beat — otherwise the setup copy is never seen.
   const [reveal1, setReveal1] = useState(!!reduce);
   const [reveal2, setReveal2] = useState(!!reduce);
-  const [carousel1, setCarousel1] = useState(!!reduce);
-  const [carousel2, setCarousel2] = useState(!!reduce);
+  const [carousel1, setCarousel1] = useState(false);
+  const [carousel2, setCarousel2] = useState(false);
   const [ready, setReady] = useState(false);
   const [landed, setLanded] = useState(!!reduce);
 
