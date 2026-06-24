@@ -336,6 +336,36 @@ describe("task_progress surface compatibility", () => {
     });
   });
 
+  test("ui_show file_upload normalizes a comma-joined acceptedTypes string", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    // The model sometimes emits acceptedTypes as a string instead of string[];
+    // the renderer calls `.join`/`.some` on it (LUM-2574), so the daemon must
+    // hand the client a clean array.
+    const result = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "file_upload",
+      title: "Upload a receipt",
+      data: {
+        prompt: "Share the receipt",
+        acceptedTypes: "image/*, application/pdf",
+      },
+    });
+
+    expect(result.isError).toBe(false);
+
+    const showMessage = sent.find(
+      (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+    );
+    expect(showMessage).toBeDefined();
+    if (!showMessage || showMessage.surfaceType !== "file_upload") return;
+
+    expect(showMessage.data.acceptedTypes).toEqual([
+      "image/*",
+      "application/pdf",
+    ]);
+  });
+
   test("ui_show dynamic_page uses data.html when properly nested", async () => {
     const sent: ServerMessage[] = [];
     const ctx = makeContext(sent);

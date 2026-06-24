@@ -2,6 +2,7 @@ import { AlertTriangle, File, Loader2, Upload, X } from "lucide-react";
 import { type ChangeEvent, type DragEvent, useCallback, useRef, useState } from "react";
 
 import { Button } from "@vellumai/design-library";
+import { FileUploadSurfaceDataSchema } from "@vellumai/assistant-api";
 import type { Surface } from "@/domains/chat/types/types";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
@@ -9,13 +10,6 @@ import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-mes
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-interface FileUploadSurfaceData {
-  prompt: string;
-  acceptedTypes?: string[];
-  maxFiles?: number;
-  maxSizeBytes?: number;
-}
 
 interface FileUploadSurfaceProps {
   surface: Surface;
@@ -101,7 +95,13 @@ function readFileAsBase64(file: File): Promise<string> {
 // ---------------------------------------------------------------------------
 
 export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps) {
-  const data = surface.data as unknown as FileUploadSurfaceData;
+  // The wire keeps surface `data` opaque; narrow it with the canonical schema
+  // (every field optional/coerced, so a real surface never fails to parse)
+  // rather than an unchecked cast. The schema also normalizes `acceptedTypes`
+  // into a string[], so a model-sent string can't reach `.join`/`.some` and
+  // crash the render (LUM-2574).
+  const parsed = FileUploadSurfaceDataSchema.safeParse(surface.data);
+  const data = parsed.success ? parsed.data : {};
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -266,7 +266,7 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
       )}
 
       <ChatMarkdownMessage
-        content={data.prompt}
+        content={data.prompt ?? ""}
         className="mb-3 text-body-medium-lighter text-[var(--content-strong)]"
       />
 

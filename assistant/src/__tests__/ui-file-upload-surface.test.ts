@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { FileUploadSurfaceDataSchema } from "../api/surfaces.js";
 import type {
   FileUploadSurfaceData,
   UiSurfaceShowFileUpload,
@@ -101,5 +102,91 @@ describe("UI surface tool registration", () => {
       "ui_update",
       "ui_dismiss",
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FileUploadSurfaceDataSchema coercion (LUM-2574)
+// ---------------------------------------------------------------------------
+//
+// `acceptedTypes` is contractually a string[], but the model frequently emits a
+// comma-joined string or a bare string. The renderer calls `.join`/`.some` on
+// it, so a non-array used to throw `acceptedTypes.join is not a function` and
+// crash the surface. The schema coerces every shape back to the array contract.
+
+describe("FileUploadSurfaceDataSchema coercion", () => {
+  test("passes a well-formed payload through unchanged", () => {
+    expect(
+      FileUploadSurfaceDataSchema.parse({
+        prompt: "Share the receipt PDF",
+        acceptedTypes: ["image/*", "application/pdf"],
+        maxFiles: 3,
+      }),
+    ).toEqual({
+      prompt: "Share the receipt PDF",
+      acceptedTypes: ["image/*", "application/pdf"],
+      maxFiles: 3,
+    });
+  });
+
+  test("coerces a comma-joined acceptedTypes string into an array", () => {
+    expect(
+      FileUploadSurfaceDataSchema.parse({
+        prompt: "p",
+        acceptedTypes: "image/*, application/pdf",
+      }).acceptedTypes,
+    ).toEqual(["image/*", "application/pdf"]);
+  });
+
+  test("wraps a single acceptedTypes string into a one-element array", () => {
+    expect(
+      FileUploadSurfaceDataSchema.parse({ acceptedTypes: "application/pdf" })
+        .acceptedTypes,
+    ).toEqual(["application/pdf"]);
+  });
+
+  test("the parsed acceptedTypes always supports .join (the crash site)", () => {
+    const parsed = FileUploadSurfaceDataSchema.parse({
+      acceptedTypes: "image/*,application/pdf",
+    });
+    // This call is exactly what threw in production before the fix.
+    expect(parsed.acceptedTypes?.join(",")).toBe("image/*,application/pdf");
+  });
+
+  test("drops blanks and non-string entries from an array", () => {
+    expect(
+      FileUploadSurfaceDataSchema.parse({
+        acceptedTypes: [" application/pdf ", "", null, 42, {}],
+      }).acceptedTypes,
+    ).toEqual(["application/pdf", "42"]);
+  });
+
+  test("treats a non-string, non-array acceptedTypes as absent", () => {
+    expect(
+      FileUploadSurfaceDataSchema.parse({ acceptedTypes: { pdf: true } })
+        .acceptedTypes,
+    ).toBeUndefined();
+    expect(
+      FileUploadSurfaceDataSchema.parse({ acceptedTypes: null }).acceptedTypes,
+    ).toBeUndefined();
+  });
+
+  test("coerces numeric-string maxFiles and drops invalid numbers", () => {
+    const parsed = FileUploadSurfaceDataSchema.parse({
+      maxFiles: "2",
+      maxSizeBytes: "not-a-number",
+    });
+    expect(parsed.maxFiles).toBe(2);
+    expect(parsed.maxSizeBytes).toBeUndefined();
+  });
+
+  test("never rejects a fully malformed payload", () => {
+    expect(
+      FileUploadSurfaceDataSchema.safeParse({
+        prompt: 5,
+        acceptedTypes: 99,
+        maxFiles: -1,
+      }).success,
+    ).toBe(true);
   });
 });
