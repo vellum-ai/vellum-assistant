@@ -5,7 +5,10 @@ import { minimatch } from "minimatch";
 
 import { RiskLevel } from "../../permissions/types.js";
 import { registerTool } from "../registry.js";
-import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
+import {
+  isDeniedBasename,
+  sandboxPolicy,
+} from "../shared/filesystem/path-policy.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -159,6 +162,11 @@ export const codeSearchTool = {
         }
         if (!entry.isFile()) continue;
 
+        // Never read files the assistant is forbidden from touching, even if a
+        // broad pattern would otherwise match them. Reuses the same denylist as
+        // file_read/file_write so the policies stay in sync.
+        if (isDeniedBasename(entry.name)) continue;
+
         const rel = relative(root, full);
         // matchBase lets a slash-free pattern like "*.ts" match files at any
         // depth (against the basename); patterns with slashes match the full
@@ -221,6 +229,17 @@ export const codeSearchTool = {
     walk(root);
 
     if (matchCount === 0) {
+      // With zero matches, `truncated` can only have been set by a scan cap
+      // (MAX_FILES_SCANNED / MAX_TOTAL_BYTES), never the max-results path. In
+      // that case the tree was only partially scanned, so a definitive "No
+      // matches found" would be a false negative.
+      if (truncated) {
+        return {
+          content: `Search stopped early after hitting a scan cap before finding any match for /${pattern}/${caseInsensitive ? "i" : ""} under ${basename(root)}. Results are incomplete — narrow your glob or path and search again.`,
+          isError: false,
+          status: "truncated",
+        };
+      }
       return {
         content: `No matches found for /${pattern}/${caseInsensitive ? "i" : ""} under ${basename(root)}`,
         isError: false,

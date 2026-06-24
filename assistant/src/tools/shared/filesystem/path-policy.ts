@@ -20,6 +20,16 @@ export type PathFailureReason = "not_absolute" | "out_of_bounds" | "denied";
  */
 const DENIED_BASENAMES = new Set([".backup.key", "backup.key"]);
 
+/**
+ * Whether a path's basename is on the denylist of files the assistant must
+ * never read or write. Shared so callers that walk the filesystem (e.g.
+ * `code_search`) apply the same denylist as `sandboxPolicy`/`hostPolicy`,
+ * keeping the three in sync.
+ */
+export function isDeniedBasename(path: string): boolean {
+  return DENIED_BASENAMES.has(basename(path));
+}
+
 export type PathResult =
   | { ok: true; resolved: string }
   | { ok: false; reason: PathFailureReason; error: string };

@@ -151,6 +151,25 @@ describe("codeSearchTool", () => {
     expect(result.content).toContain("a.txt:3- after");
   });
 
+  test("does not return contents of denied-basename files", async () => {
+    const dir = makeTempDir();
+    // A denied file (forbidden to file_read/file_write) that contains the
+    // search pattern must never surface in code_search results.
+    writeFileSync(join(dir, ".backup.key"), "supersecret token\n");
+    writeFileSync(join(dir, "backup.key"), "another supersecret\n");
+    writeFileSync(join(dir, "ok.txt"), "supersecret in a normal file\n");
+
+    const result = await codeSearchTool.execute(
+      { pattern: "supersecret", activity: "search" },
+      makeToolContext(dir),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("ok.txt:1:");
+    expect(result.content).not.toContain(".backup.key");
+    expect(result.content).not.toContain("backup.key");
+  });
+
   test("ignores node_modules and .git", async () => {
     const dir = makeTempDir();
     mkdirSync(join(dir, "node_modules"));
