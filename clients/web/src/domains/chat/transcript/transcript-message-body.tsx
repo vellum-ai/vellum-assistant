@@ -492,23 +492,6 @@ export function TranscriptMessageBody({
     </>
   );
 
-  if (isUser && message.isSubagentNotification) {
-    // Daemon-injected subagent lifecycle notifications: visible but visually
-    // distinct from a real user bubble. Narrow centered pill, no hover
-    // affordances, no slack attribution, no MessageHoverActions trailer.
-    return (
-      <div
-        ref={wrapperRef}
-        data-testid="subagent-notification-row"
-        className="flex justify-start"
-      >
-        <div className="inline-flex max-w-full items-center rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-overlay)] px-3 py-1.5 text-body-small-default text-[var(--content-secondary)]">
-          Subagent update
-        </div>
-      </div>
-    );
-  }
-
   if (isUser) {
     const userItems = groups.map((group, gi) => ({
       kind: group.type === "text" ? ("text" as const) : ("nonText" as const),

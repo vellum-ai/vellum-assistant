@@ -10,7 +10,10 @@
  * fail-closed); this reader only reports the verdict or `null`.
  */
 
-import { type TrustVerdict, TrustVerdictSchema } from "@vellumai/gateway-client";
+import {
+  type TrustVerdict,
+  TrustVerdictSchema,
+} from "@vellumai/gateway-client";
 
 import type { ChannelId } from "../channels/types.js";
 import { ipcCall } from "../ipc/gateway-client.js";
@@ -37,4 +40,17 @@ export async function getInboundTrustVerdict(input: {
   } catch {
     return null;
   }
+}
+
+/**
+ * Resolve the verdict for a phone caller by their external number. Callers
+ * compute `otherPartyNumber` from their own transport-specific direction.
+ */
+export function getPhoneCallerVerdict(
+  otherPartyNumber: string | undefined,
+): Promise<TrustVerdict | null> {
+  return getInboundTrustVerdict({
+    channelType: "phone",
+    actorExternalId: otherPartyNumber || undefined,
+  });
 }

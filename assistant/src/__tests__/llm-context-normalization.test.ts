@@ -1827,4 +1827,109 @@ describe("normalizeLlmContextPayloads", () => {
       },
     ]);
   });
+
+  describe("provider error response payloads", () => {
+    test("extracts a structured error from a rejected call's response payload", () => {
+      const normalized = normalizeLlmContextPayloads({
+        createdAt: 1_742_400_000_000,
+        requestPayload: {
+          model: "accounts/fireworks/models/glm-5p2",
+          messages: [{ role: "user", content: "hello" }],
+        },
+        responsePayload: {
+          error: {
+            name: "ProviderError",
+            message:
+              "This model doesn't support image input. Remove the image or switch to a vision-capable model.",
+            code: "PROVIDER_ERROR",
+            provider: "fireworks",
+            statusCode: 400,
+          },
+        },
+      });
+
+      expect(normalized.error).toEqual({
+        name: "ProviderError",
+        message:
+          "This model doesn't support image input. Remove the image or switch to a vision-capable model.",
+        code: "PROVIDER_ERROR",
+        provider: "fireworks",
+        statusCode: 400,
+      });
+      // No response sections are produced for an error payload.
+      expect(normalized.responseSections).toBeUndefined();
+    });
+
+    test("preserves a normalized request alongside the error", () => {
+      const normalized = normalizeLlmContextPayloads({
+        createdAt: 1_742_400_000_000,
+        requestPayload: {
+          model: "gpt-4.1",
+          tool_choice: "auto",
+          messages: [{ role: "user", content: "hi" }],
+        },
+        responsePayload: { error: { message: "boom" } },
+      });
+
+      expect(normalized.error).toEqual({ message: "boom" });
+      // The request side still normalizes so the Prompt tab keeps working.
+      expect(normalized.requestSections?.length).toBeGreaterThan(0);
+      expect(normalized.summary?.provider).toBe("openai");
+    });
+
+    test("carries statusCode 0 and retryAfterMs through", () => {
+      const normalized = normalizeLlmContextPayloads({
+        createdAt: 1_742_400_000_000,
+        requestPayload: null,
+        responsePayload: {
+          error: {
+            name: "ProviderError",
+            message: "rate limited",
+            provider: "anthropic",
+            statusCode: 0,
+            retryAfterMs: 1500,
+          },
+        },
+      });
+
+      expect(normalized.error).toEqual({
+        name: "ProviderError",
+        message: "rate limited",
+        provider: "anthropic",
+        statusCode: 0,
+        retryAfterMs: 1500,
+      });
+    });
+
+    test("does not treat a successful response with no error as failed", () => {
+      const normalized = normalizeLlmContextPayloads({
+        createdAt: 1_742_400_000_000,
+        requestPayload: {
+          model: "gpt-4.1",
+          messages: [{ role: "user", content: "hi" }],
+        },
+        responsePayload: {
+          model: "gpt-4.1",
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { role: "assistant", content: "hello" },
+            },
+          ],
+        },
+      });
+
+      expect(normalized.error).toBeUndefined();
+    });
+
+    test("ignores an empty error object with no identifying fields", () => {
+      const normalized = normalizeLlmContextPayloads({
+        createdAt: 1_742_400_000_000,
+        requestPayload: null,
+        responsePayload: { error: {} },
+      });
+
+      expect(normalized.error).toBeUndefined();
+    });
+  });
 });

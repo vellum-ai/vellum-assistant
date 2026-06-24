@@ -1,5 +1,6 @@
 import { getLogger } from "../../util/logger.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
+import { tableExists } from "./schema-introspection.js";
 
 /**
  * Reverse v19: add assistant_id columns back to all 16 tables via
@@ -101,10 +102,7 @@ export function migrateDropAssistantIdColumns(database: DrizzleDb): void {
     );
 
     if (!cols.has("assistant_id")) {
-      log.info(
-        { table },
-        "Table does not have assistant_id column — skipping",
-      );
+      log.info({ table }, "Table does not have assistant_id column — skipping");
       continue;
     }
 
@@ -143,9 +141,7 @@ export function migrateDropAssistantIdColumns(database: DrizzleDb): void {
 
   // assistant_ingress_invites indexes (migration 112)
   raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_ingress_invites_channel_status`);
-  raw.exec(
-    /*sql*/ `DROP INDEX IF EXISTS idx_ingress_invites_channel_created`,
-  );
+  raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_ingress_invites_channel_created`);
 
   // assistant_inbox_thread_state indexes (migration 112)
   raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_inbox_thread_state_channel`);
@@ -225,86 +221,115 @@ export function migrateDropAssistantIdColumns(database: DrizzleDb): void {
   // Each index below is the equivalent of the dropped index but with the
   // assistant_id column removed. Index names are updated to avoid
   // collisions with the old names.
+  //
+  // Some of these tables may have been dropped or renamed by earlier
+  // migrations. `CREATE INDEX IF NOT EXISTS` only guards against the index
+  // already existing — it still throws "no such table" when the underlying
+  // table is gone — so recreate each index only when its table is present.
+  const recreateIndex = (table: string, sql: string): void => {
+    if (!tableExists(database, table)) return;
+    raw.exec(sql);
+  };
 
   // channel_guardian_verification_challenges
-  raw.exec(
+  recreateIndex(
+    "channel_guardian_verification_challenges",
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_guardian_challenges_lookup ON channel_guardian_verification_challenges(channel, challenge_hash, status)`,
   );
-  raw.exec(
+  recreateIndex(
+    "channel_guardian_verification_challenges",
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_sessions_active ON channel_guardian_verification_challenges(channel, status)`,
   );
-  raw.exec(
+  recreateIndex(
+    "channel_guardian_verification_challenges",
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_sessions_identity ON channel_guardian_verification_challenges(channel, expected_external_user_id, expected_chat_id, status)`,
   );
-  raw.exec(
+  recreateIndex(
+    "channel_guardian_verification_challenges",
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_sessions_destination ON channel_guardian_verification_challenges(channel, destination_address)`,
   );
-  raw.exec(
+  recreateIndex(
+    "channel_guardian_verification_challenges",
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_sessions_bootstrap ON channel_guardian_verification_challenges(channel, bootstrap_token_hash, status)`,
   );
 
   // channel_guardian_rate_limits
-  raw.exec(
+  recreateIndex(
+    "channel_guardian_rate_limits",
     /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_guardian_rate_limits_actor ON channel_guardian_rate_limits(channel, actor_external_user_id, actor_chat_id)`,
   );
 
   // assistant_ingress_invites
-  raw.exec(
+  recreateIndex(
+    "assistant_ingress_invites",
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_ingress_invites_channel_status ON assistant_ingress_invites(source_channel, status, expires_at)`,
   );
-  raw.exec(
+  recreateIndex(
+    "assistant_ingress_invites",
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_ingress_invites_channel_created ON assistant_ingress_invites(source_channel, created_at)`,
   );
 
   // assistant_inbox_thread_state
-  raw.exec(
+  recreateIndex(
+    "assistant_inbox_thread_state",
     /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_inbox_thread_state_channel ON assistant_inbox_thread_state(source_channel, external_chat_id)`,
   );
-  raw.exec(
+  recreateIndex(
+    "assistant_inbox_thread_state",
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_inbox_thread_state_last_msg ON assistant_inbox_thread_state(last_message_at)`,
   );
-  raw.exec(
+  recreateIndex(
+    "assistant_inbox_thread_state",
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_inbox_thread_state_escalation ON assistant_inbox_thread_state(has_pending_escalation, last_message_at)`,
   );
 
   // notification_preferences
-  raw.exec(
+  recreateIndex(
+    "notification_preferences",
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_preferences_priority ON notification_preferences(priority DESC)`,
   );
 
   // notification_events
-  raw.exec(
+  recreateIndex(
+    "notification_events",
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_events_event_created ON notification_events(source_event_name, created_at)`,
   );
-  raw.exec(
+  recreateIndex(
+    "notification_events",
     /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_events_dedupe ON notification_events(dedupe_key) WHERE dedupe_key IS NOT NULL`,
   );
 
   // notification_deliveries
-  raw.exec(
+  recreateIndex(
+    "notification_deliveries",
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_deliveries_status ON notification_deliveries(status)`,
   );
 
   // conversation_attention_events
-  raw.exec(
+  recreateIndex(
+    "conversation_attention_events",
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_conv_attn_events_observed ON conversation_attention_events(observed_at)`,
   );
 
   // conversation_assistant_attention_state
-  raw.exec(
+  recreateIndex(
+    "conversation_assistant_attention_state",
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_conv_attn_state_latest_msg ON conversation_assistant_attention_state(latest_assistant_message_at)`,
   );
-  raw.exec(
+  recreateIndex(
+    "conversation_assistant_attention_state",
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_conv_attn_state_last_seen ON conversation_assistant_attention_state(last_seen_assistant_message_at)`,
   );
 
   // actor_token_records
-  raw.exec(
+  recreateIndex(
+    "actor_token_records",
     /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_actor_tokens_active_device ON actor_token_records(guardian_principal_id, hashed_device_id) WHERE status = 'active'`,
   );
 
   // actor_refresh_token_records
-  raw.exec(
+  recreateIndex(
+    "actor_refresh_token_records",
     /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_refresh_tokens_active_device ON actor_refresh_token_records(guardian_principal_id, hashed_device_id) WHERE status = 'active'`,
   );
 

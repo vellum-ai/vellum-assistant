@@ -56,7 +56,10 @@ import { computeHotSet } from "./hot-set.js";
 import { computeLearnedEdgeGraph } from "./learned-edges.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import { orchestrate } from "./orchestrate.js";
-import { MemoryV3RetrievalUnavailableError } from "./pool-select.js";
+import {
+  MemoryV3RetrievalUnavailableError,
+  resolveSelectorPrompt,
+} from "./pool-select.js";
 import { ensureSectionCollection } from "./section-dense-store.js";
 import type { SectionNeedle } from "./section-needle.js";
 import { buildSectionNeedle } from "./section-needle.js";
@@ -576,6 +579,10 @@ export async function observeTurn(
       learnedGraph: lanes.learnedGraph,
       learnedPerSeed: v3.learnedEdges.perSeed,
       learnedCap: v3.learnedEdges.cap,
+      selectorPrompt: resolveSelectorPrompt(
+        v3.selectorPromptPath,
+        getWorkspaceDir(),
+      ),
     });
 
     // A zero-selection turn over a non-trivial pool is unusual enough to be

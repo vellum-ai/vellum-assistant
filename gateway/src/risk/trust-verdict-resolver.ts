@@ -19,7 +19,7 @@ import {
   contacts as gwContacts,
   contactChannels as gwContactChannels,
 } from "../db/schema.js";
-import { canonicalizeInboundIdentity } from "../verification/identity.js";
+import { canonicalSenderIdFor } from "../verification/identity.js";
 
 export interface ResolveTrustVerdictInput {
   channelType: string;
@@ -39,15 +39,10 @@ export async function resolveTrustVerdict(
 ): Promise<TrustVerdict> {
   const db = getGatewayDb();
 
-  const rawActorId =
-    typeof input.actorExternalId === "string" &&
-    input.actorExternalId.trim().length > 0
-      ? input.actorExternalId.trim()
-      : undefined;
-
-  const canonicalSenderId = rawActorId
-    ? canonicalizeInboundIdentity(input.channelType, rawActorId)
-    : null;
+  const canonicalSenderId = canonicalSenderIdFor(
+    input.channelType,
+    input.actorExternalId,
+  );
 
   // --- Guardian-for-channel binding (independent of THIS actor) ---
   const guardianRow = db

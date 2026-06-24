@@ -272,7 +272,6 @@ describe("WhatsApp channel ingress attachment resolution", () => {
     const trustVerdict = resolveLocalTrustVerdict({
       channelType: "whatsapp",
       actorExternalId: WHATSAPP_USER_ID,
-      externalChatId: "whatsapp-chat-1",
     });
     return {
       sourceChannel: "whatsapp",

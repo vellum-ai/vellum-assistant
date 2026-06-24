@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.10.0
+  version: 0.10.1
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -3973,6 +3973,8 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        resolutionFailed:
+                          type: boolean
                         guardianExternalUserId:
                           type: string
                         guardianDeliveryChatId:
@@ -8377,6 +8379,36 @@ paths:
                         callSite:
                           anyOf:
                             - type: string
+                            - type: "null"
+                        error:
+                          anyOf:
+                            - type: object
+                              properties:
+                                name:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                message:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                code:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                provider:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                statusCode:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                retryAfterMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                              additionalProperties: false
                             - type: "null"
                       required:
                         - id
@@ -14679,6 +14711,12 @@ paths:
                   type: string
                 disabled:
                   type: boolean
+                headers:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties:
+                    type: string
               required:
                 - name
                 - transportType
@@ -14904,6 +14942,14 @@ paths:
                   anyOf:
                     - type: array
                       items:
+                        type: string
+                    - type: "null"
+                headers:
+                  anyOf:
+                    - type: object
+                      propertyNames:
+                        type: string
+                      additionalProperties:
                         type: string
                     - type: "null"
               required:
@@ -15277,6 +15323,36 @@ paths:
                   callSite:
                     anyOf:
                       - type: string
+                      - type: "null"
+                  error:
+                    anyOf:
+                      - type: object
+                        properties:
+                          name:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          message:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          code:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          provider:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          statusCode:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          retryAfterMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                        additionalProperties: false
                       - type: "null"
                 required:
                   - id
@@ -17704,6 +17780,36 @@ paths:
                         callSite:
                           anyOf:
                             - type: string
+                            - type: "null"
+                        error:
+                          anyOf:
+                            - type: object
+                              properties:
+                                name:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                message:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                code:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                provider:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                statusCode:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                retryAfterMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                              additionalProperties: false
                             - type: "null"
                       required:
                         - id
@@ -25888,6 +25994,13 @@ paths:
                           type: boolean
                         messageId:
                           type: string
+                        toolUseId:
+                          type: string
+                        input:
+                          type: object
+                          propertyNames:
+                            type: string
+                          additionalProperties: {}
                       required:
                         - type
                         - content

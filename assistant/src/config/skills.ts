@@ -688,6 +688,9 @@ function discoverSkillDirectories(skillsDir: string): string[] {
  * parseable `package.json` whose `name` equals the directory name. This
  * mirrors the external plugin loader's recognition gate, which skips any
  * directory whose `manifest.name` does not match its directory name.
+ *
+ * The caller is responsible for the missing-`package.json` case (it emits a
+ * diagnostic warning); this function only judges a manifest that is present.
  */
 function isRecognizedPluginDir(pluginDir: string, dirName: string): boolean {
   const manifestPath = join(pluginDir, "package.json");
@@ -735,12 +738,31 @@ function discoverPluginResidentSkills(): SkillSummary[] {
   for (const entry of entries) {
     if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
     const pluginDir = join(pluginsDir, entry.name);
+
+    // A directory under `plugins/` with no `package.json` is not a plugin the
+    // runtime can load, so its skills are never surfaced. This is an easy
+    // footgun — a plugin dropped in without its manifest looks installed but
+    // silently contributes nothing — so warn loudly with the path rather than
+    // skipping in silence, to make the misconfiguration diagnosable.
+    if (!existsSync(join(pluginDir, "package.json"))) {
+      log.warn(
+        { pluginDir },
+        "Plugin directory is missing package.json — skipping; its skills will not be available. Add a package.json whose `name` matches the directory.",
+      );
+      continue;
+    }
+
+    // Honor the `.disabled` sentinel the runtime plugin scan checks
+    // (`plugins/mtime-cache.ts`): a disabled plugin contributes no hooks or
+    // tools, so its resident skills must not be loadable either.
+    if (existsSync(join(pluginDir, ".disabled"))) continue;
+
     // Mirror the plugin loader's recognition gate: a directory is a real
-    // installed plugin only if it carries a parseable `package.json` whose
-    // `name` matches the directory. This rejects staging dirs, stray files,
-    // and malformed/mismatched clones (e.g. an un-adapted `caveman-installer`)
-    // that the loader itself would skip, so the catalog never surfaces skills
-    // from a directory the runtime would refuse to load.
+    // installed plugin only if its `package.json` `name` matches the directory.
+    // This rejects staging dirs and malformed/mismatched clones (e.g. an
+    // un-adapted `caveman-installer`) that the loader itself would skip, so the
+    // catalog never surfaces skills from a directory the runtime would refuse
+    // to load.
     if (!isRecognizedPluginDir(pluginDir, entry.name)) continue;
 
     const skillsDir = join(pluginDir, "skills");

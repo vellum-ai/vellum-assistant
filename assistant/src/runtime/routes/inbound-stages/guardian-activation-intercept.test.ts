@@ -4,7 +4,9 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // Mocks — must be set up before importing the module under test
 // ---------------------------------------------------------------------------
 
-let mockGuardian: { contact: unknown; channel: unknown } | null = null;
+// Gateway guardian-delivery list: empty = unbound, one entry = bound,
+// null = gateway unreachable.
+let mockGuardianList: Array<Record<string, unknown>> | null = [];
 let mockActiveSession: Record<string, unknown> | null = null;
 let mockSessionResult = {
   sessionId: "sess-1",
@@ -20,8 +22,14 @@ let deliverChannelReplyCalls: unknown[][] = [];
 let emitNotificationSignalCalls: unknown[] = [];
 let messageIdCounter = 0;
 
-mock.module("../../../contacts/contact-store.js", () => ({
-  findGuardianForChannel: () => mockGuardian,
+mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
+  // Existence guard reads fresh (uncached) — only this variant is stubbed.
+  getGuardianDeliveryFresh: () => Promise.resolve(mockGuardianList),
+  guardianForChannel: (
+    list: Array<{ channelType: string; status: string }>,
+    channelType: string,
+  ) =>
+    list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
 mock.module("../../channel-verification-service.js", () => ({
@@ -96,7 +104,7 @@ function makeParams(
 
 describe("handleGuardianActivationIntercept", () => {
   beforeEach(() => {
-    mockGuardian = null;
+    mockGuardianList = [];
     mockActiveSession = null;
     mockSessionResult = {
       sessionId: "sess-1",
@@ -155,10 +163,15 @@ describe("handleGuardianActivationIntercept", () => {
   });
 
   test("bare /start with existing guardian returns null", async () => {
-    mockGuardian = {
-      contact: { id: "contact-1", role: "guardian" },
-      channel: { id: "ch-1", type: "telegram" },
-    };
+    mockGuardianList = [{ channelType: "telegram", status: "active" }];
+
+    const result = await handleGuardianActivationIntercept(makeParams());
+    expect(result).toBeNull();
+    expect(createOutboundSessionCalls).toHaveLength(0);
+  });
+
+  test("null guardian list (gateway unreachable) does NOT auto-start", async () => {
+    mockGuardianList = null;
 
     const result = await handleGuardianActivationIntercept(makeParams());
     expect(result).toBeNull();

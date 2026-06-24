@@ -3,11 +3,10 @@
  *
  * Owns:
  * - Staged quotes (quoted text + user reply, pending inclusion in the next send)
- * - Active selection state (the text currently highlighted for quoting)
  * - Reply bubble state (open/closed, position, quoted text being replied to)
  *
  * The store is consumed by:
- * - `TextSelectionPopover` (reads activeSelection, writes via startReply)
+ * - `TextSelectionPopover` (opens a reply bubble from the current selection)
  * - `QuoteReplyBubble` (reads replyBubble state, writes via addToChat / dismiss)
  * - `StagedQuotesStrip` (reads stagedQuotes, removes individual quotes)
  * - `useSendMessage` / composer integration (reads + clears stagedQuotes on send)
@@ -24,13 +23,6 @@ export interface StagedQuote {
   sourceMessageId: string;
 }
 
-export interface ActiveSelection {
-  text: string;
-  sourceMessageId: string;
-  /** Bounding rect of the selection, relative to the viewport. */
-  rect: { top: number; left: number; width: number; height: number };
-}
-
 export interface ReplyBubbleState {
   quotedText: string;
   sourceMessageId: string;
@@ -40,12 +32,10 @@ export interface ReplyBubbleState {
 
 interface QuoteReplyState {
   stagedQuotes: StagedQuote[];
-  activeSelection: ActiveSelection | null;
   replyBubble: ReplyBubbleState | null;
 }
 
 interface QuoteReplyActions {
-  setActiveSelection: (selection: ActiveSelection | null) => void;
   openReplyBubble: (params: {
     quotedText: string;
     sourceMessageId: string;
@@ -65,15 +55,11 @@ function createQuoteId(): string {
 
 const useQuoteReplyStoreBase = create<QuoteReplyStore>()((set) => ({
   stagedQuotes: [],
-  activeSelection: null,
   replyBubble: null,
-
-  setActiveSelection: (selection) => set({ activeSelection: selection }),
 
   openReplyBubble: ({ quotedText, sourceMessageId, anchorRect }) =>
     set({
       replyBubble: { quotedText, sourceMessageId, anchorRect },
-      activeSelection: null,
     }),
 
   closeReplyBubble: () => set({ replyBubble: null }),

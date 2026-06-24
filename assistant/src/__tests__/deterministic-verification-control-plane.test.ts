@@ -173,9 +173,11 @@ describe("TwiML parameter propagation", () => {
 // ---------------------------------------------------------------------------
 
 describe("Call session mode metadata", () => {
+  // Cold DB init runs every migration; give it headroom over Bun's 5s default
+  // hook timeout so a loaded CI runner doesn't trip it.
   beforeEach(async () => {
     await initializeDb();
-  });
+  }, 30_000);
 
   test("createCallSession persists callMode and verificationSessionId", async () => {
     // Dynamic import to avoid circular dependency issues
@@ -237,7 +239,7 @@ describe("Call session mode metadata", () => {
 describe("Verification control messages are deterministic (guard)", () => {
   beforeEach(async () => {
     await initializeDb();
-  });
+  }, 30_000);
 
   test("handleChannelInbound does not call processMessage for /start gv_<token> bootstrap commands", async () => {
     const { createHash, randomBytes } = await import("node:crypto");

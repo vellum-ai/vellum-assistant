@@ -24,7 +24,7 @@ mock.module("../../../daemon/handlers/config-channels.js", () => ({
     verifyTrustedContactCalls.push([contactChannelId, assistantId]);
     return verifyTrustedContactImpl(contactChannelId, assistantId);
   },
-  createInboundChallenge: () => ({ success: true }),
+  createInboundChallenge: async () => ({ success: true }),
   getVerificationStatus: () => ({ success: true }),
   revokeVerificationForChannel: () => ({ success: true }),
 }));

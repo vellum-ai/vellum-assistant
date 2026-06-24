@@ -43,6 +43,9 @@ import type {
 
 export class CallSiteRoutingProvider implements Provider {
   public readonly tokenEstimationProvider?: string;
+  // Forward native web-search capability so it survives the wrapper chain
+  // (callers like the advisor consult gate on it). Fixed at construction.
+  public readonly supportsNativeWebSearch?: boolean;
 
   // Per-call async context that tracks which provider is currently executing.
   // Using AsyncLocalStorage instead of a plain instance field means concurrent
@@ -94,6 +97,7 @@ export class CallSiteRoutingProvider implements Provider {
     ) => Promise<Provider | null>,
   ) {
     this.tokenEstimationProvider = defaultProvider.tokenEstimationProvider;
+    this.supportsNativeWebSearch = defaultProvider.supportsNativeWebSearch;
     if (defaultProvider.countInputTokens) {
       this.countInputTokens =
         defaultProvider.countInputTokens.bind(defaultProvider);

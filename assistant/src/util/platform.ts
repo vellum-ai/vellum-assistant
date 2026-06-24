@@ -242,6 +242,11 @@ export function getEmbedWorkerPidPath(): string {
   return join(getWorkspaceDir(), "embed-worker.pid");
 }
 
+/** Returns the path to the memory-worker PID file ($VELLUM_WORKSPACE_DIR/memory-worker.pid). */
+export function getMemoryWorkerPidPath(): string {
+  return join(getWorkspaceDir(), "memory-worker.pid");
+}
+
 /**
  * Returns the workspace root for user-facing state.
  *

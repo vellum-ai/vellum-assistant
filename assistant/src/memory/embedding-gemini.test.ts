@@ -244,7 +244,9 @@ describe("GeminiEmbeddingBackend", () => {
       });
       globalThis.fetch = mockFetch as unknown as typeof fetch;
 
-      const backend = new GeminiEmbeddingBackend("test-key", "test-model");
+      const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+        interCallDelayMs: 0,
+      });
       const result = await backend.embed(["hello", "world"]);
 
       expect(mockFetch).toHaveBeenCalledTimes(2);

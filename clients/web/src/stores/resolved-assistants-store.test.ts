@@ -66,6 +66,29 @@ describe("setFromLockfile", () => {
     expect(entry.isActiveLockfileAssistant).toBe(true);
   });
 
+  it("preserves API-seeded release metadata for platform entries", () => {
+    useResolvedAssistantsStore.setState({
+      assistants: [
+        {
+          id: "asst-platform",
+          isLocal: false,
+          isPlatformHosted: true,
+          currentReleaseVersion: "0.9.0",
+          releaseChannel: "preview",
+        },
+      ],
+    });
+
+    useResolvedAssistantsStore.getState().setFromLockfile({
+      assistants: [platformAssistant],
+      activeAssistant: "asst-platform",
+    });
+
+    const entry = useResolvedAssistantsStore.getState().assistants[0];
+    expect(entry.currentReleaseVersion).toBe("0.9.0");
+    expect(entry.releaseChannel).toBe("preview");
+  });
+
   it("copies Bun-local fields for local entries", () => {
     const lockfile: Lockfile = {
       assistants: [localAssistant],
@@ -137,6 +160,8 @@ describe("upsertFromApi", () => {
         name: "Local",
         created: "2026-01-01T00:00:00Z",
         is_local: true,
+        current_release_version: "0.9.0",
+        release_channel: "stable",
       } as Parameters<
         ReturnType<typeof useResolvedAssistantsStore.getState>["setFromApi"]
       >[0][number],
@@ -146,6 +171,8 @@ describe("upsertFromApi", () => {
     expect(entry.id).toBe("asst-local");
     expect(entry.cloud).toBe("local");
     expect(entry.runtimeVersion).toBe("v0.8.13");
+    expect(entry.currentReleaseVersion).toBe("0.9.0");
+    expect(entry.releaseChannel).toBe("stable");
     expect(entry.isActiveLockfileAssistant).toBe(true);
     expect(entry.organizationId).toBeUndefined();
   });
@@ -162,6 +189,8 @@ describe("upsertFromApi", () => {
       name: "Platform (refreshed)",
       created: "2026-01-01T00:00:00Z",
       is_local: false,
+      current_release_version: "0.10.0",
+      release_channel: "preview",
     } as Parameters<
       ReturnType<typeof useResolvedAssistantsStore.getState>["upsertFromApi"]
     >[0]);
@@ -170,6 +199,8 @@ describe("upsertFromApi", () => {
     expect(entry.id).toBe("asst-platform");
     expect(entry.name).toBe("Platform (refreshed)");
     expect(entry.organizationId).toBe("org-1");
+    expect(entry.currentReleaseVersion).toBe("0.10.0");
+    expect(entry.releaseChannel).toBe("preview");
   });
 
   it("preserves a lockfile-seeded runtimeVersion on refresh", () => {

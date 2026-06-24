@@ -15,6 +15,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 
+import { ONBOARDING_STEP_CONTENT } from "@/domains/onboarding/onboarding-step-layout";
 import { OnboardingPeekingEyes } from "@/domains/onboarding/components/onboarding-peeking-eyes";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
@@ -29,16 +30,6 @@ interface IntroductionScreenProps {
   onBack: () => void;
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
-}
-
-/** Multiply each channel of a #rrggbb hex by `factor` (clamped). */
-function darkenHex(hex: string, factor: number): string {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
-  if (!m) return hex;
-  const n = parseInt(m[1]!, 16);
-  const ch = (shift: number) =>
-    Math.max(0, Math.min(255, Math.round(((n >> shift) & 0xff) * factor)));
-  return `#${((1 << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).slice(1)}`;
 }
 
 /** The body grow starts from the picker's centered size / position. */
@@ -98,8 +89,6 @@ export function IntroductionScreen({
     );
   }
 
-  const headingDark = darkenHex(art.color, 0.6);
-
   // Body grows to cover the screen end to end, starting from the picker size.
   const coverSize = 1.25 * Math.max(w, h);
   const coverH = (coverSize * art.body.viewBox.height) / art.body.viewBox.width;
@@ -157,7 +146,7 @@ export function IntroductionScreen({
       </motion.div>
 
       {/* Greeting + Continue, grouped so the button sits just under the text. */}
-      <div className="absolute left-1/2 top-[30%] z-10 flex -translate-x-1/2 flex-col items-center gap-8">
+      <div className={ONBOARDING_STEP_CONTENT}>
         <motion.h1
           className="text-center leading-[1.05]"
           style={{ fontFamily: "var(--font-serif)" }}
@@ -171,7 +160,7 @@ export function IntroductionScreen({
         >
           <span
             className="block text-[clamp(2.5rem,6vw,5rem)]"
-            style={{ color: headingDark }}
+            style={{ color: tone.fgDeep }}
           >
             {greeting}
           </span>

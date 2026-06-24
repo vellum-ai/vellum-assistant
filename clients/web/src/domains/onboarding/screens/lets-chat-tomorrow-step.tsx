@@ -6,7 +6,7 @@
  * SPIKE — research-onboarding flow.
  *
  * Foreground only (the toned backdrop sits behind, so the assistant color, its
- * eyes, and the tone characters carry over). "Add to Google Calendar" runs the
+ * eyes, and the tone characters carry over). "Setup check-in" runs the
  * real managed Google Calendar OAuth (calendar.events + identity scopes only)
  * via `useGoogleCalendarConnect`; on a successful grant the parent route fires
  * the Day-2 check-in prompt (`scheduleCheckin`) and advances. "Skip for now"
@@ -64,10 +64,10 @@ export function LetsChatTomorrowStep({
           I&rsquo;ll also check in with you
         </h1>
         <p className="text-[16px]" style={{ color: tone.fgMuted }}>
-          I&rsquo;ll add a quick check-in to your calendar to follow up tomorrow.
+          Add a quick check-in to your calendar to follow up tomorrow.
         </p>
 
-        <div className="mt-6 flex w-[234px] flex-col items-center gap-3">
+        <div className="mt-6 flex w-[234px] flex-col items-center">
           <button
             type="button"
             onClick={handleConnect}
@@ -84,20 +84,22 @@ export function LetsChatTomorrowStep({
                 Waiting for authorization…
               </>
             ) : (
-              "Add to Google Calendar"
+              "Set it up"
             )}
-          </button>
-          <button
-            type="button"
-            onClick={onSkip}
-            disabled={oauthInProgress}
-            className="text-body-small-default transition-opacity hover:opacity-100 disabled:opacity-60"
-            style={{ color: tone.fgMuted }}
-          >
-            Skip for now
           </button>
         </div>
       </div>
+
+      {/* Skip sits down near the bottom, just above the peeking eyes. */}
+      <button
+        type="button"
+        onClick={onSkip}
+        disabled={oauthInProgress}
+        className="absolute bottom-[26%] left-1/2 -translate-x-1/2 text-body-small-default transition-opacity hover:opacity-100 disabled:opacity-60"
+        style={{ color: tone.fgMuted }}
+      >
+        Skip for now
+      </button>
     </div>
   );
 }

@@ -59,6 +59,30 @@ describe("buildTranscriptItems", () => {
     expectDistinctNonEmptyKeys(items);
   });
 
+  test("excludes subagent-notification messages from the projection but leaves input intact", () => {
+    const user = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
+    const notification = makeMessage({
+      id: "m2",
+      role: "user",
+      ...textBody('[Subagent "research" completed]'),
+      isSubagentNotification: true,
+    });
+    const assistant = makeMessage({ id: "m3", role: "assistant", ...textBody("Hi") });
+    const messages = [user, notification, assistant];
+
+    const items = buildTranscriptItems({ ...emptyInput(), messages });
+
+    // The subagent-notification row is never rendered in the transcript...
+    expect(items).toEqual([
+      { kind: "message", key: "m1", message: user },
+      { kind: "message", key: "m3", message: assistant },
+    ]);
+    // ...but it remains in the input `messages` state so the LLM transcript and
+    // subagent-store rehydration still see it (suppression is render-only).
+    expect(messages).toHaveLength(3);
+    expect(messages[1]).toBe(notification);
+  });
+
   test("emits empty list when there is no state", () => {
     const items = buildTranscriptItems(emptyInput());
     expect(items).toEqual([]);
@@ -556,6 +580,60 @@ describe("buildTranscriptItems", () => {
     expect(items).toHaveLength(1);
     expect(items[0]!.kind).toBe("message");
     expect((items[0] as MessageItem).message).toBe(assistant);
+  });
+
+  // ---------------------------------------------------------------------------
+  // MessageItem memoization (WeakMap cache)
+  // ---------------------------------------------------------------------------
+
+  test("returns stable MessageItem references for unchanged message objects across calls", () => {
+    const m1 = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
+    const m2 = makeMessage({ id: "m2", role: "assistant", ...textBody("Hi") });
+
+    const first = buildTranscriptItems({ ...emptyInput(), messages: [m1, m2] });
+    const second = buildTranscriptItems({ ...emptyInput(), messages: [m1, m2] });
+
+    expect(first[0]).toBe(second[0]);
+    expect(first[1]).toBe(second[1]);
+  });
+
+  test("returns a new MessageItem only for the message whose object changed", () => {
+    const m1 = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
+    const m2 = makeMessage({ id: "m2", role: "assistant", ...textBody("Hi") });
+
+    const first = buildTranscriptItems({ ...emptyInput(), messages: [m1, m2] });
+
+    // Simulate a streaming token appending to m2 — creates a new object
+    const m2Updated = { ...m2, content: "Hi there" };
+    const second = buildTranscriptItems({ ...emptyInput(), messages: [m1, m2Updated] });
+
+    // m1's item is still the same reference (cache hit)
+    expect(second[0]).toBe(first[0]);
+    // m2's item is a new reference (cache miss — different object)
+    expect(second[1]).not.toBe(first[1]);
+    expect((second[1] as MessageItem).message).toBe(m2Updated);
+  });
+
+  test("uses clientMessageId as key when available, falls back to id", () => {
+    const withClientId = makeMessage({
+      id: "server-id-123",
+      role: "user",
+      ...textBody("Hello"),
+      clientMessageId: "client-id-abc",
+    });
+    const withoutClientId = makeMessage({
+      id: "server-id-456",
+      role: "assistant",
+      ...textBody("Hi"),
+    });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [withClientId, withoutClientId],
+    });
+
+    expect(items[0]!.key).toBe("client-id-abc");
+    expect(items[1]!.key).toBe("server-id-456");
   });
 });
 

@@ -22,6 +22,10 @@ import {
   type MacHelperClientOptions,
   type MacHelperState,
 } from "./sidecar/mac-helper";
+import {
+  getMacHelperAppPath,
+  getMacHelperPath,
+} from "./sidecar/mac-helper-path";
 
 export type {
   DictationPartialEvent,
@@ -99,22 +103,6 @@ let supervisorOptionsForTesting: Partial<
 
 const getPlatform = (): NodeJS.Platform =>
   platformForTesting ?? process.platform;
-
-export const getMacHelperPath = (): string => {
-  return path.join(
-    getMacHelperAppPath(),
-    "Contents",
-    "MacOS",
-    "vellum-mac-helper",
-  );
-};
-
-export const getMacHelperAppPath = (): string => {
-  if (app.isPackaged) {
-    return path.join(process.resourcesPath, "bin", "vellum-mac-helper.app");
-  }
-  return path.join(app.getAppPath(), "resources", "vellum-mac-helper.app");
-};
 
 const makeClient = (): MacHelperClient =>
   new MacHelperClient({

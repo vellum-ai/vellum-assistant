@@ -371,6 +371,31 @@ describe("seedV2CliCommandEntries", () => {
     ).rejects.toThrow("backend exploded");
   });
 
+  test("populates the cache from the Commander tree on the first seed even when the embedding backend is unavailable (cold-start needle resilience)", async () => {
+    // Cold-start race: the startup seed runs before the managed embedding
+    // credential is provisioned, so the first `embedWithBackend` throws. The
+    // in-memory cache (read by the v3 needle lane and the page index) must
+    // still populate from the local Commander tree so CLI commands are
+    // discoverable from first boot; only the dense Qdrant upsert is deferred.
+    state.commands = [
+      { name: "config", description: "Manage configuration", helpText: "..." },
+    ];
+    state.embedThrows = new Error(
+      'Embedding backend "gemini" is not configured',
+    );
+
+    await expect(seedV2CliCommandEntries()).resolves.toBeUndefined();
+
+    const entry = getCliCommandCapability("config");
+    expect(entry).not.toBeNull();
+    expect(entry?.id).toBe("config");
+    expect(listCliCommandEntries().map((e) => e.id)).toEqual(["config"]);
+
+    // No dense vectors were produced, so the Qdrant write is skipped entirely.
+    expect(state.upsertCalls).toHaveLength(0);
+    expect(state.pruneCalls).toHaveLength(0);
+  });
+
   test("skips stale in-flight seed results when a newer refresh is requested", async () => {
     state.commands = [
       { name: "config", description: "Manage configuration", helpText: "..." },

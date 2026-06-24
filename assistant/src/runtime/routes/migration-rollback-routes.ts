@@ -10,8 +10,9 @@
 import { z } from "zod";
 
 import { getDb } from "../../memory/db-connection.js";
-import { getMaxMigrationVersion } from "../../memory/migrations/registry.js";
+import { getMaxRollbackVersion } from "../../memory/migrations/run-migrations.js";
 import { rollbackMemoryMigration } from "../../memory/migrations/validate-migration-state.js";
+import { migrationSteps } from "../../memory/steps.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { WORKSPACE_MIGRATIONS } from "../../workspace/migrations/registry.js";
 import {
@@ -43,7 +44,7 @@ async function handleRollbackMigrations({ body = {} }: RouteHandlerArgs) {
 
   if (rollbackToRegistryCeiling === true) {
     if (effectiveDbVersion === undefined)
-      effectiveDbVersion = getMaxMigrationVersion();
+      effectiveDbVersion = getMaxRollbackVersion(migrationSteps);
     if (effectiveWorkspaceMigrationId === undefined)
       effectiveWorkspaceMigrationId =
         getLastWorkspaceMigrationId(WORKSPACE_MIGRATIONS) ?? undefined;
@@ -104,7 +105,7 @@ async function handleRollbackMigrations({ body = {} }: RouteHandlerArgs) {
   // Roll back DB migrations if requested.
   if (effectiveDbVersion !== undefined) {
     try {
-      rolledBack.db = rollbackMemoryMigration(getDb(), effectiveDbVersion);
+      rolledBack.db = rollbackMemoryMigration(getDb(), effectiveDbVersion, migrationSteps);
     } catch (err) {
       const detail = err instanceof Error ? err.message : "Unknown error";
       throw new InternalError(`DB migration rollback failed: ${detail}`);

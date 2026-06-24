@@ -3,7 +3,52 @@ import { useCallback, useEffect, useState } from "react";
 
 import type { McpServerEntry, McpToolsSummaryServer } from "./mcp-api";
 import { Button } from "@vellumai/design-library/components/button";
+import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
+
+type AuthType = "none" | "bearer" | "api-key";
+
+const AUTH_OPTIONS: { value: AuthType; label: string }[] = [
+  { value: "none", label: "None" },
+  { value: "bearer", label: "Bearer Token" },
+  { value: "api-key", label: "API Key" },
+];
+
+function detectAuthType(headers?: Record<string, string>): AuthType {
+  if (!headers) {
+    return "none";
+  }
+  const authHeader = headers["Authorization"] ?? headers["authorization"];
+  if (authHeader?.startsWith("Bearer ")) {
+    return "bearer";
+  }
+  const keys = Object.keys(headers);
+  if (keys.length > 0) {
+    return "api-key";
+  }
+  return "none";
+}
+
+function extractBearerToken(headers?: Record<string, string>): string {
+  if (!headers) {
+    return "";
+  }
+  const authHeader = headers["Authorization"] ?? headers["authorization"];
+  return authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : "";
+}
+
+function extractApiKey(headers?: Record<string, string>): { header: string; value: string } {
+  if (!headers) {
+    return { header: "X-API-Key", value: "" };
+  }
+  const entries = Object.entries(headers).filter(
+    ([k]) => k.toLowerCase() !== "authorization",
+  );
+  if (entries.length > 0) {
+    return { header: entries[0][0], value: entries[0][1] };
+  }
+  return { header: "X-API-Key", value: "" };
+}
 
 const RISK_LEVELS = ["low", "medium", "high"] as const;
 
@@ -15,6 +60,7 @@ interface McpServerDetailModalProps {
     name: string;
     defaultRiskLevel?: string;
     maxTools?: number;
+    headers?: Record<string, string> | null;
   }) => void;
   isPending: boolean;
 }
@@ -27,10 +73,20 @@ export function McpServerDetailModal({
   isPending,
 }: McpServerDetailModalProps) {
   const [riskLevel, setRiskLevel] = useState("medium");
+  const [authType, setAuthType] = useState<AuthType>("none");
+  const [bearerToken, setBearerToken] = useState("");
+  const [apiKeyHeader, setApiKeyHeader] = useState("X-API-Key");
+  const [apiKeyValue, setApiKeyValue] = useState("");
 
   useEffect(() => {
     if (server) {
       setRiskLevel(server.defaultRiskLevel);
+      const detected = detectAuthType(server.transport.headers);
+      setAuthType(detected);
+      setBearerToken(extractBearerToken(server.transport.headers));
+      const apiKey = extractApiKey(server.transport.headers);
+      setApiKeyHeader(apiKey.header);
+      setApiKeyValue(apiKey.value);
     }
   }, [server]);
 
@@ -39,11 +95,33 @@ export function McpServerDetailModal({
       return;
     }
 
+    const initialAuthType = detectAuthType(server.transport.headers);
+    const authChanged = authType !== initialAuthType
+      || (authType === "bearer" && bearerToken.trim() !== extractBearerToken(server.transport.headers))
+      || (authType === "api-key" && (
+        apiKeyHeader.trim() !== extractApiKey(server.transport.headers).header
+        || apiKeyValue.trim() !== extractApiKey(server.transport.headers).value
+      ));
+
+    let headers: Record<string, string> | null | undefined;
+    if (!authChanged) {
+      headers = undefined;
+    } else if (authType === "none") {
+      headers = null;
+    } else if (authType === "bearer" && bearerToken.trim()) {
+      headers = { Authorization: `Bearer ${bearerToken.trim()}` };
+    } else if (authType === "api-key" && apiKeyHeader.trim() && apiKeyValue.trim()) {
+      headers = { [apiKeyHeader.trim()]: apiKeyValue.trim() };
+    } else {
+      headers = undefined;
+    }
+
     onSave(server.id, {
       name: server.id,
       defaultRiskLevel: riskLevel,
+      ...(headers !== undefined ? { headers } : {}),
     });
-  }, [server, riskLevel, onSave]);
+  }, [server, riskLevel, authType, bearerToken, apiKeyHeader, apiKeyValue, onSave]);
 
   const handleClose = useCallback(() => {
     if (!isPending) {
@@ -84,6 +162,75 @@ export function McpServerDetailModal({
                 ))}
               </select>
             </div>
+
+            {server.transport.type !== "stdio" ? (
+              <>
+                <div className="space-y-1.5">
+                  <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-detail-auth">
+                    Authentication
+                  </label>
+                  <select
+                    id="mcp-detail-auth"
+                    value={authType}
+                    onChange={(e) => setAuthType(e.target.value as AuthType)}
+                    className="w-full rounded-md border border-[var(--border-element)] bg-[var(--surface-lift)] px-3 py-1.5 text-body-medium-default text-[var(--content-default)] outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                  >
+                    {AUTH_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {authType === "bearer" ? (
+                  <div className="space-y-1.5">
+                    <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-detail-bearer">
+                      Bearer token
+                    </label>
+                    <Input
+                      id="mcp-detail-bearer"
+                      type="password"
+                      value={bearerToken}
+                      onChange={(e) => setBearerToken(e.target.value)}
+                      placeholder="tok_..."
+                      fullWidth
+                    />
+                  </div>
+                ) : null}
+
+                {authType === "api-key" ? (
+                  <div className="flex gap-3">
+                    <div className="flex-1 space-y-1.5">
+                      <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-detail-apikey-header">
+                        Header name
+                      </label>
+                      <Input
+                        id="mcp-detail-apikey-header"
+                        type="text"
+                        value={apiKeyHeader}
+                        onChange={(e) => setApiKeyHeader(e.target.value)}
+                        placeholder="X-API-Key"
+                        fullWidth
+                      />
+                    </div>
+                    <div className="flex-1 space-y-1.5">
+                      <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-detail-apikey-value">
+                        API key
+                      </label>
+                      <Input
+                        id="mcp-detail-apikey-value"
+                        type="password"
+                        value={apiKeyValue}
+                        onChange={(e) => setApiKeyValue(e.target.value)}
+                        placeholder="sk_..."
+                        fullWidth
+                      />
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
 
             {toolsSummary && toolsSummary.tools.length > 0 ? (
               <div className="space-y-2">

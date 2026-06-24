@@ -37,7 +37,7 @@ export function buildSchema(): Record<string, unknown> {
         get: {
           summary: "Readiness probe",
           description:
-            "Returns 200 when the gateway is ready to accept traffic. Returns 503 during graceful shutdown drain.",
+            "Returns 200 when the gateway is ready to accept traffic. Returns 503 while startup work is incomplete, during graceful shutdown drain, or when the upstream assistant is unavailable.",
           operationId: "readyz",
           responses: {
             "200": {
@@ -49,11 +49,12 @@ export function buildSchema(): Record<string, unknown> {
               },
             },
             "503": {
-              description:
-                "Gateway is draining (graceful shutdown in progress)",
+              description: "Gateway is not ready to accept traffic",
               content: {
                 "application/json": {
-                  schema: { $ref: "#/components/schemas/DrainingResponse" },
+                  schema: {
+                    $ref: "#/components/schemas/ReadyUnavailableResponse",
+                  },
                 },
               },
             },
@@ -4230,11 +4231,20 @@ export function buildSchema(): Record<string, unknown> {
             status: { type: "string", enum: ["ok"] },
           },
         },
-        DrainingResponse: {
+        ReadyUnavailableResponse: {
           type: "object",
           required: ["status"],
           properties: {
-            status: { type: "string", enum: ["draining"] },
+            status: {
+              type: "string",
+              enum: [
+                "starting",
+                "draining",
+                "upstream_unhealthy",
+                "upstream_unreachable",
+              ],
+            },
+            upstream: { type: "integer" },
           },
         },
         ErrorResponse: {

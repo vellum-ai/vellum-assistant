@@ -130,6 +130,33 @@ describe("parseSubagentMessages", () => {
     expect(result.objective).toBe("Research vampire lore");
   });
 
+  test("emits toolUseId and raw input on tool_use, toolUseId on tool_result", () => {
+    const messages = [
+      msg("user", [{ type: "text", text: "Do something" }]),
+      msg("assistant", [
+        {
+          type: "tool_use",
+          id: "t-abc",
+          name: "bash",
+          input: { command: "ls -la" },
+        },
+      ]),
+      msg("user", [
+        { type: "tool_result", tool_use_id: "t-abc", content: "total 0" },
+      ]),
+    ];
+
+    const result = parseSubagentMessages("sub-1", messages);
+    const toolUse = result.events.find((e) => e.type === "tool_use");
+    expect(toolUse).toBeDefined();
+    expect(toolUse!.toolUseId).toBe("t-abc");
+    expect(toolUse!.input).toEqual({ command: "ls -la" });
+
+    const toolResult = result.events.find((e) => e.type === "tool_result");
+    expect(toolResult).toBeDefined();
+    expect(toolResult!.toolUseId).toBe("t-abc");
+  });
+
   test("includes messageId on text events from assistant messages", () => {
     const messages = [
       msg("user", [{ type: "text", text: "Do something" }]),

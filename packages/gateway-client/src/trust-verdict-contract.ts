@@ -42,6 +42,11 @@ export const TrustVerdictSchema = z.object({
   trustClass: TrustClassSchema,
   canonicalSenderId: z.string().nullable(),
 
+  // Present+true ⇒ gateway attempted resolution but failed (DB error);
+  // consumer treats it as "could not vouch", distinct from a real `unknown`
+  // stranger.
+  resolutionFailed: z.boolean().optional(),
+
   // Guardian binding — present only when a guardian binding matches.
   guardianExternalUserId: z.string().optional(),
   guardianDeliveryChatId: z.string().nullable().optional(),
@@ -62,6 +67,18 @@ export const TrustVerdictSchema = z.object({
 });
 
 export type TrustVerdict = z.infer<typeof TrustVerdictSchema>;
+
+/**
+ * Sentinel for a gateway resolver failure; consumers treat it as
+ * could-not-vouch (distinct from a real `unknown` stranger). Takes the
+ * already-canonicalized sender id so this module stays free of the gateway's
+ * canonicalization util.
+ */
+export function makeResolutionFailedVerdict(
+  canonicalSenderId: string | null,
+): TrustVerdict {
+  return { trustClass: "unknown", canonicalSenderId, resolutionFailed: true };
+}
 
 /**
  * IPC request for `resolve_inbound_trust`. Per-actor identity keys the

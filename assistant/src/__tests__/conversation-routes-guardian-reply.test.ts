@@ -106,6 +106,18 @@ mock.module("../runtime/trust-context-resolver.js", () => ({
   }),
 }));
 
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => [
+    {
+      channelType: "vellum",
+      contactId: "guardian-contact",
+      principalId: "test-user",
+      address: "test-user",
+      status: "active",
+    },
+  ],
+}));
+
 import type { AuthContext } from "../runtime/auth/types.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 import { callHandler } from "./helpers/call-route-handler.js";

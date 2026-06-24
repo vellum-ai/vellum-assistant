@@ -5,8 +5,43 @@ import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 const log = getLogger("db-init");
 
 /**
+ * Rollback metadata for a migration step that can be reversed.
+ *
+ * A single step may carry multiple rollback entries (e.g. migration 162 has
+ * two: one for the timestamp conversion and one for the table rebuild). Each
+ * entry has its own monotonic version number for rollback ordering and its
+ * own `down()` function.
+ */
+export interface RollbackEntry {
+  /** Monotonic version used for rollback ordering. */
+  version: number;
+  /** Human-readable description for diagnostics. */
+  description: string;
+  /** Reverse the migration. Must be idempotent — safe to re-run. */
+  down: (database: DrizzleDb) => void;
+}
+
+/**
+ * Object form of a migration step, carrying optional rollback metadata and
+ * dependency declarations inline — no separate registry needed.
+ */
+export interface MigrationStepObject {
+  /** Step name — used for `step:*` checkpoint key, logging, and skip logic. */
+  name: string;
+  /** Forward migration body. */
+  run: (database: DrizzleDb) => void | Promise<void>;
+  /** Step names that must complete before this step runs. */
+  dependsOn?: string[];
+  /** Rollback entries — present if this step has down() function(s). */
+  rollback?: RollbackEntry[];
+}
+
+/**
  * A single forward migration step, identified for checkpointing and logging by
  * its `.name`. Anonymous steps (empty `.name`) cannot be tracked and always run.
+ *
+ * Bare function steps are identified by `Function.name`. Object-form steps
+ * carry an explicit `name` plus optional `rollback` and `dependsOn` metadata.
  *
  * A step may be synchronous or return a promise. The runner awaits an async
  * step to completion before checkpointing it and moving on, so ordering is
@@ -16,7 +51,56 @@ const log = getLogger("db-init");
  * thread between batches while still guaranteeing later migrations observe its
  * completed result.
  */
-export type MigrationStep = (database: DrizzleDb) => void | Promise<void>;
+export type MigrationStep =
+  | MigrationStepObject
+  | ((database: DrizzleDb) => void | Promise<void>);
+
+/**
+ * Normalize a {@link MigrationStep} (which may be a bare function or an object)
+ * into its object form so callers don't need to type-narrow.
+ */
+export function normalizeStep(step: MigrationStep): MigrationStepObject {
+  if (typeof step === "function") {
+    return { name: step.name, run: step };
+  }
+  return step;
+}
+
+/**
+ * Extract the step name from either form of {@link MigrationStep}.
+ */
+export function getStepName(step: MigrationStep): string {
+  return typeof step === "function" ? step.name : step.name;
+}
+
+/**
+ * Get the maximum rollback version across all steps that carry rollback
+ * metadata. Returns 0 if no steps have rollback entries.
+ */
+export function getMaxRollbackVersion(steps: MigrationStep[]): number {
+  let max = 0;
+  for (const step of steps) {
+    if (typeof step === "function") continue;
+    if (!step.rollback) continue;
+    for (const entry of step.rollback) {
+      if (entry.version > max) max = entry.version;
+    }
+  }
+  return max;
+}
+
+/**
+ * Collect all step names that appear in the steps array (both bare-function
+ * and object-form). Used by {@link validateMigrationState} to detect
+ * checkpoints from a newer daemon version.
+ */
+export function getKnownStepNames(steps: MigrationStep[]): Set<string> {
+  const names = new Set<string>();
+  for (const step of steps) {
+    names.add(getStepName(step));
+  }
+  return names;
+}
 
 export interface MigrationRunResult {
   /** Steps that ran and completed successfully this boot. */
@@ -30,9 +114,8 @@ export interface MigrationRunResult {
 /**
  * Prefix under which forward-step completions are recorded in the shared
  * `memory_checkpoints` ledger. A distinct namespace keeps step bookkeeping from
- * colliding with registry checkpoint keys (`migration_*`, `backfill_*`,
- * `drop_*`) and is deliberately chosen so `validateMigrationState` does not
- * mistake a step record for an unknown registry migration.
+ * colliding with legacy checkpoint keys (`migration_*`, `backfill_*`,
+ * `drop_*`) left by older migration functions.
  */
 export const STEP_CHECKPOINT_PREFIX = "step:";
 
@@ -161,7 +244,8 @@ export async function runMigrationSteps(
   const ran: string[] = [];
 
   for (const step of steps) {
-    const name = step.name;
+    const obj = normalizeStep(step);
+    const name = obj.name;
     const checkpointable = name !== "";
 
     if (checkpointable && applied.has(name)) {
@@ -175,7 +259,7 @@ export async function runMigrationSteps(
         markStarted.run(`${STEP_CHECKPOINT_PREFIX}${name}`, Date.now());
       }
       log.info({ migration: name }, `Starting migration: ${name}`);
-      const result = step(database);
+      const result = obj.run(database);
       if (result instanceof Promise) {
         await result;
       }

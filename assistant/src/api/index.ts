@@ -61,6 +61,10 @@ export {
   CALL_SITE_COMPACTION_AGENT,
   CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
 } from "./constants/call-sites.js";
+export {
+  SSE_REPLAY_RING_AGE_LIMIT_MS,
+  SSE_REPLAY_RING_COUNT_LIMIT,
+} from "./constants/sse-replay.js";
 export { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "./constants/tool-execution.js";
 export {
   type AssistantActivityAnchor,
@@ -430,6 +434,8 @@ export {
   LlmContextResponseSchema,
 } from "./responses/llm-context-response.js";
 export {
+  type LLMCallError,
+  LLMCallErrorSchema,
   type LLMCallSummary,
   LLMCallSummarySchema,
   type LLMContextSection,
@@ -471,6 +477,7 @@ export {
   type WorkflowLeaf,
   WorkflowLeafSchema,
 } from "./responses/workflow-journal.js";
+export { type CardSurfaceData, CardSurfaceDataSchema } from "./surfaces.js";
 
 /**
  * Canonical SSE event schema for the assistant runtime.

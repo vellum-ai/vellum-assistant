@@ -229,9 +229,7 @@ export function isRunWorkflowCall(toolCall: ChatMessageToolCall): boolean {
 
 /**
  * Detect a task-progress card surface — `template === "task_progress"` with a
- * non-empty `steps` array. Single source of truth shared by `CardSurface`'s
- * render-detection and the activity-summary path's hoist-detection so the two
- * decisions cannot drift.
+ * non-empty `steps` array. Used by the activity-summary hoist-detection path.
  */
 export function isTaskProgressSurface(surface: Surface): boolean {
   const data = surface.data as

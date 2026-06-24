@@ -101,11 +101,22 @@ export function ResearchOnboardingScreen({
         <div className="mt-10 flex w-full flex-col gap-5">
           <div style={riseIn(0.2, 40)}>
             <Input
-              label="What should I call you?"
+              label={
+                <>
+                  What should I call you?
+                  <span
+                    aria-hidden
+                    className="text-[var(--system-negative-strong)]"
+                  >
+                    {" *"}
+                  </span>
+                </>
+              }
               placeholder="Your name"
               value={firstName}
               onChange={(e) => setFirstName(e.target.value)}
               autoFocus
+              required
               fullWidth
             />
           </div>
@@ -127,6 +138,7 @@ export function ResearchOnboardingScreen({
               value={role}
               onChange={setRole}
               suggestions={ROLE_SUGGESTIONS}
+              required
             />
           </div>
 

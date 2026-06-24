@@ -17,7 +17,7 @@
  * then clicks "Continue" to drop into the full workspace on the same conversation.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
@@ -94,22 +94,28 @@ export function ResearchOnboardingRoute() {
   // (any Continue/Skip) clears it, browser-style.
   const [forwardStack, setForwardStack] = useState<ResearchStep[]>([]);
 
+  // Re-entering "together" replays its sequence, so the team should drop in
+  // again on the third line — hide it on the way in.
+  function navTo(next: ResearchStep) {
+    if (next === "together") setTeamRevealed(false);
+    setStep(next);
+  }
   // Forward (Continue/Skip): a fresh forward move invalidates the redo stack.
   function goForwardTo(next: ResearchStep) {
     setForwardStack([]);
-    setStep(next);
+    navTo(next);
   }
   // Back: remember where we were so the forward chevron can return there.
   function goBackTo(prev: ResearchStep) {
     setForwardStack((s) => [...s, step]);
-    setStep(prev);
+    navTo(prev);
   }
   // Redo: pop the most-recently-backed-from step.
   function goForward() {
     const next = forwardStack[forwardStack.length - 1];
     if (!next) return;
     setForwardStack((s) => s.slice(0, -1));
-    setStep(next);
+    navTo(next);
   }
   // Passed to the step screens' header; undefined hides the forward chevron.
   const onForward = forwardStack.length > 0 ? goForward : undefined;
@@ -122,6 +128,10 @@ export function ResearchOnboardingRoute() {
   // Extra edge characters revealed so far — grows as the looking-you-up
   // carousel advances, then stays for the results/suggestions steps.
   const [edgeAvatars, setEdgeAvatars] = useState(0);
+  // The top-right team is revealed on the "together" step's third line, then
+  // persists for the rest of the flow.
+  const [teamRevealed, setTeamRevealed] = useState(false);
+  const revealTeam = useCallback(() => setTeamRevealed(true), []);
 
   // Provision the assistant in the background the moment the user lands here,
   // so it's (usually) healthy by the time they finish the intro/pitch steps —
@@ -279,20 +289,35 @@ export function ResearchOnboardingRoute() {
     // eyes collapse into the small avatar beside the text. Extra edge
     // characters are revealed by the looking-you-up carousel (see edgeAvatars).
     const postCalendar = ["meeting", "looking", "results", "suggestions"].includes(step);
-    // The peeking crowd grows one per step (by position in the toned sequence),
-    // plus any extras the looking-you-up carousel reveals.
-    const peekLevel = tonedSteps.indexOf(step) + 1 + edgeAvatars;
+    // The edge crowd is gone from the pitch/setup steps — there it's just the
+    // top team and the eyes. The crowd builds up one character per message
+    // during the looking-you-up carousel, then stays on for the result steps.
+    const peekLevel = ["looking", "results", "suggestions"].includes(step)
+      ? edgeAvatars
+      : 0;
     return (
       <div data-theme="dark" className="relative h-full overflow-hidden">
         <OnboardingTonedBackdrop
           eyesBumpNonce={eyesBump}
           peekLevel={peekLevel}
           darkBg={postCalendar}
-          showBottomEyes={!postCalendar}
+          // The "different" step choreographs its own eyes (rising to speak the
+          // line in), so hide the backdrop's resting pair there to avoid
+          // doubling. Every other toned step uses the backdrop's resting eyes.
+          showBottomEyes={!postCalendar && step !== "different"}
+          // On "together" the team is gated on the third-line reveal (so it
+          // replays on back); on every later step it's simply present.
+          showTopTeam={
+            step === "together"
+              ? teamRevealed
+              : ["integration", "letschat", "meeting", "looking", "results", "suggestions"].includes(
+                  step,
+                )
+          }
         />
         {step === "different" && (
           <PitchDifferentStep
-            onDone={() => goForwardTo("together")}
+            onContinue={() => goForwardTo("together")}
             onBack={() => goBackTo("intro")}
             onForward={onForward}
           />
@@ -302,11 +327,15 @@ export function ResearchOnboardingRoute() {
             onContinue={() => goForwardTo("integration")}
             onBack={() => goBackTo("different")}
             onForward={onForward}
+            onRevealTeam={revealTeam}
           />
         )}
         {step === "integration" && (
           <IntegrationStep
-            onClaim={() => goForwardTo("letschat")}
+            assistantId={hatchedAssistantId}
+            assistantReady={hatchReady}
+            onConnected={handleCheckinConnected}
+            onSkip={() => goForwardTo("looking")}
             onBumpEyes={() => setEyesBump((n) => n + 1)}
             onBack={() => goBackTo("together")}
             onForward={onForward}
@@ -325,14 +354,14 @@ export function ResearchOnboardingRoute() {
         {step === "meeting" && (
           <MeetingCreatedStep
             onDone={() => goForwardTo("looking")}
-            onBack={() => goBackTo("letschat")}
+            onBack={() => goBackTo("integration")}
             onForward={onForward}
           />
         )}
         {step === "looking" && (
           <LookingYouUpStep
             onDone={() => goForwardTo("results")}
-            onBack={() => goBackTo("letschat")}
+            onBack={() => goBackTo("integration")}
             onAdvance={(i) => setEdgeAvatars(Math.min(i + 1, 4))}
             onForward={onForward}
           />
@@ -350,9 +379,16 @@ export function ResearchOnboardingRoute() {
           <SuggestionsStep
             suggestions={research.suggestions}
             loading={researchLoading}
-            onSuggestionClick={(prompt) =>
-              enterAssistant(formValues, faceValues, prompt)
-            }
+            onSuggestionClick={async (suggestion) => {
+              // For a plugin-backed suggestion, wait out the background install
+              // so the new chat can discover the plugin's skills (else it
+              // silently degrades to a generic prompt). Usually instant — the
+              // install kicked off while the user reviewed the results.
+              if (suggestion.plugin) {
+                await research.awaitPluginInstall(suggestion.plugin);
+              }
+              enterAssistant(formValues, faceValues, suggestion.prompt);
+            }}
             onBack={() => goBackTo("results")}
             onForward={onForward}
           />

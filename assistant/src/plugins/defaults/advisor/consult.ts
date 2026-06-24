@@ -16,7 +16,11 @@ import {
   getConfiguredProvider,
   userMessage,
 } from "../../../providers/provider-send-message.js";
-import type { Message } from "../../../providers/types.js";
+import type {
+  Message,
+  ProviderEvent,
+  ToolDefinition,
+} from "../../../providers/types.js";
 import { ADVISOR_CONFIG } from "./config.js";
 import { advisorRequestText, buildAdvisorSystem } from "./steering.js";
 import { toAdvisorMessages } from "./transcript.js";
@@ -25,6 +29,26 @@ import { toAdvisorMessages } from "./transcript.js";
 // in CALL_SITE_DEFAULTS; a workspace overrides which profile the advisor runs
 // on via `llm.advisorProfile`, which we float above the call-site layers.
 const ADVISOR_CALL_SITE: LLMCallSite = "advisor";
+
+/**
+ * The single tool the consult may attach: a `web_search`-named tool that
+ * provider-native search (Anthropic/OpenAI) substitutes for its server-side
+ * web tool. Only passed when `provider.supportsNativeWebSearch` is true, so the
+ * provider runs the search itself and returns results inline — no agent loop,
+ * which keeps the consult a one-shot completion.
+ */
+const ADVISOR_WEB_SEARCH_TOOL: ToolDefinition = {
+  name: "web_search",
+  description:
+    "Search the web for current information to ground your guidance.",
+  input_schema: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "The search query." },
+    },
+    required: ["query"],
+  },
+};
 
 /**
  * Resolve the routing override for the advisor consult. When the workspace has
@@ -45,7 +69,22 @@ function advisorOverride(): {
 export interface ConsultParams {
   systemPrompt: string | null;
   messages: ReadonlyArray<Message>;
+  /**
+   * The agent's runtime context (available tools and skills, workspace/project
+   * context, recalled memory), gathered by the tool from its `ToolContext`.
+   * Embedded in the advisor's system prompt so its advice is grounded in what
+   * the agent can actually do. Omitted/null when nothing could be gathered.
+   */
+  runtimeContext?: string | null;
   signal?: AbortSignal;
+  /**
+   * Optional sink for the advisor's generated text as it streams. Each call
+   * receives an incremental chunk (a provider `text_delta`). Wiring this to the
+   * tool's `onOutput` surfaces the consult live as `tool_output_chunk` while the
+   * advisor model is still generating; the complete guidance is still returned
+   * as the resolved string.
+   */
+  onText?: (chunk: string) => void;
 }
 
 /** Combine the caller's signal with a consult timeout. */
@@ -73,17 +112,37 @@ export async function consultAdvisor(params: ConsultParams): Promise<string> {
   }
 
   // Append the consult instruction as the final user turn, then run a
-  // tool-less completion through the resolved provider. No `max_tokens` is
-  // set, so the resolver applies the profile's normal output budget rather
-  // than an advisor-specific cap.
+  // completion through the resolved provider. No `max_tokens` is set, so the
+  // resolver applies the profile's normal output budget rather than an
+  // advisor-specific cap.
   const messages: Message[] = [...history, userMessage(advisorRequestText())];
 
+  // Give the advisor live web access when — and only when — the resolved
+  // provider runs search server-side (provider-native). Passing a `web_search`
+  // tool to a non-native provider would surface a client tool call this
+  // one-shot consult cannot execute, so we gate strictly on the capability and
+  // otherwise keep the consult tool-less.
+  const webEnabled = provider.supportsNativeWebSearch === true;
+
+  const { onText } = params;
   const response = await provider.sendMessage(messages, {
-    systemPrompt: buildAdvisorSystem(params.systemPrompt),
+    systemPrompt: buildAdvisorSystem(
+      params.systemPrompt,
+      params.runtimeContext,
+    ),
+    ...(webEnabled ? { tools: [ADVISOR_WEB_SEARCH_TOOL] } : {}),
+    // Forward the model's visible text deltas to the caller's sink so the
+    // guidance streams live. Other event types (thinking, usage) ride their
+    // own channels and are intentionally not surfaced as tool output.
+    onEvent: onText
+      ? (event: ProviderEvent) => {
+          if (event.type === "text_delta" && event.text) onText(event.text);
+        }
+      : undefined,
     config: {
       callSite: ADVISOR_CALL_SITE,
       ...override,
-      tool_choice: { type: "none" },
+      tool_choice: webEnabled ? { type: "auto" } : { type: "none" },
     },
     signal: withTimeout(params.signal, ADVISOR_CONFIG.timeoutMs),
   });

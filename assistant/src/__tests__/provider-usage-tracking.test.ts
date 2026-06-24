@@ -200,3 +200,42 @@ describe("UsageTrackingProvider", () => {
     });
   });
 });
+
+describe("native web-search capability survives the wrapper chain", () => {
+  function leaf(supports: boolean | undefined): Provider {
+    return {
+      name: "anthropic",
+      ...(supports === undefined ? {} : { supportsNativeWebSearch: supports }),
+      async sendMessage(): Promise<ProviderResponse> {
+        return {
+          content: [{ type: "text", text: "" }],
+          model: "m",
+          usage: { inputTokens: 0, outputTokens: 0 },
+          stopReason: "end_turn",
+        };
+      },
+    };
+  }
+
+  test("UsageTrackingProvider forwards supportsNativeWebSearch", () => {
+    expect(new UsageTrackingProvider(leaf(true)).supportsNativeWebSearch).toBe(
+      true,
+    );
+    expect(new UsageTrackingProvider(leaf(false)).supportsNativeWebSearch).toBe(
+      false,
+    );
+    expect(
+      new UsageTrackingProvider(leaf(undefined)).supportsNativeWebSearch,
+    ).toBeUndefined();
+  });
+
+  test("CallSiteConfiguredProvider forwards it through a nested wrapper", () => {
+    // The exact chain getConfiguredProvider returns: CallSiteConfigured →
+    // UsageTracking → leaf. The advisor consult reads the flag off the top.
+    const wrapped = new CallSiteConfiguredProvider(
+      new UsageTrackingProvider(leaf(true)),
+      "advisor",
+    );
+    expect(wrapped.supportsNativeWebSearch).toBe(true);
+  });
+});

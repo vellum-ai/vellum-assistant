@@ -26,6 +26,8 @@ import { create } from "zustand";
 
 import { appsByIdOpenPost, documentsByIdGet } from "@/generated/daemon/sdk.gen";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
+
+import type { WebSearchResultItem } from "@/assistant/web-activity-types";
 import { createSelectors } from "@/utils/create-selectors";
 
 /** Views that overlay the main content and track a "back" destination. */
@@ -139,6 +141,13 @@ export interface ToolDetailPayload {
   activity: string; // rich sentence (may be "")
   input: Record<string, unknown>;
   result?: string;
+  /**
+   * Open-time snapshot of the live streamed tool output (e.g. foreground bash
+   * stdout/stderr). Only a fallback: an open drawer re-derives the live value
+   * from the chat-session store via `useLiveToolCall`, so this is used only
+   * when the tool call can't be resolved live (e.g. paged out).
+   */
+  streamedOutput?: string;
   status: "running" | "completed" | "error" | "denied";
   riskLevel?: string;
   riskReason?: string;
@@ -147,13 +156,26 @@ export interface ToolDetailPayload {
    * Variant discriminator. Absent or `"tool"` → the standard tool-call detail
    * view (technical details + output). `"thinking"` → the reasoning view that
    * renders `thinkingText` as markdown with no input/output sections.
+   * `"web_search"` → the search view that renders `searchQuery` + the
+   * `searchResults` source list with no technical input/output sections.
    */
-  kind?: "tool" | "thinking";
+  kind?: "tool" | "thinking" | "web_search";
   /**
    * Reasoning markdown captured when the drawer was opened. Used as the
    * fallback when the live source (below) can't be resolved.
    */
   thinkingText?: string;
+  /**
+   * The search query for a `"web_search"` detail, rendered verbatim above the
+   * source list. Unset for other kinds.
+   */
+  searchQuery?: string;
+  /**
+   * The parsed result sources for a `"web_search"` detail, rendered as the same
+   * favicon source chips the timeline uses. Empty while the search is still in
+   * flight. Unset for other kinds.
+   */
+  searchResults?: WebSearchResultItem[];
   /**
    * Stable identity of the reasoning run this drawer mirrors. When present, the
    * panel re-derives live text from the chat-session store (via

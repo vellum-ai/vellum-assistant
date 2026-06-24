@@ -326,3 +326,68 @@ describe("SubagentManager terminal disposal", () => {
     asInternals(manager).stopSweep();
   });
 });
+
+describe("SubagentManager.abort usage", () => {
+  test("emits the conversation's latest usage on abort, not zeros", () => {
+    const manager = new SubagentManager();
+    const sent: ServerMessage[] = [];
+    const sender = (msg: ServerMessage) => sent.push(msg);
+
+    const subagentId = "sa-abort-usage";
+    // state.usage starts at {0,0,0}; the live (fake) conversation has accrued
+    // usage (makeFakeConversation → {100, 50, 0.005}). Wire `sender` as the
+    // stored parent sender so `setStatus` routes the terminal event through it.
+    injectFakeSubagent(manager, subagentId, makeState(subagentId), sender);
+
+    const aborted = manager.abort(subagentId, sender, undefined, {
+      suppressNotification: true,
+    });
+    expect(aborted).toBe(true);
+
+    const statusMsg = sent.find(
+      (m): m is Extract<ServerMessage, { type: "subagent_status_changed" }> =>
+        m.type === "subagent_status_changed",
+    );
+    expect(statusMsg).toBeDefined();
+    expect(statusMsg!.status).toBe("aborted");
+    // The emitted usage is the conversation's accrued total — NOT the {0,0,0}
+    // init — so the client doesn't flush the token panel to zero on stop.
+    expect(statusMsg!.usage).toEqual({
+      inputTokens: 100,
+      outputTokens: 50,
+      estimatedCost: 0.005,
+    });
+
+    asInternals(manager).stopSweep();
+  });
+
+  test("keeps the last-known state.usage when the conversation was already released", () => {
+    const manager = new SubagentManager();
+    const sent: ServerMessage[] = [];
+    const sender = (msg: ServerMessage) => sent.push(msg);
+
+    const subagentId = "sa-abort-no-conv";
+    // No live conversation (released), but state carries a last-known usage —
+    // the abort must surface that, not overwrite it.
+    const state = makeState(subagentId, {
+      usage: { inputTokens: 320, outputTokens: 80, estimatedCost: 0.004 },
+    });
+    injectFakeSubagent(manager, subagentId, state, sender, null);
+
+    manager.abort(subagentId, sender, undefined, {
+      suppressNotification: true,
+    });
+
+    const statusMsg = sent.find(
+      (m): m is Extract<ServerMessage, { type: "subagent_status_changed" }> =>
+        m.type === "subagent_status_changed",
+    );
+    expect(statusMsg!.usage).toEqual({
+      inputTokens: 320,
+      outputTokens: 80,
+      estimatedCost: 0.004,
+    });
+
+    asInternals(manager).stopSweep();
+  });
+});

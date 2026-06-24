@@ -16,6 +16,24 @@ export function scopeDifference(
   required: string[],
   granted: string[],
 ): string[] {
-  const grantedSet = new Set(granted);
-  return required.filter((s) => !grantedSet.has(s));
+  return required.filter(
+    (requiredScope) =>
+      !granted.some((grantedScope) =>
+        grantedScopeCoversRequiredScope(grantedScope, requiredScope),
+      ),
+  );
+}
+
+const GMAIL_FULL_ACCESS_SCOPE = "https://mail.google.com/";
+const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+
+function grantedScopeCoversRequiredScope(
+  grantedScope: string,
+  requiredScope: string,
+): boolean {
+  if (grantedScope === requiredScope) return true;
+  return (
+    grantedScope === GMAIL_FULL_ACCESS_SCOPE &&
+    requiredScope === GMAIL_READONLY_SCOPE
+  );
 }

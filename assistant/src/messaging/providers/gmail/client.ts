@@ -17,14 +17,13 @@ import type {
 const GMAIL_BATCH_URL = "https://www.googleapis.com/batch/gmail/v1";
 
 /**
- * Minimum Google OAuth scope a connection must carry to be usable for Gmail.
+ * Minimum Google OAuth scope a connection must carry for Gmail read access.
  *
  * The managed `google` OAuth app bundles Gmail + Calendar + Drive, but a
  * connection can be granted a narrow subset (e.g. the onboarding check-in flow
- * requests Calendar-only). Every Gmail read/search/send call needs at least
- * `gmail.readonly`, so a connection lacking it cannot serve Gmail at all —
- * resolving against this scope turns a downstream 403 into an actionable
- * "reconnect Google and grant Gmail" error at resolution time.
+ * requests Calendar-only). Resolving against Gmail read access turns a
+ * downstream 403 into an actionable "reconnect Google and grant Gmail" error
+ * at resolution time when the selected connection cannot read Gmail.
  */
 export const GMAIL_REQUIRED_SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",

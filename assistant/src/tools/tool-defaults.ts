@@ -92,6 +92,7 @@ export function finalizeTool(tool: ToolDefinition, defaultName = ""): Tool {
         });
   const executionTarget = tool.executionTarget ?? TOOL_DEFAULTS.executionTarget;
   const category = tool.category ?? TOOL_DEFAULTS.category;
+  const exclusive = tool.exclusive ?? false;
   return {
     ...tool,
     name,
@@ -101,5 +102,6 @@ export function finalizeTool(tool: ToolDefinition, defaultName = ""): Tool {
     executionTarget,
     execute,
     category,
+    exclusive,
   };
 }

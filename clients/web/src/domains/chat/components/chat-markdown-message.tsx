@@ -5,6 +5,7 @@
 
 import {
   type AnchorHTMLAttributes,
+  memo,
   useCallback,
 } from "react";
 
@@ -78,16 +79,18 @@ export interface ChatMarkdownMessageProps extends Omit<MarkdownMessageProps, "li
   onVellumLinkClick?: (href: string, linkText: string) => void;
 }
 
-export function ChatMarkdownMessage({
+export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
+  content,
+  className,
+  hardLineBreaks,
   onVellumLinkClick,
-  ...markdownProps
 }: ChatMarkdownMessageProps) {
-  const LinkComponent = useCallback(
+  const linkComponent = useCallback(
     ({
       href,
       children,
     }: Pick<AnchorHTMLAttributes<HTMLAnchorElement>, "href" | "children">) => {
-      if (isVellumLink(href)) {
+      if (onVellumLinkClick && isVellumLink(href)) {
         return (
           <a
             href={href}
@@ -95,7 +98,7 @@ export function ChatMarkdownMessage({
               event.preventDefault();
               if (href) {
                 const text = event.currentTarget.textContent ?? "";
-                onVellumLinkClick?.(href, text);
+                onVellumLinkClick(href, text);
               }
             }}
             className="text-[var(--system-positive-strong)] underline hover:opacity-80 cursor-pointer"
@@ -110,9 +113,13 @@ export function ChatMarkdownMessage({
     [onVellumLinkClick],
   );
 
-  if (!onVellumLinkClick) {
-    return <MarkdownMessage {...markdownProps} linkComponent={OAuthAwareLink} urlTransform={vellumUrlTransform} />;
-  }
-
-  return <MarkdownMessage {...markdownProps} linkComponent={LinkComponent} urlTransform={vellumUrlTransform} />;
-}
+  return (
+    <MarkdownMessage
+      content={content}
+      className={className}
+      hardLineBreaks={hardLineBreaks}
+      linkComponent={linkComponent}
+      urlTransform={vellumUrlTransform}
+    />
+  );
+});

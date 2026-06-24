@@ -8,12 +8,23 @@ let sendMessageArgs: Record<string, unknown> | null = null;
 let responseText = "Use a channel-based worker pool; drain on shutdown.";
 let sendMessageError: Error | null = null;
 let providerResolves = true;
+let providerSupportsWeb = false;
+let streamDeltas: string[] = [];
 
 const fakeProvider = {
   name: "mock-advisor-provider",
+  get supportsNativeWebSearch() {
+    return providerSupportsWeb;
+  },
   async sendMessage(messages: unknown, options: unknown) {
     sendMessageArgs = { messages, options } as Record<string, unknown>;
     if (sendMessageError) throw sendMessageError;
+    const onEvent = (
+      options as { onEvent?: (e: { type: string; text?: string }) => void }
+    ).onEvent;
+    if (onEvent) {
+      for (const text of streamDeltas) onEvent({ type: "text_delta", text });
+    }
     return {
       content: [{ type: "text", text: responseText }],
       model: "mock-model",
@@ -27,6 +38,14 @@ const realPsm = await import("../../../../providers/provider-send-message.js");
 mock.module("../../../../providers/provider-send-message.js", () => ({
   ...realPsm,
   getConfiguredProvider: async () => (providerResolves ? fakeProvider : null),
+}));
+
+// Keep the tool tests focused on the consult wiring: stub the context pack so
+// they don't reach into the registry / workspace / memory sources (those have
+// their own coverage). The consult itself never imports this module.
+mock.module("../context-pack.js", () => ({
+  buildAdvisorContext: async () => null,
+  deriveRecallQuery: () => null,
 }));
 
 const { consultAdvisor } = await import("../consult.js");
@@ -49,6 +68,8 @@ beforeEach(() => {
   responseText = "Use a channel-based worker pool; drain on shutdown.";
   sendMessageError = null;
   providerResolves = true;
+  providerSupportsWeb = false;
+  streamDeltas = [];
   resetAdvisorStateForTests();
 });
 
@@ -100,6 +121,37 @@ describe("consultAdvisor", () => {
     expect(options.systemPrompt).toContain("You are a coding agent.");
   });
 
+  test("stays tool-less when the provider has no native web search", async () => {
+    providerSupportsWeb = false;
+    await consultAdvisor({ systemPrompt: null, messages: [userMsg("hi")] });
+    const options = sendMessageArgs?.options as { tools?: unknown };
+    expect(options.tools).toBeUndefined();
+    expect(optionConfig().tool_choice).toEqual({ type: "none" });
+  });
+
+  test("enables native web search when the provider supports it", async () => {
+    providerSupportsWeb = true;
+    await consultAdvisor({ systemPrompt: null, messages: [userMsg("hi")] });
+
+    const options = sendMessageArgs?.options as {
+      tools?: Array<{ name: string }>;
+    };
+    expect(options.tools?.map((t) => t.name)).toEqual(["web_search"]);
+    // tool_choice must not be `none`, or the provider suppresses its server tool.
+    expect(optionConfig().tool_choice).toEqual({ type: "auto" });
+  });
+
+  test("embeds the runtime context in the advisor system prompt", async () => {
+    await consultAdvisor({
+      systemPrompt: "You are a coding agent.",
+      messages: [userMsg("hi")],
+      runtimeContext: "## Available tools\n- bash — run commands",
+    });
+    const options = sendMessageArgs?.options as { systemPrompt: string };
+    expect(options.systemPrompt).toContain("<agent_runtime_context>");
+    expect(options.systemPrompt).toContain("- bash — run commands");
+  });
+
   test("soft-fails when no provider is configured", async () => {
     providerResolves = false;
     const advice = await consultAdvisor({
@@ -122,6 +174,29 @@ describe("consultAdvisor", () => {
       messages: [userMsg("hi")],
     });
     expect(advice).toContain("no guidance");
+  });
+
+  test("streams the model's text deltas to `onText` as it generates", async () => {
+    streamDeltas = ["Use a ", "channel-based ", "worker pool."];
+    const chunks: string[] = [];
+
+    const advice = await consultAdvisor({
+      systemPrompt: null,
+      messages: [userMsg("hi")],
+      onText: (c) => chunks.push(c),
+    });
+
+    // Each visible delta is forwarded live...
+    expect(chunks).toEqual(["Use a ", "channel-based ", "worker pool."]);
+    // ...and the complete guidance is still returned.
+    expect(advice).toBe(responseText);
+  });
+
+  test("registers no `onEvent` sink when `onText` is absent", async () => {
+    streamDeltas = ["x"];
+    await consultAdvisor({ systemPrompt: null, messages: [userMsg("hi")] });
+    const options = sendMessageArgs?.options as { onEvent?: unknown };
+    expect(options.onEvent).toBeUndefined();
   });
 });
 
@@ -149,5 +224,20 @@ describe("advisor tool.execute", () => {
     expect(result?.isError).toBe(false);
     expect(result?.content).toContain("advisor unavailable");
     expect(result?.content).toContain("kaboom");
+  });
+
+  test("streams the consult live via `ctx.onOutput`", async () => {
+    recordMessages("c3", [userMsg("hi")]);
+    streamDeltas = ["plan: ", "do X"];
+    const out: string[] = [];
+
+    const result = await advisorTool.execute?.({}, {
+      conversationId: "c3",
+      onOutput: (c: string) => out.push(c),
+    } as never);
+
+    expect(out).toEqual(["plan: ", "do X"]);
+    expect(result?.isError).toBe(false);
+    expect(result?.content).toBe(responseText);
   });
 });

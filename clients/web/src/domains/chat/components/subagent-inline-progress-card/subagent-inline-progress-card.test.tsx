@@ -47,7 +47,7 @@ describe("SubagentInlineProgressCard — spawn race", () => {
 });
 
 describe("SubagentInlineProgressCard — fixture timeline", () => {
-  test("shows Thinking title with text preview while a text event is the latest", () => {
+  test("titles the card with the subagent task name, with the live text preview as subtitle", () => {
     spawn("sa-1");
     useSubagentStore.getState().receiveEvent({
       subagentId: "sa-1",
@@ -59,7 +59,9 @@ describe("SubagentInlineProgressCard — fixture timeline", () => {
       <SubagentInlineProgressCard subagentId="sa-1" />,
     );
 
-    expect(getByText("Thinking")).toBeTruthy();
+    // Title is the subagent's task name (not the derived "Thinking" status);
+    // the live reasoning preview moves to the subtitle.
+    expect(getByText("Research Agent")).toBeTruthy();
     expect(getByText("Checking the docs")).toBeTruthy();
     // Single-step cards suppress the count pill — it only shows for 2+.
     expect(queryByText("1 step")).toBeNull();
@@ -87,7 +89,8 @@ describe("SubagentInlineProgressCard — fixture timeline", () => {
     const { getByText } = render(
       <SubagentInlineProgressCard subagentId="sa-2" />,
     );
-    expect(getByText("Working")).toBeTruthy();
+    // Title stays the task name; the running tool's detail is the subtitle.
+    expect(getByText("Research Agent")).toBeTruthy();
     expect(getByText("ls -la")).toBeTruthy();
     expect(getByText("2 steps")).toBeTruthy();
   });
@@ -118,7 +121,9 @@ describe("SubagentInlineProgressCard — fixture timeline", () => {
     const { getByText, queryByText } = render(
       <SubagentInlineProgressCard subagentId="sa-3" />,
     );
-    expect(getByText("Used File Read")).toBeTruthy();
+    // Title is the task name even for a completed subagent (the derived
+    // "Used File Read" status is no longer the title).
+    expect(getByText("Research Agent")).toBeTruthy();
     // Single-step cards suppress the count pill.
     expect(queryByText("1 step")).toBeNull();
   });

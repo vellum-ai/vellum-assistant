@@ -104,7 +104,7 @@ afterAll(() => {
 
 const handleHostCuResult = ROUTES.find(
   (r: { endpoint: string }) => r.endpoint === "host-cu-result",
-)!.handler;
+)!.handler as (args: Record<string, unknown>) => Promise<unknown>;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -226,15 +226,13 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
       ).toThrow(BadRequestError);
     });
 
-    test("interaction is NOT resolved on 400 (still pending)", () => {
+    test("interaction is NOT resolved on 400 (still pending)", async () => {
       const requestId = "req-cu-targeted-no-header-stays";
       registerPending(requestId, { targetClientId: "client-A" });
 
-      try {
-        handleHostCuResult({ body: cuBody(requestId) });
-      } catch {
+      await handleHostCuResult({ body: cuBody(requestId) }).catch(() => {
         // expected
-      }
+      });
 
       expect(resolvedIds).not.toContain(requestId);
       expect(pendingStore.has(requestId)).toBe(true);
@@ -256,19 +254,17 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
       ).toThrow(ForbiddenError);
     });
 
-    test("ForbiddenError message names both submitting and expected client", () => {
+    test("ForbiddenError message names both submitting and expected client", async () => {
       const requestId = "req-cu-targeted-mismatch-msg";
       registerPending(requestId, { targetClientId: "client-A" });
 
       let caught: unknown;
-      try {
-        handleHostCuResult({
-          body: cuBody(requestId),
-          headers: { "x-vellum-client-id": "client-B" },
-        });
-      } catch (e) {
+      await handleHostCuResult({
+        body: cuBody(requestId),
+        headers: { "x-vellum-client-id": "client-B" },
+      }).catch((e: unknown) => {
         caught = e;
-      }
+      });
 
       expect(caught).toBeInstanceOf(ForbiddenError);
       const msg = (caught as ForbiddenError).message;
@@ -276,18 +272,16 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
       expect(msg).toContain("client-A");
     });
 
-    test("interaction is NOT consumed on 403 (pendingInteractions.get still returns it)", () => {
+    test("interaction is NOT consumed on 403 (pendingInteractions.get still returns it)", async () => {
       const requestId = "req-cu-targeted-mismatch-stays";
       registerPending(requestId, { targetClientId: "client-A" });
 
-      try {
-        handleHostCuResult({
-          body: cuBody(requestId),
-          headers: { "x-vellum-client-id": "client-B" },
-        });
-      } catch {
+      await handleHostCuResult({
+        body: cuBody(requestId),
+        headers: { "x-vellum-client-id": "client-B" },
+      }).catch(() => {
         // expected
-      }
+      });
 
       expect(resolvedIds).not.toContain(requestId);
       expect(pendingStore.has(requestId)).toBe(true);
@@ -331,22 +325,20 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
       ).toThrow(ForbiddenError);
     });
 
-    test("interaction NOT consumed on 403 actor mismatch", () => {
+    test("interaction NOT consumed on 403 actor mismatch", async () => {
       const requestId = "req-cu-actor-mismatch-stays";
       actorPrincipalByClient.set("client-A", "user-1");
       registerPending(requestId, { targetClientId: "client-A" });
 
-      try {
-        handleHostCuResult({
-          body: cuBody(requestId),
-          headers: {
-            "x-vellum-client-id": "client-A",
-            "x-vellum-actor-principal-id": "user-2",
-          },
-        });
-      } catch {
+      await handleHostCuResult({
+        body: cuBody(requestId),
+        headers: {
+          "x-vellum-client-id": "client-A",
+          "x-vellum-actor-principal-id": "user-2",
+        },
+      }).catch(() => {
         // expected
-      }
+      });
 
       expect(resolvedIds).not.toContain(requestId);
       expect(pendingStore.has(requestId)).toBe(true);

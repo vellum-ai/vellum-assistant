@@ -169,6 +169,10 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "memory v3 eval",
   "memory retrospective",
   "memory retrospective run",
+  "memory worker",
+  "memory worker start",
+  "memory worker stop",
+  "memory worker status",
   "notifications",
   "notifications send",
   "notifications list",
@@ -523,6 +527,21 @@ const riskOverrides: AssistantRiskOverride[] = [
     reason:
       "Forks a conversation and wakes a retrospective agent that calls remember on uncovered facts",
   },
+  {
+    path: "memory worker start",
+    risk: "medium",
+    reason: "Spawns a background process that processes memory jobs",
+  },
+  {
+    path: "memory worker stop",
+    risk: "low",
+    reason: "Sends SIGTERM to the memory worker process",
+  },
+  {
+    path: "memory worker status",
+    risk: "low",
+    reason: "Read-only liveness probe via PID file",
+  },
   { path: "notifications send", risk: "low" },
   {
     path: "oauth request",
@@ -609,7 +628,8 @@ const riskOverrides: AssistantRiskOverride[] = [
   {
     path: "plugins disable",
     risk: "medium",
-    reason: "Disables a plugin by creating a .disabled sentinel file in the workspace",
+    reason:
+      "Disables a plugin by creating a .disabled sentinel file in the workspace",
   },
   {
     path: "plugins enable",

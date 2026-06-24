@@ -62,6 +62,21 @@ mock.module("../runtime/guardian-reply-router.js", () => ({
   routeGuardianReply: routeGuardianReplyMock,
 }));
 
+// Stub for the shared reset-drift helper. handleSendMessage only consumes its
+// result (a guardian TrustContext or null) on a first-pass-unknown actor; the
+// gate itself is covered in runtime/__tests__/guardian-vellum-migration.test.ts.
+const reResolveCalls: string[] = [];
+let mockReResolve: { trustClass: string; sourceChannel: string } | null = null;
+mock.module("../runtime/guardian-vellum-migration.js", () => ({
+  reResolveTrustOnResetDrift: async (
+    incomingPrincipalId: string,
+    _sourceChannel: string,
+  ) => {
+    reResolveCalls.push(incomingPrincipalId);
+    return mockReResolve;
+  },
+}));
+
 mock.module("../memory/canonical-guardian-store.js", () => ({
   createCanonicalGuardianRequest: () => ({
     id: "canonical-id",
@@ -106,17 +121,32 @@ mock.module("../memory/conversation-crud.js", () => ({
 }));
 
 mock.module("../runtime/local-actor-identity.js", () => ({
-  resolveLocalTrustContext: () => ({
-    trustClass: "guardian",
-    sourceChannel: "vellum",
-  }),
+  findLocalGuardianPrincipalId: async () =>
+    mockGuardians?.find(
+      (g) => g.channelType === "vellum" && g.status === "active",
+    )?.principalId as string | undefined,
 }));
 
+let mockGuardians: Array<Record<string, unknown>> | null = [
+  {
+    channelType: "vellum",
+    contactId: "guardian-contact",
+    principalId: "test-user",
+    address: "test-user",
+    status: "active",
+  },
+];
+
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => mockGuardians,
+  guardianForChannel: (
+    list: Array<Record<string, unknown>>,
+    channelType: string,
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
+}));
+
+// handleSendMessage wraps the first-pass resolve with withSourceChannel.
 mock.module("../runtime/trust-context-resolver.js", () => ({
-  resolveTrustContext: () => ({
-    trustClass: "guardian",
-    sourceChannel: "vellum",
-  }),
   withSourceChannel: (sourceChannel: unknown, ctx: unknown) => ({
     ...(ctx as Record<string, unknown>),
     sourceChannel,
@@ -454,5 +484,132 @@ describe("HTTP POST /v1/messages clientTimezone transport metadata", () => {
     });
     expect(persistUserMessage).toHaveBeenCalledTimes(1);
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ============================================================================
+// TRUST CONTEXT — derived from the gateway guardian binding
+// ============================================================================
+describe("HTTP POST /v1/messages trust context from the gateway binding", () => {
+  beforeEach(() => {
+    mockGuardians = [
+      {
+        channelType: "vellum",
+        contactId: "guardian-contact",
+        principalId: "test-user",
+        address: "test-user",
+        status: "active",
+      },
+    ];
+    reResolveCalls.length = 0;
+    mockReResolve = null;
+  });
+
+  function requestAs(principalId: string, sourceChannel = "vellum") {
+    return new Request("http://localhost/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-vellum-actor-principal-id": principalId,
+        "x-vellum-principal-type": "actor",
+      },
+      body: JSON.stringify({
+        conversationKey: "trust-test-key",
+        content: "hi",
+        sourceChannel,
+        interface: "macos",
+      }),
+    });
+  }
+
+  async function trustContextFor(
+    principalId: string,
+    sourceChannel = "vellum",
+  ): Promise<Record<string, unknown>> {
+    let captured: Record<string, unknown> | undefined;
+    const conversation = makeConversation({
+      setTrustContext: (ctx: Record<string, unknown>) => {
+        captured = ctx;
+      },
+    });
+    const res = await callHandler(
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async () => conversation,
+            assistantEventHub: { publish: async () => {} } as any,
+            resolveAttachments: () => [],
+          },
+        }),
+      requestAs(principalId, sourceChannel),
+      undefined,
+      202,
+    );
+    expect(res.status).toBe(202);
+    return captured ?? {};
+  }
+
+  async function trustClassFor(principalId: string): Promise<string> {
+    return (await trustContextFor(principalId)).trustClass as string;
+  }
+
+  test("guardian principal resolves to guardian context, helper not called", async () => {
+    expect(await trustClassFor("test-user")).toBe("guardian");
+    expect(reResolveCalls).toEqual([]);
+  });
+
+  test("non-guardian principal: helper consulted, null result stays unknown", async () => {
+    mockReResolve = null;
+    expect(await trustClassFor("vellum-principal-stranger")).toBe("unknown");
+    expect(reResolveCalls).toEqual(["vellum-principal-stranger"]);
+  });
+
+  test("reset drift: helper returns guardian → route adopts it", async () => {
+    mockGuardians = [
+      {
+        channelType: "vellum",
+        contactId: "guardian-contact",
+        principalId: "vellum-principal-stale",
+        address: "vellum-principal-stale",
+        status: "active",
+      },
+    ];
+    mockReResolve = { trustClass: "guardian", sourceChannel: "vellum" };
+
+    expect(await trustClassFor("vellum-principal-healed")).toBe("guardian");
+    expect(reResolveCalls).toEqual(["vellum-principal-healed"]);
+  });
+
+  test("helper returns an unknown-class ctx → trust stays unknown (not adopted)", async () => {
+    mockGuardians = [
+      {
+        channelType: "vellum",
+        contactId: "guardian-contact",
+        principalId: "vellum-principal-stale",
+        address: "vellum-principal-stale",
+        status: "active",
+      },
+    ];
+    mockReResolve = { trustClass: "unknown", sourceChannel: "vellum" };
+
+    expect(await trustClassFor("vellum-principal-healed")).toBe("unknown");
+  });
+
+  test("dev-bypass maps the gateway guardian principal to guardian", async () => {
+    expect(await trustClassFor("dev-bypass")).toBe("guardian");
+  });
+
+  test("dev-bypass fails closed to unknown on an empty gateway", async () => {
+    // No active gateway binding: dev-bypass cannot translate to a real guardian,
+    // and the helper (null) leaves trust unknown — parity with /v1/surface-actions.
+    mockGuardians = [];
+    mockReResolve = null;
+    expect(await trustClassFor("dev-bypass")).toBe("unknown");
+  });
+
+  test("preserves the request body channel on the guardian-match happy path", async () => {
+    const ctx = await trustContextFor("test-user", "telegram");
+    expect(ctx.trustClass).toBe("guardian");
+    expect(ctx.sourceChannel).toBe("telegram");
   });
 });

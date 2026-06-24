@@ -5,6 +5,7 @@ import {
   ChevronRight,
   KeyRound,
   Loader2,
+  LogIn,
   Power,
   Trash2,
 } from "lucide-react";
@@ -30,7 +31,9 @@ interface McpServerCardProps {
   onToggleEnabled: (serverId: string, enabled: boolean) => void;
   onRemove: (serverId: string) => void;
   onConfigure: (serverId: string) => void;
+  onAuthenticate: (serverId: string) => void;
   isUpdating: boolean;
+  isAuthenticating: boolean;
 }
 
 export function McpServerCard({
@@ -39,7 +42,9 @@ export function McpServerCard({
   onToggleEnabled,
   onRemove,
   onConfigure,
+  onAuthenticate,
   isUpdating,
+  isAuthenticating,
 }: McpServerCardProps) {
   const [toolsExpanded, setToolsExpanded] = useState(false);
   const statusInfo = STATUS_CONFIG[server.status] ?? DEFAULT_STATUS;
@@ -58,6 +63,11 @@ export function McpServerCard({
   const handleConfigure = useCallback(
     () => onConfigure(server.id),
     [onConfigure, server.id],
+  );
+
+  const handleAuthenticate = useCallback(
+    () => onAuthenticate(server.id),
+    [onAuthenticate, server.id],
   );
 
   const toggleToolsExpanded = useCallback(
@@ -97,8 +107,19 @@ export function McpServerCard({
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
-            {isUpdating ? (
+            {isUpdating || isAuthenticating ? (
               <Loader2 className="h-4 w-4 animate-spin text-[var(--content-tertiary)]" />
+            ) : null}
+            {server.status === "needs-auth" && server.transport.type !== "stdio" ? (
+              <Button
+                variant="ghost"
+                size="compact"
+                leftIcon={<LogIn />}
+                onClick={handleAuthenticate}
+                disabled={isAuthenticating}
+              >
+                {isAuthenticating ? "Authenticating..." : "Authenticate"}
+              </Button>
             ) : null}
             <Toggle
               checked={server.enabled}
