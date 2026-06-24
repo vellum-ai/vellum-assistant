@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 
+import type { GuardianDelivery } from "@vellumai/gateway-client";
 import { MarkChannelRevokedIpcResponseSchema } from "@vellumai/gateway-client/gateway-ipc-contracts";
 
 import { startVerificationCall } from "../../calls/call-domain.js";
@@ -11,7 +12,8 @@ import {
   getChannelById,
   getContact,
 } from "../../contacts/contact-store.js";
-import type { ChannelStatus } from "../../contacts/types.js";
+import { getGuardianDelivery } from "../../contacts/guardian-delivery-reader.js";
+import type { ContactChannel } from "../../contacts/types.js";
 import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { getBindingByChannelChat } from "../../memory/external-conversation-store.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
@@ -75,6 +77,29 @@ export function getReadinessService(): ChannelReadinessService {
     _readinessService = createReadinessService();
   }
   return _readinessService;
+}
+
+// ---------------------------------------------------------------------------
+// Gateway delivery lookup
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the gateway-owned delivery (ACL source of truth) for a contact
+ * channel, matching on type and either address or externalChatId. Returns
+ * `undefined` when the gateway is unreachable or has no binding for it.
+ */
+async function deliveryForChannel(
+  channel: Pick<ContactChannel, "type" | "address" | "externalChatId">,
+): Promise<GuardianDelivery | undefined> {
+  const guardians = await getGuardianDelivery({ channelTypes: [channel.type] });
+  if (!guardians) return undefined;
+  return guardians.find(
+    (g) =>
+      g.channelType === channel.type &&
+      ((channel.address && g.address === channel.address) ||
+        (channel.externalChatId != null &&
+          g.externalChatId === channel.externalChatId)),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -206,13 +231,16 @@ export async function revokeVerificationForChannel(
 
   // Relay the ACL downgrade to the gateway (source of truth). The gateway's
   // mark_channel_revoked enforces the guardian guard and dual-writes the
-  // contact-channel status back to the assistant DB.
+  // contact-channel status back to the assistant DB. Gate on the gateway
+  // delivery's live status, not the assistant DB column, so a redundant revoke
+  // is still skipped for an already-revoked binding.
   if (contactResult) {
-    const channelStatus: ChannelStatus = contactResult.channel.status;
+    const delivery = await deliveryForChannel(contactResult.channel);
+    const deliveryStatus = delivery?.status;
     if (
-      channelStatus === "active" ||
-      channelStatus === "pending" ||
-      channelStatus === "unverified"
+      deliveryStatus === "active" ||
+      deliveryStatus === "pending" ||
+      deliveryStatus === "unverified"
     ) {
       const result = await ipcCallPersistent("mark_channel_revoked", {
         contactChannelId: contactResult.channel.id,
@@ -294,7 +322,10 @@ export async function verifyTrustedContact(
     };
   }
 
-  if (channel.status === "active" && channel.verifiedAt != null) {
+  // Already-verified short-circuit derived from the gateway delivery (ACL SoT)
+  // rather than the assistant DB status/verifiedAt columns.
+  const delivery = await deliveryForChannel(channel);
+  if (delivery?.status === "active" && delivery.verifiedAt != null) {
     return {
       success: false,
       error: "already_verified",
