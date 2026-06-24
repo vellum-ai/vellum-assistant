@@ -60,7 +60,7 @@ export function IntegrationStep({
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
       <OnboardingTopBar onBack={onBack} onNext={onForward} />
 
-      <div className="absolute left-1/2 top-[26%] flex -translate-x-1/2 flex-col items-center gap-3 px-6 text-center">
+      <div className="absolute left-1/2 top-[26%] flex w-full max-w-xl -translate-x-1/2 flex-col items-center gap-3 px-6 text-center">
         <h1
           className="text-[2.6rem] leading-none"
           style={{ fontFamily: "var(--font-serif)" }}

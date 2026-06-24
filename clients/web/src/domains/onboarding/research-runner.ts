@@ -183,6 +183,13 @@ export interface ResearchRunnerState {
   status: ResearchStatus;
   claims: ResearchFact[];
   suggestions: ResearchSuggestion[];
+  /**
+   * Capabilities being installed for the assistant this run — the model's
+   * top-level `plugins` picks, narrowed to names present in the fetched catalog.
+   * Persona-level (not tied to a suggestion); surfaced so the UI can confirm
+   * what was set up. Empty when plugins are disabled or nothing fit.
+   */
+  installedPlugins: string[];
 }
 
 export interface StartResearchOptions {
@@ -202,13 +209,13 @@ export interface UseResearchRunner extends ResearchRunnerState {
    */
   start: (options: StartResearchOptions) => void;
   /**
-   * Await the background install of a plugin a suggestion is tagged with, so the
-   * click doesn't open the chat before `<workspace>/plugins/<name>` exists —
-   * otherwise the plugin's skills aren't discoverable in the new conversation
-   * and the suggestion silently degrades to a generic prompt. Resolves
-   * immediately when nothing is pending for that name.
+   * Block a suggestion click only as long as the persona plugins need: waits for
+   * the `plugins` decision to be final (so a click that beat the parse doesn't
+   * skip selection), then for those installs to finish — never for the rest of
+   * the research turn. Resolves instantly when nothing is installable (plugins
+   * disabled, none picked, or already installed), so ordinary clicks don't hang.
    */
-  awaitPluginInstall: (name: string) => Promise<void>;
+  awaitPluginInstalls: () => Promise<void>;
 }
 
 type GetMessage = MessagesGetResponses[200]["messages"][number];
@@ -266,6 +273,7 @@ export function useResearchRunner(): UseResearchRunner {
     status: "idle",
     claims: [],
     suggestions: [],
+    installedPlugins: [],
   });
   // Monotonic run id: every fresh run claims the next id; in-flight loops bail
   // the moment a newer run supersedes them. Paired with the last subject key so
@@ -273,9 +281,17 @@ export function useResearchRunner(): UseResearchRunner {
   const runIdRef = useRef(0);
   const subjectKeyRef = useRef<string | null>(null);
   // Background plugin installs keyed by name, so the suggestion click can await
-  // the matching install before opening the chat (see `awaitPluginInstall`).
-  // Promises stay resolved in the map, so awaiting a settled one is instant.
+  // them all before opening the chat (see `awaitPluginInstalls`). Promises stay
+  // resolved in the map, so awaiting a settled one is instant.
   const installPromisesRef = useRef<Map<string, Promise<void>>>(new Map());
+  // Resolves once the `plugins` DECISION is final for the current run — the
+  // model's array has closed (installs, if any, enqueued), or there was nothing
+  // installable, or the run ended. The suggestion click awaits this BEFORE the
+  // installs, so a click that beats the parse still can't open the chat on an
+  // empty install map — yet it does NOT wait on the rest of the research turn,
+  // so ordinary clicks (plugins disabled / none picked / already installed)
+  // aren't frozen until the whole reply settles.
+  const pluginsReadyRef = useRef<Promise<void>>(Promise.resolve());
 
   const start = useCallback(
     ({ awaitAssistantId, subject, conversationTitle }: StartResearchOptions) => {
@@ -285,9 +301,20 @@ export function useResearchRunner(): UseResearchRunner {
       const runId = runIdRef.current + 1;
       runIdRef.current = runId;
       const isStale = () => runIdRef.current !== runId;
-      // Fresh run — drop installs tracked for a superseded subject.
+      // Fresh run — drop installs tracked for a superseded subject, and arm a new
+      // plugins-ready latch the click can await (resolved once the plugin
+      // decision is final; the `finally` is the backstop on every exit path).
+      let resolvePluginsReady: () => void = () => {};
+      pluginsReadyRef.current = new Promise<void>((res) => {
+        resolvePluginsReady = res;
+      });
       installPromisesRef.current.clear();
-      setState({ status: "running", claims: [], suggestions: [] });
+      setState({
+        status: "running",
+        claims: [],
+        suggestions: [],
+        installedPlugins: [],
+      });
 
       void (async () => {
         try {
@@ -295,16 +322,20 @@ export function useResearchRunner(): UseResearchRunner {
           if (isStale()) return;
 
           // Advertise the live marketplace catalog to the research turn so it can
-          // tag a suggestion with a plugin whose skills the prompt would trigger.
-          // Only when the external-plugin surface is enabled for this assistant;
-          // otherwise run plain research with no plugin injection or install.
-          // Best-effort: an empty list just omits the capabilities block.
+          // pick the capabilities that best fit the person (returned as a
+          // top-level `plugins` list) for us to install. Only when the external-
+          // plugin surface is enabled for this assistant; otherwise run plain
+          // research with no plugin injection or install. Best-effort: an empty
+          // list just omits the capabilities block.
           const pluginsEnabled = await awaitExternalPluginsEnabled(isStale);
           if (isStale()) return;
           const { capabilities, validNames } = pluginsEnabled
             ? await fetchAvailableCapabilities(assistantId)
             : EMPTY_CAPABILITIES;
           if (isStale()) return;
+          // Nothing installable (plugins disabled or empty catalog) — release the
+          // click gate now so suggestion clicks never wait on the research turn.
+          if (validNames.size === 0) resolvePluginsReady();
 
           const conversation = await conversationsPost({
             path: { assistant_id: assistantId },
@@ -354,11 +385,12 @@ export function useResearchRunner(): UseResearchRunner {
           const deadline = Date.now() + MAX_POLL_MS;
           let lastText = "";
           let stableReads = 0;
-          // Installs fire the moment a tagged suggestion first streams in
-          // (overlapping the user's results-review screens) so the plugin is
-          // materialized before the click opens the chat. Tracked by promise so
-          // the click can await a still-running one. Idempotent, so racing the
-          // same name is fine.
+          // Installs fire as soon as the model's `plugins` array closes — emitted
+          // first in the reply, so this lands early while claims/suggestions are
+          // still streaming, overlapping the user's results-review screens so the
+          // capabilities are materialized before the click opens the chat. Tracked
+          // by promise so the click can await still-running ones. Idempotent, so
+          // racing the same name is fine.
           const installs = installPromisesRef.current;
           while (Date.now() < deadline) {
             await sleep(POLL_INTERVAL_MS);
@@ -372,19 +404,29 @@ export function useResearchRunner(): UseResearchRunner {
             const messages = listed.data?.messages ?? [];
             const text = latestAssistantText(messages);
             if (text) {
-              const { claims, suggestions, complete } =
+              const { claims, suggestions, plugins, pluginsResolved, complete } =
                 parseResearchResultStreaming(text);
-              setState({ status: "running", claims, suggestions });
-              for (const s of suggestions) {
-                // Gate on the fetched catalog so a hallucinated name never hits
-                // the install route; skip ones already in flight.
-                if (s.plugin && validNames.has(s.plugin) && !installs.has(s.plugin)) {
+              // Narrow the model's picks to the catalog we actually fetched so a
+              // hallucinated name never hits the install route; fire each new one.
+              const validPlugins = plugins.filter((name) => validNames.has(name));
+              for (const name of validPlugins) {
+                if (!installs.has(name)) {
                   installs.set(
-                    s.plugin,
-                    installCapabilityBestEffort(assistantId, s.plugin),
+                    name,
+                    installCapabilityBestEffort(assistantId, name),
                   );
                 }
               }
+              // Once the plugin decision is final (array closed, even if empty),
+              // the install set is complete — release the click gate so it waits
+              // only on the installs themselves, not the rest of the turn.
+              if (pluginsResolved) resolvePluginsReady();
+              setState({
+                status: "running",
+                claims,
+                suggestions,
+                installedPlugins: validPlugins,
+              });
               stableReads = text === lastText ? stableReads + 1 : 0;
               lastText = text;
               // Prefer to settle only once the payload is complete, so a pause
@@ -402,19 +444,24 @@ export function useResearchRunner(): UseResearchRunner {
           if (isStale()) return;
           captureError(err, { context: "research_onboarding_runner" });
           setState((s) => ({ ...s, status: "error" }));
+        } finally {
+          // Backstop: release the click gate on every exit path (done, error, or
+          // a stale bail-out, or a reply that never emitted a `plugins` array) so
+          // `awaitPluginInstalls` can never hang.
+          resolvePluginsReady();
         }
       })();
     },
     [],
   );
 
-  const awaitPluginInstall = useCallback(
-    async (name: string): Promise<void> => {
-      const pending = installPromisesRef.current.get(name);
-      if (pending) await pending;
-    },
-    [],
-  );
+  const awaitPluginInstalls = useCallback(async (): Promise<void> => {
+    // Wait only for the plugin decision to be final (so a click that beats the
+    // parse doesn't await an empty map), then for those installs — never for the
+    // rest of the research turn. Resolves instantly when nothing is installable.
+    await pluginsReadyRef.current;
+    await Promise.all([...installPromisesRef.current.values()]);
+  }, []);
 
-  return { ...state, start, awaitPluginInstall };
+  return { ...state, start, awaitPluginInstalls };
 }
