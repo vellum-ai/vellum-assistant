@@ -19,8 +19,8 @@ import {
   test,
 } from "bun:test";
 
+import { _inspectHookCacheForTests } from "../hooks/hook-loader.js";
 import {
-  _inspectHookCacheForTests,
   _inspectToolCacheForTests,
   getCachedUserTools,
   getUserHooksFor,

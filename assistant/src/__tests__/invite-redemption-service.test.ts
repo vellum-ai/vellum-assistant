@@ -40,6 +40,8 @@ function resetGatewayIpc() {
   gatewayIpc.calls = [];
 }
 
+import type { TrustVerdict } from "@vellumai/gateway-client";
+
 import {
   findContactChannel,
   getContact,
@@ -56,6 +58,7 @@ import {
   type InviteRedemptionOutcome,
   redeemInvite,
   redeemInviteByCode,
+  resolveMemberGateStatus,
 } from "../runtime/invite-redemption-service.js";
 import { hashVoiceCode } from "../util/voice-code.js";
 
@@ -761,5 +764,45 @@ describe("invite-redemption-service", () => {
         address: "gw-revoked-code-user",
       }),
     ).toBeNull();
+  });
+});
+
+describe("resolveMemberGateStatus", () => {
+  const memberlessVerdict: TrustVerdict = {
+    trustClass: "unverified_contact",
+    canonicalSenderId: "telegram:blocked-user",
+  };
+  const memberVerdict: TrustVerdict = {
+    trustClass: "trusted_contact",
+    canonicalSenderId: "telegram:active-user",
+    contactId: "contact-1",
+    channelId: "channel-1",
+    type: "telegram",
+    address: "active-user",
+    status: "active",
+    policy: "allow",
+  };
+
+  test("uses the verdict member status when the verdict resolves a member", async () => {
+    expect(await resolveMemberGateStatus(memberVerdict, "blocked")).toBe(
+      "active",
+    );
+  });
+
+  test("falls back to local status when a non-null verdict carries no member", async () => {
+    // A previously blocked contact with a valid invite must stay blocked even
+    // when the verdict is non-null but memberless (externalChatId-only match /
+    // resolutionFailed), so it can't bypass the gate.
+    expect(await resolveMemberGateStatus(memberlessVerdict, "blocked")).toBe(
+      "blocked",
+    );
+  });
+
+  test("falls back to local status when the verdict is null", async () => {
+    expect(await resolveMemberGateStatus(null, "blocked")).toBe("blocked");
+  });
+
+  test("returns null when neither verdict member nor local status is present", async () => {
+    expect(await resolveMemberGateStatus(memberlessVerdict, null)).toBeNull();
   });
 });

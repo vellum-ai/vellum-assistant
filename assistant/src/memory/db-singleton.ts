@@ -1,10 +1,11 @@
 /**
  * Holds the assistant DB connection singletons and their close callbacks.
  *
- * Three connections live here under the same `globalThis.vellumAssistant`
+ * Four connections live here under the same `globalThis.vellumAssistant`
  * namespace, keyed by slot: the `main` daemon connection, the `logs`
- * connection (`assistant-logs.db`), and the `memory` connection
- * (`assistant-memory.db`). Each is opened lazily by `db-connection.ts`.
+ * connection (`assistant-logs.db`), the `memory` connection
+ * (`assistant-memory.db`), and the `telemetry` connection
+ * (`assistant-telemetry.db`). Each is opened lazily by `db-connection.ts`.
  *
  * Lives in its own module (rather than alongside the resolvers in
  * `db-connection.ts`) so test code can reset the singletons without
@@ -33,7 +34,7 @@
  */
 
 /** Which connection a slot holds. */
-export type DbSlotKey = "main" | "logs" | "memory";
+export type DbSlotKey = "main" | "logs" | "memory" | "telemetry";
 
 type DbSlot = {
   db: unknown;
@@ -57,6 +58,7 @@ function slots(): DbSlots {
     main: emptySlot(),
     logs: emptySlot(),
     memory: emptySlot(),
+    telemetry: emptySlot(),
   });
 }
 

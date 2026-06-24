@@ -48,7 +48,6 @@ import { parseIdentityFields } from "./handlers/identity.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
 import { setGlobalSkillIpcSender } from "./meet-host-supervisor.js";
 import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
-import { WorkspaceToolsWatcher } from "./workspace-tools-watcher.js";
 
 const log = getLogger("server");
 
@@ -308,8 +307,6 @@ export class DaemonServer {
 
     this.appSourceWatcher.start((appId) => this.handleAppSourceChange(appId));
 
-    WorkspaceToolsWatcher.getInstance().start();
-
     // Broadcast contacts_changed to all clients when any contact mutation occurs.
     this.unsubscribeContactChange = onContactChange(() => {
       broadcastMessage({ type: "contacts_changed" });
@@ -324,7 +321,6 @@ export class DaemonServer {
     this.evictor.stop();
     this.configWatcher.stop();
     this.appSourceWatcher.stop();
-    WorkspaceToolsWatcher.getInstance().stop();
     this.cliIpc.stop();
     this.skillIpc.stop();
     if (this.unsubscribeContactChange) {

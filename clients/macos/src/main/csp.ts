@@ -29,11 +29,19 @@ const WILDCARD_HOST = `*${ROOT_HOSTNAME}`;
 // loopback ingress is the one shape a static CSP can allowlist. A REMOTE
 // self-hosted ingress (e.g. an ngrok wss:// URL) still can't be — those
 // connections need the planned proxy-through-main follow-up.
+//
+// https://storage.googleapis.com (+ wildcard) in connect-src: teleport streams
+// assistant `.vbundle` bytes directly to/from GCS via platform-issued signed
+// URLs (PUT on export-to-cloud, GET on import-to-local). Those requests leave
+// the renderer for Google's storage host, which isn't a Vellum origin, so the
+// transfer is CSP-blocked without an explicit allowlist. Both the path-style
+// (`storage.googleapis.com/<bucket>/...`) and virtual-hosted
+// (`<bucket>.storage.googleapis.com/...`) URL shapes are covered.
 export const CSP_POLICY = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline' https://${WILDCARD_HOST}`,
   "style-src 'self' 'unsafe-inline'",
-  `connect-src 'self' blob: data: https://${WILDCARD_HOST} wss://${WILDCARD_HOST} https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://api.elevenlabs.io https://api.deepgram.com ws://localhost:* ws://127.0.0.1:*`,
+  `connect-src 'self' blob: data: https://${WILDCARD_HOST} wss://${WILDCARD_HOST} https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://api.elevenlabs.io https://api.deepgram.com https://storage.googleapis.com https://*.storage.googleapis.com ws://localhost:* ws://127.0.0.1:*`,
   "img-src 'self' https: data: blob:",
   "media-src 'self' blob:",
   "worker-src 'self' blob: https://cdn.jsdelivr.net",

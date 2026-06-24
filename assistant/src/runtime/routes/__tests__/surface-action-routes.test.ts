@@ -30,6 +30,7 @@ interface StubConversation {
     surfaceId: string;
     actionId: string;
     data: unknown;
+    sourceActorPrincipalId?: string;
   }>;
 }
 
@@ -148,8 +149,14 @@ function makeStub(id: string): StubConversation {
       surfaceId: string,
       actionId: string,
       data: unknown,
+      sourceActorPrincipalId?: string,
     ) => {
-      stub.surfaceActionCalls.push({ surfaceId, actionId, data });
+      stub.surfaceActionCalls.push({
+        surfaceId,
+        actionId,
+        data,
+        sourceActorPrincipalId,
+      });
       if (stub.handleSurfaceActionThrows) throw stub.handleSurfaceActionThrows;
       return stub.handleSurfaceActionResult;
     },
@@ -357,6 +364,50 @@ describe("triggerSurfaceAction handler", () => {
     expect(rawGetCalls).toHaveLength(1);
     expect(rawGetCalls[0]!.sql).toContain("ESCAPE");
     expect(rawGetCalls[0]!.params).toEqual([`%"surfaceId":"\\%"%`]);
+  });
+
+  test("threads x-vellum-actor-principal-id into handleSurfaceAction", async () => {
+    const live = makeStub("conv-principal");
+    memoryBySurface = live;
+
+    const handler = findHandler("triggerSurfaceAction");
+    await handler({
+      body: { surfaceId: "surf-p", actionId: "act-p" },
+      headers: { "x-vellum-actor-principal-id": "principal-committer" },
+    });
+
+    expect(live.surfaceActionCalls).toEqual([
+      {
+        surfaceId: "surf-p",
+        actionId: "act-p",
+        data: undefined,
+        sourceActorPrincipalId: "principal-committer",
+      },
+    ]);
+  });
+
+  test("resolves dev-bypass to the guardian principal before threading the turn", async () => {
+    httpAuthDisabled = true;
+    mockGuardianList = [guardianDelivery(GUARDIAN_PRINCIPAL)];
+    const live = makeStub("conv-dev-thread");
+    memoryBySurface = live;
+
+    const handler = findHandler("triggerSurfaceAction");
+    await handler({
+      body: { surfaceId: "surf-dt", actionId: "act-dt" },
+      headers: { "x-vellum-actor-principal-id": "dev-bypass" },
+    });
+
+    // dev-bypass is translated so the surface turn matches the SSE host-proxy
+    // client's registered guardian principal (CU/app-control same-actor check).
+    expect(live.surfaceActionCalls).toEqual([
+      {
+        surfaceId: "surf-dt",
+        actionId: "act-dt",
+        data: undefined,
+        sourceActorPrincipalId: GUARDIAN_PRINCIPAL,
+      },
+    ]);
   });
 
   test("propagates accepted=false rejection as BadRequestError", async () => {

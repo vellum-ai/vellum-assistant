@@ -221,7 +221,6 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "runtime/routes/sanity-routes.ts", // Sanity connect/discover routes (reads stored api_token from credential store)
       "runtime/routes/platform-routes.ts", // CLI platform connect/disconnect/status routes (CLI-migrated to IPC)
       "ipc/skill-routes/providers.ts", // host.providers.secureKeys.getProviderKey IPC route (out-of-process SkillHost companion)
-      "daemon/external-plugins-bootstrap.ts", // reads credentials at plugin init (manifest.requiresCredential) via the CES-mediated getSecureKeyAsync path
       "inbound/platform-callback-registration.ts", // managed credential lookup for platform base URL, assistant ID, and API key
       "tts/providers/elevenlabs-provider.ts", // ElevenLabs TTS API key lookup
       "tts/providers/deepgram-provider.ts", // Deepgram TTS API key lookup

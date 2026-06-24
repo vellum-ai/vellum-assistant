@@ -13,12 +13,14 @@ import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getMemoryDbPath } from "../util/memory-db-path.js";
 import { ensureDataDir, getDbPath } from "../util/platform.js";
+import { getTelemetryDbPath } from "../util/telemetry-db-path.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
   getDb,
   getLogsSqlite,
   getMemorySqlite,
   getSqlite,
+  getTelemetrySqlite,
 } from "./db-connection.js";
 import { runMigrationSteps } from "./migrations/run-migrations.js";
 import { validateMigrationState } from "./migrations/validate-migration-state.js";
@@ -78,31 +80,44 @@ function getMemoryTemplateDbPath(): string {
   return `${getTemplateDbPath()}.memory`;
 }
 
+/**
+ * Template path for the dedicated `telemetry` database, kept alongside the
+ * other templates. Captured/restored together with them so the restored test DB
+ * includes `watchdog_events` (created by migration 301 in this file).
+ */
+function getTelemetryTemplateDbPath(): string {
+  return `${getTemplateDbPath()}.telemetry`;
+}
+
 function tryRestoreTemplate(): boolean {
   const templatePath = getTemplateDbPath();
   const logsTemplate = getLogsTemplateDbPath();
   const memoryTemplate = getMemoryTemplateDbPath();
-  // Restore only when ALL THREE templates are present. `saveTemplate()` renames
+  const telemetryTemplate = getTelemetryTemplateDbPath();
+  // Restore only when ALL FOUR templates are present. `saveTemplate()` renames
   // them one at a time, so a parallel test worker can momentarily observe the
-  // main template without its logs/memory siblings. Restoring then would copy
-  // the main DB, leave the dedicated DBs as fresh empty files, and skip
-  // migrations — so the next `llm_request_logs`/`memory_jobs` access would fail
-  // with a missing-table error. Treating a partial set as "not ready" makes such
-  // a worker fall through to a full migrate, which creates every table.
+  // main template without its logs/memory/telemetry siblings. Restoring then
+  // would copy the main DB, leave the dedicated DBs as fresh empty files, and
+  // skip migrations — so the next `watchdog_events`/`llm_request_logs`/
+  // `memory_jobs` access would fail with a missing-table error. Treating a
+  // partial set as "not ready" makes such a worker fall through to a full
+  // migrate, which creates every table.
   if (
     !existsSync(templatePath) ||
     !existsSync(logsTemplate) ||
-    !existsSync(memoryTemplate)
+    !existsSync(memoryTemplate) ||
+    !existsSync(telemetryTemplate)
   ) {
     return false;
   }
   // getDb() hasn't run yet, so the data directory may not exist.
   ensureDataDir();
   copyFileSync(templatePath, getDbPath());
-  // Restore the dedicated logs/memory DBs before their connections open, so the
-  // relocated tables are present.
+  // Restore the dedicated logs/memory/telemetry DBs before their connections
+  // open, so the relocated tables are present.
   copyFileSync(logsTemplate, getLogsDbPath());
   copyFileSync(memoryTemplate, getMemoryDbPath());
+  copyFileSync(telemetryTemplate, getTelemetryDbPath());
   // Open the pre-migrated copy — getDb() will set PRAGMAs but skip migrations.
   getDb();
   return true;
@@ -114,6 +129,7 @@ function saveTemplate(): void {
     getSqlite().exec("PRAGMA wal_checkpoint(TRUNCATE)");
     getLogsSqlite()?.exec("PRAGMA wal_checkpoint(TRUNCATE)");
     getMemorySqlite()?.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    getTelemetrySqlite()?.exec("PRAGMA wal_checkpoint(TRUNCATE)");
 
     const mainTmp = `${getTemplateDbPath()}.${process.pid}`;
     copyFileSync(getDbPath(), mainTmp);
@@ -121,11 +137,14 @@ function saveTemplate(): void {
     copyFileSync(getLogsDbPath(), logsTmp);
     const memoryTmp = `${getMemoryTemplateDbPath()}.${process.pid}`;
     copyFileSync(getMemoryDbPath(), memoryTmp);
+    const telemetryTmp = `${getTelemetryTemplateDbPath()}.${process.pid}`;
+    copyFileSync(getTelemetryDbPath(), telemetryTmp);
 
     // Atomic renames — safe even with parallel test workers.
     renameSync(mainTmp, getTemplateDbPath());
     renameSync(logsTmp, getLogsTemplateDbPath());
     renameSync(memoryTmp, getMemoryTemplateDbPath());
+    renameSync(telemetryTmp, getTelemetryTemplateDbPath());
   } catch {
     // Best effort — next file will just run migrations normally.
   }

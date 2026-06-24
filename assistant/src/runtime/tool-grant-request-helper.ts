@@ -59,9 +59,9 @@ export type ToolGrantRequestResult =
  * Returns a result indicating whether a new request was created, an existing
  * one was deduped, or the escalation failed (no binding, missing identity).
  */
-export function createOrReuseToolGrantRequest(
+export async function createOrReuseToolGrantRequest(
   params: ToolGrantRequestParams,
-): ToolGrantRequestResult {
+): Promise<ToolGrantRequestResult> {
   const {
     assistantId,
     sourceChannel,
@@ -78,7 +78,7 @@ export function createOrReuseToolGrantRequest(
     return { failed: true, reason: "missing_identity" };
   }
 
-  const binding = getGuardianBinding(assistantId, sourceChannel);
+  const binding = await getGuardianBinding(assistantId, sourceChannel);
   if (!binding) {
     log.debug(
       { sourceChannel, assistantId },

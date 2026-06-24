@@ -33,6 +33,7 @@
 
 import * as Sentry from "@sentry/node";
 
+import { recordWatchdogEvent } from "../memory/watchdog-events-store.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("event-loop-watchdog");
@@ -74,11 +75,37 @@ export function evaluateTick(
   return { blockedMs, exceeded: blockedMs >= thresholdMs };
 }
 
+/**
+ * Check name emitted for event-loop block events. The platform's
+ * `watchdog__event_loop_blocking_daily` admin query filters `check_name` to
+ * this exact string, so it is the primary group-by dimension downstream —
+ * keep it stable.
+ */
+export const EVENT_LOOP_BLOCKED_CHECK_NAME = "event_loop_blocked";
+
 function reportBlock(blockedMs: number, thresholdMs: number): void {
   log.warn(
     { blockedMs, thresholdMs, tickIntervalMs: TICK_INTERVAL_MS },
     "event loop blocked",
   );
+  // Persist a `watchdog` telemetry event so the platform can surface
+  // event-loop blocking in the infrastructure admin chart. `recordWatchdogEvent`
+  // no-ops when usage-data collection is disabled (the event is dropped to
+  // honor the opt-out), so the watchdog runs unconditionally without leaking
+  // health data for opted-out owners. Never let a telemetry failure escape
+  // the timer callback — wrap it alongside the Sentry capture below.
+  try {
+    recordWatchdogEvent({
+      checkName: EVENT_LOOP_BLOCKED_CHECK_NAME,
+      value: blockedMs,
+      detail: {
+        threshold_ms: thresholdMs,
+        tick_interval_ms: TICK_INTERVAL_MS,
+      },
+    });
+  } catch {
+    // Never let a telemetry failure escape the timer callback.
+  }
   try {
     Sentry.withScope((scope) => {
       scope.setLevel("warning");
@@ -88,7 +115,7 @@ function reportBlock(blockedMs: number, thresholdMs: number): void {
         threshold_ms: thresholdMs,
         tick_interval_ms: TICK_INTERVAL_MS,
       });
-      Sentry.captureMessage("event_loop_blocked");
+      Sentry.captureMessage(EVENT_LOOP_BLOCKED_CHECK_NAME);
     });
   } catch {
     // Never let a telemetry failure escape the timer callback.

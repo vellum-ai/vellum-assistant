@@ -19621,6 +19621,56 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/onboarding/checkin:
+    post:
+      operationId: onboarding_checkin_post
+      summary: Schedule the onboarding Day 2 check-in
+      description:
+        "Find the first open 15-minute slot between 12pm and 5pm tomorrow (widening to 8am–8pm if booked) on the
+        user's Google Calendar and create the Day 2 Check-in event. Best-effort: returns scheduled=false when no
+        calendar is connected or the calendar scope wasn't granted."
+      tags:
+        - onboarding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userName:
+                  type: string
+                assistantName:
+                  type: string
+                timezone:
+                  type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scheduled:
+                    type: boolean
+                  reason:
+                    type: string
+                  eventId:
+                    type: string
+                  htmlLink:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  start:
+                    type: string
+                  end:
+                    type: string
+                  timeZone:
+                    type: string
+                required:
+                  - scheduled
+                additionalProperties: false
   /v1/pages/{appId}:
     get:
       operationId: pages_by_appId_get

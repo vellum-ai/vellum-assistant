@@ -680,7 +680,7 @@ export async function handleChannelInbound({
       canonicalAssistantId,
       assistantId,
       content,
-      channelId: resolvedMember?.channel.id,
+      channelId: resolvedMember?.channelId,
     });
   }
 
@@ -761,7 +761,7 @@ export async function handleChannelInbound({
       : enforceAdmissionPolicy({
           sourceChannel,
           trustClass: trustCtx.trustClass,
-          memberStatus: resolvedMember?.channel.status,
+          memberStatus: resolvedMember?.status,
           policy: admissionPolicyFromGateway,
         });
   if (!admissionResult.admitted) {
@@ -811,7 +811,7 @@ export async function handleChannelInbound({
         ...(resolvedMember
           ? {
               previousMemberStatus: channelStatusToMemberStatus(
-                resolvedMember.channel.status,
+                resolvedMember.status,
               ),
             }
           : {}),
@@ -935,7 +935,7 @@ export async function handleChannelInbound({
   }
 
   // ── Ingress escalation ──
-  const escalationResponse = handleEscalationIntercept({
+  const escalationResponse = await handleEscalationIntercept({
     resolvedMember,
     canonicalAssistantId,
     sourceChannel,

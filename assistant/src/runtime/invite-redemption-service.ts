@@ -7,9 +7,14 @@
  * persisted, or returned in the outcome.
  */
 
+import {
+  getInboundTrustVerdict,
+  getPhoneCallerVerdict,
+} from "../calls/inbound-trust-reader.js";
 import type { ChannelId } from "../channels/types.js";
 import { findContactChannel, getContact } from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
+import type { ChannelStatus } from "../contacts/types.js";
 import { ipcCallPersistent } from "../ipc/gateway-client.js";
 import { getSqlite } from "../memory/db-connection.js";
 import {
@@ -23,8 +28,26 @@ import {
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { hashVoiceCode } from "../util/voice-code.js";
+import { verdictMemberFromVerdict } from "./trust-verdict-consumer.js";
 
 const log = getLogger("invite-redemption-service");
+
+/**
+ * Resolve the sender's existing member status for the already_member/blocked
+ * gate from the gateway trust verdict. Falls back to the local channel status
+ * when the verdict is absent or carries no resolvable member status (e.g. an
+ * externalChatId-only match or a resolutionFailed verdict), so a locally
+ * blocked contact can't bypass the gate.
+ */
+export async function resolveMemberGateStatus(
+  verdict: Awaited<ReturnType<typeof getInboundTrustVerdict>>,
+  localChannelStatus: ChannelStatus | null,
+): Promise<ChannelStatus | null> {
+  const memberStatus = verdict
+    ? verdictMemberFromVerdict(verdict)?.status
+    : null;
+  return memberStatus ?? localChannelStatus;
+}
 
 // ---------------------------------------------------------------------------
 // Gateway lifecycle bridge (shared by all redemption paths)
@@ -218,18 +241,22 @@ export async function redeemInvite(params: {
   const targetMismatch =
     existingContact && existingContact.id !== invite.contactId;
 
-  if (
-    existingChannel &&
-    existingChannel.status === "active" &&
-    !targetMismatch
-  ) {
+  const gateStatus = await resolveMemberGateStatus(
+    await getInboundTrustVerdict({
+      channelType: sourceChannel as ChannelId,
+      actorExternalId: canonicalUserId,
+    }),
+    existingChannel?.status ?? null,
+  );
+
+  if (existingChannel && gateStatus === "active" && !targetMismatch) {
     return { ok: true, type: "already_member", memberId: existingChannel.id };
   }
 
   // Blocked members cannot bypass the guardian's explicit block via invite
   // links. Return the same generic failure as an invalid token to avoid
   // leaking membership status to the caller.
-  if (existingChannel && existingChannel.status === "blocked") {
+  if (existingChannel && gateStatus === "blocked") {
     return { ok: false, reason: "invalid_token" };
   }
 
@@ -465,11 +492,12 @@ export async function redeemVoiceInviteCode(params: {
   // should bind the sender's identity to the target contact, not the existing one.
   const targetMismatch = voiceContact && voiceContact.id !== invite.contactId;
 
-  if (
-    existingVoiceChannel &&
-    existingVoiceChannel.status === "active" &&
-    !targetMismatch
-  ) {
+  const gateStatus = await resolveMemberGateStatus(
+    await getPhoneCallerVerdict(canonicalCallerId),
+    existingVoiceChannel?.status ?? null,
+  );
+
+  if (existingVoiceChannel && gateStatus === "active" && !targetMismatch) {
     return {
       ok: true,
       type: "already_member",
@@ -478,7 +506,7 @@ export async function redeemVoiceInviteCode(params: {
   }
 
   // Blocked members cannot bypass the guardian's explicit block
-  if (existingVoiceChannel && existingVoiceChannel.status === "blocked") {
+  if (existingVoiceChannel && gateStatus === "blocked") {
     return { ok: false, reason: "invalid_or_expired" };
   }
 
@@ -639,18 +667,22 @@ export async function redeemInviteByCode(params: {
   const targetMismatch =
     existingContact && existingContact.id !== invite.contactId;
 
-  if (
-    existingChannel &&
-    existingChannel.status === "active" &&
-    !targetMismatch
-  ) {
+  const gateStatus = await resolveMemberGateStatus(
+    await getInboundTrustVerdict({
+      channelType: sourceChannel as ChannelId,
+      actorExternalId: canonicalUserId,
+    }),
+    existingChannel?.status ?? null,
+  );
+
+  if (existingChannel && gateStatus === "active" && !targetMismatch) {
     return { ok: true, type: "already_member", memberId: existingChannel.id };
   }
 
   // Blocked members cannot bypass the guardian's explicit block via invite
   // codes. Return the same generic failure as an invalid token to avoid
   // leaking membership status to the caller.
-  if (existingChannel && existingChannel.status === "blocked") {
+  if (existingChannel && gateStatus === "blocked") {
     return { ok: false, reason: "invalid_token" };
   }
 
