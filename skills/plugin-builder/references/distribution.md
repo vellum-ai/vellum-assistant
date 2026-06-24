@@ -155,7 +155,10 @@ The manifest has a top-level `name`, an optional `owner`, and a `plugins` array.
 ```json
 {
   "name": "vellum-assistant",
-  "owner": { "name": "Vellum", "url": "https://github.com/vellum-ai/vellum-assistant" },
+  "owner": {
+    "name": "Vellum",
+    "url": "https://github.com/vellum-ai/vellum-assistant"
+  },
   "plugins": [
     {
       "name": "example-plugin",
@@ -175,17 +178,17 @@ The manifest has a top-level `name`, an optional `owner`, and a `plugins` array.
 
 The fields each entry can set:
 
-| Field | Type | Required | Description |
-| ----- | ---- | -------- | ----------- |
-| `name` | `string` | Required | The install name. `assistant plugins install <name>` resolves to this entry, and the name must be a single kebab-case segment. |
-| `source.source` | `"github"` | Required | Source kind. Only github sources are resolved today. |
-| `source.repo` | `string` | Required | `owner/repo` of the external repository to fetch from. |
-| `source.ref` | `string` | Required | The full commit SHA (40 or 64 hex chars) to fetch. Tags and branches are rejected. |
-| `source.path` | `string` | Optional | Directory within the repo holding the plugin root. Omit for the repository root; `..` segments are rejected. |
-| `description` | `string` | Optional | Short summary shown in the catalog. |
-| `category` | `string` | Optional | Grouping label surfaced in the catalog. |
-| `homepage` | `string` | Optional | Link to the plugin's home, surfaced in the catalog. |
-| `license` | `string` | Optional | Informational license identifier, surfaced where present. |
+| Field           | Type       | Required | Description                                                                                                                    |
+| --------------- | ---------- | -------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `name`          | `string`   | Required | The install name. `assistant plugins install <name>` resolves to this entry, and the name must be a single kebab-case segment. |
+| `source.source` | `"github"` | Required | Source kind. Only github sources are resolved today.                                                                           |
+| `source.repo`   | `string`   | Required | `owner/repo` of the external repository to fetch from.                                                                         |
+| `source.ref`    | `string`   | Required | The full commit SHA (40 or 64 hex chars) to fetch. Tags and branches are rejected.                                             |
+| `source.path`   | `string`   | Optional | Directory within the repo holding the plugin root. Omit for the repository root; `..` segments are rejected.                   |
+| `description`   | `string`   | Optional | Short summary shown in the catalog.                                                                                            |
+| `category`      | `string`   | Optional | Grouping label surfaced in the catalog.                                                                                        |
+| `homepage`      | `string`   | Optional | Link to the plugin's home, surfaced in the catalog.                                                                            |
+| `license`       | `string`   | Optional | Informational license identifier, surfaced where present.                                                                      |
 
 ## Why entries pin a commit
 

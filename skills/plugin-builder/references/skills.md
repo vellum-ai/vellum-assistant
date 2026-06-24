@@ -14,15 +14,15 @@ The Assistant decides when to load a skill from its `description` and activation
 
 These are the fields the `SKILL.md` frontmatter can set. Only `name` and `description` are required; everything under `metadata` is optional and refines how the skill is presented and matched.
 
-| Field | Type | Required | Description |
-| ----- | ---- | -------- | ----------- |
-| `name` | `string` | Yes | Skill identifier. Keep it stable, since the Assistant refers to the skill by this name when it loads it. |
-| `description` | `string` | Yes | What the skill does and when to use it. The Assistant matches against this to decide whether to load the skill, so write it for the model, not for a human reader. |
-| `metadata.emoji` | `string` | No | Glyph shown next to the skill in clients that render a skill list. |
-| `metadata.vellum.display-name` | `string` | No | Human-friendly label for the skill. Falls back to name when omitted. |
-| `metadata.vellum.activation-hints` | `string[]` | No | Plain-language situations where the skill should activate. These sharpen the match beyond the description. |
-| `metadata.vellum.avoid-when` | `string[]` | No | Situations where the skill should not activate, used to keep it from firing on adjacent-but-wrong requests. |
-| `metadata.vellum.category` | `string` | No | Grouping used when the skill is listed in a client. Defaults to "system". |
+| Field                              | Type       | Required | Description                                                                                                                                                        |
+| ---------------------------------- | ---------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `name`                             | `string`   | Yes      | Skill identifier. Keep it stable, since the Assistant refers to the skill by this name when it loads it.                                                           |
+| `description`                      | `string`   | Yes      | What the skill does and when to use it. The Assistant matches against this to decide whether to load the skill, so write it for the model, not for a human reader. |
+| `metadata.emoji`                   | `string`   | No       | Glyph shown next to the skill in clients that render a skill list.                                                                                                 |
+| `metadata.vellum.display-name`     | `string`   | No       | Human-friendly label for the skill. Falls back to name when omitted.                                                                                               |
+| `metadata.vellum.activation-hints` | `string[]` | No       | Plain-language situations where the skill should activate. These sharpen the match beyond the description.                                                         |
+| `metadata.vellum.avoid-when`       | `string[]` | No       | Situations where the skill should not activate, used to keep it from firing on adjacent-but-wrong requests.                                                        |
+| `metadata.vellum.category`         | `string`   | No       | Grouping used when the skill is listed in a client. Defaults to "system".                                                                                          |
 
 ## Resolution order
 
