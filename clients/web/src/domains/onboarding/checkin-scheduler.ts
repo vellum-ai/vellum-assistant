@@ -1,27 +1,20 @@
 /**
- * Fires the "Day 2 Check-in" prompt into a dedicated, fresh conversation the
- * moment the user grants Google Calendar access on the check-in onboarding
- * page.
+ * Schedules the "Day 2 Check-in" calendar event the moment the user grants
+ * Google Calendar access on the check-in onboarding page.
  *
- * SPIKE — checkin-onboarding flow.
- *
- * This is intentionally a SEPARATE conversation from the main onboarding
- * handoff (which carries the research prompt): we explicitly mint one via
- * `conversationsPost` and post the check-in prompt into it, rather than
- * server-minting by omitting the conversation id, so the scheduling turn can
- * never collide with the onboarding opener.
+ * Programmatic flow: rather than minting a conversation and asking the
+ * assistant to book the slot in natural language, this calls a dedicated
+ * daemon endpoint that resolves the user's calendar, finds the first open
+ * 15-minute slot tomorrow afternoon (12pm–5pm, widening to 8am–8pm if booked),
+ * and creates the event server-side with the locked title + HTML description.
  *
  * Best-effort and fire-and-forget: a failure here must not block the
  * onboarding handoff, so every error is swallowed and surfaced only via the
- * returned boolean. Talks to the daemon through the generated SDK directly —
- * `@/domains/chat/api/messages` lives in another domain and is import-banned
- * from onboarding.
+ * returned boolean. The endpoint itself returns `scheduled: false` (not an
+ * error) when no calendar is connected or the calendar scope wasn't granted.
  */
 
-import { conversationsPost, messagesPost } from "@/generated/daemon/sdk.gen";
-import type { MessagesPostData } from "@/generated/daemon/types.gen";
-
-import { buildCheckinPrompt } from "@/domains/onboarding/checkin-prompt";
+import { onboardingCheckinPost } from "@/generated/daemon/sdk.gen";
 
 export interface ScheduleCheckinOptions {
   assistantId: string;
@@ -30,53 +23,38 @@ export interface ScheduleCheckinOptions {
 }
 
 /**
- * Create a dedicated conversation and post the Day 2 Check-in prompt into it.
- * Returns the new conversation id on success, or `null` if anything failed
- * (the caller treats this as "best-effort, carry on").
+ * Book the Day 2 Check-in event. Returns `true` when an event was created,
+ * `false` otherwise (no calendar connected, scope not granted, or any error —
+ * all treated identically as "best-effort, carry on").
  */
 export async function scheduleCheckin({
   assistantId,
   userName,
   assistantName,
-}: ScheduleCheckinOptions): Promise<string | null> {
+}: ScheduleCheckinOptions): Promise<boolean> {
   try {
-    const conversation = await conversationsPost({
-      path: { assistant_id: assistantId },
-      body: { conversationType: "standard", title: "Setting up your check-in" },
-      throwOnError: false,
-    });
-    const conversationId = conversation.data?.id;
-    if (!conversation.response?.ok || !conversationId) {
-      return null;
-    }
-
-    const body: MessagesPostData["body"] = {
-      conversationId,
-      content: buildCheckinPrompt({ userName, assistantName }),
-      sourceChannel: "vellum",
-      interface: "vellum",
-      clientMessageId: crypto.randomUUID(),
-    };
-    // Carry the browser timezone so "tomorrow"/"evening" resolve to the user's
-    // local clock when the assistant books the slot. Mirrors the field
-    // `postChatMessage` sends; computed inline to avoid a cross-domain import.
+    // Carry the browser timezone so "tomorrow" and the 12pm–5pm window resolve
+    // to the user's local clock when the daemon books the slot. The daemon
+    // falls back to its own timezone cascade when this is absent.
+    let timezone: string | undefined;
     try {
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      if (tz) body.clientTimezone = tz;
+      timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
     } catch {
-      // Intl unavailable — daemon falls back to its own timezone cascade.
+      timezone = undefined;
     }
 
-    const message = await messagesPost({
+    const result = await onboardingCheckinPost({
       path: { assistant_id: assistantId },
-      body,
+      body: {
+        userName: userName?.trim() || undefined,
+        assistantName: assistantName?.trim() || undefined,
+        timezone,
+      },
       throwOnError: false,
     });
-    if (!message.response?.ok) {
-      return null;
-    }
-    return conversationId;
+
+    return result.response?.ok === true && result.data?.scheduled === true;
   } catch {
-    return null;
+    return false;
   }
 }
