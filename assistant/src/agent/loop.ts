@@ -95,7 +95,44 @@ export interface AgentLoopConfig {
   minTurnIntervalMs?: number;
   /** Override the default prompt cache TTL sent to the provider (e.g. "5m" for short-lived subagents). */
   cacheTtl?: "5m" | "1h";
+  /**
+   * Give every LLM call provider-native (server-side) web search, gated on the
+   * resolved provider's {@link Provider.supportsNativeWebSearch} capability.
+   * When both are true, the loop appends a `web_search`-named tool to the
+   * outbound request — which Anthropic/OpenAI substitute for their server-side
+   * search tool, running the search inline and returning results without a
+   * client tool round-trip — and forces `tool_choice: auto` so the model may
+   * call it. Non-native providers get nothing.
+   *
+   * This is a SERVER tool the provider runs itself, distinct from the client
+   * tool list (`tools` / `resolveTools`): it is never executed by
+   * {@link AgentLoopConstructorOptions.toolExecutor} and does not require any
+   * client-tool allowlist entry. Used by the tool-less advisor consult to
+   * ground its guidance with live web access while staying one-shot for client
+   * tools. Defaults to false — existing behavior.
+   */
+  enableNativeWebSearch?: boolean;
 }
+
+/**
+ * The `web_search`-named tool the loop appends when
+ * {@link AgentLoopConfig.enableNativeWebSearch} is set on a native provider.
+ * Anthropic/OpenAI intercept a tool with this name and substitute their own
+ * server-side web search (run inline, no client execution), so the exact
+ * `input_schema` is informational — the provider supplies the real schema.
+ */
+const NATIVE_WEB_SEARCH_TOOL: ToolDefinition = {
+  name: "web_search",
+  description:
+    "Search the web for current information to ground your response.",
+  input_schema: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "The search query." },
+    },
+    required: ["query"],
+  },
+};
 
 export interface CheckpointInfo {
   turnIndex: number;
@@ -1240,9 +1277,25 @@ export class AgentLoop {
 
         // Resolve tools for this turn: use the dynamic resolver if provided,
         // otherwise fall back to the static tool list.
-        const currentTools = this.resolveTools
+        const resolvedTools = this.resolveTools
           ? this.resolveTools(history)
           : this.tools;
+
+        // Provider-native web search: append a `web_search`-named tool that the
+        // provider substitutes for its server-side search (run inline, no client
+        // execution), gated STRICTLY on the resolved provider's capability so a
+        // non-native provider never sees an unexecutable client tool. This is a
+        // SERVER tool — it bypasses the client allowlist and the tool executor —
+        // so the tool-less advisor consult can ground its guidance with live web
+        // access while staying one-shot for client tools. Skip when a
+        // `web_search` tool is already present so we never duplicate the name.
+        const attachNativeWebSearch =
+          this.config.enableNativeWebSearch === true &&
+          this.provider.supportsNativeWebSearch === true &&
+          !resolvedTools.some((t) => t.name === NATIVE_WEB_SEARCH_TOOL.name);
+        const currentTools = attachNativeWebSearch
+          ? [...resolvedTools, NATIVE_WEB_SEARCH_TOOL]
+          : resolvedTools;
 
         // Field precedence (highest wins):
         //   1. Per-run explicit (`runModel`)
@@ -1286,6 +1339,11 @@ export class AgentLoop {
 
         if (this.config.toolChoice) {
           providerConfig.tool_choice = this.config.toolChoice;
+        } else if (attachNativeWebSearch) {
+          // The native web-search tool is the only tool on this turn (the
+          // advisor consult is otherwise tool-less). Let the model decide
+          // whether to search rather than forcing it.
+          providerConfig.tool_choice = { type: "auto" };
         }
 
         if (this.config.cacheTtl) {
