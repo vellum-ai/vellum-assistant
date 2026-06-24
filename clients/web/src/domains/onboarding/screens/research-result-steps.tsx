@@ -23,13 +23,24 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
-import { useOnboardingTone, type OnboardingTone } from "@/domains/onboarding/onboarding-tone";
+import {
+  toneForBg,
+  useOnboardingTone,
+  type OnboardingTone,
+} from "@/domains/onboarding/onboarding-tone";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import {
   pluginDisplayName,
   type ResearchFact,
   type ResearchSuggestion,
 } from "@/utils/research-facts";
+
+// Once the calendar step blends the background to black, every step from there
+// on sits on a constant dark surface — so their text/UI must be a constant
+// light tone, NOT one derived from the chosen avatar color (a light avatar like
+// yellow would otherwise render dark text, invisible on black). The avatar color
+// is still used where it's intentional (e.g. the plugin pills).
+const DARK_TONE = toneForBg("#17191C");
 
 function useViewportSize() {
   const [size, setSize] = useState(() => ({
@@ -235,7 +246,7 @@ export function LookingYouUpStep({
    */
   ready: boolean;
 }) {
-  const tone = useOnboardingTone();
+  const tone = DARK_TONE;
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
@@ -299,7 +310,7 @@ export function ResearchResultsStep({
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
 }) {
-  const tone = useOnboardingTone();
+  const tone = DARK_TONE;
   const reduce = useReducedMotion();
   // Locally track removed claims by their text so a user can prune what's wrong
   // without mutating the streamed list (which may still be growing).
@@ -453,12 +464,16 @@ type Anchor = { x: number; y: number };
 function PluginSetupNote({
   pluginLabels,
   tone,
+  pillTone,
   reduce,
   slotRef,
   revealed,
 }: {
   pluginLabels: string[];
+  /** Surface tone for the line's text (constant light on the dark surface). */
   tone: OnboardingTone;
+  /** Avatar tone for the pills (their fill + contrast text). */
+  pillTone: OnboardingTone;
   reduce: boolean | null;
   slotRef: React.RefObject<HTMLDivElement | null>;
   /** True once the avatar has landed — the text only appears then. */
@@ -479,7 +494,7 @@ function PluginSetupNote({
         animate={{ opacity: revealed ? 1 : 0, x: revealed ? 0 : -6 }}
         transition={reduce ? { duration: 0 } : { duration: 0.35 }}
       >
-        Already set up the {joinPills(pluginLabels, tone)} plugin{plural ? "s" : ""}{" "}
+        Already set up the {joinPills(pluginLabels, pillTone)} plugin{plural ? "s" : ""}{" "}
         to help with your work
       </motion.p>
     </div>
@@ -568,7 +583,9 @@ export function SuggestionsStep({
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
 }) {
-  const tone = useOnboardingTone();
+  // Constant dark surface for the UI; the avatar tone is only for the pills.
+  const tone = DARK_TONE;
+  const avatarTone = useOnboardingTone();
   const reduce = useReducedMotion();
   // Show real suggestions as they arrive; only fall back once the turn settles
   // with nothing, so we never flash generic prompts over an in-flight result.
@@ -701,6 +718,7 @@ export function SuggestionsStep({
           <PluginSetupNote
             pluginLabels={pluginLabels}
             tone={tone}
+            pillTone={avatarTone}
             reduce={reduce}
             slotRef={noteSlotRef}
             revealed={landed}
