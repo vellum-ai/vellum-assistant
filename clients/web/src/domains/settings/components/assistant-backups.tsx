@@ -215,10 +215,10 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
             <thead>
               <tr className="border-b border-[var(--border-base)] text-left text-body-small-default text-[var(--content-secondary)]">
                 <th className="pb-2 pr-4">Snapshot Name</th>
-                <th className="pb-2 pr-4">Type</th>
-                <th className="pb-2 pr-4">Ready</th>
-                <th className="pb-2 pr-4">Created</th>
-                <th className="pb-2">Actions</th>
+                <th className="whitespace-nowrap pb-2 pr-4">Type</th>
+                <th className="whitespace-nowrap pb-2 pr-4">Ready</th>
+                <th className="whitespace-nowrap pb-2 pr-4">Created</th>
+                <th className="whitespace-nowrap pb-2">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -230,7 +230,7 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
                   <td className="py-2.5 pr-4">
                     <div className="group/snapshot flex items-center gap-1">
                       <code
-                        className="max-w-[240px] truncate text-body-small-default text-[var(--content-default)]"
+                        className="truncate text-body-small-default text-[var(--content-default)]"
                         title={backup.snapshot_name}
                       >
                         {backup.snapshot_name}
@@ -251,18 +251,18 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
                       </button>
                     </div>
                   </td>
-                  <td className="py-2.5 pr-4">
+                  <td className="whitespace-nowrap py-2.5 pr-4">
                     <BackupTypeBadge type={backup.backup_type} />
                   </td>
-                  <td className="py-2.5 pr-4">
+                  <td className="whitespace-nowrap py-2.5 pr-4">
                     <Tag tone={backup.ready_to_use ? "positive" : "warning"}>
                       {backup.ready_to_use ? "Ready" : "Pending"}
                     </Tag>
                   </td>
-                  <td className="py-2.5 pr-4 text-body-medium-default text-[var(--content-default)]">
+                  <td className="whitespace-nowrap py-2.5 pr-4 text-body-medium-default text-[var(--content-default)]">
                     {formatTimestamp(backup.created_at)}
                   </td>
-                  <td className="py-2.5">
+                  <td className="whitespace-nowrap py-2.5">
                     <Button
                       variant="ghost"
                       size="compact"
