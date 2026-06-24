@@ -19,24 +19,20 @@
  *    dropped from the registry via {@link unregisterPlugin} so none of its
  *    hooks participate in the turn lifecycle. This is the primary mechanism for
  *    shipping experimental plugins behind a feature flag.
- * 4. Resolves the plugin's `manifest.requiresCredential` entries via the
- *    credential store helper ({@link getSecureKeyAsync}). In Docker mode
- *    that helper goes through the CES HTTP API transparently; in local mode
- *    it hits the encrypted file store / CES RPC backend.
- * 5. Validates the config block under `plugins.<name>` against
+ * 4. Validates the config block under `plugins.<name>` against
  *    `manifest.config` if the manifest supplies a parser-like validator
  *    (Zod schemas with `.parse()` are supported; anything else is passed
  *    through untouched).
- * 6. Creates `<workspaceDir>/plugins-data/<plugin>/` on demand for per-plugin
+ * 5. Creates `<workspaceDir>/plugins-data/<plugin>/` on demand for per-plugin
  *    writable state and exposes it via {@link PluginInitContext.pluginStorageDir}.
- * 7. For each surviving plugin, registers its contributed tools and routes
+ * 6. For each surviving plugin, registers its contributed tools and routes
  *    into their global registries via {@link registerPluginTools} and
  *    {@link registerSkillRoute}. Contributions land BEFORE `init()` so
  *    the plugin's hook can observe a registry where its own model-visible
  *    surface is already wired — useful for plugins that want to attach
  *    metadata, warm caches, or otherwise interact with their own
  *    contributions during initialization.
- * 8. Awaits `plugin.init(ctx)` sequentially. An init failure is contained to
+ * 7. Awaits `plugin.init(ctx)` sequentially. An init failure is contained to
  *    the offending plugin: its already-registered tools and routes are rolled
  *    back, it is dropped from the registry, the failure is logged, and
  *    bootstrap continues with the remaining plugins. A single plugin's failure
@@ -76,7 +72,6 @@ import {
   type SkillRouteHandle,
   unregisterSkillRoute,
 } from "../runtime/skill-route-registry.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
 import {
   registerPluginTools,
   unregisterPluginTools,
@@ -87,25 +82,6 @@ import { APP_VERSION } from "../version.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
 
 const log = getLogger("plugins-bootstrap");
-
-/**
- * Resolve one credential value. Returns the raw secret string or throws a
- * {@link PluginExecutionError} tagged with the plugin name so the caller can
- * fail startup with clear attribution.
- */
-async function resolveCredentialOrThrow(
-  pluginName: string,
-  credentialKey: string,
-): Promise<string> {
-  const value = await getSecureKeyAsync(credentialKey);
-  if (value === undefined || value === "") {
-    throw new PluginExecutionError(
-      `plugin ${pluginName} requires credential "${credentialKey}" but the credential store returned no value`,
-      pluginName,
-    );
-  }
-  return value;
-}
 
 /**
  * Validate a plugin config block. If the manifest supplies a parser-like
@@ -346,11 +322,6 @@ async function initializePlugin(
   let initCompleted = false;
 
   try {
-    const credentials: Record<string, string> = {};
-    for (const key of plugin.manifest.requiresCredential ?? []) {
-      credentials[key] = await resolveCredentialOrThrow(name, key);
-    }
-
     const config = validatePluginConfig(
       name,
       plugin.manifest.config,
@@ -359,7 +330,6 @@ async function initializePlugin(
 
     const initContext = {
       config,
-      credentials,
       logger: log.child({ plugin: name }),
       pluginStorageDir: ensurePluginStorageDir(name),
       assistantVersion: APP_VERSION,

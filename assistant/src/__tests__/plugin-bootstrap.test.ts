@@ -4,32 +4,19 @@
  * Covers:
  * - A noop `init()` fires with a valid `PluginInitContext` that exposes every
  *   documented field.
- * - `requiresCredential` entries are resolved through the credential store
- *   helper and arrive in `ctx.credentials`.
  * - Version-mismatch registration fails with an error that names the plugin
  *   (the registry enforces this at `registerPlugin` time, so bootstrap never
  *   sees the malformed plugin).
  * - Shutdown hook walks plugins in reverse registration order.
  *
- * Uses `mock.module` to stub `security/secure-keys.js` so credential
- * resolution doesn't hit the real backend. `resetPluginRegistryForTests()`
- * isolates registry state between cases.
+ * `resetPluginRegistryForTests()` isolates registry state between cases.
  */
 
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-// Mock credential store before importing the bootstrap module so the
-// module-under-test captures the stubbed binding.
-const getSecureKeyAsyncMock = mock(
-  async (_account: string): Promise<string | undefined> => undefined,
-);
-mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyAsync: getSecureKeyAsyncMock,
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { clearFeatureFlagOverridesCache } from "../config/assistant-feature-flags.js";
 import { bootstrapPlugins } from "../daemon/external-plugins-bootstrap.js";
@@ -68,7 +55,6 @@ function buildPlugin(
     onShutdown?: () => Promise<void>;
   } = {},
   options: {
-    requiresCredential?: string[];
     requiresFlag?: string[];
   } = {},
 ): Plugin {
@@ -94,9 +80,6 @@ function buildPlugin(
     manifest: {
       name,
       version: "0.0.1",
-      ...(options.requiresCredential
-        ? { requiresCredential: options.requiresCredential }
-        : {}),
       ...(options.requiresFlag ? { requiresFlag: options.requiresFlag } : {}),
     },
     ...rest,
@@ -107,8 +90,6 @@ function buildPlugin(
 describe("plugin bootstrap", () => {
   beforeEach(async () => {
     resetPluginRegistryForTests();
-    getSecureKeyAsyncMock.mockReset();
-    getSecureKeyAsyncMock.mockImplementation(async () => undefined);
     // Reset feature-flag cache so tests start from a known state. Individual
     // tests that exercise `requiresFlag` use `setOverridesForTesting(...)`
     // to install their own overrides.
@@ -133,7 +114,6 @@ describe("plugin bootstrap", () => {
 
     // Every documented field must be present on the context passed to init.
     expect(ctx.config).toBeUndefined(); // no `plugins.alpha` block in fake config
-    expect(ctx.credentials).toEqual({});
     expect(ctx.logger).toBeDefined();
     expect(typeof (ctx.logger as { info: unknown }).info).toBe("function");
     // Storage dir lives under getWorkspaceDir()/plugins-data/<name> and must have
@@ -143,52 +123,6 @@ describe("plugin bootstrap", () => {
     );
     expect(existsSync(ctx.pluginStorageDir)).toBe(true);
     expect(ctx.assistantVersion).toBe(APP_VERSION);
-  });
-
-  test("credential resolution: init receives the resolved value under credentials[key]", async () => {
-    getSecureKeyAsyncMock.mockImplementation(async (account: string) => {
-      if (account === "some-key") return "super-secret-value";
-      return undefined;
-    });
-
-    let received: PluginInitContext | undefined;
-    const plugin = buildPlugin(
-      "credentialed",
-      {
-        async init(ctx) {
-          received = ctx;
-        },
-      },
-      { requiresCredential: ["some-key"] },
-    );
-    registerPlugin(plugin);
-
-    await bootstrapPlugins();
-
-    expect(getSecureKeyAsyncMock).toHaveBeenCalledTimes(1);
-    expect(getSecureKeyAsyncMock).toHaveBeenCalledWith("some-key");
-    expect(received?.credentials).toEqual({ "some-key": "super-secret-value" });
-  });
-
-  test("credential resolution: a plugin whose required credential is missing is skipped, not fatal", async () => {
-    // GIVEN a plugin that requires a credential the store cannot resolve
-    getSecureKeyAsyncMock.mockImplementation(async () => undefined);
-    registerPlugin(
-      buildPlugin(
-        "missing-cred",
-        { async init() {} },
-        { requiresCredential: ["absent-key"] },
-      ),
-    );
-
-    // WHEN bootstrap runs
-    // THEN it completes without throwing — the unresolvable credential is
-    // contained to that plugin (same per-plugin isolation as an init throw)
-    await bootstrapPlugins();
-
-    // AND the plugin is dropped from the registry
-    const names = getRegisteredPlugins().map((p) => p.manifest.name);
-    expect(names).not.toContain("missing-cred");
   });
 
   test("version mismatch: external plugin loader rejects when peerDependency unsatisfied", async () => {
@@ -555,11 +489,7 @@ describe("plugin bootstrap", () => {
     registerPlugin(plugin);
 
     // Create the .disabled sentinel in the workspace plugins dir.
-    const sentinelDir = join(
-      TEST_WORKSPACE_DIR,
-      "plugins",
-      "sentinel-off",
-    );
+    const sentinelDir = join(TEST_WORKSPACE_DIR, "plugins", "sentinel-off");
     const { mkdir, writeFile } = await import("node:fs/promises");
     await mkdir(sentinelDir, { recursive: true });
     await writeFile(join(sentinelDir, ".disabled"), "");
