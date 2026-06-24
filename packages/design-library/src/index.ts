@@ -199,9 +199,9 @@ export {
   type StatSquareTone,
 } from "./components/stat-square";
 export {
-  SkillRow,
-  type SkillRowProps,
-} from "./components/skill-row";
+  ListRow,
+  type ListRowProps,
+} from "./components/list-row";
 export {
   ShortcutKeys,
   parseAccelerator,
