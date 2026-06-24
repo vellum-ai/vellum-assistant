@@ -65,7 +65,11 @@ export function SubagentAvatarBadge({
           data-testid="subagent-avatar-badge-status"
           data-status={status}
           aria-label={status && STATUS_ARIA_LABEL[status]}
-          className="absolute bottom-[3px] left-1/2 flex -translate-x-1/2 items-center justify-center"
+          // Running dots sit at bottom-[6px] per the mock (6063:148464);
+          // the terminal glyphs stay at bottom-[3px].
+          className={`absolute left-1/2 flex -translate-x-1/2 items-center justify-center ${
+            badgeState === "in-flight" ? "bottom-[6px]" : "bottom-[3px]"
+          }`}
         >
           {badgeState === "in-flight" && (
             <ThreeDotIndicator dotSize={3} gap={2} />
