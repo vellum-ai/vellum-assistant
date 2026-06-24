@@ -477,7 +477,12 @@ export {
   type WorkflowLeaf,
   WorkflowLeafSchema,
 } from "./responses/workflow-journal.js";
-export { type CardSurfaceData, CardSurfaceDataSchema } from "./surfaces.js";
+export {
+  type CardSurfaceData,
+  CardSurfaceDataSchema,
+  type FileUploadSurfaceData,
+  FileUploadSurfaceDataSchema,
+} from "./surfaces.js";
 
 /**
  * Canonical SSE event schema for the assistant runtime.
