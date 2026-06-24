@@ -1644,9 +1644,9 @@ describe("buildSubagentStepDetails", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Reducer extraction (PR 1) — applyTimelineEvent / computeSubagentSteps must
-// reproduce the same `steps` the full projection produces, so the later
-// incremental-replay path can't drift from `computeSubagentCardData`.
+// `applyTimelineEvent` / `computeSubagentSteps` must reproduce the same `steps`
+// the full projection produces, so the incremental-replay path can't drift from
+// `computeSubagentCardData`.
 // ---------------------------------------------------------------------------
 
 describe("computeSubagentSteps / applyTimelineEvent reproduce computeSubagentCardData", () => {
@@ -1750,20 +1750,22 @@ describe("computeSubagentSteps / applyTimelineEvent reproduce computeSubagentCar
 });
 
 // ---------------------------------------------------------------------------
-// Heavy-projection memoization keyed on `entry.events` (PR 2)
+// Heavy projections recompute only when `entry.events` changes
 //
 // The panel keys its two heavy O(n) walks (`computeSubagentSteps` and
 // `buildSubagentStepDetails`) on `entry.events`, not `entry`. The store bumps
 // `entry` identity on every token/status/usage update while keeping
-// `entry.events` reference-stable, so a memo on `[entry.events]` skips the walk
-// when only the status/usage changed — and re-runs when the event list itself
-// changes. These tests pin that contract: a `[entry.events]`-keyed memo is the
-// correct dependency.
+// `entry.events` reference-stable, so projecting from `entry.events` skips the
+// walk when only the status/usage changed — and re-runs when the event list
+// itself changes. These tests pin that contract: projection is keyed on the
+// `entry.events` reference.
 // ---------------------------------------------------------------------------
 
-describe("heavy projections are memoizable on entry.events (PR 2)", () => {
-  // Minimal stand-in for React's `useMemo`: recompute only when the dependency
-  // reference changes. Mirrors the panel's `useMemo(..., [entry.events])`.
+describe("heavy projections are memoizable on entry.events", () => {
+  // Minimal stand-in for dependency-keyed memoization: recompute only when the
+  // dependency reference changes. Mirrors how the projection hooks
+  // (`useSubagentSteps` / `useSubagentStepDetails`) recompute only when the
+  // `entry.events` reference changes.
   function memoizeByDep<Dep, Result>(compute: (dep: Dep) => Result) {
     let lastDep: Dep | undefined;
     let lastResult: Result;
