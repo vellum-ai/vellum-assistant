@@ -133,9 +133,11 @@ initializeTools()             # core tools register
     → loadUserPlugins()
     → bootstrapPlugins()
 
-# on every conversation read:
-getOrCreateConversation() / SubagentManager.spawn()
-  → loadWorkspaceTools()      # reconcile registry against disk, then snapshot tools
+# on every conversation turn (createResolveToolsCallback):
+resolveTools(history)
+  → loadWorkspaceTools()                # reconcile registry against disk (fire-and-forget)
+  → getWorkspaceToolDefinitions()       # re-read workspace tools from the registry
+  → getMcpToolDefinitions()             # re-read MCP tools (same pattern)
 ```
 
 Workspace tools register _after_ core tools and _before_ every other
@@ -145,21 +147,24 @@ reconcile always runs at boot, so workspace tools load from disk at every
 startup.
 
 There is no filesystem watcher. Instead, `loadWorkspaceTools()` is
-idempotent and is re-invoked at the point a conversation reads its tool
-set into a snapshot (`getOrCreateConversation`, and the subagent
-manager). Each call re-derives the world from disk ("given what's on disk
-right now under `tools/`, what registry state should the assistant be
-in?") and applies the delta — registering added files, re-importing
-changed files, unregistering deleted files, and restoring core tools whose
-`.removed` sentinel was deleted. A new conversation therefore always sees
-the current on-disk workspace tools with no restart.
+idempotent and is re-invoked by the per-turn tool resolver
+(`createResolveToolsCallback`), which then re-reads workspace tools from
+the registry the same way it re-reads MCP tools. Each reconcile re-derives
+the world from disk ("given what's on disk right now under `tools/`, what
+registry state should the assistant be in?") and applies the delta —
+registering added files, re-importing changed files, unregistering deleted
+files, and restoring core tools whose `.removed` sentinel was deleted. A
+conversation therefore picks up on-disk edits on its next turn, with no
+restart and without being recreated.
 
-Unchanged files are skipped via an mtime cache, so a no-op reconcile costs
-one `readdir` plus a `stat` per file and never re-imports. Concurrent
-reconciles (e.g. two conversations created at once) are serialized so
-their unregister/register sequences never interleave. This is the same
+The reconcile is fire-and-forget and eventually consistent: an edit lands
+in the registry during one turn's reconcile and is read on a subsequent
+turn. Unchanged files are skipped via an mtime cache, so a no-op reconcile
+costs one `readdir` plus a `stat` per file and never re-imports. Concurrent
+callers coalesce onto a single in-flight reconcile so their
+unregister/register sequences never interleave. This is the same
 eventual-consistency, re-derive-from-disk approach the plugin loader's
-mtime cache uses, with the conversation read — rather than a watcher —
+mtime cache uses, with the per-turn tool read — rather than a watcher —
 kicking the reconcile.
 
 ## Per-tool isolation

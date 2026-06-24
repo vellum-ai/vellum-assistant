@@ -46,14 +46,14 @@
  * unregistering deleted tools, stripping core tools when a `.removed`
  * sentinel appears, and restoring them when it disappears.
  *
- * Instead of a long-lived filesystem watcher, callers invoke this at the
- * point they read the tool set into a conversation (see
- * `conversation-store.ts` / the subagent manager). A new conversation
- * therefore always sees the current on-disk workspace tools with no
- * restart and no watcher — the "edit a file, see the change" loop closes
- * on the next conversation read. Unchanged files are skipped via the
- * mtime cache, so a no-op reconcile costs one `readdir` plus a `stat`
- * per file and never re-imports.
+ * Instead of a long-lived filesystem watcher, the per-turn tool resolver
+ * (`createResolveToolsCallback` in `conversation-tool-setup.ts`) kicks this
+ * reconcile and then re-reads workspace tools from the registry — the same
+ * way it re-reads MCP tools — so a conversation picks up on-disk edits
+ * without a restart and without recreating the conversation. The "edit a
+ * file, see the change" loop closes on the next turn. Unchanged files are
+ * skipped via the mtime cache, so a no-op reconcile costs one `readdir`
+ * plus a `stat` per file and never re-imports.
  *
  * Per-tool isolation:
  *
@@ -225,11 +225,19 @@ function selectLiveExtension(
  * The tool still loads cleanly with these defaults — a broken tool must
  * never block daemon boot. Always sets `category: "workspace"` so the
  * registry can distinguish workspace overrides from other origins.
+ *
+ * The registered name is pinned to the filename stem (`name`), overriding
+ * any `name` field on the file's own export. This is the documented
+ * "filename stem is the tool name verbatim" contract — `finalizeTool`
+ * would otherwise prefer `tool.name` — and it keeps the registered name in
+ * lockstep with the stem the reconcile keys its mtime cache by, so a later
+ * delete of the file unregisters the right tool.
  */
 function applyWorkspaceToolDefaults(tool: ToolDefinition, name: string): Tool {
   const finalized = finalizeTool(
     {
       ...tool,
+      name,
       defaultRiskLevel:
         tool.defaultRiskLevel ?? WORKSPACE_TOOL_DEFAULTS.defaultRiskLevel,
       category: tool.category ?? "workspace",
@@ -568,15 +576,13 @@ async function loadDesiredLiveTool(
 }
 
 /**
- * Serializes reconciles so two concurrent callers (e.g. two conversations
- * being created at once) never interleave their unregister/register
- * sequences against the shared registry. Each call runs after the prior
- * one settles, so every reconcile observes a fresh disk scan.
+ * The currently-running reconcile, if any. Concurrent callers coalesce onto
+ * it so the per-turn fire-and-forget kicks from many conversations can't
+ * pile up or interleave their unregister/register sequences against the
+ * shared registry. Once it settles this is cleared, so a later caller (the
+ * next turn, or a sequential awaiter like boot/tests) starts a fresh scan.
  */
-let reconcileChain: Promise<LoadWorkspaceToolsResult> = Promise.resolve({
-  registered: [],
-  removed: [],
-});
+let inflightReconcile: Promise<LoadWorkspaceToolsResult> | null = null;
 
 /**
  * Reconcile the registry's workspace-tool layer against
@@ -596,8 +602,9 @@ let reconcileChain: Promise<LoadWorkspaceToolsResult> = Promise.resolve({
  * - Per-tool isolation: any single broken tool is logged and skipped
  *   without aborting the reconcile. The function resolves normally even
  *   when every candidate fails.
- * - Concurrency-safe: calls are serialized so the unregister/register
- *   sequence for a changed tool never races another reconcile.
+ * - Concurrency-safe: concurrent callers coalesce onto a single in-flight
+ *   reconcile, so the unregister/register sequence for a changed tool never
+ *   races another reconcile.
  *
  * Caller responsibilities:
  *
@@ -605,21 +612,21 @@ let reconcileChain: Promise<LoadWorkspaceToolsResult> = Promise.resolve({
  *   {@link loadUserPlugins}. Calling earlier risks racing core
  *   registrations; calling later means plugins see an incomplete
  *   registry and may register over a name a workspace tool will later
- *   try to own. Later calls (driven by conversation reads) are free to
- *   run any time — the reconcile only ever touches workspace-owned and
- *   core-stashed names.
+ *   try to own. Later calls (driven by the per-turn tool resolver) are
+ *   free to run any time — the reconcile only ever touches
+ *   workspace-owned and core-stashed names.
  */
 export function loadWorkspaceTools(
   options: LoadWorkspaceToolsOptions = {},
 ): Promise<LoadWorkspaceToolsResult> {
-  const run = reconcileChain.then(
-    () => reconcileWorkspaceTools(options),
-    () => reconcileWorkspaceTools(options),
-  );
+  if (inflightReconcile) return inflightReconcile;
   // `reconcileWorkspaceTools` never rejects (all failures are caught and
-  // logged), but guard the chain anyway so a future throw can't wedge it.
-  reconcileChain = run.catch(() => ({ registered: [], removed: [] }));
-  return run;
+  // logged); `.finally` clears the slot either way so the next caller scans
+  // fresh.
+  inflightReconcile = reconcileWorkspaceTools(options).finally(() => {
+    inflightReconcile = null;
+  });
+  return inflightReconcile;
 }
 
 async function reconcileWorkspaceTools(
@@ -665,15 +672,12 @@ async function reconcileWorkspaceTools(
   }
 
   // 3. Live tools — register new files, re-import changed files (mtime
-  //    differs), skip unchanged ones. Changed/new entries are collected
-  //    into one batch so registerWorkspaceTools can validate them together.
-  const batch: Array<{
-    stem: string;
-    tool: Tool;
-    workspacePath: string;
-    entry: DesiredLiveEntry;
-  }> = [];
-
+  //    differs), skip unchanged ones. Each entry is imported and registered
+  //    on its own so one broken or conflicting file cannot drop the others
+  //    (per-tool isolation): the import is bounded/caught, and registration
+  //    goes through registerWorkspaceTools one tool at a time. Stems are the
+  //    map keys here, so there are no intra-reconcile duplicate names that a
+  //    batch would otherwise need to validate.
   for (const [stem, entry] of desiredLive) {
     const prev = prevManaged.get(stem);
     const unchanged =
@@ -690,10 +694,19 @@ async function reconcileWorkspaceTools(
       continue;
     }
 
-    // Changed, or a fresh import is needed. Drop any prior workspace
-    // registration so the loader re-imports cleanly, and restore a
-    // previously-stripped core tool so the override path sees the expected
-    // baseline (core present → stash + replace).
+    // Changed, or a fresh import is needed. Import FIRST and only mutate the
+    // registry once we hold a valid tool, so a failed re-import leaves the
+    // previously-registered version in place rather than tearing it down.
+    const tool = await loadDesiredLiveTool(stem, entry, importTimeoutMs);
+    if (!tool) {
+      // Import failed (already logged). Leave any prior registration intact
+      // and keep the managed entry so a later fix re-imports cleanly.
+      continue;
+    }
+
+    // Drop any prior workspace registration so the loader re-registers
+    // cleanly, and restore a previously-stripped core tool so the override
+    // path sees the expected baseline (core present → stash + replace).
     if (getToolOwner(stem)?.kind === "workspace") {
       unregisterWorkspaceTool(stem);
     }
@@ -701,43 +714,24 @@ async function reconcileWorkspaceTools(
       restoreStrippedCoreTool(stem);
     }
 
-    const tool = await loadDesiredLiveTool(stem, entry, importTimeoutMs);
-    if (!tool) {
-      // Import failed (already logged). Drop the stem from our managed set
-      // — we no longer own a registration for it.
-      managed.delete(stem);
-      continue;
-    }
-    batch.push({ stem, tool, workspacePath: entry.path, entry });
-  }
-
-  if (batch.length > 0) {
     try {
-      registerWorkspaceTools(
-        batch.map(({ tool, workspacePath }) => ({ tool, workspacePath })),
-      );
-      for (const { stem, entry } of batch) {
-        managed.set(stem, {
-          kind: "live",
-          ext: entry.ext,
-          mtimeMs: entry.mtimeMs,
-        });
-      }
+      registerWorkspaceTools([{ tool, workspacePath: entry.path }]);
+      managed.set(stem, {
+        kind: "live",
+        ext: entry.ext,
+        mtimeMs: entry.mtimeMs,
+      });
     } catch (err) {
-      // A throw from registerWorkspaceTools means a hard conflict (e.g.
-      // duplicate name in batch, lifecycle-order regression). The batch
-      // validation phase guarantees no partial application landed, so every
-      // workspace tool from this batch is absent from the registry. Surface
-      // the error loudly but do NOT rethrow — startup / conversation reads
-      // must still complete.
+      // A throw means a hard conflict for this name (e.g. a plugin/MCP tool
+      // already owns it — a lifecycle-order regression). Surface it loudly,
+      // but do NOT rethrow and do NOT abort the other tools — startup /
+      // conversation reads must still complete.
       const message = err instanceof Error ? err.message : String(err);
       log.error(
-        { err, toolsDir, batchSize: batch.length },
-        `loadWorkspaceTools: registry rejected batch — ${message}`,
+        { err, stem, toolsDir },
+        `loadWorkspaceTools: registry rejected "${stem}" — ${message}`,
       );
-      for (const { stem } of batch) {
-        managed.delete(stem);
-      }
+      managed.delete(stem);
     }
   }
 
@@ -779,5 +773,5 @@ async function reconcileWorkspaceTools(
  */
 export function __resetWorkspaceToolCacheForTesting(): void {
   managed.clear();
-  reconcileChain = Promise.resolve({ registered: [], removed: [] });
+  inflightReconcile = null;
 }

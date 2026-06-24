@@ -436,4 +436,77 @@ export default {
     expect(getTool("strip_then_restore")).toEqual(core);
     expect(getStrippedCoreToolNames()).not.toContain("strip_then_restore");
   });
+
+  test("the registered name is the filename stem, ignoring the file's own name field", async () => {
+    // The default export sets a different `name` — the loader must pin the
+    // registered name to the stem ("stem_wins") so the mtime cache and the
+    // unregister-on-delete path stay keyed by the same name.
+    writeTool(
+      "stem_wins",
+      `
+export default {
+  name: "different_name",
+  description: "name field should be ignored",
+  defaultRiskLevel: "low",
+  input_schema: { type: "object", properties: {}, required: [] },
+  async execute() {
+    return { content: "ok", isError: false };
+  },
+};
+`,
+    );
+
+    await loadWorkspaceTools();
+
+    expect(getTool("stem_wins")).toBeDefined();
+    expect(getTool("different_name")).toBeUndefined();
+    expect(getWorkspaceToolNames()).toEqual(["stem_wins"]);
+
+    // Deleting the file unregisters by stem — no leaked "different_name".
+    removeToolFile("stem_wins");
+    await loadWorkspaceTools();
+    expect(getTool("stem_wins")).toBeUndefined();
+    expect(getTool("different_name")).toBeUndefined();
+  });
+
+  test("per-tool isolation on reconcile: a bad file does not drop a valid edited tool", async () => {
+    writeTool("good_edit", WELL_FORMED_BODY);
+    await loadWorkspaceTools();
+    expect(getTool("good_edit")?.description).toBe("from workspace");
+
+    // Add a file that throws at import, and edit the good tool, in the same
+    // reconcile. The broken file must not prevent the edited tool from
+    // re-registering.
+    writeTool("broken_now", `throw new Error("boom at import");`);
+    rewriteTool(
+      "good_edit",
+      `
+export default {
+  description: "edited and still here",
+  defaultRiskLevel: "low",
+  input_schema: { type: "object", properties: {}, required: [] },
+  async execute() {
+    return { content: "ok", isError: false };
+  },
+};
+`,
+    );
+    await loadWorkspaceTools();
+
+    expect(getTool("broken_now")).toBeUndefined();
+    expect(getTool("good_edit")?.description).toBe("edited and still here");
+  });
+
+  test("an edit that breaks an existing tool keeps the prior registration", async () => {
+    writeTool("was_good", WELL_FORMED_BODY);
+    await loadWorkspaceTools();
+    expect(getTool("was_good")?.description).toBe("from workspace");
+
+    // Rewrite the file into something that throws at import. The prior,
+    // working registration must stay in place rather than being torn down.
+    rewriteTool("was_good", `throw new Error("now broken");`);
+    await loadWorkspaceTools();
+
+    expect(getTool("was_good")?.description).toBe("from workspace");
+  });
 });
