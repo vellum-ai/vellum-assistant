@@ -21,6 +21,11 @@ import { reloadMcpServers } from "../../daemon/mcp-reload-service.js";
 import { McpClient } from "../../mcp/client.js";
 import { orchestrateMcpOAuthConnect } from "../../mcp/mcp-auth-orchestrator.js";
 import { getMcpAuthState } from "../../mcp/mcp-auth-state.js";
+import {
+  deleteMcpHeaders,
+  getMcpHeaders,
+  setMcpHeaders,
+} from "../../mcp/mcp-header-store.js";
 import { deleteMcpOAuthCredentials } from "../../mcp/mcp-oauth-provider.js";
 import { getMcpToolsByServer } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
@@ -170,11 +175,20 @@ async function checkMachineReadableHealth(
 interface McpServerEntry {
   id: string;
   status: string;
-  transport: McpServerConfig["transport"];
+  transport: Omit<McpServerConfig["transport"], "headers"> & { type: string };
   enabled: boolean;
   defaultRiskLevel: string;
+  hasStaticAuth: boolean;
+  authType: "none" | "bearer" | "api-key";
+  authHeaderName?: string;
   allowedTools?: string[];
   blockedTools?: string[];
+}
+
+function detectAuthType(headers: Record<string, string>): "bearer" | "api-key" {
+  const authValue = headers["Authorization"] ?? headers["authorization"];
+  if (authValue?.startsWith("Bearer ")) return "bearer";
+  return "api-key";
 }
 
 async function handleMcpList(_args: {
@@ -196,12 +210,42 @@ async function handleMcpList(_args: {
         } else {
           status = await checkMachineReadableHealth(id, config);
         }
+
+        // Check credential store for stored static auth headers
+        const storedHeaders = await getMcpHeaders(id);
+        // Also check legacy config-level headers
+        const configHeaders =
+          config.transport.type !== "stdio"
+            ? config.transport.headers
+            : undefined;
+        const effectiveHeaders = storedHeaders ?? configHeaders;
+        const hasStaticAuth =
+          !!effectiveHeaders && Object.keys(effectiveHeaders).length > 0;
+        const authType: "none" | "bearer" | "api-key" = hasStaticAuth
+          ? detectAuthType(effectiveHeaders!)
+          : "none";
+        // For API-key auth, expose the non-secret header name so the UI
+        // can pre-fill it during credential rotation.
+        const authHeaderName =
+          authType === "api-key" && effectiveHeaders
+            ? Object.keys(effectiveHeaders).find(
+                (k) => k.toLowerCase() !== "authorization",
+              )
+            : undefined;
+
+        // Strip headers from transport — never return secrets
+        const { headers: _stripped, ...safeTransport } =
+          config.transport as Record<string, unknown>;
+
         return {
           id,
           status,
-          transport: config.transport,
+          transport: safeTransport as McpServerEntry["transport"],
           enabled,
           defaultRiskLevel: config.defaultRiskLevel ?? "high",
+          hasStaticAuth,
+          authType,
+          ...(authHeaderName && { authHeaderName }),
           ...(config.allowedTools && { allowedTools: config.allowedTools }),
           ...(config.blockedTools && { blockedTools: config.blockedTools }),
         };
@@ -334,10 +378,24 @@ async function handleMcpUpdate({
       transport &&
       (transport.type === "sse" || transport.type === "streamable-http")
     ) {
+      // Migrate any legacy config-level headers away
+      delete transport.headers;
+
+      // Store in credential store (or delete if clearing)
       if (headers === null || Object.keys(headers).length === 0) {
-        delete transport.headers;
+        const ok = await deleteMcpHeaders(name);
+        if (!ok) {
+          throw new InternalError(
+            "Failed to clear auth headers from credential store",
+          );
+        }
       } else {
-        transport.headers = headers;
+        const ok = await setMcpHeaders(name, headers);
+        if (!ok) {
+          throw new InternalError(
+            "Failed to persist auth headers to credential store",
+          );
+        }
       }
     }
   }
@@ -391,11 +449,7 @@ async function handleMcpAdd({
           `--url is required for ${transportType} transport`,
         );
       }
-      transport = {
-        type: transportType,
-        url,
-        ...(headers && Object.keys(headers).length > 0 ? { headers } : {}),
-      };
+      transport = { type: transportType, url };
       break;
     default:
       throw new BadRequestError(
@@ -420,6 +474,16 @@ async function handleMcpAdd({
     enabled: !disabled,
     defaultRiskLevel: riskLevel,
   };
+
+  // Store auth headers in credential store, not config
+  if (headers && Object.keys(headers).length > 0) {
+    const ok = await setMcpHeaders(name, headers);
+    if (!ok) {
+      throw new InternalError(
+        "Failed to persist auth headers to credential store",
+      );
+    }
+  }
 
   saveRawConfig(raw);
   triggerReload("internal_mcp_add");
@@ -446,14 +510,17 @@ async function handleMcpRemove({
     throw new NotFoundError(`MCP server "${name}" not found.`);
   }
 
-  // Best-effort cleanup of any OAuth credentials stored for this server
+  // Best-effort cleanup of credentials stored for this server
   const serverConfig = serverMap[name] as Record<string, unknown>;
   const transport = serverConfig?.transport as
     | Record<string, unknown>
     | undefined;
   if (transport?.type === "sse" || transport?.type === "streamable-http") {
     try {
-      await deleteMcpOAuthCredentials(name);
+      await Promise.all([
+        deleteMcpOAuthCredentials(name),
+        deleteMcpHeaders(name),
+      ]);
     } catch {
       // Ignore — credentials may not exist
     }
