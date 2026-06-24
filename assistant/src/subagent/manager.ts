@@ -159,17 +159,20 @@ export class SubagentManager {
 
     // ── Resolve role ─────────────────────────────────────────────────
     const isFork = config.fork === true;
-    let role: SubagentRole = (config.role as SubagentRole) ?? "general";
+    const role: SubagentRole = (config.role as SubagentRole) ?? "general";
     if (isFork && role !== "general") {
+      // A context-inheriting subagent normally keeps the parent's `general`
+      // role so its KV cache stays aligned with the parent conversation. An
+      // explicit non-general role opts out of that alignment on purpose
+      // (e.g. the advisor role running on a stronger profile), so honor it.
       log.warn(
         {
           requestedRole: role,
           parentConversationId: config.parentConversationId,
           label: config.label,
         },
-        "Fork requested with non-general role — forcing general to preserve KV cache alignment",
+        "Fork requested with non-general role — caller opted out of parent KV-cache alignment",
       );
-      role = "general";
     }
     if (!SUBAGENT_ROLE_REGISTRY[role]) {
       throw new Error(
@@ -219,19 +222,21 @@ export class SubagentManager {
 
     let systemPrompt: string;
     if (isFork) {
-      // Forks use the parent's system prompt directly — no subagent preamble.
-      if (config.parentSystemPrompt) {
-        systemPrompt = config.parentSystemPrompt;
-      } else {
-        const resolved = parentConversation?.getCurrentSystemPrompt();
-        if (!resolved) {
-          throw new Error(
-            "Fork spawn requires a parent system prompt but neither config.parentSystemPrompt " +
-              "nor findConversation yielded one.",
-          );
-        }
-        systemPrompt = resolved;
+      // Forks default to the parent's system prompt verbatim — no subagent
+      // preamble — so the KV cache stays aligned with the parent. An explicit
+      // `systemPromptOverride` opts out of that alignment and takes precedence
+      // (e.g. the advisor role framing the inherited context as advice).
+      const resolved =
+        config.systemPromptOverride ??
+        config.parentSystemPrompt ??
+        parentConversation?.getCurrentSystemPrompt();
+      if (!resolved) {
+        throw new Error(
+          "Fork spawn requires a parent system prompt but neither config.parentSystemPrompt " +
+            "nor findConversation yielded one.",
+        );
       }
+      systemPrompt = resolved;
     } else {
       systemPrompt =
         config.systemPromptOverride ??
@@ -325,16 +330,19 @@ export class SubagentManager {
       conversation.setAssistantId(parentConversation.assistantId);
     }
 
-    if (isFork) {
-      // Force the fork to use the parent's system prompt as-is without dynamic rebuild.
-      // This ensures KV cache alignment with the parent conversation.
+    if (isFork && !config.systemPromptOverride) {
+      // A verbatim-prompt fork pins the parent's system prompt as-is, skipping
+      // the dynamic rebuild so the KV cache stays aligned with the parent. A
+      // fork that supplies its own override prompt opts out of that alignment,
+      // so leave `hasSystemPromptOverride` at its default.
       conversation.hasSystemPromptOverride = true;
     }
 
-    // Apply role-based tool filter if the role defines one.
-    // Skip for forks — general role has allowedTools: undefined, and forks
-    // should have the same tool access as the parent.
-    if (!isFork && roleConfig.allowedTools) {
+    // Apply the role's tool allowlist when one is defined. The `general` role
+    // has `allowedTools: undefined`, so default forks (which keep the general
+    // role) are unaffected; a fork carrying an explicit role gets its
+    // allowlist applied like any other subagent.
+    if (roleConfig.allowedTools) {
       conversation.setSubagentAllowedTools(new Set(roleConfig.allowedTools));
     }
 
