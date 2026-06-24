@@ -41,11 +41,9 @@
  *   - infrastructure failure (selector provider unavailable — e.g. a transient
  *     CES credential blip drops the API key — or no usable `tool_use` / schema
  *     mismatch surviving the short re-prompt retry) → throw
- *     {@link MemoryV3RetrievalUnavailableError}. There is NO deterministic-lane
- *     fallback: the LIVE injector propagates this to hard-fail the turn
- *     (retryable) rather than silently shipping it with no `<memory>` block,
- *     while the shadow/observation path swallows it and lets v2 retrieval serve
- *     the turn.
+ *     {@link MemoryV3RetrievalUnavailableError}. The live injector treats this
+ *     as a logged memory miss for the turn; shadow/observation callers swallow
+ *     it so v2 retrieval can serve the turn.
  */
 
 import { z } from "zod";
@@ -77,8 +75,7 @@ const log = getLogger("memory-v3-pool-select");
  * re-prompt retry. Deliberately DISTINCT from a deliberate empty selection
  * (`ids: []`) and an empty candidate pool, both of which return normally.
  *
- * The LIVE memory-v3 injector propagates this to hard-fail the turn (a clean,
- * retryable failure) rather than silently shipping with no memory; the
+ * The live memory-v3 injector logs this as a memory miss for the turn; the
  * shadow/observation path catches and swallows it.
  */
 export class MemoryV3RetrievalUnavailableError extends Error {
@@ -368,7 +365,7 @@ export async function selectPool(
         stableCount: pool.stable.length,
         finderCount: pool.finder.length,
       },
-      "pool selector provider unavailable — failing the turn rather than dropping memory",
+      "pool selector provider unavailable",
     );
     throw new MemoryV3RetrievalUnavailableError(
       "memory-v3 pool selector provider unavailable",
@@ -504,7 +501,7 @@ export async function selectPool(
           providerName: provider.name,
           failures,
         },
-        "pool selector provider call failed after retries — failing the turn rather than dropping memory",
+        "pool selector provider call failed after retries",
       );
       throw new MemoryV3RetrievalUnavailableError(
         `memory-v3 pool selector provider call failed after retries: ${redactedDetail}`,
@@ -519,7 +516,7 @@ export async function selectPool(
         providerName: provider.name,
         failures,
       },
-      "pool selector returned no usable tool_use after retries — failing the turn rather than dropping memory",
+      "pool selector returned no usable tool_use after retries",
     );
     throw new MemoryV3RetrievalUnavailableError(
       "memory-v3 pool selector returned no usable selection after retries",
