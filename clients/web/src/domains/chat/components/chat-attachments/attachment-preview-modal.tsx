@@ -155,35 +155,33 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   }, [siblingAttachments, attachment.id]);
 
   const hasGallery = currentIndex !== -1 && siblingAttachments != null && siblingAttachments.length > 1;
-  const hasPrev = hasGallery && currentIndex > 0;
-  const hasNext = hasGallery && currentIndex < siblingAttachments!.length - 1;
 
   const goToPrev = useCallback(() => {
-    if (hasPrev && siblingAttachments && onNavigate) {
-      onNavigate(siblingAttachments[currentIndex - 1]!);
-    }
-  }, [hasPrev, siblingAttachments, currentIndex, onNavigate]);
+    if (!hasGallery || !siblingAttachments || !onNavigate) return;
+    const prevIndex = (currentIndex - 1 + siblingAttachments.length) % siblingAttachments.length;
+    onNavigate(siblingAttachments[prevIndex]!);
+  }, [hasGallery, siblingAttachments, currentIndex, onNavigate]);
 
   const goToNext = useCallback(() => {
-    if (hasNext && siblingAttachments && onNavigate) {
-      onNavigate(siblingAttachments[currentIndex + 1]!);
-    }
-  }, [hasNext, siblingAttachments, currentIndex, onNavigate]);
+    if (!hasGallery || !siblingAttachments || !onNavigate) return;
+    const nextIndex = (currentIndex + 1) % siblingAttachments.length;
+    onNavigate(siblingAttachments[nextIndex]!);
+  }, [hasGallery, siblingAttachments, currentIndex, onNavigate]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
         onClose();
-      } else if (e.key === "ArrowLeft" && hasPrev) {
+      } else if (e.key === "ArrowLeft" && hasGallery) {
         e.preventDefault();
         goToPrev();
-      } else if (e.key === "ArrowRight" && hasNext) {
+      } else if (e.key === "ArrowRight" && hasGallery) {
         e.preventDefault();
         goToNext();
       }
     },
-    [onClose, goToPrev, goToNext, hasPrev, hasNext],
+    [onClose, goToPrev, goToNext, hasGallery],
   );
 
   const handleBackdropClick = useCallback(
@@ -341,9 +339,8 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
             iconOnly={<ChevronLeft />}
             expandOnMobile={false}
             onClick={goToPrev}
-            disabled={!hasPrev}
             aria-label="Previous attachment"
-            className="pointer-events-auto h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white disabled:pointer-events-none disabled:opacity-0"
+            className="pointer-events-auto h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
             tintColor="currentColor"
           />
           <Button
@@ -351,9 +348,8 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
             iconOnly={<ChevronRight />}
             expandOnMobile={false}
             onClick={goToNext}
-            disabled={!hasNext}
             aria-label="Next attachment"
-            className="pointer-events-auto h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white disabled:pointer-events-none disabled:opacity-0"
+            className="pointer-events-auto h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
             tintColor="currentColor"
           />
         </div>
