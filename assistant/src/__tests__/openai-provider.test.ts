@@ -58,8 +58,9 @@ let lastConstructorOptions: Record<string, unknown> | null = null;
 let shouldThrow: Error | null = null;
 const DEFAULT_SDK_TIMEOUT_MS = 1_860_000;
 
-// Every provider now installs a `fetch` wrapper to capture raw error bodies,
-// so assert the meaningful options via objectContaining and check fetch is wired.
+// Each provider installs a `fetch` wrapper to capture raw error bodies, so the
+// constructor options carry a `fetch` function; assert the meaningful options
+// via objectContaining and confirm `fetch` is wired.
 function expectOpenAIConstructorOptions(
   expected: Record<string, unknown>,
 ): void {

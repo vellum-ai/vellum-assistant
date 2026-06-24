@@ -26,19 +26,22 @@ const REQUEST_ID_HEADERS = [
 
 // The OpenAI SDK keeps only the `.error` key of a parsed JSON error body and
 // discards the rest, so a Django-proxy `{ "detail": … }` payload never reaches
-// the thrown APIError. captureRawErrorBodyFetch re-attaches the raw body under
-// this header so it rides onto `APIError.headers`, correlated to its own
-// request — no shared provider state for concurrent calls to clobber.
-const CAPTURED_BODY_HEADER = "x-vellum-captured-error-body";
-// Bound the header so a huge HTML error page can't balloon it; the message is
-// re-truncated to MAX_DETAIL_CHARS downstream anyway.
+// the thrown APIError. captureRawErrorBodyFetch stashes the raw body in a
+// WeakMap keyed by the response's headers object — which the SDK passes through
+// to `APIError.headers` by reference — so it stays correlated to its own
+// request, with no shared provider state for concurrent calls to clobber. A
+// WeakMap (rather than a synthetic header) keeps the body out of the SDK's
+// debug header logging and is reclaimed automatically with the response.
+const capturedErrorBodies = new WeakMap<object, string>();
+// Bound the stored body so a huge HTML error page can't balloon memory; the
+// message is re-truncated to MAX_DETAIL_CHARS downstream anyway.
 const MAX_CAPTURED_BODY_CHARS = 16_384;
 
 /**
  * SDK `fetch` option that captures non-2xx response bodies. Install via the
  * OpenAI client `fetch` option; safe to share across requests and instances
- * because the captured body travels on the response (and thus the thrown
- * error), not on any shared field.
+ * because the captured body is keyed per-response in a WeakMap, not stored on
+ * any shared field.
  */
 export const captureRawErrorBodyFetch = async (
   url: RequestInfo | URL,
@@ -48,25 +51,23 @@ export const captureRawErrorBodyFetch = async (
   if (res.ok) return res;
   // Don't drain retryable bodies: the SDK retries 429/5xx, and reading a large
   // or slow upstream error page on every attempt would delay those retries and
-  // buffer the whole body before the cap applies. We still capture terminal
-  // (non-retryable) errors — that's where the actionable upstream detail lives
-  // (unsupported model, invalid key, malformed request, etc.).
+  // buffer the whole body. We still capture terminal (non-retryable) errors —
+  // that's where the actionable upstream detail lives (unsupported model,
+  // invalid key, malformed request, etc.).
   if (res.status === 429 || res.status >= 500) return res;
-  // clone() so the empty-body passthrough below leaves the SDK's own read intact.
+  // clone() so reading the body leaves the SDK's own read of `res` intact.
   const body = await res
     .clone()
     .text()
     .catch(() => undefined);
-  // Empty body: nothing to capture, and reconstructing a no-body status (304)
-  // with a body would throw. Hand the original response back untouched.
   if (!body) return res;
-  const headers = new Headers(res.headers);
-  headers.set(CAPTURED_BODY_HEADER, encodeCapturedBody(body));
-  return new Response(body, {
-    status: res.status,
-    statusText: res.statusText,
-    headers,
-  });
+  capturedErrorBodies.set(
+    res.headers,
+    body.length > MAX_CAPTURED_BODY_CHARS
+      ? body.slice(0, MAX_CAPTURED_BODY_CHARS)
+      : body,
+  );
+  return res;
 };
 
 export function normalizeOpenAIAPIError(
@@ -234,20 +235,8 @@ function readHeaderValue(
   return undefined;
 }
 
-function encodeCapturedBody(body: string): string {
-  const capped =
-    body.length > MAX_CAPTURED_BODY_CHARS
-      ? body.slice(0, MAX_CAPTURED_BODY_CHARS)
-      : body;
-  return Buffer.from(capped, "utf8").toString("base64");
-}
-
 function readCapturedErrorBody(headers: unknown): string | undefined {
-  const encoded = readHeaderValue(headers, [CAPTURED_BODY_HEADER]);
-  if (!encoded) return undefined;
-  try {
-    return Buffer.from(encoded, "base64").toString("utf8");
-  } catch {
-    return undefined;
-  }
+  return headers && typeof headers === "object"
+    ? capturedErrorBodies.get(headers)
+    : undefined;
 }

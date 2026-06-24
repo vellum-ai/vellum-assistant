@@ -186,27 +186,45 @@ describe("normalizeOpenAIAPIError", () => {
 });
 
 describe("captureRawErrorBodyFetch", () => {
-  // The fetch wrapper smuggles the dropped body onto a response header so it
-  // rides onto the thrown APIError.headers — request-correlated, no shared
-  // state. normalize() reads it back with no explicit rawBody argument.
+  // The fetch wrapper stashes the dropped body in a WeakMap keyed by the
+  // response's headers object — which the SDK passes through to
+  // APIError.headers — so normalize() recovers it with no explicit rawBody
+  // argument and nothing is written to a (loggable) header.
   function fakeFetch(body: string, status: number): typeof globalThis.fetch {
     return (async () =>
       new Response(body, { status })) as unknown as typeof globalThis.fetch;
   }
 
-  test("round-trips a non-2xx body through headers into normalize()", async () => {
+  function errFor(res: Response, status: number) {
+    return {
+      status,
+      message: `${status} status code (no body)`,
+      headers: res.headers,
+      error: undefined,
+    } as unknown as InstanceType<typeof import("openai").APIError>;
+  }
+
+  test("recovers a non-2xx body into normalize() via the headers WeakMap", async () => {
     const original = globalThis.fetch;
     globalThis.fetch = fakeFetch(JSON.stringify({ detail: "model gone" }), 400);
     try {
       const res = await captureRawErrorBodyFetch("https://x/v1/chat", {});
-      const err = {
-        status: 400,
-        message: "400 status code (no body)",
-        headers: res.headers,
-        error: undefined,
-      } as unknown as InstanceType<typeof import("openai").APIError>;
-      // No rawBody arg: normalize must recover the body from the header alone.
-      expect(normalizeOpenAIAPIError(err).message).toBe("model gone");
+      // No rawBody arg: normalize recovers the body keyed by res.headers alone.
+      expect(normalizeOpenAIAPIError(errFor(res, 400)).message).toBe(
+        "model gone",
+      );
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  test("never writes the captured body to a header", async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = fakeFetch(JSON.stringify({ detail: "secret" }), 400);
+    try {
+      const res = await captureRawErrorBodyFetch("https://x/v1/chat", {});
+      const headerNames = [...res.headers.keys()];
+      expect(headerNames.some((h) => h.includes("vellum"))).toBe(false);
     } finally {
       globalThis.fetch = original;
     }
@@ -217,22 +235,23 @@ describe("captureRawErrorBodyFetch", () => {
     globalThis.fetch = fakeFetch("ok", 200);
     try {
       const res = await captureRawErrorBodyFetch("https://x/v1/chat", {});
-      expect(res.headers.get("x-vellum-captured-error-body")).toBeNull();
       expect(await res.text()).toBe("ok");
     } finally {
       globalThis.fetch = original;
     }
   });
 
-  test("caps the captured body for oversized terminal errors", async () => {
+  test("recovers (truncated) detail for oversized terminal errors", async () => {
     const big = "y".repeat(40_000);
     const original = globalThis.fetch;
     globalThis.fetch = fakeFetch(JSON.stringify({ detail: big }), 400);
     try {
       const res = await captureRawErrorBodyFetch("https://x/v1/chat", {});
-      const encoded = res.headers.get("x-vellum-captured-error-body");
-      const decoded = Buffer.from(encoded ?? "", "base64").toString("utf8");
-      expect(decoded.length).toBeLessThanOrEqual(16_384);
+      const n = normalizeOpenAIAPIError(errFor(res, 400));
+      // The captured body is bounded (16 KB) and the message re-truncated to
+      // MAX_DETAIL_CHARS, so an oversized error can't balloon either.
+      expect(n.message).toContain("yyyy");
+      expect(n.message.length).toBeLessThanOrEqual(2001);
     } finally {
       globalThis.fetch = original;
     }
@@ -247,9 +266,11 @@ describe("captureRawErrorBodyFetch", () => {
       );
       try {
         const res = await captureRawErrorBodyFetch("https://x/v1/chat", {});
-        // Pass-through: no captured header, and the body is still readable by
-        // the SDK (we never consumed it).
-        expect(res.headers.get("x-vellum-captured-error-body")).toBeNull();
+        // Pass-through: nothing captured, and the body is still readable by the
+        // SDK (we never consumed it).
+        expect(normalizeOpenAIAPIError(errFor(res, status)).message).not.toBe(
+          "retry me",
+        );
         expect(res.status).toBe(status);
         expect(await res.text()).toContain("retry me");
       } finally {
