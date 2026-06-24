@@ -1,0 +1,90 @@
+// Derive the rendered transcript as the union of two independently-owned
+// sources: server history (the TanStack Query cache) and the client-owned
+// in-flight turn (the chat-session store). History is never mutated
+// client-side — the live turn overlays it.
+//
+// A live row replaces the history row it shares an identity with (server id,
+// a merged alias, or the client-minted `clientMessageId` nonce the daemon
+// echoes back on the persisted row): it keeps history's position and wins on
+// content, because the live copy carries the freshest streamed text and the
+// blob-URL attachments the user is viewing. A live row with no history twin —
+// a fresh optimistic send, a still-streaming bubble — is appended after
+// history in live order.
+//
+// There is no timestamp sort: order is server-history order followed by the
+// live turn, which is always the newest. Removing the sort is the point —
+// it is what the old reconcile-and-sort-on-every-render path got wrong.
+
+import { messageIdentityKeys } from "@/domains/chat/utils/message-identity";
+import type { DisplayMessage } from "@/domains/chat/types/types";
+
+/**
+ * Every id a row can be matched on: its server id, any merged aliases, and the
+ * client nonce. `messageIdentityKeys` covers id + aliases; the nonce is added
+ * here because an optimistic row and its server echo correlate on the nonce,
+ * not on a shared server id.
+ */
+function identityKeys(row: DisplayMessage): string[] {
+  const keys = messageIdentityKeys(row);
+  if (row.clientMessageId && !keys.includes(row.clientMessageId)) {
+    return [...keys, row.clientMessageId];
+  }
+  return keys;
+}
+
+/**
+ * Merge cached server history with the client-owned in-flight turn into the
+ * flat `DisplayMessage[]` the transcript renders. Returns the `history`
+ * reference unchanged when there is no live turn, so the steady-state render
+ * stays referentially stable.
+ */
+export function selectTranscriptMessages(
+  history: DisplayMessage[],
+  live: DisplayMessage[],
+): DisplayMessage[] {
+  if (live.length === 0) {
+    return history;
+  }
+
+  const liveByKey = new Map<string, DisplayMessage>();
+  for (const row of live) {
+    for (const key of identityKeys(row)) {
+      if (!liveByKey.has(key)) {
+        liveByKey.set(key, row);
+      }
+    }
+  }
+
+  const merged: DisplayMessage[] = [];
+  const placed = new Set<DisplayMessage>();
+
+  for (const historyRow of history) {
+    let liveRow: DisplayMessage | undefined;
+    for (const key of identityKeys(historyRow)) {
+      const found = liveByKey.get(key);
+      if (found) {
+        liveRow = found;
+        break;
+      }
+    }
+    if (liveRow) {
+      // Live copy wins, in history's position. A second history row resolving
+      // to the same live row is a collapsed cluster the live turn owns — drop
+      // it rather than render the row twice.
+      if (!placed.has(liveRow)) {
+        merged.push(liveRow);
+        placed.add(liveRow);
+      }
+      continue;
+    }
+    merged.push(historyRow);
+  }
+
+  for (const row of live) {
+    if (!placed.has(row)) {
+      merged.push(row);
+    }
+  }
+
+  return merged;
+}
