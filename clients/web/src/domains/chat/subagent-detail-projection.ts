@@ -12,7 +12,14 @@
  *     is copied with only the **last** element replaced by
  *     `{ ...lastEvent, content: lastEvent.content + delta }`. Same length, same
  *     element references except the last, same `id` on the last, growing
- *     `content`. Always a `text` event.
+ *     `content`. Always a `text` event. We classify this shape by the
+ *     text-coalescing CONTENT shape — both last events `type: "text"` and the
+ *     new content strictly EXTENDS the old (`startsWith` + non-shrinking length)
+ *     — not just last-id equality. `mapDetailEvents` restarts ids at `detail-1`
+ *     per subagent, so two different subagents whose detail arrays each have one
+ *     event collide on `id === "detail-1"`; matching only by id would misclassify
+ *     a subagent switch as mutate-last and leave a stale tool entry that a full
+ *     rebuild drops (then a stale pill could open the previous subagent's detail).
  *  3. **Full-replace** — `loadDetail` swaps the whole array (history hydration /
  *     subagent switch).
  *
@@ -133,12 +140,24 @@ export function createIncrementalDetailProjection(
     }
 
     // Mutate-last: text-delta coalescing. Same length, only the last element
-    // replaced (same `id`, longer `content`), every earlier element shared.
+    // replaced, every earlier element shared. We require the genuine
+    // text-coalescing CONTENT shape the store actually produces, NOT just last-id
+    // equality: both last events must be `type: "text"` and the new content must
+    // strictly EXTEND the old (`content: lastEvent.content + delta`). Id equality
+    // alone is insufficient because `mapDetailEvents` restarts event ids at
+    // `detail-1` per subagent — a single-event subagent switch collides on
+    // `id === "detail-1"` and would be misclassified, surviving a stale tool
+    // entry. The type + content-extension guards reject that collision (different
+    // type, or content that isn't a strict extension → Fallback full rebuild).
     if (
       len === prevLen &&
       len >= 1 &&
       events[len - 1] !== prevEvents[len - 1] &&
       events[len - 1]!.id === prevEvents[len - 1]!.id &&
+      prevEvents[len - 1]!.type === "text" &&
+      events[len - 1]!.type === "text" &&
+      events[len - 1]!.content.length >= prevEvents[len - 1]!.content.length &&
+      events[len - 1]!.content.startsWith(prevEvents[len - 1]!.content) &&
       (len === 1 || events[len - 2] === prevEvents[len - 2])
     ) {
       const payloadsClone = payloads.slice();

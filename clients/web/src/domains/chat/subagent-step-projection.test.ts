@@ -276,6 +276,63 @@ describe("createIncrementalStepProjection — per-diff-class", () => {
     if (toolSteps[1]!.kind === "tool") expect(toolSteps[1]!.status).toBe("completed");
   });
 
+  test("cross-subagent id collision (detail-1 reused) is NOT misclassified as mutate-last", () => {
+    // `mapDetailEvents` restarts event ids at `detail-1` for EACH subagent. When
+    // the panel is reused across a subagent switch and both subagents have
+    // exactly ONE event, the last ids collide on `detail-1`. The previous (tool)
+    // step must NOT survive into subagent B's steps — only id equality would have
+    // let it through; the text-coalescing content-shape guards force a full
+    // rebuild instead.
+    const p = createIncrementalStepProjection();
+    // Subagent A: a single tool_call (web payload).
+    const subagentA: SubagentTimelineEvent[] = [
+      {
+        id: "detail-1",
+        type: "tool_call",
+        content: "ls",
+        toolName: "bash",
+        toolUseId: "tu-a",
+        timestamp: NOW,
+      },
+    ];
+    p.project(subagentA);
+    // Subagent B: a single text event — SAME id `detail-1`, different object.
+    const subagentB: SubagentTimelineEvent[] = [
+      { id: "detail-1", type: "text", content: "B is thinking", timestamp: NOW },
+    ];
+    const out = p.project(subagentB);
+    // Must deep-equal a full rebuild of B — no stale tool step from A.
+    expect(out).toEqual(computeSubagentSteps(subagentB));
+    expect(out.steps.some((s) => s.kind === "tool")).toBe(false);
+  });
+
+  test("genuine text coalescing (same id, text→text, content extends) still takes the incremental path", () => {
+    // The positive case: the work-count seam proves the incremental mutate-last
+    // path is taken (exactly ONE reducer call to re-derive the grown tail), and
+    // the result still deep-equals a full rebuild.
+    let calls = 0;
+    const counting = (
+      steps: ToolCallCardStep[],
+      toolMeta: Array<ToolMeta | undefined>,
+      event: SubagentTimelineEvent,
+    ) => {
+      calls++;
+      applyTimelineEvent(steps, toolMeta, event);
+    };
+    const p = createIncrementalStepProjection(counting);
+    let events: SubagentTimelineEvent[] = [
+      makeEvent({ type: "text", content: "Investig" }),
+    ];
+    p.project(events);
+    const callsAfterFirst = calls;
+    events = coalesceText(events, "ating the bug", events[0]!.timestamp);
+    const out = p.project(events);
+    // Incremental path: exactly one more reducer call (re-derive the grown tail),
+    // not a full re-walk of every event.
+    expect(calls - callsAfterFirst).toBe(1);
+    expect(out).toEqual(computeSubagentSteps(events));
+  });
+
   test("web_search result flips the placeholder to 'Searched the web'", () => {
     const p = createIncrementalStepProjection();
     let events: SubagentTimelineEvent[] = [
