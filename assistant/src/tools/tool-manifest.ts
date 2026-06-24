@@ -18,6 +18,7 @@ import { runAuthenticatedCommandTool } from "./credential-execution/run-authenti
 import { fileEditTool } from "./filesystem/edit.js";
 import { fileListTool } from "./filesystem/list.js";
 import { fileReadTool } from "./filesystem/read.js";
+import { codeSearchTool } from "./filesystem/search.js";
 import { fileWriteTool } from "./filesystem/write.js";
 import { recallTool, rememberTool } from "./memory/register.js";
 import { webFetchTool } from "./network/web-fetch.js";
@@ -59,6 +60,7 @@ export const eagerModuleToolNames: string[] = [
   "file_write",
   "file_edit",
   "file_list",
+  "code_search",
   "web_search",
   "web_fetch",
   "skill_execute",
@@ -81,6 +83,7 @@ export const explicitTools: ToolDefinition[] = [
   fileWriteTool,
   fileEditTool,
   fileListTool,
+  codeSearchTool,
   webFetchTool,
   webSearchTool,
   skillExecuteTool,
