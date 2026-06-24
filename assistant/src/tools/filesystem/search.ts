@@ -224,6 +224,11 @@ export const codeSearchTool = {
     // bounded by MAX_ENTRIES_TRAVERSED so a pathological tree can't run the
     // synchronous readdir/stat work unbounded even when no file is ever read.
     let entriesTraversed = 0;
+    // Set when an EXPLICIT file root (not a child discovered mid-walk) can't be
+    // read — e.g. EACCES/EPERM. A child file's read failure is optional and
+    // silently skipped, but an unreadable explicit root means nothing was
+    // searched, so we surface it as an error instead of a false "No matches".
+    let rootReadError: string | null = null;
     // Running size of the accumulated output (lines joined by "\n") so we can
     // stop before allocating an unbounded result. Each pushed line contributes
     // its UTF-8 byte length plus one byte for the joining newline.
@@ -253,7 +258,7 @@ export const codeSearchTool = {
 
     // Scan a single regular file for matches. Applies the denied-basename guard
     // and per-file size caps. Returns nothing; mutates the shared accumulators.
-    const scanFile = (full: string): void => {
+    const scanFile = (full: string, isExplicitRoot = false): void => {
       if (truncated) return;
 
       // Honor the wall-clock deadline / abort signal before doing any stat/size
@@ -309,7 +314,14 @@ export const codeSearchTool = {
       let buf: Buffer;
       try {
         buf = readFileSync(full);
-      } catch {
+      } catch (err) {
+        // A child file discovered mid-walk is optional — skip it silently. But
+        // an explicit file root that can't be read was never searched, so record
+        // the failure for the caller to surface as an error.
+        if (isExplicitRoot) {
+          const code = (err as NodeJS.ErrnoException)?.code;
+          rootReadError = `Error: failed to read file (${code ?? "unreadable"}): ${rawPath}`;
+        }
         return;
       }
       filesScanned++;
@@ -434,7 +446,10 @@ export const codeSearchTool = {
           isError: true,
         };
       }
-      scanFile(root);
+      scanFile(root, true);
+      if (rootReadError) {
+        return { content: rootReadError, isError: true };
+      }
     } else {
       return {
         content: `Error: path not found: ${rawPath}`,

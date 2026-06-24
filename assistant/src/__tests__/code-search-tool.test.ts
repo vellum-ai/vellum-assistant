@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -162,6 +163,31 @@ describe("codeSearchTool", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("file too large to search");
     expect(result.content).not.toContain("No matches found");
+  });
+
+  test("an unreadable explicit file root surfaces a read error, not a false 'No matches'", async () => {
+    const dir = makeTempDir();
+    const f = join(dir, "secret.txt");
+    writeFileSync(f, "needle here\n");
+    chmodSync(f, 0o000);
+    // When the suite runs as root (e.g. CI in Docker), chmod 000 does not block
+    // reads, so EACCES can't be simulated — skip the assertion in that case.
+    let readable = true;
+    try {
+      readFileSync(f);
+    } catch {
+      readable = false;
+    }
+    if (!readable) {
+      const result = await codeSearchTool.execute(
+        { pattern: "needle", path: "secret.txt", activity: "search" },
+        makeToolContext(dir),
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("failed to read file");
+      expect(result.content).not.toContain("No matches found");
+    }
+    chmodSync(f, 0o644);
   });
 
   test("an oversized file skipped mid-walk keeps scanning others but flags the result incomplete", async () => {
