@@ -429,7 +429,7 @@ export async function selectPool(
     try {
       response = await provider.sendMessage([userMsg], {
         tools: [SELECT_PAGES_TOOL],
-        systemPrompt,
+        systemPrompt: SYSTEM_PROMPT,
         config: {
           callSite: MEMORY_V3_SELECT_CALL_SITE,
           tool_choice: { type: "tool" as const, name: SELECT_PAGES_TOOL_NAME },
