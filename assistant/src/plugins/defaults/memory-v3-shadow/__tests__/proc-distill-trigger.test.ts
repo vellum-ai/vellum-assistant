@@ -27,7 +27,13 @@ import type { MemoryJob } from "../../../../memory/jobs-store.js";
 import type { CandidateClusterRef, MatchResult } from "../candidate-match.js";
 import type { ProcCandidate } from "../proc-candidate-store.js";
 
+// Spread the real logger module and override only `getLogger`: the distillation
+// launcher transitively imports the background-job runner, whose import graph
+// reads other logger exports (e.g. `truncateForLog`), so a wholesale replacement
+// of just `getLogger` would strip symbols the chain needs.
+const realLogger = await import("../../../../util/logger.js");
 mock.module("../../../../util/logger.js", () => ({
+  ...realLogger,
   getLogger: () => makeMockLogger(),
 }));
 
@@ -38,6 +44,10 @@ mock.module("../../../../util/logger.js", () => ({
 let procToSkillsEnabledSlot = true;
 mock.module("../../../../config/memory-v3-gate.js", () => ({
   isProcToSkillsEnabled: () => procToSkillsEnabledSlot,
+  // The distillation launcher transitively imports the background-job runner,
+  // whose import graph pulls `isMemoryV3Live`, so both gate exports must be
+  // present when this mock replaces the module wholesale.
+  isMemoryV3Live: () => false,
 }));
 
 const { procDistillTriggerJob } = await import("../proc-distill-trigger.js");
@@ -79,6 +89,7 @@ function fakeRegistry() {
     | "getCandidate"
     | "markCandidateStatus"
     | "listClusters"
+    | "listReadyClusters"
   > = {
     upsertCandidate: (input) => {
       const existing = rows.get(input.clusterId);
@@ -121,6 +132,8 @@ function fakeRegistry() {
         clusterId: r.clusterId,
         memberNoteSlugs: r.memberNoteSlugs,
       })),
+    listReadyClusters: (): ProcCandidate[] =>
+      [...rows.values()].filter((r) => r.status === "ready"),
   };
   return { rows, store };
 }
@@ -210,6 +223,14 @@ function harness(opts: HarnessOpts) {
     addMemberNote: store.addMemberNote,
     getCandidate: store.getCandidate,
     markCandidateStatus: store.markCandidateStatus,
+    listReadyClusters: store.listReadyClusters,
+    // These tally-only tests assert on the recurrence phase. The distillation
+    // phase finds no member-note bodies (`loadClusterNotes` returns none), so
+    // it never launches an agent or deletes a note — a `ready` cluster stays
+    // `ready`. Distillation behavior is covered in `proc-distill.test.ts`.
+    loadClusterNotes: async () => [],
+    distill: async () => ({ ok: false }),
+    deleteNote: async () => {},
   };
   return { rows, deps, judgeCalls };
 }
@@ -234,6 +255,10 @@ describe("procDistillTriggerJob — gating", () => {
       addMemberNote: () => {},
       getCandidate: () => null,
       markCandidateStatus: () => {},
+      listReadyClusters: () => [],
+      loadClusterNotes: async () => [],
+      distill: async () => ({ ok: false }),
+      deleteNote: async () => {},
     });
     expect(outcome.disabled).toBe(true);
     expect(matched).toBe(0);

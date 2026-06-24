@@ -71,6 +71,14 @@ type ProcessMessageOptions = ConversationCreateOptions & {
   sourceChannel?: string;
   /** Originating interface (e.g. "cli", "web"). Defaults to "web". */
   sourceInterface?: string;
+  /**
+   * Origin tag of the turn (the conversation's `TitleOrigin`, e.g.
+   * "memory_consolidation"), threaded from `runBackgroundJob`. Propagated
+   * into the agent loop and tool context so the permission checker can scope
+   * narrow non-interactive auto-grants to a specific internal background
+   * origin. Unset for normal user-initiated turns.
+   */
+  requestOrigin?: string;
 };
 
 function buildEventEmitter(
@@ -536,6 +544,9 @@ export async function processMessage(
       ...(options?.callSite ? { callSite: options.callSite } : {}),
       ...(options?.overrideProfile
         ? { overrideProfile: options.overrideProfile }
+        : {}),
+      ...(options?.requestOrigin
+        ? { requestOrigin: options.requestOrigin }
         : {}),
     });
   } finally {

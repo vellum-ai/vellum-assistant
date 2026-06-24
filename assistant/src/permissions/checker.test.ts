@@ -98,9 +98,12 @@ mock.module("./workspace-policy.js", () => ({
   isPathWithinWorkspaceRoot: () => false,
 }));
 
-// Mock tool registry — no tools by default.
+// Mock tool registry — no tools by default. `getToolOwner` backs
+// `buildPolicyContext` (used by the integration test below); core tools have no
+// owner, so it returns undefined.
 mock.module("../tools/registry.js", () => ({
   getTool: () => undefined,
+  getToolOwner: () => undefined,
 }));
 
 // Mock URL safety helpers.
@@ -135,6 +138,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { buildPolicyContext } from "../tools/policy-context.js";
+import type { Tool, ToolContext } from "../tools/types.js";
 import {
   check,
   classifyRisk,
@@ -732,6 +737,87 @@ describe("Permission Checker (gateway IPC)", () => {
           sourceChannel: "vellum",
           executionContext: "background",
         },
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    // ── Integration: production `buildPolicyContext` → `check` path ──────────
+    // The hand-built-PolicyContext tests above prove the grant LOGIC. These
+    // exercise the WIRING: a `ToolContext` (the shape the agent loop actually
+    // builds — see conversation-tool-setup.ts) is run through the real
+    // `buildPolicyContext`, and only then handed to `check`. Without the
+    // origin/trust/channel threading added here, `buildPolicyContext` would
+    // drop those fields and the grant would be dead code (Codex #35987).
+
+    /** A bare core tool — `buildPolicyContext` reads only `tool.name`/owner. */
+    const scaffoldTool = {
+      name: "scaffold_managed_skill",
+    } as unknown as Tool;
+
+    /** The ToolContext a memory-consolidation distillation turn produces. */
+    const consolidationToolContext: ToolContext = {
+      conversationId: "conv-distill",
+      workingDir: "/home/user/project",
+      trustClass: "guardian",
+      executionChannel: "vellum",
+      requestOrigin: "memory_consolidation",
+      isInteractive: false,
+    };
+
+    test("grant fires through the real buildPolicyContext path for the consolidation turn", async () => {
+      // High risk would normally force a prompt; the grant short-circuits it.
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const policyContext = buildPolicyContext(
+        scaffoldTool,
+        consolidationToolContext,
+      );
+      // Prove the threading: buildPolicyContext copied the ToolContext signals.
+      expect(policyContext.requestOrigin).toBe("memory_consolidation");
+      expect(policyContext.trustClass).toBe("guardian");
+      expect(policyContext.sourceChannel).toBe("vellum");
+
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        policyContext,
+      );
+      expect(result.decision).toBe("allow");
+    });
+
+    test("grant does NOT fire for a normal interactive tool call via buildPolicyContext", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      // A normal interactive turn: a guardian on the desktop, no consolidation
+      // origin. buildPolicyContext leaves `requestOrigin` unset, so the grant
+      // must not fire and the high-risk tool prompts.
+      const interactiveContext: ToolContext = {
+        conversationId: "conv-chat",
+        workingDir: "/home/user/project",
+        trustClass: "guardian",
+        executionChannel: "vellum",
+        isInteractive: true,
+      };
+      const policyContext = buildPolicyContext(
+        scaffoldTool,
+        interactiveContext,
+      );
+      expect(policyContext.requestOrigin).toBeUndefined();
+
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        policyContext,
       );
       expect(result.decision).toBe("prompt");
     });

@@ -86,6 +86,16 @@ export interface RunBackgroundJobOptions {
   groupId?: string;
   /** Title origin tag for `bootstrapConversation`. */
   origin: TitleOrigin;
+  /**
+   * Origin tag threaded into the agent turn's tool context (and through it
+   * `buildPolicyContext`), letting the permission checker scope narrow
+   * non-interactive auto-grants to a specific internal background origin
+   * (e.g. memory-consolidation skill authoring). Background jobs cannot
+   * answer interactive approval prompts, so a job that legitimately needs an
+   * otherwise-gated tool opts in by setting this to the origin its grant
+   * keys on. Omitted = no origin-scoped grant can fire for the turn.
+   */
+  requestOrigin?: string;
   /** Conversation type to bootstrap with. Defaults to `"background"`. */
   conversationType?: "background" | "scheduled";
   /**
@@ -276,6 +286,7 @@ export async function runBackgroundJob(
       ...(opts.overrideProfile
         ? { overrideProfile: opts.overrideProfile }
         : {}),
+      ...(opts.requestOrigin ? { requestOrigin: opts.requestOrigin } : {}),
     });
     // Absorb late rejections: if the timeout wins the race, `work` keeps
     // running and may eventually reject — swallow so it doesn't surface as

@@ -319,6 +319,15 @@ export interface ToolContext {
   trustClass: TrustClass;
   /** Channel through which the tool invocation originates (e.g. 'telegram', 'phone'). Used for scoped grant consumption. */
   executionChannel?: string;
+  /**
+   * Origin tag of the turn driving this tool invocation (the conversation's
+   * `TitleOrigin`, e.g. "memory_consolidation"). Set for background-job turns
+   * that pass `requestOrigin` to `runBackgroundJob`. `buildPolicyContext`
+   * copies it onto the `PolicyContext` so the permission checker can scope
+   * narrow non-interactive auto-grants (e.g. consolidation skill authoring) to
+   * a specific internal origin. Unset for normal interactive turns.
+   */
+  requestOrigin?: string;
   /** Voice/call session ID, if the invocation originates from a call. Used for scoped grant consumption. */
   callSessionId?: string;
   /** True when the tool invocation was triggered by a user clicking a surface action button (not a regular message). */

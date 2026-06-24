@@ -133,4 +133,12 @@ export interface ToolSetupContext extends SurfaceConversationContext {
    * scheduled turn running on a client-attached conversation as interactive.
    */
   currentTurnIsNonInteractive?: boolean;
+  /**
+   * Origin tag of the current turn (the conversation's `TitleOrigin`, e.g.
+   * "memory_consolidation"), set by `runAgentLoop` from its `requestOrigin`
+   * option. Propagated into `ToolContext.requestOrigin` so the permission
+   * checker can scope narrow non-interactive auto-grants to a specific
+   * internal background origin. Absent for normal interactive turns.
+   */
+  currentTurnRequestOrigin?: string;
 }
