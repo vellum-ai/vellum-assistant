@@ -63,6 +63,7 @@
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../config/loader.js";
 import { isMemoryV3Live } from "../../../config/memory-v3-gate.js";
+import { queueConversationNotice } from "../../../daemon/conversation-notices.js";
 import { isPersonalMemoryAllowed } from "../../../daemon/trust-context.js";
 import {
   wrapMemoryBlock,
@@ -118,6 +119,19 @@ function lruSet<V>(map: Map<string, V>, key: string, value: V): void {
     if (oldest !== undefined) map.delete(oldest);
   }
   map.set(key, value);
+}
+
+function queueMemoryV3ConversationNotice(
+  err: MemoryV3RetrievalUnavailableError,
+  ctx: TurnContext,
+  live: boolean,
+): void {
+  if (!live || !err.conversationNotice) return;
+  queueConversationNotice(
+    ctx.conversationId,
+    `memory_v3:${ctx.turnIndex}:${err.conversationNotice.errorCategory ?? err.conversationNotice.code}`,
+    err.conversationNotice,
+  );
 }
 
 // ─── shared per-turn orchestration memo ─────────────────────────────────────
@@ -246,6 +260,7 @@ export const memoryV3Injector: Injector = {
       observed = await observeTurnOnce(ctx.conversationId, ctx.turnIndex);
     } catch (err) {
       if (err instanceof MemoryV3RetrievalUnavailableError) {
+        queueMemoryV3ConversationNotice(err, ctx, live);
         log.error(
           {
             err: err.message,
@@ -405,6 +420,7 @@ export const memoryV3SpotlightInjector: Injector = {
       };
     } catch (err) {
       if (err instanceof MemoryV3RetrievalUnavailableError) {
+        queueMemoryV3ConversationNotice(err, ctx, true);
         log.error(
           {
             err: err.message,

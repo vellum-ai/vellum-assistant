@@ -73,6 +73,7 @@ export function makeCtx(
     getTurnState: () => ({ ...INITIAL_TURN_STATE }) as TurnState,
     endTurn: mock(() => {}),
     setError: mock(() => {}),
+    setNotice: mock(() => {}),
     cancelAndClearStream: mock(() => {}),
     cancelReconciliation: mock(() => {}),
     startReconciliationLoop: mock(() => {}),

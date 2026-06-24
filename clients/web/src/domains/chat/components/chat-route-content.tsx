@@ -206,6 +206,7 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const messages = useTranscriptMessages(assistantId, activeConversationId);
   const error = useChatSessionStore.use.error();
+  const notice = useChatSessionStore.use.notice();
   const isLoadingHistory = useChatSessionStore.use.isLoadingHistory();
   const contextWindowUsage = useChatSessionStore.use.contextWindowUsage();
   const compactionCircuitOpenUntil = useChatSessionStore.use.compactionCircuitOpenUntil();
@@ -680,7 +681,10 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Billing composer banner
   // -------------------------------------------------------------------------
-  const billingBannerDecision = getChatBillingBannerDecision(error);
+  const errorBillingBannerDecision = getChatBillingBannerDecision(error);
+  const noticeBillingBannerDecision = getChatBillingBannerDecision(notice);
+  const billingBannerDecision =
+    errorBillingBannerDecision ?? noticeBillingBannerDecision;
 
   // -------------------------------------------------------------------------
   // JSX construction

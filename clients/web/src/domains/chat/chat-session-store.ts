@@ -53,6 +53,7 @@ export interface ChatSessionState {
   // cached history and this live turn (`selectTranscriptMessages`).
   liveTurn: DisplayMessage[];
   error: ChatError | null;
+  notice: ChatError | null;
   isLoadingHistory: boolean;
 
   // --- Pagination ---
@@ -113,6 +114,7 @@ export interface ChatSessionActions {
   // --- Setters ---
   setLiveTurn: (updater: DisplayMessage[] | ((prev: DisplayMessage[]) => DisplayMessage[])) => void;
   setError: (updater: ChatError | null | ((prev: ChatError | null) => ChatError | null)) => void;
+  setNotice: (updater: ChatError | null | ((prev: ChatError | null) => ChatError | null)) => void;
   setIsLoadingHistory: (value: boolean) => void;
   setTranscriptPagination: (
     updater:
@@ -195,6 +197,7 @@ function initialState(): ChatSessionState {
   return {
     liveTurn: [],
     error: null,
+    notice: null,
     isLoadingHistory: true,
     transcriptPagination: { ...INITIAL_PAGINATION },
     contextWindowUsage: null,
@@ -238,6 +241,9 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
 
   setError: (updater) =>
     set((s) => ({ error: applyUpdater(s.error, updater) })),
+
+  setNotice: (updater) =>
+    set((s) => ({ notice: applyUpdater(s.notice, updater) })),
 
   setIsLoadingHistory: (value) =>
     set({ isLoadingHistory: value }),
@@ -320,6 +326,7 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       liveTurn: [],
       ephemeralMetaResults: [],
       error: shouldSuppressGenericChatErrorNotice(state.error) ? state.error : null,
+      notice: null,
       isLoadingHistory: true,
       transcriptPagination: { ...INITIAL_PAGINATION },
       contextWindowUsage:
