@@ -723,7 +723,7 @@ describe("upsertVerifiedContactChannel — invite target-contact binding", () =>
     expect(gwReparent).toBeTruthy();
     const where = gwReparent!.where as {
       op: string;
-      conds: { op: string; col?: unknown }[];
+      conds: { op: string; col?: unknown; val?: unknown }[];
     };
     expect(where.op).toBe("and");
     expect(where.conds).toContainEqual({
