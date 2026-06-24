@@ -28,6 +28,7 @@ mock.module("../ipc/gateway-client.js", () => ({
     gatewayIpc.calls.push({ method, params });
     if (method === "record_invite_redemption") {
       if (gatewayIpc.claimThrows) throw new Error("gateway unreachable");
+      onGatewayClaim?.();
       return gatewayIpc.claim;
     }
     if (method === "upsert_verified_channel") {
@@ -37,10 +38,16 @@ mock.module("../ipc/gateway-client.js", () => ({
   },
 }));
 
+// Lets a test inject a side-effect into the gateway claim — runs after the
+// service's pre-validation but before the assistant use-bump, so it can race a
+// revoke into the window that makes `recordInviteUse` return false.
+let onGatewayClaim: (() => void) | null = null;
+
 function resetGatewayIpc() {
   gatewayIpc.claim = { ok: true, updated: true, mirrored: true };
   gatewayIpc.claimThrows = false;
   gatewayIpc.calls = [];
+  onGatewayClaim = null;
 }
 
 import type { TrustVerdict } from "@vellumai/gateway-client";
@@ -648,6 +655,39 @@ describe("invite-redemption-service", () => {
         channelType: "telegram",
         address: "gw-revoked-user",
       }),
+    ).toBeNull();
+  });
+
+  test("does not activate the member when recordInviteUse loses the race (returns false)", async () => {
+    const targetContactId = createTargetContact();
+    const { rawToken, invite } = createInvite({
+      sourceChannel: "telegram",
+      contactId: targetContactId,
+      maxUses: 1,
+    });
+
+    // Legacy gateway row so the claim proceeds past the gateway gate. Revoke
+    // the assistant invite during the claim — after pre-validation, before the
+    // use-bump — so `recordInviteUse` sees a non-active row and returns false.
+    gatewayIpc.claim = { ok: true, updated: false, mirrored: false };
+    onGatewayClaim = () => {
+      revokeStoreFn(invite.id);
+    };
+
+    const outcome = await redeemInvite({
+      rawToken,
+      sourceChannel: "telegram",
+      externalUserId: "raced-user",
+    });
+
+    expect(outcome).toEqual({ ok: false, reason: "invalid_token" });
+
+    // The member was NOT activated: no gateway upsert and no active channel.
+    expect(
+      gatewayIpc.calls.some((c) => c.method === "upsert_verified_channel"),
+    ).toBe(false);
+    expect(
+      findContactChannel({ channelType: "telegram", address: "raced-user" }),
     ).toBeNull();
   });
 

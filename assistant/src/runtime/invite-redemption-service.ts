@@ -288,22 +288,9 @@ export async function redeemInvite(params: {
         ? existingContact.displayName
         : displayName;
 
-    // Gateway-first: activate the member channel on the authoritative gateway
-    // before the assistant DB; the local mirror is best-effort.
-    const reactivated = await activateMemberChannel({
-      sourceChannel,
-      externalUserId,
-      externalChatId,
-      // Reactivation should not overwrite a guardian-managed nickname.
-      displayName: preservedDisplayName,
-      username,
-      policy: "allow",
-      inviteId: invite.id,
-      verifiedAt: Date.now(),
-      verifiedVia: "invite",
-      contactId: invite.contactId,
-    });
-
+    // Consume the assistant invite use BEFORE activating the member, so a
+    // concurrent revoke/exhaustion (recordInviteUse returns false) leaves no
+    // active member behind.
     try {
       if (
         !recordInviteUse({ inviteId: invite.id, externalUserId, externalChatId })
@@ -321,6 +308,22 @@ export async function redeemInvite(params: {
       );
       throw err;
     }
+
+    // Gateway-first: activate the member channel on the authoritative gateway
+    // before the assistant DB; the local mirror is best-effort.
+    const reactivated = await activateMemberChannel({
+      sourceChannel,
+      externalUserId,
+      externalChatId,
+      // Reactivation should not overwrite a guardian-managed nickname.
+      displayName: preservedDisplayName,
+      username,
+      policy: "allow",
+      inviteId: invite.id,
+      verifiedAt: Date.now(),
+      verifiedVia: "invite",
+      contactId: invite.contactId,
+    });
 
     return {
       ok: true,
@@ -342,21 +345,9 @@ export async function redeemInvite(params: {
     }
   }
 
-  // Gateway-first: activate the member channel on the authoritative gateway
-  // before the assistant DB; the local mirror is best-effort.
-  const freshResult = await activateMemberChannel({
-    sourceChannel,
-    externalUserId,
-    externalChatId,
-    displayName: freshDisplayName,
-    username,
-    policy: "allow",
-    inviteId: invite.id,
-    verifiedAt: Date.now(),
-    verifiedVia: "invite",
-    contactId: invite.contactId,
-  });
-
+  // Consume the assistant invite use BEFORE activating the member, so a
+  // concurrent revoke/exhaustion (recordInviteUse returns false) leaves no
+  // active member behind.
   try {
     if (
       !recordInviteUse({ inviteId: invite.id, externalUserId, externalChatId })
@@ -373,6 +364,21 @@ export async function redeemInvite(params: {
     );
     throw err;
   }
+
+  // Gateway-first: activate the member channel on the authoritative gateway
+  // before the assistant DB; the local mirror is best-effort.
+  const freshResult = await activateMemberChannel({
+    sourceChannel,
+    externalUserId,
+    externalChatId,
+    displayName: freshDisplayName,
+    username,
+    policy: "allow",
+    inviteId: invite.id,
+    verifiedAt: Date.now(),
+    verifiedVia: "invite",
+    contactId: invite.contactId,
+  });
 
   return {
     ok: true,
@@ -509,20 +515,9 @@ export async function redeemVoiceInviteCode(params: {
     }
   }
 
-  // Gateway-first: activate the member channel on the authoritative gateway
-  // before the assistant DB; the local mirror is best-effort.
-  const writeResult = await activateMemberChannel({
-    sourceChannel: "phone",
-    externalUserId: callerExternalUserId,
-    externalChatId: callerExternalUserId,
-    displayName: preservedDisplayName,
-    policy: "allow",
-    inviteId: invite.id,
-    verifiedAt: Date.now(),
-    verifiedVia: "invite",
-    contactId: invite.contactId,
-  });
-
+  // Consume the assistant invite use BEFORE activating the member, so a
+  // concurrent revoke/exhaustion (recordInviteUse returns false) leaves no
+  // active member behind.
   try {
     if (
       !recordInviteUse({
@@ -542,6 +537,20 @@ export async function redeemVoiceInviteCode(params: {
     );
     throw err;
   }
+
+  // Gateway-first: activate the member channel on the authoritative gateway
+  // before the assistant DB; the local mirror is best-effort.
+  const writeResult = await activateMemberChannel({
+    sourceChannel: "phone",
+    externalUserId: callerExternalUserId,
+    externalChatId: callerExternalUserId,
+    displayName: preservedDisplayName,
+    policy: "allow",
+    inviteId: invite.id,
+    verifiedAt: Date.now(),
+    verifiedVia: "invite",
+    contactId: invite.contactId,
+  });
 
   return {
     ok: true,
@@ -677,21 +686,9 @@ export async function redeemInviteByCode(params: {
         ? existingContact.displayName
         : displayName;
 
-    // Gateway-first: activate the member channel on the authoritative gateway
-    // before the assistant DB; the local mirror is best-effort.
-    const reactivated = await activateMemberChannel({
-      sourceChannel,
-      externalUserId,
-      externalChatId,
-      displayName: preservedDisplayName,
-      username,
-      policy: "allow",
-      inviteId: invite.id,
-      verifiedAt: Date.now(),
-      verifiedVia: "invite",
-      contactId: invite.contactId,
-    });
-
+    // Consume the assistant invite use BEFORE activating the member, so a
+    // concurrent revoke/exhaustion (recordInviteUse returns false) leaves no
+    // active member behind.
     try {
       if (
         !recordInviteUse({ inviteId: invite.id, externalUserId, externalChatId })
@@ -708,6 +705,21 @@ export async function redeemInviteByCode(params: {
       );
       throw err;
     }
+
+    // Gateway-first: activate the member channel on the authoritative gateway
+    // before the assistant DB; the local mirror is best-effort.
+    const reactivated = await activateMemberChannel({
+      sourceChannel,
+      externalUserId,
+      externalChatId,
+      displayName: preservedDisplayName,
+      username,
+      policy: "allow",
+      inviteId: invite.id,
+      verifiedAt: Date.now(),
+      verifiedVia: "invite",
+      contactId: invite.contactId,
+    });
 
     return {
       ok: true,
@@ -729,21 +741,9 @@ export async function redeemInviteByCode(params: {
     }
   }
 
-  // Gateway-first: activate the member channel on the authoritative gateway
-  // before the assistant DB; the local mirror is best-effort.
-  const freshResult = await activateMemberChannel({
-    sourceChannel,
-    externalUserId,
-    externalChatId,
-    displayName: freshDisplayName,
-    username,
-    policy: "allow",
-    inviteId: invite.id,
-    verifiedAt: Date.now(),
-    verifiedVia: "invite",
-    contactId: invite.contactId,
-  });
-
+  // Consume the assistant invite use BEFORE activating the member, so a
+  // concurrent revoke/exhaustion (recordInviteUse returns false) leaves no
+  // active member behind.
   try {
     if (
       !recordInviteUse({ inviteId: invite.id, externalUserId, externalChatId })
@@ -760,6 +760,21 @@ export async function redeemInviteByCode(params: {
     );
     throw err;
   }
+
+  // Gateway-first: activate the member channel on the authoritative gateway
+  // before the assistant DB; the local mirror is best-effort.
+  const freshResult = await activateMemberChannel({
+    sourceChannel,
+    externalUserId,
+    externalChatId,
+    displayName: freshDisplayName,
+    username,
+    policy: "allow",
+    inviteId: invite.id,
+    verifiedAt: Date.now(),
+    verifiedVia: "invite",
+    contactId: invite.contactId,
+  });
 
   return {
     ok: true,
