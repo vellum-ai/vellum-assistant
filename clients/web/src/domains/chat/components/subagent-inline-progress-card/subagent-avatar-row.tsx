@@ -14,9 +14,13 @@ import { Typography } from "@vellumai/design-library";
 
 /**
  * Number of subagent avatars shown before collapsing the remainder into a
- * `+N` overflow chip. The mock (`6063:148462`) shows 6 avatars followed by a
- * "+6" chip; the requester's "more than 4" phrasing maps onto this tunable
- * cap rather than a hardcoded literal.
+ * `+N` overflow chip.
+ *
+ * Intentionally 6, matching the Figma mock (`6063:148462`), which shows 6
+ * avatars followed by a "+6" chip — the mock is the authoritative spec here.
+ * The requester's earlier "more than 4" wording was loose and is superseded by
+ * the mock; 6 is deliberate, not a bug. Exposed as a named constant so the
+ * threshold stays trivially tunable if product later confirms a different cap.
  */
 export const MAX_VISIBLE_SUBAGENT_AVATARS = 6;
 
