@@ -1,0 +1,350 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { basename, join, relative } from "node:path";
+
+import { minimatch } from "minimatch";
+
+import { RiskLevel } from "../../permissions/types.js";
+import { registerTool } from "../registry.js";
+import {
+  isDeniedBasename,
+  sandboxPolicy,
+} from "../shared/filesystem/path-policy.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
+
+// Directory names that are never worth searching and would otherwise dominate
+// the file budget (dependencies, VCS metadata).
+const IGNORED_DIRS = new Set(["node_modules", ".git"]);
+
+// Defensive caps so a search over a huge tree cannot read the whole disk into
+// memory. These bound the walk regardless of `max_results`.
+const MAX_FILES_SCANNED = 20_000;
+const MAX_TOTAL_BYTES = 256 * 1024 * 1024; // 256 MiB
+const MAX_FILE_BYTES = 8 * 1024 * 1024; // skip files larger than 8 MiB
+
+// A user-supplied pattern is run synchronously against every line. A
+// catastrophic-backtracking regex against a very long line can monopolize the
+// event loop, which prevents the tool's promise timeout from ever firing
+// (nothing yields). Bounding the slice the regex sees caps worst-case
+// backtracking per line while still covering normal code/log lines. A future
+// enhancement could run matching in an interruptible worker for full isolation;
+// the prefix bound is the pragmatic guard here.
+const MAX_MATCH_LINE_LENGTH = 2000;
+
+// Output-byte budget: when `context_lines` is large and many nearby lines
+// match, the surrounding block is appended for every match, so a single large
+// file with many matches could allocate hundreds of MB before the post-tool
+// truncation hook runs. Stop accumulating once this budget is exceeded and
+// report the result as truncated.
+const MAX_OUTPUT_BYTES = 4 * 1024 * 1024; // 4 MiB
+
+const DEFAULT_MAX_RESULTS = 200;
+const DEFAULT_CONTEXT_LINES = 0;
+// Clamp `context_lines` so a single match cannot request unbounded surrounding
+// context (which would blow past the output budget on its own).
+const MAX_CONTEXT_LINES = 20;
+
+/** Heuristic binary-file detection: a NUL byte in the leading bytes. */
+function looksBinary(buf: Buffer): boolean {
+  const len = Math.min(buf.length, 8000);
+  for (let i = 0; i < len; i++) {
+    if (buf[i] === 0) return true;
+  }
+  return false;
+}
+
+export const codeSearchTool = {
+  name: "code_search",
+  description:
+    "Search file contents for a regular-expression pattern across a directory tree on your own machine, returning matching `path:line: text` lines. Read-only — never modifies files. Skips node_modules, .git, and binary files. Use this to grep across files without a shell.",
+  category: "filesystem",
+  executionTarget: "sandbox",
+  defaultRiskLevel: RiskLevel.Low,
+
+  input_schema: {
+    type: "object",
+    properties: {
+      pattern: {
+        type: "string",
+        description: "Regular-expression pattern to search for in file contents",
+      },
+      path: {
+        type: "string",
+        description:
+          "Directory to search under (defaults to the working directory)",
+      },
+      glob: {
+        type: "string",
+        description:
+          "Only search files whose path (relative to the search root) matches this glob, e.g. '*.ts' or 'src/**'",
+      },
+      case_insensitive: {
+        type: "boolean",
+        description: "Match the pattern case-insensitively",
+      },
+      context_lines: {
+        type: "number",
+        description:
+          "Number of lines of context to include before and after each match (default 0)",
+      },
+      max_results: {
+        type: "number",
+        description: "Maximum number of matches to return (default 200)",
+      },
+      activity: {
+        type: "string",
+        description:
+          "Brief non-technical explanation of what you are doing and why, shown as a status update.",
+      },
+    },
+    required: ["pattern", "activity"],
+  },
+
+  async execute(
+    input: Record<string, unknown>,
+    context: ToolContext,
+  ): Promise<ToolExecutionResult> {
+    const pattern = input.pattern;
+    if (!pattern || typeof pattern !== "string") {
+      return {
+        content: "Error: pattern is required and must be a non-empty string",
+        isError: true,
+      };
+    }
+
+    const rawPath =
+      typeof input.path === "string" && input.path.length > 0
+        ? input.path
+        : context.workingDir;
+
+    const pathCheck = sandboxPolicy(rawPath, context.workingDir);
+    if (!pathCheck.ok) {
+      return {
+        content: `Error: ${pathCheck.error}. To search outside the workspace, use the host_bash tool instead.`,
+        isError: true,
+      };
+    }
+    const root = pathCheck.resolved;
+
+    const caseInsensitive = input.case_insensitive === true;
+    let regex: RegExp;
+    try {
+      regex = new RegExp(pattern, caseInsensitive ? "i" : "");
+    } catch (err) {
+      return {
+        content: `Error: invalid pattern "${pattern}": ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+        isError: true,
+      };
+    }
+
+    const glob =
+      typeof input.glob === "string" && input.glob.length > 0
+        ? input.glob
+        : undefined;
+
+    const contextLines =
+      typeof input.context_lines === "number" && input.context_lines > 0
+        ? Math.min(Math.floor(input.context_lines), MAX_CONTEXT_LINES)
+        : DEFAULT_CONTEXT_LINES;
+
+    const maxResults =
+      typeof input.max_results === "number" && input.max_results > 0
+        ? Math.floor(input.max_results)
+        : DEFAULT_MAX_RESULTS;
+
+    // Validate the search root before walking so a missing/unreadable/typo'd
+    // path surfaces a hard error instead of being swallowed like an unreadable
+    // child directory and returning a false "No matches found". Mirrors the
+    // NOT_FOUND / NOT_A_DIRECTORY reporting in file_list.
+    let rootStat: import("node:fs").Stats;
+    try {
+      rootStat = statSync(root);
+    } catch {
+      return {
+        content: `Error: path not found: ${rawPath}`,
+        isError: true,
+      };
+    }
+
+    const lines: string[] = [];
+    let matchCount = 0;
+    let truncated = false;
+    // Set when the output-byte budget (not the max-results cap) stopped the
+    // accumulation, so the truncation note can explain why.
+    let outputBudgetHit = false;
+    let filesScanned = 0;
+    let totalBytes = 0;
+    // Running size of the accumulated output (lines joined by "\n") so we can
+    // stop before allocating an unbounded result. Each pushed line contributes
+    // its UTF-8 byte length plus one byte for the joining newline.
+    let outputBytes = 0;
+
+    // Append an output line, tracking its byte cost. Returns false once the
+    // output-byte budget is exhausted so callers can stop accumulating.
+    const pushLine = (line: string): boolean => {
+      outputBytes += Buffer.byteLength(line, "utf8") + 1;
+      lines.push(line);
+      if (outputBytes > MAX_OUTPUT_BYTES) {
+        truncated = true;
+        outputBudgetHit = true;
+        return false;
+      }
+      return true;
+    };
+
+    // Scan a single regular file for matches. Applies the denied-basename guard
+    // and per-file size caps. Returns nothing; mutates the shared accumulators.
+    const scanFile = (full: string): void => {
+      if (truncated) return;
+
+      // Never read files the assistant is forbidden from touching, even if a
+      // broad pattern would otherwise match them. Reuses the same denylist as
+      // file_read/file_write so the policies stay in sync.
+      if (isDeniedBasename(full)) return;
+
+      const rel = relative(root, full);
+      // matchBase lets a slash-free pattern like "*.ts" match files at any
+      // depth (against the basename); patterns with slashes match the full
+      // relative path. dot so dotfiles aren't silently excluded. When the root
+      // is a single file, `rel` is empty, so match against the basename.
+      const globTarget = rel.length > 0 ? rel : basename(full);
+      if (glob && !minimatch(globTarget, glob, { matchBase: true, dot: true })) {
+        return;
+      }
+
+      if (filesScanned >= MAX_FILES_SCANNED) {
+        truncated = true;
+        return;
+      }
+
+      let size: number;
+      try {
+        size = statSync(full).size;
+      } catch {
+        return;
+      }
+      if (size > MAX_FILE_BYTES) return;
+      if (totalBytes + size > MAX_TOTAL_BYTES) {
+        truncated = true;
+        return;
+      }
+
+      let buf: Buffer;
+      try {
+        buf = readFileSync(full);
+      } catch {
+        return;
+      }
+      filesScanned++;
+      totalBytes += buf.length;
+      if (looksBinary(buf)) return;
+
+      // Display path: when searching a single file at the root, `rel` is empty;
+      // fall back to the basename so output stays readable.
+      const display = rel.length > 0 ? rel : basename(full);
+      const fileLines = buf.toString("utf8").split("\n");
+      for (let i = 0; i < fileLines.length; i++) {
+        // Only run the regex against the leading slice of each line so a single
+        // pathological line can't monopolize the event loop via catastrophic
+        // backtracking. Normal code/log lines are well under the cap.
+        const line = fileLines[i];
+        const probe =
+          line.length > MAX_MATCH_LINE_LENGTH
+            ? line.slice(0, MAX_MATCH_LINE_LENGTH)
+            : line;
+        // Reset lastIndex defensively in case a future change adds the global
+        // flag; with a fresh slice each iteration this is otherwise a no-op.
+        regex.lastIndex = 0;
+        if (!regex.test(probe)) continue;
+        if (matchCount >= maxResults) {
+          truncated = true;
+          return;
+        }
+        const lineNo = i + 1;
+        if (contextLines > 0) {
+          const start = Math.max(0, i - contextLines);
+          const end = Math.min(fileLines.length - 1, i + contextLines);
+          for (let j = start; j <= end; j++) {
+            const sep = j === i ? ":" : "-";
+            if (!pushLine(`${display}:${j + 1}${sep} ${fileLines[j]}`)) return;
+          }
+          if (!pushLine("--")) return;
+        } else {
+          if (!pushLine(`${display}:${lineNo}: ${fileLines[i]}`)) return;
+        }
+        matchCount++;
+      }
+    };
+
+    const walk = (dir: string): void => {
+      if (truncated) return;
+      let entries: import("node:fs").Dirent[];
+      try {
+        entries = readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        if (truncated) return;
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (IGNORED_DIRS.has(entry.name)) continue;
+          walk(full);
+          continue;
+        }
+        if (!entry.isFile()) continue;
+        scanFile(full);
+      }
+    };
+
+    if (rootStat.isDirectory()) {
+      walk(root);
+    } else if (rootStat.isFile()) {
+      // A regular-file root is a valid single-file search.
+      scanFile(root);
+    } else {
+      return {
+        content: `Error: path not found: ${rawPath}`,
+        isError: true,
+      };
+    }
+
+    if (matchCount === 0) {
+      // With zero matches, `truncated` can only have been set by a scan cap
+      // (MAX_FILES_SCANNED / MAX_TOTAL_BYTES), never the max-results path. In
+      // that case the tree was only partially scanned, so a definitive "No
+      // matches found" would be a false negative.
+      if (truncated) {
+        return {
+          content: `Search stopped early after hitting a scan cap before finding any match for /${pattern}/${caseInsensitive ? "i" : ""} under ${basename(root)}. Results are incomplete — narrow your glob or path and search again.`,
+          isError: false,
+          status: "truncated",
+        };
+      }
+      return {
+        content: `No matches found for /${pattern}/${caseInsensitive ? "i" : ""} under ${basename(root)}`,
+        isError: false,
+      };
+    }
+
+    let content = lines.join("\n");
+    if (truncated) {
+      content += outputBudgetHit
+        ? `\n\n[Output capped at ${Math.round(MAX_OUTPUT_BYTES / (1024 * 1024))} MiB. Narrow your pattern, glob, or path, or reduce context_lines, to see more.]`
+        : `\n\n[Results truncated at ${maxResults} matches. Narrow your pattern, glob, or path to see more.]`;
+    }
+
+    return {
+      content,
+      isError: false,
+      ...(truncated ? { status: "truncated" } : {}),
+    };
+  },
+} satisfies ToolDefinition;
+
+registerTool(codeSearchTool);
