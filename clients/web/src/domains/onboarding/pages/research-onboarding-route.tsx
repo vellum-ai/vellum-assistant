@@ -33,6 +33,7 @@ import { buildResearchPrompt } from "@/domains/onboarding/research-prompt";
 import { useBackgroundHatch } from "@/domains/onboarding/use-background-hatch";
 import { useResearchRunner } from "@/domains/onboarding/research-runner";
 import { scheduleCheckin } from "@/domains/onboarding/checkin-scheduler";
+import { formatCheckinTime } from "@/domains/onboarding/format-checkin-time";
 import { useOnboardingFocusStore } from "@/stores/onboarding-focus-store";
 import {
   ResearchOnboardingScreen,
@@ -116,6 +117,9 @@ export function ResearchOnboardingRoute() {
     null,
   );
   const [faceValues, setFaceValues] = useState<GiveMeAFaceValues | null>(null);
+  // Formatted booked check-in time ("2:30 PM"), set when scheduleCheckin lands;
+  // null until then (or if booking failed) → confirmation shows generic copy.
+  const [checkinTime, setCheckinTime] = useState<string | null>(null);
   // Bumped by the integration step's coin to jolt the bottom eyes.
   const [eyesBump, setEyesBump] = useState(0);
   // Extra edge characters revealed so far — grows as the looking-you-up
@@ -256,10 +260,15 @@ export function ResearchOnboardingRoute() {
       const fullName = [formValues.firstName.trim(), formValues.lastName.trim()]
         .filter(Boolean)
         .join(" ");
+      setCheckinTime(null);
       void scheduleCheckin({
         assistantId: hatchedAssistantId,
         userName: fullName || undefined,
         assistantName: faceValues?.name?.trim() || undefined,
+      }).then((result) => {
+        if (result.scheduled) {
+          setCheckinTime(formatCheckinTime(result.start, result.timeZone));
+        }
       });
     }
     goForwardTo("meeting");
@@ -336,6 +345,7 @@ export function ResearchOnboardingRoute() {
         )}
         {step === "meeting" && (
           <MeetingCreatedStep
+            scheduledTime={checkinTime ?? undefined}
             onDone={() => goForwardTo("looking")}
             onBack={() => goBackTo("letschat")}
             onForward={onForward}
