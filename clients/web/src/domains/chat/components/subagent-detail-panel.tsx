@@ -137,6 +137,20 @@ export function SubagentDetailPanel({
     null,
   );
 
+  // Read `stepDetails` through a ref so the click handler below can stay
+  // identity-stable across `entry.events` changes. `stepDetails` is rebuilt
+  // (new Map identity) on most streamed events, so closing over it directly
+  // would change the handler identity every tick — which, passed down to the
+  // now-memoized `SubagentPhaseRow`s, would re-render every row on each event.
+  // The ref is assigned during render (not in an effect) so the handler always
+  // sees the latest map without listing it as a dependency.
+  const stepDetailsRef = useRef(stepDetails);
+  // eslint-disable-next-line react-hooks/refs -- render-phase sync so the stable handler below reads the latest map
+  stepDetailsRef.current = stepDetails;
+  const handleStepDetailClick = useCallback((key: string) => {
+    if (stepDetailsRef.current.has(key)) setSelectedDetailKey(key);
+  }, []);
+
   // Which timeline groups are expanded. Lifted out of `SubagentPhaseTimeline`
   // so the expansion survives the timeline unmounting while a nested tool
   // detail is shown — returning via "Back" restores the same open group. Reset
@@ -434,9 +448,7 @@ export function SubagentDetailPanel({
                   steps={steps}
                   expandedKeys={expandedSectionKeys}
                   onExpandedKeysChange={setExpandedSectionKeys}
-                  onStepDetailClick={(key) => {
-                    if (stepDetails.has(key)) setSelectedDetailKey(key);
-                  }}
+                  onStepDetailClick={handleStepDetailClick}
                   // Keeps the last phase's node pulsing while the subagent is
                   // still active but its last phase has settled.
                   isRunning={isRunning}
