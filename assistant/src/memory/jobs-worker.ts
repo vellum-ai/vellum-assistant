@@ -202,6 +202,10 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
       async runOnce(): Promise<number> {
         return 0;
       },
+      // No-op: shutdown always stops the worker process via the live-state
+      // PID probe in daemon/shutdown-handlers.ts, since it can't know whether
+      // the process was started here or out of band (e.g. `assistant memory
+      // worker start`) after boot.
       stop(): void {},
     };
   }
