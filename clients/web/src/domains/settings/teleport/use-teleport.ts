@@ -220,11 +220,16 @@ export function useTeleport(): TeleportController {
   const cancelTeleport = useCallback(() => {
     const target = targetRef.current;
     const original = originalRef.current;
-    void (async () => {
-      await cleanupFreshTarget(target, original, "teleport-cancel-retire-target");
-      reset();
-    })();
-  }, [reset]);
+    // Leave the verifying phase and clear the refs *synchronously*, before the
+    // async retire/restore runs. Otherwise a Confirm & Switch click while
+    // cleanup is in flight would connect to the same target and retire the
+    // source — racing the cancel that's retiring the target, and potentially
+    // switching the user to a retired assistant or deleting both sides.
+    targetRef.current = null;
+    originalRef.current = null;
+    setPhase({ kind: "idle" });
+    void cleanupFreshTarget(target, original, "teleport-cancel-retire-target");
+  }, []);
 
   return {
     destination,
