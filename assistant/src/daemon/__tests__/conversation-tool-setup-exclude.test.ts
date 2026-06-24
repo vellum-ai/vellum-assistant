@@ -12,6 +12,7 @@ import type { ToolDefinition } from "../../providers/types.js";
 import {
   __clearRegistryForTesting,
   registerMcpTools,
+  registerPluginTools,
 } from "../../tools/registry.js";
 import type { Tool } from "../../tools/types.js";
 import { createResolveToolsCallback } from "../conversation-tool-setup.js";
@@ -26,6 +27,14 @@ function def(name: string): ToolDefinition {
 }
 
 function mcpTool(name: string): Tool {
+  return {
+    name,
+    description: name,
+    input_schema: def(name).input_schema,
+  } as unknown as Tool;
+}
+
+function pluginTool(name: string): Tool {
   return {
     name,
     description: name,
@@ -137,6 +146,32 @@ describe("createResolveToolsCallback — config.tools.exclude", () => {
     const names = resolver!([]).map((d) => d.name);
 
     expect(names).toEqual(["recall", "file_read"]);
+  });
+
+  test("plugin tool registered after resolver creation is picked up next turn", () => {
+    getConfigSpy = withExclude([]);
+    // Resolver created when only a core tool exists — no plugin yet, mirroring
+    // a conversation that started before the plugin was installed.
+    const resolver = createResolveToolsCallback([def("file_read")], makeCtx());
+    expect(resolver!([]).map((d) => d.name)).toEqual(["file_read"]);
+
+    // A plugin installed + activated mid-conversation lands its tool in the
+    // registry. The resolver must surface it on the next turn without the
+    // conversation being recreated (the plugin equivalent of `mcp reload`).
+    registerPluginTools("late-plugin", [pluginTool("admin_copilot_prefs")]);
+    const names = resolver!([]).map((d) => d.name);
+    expect(names).toContain("admin_copilot_prefs");
+    expect(names).toContain("file_read");
+  });
+
+  test("excluded plugin tool is omitted from the resolved tool list", () => {
+    registerPluginTools("ex-plugin", [pluginTool("ex_plugin_tool")]);
+    getConfigSpy = withExclude(["ex_plugin_tool"]);
+    const resolver = createResolveToolsCallback(
+      [def("file_read"), def("ex_plugin_tool")],
+      makeCtx(),
+    );
+    expect(resolver!([]).map((d) => d.name)).toEqual(["file_read"]);
   });
 
   test("excluded tool stays excluded under disk-pressure cleanup mode", () => {
