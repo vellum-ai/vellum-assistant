@@ -23,8 +23,8 @@
  *  3. **Full-replace** — `loadDetail` swaps the whole array (history hydration /
  *     subagent switch).
  *
- * `buildSubagentStepDetails(events)` is O(n) and the panel previously re-ran it
- * on every streamed event → O(n²) over a run. This projector replays only the
+ * `buildSubagentStepDetails(events)` is O(n); running it on every streamed event
+ * would be O(n²) over a run. This projector replays only the
  * events that changed since the last call, folding them through the **same**
  * `applyDetailEvent` reducer the full rebuild uses — so the incremental and full
  * paths can never drift. Any diff that doesn't fit the append / mutate-last

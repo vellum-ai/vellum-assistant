@@ -66,7 +66,8 @@ export function classifyEventsDiff(
   prevEvents: SubagentTimelineEvent[] | null,
   events: SubagentTimelineEvent[],
 ): EventsDiff {
-  // Identity — also covers PR2's events-stable status/usage updates.
+  // Identity — also covers events-stable status/usage updates (the entry object
+  // changes but its events array reference does not).
   if (events === prevEvents) return { kind: "identity" };
 
   // First call / empty cache.

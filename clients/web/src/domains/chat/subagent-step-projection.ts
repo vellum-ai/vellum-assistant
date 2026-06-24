@@ -24,8 +24,8 @@
  *  3. **Full-replace** — `loadDetail` swaps the whole array (history hydration /
  *     subagent switch).
  *
- * `computeSubagentSteps(events)` is O(n) and the panel previously re-ran it on
- * every streamed event → O(n²) over a run. This projector replays only the
+ * `computeSubagentSteps(events)` is O(n); running it on every streamed event
+ * would be O(n²) over a run. This projector replays only the
  * events that changed since the last call, folding them through the **same**
  * `applyTimelineEvent` reducer the full rebuild uses — so the incremental and
  * full paths can never drift. Any diff that doesn't fit the append / mutate-last
@@ -107,7 +107,7 @@ export function createIncrementalStepProjection(
     const diff = classifyEventsDiff(prevEvents, events);
 
     switch (diff.kind) {
-      // Identity — also covers PR2's events-stable status/usage updates.
+      // Identity — also covers events-stable status/usage updates.
       case "identity":
         return { steps, toolMeta };
 
