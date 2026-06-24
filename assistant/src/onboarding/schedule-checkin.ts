@@ -1,21 +1,19 @@
 /**
- * Programmatically schedules the onboarding "Day 2 Check-in" calendar event.
- *
- * Invoked server-side the moment the user grants Google Calendar access during
- * the `/onboarding/research` flow — replacing the old approach of minting a
- * conversation and asking the assistant to book the slot in natural language.
+ * Schedules the onboarding "Day 2 Check-in" calendar event server-side.
  *
  * Flow:
  *   1. Resolve the Google OAuth connection, requiring the calendar.events scope.
- *      No connection / missing scope → a `skipped` result (never an error):
- *      the web caller treats this as best-effort, exactly like the old prompt's
- *      "Skipped the check-in reminder because no calendar is connected".
- *   2. Free/busy query for the 8am–8pm window tomorrow (user's timezone).
+ *      No connection / missing scope → a `scheduled: false` result (never an
+ *      error): the web caller treats this as a best-effort skip.
+ *   2. List tomorrow's timed events in the 8am–8pm window (user's timezone) to
+ *      derive busy intervals. Uses events.list rather than freeBusy.query
+ *      because the onboarding grant is the narrow `calendar.events` scope, which
+ *      authorizes events.list/insert but not freeBusy.query.
  *   3. Choose the first open 15-minute slot (12pm–5pm, widening to 8am–8pm).
  *   4. Create the event with the locked title + HTML description, sendUpdates=all.
  *
- * Authenticates via the same `resolveOAuthConnection("google")` +
- * `connection.request()` path the calendar watcher uses — no skill subprocess.
+ * Authenticates via `resolveOAuthConnection("google")` + `connection.request()`,
+ * the same path the calendar watcher uses — no skill subprocess.
  */
 
 import { canonicalizeTimeZone } from "../daemon/date-context.js";
@@ -25,10 +23,11 @@ import { getLogger } from "../util/logger.js";
 import {
   buildCheckinDescription,
   buildCheckinTitle,
-  type BusyInterval,
-  checkinFreeBusyWindow,
+  checkinAvailabilityWindow,
   type CheckinNames,
   chooseCheckinSlot,
+  extractBusyFromEvents,
+  type GcalEvent,
 } from "./checkin-event.js";
 
 const log = getLogger("onboarding:schedule-checkin");
@@ -68,30 +67,14 @@ export type ScheduleCheckinResult =
       reason: "calendar_unavailable";
     };
 
-interface FreeBusyResponse {
-  calendars?: Record<
-    string,
-    { busy?: Array<{ start?: string; end?: string }> }
-  >;
+interface EventsListResponse {
+  items?: GcalEvent[];
 }
 
-interface CalendarEvent {
+/** Subset of the events.insert response we surface back to the caller. */
+interface CreatedEvent {
   id?: string;
   htmlLink?: string;
-}
-
-/** Parse the primary calendar's busy periods into epoch-ms intervals. */
-function extractBusy(resp: FreeBusyResponse): BusyInterval[] {
-  const periods = resp.calendars?.[PRIMARY_CALENDAR_ID]?.busy ?? [];
-  const intervals: BusyInterval[] = [];
-  for (const period of periods) {
-    const start = period.start ? Date.parse(period.start) : NaN;
-    const end = period.end ? Date.parse(period.end) : NaN;
-    if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
-      intervals.push({ start, end });
-    }
-  }
-  return intervals;
 }
 
 /**
@@ -123,27 +106,32 @@ export async function scheduleOnboardingCheckin(
     return { scheduled: false, reason: "calendar_unavailable" };
   }
 
-  const { timeMinMs, timeMaxMs } = checkinFreeBusyWindow(nowMs, timeZone);
+  const { timeMinMs, timeMaxMs } = checkinAvailabilityWindow(nowMs, timeZone);
 
-  const freeBusyResp = await connection.request({
-    method: "POST",
-    path: "/freeBusy",
-    baseUrl: GOOGLE_CALENDAR_BASE_URL,
-    headers: { "Content-Type": "application/json" },
-    body: {
+  const eventsResp = await connection.request({
+    method: "GET",
+    path: `/calendars/${encodeURIComponent(PRIMARY_CALENDAR_ID)}/events`,
+    query: {
       timeMin: new Date(timeMinMs).toISOString(),
       timeMax: new Date(timeMaxMs).toISOString(),
-      timeZone,
-      items: [{ id: PRIMARY_CALENDAR_ID }],
+      // Expand recurring events into instances so each occurrence is a concrete
+      // busy interval in the window.
+      singleEvents: "true",
+      orderBy: "startTime",
+      maxResults: "250",
     },
+    baseUrl: GOOGLE_CALENDAR_BASE_URL,
+    headers: { "Content-Type": "application/json" },
   });
-  if (freeBusyResp.status < 200 || freeBusyResp.status >= 300) {
+  if (eventsResp.status < 200 || eventsResp.status >= 300) {
     throw new Error(
-      `Calendar freeBusy ${freeBusyResp.status}: ${stringifyBody(freeBusyResp.body)}`,
+      `Calendar events.list ${eventsResp.status}: ${stringifyBody(eventsResp.body)}`,
     );
   }
 
-  const busy = extractBusy(freeBusyResp.body as FreeBusyResponse);
+  const busy = extractBusyFromEvents(
+    (eventsResp.body as EventsListResponse).items ?? [],
+  );
   const slot = chooseCheckinSlot(nowMs, timeZone, busy);
 
   const uuid = crypto.randomUUID();
@@ -172,7 +160,7 @@ export async function scheduleOnboardingCheckin(
     );
   }
 
-  const event = eventResp.body as CalendarEvent;
+  const event = eventResp.body as CreatedEvent;
   if (!event.id) {
     throw new Error("Calendar event create returned no event id");
   }

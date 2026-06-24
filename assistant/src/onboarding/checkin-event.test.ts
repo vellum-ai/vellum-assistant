@@ -4,9 +4,11 @@ import {
   buildCheckinDescription,
   buildCheckinTitle,
   type BusyInterval,
-  checkinFreeBusyWindow,
+  checkinAvailabilityWindow,
   chooseCheckinSlot,
+  extractBusyFromEvents,
   findFirstOpenSlot,
+  type GcalEvent,
   tomorrowInTimeZone,
   zonedWallTimeToUtcMs,
 } from "./checkin-event.js";
@@ -163,9 +165,55 @@ describe("chooseCheckinSlot", () => {
   });
 });
 
-describe("checkinFreeBusyWindow", () => {
+describe("extractBusyFromEvents", () => {
+  const a = "2024-01-16T13:00:00Z";
+  const b = "2024-01-16T13:30:00Z";
+
+  test("timed event → busy interval", () => {
+    const events: GcalEvent[] = [
+      { start: { dateTime: a }, end: { dateTime: b } },
+    ];
+    expect(extractBusyFromEvents(events)).toEqual([
+      { start: Date.parse(a), end: Date.parse(b) },
+    ]);
+  });
+
+  test("skips cancelled, transparent, all-day, and declined events", () => {
+    const events: GcalEvent[] = [
+      { status: "cancelled", start: { dateTime: a }, end: { dateTime: b } },
+      {
+        transparency: "transparent",
+        start: { dateTime: a },
+        end: { dateTime: b },
+      },
+      { start: { date: "2024-01-16" }, end: { date: "2024-01-17" } },
+      {
+        start: { dateTime: a },
+        end: { dateTime: b },
+        attendees: [{ self: true, responseStatus: "declined" }],
+      },
+    ];
+    expect(extractBusyFromEvents(events)).toEqual([]);
+  });
+
+  test("keeps an accepted event even with another attendee declined", () => {
+    const events: GcalEvent[] = [
+      {
+        start: { dateTime: a },
+        end: { dateTime: b },
+        attendees: [
+          { self: true, responseStatus: "accepted" },
+          { responseStatus: "declined" },
+        ],
+      },
+    ];
+    expect(extractBusyFromEvents(events)).toHaveLength(1);
+  });
+});
+
+describe("checkinAvailabilityWindow", () => {
   test("spans the full 8am–8pm fallback window tomorrow", () => {
-    const { timeMinMs, timeMaxMs } = checkinFreeBusyWindow(NOW, TZ);
+    const { timeMinMs, timeMaxMs } = checkinAvailabilityWindow(NOW, TZ);
     expect(timeMinMs).toBe(estTomorrow(8));
     expect(timeMaxMs).toBe(estTomorrow(20));
   });

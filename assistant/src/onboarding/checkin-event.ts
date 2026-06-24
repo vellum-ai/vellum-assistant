@@ -1,22 +1,15 @@
 /**
- * Pure helpers for the programmatic "Day 2 Check-in" onboarding meeting.
+ * Pure helpers for the onboarding "Day 2 Check-in" meeting: choosing the slot
+ * and building the event's title and HTML description.
  *
- * The check-in used to be scheduled conversationally: the web client minted a
- * dedicated conversation and posted a natural-language prompt instructing the
- * assistant to pull the calendar and book a slot. This module replaces that
- * with deterministic logic that runs server-side the moment Google Calendar
- * OAuth lands — find the first open 15-minute slot in the user's local
- * afternoon tomorrow and build the event.
- *
- * The event's title typography and HTML description are kept VERBATIM from the
- * old prompt (`clients/web/.../checkin-prompt.ts`): locked title rules, tested
- * HTML-sanitization-safe body, default first-run substitutions, and the
- * deep-link CTA back into the app. Only the slot SELECTION changed — it is now
- * a fixed window rather than a model judgment call.
+ * The check-in is booked into the first open 15-minute slot in the user's local
+ * afternoon tomorrow. The title uses fixed typography and the description uses a
+ * sanitization-safe HTML body (Google Calendar strips most styling) with
+ * default first-run substitutions and a deep-link CTA back into the app.
  *
  * Everything here is side-effect-free and timezone-pure so it can be unit
- * tested without a calendar connection; the orchestration that actually talks
- * to Google lives in `schedule-checkin.ts`.
+ * tested without a calendar connection; the orchestration that talks to Google
+ * lives in `schedule-checkin.ts`.
  */
 
 /** Length of the check-in meeting. */
@@ -46,8 +39,7 @@ export interface CheckinNames {
 }
 
 /**
- * Build the check-in event title. Locked typography — mirrors the four cases
- * the original prompt documented:
+ * Build the check-in event title. Locked typography, four cases:
  *   both names → `{me} <> {you}: Day 2 Check-in`
  *   me only    → `{me}: Day 2 Check-in`
  *   you only   → `{you}: Day 2 Check-in`
@@ -183,6 +175,41 @@ export interface BusyInterval {
   end: number;
 }
 
+/** Subset of a Google Calendar event needed to decide whether it blocks time. */
+export interface GcalEvent {
+  status?: string;
+  transparency?: string;
+  start?: { dateTime?: string; date?: string };
+  end?: { dateTime?: string; date?: string };
+  attendees?: Array<{ self?: boolean; responseStatus?: string }>;
+}
+
+/**
+ * Derive busy intervals (epoch ms) from listed calendar events, approximating
+ * freeBusy semantics under the calendar.events scope (which authorizes
+ * events.list/insert but not freeBusy.query). Skips events that don't occupy
+ * the user's time: cancelled, transparent ("free"), all-day (date-only), and
+ * ones the user has declined.
+ */
+export function extractBusyFromEvents(events: GcalEvent[]): BusyInterval[] {
+  const intervals: BusyInterval[] = [];
+  for (const event of events) {
+    if (event.status === "cancelled") continue;
+    if (event.transparency === "transparent") continue;
+    // All-day events (date-only) don't block a 15-minute afternoon slot.
+    if (!event.start?.dateTime || !event.end?.dateTime) continue;
+    const self = event.attendees?.find((a) => a.self);
+    if (self?.responseStatus === "declined") continue;
+
+    const start = Date.parse(event.start.dateTime);
+    const end = Date.parse(event.end.dateTime);
+    if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+      intervals.push({ start, end });
+    }
+  }
+  return intervals;
+}
+
 /**
  * Earliest start (epoch ms) of a free `durationMs` slot inside
  * `[windowStart, windowEnd)`, or `null` if the window is fully booked.
@@ -267,8 +294,8 @@ export function chooseCheckinSlot(
   };
 }
 
-/** Window covering both the primary and fallback ranges — the free/busy query span. */
-export function checkinFreeBusyWindow(
+/** Window covering both the primary and fallback ranges — the availability query span. */
+export function checkinAvailabilityWindow(
   nowMs: number,
   timeZone: string,
 ): { timeMinMs: number; timeMaxMs: number } {
