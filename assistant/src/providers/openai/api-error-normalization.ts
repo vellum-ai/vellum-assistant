@@ -57,12 +57,12 @@ export const captureRawErrorBodyFetch = async (
 ): Promise<Response> => {
   const res = await globalThis.fetch(url, init);
   if (res.ok) return res;
-  // Don't drain retryable bodies: the SDK retries 429/5xx, and reading a large
-  // or slow upstream error page on every attempt would delay those retries and
-  // buffer the whole body. We still capture terminal (non-retryable) errors —
-  // that's where the actionable upstream detail lives (unsupported model,
-  // invalid key, malformed request, etc.).
-  if (res.status === 429 || res.status >= 500) return res;
+  // Don't drain bodies the SDK will retry: reading a large or slow upstream
+  // error page on every attempt would delay those retries and buffer the whole
+  // body. We still capture terminal (non-retryable) errors — that's where the
+  // actionable upstream detail lives (unsupported model, invalid key, malformed
+  // request, etc.).
+  if (sdkWillRetry(res)) return res;
   // clone() so reading the body leaves the SDK's own read of `res` intact.
   const body = await res
     .clone()
@@ -77,6 +77,25 @@ export const captureRawErrorBodyFetch = async (
   );
   return res;
 };
+
+/**
+ * Mirror the OpenAI SDK's `shouldRetry` predicate so this wrapper never drains
+ * a body the SDK is about to retry. The SDK retries more than 429/5xx: an
+ * explicit `x-should-retry` header (which also overrides 429/5xx to *not*
+ * retry), plus 408 (request timeout) and 409 (lock timeout). Keep in sync with
+ * `openai/client.js` `shouldRetry`.
+ */
+function sdkWillRetry(res: Response): boolean {
+  const shouldRetryHeader = res.headers.get("x-should-retry");
+  if (shouldRetryHeader === "true") return true;
+  if (shouldRetryHeader === "false") return false;
+  return (
+    res.status === 408 ||
+    res.status === 409 ||
+    res.status === 429 ||
+    res.status >= 500
+  );
+}
 
 export function normalizeOpenAIAPIError(
   error: InstanceType<typeof OpenAI.APIError>,

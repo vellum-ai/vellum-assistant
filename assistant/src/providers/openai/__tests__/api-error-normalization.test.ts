@@ -266,9 +266,10 @@ describe("captureRawErrorBodyFetch", () => {
     }
   });
 
-  test("does not drain retryable (429/5xx) bodies", async () => {
+  test("does not drain SDK-retryable bodies (408/409/429/5xx)", async () => {
     const original = globalThis.fetch;
-    for (const status of [429, 500, 503]) {
+    // Mirror the full SDK retry predicate, not just 429/5xx.
+    for (const status of [408, 409, 429, 500, 503]) {
       globalThis.fetch = fakeFetch(
         JSON.stringify({ detail: "retry me" }),
         status,
@@ -285,6 +286,36 @@ describe("captureRawErrorBodyFetch", () => {
       } finally {
         globalThis.fetch = original;
       }
+    }
+  });
+
+  test("honors the x-should-retry header override", async () => {
+    const original = globalThis.fetch;
+    const withHeader = (
+      status: number,
+      value: string,
+    ): typeof globalThis.fetch =>
+      (async () =>
+        new Response(JSON.stringify({ detail: "header says so" }), {
+          status,
+          headers: { "x-should-retry": value },
+        })) as unknown as typeof globalThis.fetch;
+    try {
+      // x-should-retry:true on an otherwise-terminal 400 → SDK retries → skip.
+      globalThis.fetch = withHeader(400, "true");
+      let res = await captureRawErrorBodyFetch("https://x/v1/chat", {});
+      expect(normalizeOpenAIAPIError(errFor(res, 400)).message).not.toBe(
+        "header says so",
+      );
+
+      // x-should-retry:false on a 500 → SDK won't retry → capture it.
+      globalThis.fetch = withHeader(500, "false");
+      res = await captureRawErrorBodyFetch("https://x/v1/chat", {});
+      expect(normalizeOpenAIAPIError(errFor(res, 500)).message).toBe(
+        "header says so",
+      );
+    } finally {
+      globalThis.fetch = original;
     }
   });
 });
