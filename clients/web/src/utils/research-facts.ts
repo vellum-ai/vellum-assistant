@@ -201,11 +201,10 @@ function mapEntries<T>(raw: unknown, mapper: (entry: unknown) => T | null): T[] 
  * carrying a `claims` and/or `suggestions` array), or null if no complete,
  * well-formed payload is present yet — still streaming, or malformed JSON.
  *
- * This is the load-bearing robustness fix: `JSON.parse` handles string escaping
- * correctly, whereas the brace-counted streaming extractor below mis-tracks an
- * unescaped `"` (or a literal newline) inside a value and silently drops the
- * affected element — and the elements after it — which is how a fully-generated
- * 4-suggestion reply could render as one card.
+ * `JSON.parse` handles string escaping correctly, so a complete payload yields
+ * every element even when a value contains an escaped quote. The brace-counted
+ * streaming extractor below is the fallback for partial text only; callers
+ * prefer this whole-payload parse whenever the reply has fully arrived.
  */
 function parseWholePayload(body: string): Record<string, unknown> | null {
   for (const obj of extractCompleteObjects(body)) {
