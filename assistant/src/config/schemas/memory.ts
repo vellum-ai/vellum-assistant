@@ -21,6 +21,23 @@ import {
 import { MemoryV2ConfigSchema } from "./memory-v2.js";
 import { MemoryV3ConfigSchema } from "./memory-v3.js";
 
+/**
+ * Procedural-memory-as-skills tuning: a recurring procedure is captured as a
+ * candidate note and distilled into a managed skill once it recurs.
+ */
+export const MemoryProcToSkillsConfigSchema = z
+  .object({
+    minRecurrence: z
+      .number({ error: "memory.procToSkills.minRecurrence must be a number" })
+      .int("memory.procToSkills.minRecurrence must be an integer")
+      .min(1, "memory.procToSkills.minRecurrence must be at least 1")
+      .default(2)
+      .describe(
+        "Number of recurrences of the same procedure before a candidate is distilled into a skill. An explicitly taught procedure distills immediately, bypassing this gate.",
+      ),
+  })
+  .describe("Procedural-memory-as-skills recurrence/distillation tuning.");
+
 export const MemoryConfigSchema = z
   .object({
     enabled: z
@@ -62,6 +79,9 @@ export const MemoryConfigSchema = z
     v3: MemoryV3ConfigSchema.default(MemoryV3ConfigSchema.parse({})),
     retrospective: MemoryRetrospectiveConfigSchema.default(
       MemoryRetrospectiveConfigSchema.parse({}),
+    ),
+    procToSkills: MemoryProcToSkillsConfigSchema.default(
+      MemoryProcToSkillsConfigSchema.parse({}),
     ),
   })
   .describe(
