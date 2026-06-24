@@ -21,6 +21,8 @@
 
 import { useCallback, useRef, useState } from "react";
 
+import { useQueryClient } from "@tanstack/react-query";
+
 import {
   conversationsPost,
   messagesGet,
@@ -28,6 +30,8 @@ import {
   pluginsInstallPost,
   pluginsSearchGet,
 } from "@/generated/daemon/sdk.gen";
+import { archiveResearchConversation } from "@/domains/onboarding/archive-research-conversation";
+import { invalidateConversationQueries } from "@/utils/conversation-cache";
 import type {
   MessagesGetResponses,
   MessagesPostData,
@@ -292,6 +296,7 @@ export function useResearchRunner(): UseResearchRunner {
   // so ordinary clicks (plugins disabled / none picked / already installed)
   // aren't frozen until the whole reply settles.
   const pluginsReadyRef = useRef<Promise<void>>(Promise.resolve());
+  const queryClient = useQueryClient();
 
   const start = useCallback(
     ({ awaitAssistantId, subject, conversationTitle }: StartResearchOptions) => {
@@ -317,8 +322,11 @@ export function useResearchRunner(): UseResearchRunner {
       });
 
       void (async () => {
+        let resolvedAssistantId: string | undefined;
+        let createdConversationId: string | undefined;
         try {
           const assistantId = await awaitAssistantId();
+          resolvedAssistantId = assistantId;
           if (isStale()) return;
 
           // Advertise the live marketplace catalog to the research turn so it can
@@ -351,6 +359,7 @@ export function useResearchRunner(): UseResearchRunner {
             setState((s) => ({ ...s, status: "error" }));
             return;
           }
+          createdConversationId = conversationId;
 
           const body: MessagesPostData["body"] = {
             conversationId,
@@ -449,10 +458,21 @@ export function useResearchRunner(): UseResearchRunner {
           // a stale bail-out, or a reply that never emitted a `plugins` array) so
           // `awaitPluginInstalls` can never hang.
           resolvePluginsReady();
+          // Archive the throwaway research conversation on every exit path (settled,
+          // errored, or superseded by a newer run) once it has been created, so the
+          // side channel never lingers in the sidebar on handoff. Best-effort +
+          // idempotent; awaiting lets the cache invalidation reflect the archived state.
+          if (resolvedAssistantId && createdConversationId) {
+            await archiveResearchConversation(
+              resolvedAssistantId,
+              createdConversationId,
+            );
+            void invalidateConversationQueries(queryClient, resolvedAssistantId);
+          }
         }
       })();
     },
-    [],
+    [queryClient],
   );
 
   const awaitPluginInstalls = useCallback(async (): Promise<void> => {
