@@ -725,6 +725,57 @@ describe("HostCuProxy", () => {
       );
     });
 
+    test("loop detection ignores the same combo sent to different clients", () => {
+      setup();
+
+      // Same key, different target desktops — not a repeat on one UI, so loop
+      // detection must NOT fire. Routing fields are kept in the signature.
+      proxy.recordAction("computer_use_key", {
+        key: "cmd+a",
+        target_client_id: "client-a",
+      });
+      proxy.recordAction("computer_use_key", {
+        key: "cmd+a",
+        target_client_id: "client-b",
+      });
+      proxy.recordAction("computer_use_key", {
+        key: "cmd+a",
+        target_client_id: "client-c",
+      });
+
+      const result = proxy.formatObservation({
+        axTree: "Button [1]",
+      });
+
+      expect(result.content).not.toContain("WARNING: You've repeated");
+    });
+
+    test("loop detection fires for the same combo+client across spellings", () => {
+      setup();
+
+      // Same target client, equivalent spellings — still a repeat on one UI.
+      proxy.recordAction("computer_use_key", {
+        key: "cmd+a",
+        target_client_id: "client-a",
+      });
+      proxy.recordAction("computer_use_key", {
+        key: "command+a",
+        target_client_id: "client-a",
+      });
+      proxy.recordAction("computer_use_key", {
+        key: "cmd + a",
+        target_client_id: "client-a",
+      });
+
+      const result = proxy.formatObservation({
+        axTree: "Button [1]",
+      });
+
+      expect(result.content).toContain(
+        "WARNING: You've repeated the same action (computer_use_key) 3 times",
+      );
+    });
+
     test("resets consecutive count when diff is present", async () => {
       setup();
 

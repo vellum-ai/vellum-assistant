@@ -135,16 +135,23 @@ function isNoDiffKeyAction(action: ActionRecord | undefined): boolean {
 
 /**
  * Canonical signature for loop detection. Key presses collapse equivalent
- * spellings (`cmd+a`, `command+a`, `cmd + a`) to one signature so a stuck
- * session retrying the same combo with alias/whitespace variants is still
- * caught — important now that exempt keys no longer emit no-effect warnings.
+ * spellings (`cmd+a`, `command+a`, `cmd + a`) of the same combo so a stuck
+ * session retrying it with alias/whitespace variants is still caught —
+ * important now that exempt keys no longer emit no-effect warnings. Only the
+ * `key` value is normalized; all other input fields (e.g. the routing
+ * `target_client_id`) are preserved, so the same combo sent to different
+ * desktop clients is not mistaken for a repeat.
  */
 function actionSignature(record: ActionRecord): string {
   if (
     record.toolName === "computer_use_key" &&
     typeof record.input.key === "string"
   ) {
-    return `computer_use_key:${canonicalizeKeyCombo(record.input.key)}`;
+    const normalizedInput = {
+      ...record.input,
+      key: canonicalizeKeyCombo(record.input.key),
+    };
+    return `computer_use_key:${JSON.stringify(normalizedInput)}`;
   }
   return `${record.toolName}:${JSON.stringify(record.input)}`;
 }
