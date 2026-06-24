@@ -46,6 +46,9 @@ function injectPlatformToken(apiMode: boolean) {
         // Header-only auth; drop any browser cookie so it can't re-engage the
         // session-cookie (CSRF-enforcing) path.
         proxyReq.removeHeader("Cookie");
+        // Server-side proxy injection of the loopback token, not browser auth —
+        // the centralized interceptor can't reach this Node proxy hook.
+        // eslint-disable-next-line no-restricted-syntax
         if (token) proxyReq.setHeader("X-Session-Token", token);
         return;
       }
