@@ -281,11 +281,19 @@ export function ResearchOnboardingRoute() {
   // skips the calendar checkbox on Google's granular-consent screen. That's a
   // recoverable user error — not a transient daemon failure — so hold on this
   // step with a re-prompt rather than booking nothing and showing a false
-  // confirmation. The daemon collapses "not connected" and "scope not granted"
-  // into one best-effort skip, so the client's own scope check is the only
-  // signal that distinguishes this case.
+  // confirmation.
+  //
+  // Only block on a POSITIVE denial: a populated scope list that lacks
+  // calendar.events (a real denial still carries the identity scopes, so it's
+  // never empty). An empty list is ambiguous — the connection row may not have
+  // synced yet, the fetch may have failed, or a legacy connection may omit
+  // scope data — so treat it as unknown and fall through to the best-effort
+  // schedule. This mirrors the daemon resolver, which rejects only when a
+  // connection positively lacks a required scope and never on unknown data.
   function handleCheckinConnected(scopes: string[]) {
-    if (!scopes.includes(GOOGLE_CALENDAR_EVENTS_SCOPE)) {
+    const calendarDenied =
+      scopes.length > 0 && !scopes.includes(GOOGLE_CALENDAR_EVENTS_SCOPE);
+    if (calendarDenied) {
       setMissingCalendarScope(true);
       return;
     }
