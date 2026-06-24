@@ -2,7 +2,7 @@
  * Memory v3 — `memory_v3_maintain` job handler.
  *
  * A flag-gated, best-effort self-maintenance pass over the v3 section dense
- * store and the in-memory lanes. It runs five independent stages, in order:
+ * store and the in-memory lanes. It runs six independent stages, in order:
  *
  *   1. **Section re-embed** — diff the page index by `modifiedAt` against the
  *      last successful pass (the high-water mark below), and for every page that
@@ -34,7 +34,11 @@
  *      in the page index (dangling slugs) via the log + outcome. The file is
  *      maintainer-owned, so this stage NEVER edits it — the maintainer fixes
  *      dangling entries at the next consolidation pass.
- *   5. **Lane invalidation** — `invalidateLanes()` so the next turn rebuilds the
+ *   5. **Skill-link validation** — read each indexed concept page's `skill:`
+ *      frontmatter and report pages whose link points at a skill id no longer in
+ *      the catalog (removed or renamed) via the log + outcome. Report-only like
+ *      core-set validation — the pages are never auto-edited.
+ *   6. **Lane invalidation** — `invalidateLanes()` so the next turn rebuilds the
  *      in-memory section index, needle, and edge graph from the freshly-updated
  *      pages.
  *
@@ -53,6 +57,7 @@
 
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { isMemoryV3Live } from "../../../config/memory-v3-gate.js";
+import { loadSkillCatalog } from "../../../config/skills.js";
 import type { AssistantConfig } from "../../../config/types.js";
 import {
   getMemoryCheckpoint,
@@ -157,6 +162,18 @@ export interface MaintainJobDeps {
    * entries only — the file is maintainer-owned and is never edited here.
    */
   loadCoreSet: () => Slug[];
+  /**
+   * The live skill ids from the skill catalog. The skill-link validation stage
+   * diffs each indexed page's `skill:` frontmatter against this set to find
+   * facts whose `skill:` points at a removed or renamed skill.
+   */
+  loadSkillIds: () => string[];
+  /**
+   * A page's `skill:` frontmatter value (a bare skill id) or `undefined` when
+   * the page carries no `skill:` link. Reads through the page store rather than
+   * Qdrant; missing/unreadable pages degrade to `undefined`.
+   */
+  readPageSkillLink: (slug: Slug) => Promise<string | undefined>;
   /** Drop the memoized v3 lanes so the next turn rebuilds them. */
   invalidateLanes: () => void;
   /** Active assistant config (for the dense-store/embedding calls). */
@@ -246,6 +263,12 @@ export interface MaintainOutcome {
    * consolidation pass — the file itself is never mutated.
    */
   danglingCoreSlugs: Slug[];
+  /**
+   * Indexed concept pages whose `skill:` frontmatter link points at a skill id
+   * no longer in the catalog (removed or renamed). Reported for review — the
+   * pages themselves are never mutated.
+   */
+  orphanSkillSlugs: Slug[];
   /** Whether the in-memory lanes were invalidated. */
   invalidated: boolean;
   /** Stages that threw (and were contained). */
@@ -307,6 +330,19 @@ async function readPageBodyFromWorkspace(
   }
 }
 
+/** Read a page's `skill:` frontmatter link; missing/failed reads degrade to undefined. */
+async function readPageSkillLinkFromWorkspace(
+  workspaceDir: string,
+  slug: Slug,
+): Promise<string | undefined> {
+  try {
+    const page = await readPage(workspaceDir, slug);
+    return page?.frontmatter.skill;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Capability-aware page-body reader for the full backfill: synthetic skill/CLI
  * slugs have no on-disk page, so they contribute their rendered capability
@@ -345,6 +381,9 @@ function defaultDeps(config: AssistantConfig): MaintainJobDeps {
     listSectionArticles: () => realListSectionArticles(config),
     listIndexedSlugs: () => selectAllPagesFromWorkspace(workspaceDir),
     loadCoreSet: () => realLoadCoreSet(workspaceDir),
+    loadSkillIds: () => loadSkillCatalog().map((s) => s.id),
+    readPageSkillLink: (slug) =>
+      readPageSkillLinkFromWorkspace(workspaceDir, slug),
     invalidateLanes: realInvalidateLanes,
     config,
   };
@@ -652,6 +691,7 @@ export async function maintainJob(
     pruned: 0,
     pruneFailures: 0,
     danglingCoreSlugs: [],
+    orphanSkillSlugs: [],
     invalidated: false,
     failures: [],
   };
@@ -763,7 +803,39 @@ export async function maintainJob(
     );
   }
 
-  // Stage 5: rebuild section index + needle + edge graph on the next turn.
+  // Stage 5: validate fact `skill:` links against the live skill catalog. Read
+  // each indexed concept page's `skill:` frontmatter and REPORT pages whose link
+  // points at a skill id no longer in the catalog (removed or renamed) through
+  // the log + outcome. Synthetic capability rows carry no `skill:` link, so they
+  // are skipped. Report-only, mirroring core-set validation: the pages are never
+  // auto-edited; the maintainer fixes a dangling link at the next consolidation.
+  try {
+    const skillIds = deps.loadSkillIds();
+    if (skillIds.length > 0) {
+      const liveSkills = new Set(skillIds);
+      const orphans: Slug[] = [];
+      for (const slug of await deps.listIndexedSlugs()) {
+        if (isCapabilitySlug(slug)) continue;
+        const skill = await deps.readPageSkillLink(slug);
+        if (skill && !liveSkills.has(skill)) orphans.push(slug);
+      }
+      outcome.orphanSkillSlugs = orphans;
+      if (orphans.length > 0) {
+        log.warn(
+          { orphans },
+          "memory-v3 maintain: pages link a `skill:` missing from the catalog — review the links at the next consolidation",
+        );
+      }
+    }
+  } catch (err) {
+    outcome.failures.push("skill-validate");
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "memory-v3 maintain: skill-link validation failed (non-fatal)",
+    );
+  }
+
+  // Stage 6: rebuild section index + needle + edge graph on the next turn.
   try {
     deps.invalidateLanes();
     outcome.invalidated = true;
@@ -784,6 +856,7 @@ export async function maintainJob(
       pruned: outcome.pruned,
       pruneFailures: outcome.pruneFailures,
       danglingCoreSlugs: outcome.danglingCoreSlugs,
+      orphanSkillSlugs: outcome.orphanSkillSlugs,
       invalidated: outcome.invalidated,
       failures: outcome.failures,
     },

@@ -96,6 +96,10 @@ describe("maintainJob", () => {
       // Core-validation stage off by default: empty core set ⇒ nothing to
       // check. The dedicated core tests below override this.
       loadCoreSet: () => [],
+      // Skill-validation stage off by default: empty skill catalog ⇒ nothing to
+      // check. The dedicated skill-link tests below override these.
+      loadSkillIds: () => [],
+      readPageSkillLink: async () => undefined,
       invalidateLanes: () => {
         calls.invalidate += 1;
       },
@@ -410,6 +414,70 @@ describe("maintainJob", () => {
     // Never replace good points with a blank: no delete, no upsert.
     expect(calls.deleted).toEqual([]);
     expect(calls.upserted).toEqual([]);
+  });
+
+  test("a fact linking a live skill reports no orphan", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    const { deps: d, calls } = deps({
+      loadSkillIds: () => ["meet-join"],
+      listIndexedSlugs: async () => ["fact-a"],
+      readPageSkillLink: async (slug) =>
+        slug === "fact-a" ? "meet-join" : undefined,
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    expect(outcome.orphanSkillSlugs).toEqual([]);
+    expect(outcome.failures).toEqual([]);
+    // Report-only and read-only: no dense-store mutation.
+    expect(calls.deleted).toEqual([]);
+    expect(calls.upserted).toEqual([]);
+    expect(calls.invalidate).toBe(1);
+  });
+
+  test("a fact linking a removed skill is reported as an orphan", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    // Two facts: one links a live skill, the other a removed/renamed one. A
+    // synthetic capability row carries no `skill:` link and is skipped. Only the
+    // dangling fact is reported.
+    const { deps: d, calls } = deps({
+      loadSkillIds: () => ["meet-join"],
+      listIndexedSlugs: async () => [
+        "fact-live",
+        "fact-gone",
+        "skills/example",
+      ],
+      // The capability row is already in the store, so the reconcile stage
+      // no-ops here and this test exercises skill-validation in isolation.
+      listSectionArticles: async () => ["skills/example"],
+      readPageSkillLink: async (slug) => {
+        if (slug === "fact-live") return "meet-join";
+        if (slug === "fact-gone") return "removed-skill";
+        return undefined;
+      },
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    expect(outcome.orphanSkillSlugs).toEqual(["fact-gone"]);
+    expect(outcome.failures).toEqual([]);
+    // Report-only: the dangling link triggered no mutation.
+    expect(calls.deleted).toEqual([]);
+    expect(calls.upserted).toEqual([]);
+    expect(calls.invalidate).toBe(1);
+  });
+
+  test("a thrown skill-validation stage is contained and does not abort lane invalidation", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    const { deps: d, calls } = deps({
+      loadSkillIds: () => {
+        throw new Error("skill boom");
+      },
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    expect(outcome.failures).toContain("skill-validate");
+    expect(outcome.orphanSkillSlugs).toEqual([]);
+    expect(calls.invalidate).toBe(1);
+    expect(outcome.invalidated).toBe(true);
   });
 });
 
