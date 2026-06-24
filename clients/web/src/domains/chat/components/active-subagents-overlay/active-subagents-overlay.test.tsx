@@ -60,6 +60,14 @@ describe("ActiveSubagentsOverlay — collapsed", () => {
     expect(queryByText("+2")).toBeTruthy();
     expect(queryByText("8 Active Subagents")).toBeNull();
   });
+
+  test("root is pointer-events-none so the gutter doesn't block the transcript", () => {
+    const ids = seedMany(2);
+    render(<ActiveSubagentsOverlay subagentIds={ids} />);
+    expect(
+      screen.getByTestId("active-subagents-overlay").className,
+    ).toContain("pointer-events-none");
+  });
 });
 
 describe("ActiveSubagentsOverlay — expanded", () => {
