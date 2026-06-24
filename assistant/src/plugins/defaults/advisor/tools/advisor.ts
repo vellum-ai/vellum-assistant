@@ -63,7 +63,10 @@ const advisorTool: ToolDefinition = {
         conversationId: ctx.conversationId,
         workingDir: ctx.workingDir,
         allowedToolNames: ctx.allowedToolNames,
+        // Per-turn trust snapshot — gates personal-memory surfaces off the same
+        // values the executor captured for this invocation, not live state.
         trustClass: ctx.trustClass,
+        sourceChannel: ctx.executionChannel,
         transcript: messages,
         signal: ctx.signal,
       }).catch(() => null);

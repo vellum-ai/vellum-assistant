@@ -13,14 +13,13 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let personalAllowed = false;
 let scratchpadEnabled = true;
+let gateArg: unknown = null;
 
 mock.module("../../../../daemon/trust-context.js", () => ({
-  isPersonalMemoryAllowed: () => personalAllowed,
-}));
-mock.module("../../../../daemon/conversation-registry.js", () => ({
-  findConversation: () => ({
-    trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
-  }),
+  isPersonalMemoryAllowed: (trust: unknown) => {
+    gateArg = trust;
+    return personalAllowed;
+  },
 }));
 mock.module("../../../../daemon/now-scratchpad.js", () => ({
   readNowScratchpad: () => "NOW-CONTENT",
@@ -55,7 +54,10 @@ const { buildAdvisorContext } = await import("../context-pack.js");
 const sources = {
   conversationId: "c1",
   workingDir: "/tmp",
-  trustClass: "guardian" as const,
+  // A remote, non-guardian per-turn snapshot — the case the live-state read
+  // could have wrongly elevated.
+  trustClass: "unknown" as const,
+  sourceChannel: "telegram",
   transcript: [],
   allowedToolNames: new Set<string>(),
 };
@@ -63,6 +65,7 @@ const sources = {
 beforeEach(() => {
   personalAllowed = false;
   scratchpadEnabled = true;
+  gateArg = null;
 });
 
 describe("advisor context pack — personal-memory gating", () => {
@@ -87,5 +90,17 @@ describe("advisor context pack — personal-memory gating", () => {
     const ctx = (await buildAdvisorContext(sources)) ?? "";
     expect(ctx).not.toContain("NOW-CONTENT");
     expect(ctx).toContain("PKB-CONTENT");
+  });
+
+  test("feeds the gate the per-turn trust snapshot, not live conversation state", async () => {
+    personalAllowed = true;
+    await buildAdvisorContext(sources);
+    // The gate must see exactly the snapshot threaded from ToolContext —
+    // trustClass + executionChannel — so a concurrent live-trust change can't
+    // elevate this invocation.
+    expect(gateArg).toEqual({
+      sourceChannel: "telegram",
+      trustClass: "unknown",
+    });
   });
 });

@@ -26,6 +26,8 @@
  * prompt (see `buildAdvisorSystem`), or `null` when nothing could be gathered.
  */
 
+import type { ChannelId } from "../../../channels/types.js";
+import type { TrustContext } from "../../../daemon/trust-context.js";
 import type { Message } from "../../../providers/types.js";
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 
@@ -34,8 +36,19 @@ export interface AdvisorContextSources {
   workingDir: string;
   /** The live tool set the executor sees this turn (`ToolContext.allowedToolNames`). */
   allowedToolNames?: ReadonlySet<string>;
-  /** Trust class of the turn's actor; gates the memory recall. */
+  /**
+   * Trust class of the turn's actor, from the per-turn `ToolContext.trustClass`
+   * snapshot. Gates the memory recall and (with {@link sourceChannel}) the
+   * personal-memory surfaces.
+   */
   trustClass: TrustClass;
+  /**
+   * Channel the turn originates on, from the per-turn `ToolContext.executionChannel`
+   * snapshot. Combined with {@link trustClass} to evaluate personal-memory
+   * access exactly as the injectors do, off the same per-turn snapshot rather
+   * than the mutable live conversation trust.
+   */
+  sourceChannel?: string;
   /** The captured transcript, used to derive the recall query. */
   transcript: ReadonlyArray<Message>;
   signal?: AbortSignal;
@@ -115,24 +128,30 @@ async function buildSkillsSection(): Promise<string | null> {
 
 /**
  * Whether personal-memory surfaces (NOW.md, PKB) may be exposed to the advisor
- * for this conversation — the same `isPersonalMemoryAllowed` gate the runtime
- * memory injectors apply, resolved from the conversation's trust context. The
- * advisor tool is low-risk and can run on remote/trusted-contact turns, so
- * these surfaces must be gated exactly as the main agent's injectors gate them.
- * Fail-closed: if the gate or trust can't be resolved, returns false.
+ * — the same `isPersonalMemoryAllowed` gate the runtime memory injectors apply.
+ *
+ * Derived from the per-turn trust snapshot (`ToolContext.trustClass` /
+ * `executionChannel`, threaded in via {@link AdvisorContextSources}), NOT the
+ * live `findConversation().trustContext`: that conversation state is mutable
+ * and a concurrent guardian/meta command could flip it to guardian mid-flight,
+ * granting a remote/non-guardian turn access its own snapshot was never given.
+ * Fail-closed: if the gate can't be resolved, returns false.
  */
 async function personalMemoryAllowedForAdvisor(
-  conversationId: string,
+  trustClass: TrustClass,
+  sourceChannel: string | undefined,
 ): Promise<boolean> {
   try {
-    const [{ findConversation }, { isPersonalMemoryAllowed }] =
-      await Promise.all([
-        import("../../../daemon/conversation-registry.js"),
-        import("../../../daemon/trust-context.js"),
-      ]);
-    return isPersonalMemoryAllowed(
-      findConversation(conversationId)?.trustContext,
-    );
+    const { isPersonalMemoryAllowed } =
+      await import("../../../daemon/trust-context.js");
+    // `isPersonalMemoryAllowed` reads only `sourceChannel` + `trustClass`; build
+    // a minimal trust context from the per-turn snapshot. The channel may be
+    // absent (local/internal turns), which the gate treats as non-remote.
+    const snapshot = {
+      sourceChannel: sourceChannel as ChannelId | undefined,
+      trustClass,
+    } as TrustContext;
+    return isPersonalMemoryAllowed(snapshot);
   } catch {
     return false;
   }
@@ -140,8 +159,9 @@ async function personalMemoryAllowedForAdvisor(
 
 /** `## Workspace & project context` — the loaded environment around the agent. */
 async function buildWorkspaceSection(
-  conversationId: string,
+  sources: AdvisorContextSources,
 ): Promise<string | null> {
+  const { conversationId } = sources;
   const parts: string[] = [];
 
   // The `<workspace>` directory listing is not personal memory — the agent's
@@ -158,9 +178,15 @@ async function buildWorkspaceSection(
 
   // NOW.md and PKB are personal-memory surfaces. Gate them behind the same
   // `isPersonalMemoryAllowed` policy (and, for NOW.md, the scratchpad-injection
-  // toggle) the runtime injectors use, so a low-risk advisor consult cannot
-  // forward private content the main agent would never receive.
-  if (await personalMemoryAllowedForAdvisor(conversationId)) {
+  // toggle) the runtime injectors use, evaluated off the per-turn trust
+  // snapshot, so a low-risk advisor consult cannot forward private content the
+  // main agent would never receive.
+  if (
+    await personalMemoryAllowedForAdvisor(
+      sources.trustClass,
+      sources.sourceChannel,
+    )
+  ) {
     try {
       const [{ readNowScratchpad }, { getConfig }] = await Promise.all([
         import("../../../daemon/now-scratchpad.js"),
@@ -254,7 +280,7 @@ export async function buildAdvisorContext(
   const sections = await Promise.all([
     buildToolsSection(sources.allowedToolNames),
     buildSkillsSection(),
-    buildWorkspaceSection(sources.conversationId),
+    buildWorkspaceSection(sources),
     buildMemorySection(sources),
   ]);
   const present = sections.filter((s): s is string => s !== null);
