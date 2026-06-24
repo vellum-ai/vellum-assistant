@@ -42,6 +42,21 @@ export const CUTOFF_PLACEHOLDER = "{{CUTOFF}}";
 export const CORE_PAGES_PLACEHOLDER = "{{CORE_PAGES_SECTION}}";
 
 /**
+ * Sentinel substituted with {@link PROC_TO_SKILLS_CONSOLIDATION_SECTION} (or the
+ * empty string) at runtime. The section teaches the invoke-test routing of the
+ * procedural-memory-as-skills feature — procedures become candidate notes,
+ * procedural knowledge becomes `skill:`-linked facts — and so is included only
+ * when the `procedural-memory-as-skills` flag is enabled for the assistant. On
+ * an install without the feature the directives would have the agent author
+ * `kind: proc-candidate` notes and `skill:` links that nothing reads.
+ *
+ * Follows the same placeholder discipline as {@link CORE_PAGES_PLACEHOLDER} and
+ * is registered in consolidation-prompt-flag-gating-guard.test.ts so the gated
+ * content can never reach the default (all-gates-off) rendering.
+ */
+export const PROC_TO_SKILLS_PLACEHOLDER = "{{PROC_TO_SKILLS_SECTION}}";
+
+/**
  * The flag-gated `memory/core-pages.md` curation step. Ends with a blank line
  * so substituting it (or the empty string) ahead of the `---` separator keeps
  * the surrounding template byte-stable either way.
@@ -55,6 +70,29 @@ export const CORE_PAGES_CONSOLIDATION_SECTION = `## 10. Review \`memory/core-pag
 - **Add** a page only when its content should always be in reach with no topical cue. If a search query would find it, it doesn't belong here.
 - **Remove** entries made redundant by frequent use — recently-used pages stay warm automatically (the hot set), so a page that comes up all the time doesn't need a core slot.
 - **Fix** entries whose page you renamed or deleted this pass (maintenance reports dangling entries, but never edits the file).
+
+`;
+
+/**
+ * The flag-gated procedural-memory-as-skills routing step. Teaches the
+ * invoke-test: a *procedure* (something you could run) is captured as a
+ * candidate note, never as procedural prose; *knowledge about* a procedure
+ * becomes a fact linked to its skill. This pass only CAPTURES — it never
+ * scaffolds a skill (a separate recurrence-gated job distills candidates once
+ * a procedure recurs). Ends with a blank line so substituting it (or the empty
+ * string) ahead of the `---` separator keeps the surrounding template
+ * byte-stable either way.
+ */
+export const PROC_TO_SKILLS_CONSOLIDATION_SECTION = `## 11. Route procedures and procedural knowledge — the invoke-test
+
+Apply one test to each buffer item: **can you RUN it, or do you only KNOW it?** A *procedure* is a reusable "how to do X" you could execute (a deploy sequence, a release flow, a multi-step fix). *Knowledge about* a procedure is a discrete fact — a preference, a gotcha, a cached value, a constraint — that informs running one. Procedures and their knowledge route differently; everything else (preferences, events, semantic facts) is ordinary memory, untouched by this step.
+
+- **Procedure, first sight →** capture it as a CANDIDATE NOTE, not a skill: write (or update) a concept article carrying \`kind: proc-candidate\` and a \`goal:\` frontmatter line stating the procedure's intent in one phrase (\`goal: "deploy the web app to staging"\`). The body holds this run's steps. **Do NOT scaffold a skill** — first sight is evidence of nothing yet; a separate pass distills candidates into skills once a procedure recurs.
+- **Procedure, explicitly taught** ("from now on, always…", "the way to do X is…") **→** capture the candidate note AND set \`explicit: true\` in its frontmatter. An explicit instruction is itself evidence of reusability, so the distill pass promotes it immediately rather than waiting for recurrence.
+- **Knowledge about an existing skill →** write it as a normal fact article with a \`skill: <id>\` frontmatter line naming the ONE skill it's about (use the immutable skill \`id\` from the catalog, never the display name). One discrete fact per article; knowledge spanning two skills is two facts, not one with two links. The link derives a \`fact → skills/<id>\` edge so the fact co-surfaces with its skill.
+- **Knowledge about a CLI command →** a command is a primitive a skill INVOKES, not a procedure of its own. Attach the fact to the skill that uses the command via \`skill: <id>\`, not to the command.
+
+**NEVER write procedural prose as a normal standalone concept page.** A reusable "how to do X" written out as page body — outside a \`kind: proc-candidate\` note or its eventual skill — is the exact pollution this routing exists to kill. If you're about to file step-by-step instructions as an ordinary article, it's a procedure: make it a candidate note instead.
 
 `;
 
@@ -467,9 +505,11 @@ This is the engine that decides who you are tomorrow. Be ORGANIZED. Care, judgme
  * (spawn triggers, one-fact-one-home, route-don't-restate, voice registers,
  * the emotional-weight trap) carries over from the v2 prompt deliberately.
  *
- * Shares both placeholders with the v2 template: `{{CUTOFF}}` and
- * `{{CORE_PAGES_SECTION}}` (the core-pages step is a v3-era feature, so under
- * the live flag it is always rendered in).
+ * Shares `{{CUTOFF}}` and `{{CORE_PAGES_SECTION}}` with the v2 template (the
+ * core-pages step is a v3-era feature, so under the live flag it is always
+ * rendered in), and additionally carries `{{PROC_TO_SKILLS_SECTION}}` — the
+ * procedural-memory-as-skills routing step, gated on its own flag and rendered
+ * in only when that feature is enabled.
  */
 export const CONSOLIDATION_PROMPT_V3 = `You are running memory consolidation — tending your personal wiki, the cross-linked, cross-referenced, continuously-edited collection of articles that is your memory. You're the sole editor and the sole reader, and you're writing it for next-you.
 
@@ -732,7 +772,7 @@ If the corpus has no marked articles, this step is a no-op — skip it.
 - Rewrite to contain ONLY entries with timestamp ≥ \`${CUTOFF_PLACEHOLDER}\`.
 - Smart removal — never wholesale-clear.
 
-${CORE_PAGES_PLACEHOLDER}---
+${CORE_PAGES_PLACEHOLDER}${PROC_TO_SKILLS_PLACEHOLDER}---
 
 # What NOT to do
 
@@ -789,6 +829,15 @@ export interface ConsolidationPromptOptions {
    */
   includeCorePagesSection: boolean;
   /**
+   * Include the procedural-memory-as-skills routing step (the invoke-test:
+   * procedures → `kind: proc-candidate` notes, procedural knowledge →
+   * `skill:`-linked facts, never procedural prose as a standalone page). True
+   * only when the `procedural-memory-as-skills` flag is enabled — the
+   * `kind: proc-candidate` notes and `skill:` links it authors are consumed by
+   * the feature's later passes, inert on installs without it.
+   */
+  includeProcToSkillsSection: boolean;
+  /**
    * Which article shape the prompt teaches. `"v2"` (default) produces
    * `summary:`-bearing fragment pages the v2 injection model serves; `"v3"`
    * produces lead-plus-sections wiki articles matched to the section-grain
@@ -820,6 +869,12 @@ export function renderConsolidationPrompt(
     .replaceAll(
       CORE_PAGES_PLACEHOLDER,
       options.includeCorePagesSection ? CORE_PAGES_CONSOLIDATION_SECTION : "",
+    )
+    .replaceAll(
+      PROC_TO_SKILLS_PLACEHOLDER,
+      options.includeProcToSkillsSection
+        ? PROC_TO_SKILLS_CONSOLIDATION_SECTION
+        : "",
     );
 }
 
@@ -831,9 +886,10 @@ export function renderConsolidationPrompt(
  * override) is handled by the shared {@link loadPromptOverride}.
  *
  * Override files get the same placeholder substitutions as the bundled
- * template: `{{CUTOFF}}` always, and `{{CORE_PAGES_SECTION}}` per the same
- * flag gate — so a prompt copied from the bundled source never leaks a raw
- * placeholder, and a customized prompt can opt into the managed section.
+ * template: `{{CUTOFF}}` always, and `{{CORE_PAGES_SECTION}}` /
+ * `{{PROC_TO_SKILLS_SECTION}}` per their flag gates — so a prompt copied from
+ * the bundled source never leaks a raw placeholder, and a customized prompt
+ * can opt into the managed sections.
  */
 export function resolveConsolidationPrompt(
   overridePath: string | null,
@@ -853,5 +909,11 @@ export function resolveConsolidationPrompt(
     .replaceAll(
       CORE_PAGES_PLACEHOLDER,
       options.includeCorePagesSection ? CORE_PAGES_CONSOLIDATION_SECTION : "",
+    )
+    .replaceAll(
+      PROC_TO_SKILLS_PLACEHOLDER,
+      options.includeProcToSkillsSection
+        ? PROC_TO_SKILLS_CONSOLIDATION_SECTION
+        : "",
     );
 }
