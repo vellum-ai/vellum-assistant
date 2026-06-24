@@ -109,8 +109,8 @@ mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: (
     conversationId: string,
     role: string,
@@ -272,13 +272,16 @@ function makeRequest(content: string, extra: Record<string, unknown> = {}) {
       "Content-Type": "application/json",
       "x-vellum-actor-principal-id": "test-user",
       "x-vellum-principal-type": "actor",
+      ...((extra.__headers as Record<string, string> | undefined) ?? {}),
     },
     body: JSON.stringify({
       conversationKey: "parity-test-key",
       content,
       sourceChannel: "vellum",
       interface: "macos",
-      ...extra,
+      ...Object.fromEntries(
+        Object.entries(extra).filter(([key]) => key !== "__headers"),
+      ),
     }),
   });
 }
@@ -332,10 +335,12 @@ describe("HTTP POST /v1/messages does not intercept recording intents (by design
     // Dedicated /v1/recording/* endpoints handle recording lifecycle.
     // Text-based recording intent interception was retired with the
     // legacy handleUserMessage entry point.
-    const persistUserMessage = mock(async () => ({
-      id: "persisted-msg-id",
-      deduplicated: false,
-    }));
+    const persistUserMessage = mock(
+      async (_options: { metadata?: Record<string, unknown> }) => ({
+        id: "persisted-msg-id",
+        deduplicated: false,
+      }),
+    );
     const runAgentLoop = mock(async () => undefined);
     const conversation = makeConversation({ persistUserMessage, runAgentLoop });
 
@@ -484,6 +489,89 @@ describe("HTTP POST /v1/messages clientTimezone transport metadata", () => {
     });
     expect(persistUserMessage).toHaveBeenCalledTimes(1);
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ============================================================================
+// CLIENT METADATA — optional HTTP headers persisted for turn analytics
+// ============================================================================
+describe("HTTP POST /v1/messages client metadata headers", () => {
+  beforeEach(() => {
+    routeGuardianReplyMock.mockClear();
+    listPendingByDestinationMock.mockClear();
+    listCanonicalMock.mockClear();
+    addMessageMock.mockClear();
+  });
+
+  const clientMetadataHeaders = {
+    "x-vellum-browser-family": "safari",
+    "x-vellum-browser-version": "17",
+    "x-vellum-client-os": "ios",
+    "x-vellum-interface-version": "0.10.2",
+  };
+
+  test("persists browser metadata on immediate user messages", async () => {
+    const persistUserMessage = mock(async () => ({
+      id: "persisted-msg-id",
+      deduplicated: false,
+    }));
+    const runAgentLoop = mock(async () => undefined);
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
+
+    const res = await sendMessage("hello", conversation, {
+      interface: "vellum",
+      __headers: clientMetadataHeaders,
+    });
+
+    expect(res.status).toBe(202);
+    expect(persistUserMessage).toHaveBeenCalledTimes(1);
+    const persistCall = persistUserMessage.mock.calls[0];
+    expect(persistCall).toBeDefined();
+    const [persistOptions] = persistCall as unknown as [
+      { metadata?: Record<string, unknown> },
+    ];
+    expect(persistOptions.metadata).toEqual({
+      client: {
+        browser_family: "safari",
+        browser_version: "17",
+        os: "ios",
+        interface_version: "0.10.2",
+      },
+    });
+  });
+
+  test("persists browser metadata on queued user messages", async () => {
+    const enqueueMessage = mock(
+      (_options: { metadata?: Record<string, unknown> }) => ({
+        queued: true,
+        requestId: "queued-id",
+      }),
+    );
+    const conversation = makeConversation({
+      isProcessing: () => true,
+      enqueueMessage,
+    });
+
+    const res = await sendMessage("hello", conversation, {
+      interface: "vellum",
+      __headers: clientMetadataHeaders,
+    });
+
+    expect(res.status).toBe(202);
+    expect(enqueueMessage).toHaveBeenCalledTimes(1);
+    const enqueueCall = enqueueMessage.mock.calls[0];
+    expect(enqueueCall).toBeDefined();
+    const [enqueueOptions] = enqueueCall as unknown as [
+      { metadata?: Record<string, unknown> },
+    ];
+    expect(enqueueOptions.metadata).toMatchObject({
+      client: {
+        browser_family: "safari",
+        browser_version: "17",
+        os: "ios",
+        interface_version: "0.10.2",
+      },
+    });
   });
 });
 

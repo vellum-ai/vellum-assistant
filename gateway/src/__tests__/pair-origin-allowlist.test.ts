@@ -19,7 +19,8 @@ mock.module("../db/assistant-db-proxy.js", () => ({
 
 const { handlePair, resetPairRateLimiterForTests } =
   await import("../http/routes/pair.js");
-const { resolveExtensionOrigin } = await import("../http/middleware/cors.js");
+const { corsHeaders, resolveExtensionOrigin } =
+  await import("../http/middleware/cors.js");
 const { KNOWN_EXTENSION_ORIGINS } =
   await import("../chrome-extension-origins.js");
 
@@ -103,6 +104,18 @@ describe("resolveExtensionOrigin", () => {
       headers: { origin: "https://evil.example.com" },
     });
     expect(resolveExtensionOrigin(req)).toBeNull();
+  });
+});
+
+describe("webview CORS headers", () => {
+  test("allows browser metadata headers from the web client", () => {
+    const headers = corsHeaders("https://app.vellum.local");
+    const allowed = headers["Access-Control-Allow-Headers"].toLowerCase();
+
+    expect(allowed).toContain("x-vellum-browser-family");
+    expect(allowed).toContain("x-vellum-browser-version");
+    expect(allowed).toContain("x-vellum-client-os");
+    expect(allowed).toContain("x-vellum-interface-version");
   });
 });
 

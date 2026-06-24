@@ -1130,6 +1130,55 @@ export function persistOnboardingArtifacts(onboarding: {
   });
 }
 
+type ClientMetadataHeaders = {
+  browser_family?: string;
+  browser_version?: string;
+  os?: string;
+  interface_version?: string;
+};
+
+const CLIENT_METADATA_HEADER_MAP = {
+  browser_family: "x-vellum-browser-family",
+  browser_version: "x-vellum-browser-version",
+  os: "x-vellum-client-os",
+  interface_version: "x-vellum-interface-version",
+} as const;
+
+const CLIENT_METADATA_VALUE_RE = /^[a-z0-9._-]{1,64}$/;
+
+function readClientMetadataHeader(
+  headers: Record<string, string> | undefined,
+  name: string,
+): string | undefined {
+  const value = headers?.[name]?.trim().toLowerCase();
+  if (!value) return undefined;
+  return CLIENT_METADATA_VALUE_RE.test(value) ? value : undefined;
+}
+
+function readClientMetadataHeaders(
+  headers: Record<string, string> | undefined,
+): ClientMetadataHeaders | undefined {
+  const metadata: ClientMetadataHeaders = {};
+  for (const [field, headerName] of Object.entries(
+    CLIENT_METADATA_HEADER_MAP,
+  )) {
+    const value = readClientMetadataHeader(headers, headerName);
+    if (value) metadata[field as keyof ClientMetadataHeaders] = value;
+  }
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
+}
+
+function withClientMetadata(
+  metadata: Record<string, unknown> | undefined,
+  clientMetadata: ClientMetadataHeaders | undefined,
+): Record<string, unknown> | undefined {
+  if (!clientMetadata) return metadata;
+  return {
+    ...(metadata ?? {}),
+    client: clientMetadata,
+  };
+}
+
 export async function handleSendMessage(
   { body: rawBody, headers }: RouteHandlerArgs,
   deps: {
@@ -1176,6 +1225,7 @@ export async function handleSendMessage(
   const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
   const principalType = headers?.["x-vellum-principal-type"];
   const originClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
+  const clientMetadata = readClientMetadataHeaders(headers);
 
   const { conversationKey, content, attachmentIds } = body;
   const inboundConversationId =
@@ -1797,13 +1847,16 @@ export async function handleSendMessage(
       attachments,
       onEvent: broadcastMessage,
       requestId,
-      metadata: {
-        userMessageChannel: sourceChannel,
-        assistantMessageChannel: sourceChannel,
-        userMessageInterface: sourceInterface,
-        assistantMessageInterface: sourceInterface,
-        ...(body.automated === true ? { automated: true } : {}),
-      },
+      metadata: withClientMetadata(
+        {
+          userMessageChannel: sourceChannel,
+          assistantMessageChannel: sourceChannel,
+          userMessageInterface: sourceInterface,
+          assistantMessageInterface: sourceInterface,
+          ...(body.automated === true ? { automated: true } : {}),
+        },
+        clientMetadata,
+      ),
       isInteractive,
       sourceActorPrincipalId,
       transport,
@@ -1922,7 +1975,7 @@ export async function handleSendMessage(
         content: rawContent,
         attachments,
         requestId: crypto.randomUUID(),
-        metadata: slashMeta,
+        metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
       });
       if (persisted.deduplicated) {
@@ -2019,7 +2072,7 @@ export async function handleSendMessage(
         content: rawContent,
         attachments,
         requestId: crypto.randomUUID(),
-        metadata: slashMeta,
+        metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
       });
     } catch (err) {
@@ -2130,7 +2183,7 @@ export async function handleSendMessage(
         content: rawContent,
         attachments,
         requestId: crypto.randomUUID(),
-        metadata: slashMeta,
+        metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
       });
       if (persisted.deduplicated) {
@@ -2211,7 +2264,10 @@ export async function handleSendMessage(
     content: resolvedContent,
     attachments,
     requestId,
-    metadata: body.automated === true ? { automated: true } : undefined,
+    metadata: withClientMetadata(
+      body.automated === true ? { automated: true } : undefined,
+      clientMetadata,
+    ),
     clientMessageId,
   });
 
