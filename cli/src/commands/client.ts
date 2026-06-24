@@ -149,8 +149,6 @@ export function parseArgs(): ParsedArgs {
       process.exit(0);
     } else if (arg === "--disable-platform") {
       disablePlatform = true;
-    } else if (arg === "--open") {
-      openBrowserPref = true;
     } else if (arg === "--no-open") {
       openBrowserPref = false;
     } else if (
@@ -294,7 +292,6 @@ ${ANSI.bold}OPTIONS:${ANSI.reset}
     -a, --assistant-id <id>    Assistant ID
     -i, --interface <id>       Interface identifier: cli (default) or web
     --no-open                  Don't auto-open the browser (--interface web)
-    --open                     Auto-open the browser (--interface web, default)
     --flag <key=value>         Feature flag override (repeatable, kebab-case key)
     --disable-platform         Suppress all outbound platform API calls
     -h, --help                 Show this help message
