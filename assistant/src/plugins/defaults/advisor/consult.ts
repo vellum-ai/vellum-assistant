@@ -16,7 +16,11 @@ import {
   getConfiguredProvider,
   userMessage,
 } from "../../../providers/provider-send-message.js";
-import type { Message, ToolDefinition } from "../../../providers/types.js";
+import type {
+  Message,
+  ProviderEvent,
+  ToolDefinition,
+} from "../../../providers/types.js";
 import { ADVISOR_CONFIG } from "./config.js";
 import { advisorRequestText, buildAdvisorSystem } from "./steering.js";
 import { toAdvisorMessages } from "./transcript.js";
@@ -73,6 +77,14 @@ export interface ConsultParams {
    */
   runtimeContext?: string | null;
   signal?: AbortSignal;
+  /**
+   * Optional sink for the advisor's generated text as it streams. Each call
+   * receives an incremental chunk (a provider `text_delta`). Wiring this to the
+   * tool's `onOutput` surfaces the consult live as `tool_output_chunk` while the
+   * advisor model is still generating; the complete guidance is still returned
+   * as the resolved string.
+   */
+  onText?: (chunk: string) => void;
 }
 
 /** Combine the caller's signal with a consult timeout. */
@@ -112,12 +124,21 @@ export async function consultAdvisor(params: ConsultParams): Promise<string> {
   // otherwise keep the consult tool-less.
   const webEnabled = provider.supportsNativeWebSearch === true;
 
+  const { onText } = params;
   const response = await provider.sendMessage(messages, {
     systemPrompt: buildAdvisorSystem(
       params.systemPrompt,
       params.runtimeContext,
     ),
     ...(webEnabled ? { tools: [ADVISOR_WEB_SEARCH_TOOL] } : {}),
+    // Forward the model's visible text deltas to the caller's sink so the
+    // guidance streams live. Other event types (thinking, usage) ride their
+    // own channels and are intentionally not surfaced as tool output.
+    onEvent: onText
+      ? (event: ProviderEvent) => {
+          if (event.type === "text_delta" && event.text) onText(event.text);
+        }
+      : undefined,
     config: {
       callSite: ADVISOR_CALL_SITE,
       ...override,

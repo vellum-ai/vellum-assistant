@@ -26,7 +26,7 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 // POST /v1/host-bash-result
 // ---------------------------------------------------------------------------
 
-function handleHostBashResult({ body, headers }: RouteHandlerArgs) {
+async function handleHostBashResult({ body, headers }: RouteHandlerArgs) {
   if (!body || typeof body !== "object") {
     throw new BadRequestError("Request body is required");
   }
@@ -45,9 +45,10 @@ function handleHostBashResult({ body, headers }: RouteHandlerArgs) {
 
   const submittingClientId =
     headers?.["x-vellum-client-id"]?.trim() || undefined;
-  const submittingActorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
-    headers?.["x-vellum-actor-principal-id"]?.trim() || undefined,
-  );
+  const submittingActorPrincipalId =
+    await resolveActorPrincipalIdForLocalGuardian(
+      headers?.["x-vellum-actor-principal-id"]?.trim() || undefined,
+    );
 
   const peeked = pendingInteractions.get(requestId);
   if (!peeked) {

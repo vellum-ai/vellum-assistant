@@ -179,6 +179,41 @@ export interface ResearchResult {
    * card and the user-voiced message sent when it's clicked.
    */
   suggestions: ResearchSuggestion[];
+  /**
+   * True once the reply parses as ONE complete, well-formed JSON object — i.e.
+   * the full payload has arrived and was parsed by `JSON.parse` (not the
+   * brace-counted streaming fallback). The runner gates settling on this so it
+   * never freezes on a partial `suggestions` array (which would render only the
+   * first card or two). False while the reply is still streaming or malformed.
+   */
+  complete: boolean;
+}
+
+/** Map a raw array of entries through `mapper`, dropping the ones that don't validate. */
+function mapEntries<T>(raw: unknown, mapper: (entry: unknown) => T | null): T[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map(mapper).filter((v): v is T => v !== null);
+}
+
+/**
+ * Strict-parse the first complete top-level `{...}` object out of `body`,
+ * tolerating leading/trailing prose. Returns the parsed payload (the object
+ * carrying a `claims` and/or `suggestions` array), or null if no complete,
+ * well-formed payload is present yet — still streaming, or malformed JSON.
+ *
+ * `JSON.parse` handles string escaping correctly, so a complete payload yields
+ * every element even when a value contains an escaped quote. The brace-counted
+ * streaming extractor below is the fallback for partial text only; callers
+ * prefer this whole-payload parse whenever the reply has fully arrived.
+ */
+function parseWholePayload(body: string): Record<string, unknown> | null {
+  for (const obj of extractCompleteObjects(body)) {
+    if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+      const o = obj as Record<string, unknown>;
+      if (Array.isArray(o.claims) || Array.isArray(o.suggestions)) return o;
+    }
+  }
+  return null;
 }
 
 /**
@@ -188,9 +223,23 @@ export interface ResearchResult {
  * top-level array as `claims` for back-compat.
  */
 export function parseResearchResultStreaming(text: string): ResearchResult {
-  if (!text) return { claims: [], suggestions: [] };
+  if (!text) return { claims: [], suggestions: [], complete: false };
   const body = stripFence(text);
 
+  // Fast path: the whole payload parsed in one shot. Correct (handles escaping)
+  // and authoritative once the reply has fully arrived — so it also tells the
+  // caller the result is `complete` and safe to settle on.
+  const whole = parseWholePayload(body);
+  if (whole) {
+    return {
+      claims: mapEntries(whole.claims, toFact),
+      suggestions: mapEntries(whole.suggestions, toSuggestion),
+      complete: true,
+    };
+  }
+
+  // Streaming fallback: pull every *complete* element out of each array so
+  // claims/suggestions surface as they land, tolerating the unterminated tail.
   const claimsScope = arrayScopeFor(body, "claims");
   const claimsBody =
     claimsScope ??
@@ -213,7 +262,21 @@ export function parseResearchResultStreaming(text: string): ResearchResult {
           .map(toSuggestion)
           .filter((s): s is ResearchSuggestion => s !== null);
 
-  return { claims, suggestions };
+  return { claims, suggestions, complete: false };
+}
+
+/**
+ * Prettify a marketplace plugin install name into a human display label for the
+ * suggestion-card chip — `"marketing-expert"` → `"Marketing Expert"`. Splits on
+ * hyphens/underscores/whitespace and title-cases each word. Returns an empty
+ * string for a blank/whitespace input so callers can skip rendering the chip.
+ */
+export function pluginDisplayName(plugin: string): string {
+  return plugin
+    .split(/[-_\s]+/)
+    .filter((w) => w.length > 0)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
 interface ConfidenceBadge {

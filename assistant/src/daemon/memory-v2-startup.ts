@@ -50,6 +50,36 @@ export function maybeSeedMemoryV2CliCommands(config: AssistantConfig): void {
 }
 
 /**
+ * Default upper bound on how long
+ * {@link maybeReseedCapabilitiesAfterManagedCredential} waits for the capability
+ * reseeds before enqueuing the v3 maintain pass. The reseeds keep running
+ * detached past this bound — it only stops the barrier from waiting on a wedged
+ * catalog (a stalled `getCatalog()` or a managed-proxy embed that never
+ * returns). A straggler that finishes later re-enqueues maintain.
+ */
+const RESEED_BARRIER_TIMEOUT_MS = 120_000;
+
+/**
+ * Resolve to `true` if `p` settles within `ms`, or `false` if the timeout wins.
+ * Always clears the timer, so a `p` that settles first leaves no pending timer
+ * keeping the event loop (or a test) alive.
+ */
+async function settledWithin(
+  p: Promise<unknown>,
+  ms: number,
+): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), ms);
+  });
+  try {
+    return await Promise.race([p.then(() => true), timedOut]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
  * Re-seed the v2 skill and CLI-command capability entries once a managed-proxy
  * credential lands, closing the first-boot race where the daemon's startup seed
  * runs before the platform has provisioned the managed embedding credential.
@@ -83,9 +113,23 @@ export function maybeSeedMemoryV2CliCommands(config: AssistantConfig): void {
  * dense store and its lane-invalidation stage forces a rebuild against the now-
  * populated index, so v3 surfaces the skill/CLI pages within seconds instead of
  * waiting out the backstop.
+ *
+ * The maintain enqueue must NOT be gated on both catalogs settling. The two
+ * embeds are independent, and a single wedged catalog (a stalled `getCatalog()`
+ * or a managed-proxy embed that never returns) would otherwise block the v3 lane
+ * rebuild indefinitely, so the catalog that DID seed never reaches the selector.
+ * The barrier is therefore bounded by `reseedTimeoutMs`: maintain is enqueued
+ * once the barrier resolves (the pass is idempotent and reconciles whatever the
+ * page index currently holds), and a straggler catalog that finishes after the
+ * timeout re-enqueues maintain so its late rows are picked up without waiting out
+ * the backstop.
+ *
+ * `reseedTimeoutMs` is injectable for tests; production uses
+ * {@link RESEED_BARRIER_TIMEOUT_MS}.
  */
 export async function maybeReseedCapabilitiesAfterManagedCredential(
   config: AssistantConfig,
+  opts: { reseedTimeoutMs?: number } = {},
 ): Promise<void> {
   if (!config.memory.v2.enabled) return;
 
@@ -115,35 +159,59 @@ export async function maybeReseedCapabilitiesAfterManagedCredential(
     ],
   ];
 
-  await Promise.all(
-    catalogs.map(async ([label, seed]) => {
-      try {
-        await seed();
+  // Each reseed is contained so one catalog's embed failure (or hang) never
+  // rejects the caller or aborts the other. Started here but not awaited as a
+  // single barrier — the bounded wait below decides when to stop waiting.
+  const reseeds = catalogs.map(([label, seed]) =>
+    seed().then(
+      () =>
         log.info(
           `Memory v2 ${label} entries seeded after managed proxy credential update`,
-        );
-      } catch (err) {
+        ),
+      (err: unknown) =>
         log.warn(
           { err },
           `Failed to seed v2 ${label} entries after managed proxy credential update`,
-        );
-      }
-    }),
+        ),
+    ),
   );
 
-  // The stores (and the page index) are now populated; when v3 is live, kick a
-  // maintain pass so it embeds the capability rows into `memory_v3_sections` and
-  // invalidates its lanes immediately rather than waiting out the 6h backstop.
+  // When v3 is live, a maintain pass embeds the freshly-seeded capability rows
+  // into `memory_v3_sections` and invalidates the lanes so v3 surfaces the
+  // skill/CLI pages within seconds instead of waiting out the 6h backstop.
+  // Resolve the gate + enqueuer once and reuse for the post-barrier enqueue and
+  // the straggler re-enqueue below.
   const { isMemoryV3Live } = await import("../config/memory-v3-gate.js");
-  if (!isMemoryV3Live(config)) return;
-  try {
-    const { enqueueMemoryJob } = await import("../memory/jobs-store.js");
-    enqueueMemoryJob("memory_v3_maintain", {});
-  } catch (err) {
+  const v3Live = isMemoryV3Live(config);
+  const enqueueMaintain = async (): Promise<void> => {
+    if (!v3Live) return;
+    try {
+      const { enqueueMemoryJob } = await import("../memory/jobs-store.js");
+      enqueueMemoryJob("memory_v3_maintain", {});
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to enqueue memory_v3_maintain after managed proxy credential update",
+      );
+    }
+  };
+
+  // Bound the barrier so a wedged catalog can't block the maintain enqueue
+  // indefinitely; the reseeds keep running detached past the timeout.
+  const timeoutMs = opts.reseedTimeoutMs ?? RESEED_BARRIER_TIMEOUT_MS;
+  const allReseeds = Promise.allSettled(reseeds);
+  const settledInTime = await settledWithin(allReseeds, timeoutMs);
+
+  await enqueueMaintain();
+
+  if (!settledInTime) {
     log.warn(
-      { err },
-      "Failed to enqueue memory_v3_maintain after managed proxy credential update",
+      { timeoutMs },
+      "Capability reseed still running after the barrier timeout — enqueued v3 maintain now; will re-enqueue when the straggler catalog finishes",
     );
+    // The straggler is still embedding; re-enqueue maintain once it lands so its
+    // late capability rows are reconciled without waiting out the 6h backstop.
+    void allReseeds.then(() => enqueueMaintain());
   }
 }
 

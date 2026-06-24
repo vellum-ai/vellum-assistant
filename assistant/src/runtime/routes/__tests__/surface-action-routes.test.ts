@@ -25,6 +25,7 @@ interface StubConversation {
   handleSurfaceActionThrows?: Error;
   handleSurfaceUndoCalled?: boolean;
   handleSurfaceUndoThrows?: Error;
+  trustContext?: { trustClass: string; sourceChannel: string };
   surfaceActionCalls: Array<{
     surfaceId: string;
     actionId: string;
@@ -41,6 +42,47 @@ const findConvCalls: string[] = [];
 const findBySurfaceCalls: string[] = [];
 const getOrCreateCalls: string[] = [];
 const rawGetCalls: Array<{ sql: string; params: unknown[] }> = [];
+
+// Gateway guardian-delivery list (shared by the route's dev-bypass lookup and
+// the local-principal-trust mapper): null = unreachable, [] = no guardian.
+let mockGuardianList: Array<Record<string, unknown>> | null = [];
+let httpAuthDisabled = false;
+
+// Stub for the shared reset-drift helper. The route under test only consumes
+// its result (a guardian TrustContext or null); the gate itself is covered in
+// runtime/__tests__/guardian-vellum-migration.test.ts. Tests set
+// `mockReResolve` per case and read `reResolveCalls` to assert routing.
+const reResolveCalls: string[] = [];
+let mockReResolve: { trustClass: string; sourceChannel: string } | null = null;
+
+mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: (_input?: { channelTypes?: string[] }) =>
+    Promise.resolve(mockGuardianList),
+  peekCachedGuardianDelivery: () => mockGuardianList ?? undefined,
+  guardianForChannel: (
+    list: Array<Record<string, unknown>>,
+    channelType: string,
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
+}));
+
+mock.module("../../../contacts/contact-store.js", () => ({
+  findGuardianForChannel: (_channelType: string) => null,
+  findContactByAddress: () => null,
+}));
+
+mock.module("../../../config/env.js", () => ({
+  isHttpAuthDisabled: () => httpAuthDisabled,
+}));
+
+mock.module("../../guardian-vellum-migration.js", () => ({
+  reResolveTrustOnResetDrift: async (
+    incomingPrincipalId: string,
+    _sourceChannel: string,
+  ) => {
+    reResolveCalls.push(incomingPrincipalId);
+    return mockReResolve;
+  },
+}));
 
 mock.module("../../../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => {
@@ -115,6 +157,9 @@ function makeStub(id: string): StubConversation {
       stub.handleSurfaceUndoCalled = true;
       if (stub.handleSurfaceUndoThrows) throw stub.handleSurfaceUndoThrows;
     },
+    setTrustContext: (ctx: { trustClass: string; sourceChannel: string }) => {
+      stub.trustContext = ctx;
+    },
   });
   return stub;
 }
@@ -132,6 +177,10 @@ beforeEach(() => {
   findBySurfaceCalls.length = 0;
   getOrCreateCalls.length = 0;
   rawGetCalls.length = 0;
+  mockGuardianList = [];
+  httpAuthDisabled = false;
+  reResolveCalls.length = 0;
+  mockReResolve = null;
 });
 
 // ---------------------------------------------------------------------------
@@ -332,6 +381,120 @@ describe("triggerSurfaceAction handler", () => {
     // BadRequestError is a RouteError — verify the error message bubbled.
     expect(caught).toBeDefined();
     expect((caught as Error).message).toContain("surface already completed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Trust context resolution
+// ---------------------------------------------------------------------------
+
+const GUARDIAN_PRINCIPAL = "principal-guardian";
+// Daemon-minted vellum-principal-* ids: the DB-reset drift signature. The
+// gateway rebinds to a fresh id while the client still holds a JWT for the old.
+const VELLUM_PRINCIPAL_OLD = "vellum-principal-old";
+const VELLUM_PRINCIPAL_NEW = "vellum-principal-new";
+
+function guardianDelivery(principalId: string): Record<string, unknown> {
+  return {
+    channelType: "vellum",
+    contactId: "contact-1",
+    principalId,
+    address: "guardian-address",
+    externalChatId: "guardian-chat",
+    status: "active",
+  };
+}
+
+// A guardian TrustContext the stubbed helper hands back on a recovered drift.
+function guardianCtx(): { trustClass: string; sourceChannel: string } {
+  return { trustClass: "guardian", sourceChannel: "vellum" };
+}
+
+describe("triggerSurfaceAction trust context", () => {
+  test("guardian principal → guardian from the gateway binding, helper not called", async () => {
+    mockGuardianList = [guardianDelivery(GUARDIAN_PRINCIPAL)];
+    const live = makeStub("conv-guardian");
+    memoryBySurface = live;
+
+    const handler = findHandler("triggerSurfaceAction");
+    await handler({
+      body: { surfaceId: "surf-g", actionId: "act-g" },
+      headers: { "x-vellum-actor-principal-id": GUARDIAN_PRINCIPAL },
+    });
+
+    expect(live.trustContext?.trustClass).toBe("guardian");
+    expect(live.trustContext?.sourceChannel).toBe("vellum");
+    // First-pass resolve already granted guardian, so the drift helper is skipped.
+    expect(reResolveCalls).toEqual([]);
+  });
+
+  test("unknown principal: helper consulted, null result stays unknown (fail closed)", async () => {
+    mockGuardianList = [guardianDelivery(GUARDIAN_PRINCIPAL)];
+    mockReResolve = null;
+    const live = makeStub("conv-unknown");
+    memoryBySurface = live;
+
+    const handler = findHandler("triggerSurfaceAction");
+    await handler({
+      body: { surfaceId: "surf-u", actionId: "act-u" },
+      headers: { "x-vellum-actor-principal-id": VELLUM_PRINCIPAL_OLD },
+    });
+
+    expect(reResolveCalls).toEqual([VELLUM_PRINCIPAL_OLD]);
+    expect(live.trustContext?.trustClass).toBe("unknown");
+  });
+
+  test("reset drift: helper returns guardian → route adopts it", async () => {
+    mockGuardianList = [guardianDelivery(VELLUM_PRINCIPAL_NEW)];
+    mockReResolve = guardianCtx();
+    const live = makeStub("conv-drift");
+    memoryBySurface = live;
+
+    const handler = findHandler("triggerSurfaceAction");
+    await handler({
+      body: { surfaceId: "surf-d", actionId: "act-d" },
+      headers: { "x-vellum-actor-principal-id": VELLUM_PRINCIPAL_OLD },
+    });
+
+    expect(reResolveCalls).toEqual([VELLUM_PRINCIPAL_OLD]);
+    expect(live.trustContext?.trustClass).toBe("guardian");
+  });
+
+  test("dev-bypass resolves the real guardian principal from the gateway, helper not called", async () => {
+    httpAuthDisabled = true;
+    mockGuardianList = [guardianDelivery(GUARDIAN_PRINCIPAL)];
+    const live = makeStub("conv-dev");
+    memoryBySurface = live;
+
+    const handler = findHandler("triggerSurfaceAction");
+    await handler({
+      body: { surfaceId: "surf-dev", actionId: "act-dev" },
+      headers: { "x-vellum-actor-principal-id": "dev-bypass" },
+    });
+
+    // The synthetic dev-bypass principal is translated to the real guardian,
+    // yielding a guardian trust context without consulting the drift helper.
+    expect(live.trustContext?.trustClass).toBe("guardian");
+    expect(reResolveCalls).toEqual([]);
+  });
+
+  test("dev-bypass with an empty gateway: helper null result → unknown (fail closed)", async () => {
+    httpAuthDisabled = true;
+    // The gateway has no active binding, so dev-bypass cannot translate to a
+    // real guardian; the first-pass resolve is unknown and the helper, returning
+    // null, leaves trust unknown.
+    mockGuardianList = [];
+    mockReResolve = null;
+    const live = makeStub("conv-dev-fallback");
+    memoryBySurface = live;
+
+    const handler = findHandler("triggerSurfaceAction");
+    await handler({
+      body: { surfaceId: "surf-devf", actionId: "act-devf" },
+      headers: { "x-vellum-actor-principal-id": "dev-bypass" },
+    });
+
+    expect(live.trustContext?.trustClass).toBe("unknown");
   });
 });
 

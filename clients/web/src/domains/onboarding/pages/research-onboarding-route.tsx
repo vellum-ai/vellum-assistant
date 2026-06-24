@@ -301,12 +301,10 @@ export function ResearchOnboardingRoute() {
           eyesBumpNonce={eyesBump}
           peekLevel={peekLevel}
           darkBg={postCalendar}
-          // The pitch steps choreograph their own eyes (rising to speak the
-          // line in, or acting out "smarter"/"faster"), so hide the backdrop's
-          // resting pair there to avoid doubling.
-          showBottomEyes={
-            !postCalendar && step !== "different" && step !== "together"
-          }
+          // The "different" step choreographs its own eyes (rising to speak the
+          // line in), so hide the backdrop's resting pair there to avoid
+          // doubling. Every other toned step uses the backdrop's resting eyes.
+          showBottomEyes={!postCalendar && step !== "different"}
           // On "together" the team is gated on the third-line reveal (so it
           // replays on back); on every later step it's simply present.
           showTopTeam={
@@ -334,7 +332,10 @@ export function ResearchOnboardingRoute() {
         )}
         {step === "integration" && (
           <IntegrationStep
-            onClaim={() => goForwardTo("letschat")}
+            assistantId={hatchedAssistantId}
+            assistantReady={hatchReady}
+            onConnected={handleCheckinConnected}
+            onSkip={() => goForwardTo("looking")}
             onBumpEyes={() => setEyesBump((n) => n + 1)}
             onBack={() => goBackTo("together")}
             onForward={onForward}
@@ -353,14 +354,14 @@ export function ResearchOnboardingRoute() {
         {step === "meeting" && (
           <MeetingCreatedStep
             onDone={() => goForwardTo("looking")}
-            onBack={() => goBackTo("letschat")}
+            onBack={() => goBackTo("integration")}
             onForward={onForward}
           />
         )}
         {step === "looking" && (
           <LookingYouUpStep
             onDone={() => goForwardTo("results")}
-            onBack={() => goBackTo("letschat")}
+            onBack={() => goBackTo("integration")}
             onAdvance={(i) => setEdgeAvatars(Math.min(i + 1, 4))}
             onForward={onForward}
           />

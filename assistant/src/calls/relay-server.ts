@@ -12,9 +12,9 @@ import type { AdmissionPolicy, TrustVerdict } from "@vellumai/gateway-client";
 import type { ServerWebSocket } from "bun";
 
 import {
-  findGuardianForChannel,
-  listGuardianChannels,
-} from "../contacts/contact-store.js";
+  getGuardianDelivery,
+  voiceGuardianDisplayName,
+} from "../contacts/guardian-delivery-reader.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context.js";
@@ -261,6 +261,10 @@ export class RelayConnection {
     null;
   private accessRequestWaitStartedAt: number = 0;
   private heartbeatSequence = 0;
+
+  // Guardian displayName primed from the gateway binding at setup, read
+  // synchronously by the heartbeat-driven wait-label path.
+  private primedGuardianDisplayName: string | undefined;
 
   // In-wait prompt handling state
   private lastInWaitReplyAt = 0;
@@ -596,6 +600,8 @@ export class RelayConnection {
 
     const session = getCallSession(this.callSessionId);
     this.recordSetupBookkeeping(session, msg);
+
+    await this.primeGuardianDisplayName();
 
     // Resolve the phone channel's inbound admission floor. The reader fails
     // open to `null` by contract, so a transport hiccup admits the caller.
@@ -1393,7 +1399,7 @@ export class RelayConnection {
    * Creates a canonical access request, notifies the guardian, and
    * enters the bounded wait loop for the guardian decision.
    */
-  private handleNameCaptureResponse(callerName: string): void {
+  private async handleNameCaptureResponse(callerName: string): Promise<void> {
     if (!this.accessRequestAssistantId || !this.accessRequestFromNumber) {
       return;
     }
@@ -1414,7 +1420,7 @@ export class RelayConnection {
     // Create canonical access request and notify the guardian, including
     // the caller's spoken name and voice channel metadata.
     try {
-      const accessResult = notifyGuardianOfAccessRequest({
+      const accessResult = await notifyGuardianOfAccessRequest({
         canonicalAssistantId: this.accessRequestAssistantId,
         sourceChannel: "phone",
         conversationExternalId: this.accessRequestFromNumber,
@@ -1828,15 +1834,20 @@ export class RelayConnection {
    * Resolve a human-readable guardian label for voice wait copy.
    * Delegates to the shared resolveGuardianName() which checks the
    * guardian's per-user persona file (users/<slug>.md) first, then falls
-   * back to Contact.displayName, then DEFAULT_USER_REFERENCE.
+   * back to the primed gateway-binding displayName, then
+   * DEFAULT_USER_REFERENCE.
    */
   private resolveGuardianLabel(): string {
-    // Look up the guardian contact for a displayName fallback
-    const voiceGuardian = findGuardianForChannel("phone");
-    const guardianChannels = voiceGuardian ? null : listGuardianChannels();
-    const guardianContact = voiceGuardian?.contact ?? guardianChannels?.contact;
+    return resolveGuardianName(this.primedGuardianDisplayName);
+  }
 
-    return resolveGuardianName(guardianContact?.displayName);
+  /**
+   * Prime the guardian displayName from the gateway binding so the
+   * synchronous wait-label path can read it without an IPC round-trip.
+   */
+  private async primeGuardianDisplayName(): Promise<void> {
+    const list = await getGuardianDelivery();
+    this.primedGuardianDisplayName = voiceGuardianDisplayName(list);
   }
 
   /**
@@ -2048,7 +2059,7 @@ export class RelayConnection {
         { callSessionId: this.callSessionId, callerName },
         "Name captured from unknown inbound caller",
       );
-      this.handleNameCaptureResponse(callerName);
+      await this.handleNameCaptureResponse(callerName);
       return;
     }
 

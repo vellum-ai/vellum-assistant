@@ -39,10 +39,10 @@ function findProxyByTransferId(transferId: string) {
 // GET /v1/transfers/:transferId/content
 // ---------------------------------------------------------------------------
 
-function handleTransferContentGet({
+async function handleTransferContentGet({
   pathParams = {},
   headers = {},
-}: RouteHandlerArgs): Uint8Array {
+}: RouteHandlerArgs): Promise<Uint8Array> {
   const transferId = pathParams.transferId;
   if (!transferId) {
     throw new BadRequestError("transferId path parameter is required");
@@ -72,7 +72,7 @@ function handleTransferContentGet({
     // the value persisted at registration time so a brief reconnect does
     // not 403 a legitimate fetch.
     enforceSameActorOrThrow({
-      sourceActorPrincipalId: resolveActorPrincipalIdForLocalGuardian(
+      sourceActorPrincipalId: await resolveActorPrincipalIdForLocalGuardian(
         headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
       ),
       targetActorPrincipalId:
@@ -151,7 +151,7 @@ async function handleTransferContentPut({
       );
 
     enforceSameActorOrThrow({
-      sourceActorPrincipalId: resolveActorPrincipalIdForLocalGuardian(
+      sourceActorPrincipalId: await resolveActorPrincipalIdForLocalGuardian(
         headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
       ),
       targetActorPrincipalId:
@@ -181,7 +181,7 @@ async function handleTransferContentPut({
 // POST /v1/host-transfer-result
 // ---------------------------------------------------------------------------
 
-function handleTransferResult({ body, headers }: RouteHandlerArgs) {
+async function handleTransferResult({ body, headers }: RouteHandlerArgs) {
   if (!body || typeof body !== "object") {
     throw new BadRequestError("Request body is required");
   }
@@ -222,7 +222,7 @@ function handleTransferResult({ body, headers }: RouteHandlerArgs) {
       );
 
     enforceSameActorOrThrow({
-      sourceActorPrincipalId: resolveActorPrincipalIdForLocalGuardian(
+      sourceActorPrincipalId: await resolveActorPrincipalIdForLocalGuardian(
         headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
       ),
       targetActorPrincipalId: peeked.targetActorPrincipalId,

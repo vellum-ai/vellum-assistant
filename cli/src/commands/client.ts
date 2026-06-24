@@ -895,14 +895,27 @@ async function runWebInterface(
       headers.delete("Origin");
       headers.delete("Referer");
 
-      // Authenticate with the loopback session token the SPA registered. The
-      // platform expects it both as the Django session cookie and as
-      // X-Session-Token (for DRF views that accept header-based auth). Only
+      // The DRF API authenticates by header (X-Session-Token); the allauth /
+      // accounts session endpoints need the Django session cookie.
+      const isApiRequest = pathname.startsWith("/v1/");
+
+      // Authenticate with the loopback session token the SPA registered. Only
       // same-origin SPA traffic gets the credential — never a cross-site caller.
       const sessionToken = isSameOriginRequest(req)
         ? currentPlatformToken()
         : null;
-      if (sessionToken) {
+      if (isApiRequest) {
+        // Header-only auth for the DRF API. Sending a `sessionid` cookie would
+        // engage Django's SessionAuthentication, which enforces CSRF — and the
+        // proxy strips Origin/Referer above, so the CSRF Referer check would
+        // reject every unsafe (POST/PUT/PATCH) request. Drop any browser cookie
+        // (localhost jar) so it can't re-engage that path.
+        headers.delete("Cookie");
+        if (sessionToken) {
+          headers.set("X-Session-Token", sessionToken);
+        }
+      } else if (sessionToken) {
+        // allauth / accounts: the platform expects the Django session cookie.
         headers.set(
           "Cookie",
           `sessionid=${sessionToken}; __Secure-sessionid=${sessionToken}`,

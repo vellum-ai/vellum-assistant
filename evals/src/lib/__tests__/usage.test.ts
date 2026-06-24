@@ -152,3 +152,32 @@ test("mergeUsageSummaries re-prices combined daemon and recording usage records"
   expect(summary.totalCostUsd).toBeCloseTo(0.0105 + 0.007, 6);
   expect(summary.costStatus).toBe("ok");
 });
+
+test("records tagged origin: 'metric' are excluded from the assistant cost breakdown", () => {
+  // The LLM judge's grading call is harness overhead, not agent spend.
+  // It must not appear in the per-request breakdown, token totals, or
+  // totalCostUsd — otherwise a gpt-5.2 judge row inflates the agent's
+  // bill on the Cost tab (Vargas's round-4 feedback).
+  const summary = summarizeAssistantUsage([
+    usageEvent({
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      input_tokens: 1_000,
+      output_tokens: 500,
+    }),
+    usageEvent({
+      provider: "openai",
+      model: "gpt-5.2",
+      input_tokens: 200,
+      output_tokens: 15,
+      origin: "metric",
+    }),
+  ]);
+
+  // Only the agent row survives.
+  expect(summary.requests).toHaveLength(1);
+  expect(summary.requests[0]!.model).toBe("claude-sonnet-4-5");
+  expect(summary.totalInputTokens).toBe(1_000);
+  expect(summary.totalOutputTokens).toBe(500);
+  expect(summary.costStatus).toBe("ok");
+});

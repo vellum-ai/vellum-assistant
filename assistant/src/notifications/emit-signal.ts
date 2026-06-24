@@ -9,10 +9,15 @@
  * propagated unless `throwOnError` is enabled.
  */
 
+import type { GuardianDelivery } from "@vellumai/gateway-client";
 import { v4 as uuid } from "uuid";
 
 import { getDeliverableChannels } from "../channels/config.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../contacts/guardian-delivery-reader.js";
 import type { ConversationCreateType } from "../memory/conversation-crud.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
@@ -89,8 +94,32 @@ export function getBroadcaster(): NotificationBroadcaster {
 
 // ── Connected channels resolution ──────────────────────────────────────
 
-function getConnectedChannels(): NotificationChannel[] {
+/**
+ * Resolve a binding-based channel's delivery endpoint (externalChatId) the
+ * SAME way destination-resolver's `resolveGuardian` does: gateway match first,
+ * falling back to the LOCAL contacts read on ANY per-channel no-match — gateway
+ * list null (unreachable) OR no active gateway entry for this channel. The
+ * local read is the transitional dual-written mirror, removed in Combo 11.
+ * Keeping connectivity aligned with delivery prevents a channel being marked
+ * connected but then skipped with no destination (or vice-versa).
+ */
+function resolveChannelChatId(
+  guardians: GuardianDelivery[] | null,
+  channelType: string,
+): string | undefined {
+  const g = guardians ? guardianForChannel(guardians, channelType) : undefined;
+  if (g) {
+    return g.externalChatId ?? undefined;
+  }
+  return findGuardianForChannel(channelType)?.channel.externalChatId ?? undefined;
+}
+
+export async function getConnectedChannels(): Promise<NotificationChannel[]> {
   const channels: NotificationChannel[] = [];
+
+  // Guardian bindings (ACL) come from the gateway pull; null ⇒ gateway
+  // unreachable, so binding-based connectivity falls back to the local read.
+  const guardians = await getGuardianDelivery();
 
   // getDeliverableChannels() returns ChannelId[] but every returned channel
   // has deliveryEnabled: true, making it a valid NotificationChannel at
@@ -110,24 +139,20 @@ function getConnectedChannels(): NotificationChannel[] {
         channels.push(channel);
         break;
       case "telegram": {
-        // A binding-based channel is connected when the guardian has an
-        // active channel entry with a valid delivery endpoint. The
-        // externalChatId check ensures we don't report a channel as
-        // connected when the contacts record exists but lacks the
-        // delivery address the destination-resolver needs.
-        const guardian = findGuardianForChannel(channel);
-        if (guardian && guardian.channel.externalChatId) {
+        // Connected when the resolved guardian has a delivery endpoint —
+        // mirroring destination-resolver so we never mark connected what
+        // can't be delivered.
+        if (resolveChannelChatId(guardians, channel)) {
           channels.push(channel);
         }
         break;
       }
       case "slack": {
         // Slack bindings can originate from shared channels (app_mention).
-        // Only consider Slack connected when the stored chat ID is a DM
-        // channel (D-prefixed) to prevent leaking notifications.
-        const slackGuardian = findGuardianForChannel("slack");
-        const chatId = slackGuardian?.channel.externalChatId;
-        if (slackGuardian && chatId && chatId.startsWith("D")) {
+        // Only consider Slack connected when the resolved chat ID is a DM
+        // channel (D-prefixed), matching destination-resolver's DM gate.
+        const chatId = resolveChannelChatId(guardians, "slack");
+        if (chatId && chatId.startsWith("D")) {
           channels.push(channel);
         }
         break;
@@ -290,7 +315,7 @@ export async function emitNotificationSignal<TEventName extends string>(
     }
 
     // Step 2: Evaluate the signal through the decision engine
-    const connectedChannels = getConnectedChannels();
+    const connectedChannels = await getConnectedChannels();
 
     log.debug(
       {

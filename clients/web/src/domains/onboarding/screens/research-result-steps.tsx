@@ -17,7 +17,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { ArrowRight, Sparkles, X } from "lucide-react";
+import { ArrowRight, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
@@ -25,7 +25,11 @@ import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
-import type { ResearchFact, ResearchSuggestion } from "@/utils/research-facts";
+import {
+  pluginDisplayName,
+  type ResearchFact,
+  type ResearchSuggestion,
+} from "@/utils/research-facts";
 
 function useViewportSize() {
   const [size, setSize] = useState(() => ({
@@ -249,12 +253,12 @@ export function ResearchResultsStep({
         <div className="flex items-center gap-3">
           <MiniAssistant />
           <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
-            Alright, this is what I got:
+            This is what I found about you
           </h1>
         </div>
         <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
           {hasClaims
-            ? "Feel free to remove anything that’s not true"
+            ? "I searched the web. Feel free to remove anything that isn’t true"
             : loading
               ? "Still putting this together…"
               : "I didn’t turn up much — we can fill it in as we chat."}
@@ -315,6 +319,33 @@ export function ResearchResultsStep({
 // ---------------------------------------------------------------------------
 
 /**
+ * Vibrant badge colors handed out to plugins by order of first appearance, so
+ * two different plugins on the same screen never collide on one color (a hash
+ * would). See `pluginColorByOrder` in `SuggestionsStep`.
+ */
+const PLUGIN_CHIP_PALETTE = [
+  "#6366F1", // indigo
+  "#EC4899", // pink
+  "#10B981", // emerald
+  "#F59E0B", // amber
+  "#06B6D4", // cyan
+  "#A855F7", // violet
+  "#EF4444", // red
+  "#14B8A6", // teal
+];
+
+/** Black or white text for legibility on a given `#rrggbb` chip color (YIQ). */
+function chipTextColor(hex: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return "#FFFFFF";
+  const n = parseInt(m[1]!, 16);
+  const yiq =
+    (((n >> 16) & 0xff) * 299 + ((n >> 8) & 0xff) * 587 + (n & 0xff) * 114) /
+    1000;
+  return yiq > 150 ? "#1A1A1A" : "#FFFFFF";
+}
+
+/**
  * Generic fallbacks shown only if the research turn produced no suggestions
  * (failure / sparse subject) so the step is never empty once it's done loading.
  * Each pairs the assistant-voiced card text with the user-voiced prompt sent on
@@ -370,6 +401,20 @@ export function SuggestionsStep({
         ? []
         : FALLBACK_SUGGESTIONS;
 
+  // Hand each distinct plugin its own palette color by order of first
+  // appearance, so two different plugins never end up the same color.
+  const pluginColorByOrder = new Map<string, string>();
+  for (const s of items) {
+    if (s.plugin && !pluginColorByOrder.has(s.plugin)) {
+      pluginColorByOrder.set(
+        s.plugin,
+        PLUGIN_CHIP_PALETTE[
+          pluginColorByOrder.size % PLUGIN_CHIP_PALETTE.length
+        ]!,
+      );
+    }
+  }
+
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
       <OnboardingTopBar onBack={onBack} onNext={onForward} />
@@ -388,25 +433,45 @@ export function SuggestionsStep({
         </p>
 
         <div className="flex flex-col gap-3">
-          {items.map((s, i) => (
-            <motion.button
-              key={`${i}-${s.suggestion}`}
-              type="button"
-              onClick={() => onSuggestionClick(s)}
-              initial={reduce ? false : { opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={reduce ? { duration: 0 } : { duration: 0.3, delay: i * 0.06 }}
-              className="flex items-center gap-3 rounded-2xl px-5 py-4 text-left text-[15px] transition-transform duration-150 hover:scale-[1.01] active:scale-[0.99]"
-              style={{
-                backgroundColor: tone.isLight
-                  ? "rgba(0,0,0,0.06)"
-                  : "rgba(255,255,255,0.1)",
-              }}
-            >
-              <Sparkles className="h-4 w-4 shrink-0" style={{ color: tone.fgMuted }} />
-              <span>{s.suggestion}</span>
-            </motion.button>
-          ))}
+          {items.map((s, i) => {
+            const chipBg = s.plugin
+              ? pluginColorByOrder.get(s.plugin)
+              : undefined;
+            return (
+              <motion.button
+                key={`${i}-${s.suggestion}`}
+                type="button"
+                onClick={() => onSuggestionClick(s)}
+                initial={reduce ? false : { opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={
+                  reduce ? { duration: 0 } : { duration: 0.3, delay: i * 0.06 }
+                }
+                className="relative rounded-2xl px-5 py-4 text-left text-[15px] transition-transform duration-150 hover:scale-[1.01] active:scale-[0.99]"
+                style={{
+                  backgroundColor: tone.isLight
+                    ? "rgba(0,0,0,0.06)"
+                    : "rgba(255,255,255,0.1)",
+                }}
+              >
+                <span>{s.suggestion}</span>
+                {s.plugin && chipBg && (
+                  // Solid per-plugin colored badge straddling the card's
+                  // top-right edge — each plugin gets its own distinct color.
+                  <span
+                    className="absolute -top-2.5 right-4 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold leading-none"
+                    style={{
+                      backgroundColor: chipBg,
+                      color: chipTextColor(chipBg),
+                      boxShadow: "0 1px 4px rgba(0,0,0,0.25)",
+                    }}
+                  >
+                    {pluginDisplayName(s.plugin)}
+                  </span>
+                )}
+              </motion.button>
+            );
+          })}
         </div>
       </div>
     </div>

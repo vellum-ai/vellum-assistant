@@ -199,7 +199,6 @@ export function ChatMainPanel({
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const assistantName = useAssistantIdentityStore.use.name();
   const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
-  const quoteReplyEnabled = useClientFeatureFlagStore.use.quoteReply();
 
   // -------------------------------------------------------------------------
   // Store reads — per-conversation state
@@ -852,7 +851,7 @@ export function ChatMainPanel({
       />
       {sendErrorModalNode}
       {ruleEditorModalNode}
-      {quoteReplyEnabled && !isChannelReadonly && (
+      {!isChannelReadonly && (
         <>
           <TextSelectionPopover containerRef={transcriptContainerRef} />
           <QuoteReplyBubble onSendNow={handleQuoteReplyNow} />

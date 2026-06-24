@@ -34,19 +34,38 @@ mock.module("../../prompts/system-prompt.js", () => ({
   buildCoreIdentityContext: () => null,
 }));
 
-mock.module("../../contacts/contact-store.js", () => ({
-  listGuardianChannels: () => null,
+// Guardian binding (ACL) is resolved via the gateway pull; notes (INFO) are
+// joined locally by contactId. Tests drive both via mutable slots.
+let guardianDeliveryFixture: Array<{ contactId: string }> = [];
+let contactInfoFixture: Record<string, { notes: string | null } | null> = {};
+
+mock.module("../../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => guardianDeliveryFixture,
+  anyGuardian: (list: Array<{ contactId: string }>) => list[0],
 }));
 
-// Provider mock — if `getConfiguredProvider` is ever called by the
-// assistant_tool pass-through path, this throw makes the test fail
-// loudly instead of silently exercising the LLM path.
+mock.module("../../contacts/contact-store.js", () => ({
+  findContactInfoById: (contactId: string) =>
+    contactInfoFixture[contactId] ?? null,
+}));
+
+// Provider mock. By default `sendMessage` throws so the assistant_tool
+// pass-through path (which must skip the LLM) fails loudly if it reaches the
+// provider. LLM-path tests override `providerSendMessage` to capture inputs.
+let providerSendMessage: (
+  messages: unknown[],
+  opts: { systemPrompt?: string },
+) => Promise<unknown> = () => {
+  throw new Error(
+    "provider.sendMessage should NOT be invoked for assistant_tool pass-through",
+  );
+};
+
 mock.module("../../providers/provider-send-message.js", () => ({
-  getConfiguredProvider: async () => {
-    throw new Error(
-      "getConfiguredProvider should NOT be invoked for assistant_tool pass-through",
-    );
-  },
+  getConfiguredProvider: async () => ({
+    sendMessage: (messages: unknown[], opts: { systemPrompt?: string }) =>
+      providerSendMessage(messages, opts),
+  }),
   createTimeout: () => ({
     signal: new AbortController().signal,
     cleanup: () => {},
@@ -279,5 +298,55 @@ describe("assistant_tool pass-through in notification decision engine", () => {
 
     expect(decision.selectedChannels).toEqual(["vellum"]);
     expect(decision.renderedCopy.vellum?.body).toBe("fyi");
+  });
+});
+
+describe("recipient notes injection (ACL from gateway, notes joined locally)", () => {
+  function makeLlmSignal(): NotificationSignal {
+    return {
+      signalId: "sig-llm-notes-1",
+      createdAt: Date.now(),
+      sourceChannel: "scheduler",
+      sourceContextId: "schedule-1",
+      sourceEventName: "schedule.notify",
+      contextPayload: {},
+      attentionHints: {
+        requiresAction: false,
+        urgency: "low",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+    };
+  }
+
+  test("injects the guardian's local notes, resolved via the gateway contactId", async () => {
+    guardianDeliveryFixture = [{ contactId: "contact-42" }];
+    contactInfoFixture = { "contact-42": { notes: "Prefers terse updates." } };
+
+    let capturedSystemPrompt: string | undefined;
+    providerSendMessage = async (_messages, opts) => {
+      capturedSystemPrompt = opts.systemPrompt;
+      return {};
+    };
+
+    await evaluateSignal(makeLlmSignal(), ["vellum"] as NotificationChannel[]);
+
+    expect(capturedSystemPrompt).toContain("<recipient-context>");
+    expect(capturedSystemPrompt).toContain("Prefers terse updates.");
+  });
+
+  test("omits recipient context when no guardian is bound", async () => {
+    guardianDeliveryFixture = [];
+    contactInfoFixture = {};
+
+    let capturedSystemPrompt: string | undefined;
+    providerSendMessage = async (_messages, opts) => {
+      capturedSystemPrompt = opts.systemPrompt;
+      return {};
+    };
+
+    await evaluateSignal(makeLlmSignal(), ["vellum"] as NotificationChannel[]);
+
+    expect(capturedSystemPrompt).not.toContain("<recipient-context>");
   });
 });

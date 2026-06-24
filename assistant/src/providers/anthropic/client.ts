@@ -840,6 +840,11 @@ export class AnthropicProvider implements Provider {
         disableCache: _disableCache,
         max_tokens: callerMaxTokens,
         usageAttributionHeaders,
+        // Pulled out of `restConfig` so they are forwarded conditionally below:
+        // newer models reject them outright (see `deprecatesSamplingParams`).
+        temperature: callerTemperature,
+        top_p: callerTopP,
+        top_k: callerTopK,
         ...restConfig
       } = (config ?? {}) as Record<string, unknown> & {
         // "xhigh" is an intermediate tier between "high" and "max" supported
@@ -852,6 +857,9 @@ export class AnthropicProvider implements Provider {
         speed?: "standard" | "fast";
         output_config?: Record<string, unknown>;
         usageAttributionHeaders?: Record<string, string>;
+        temperature?: number;
+        top_p?: number;
+        top_k?: number;
       };
       // Haiku does not support the effort / output_config parameter or
       // extended cache TTL betas.
@@ -861,6 +869,16 @@ export class AnthropicProvider implements Provider {
         (restConfig as Record<string, unknown>).model?.toString() ?? this.model;
       const isHaiku = effectiveModel.includes("haiku");
       const supportsEffort = !isHaiku;
+      // opus-4-7 / opus-4-8 reject `temperature` and `top_p` with a 400
+      // "`temperature`/`top_p` is deprecated for this model" — model-wide, not
+      // effort-conditional (verified 2026-06-23). opus-4-6 / sonnet-4-6 /
+      // haiku-4-5 still accept them. fable-5 is included conservatively (a
+      // frontier model that could not be verified directly but follows the same
+      // deprecation direction). Stripping the params here keeps callers that set
+      // them (e.g. the memory-v3 L2 selector's `temperature: 0`) from 400ing.
+      const deprecatesSamplingParams =
+        /claude-opus-4-[78]\b/.test(effectiveModel) ||
+        effectiveModel.startsWith("claude-fable-");
       const mergedOutputConfig = {
         ...(output_config ?? {}),
         ...(effort && effort !== "none" && supportsEffort
@@ -888,6 +906,19 @@ export class AnthropicProvider implements Provider {
             : 64000,
         messages: sentMessages,
         ...restConfig,
+        // Forward `temperature` / `top_p` / `top_k` only to models that still
+        // accept them; newer models 400 on any of the deprecated sampler params.
+        // `temperature: 0` is preserved for accepting models (a `typeof ===
+        // "number"` check, not truthiness).
+        ...(deprecatesSamplingParams
+          ? {}
+          : {
+              ...(typeof callerTemperature === "number"
+                ? { temperature: callerTemperature }
+                : {}),
+              ...(typeof callerTopP === "number" ? { top_p: callerTopP } : {}),
+              ...(typeof callerTopK === "number" ? { top_k: callerTopK } : {}),
+            }),
         ...(Object.keys(mergedOutputConfig).length > 0
           ? { output_config: mergedOutputConfig }
           : {}),

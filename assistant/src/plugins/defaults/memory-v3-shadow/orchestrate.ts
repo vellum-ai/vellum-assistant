@@ -119,6 +119,10 @@ export interface OrchestrateDeps {
   /** Hard cap on total learned-lane surfaced articles; `0` disables the pass
    *  (canonical value: `memory.v3.learnedEdges.cap`). */
   learnedCap?: number;
+  /** The selector's system prompt. Omitted → the selector's bundled default.
+   *  The live caller resolves `memory.v3.selectorPromptPath` (workspace-relative
+   *  file override) via `resolveSelectorPrompt` and threads the result here. */
+  selectorPrompt?: string;
 }
 
 /** A finder-lane candidate: the slug, the descriptor that justified it, and
@@ -378,8 +382,13 @@ export async function orchestrate(
 
   // Step 3: a SINGLE forced-tool select over the cache-ordered pool. The
   // selections come back slug-deduped (pinned flags ORed) — `selectPool`'s
-  // contract.
-  const selections = await selectPool({ stable, finder: finderTail }, turn);
+  // contract. `selectorPrompt` is the (optionally overridden) instruction
+  // scaffold; `undefined` falls through to the bundled default.
+  const selections = await selectPool(
+    { stable, finder: finderTail },
+    turn,
+    deps.selectorPrompt,
+  );
 
   return {
     selections,

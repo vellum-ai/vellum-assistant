@@ -50,6 +50,7 @@
 
 import { z } from "zod";
 
+import { loadPromptOverride } from "../../../memory/prompt-override.js";
 import { cachedTextBlock } from "../../../providers/cache-control.js";
 import {
   extractToolUse,
@@ -201,6 +202,28 @@ A page can be relevant because of the current situation — the date or the live
 
 If the conversation is centrally ABOUT a page (rather than only peripherally relevant to it), mark that page as pinned. Call \`select_pages\` with the chosen IDs. Omit \`ids\` only as a recall-safe fallback when you cannot judge the pool (keeps every candidate); return \`[]\` when candidates are present but none are relevant.`;
 
+/**
+ * Resolve the selector system prompt: the file at `overridePath` when it is set
+ * and usable, otherwise the bundled {@link SYSTEM_PROMPT}. Path resolution and
+ * fallback follow the shared override loader (workspace-relative; a missing,
+ * empty, oversized, or unreadable file degrades to the bundled prompt with a
+ * warning). The selector prompt takes no placeholders — the candidate pool is
+ * the user message — so an override file is used verbatim.
+ */
+export function resolveSelectorPrompt(
+  overridePath: string | null,
+  workspaceDir: string,
+): string {
+  return (
+    loadPromptOverride({
+      overridePath,
+      workspaceDir,
+      log,
+      label: "memory-v3 selector prompt",
+    }) ?? SYSTEM_PROMPT
+  );
+}
+
 /** Collapse a descriptor to one line and cap its length for a finder line. */
 function renderSnippet(descriptor: string): string {
   return truncate(descriptor.replace(/\s+/g, " ").trim(), SNIPPET_MAX_CHARS);
@@ -315,10 +338,15 @@ function dedupeBySlug(
  * relevant" signal); an explicit `[]` keeps none; an infrastructure failure
  * (after a short re-prompt retry) keeps none, degrading to the deterministic
  * recall lanes the orchestrator unions in.
+ *
+ * `systemPrompt` is the selector's instruction scaffold; it defaults to the
+ * bundled {@link SYSTEM_PROMPT} and is overridable via `memory.v3.selectorPromptPath`
+ * (resolved by {@link resolveSelectorPrompt} at the call site).
  */
 export async function selectPool(
   pool: SelectorPool,
   turn: MemoryRoutingTurn,
+  systemPrompt: string = SYSTEM_PROMPT,
 ): Promise<SelectedPage[]> {
   // The concatenated numbering: ids 1…m are the stable-prefix cards, ids
   // m+1… are the finder lines.
@@ -394,12 +422,6 @@ export async function selectPool(
   // (no usable tool_use, or tool input that fails the schema) re-prompts before
   // we give up. `null` from an attempt means "unusable, retry"; the provider
   // layer already backs off transient throws, so this loop adds no delay.
-  //
-  // `lastError` captures the most recent attempt's thrown provider error —
-  // `retryForResult` swallows attempt throws, so without this an infrastructure
-  // failure (e.g. an upstream HTTP 4xx/5xx) is indistinguishable from a 200 that
-  // carried no usable tool_use. It is cleared on every attempt that reaches a
-  // response, so it reflects the LAST attempt's failure mode.
   let lastError: unknown = null;
   const parsed = await retryForResult(async () => {
     attempt += 1;
@@ -407,7 +429,7 @@ export async function selectPool(
     try {
       response = await provider.sendMessage([userMsg], {
         tools: [SELECT_PAGES_TOOL],
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt,
         config: {
           callSite: MEMORY_V3_SELECT_CALL_SITE,
           tool_choice: { type: "tool" as const, name: SELECT_PAGES_TOOL_NAME },

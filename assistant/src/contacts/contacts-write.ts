@@ -30,6 +30,9 @@ import type {
  * Returns true when a guardian channel was found and revoked, false otherwise.
  */
 export function revokeGuardianBinding(channel: string): boolean {
+  // Local-store read, not the gateway: this read selects the row that the
+  // updateChannelStatus write below mutates, so it must stay transactionally
+  // consistent with that write. Leave for Combo 11 / gateway-bootstrap-binding.
   const guardian = findGuardianForChannel(channel);
   if (!guardian) return false;
 

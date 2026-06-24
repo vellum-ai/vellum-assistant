@@ -22,21 +22,13 @@
  * same placeholder substitution applies to overrides.
  */
 
-import { lstatSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
-
 import { getLogger } from "../../../util/logger.js";
+import {
+  loadPromptOverride,
+  MAX_PROMPT_OVERRIDE_BYTES,
+} from "../../prompt-override.js";
 
 const log = getLogger("memory-v2-router-prompt");
-
-/**
- * Hard upper bound on the override file size. The bundled prompt is well
- * under 4 KiB; 1 MiB is generous-enough for any reasonable hand-edit while
- * still preventing pathological inputs from being slurped into memory on
- * every router call.
- */
-const MAX_PROMPT_BYTES = 1 * 1024 * 1024;
 
 /** Sentinel substituted with the assistant's display name at runtime. */
 const ASSISTANT_NAME_PLACEHOLDER = "{{ASSISTANT_NAME}}";
@@ -102,14 +94,12 @@ export function renderRouterPrompt(opts: RenderRouterPromptOpts): string {
 /**
  * Load the router prompt template, optionally overridden from the file
  * referenced by `memory.v2.router.router_prompt_path`, then substitute the
- * standard placeholders. Path-resolution rules mirror the consolidation
- * prompt override: absolute paths used as-is, leading `~/` expanded to home,
- * relative paths resolved under `workspaceDir`.
+ * standard placeholders. File loading (path resolution, size guard, and the
+ * permissive fall-back to the bundled prompt on a missing/unreadable/empty/
+ * oversized override) is handled by the shared {@link loadPromptOverride}.
  *
- * Failure handling is intentionally permissive — missing file, read error,
- * oversized file, or empty/whitespace-only body all log a warning and fall
- * back to the bundled prompt. Router selection must never break because of
- * a bad override.
+ * An `inlineOverride` (e.g. the simulator playground) takes precedence over the
+ * configured file path; same placeholder substitution and size guard apply.
  */
 export function resolveRouterPrompt(
   overridePath: string | null,
@@ -117,17 +107,15 @@ export function resolveRouterPrompt(
   opts: RenderRouterPromptOpts,
   inlineOverride?: string | null,
 ): string {
-  // Inline override (e.g. simulator playground) takes precedence over the
-  // configured file path and the bundled prompt. Same placeholder
-  // substitution + size guard as the file-path branch; empty/whitespace
-  // bodies fall through to file/bundled resolution so a "cleared" textarea
-  // is treated as no override.
+  // Inline override takes precedence over the configured file path and the
+  // bundled prompt. Empty/whitespace bodies fall through to file/bundled
+  // resolution so a "cleared" textarea is treated as no override.
   if (inlineOverride !== undefined && inlineOverride !== null) {
-    if (inlineOverride.length > MAX_PROMPT_BYTES) {
+    if (inlineOverride.length > MAX_PROMPT_OVERRIDE_BYTES) {
       log.warn(
         {
           size: inlineOverride.length,
-          limit: MAX_PROMPT_BYTES,
+          limit: MAX_PROMPT_OVERRIDE_BYTES,
           reason: "oversized_inline_override",
           fallback: "path_or_bundled",
         },
@@ -138,62 +126,13 @@ export function resolveRouterPrompt(
     }
   }
 
-  if (overridePath === null) return renderRouterPrompt(opts);
-
-  const resolvedPath = resolveOverridePath(overridePath, workspaceDir);
-  let contents: string;
-  try {
-    const stat = lstatSync(resolvedPath);
-    if (!stat.isFile()) {
-      log.warn(
-        {
-          configuredPath: overridePath,
-          resolvedPath,
-          reason: "not_regular_file",
-          fallback: "bundled",
-        },
-        "router prompt override is not a regular file; using bundled prompt",
-      );
-      return renderRouterPrompt(opts);
-    }
-    if (stat.size > MAX_PROMPT_BYTES) {
-      log.warn(
-        {
-          configuredPath: overridePath,
-          resolvedPath,
-          size: stat.size,
-          limit: MAX_PROMPT_BYTES,
-          reason: "oversized_override",
-          fallback: "bundled",
-        },
-        "router prompt override exceeds size limit; using bundled prompt",
-      );
-      return renderRouterPrompt(opts);
-    }
-    contents = readFileSync(resolvedPath, "utf-8");
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    log.warn(
-      { configuredPath: overridePath, resolvedPath, code, fallback: "bundled" },
-      "router prompt override unreadable; using bundled prompt",
-    );
-    return renderRouterPrompt(opts);
-  }
-
-  if (contents.trim().length === 0) {
-    log.warn(
-      {
-        configuredPath: overridePath,
-        resolvedPath,
-        reason: "empty_override",
-        fallback: "bundled",
-      },
-      "router prompt override is empty; using bundled prompt",
-    );
-    return renderRouterPrompt(opts);
-  }
-
-  return substitutePlaceholders(contents, opts);
+  const override = loadPromptOverride({
+    overridePath,
+    workspaceDir,
+    log,
+    label: "router prompt",
+  });
+  return substitutePlaceholders(override ?? ROUTER_PROMPT, opts);
 }
 
 function substitutePlaceholders(
@@ -206,15 +145,4 @@ function substitutePlaceholders(
     .replaceAll(ASSISTANT_NAME_PLACEHOLDER, () => assistant)
     .replaceAll(USER_NAME_PLACEHOLDER, () => user)
     .replaceAll(PAGE_INDEX_PLACEHOLDER, () => opts.pageIndexBlock);
-}
-
-function resolveOverridePath(
-  overridePath: string,
-  workspaceDir: string,
-): string {
-  if (overridePath.startsWith("~/")) {
-    return join(homedir(), overridePath.slice(2));
-  }
-  if (isAbsolute(overridePath)) return overridePath;
-  return join(workspaceDir, overridePath);
 }

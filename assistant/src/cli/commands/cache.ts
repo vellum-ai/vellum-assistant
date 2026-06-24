@@ -17,6 +17,9 @@ import { log } from "../logger.js";
 /** Warn (stderr) when a raw payload exceeds this byte count. */
 const MAX_PAYLOAD_BYTES = 1_000_000; // 1 MB
 
+/** Standard input file descriptor. */
+const STDIN_FD = 0;
+
 // ── TTL parsing ───────────────────────────────────────────────────────
 
 const TTL_PATTERN = /^(\d+(?:\.\d+)?)\s*(ms|s|m|h)$/;
@@ -99,6 +102,11 @@ function parseJsonPayload(raw: string, source: string): unknown {
  * Read JSON payload from stdin when piped. Throws when stdin is a TTY
  * (no piped input) or when the input is empty/invalid JSON, so the CLI
  * can surface actionable parse errors.
+ *
+ * Reads file descriptor 0 directly rather than reopening the `/dev/stdin`
+ * path. When the caller is a spawned subprocess whose stdin is a pipe (e.g.
+ * `Bun.spawn(..., { stdin: "pipe" })`), `open("/dev/stdin")` fails with ENXIO
+ * because a pipe read-end cannot be reopened by path; the fd is readable.
  */
 function readPayloadFromStdin(): unknown {
   if (process.stdin.isTTY) {
@@ -111,7 +119,7 @@ function readPayloadFromStdin(): unknown {
 
   let raw: string;
   try {
-    raw = readFileSync("/dev/stdin", "utf-8");
+    raw = readFileSync(STDIN_FD, "utf-8");
   } catch (err) {
     throw new Error(
       `Failed to read stdin: ${err instanceof Error ? err.message : String(err)}.\n` +
@@ -173,10 +181,9 @@ export function registerCacheCommand(program: Command): void {
     transport: "ipc",
     description: "Interact with the assistant's in-memory key/value cache",
     build: (cache) => {
-
-  cache.addHelpText(
-    "after",
-    `
+      cache.addHelpText(
+        "after",
+        `
 The cache is a TTL-aware, LRU-evicting in-memory store managed by the
 running assistant. Data is scoped to the assistant process lifetime and
 is not persisted across restarts.
@@ -190,33 +197,33 @@ Examples:
   $ echo '{"result": [1,2,3]}' | assistant cache set --ttl 5m
   $ assistant cache get my-key
   $ assistant cache delete my-key`,
-  );
+      );
 
-  // ── set ───────────────────────────────────────────────────────────
+      // ── set ───────────────────────────────────────────────────────────
 
-  cache
-    .command("set")
-    .description("Store a JSON value in the cache")
-    .option(
-      "--key <key>",
-      "Cache key for idempotent upsert. Omit to auto-generate.",
-    )
-    .option(
-      "--ttl <duration>",
-      "Time-to-live (minimum 1s). Units: ms, s, m, h (e.g. 1000ms, 30s, 5m, 2h). Defaults to 30m if omitted.",
-    )
-    .option(
-      "--value <json>",
-      "JSON payload to store. Alternative to piping via stdin.",
-    )
-    .option(
-      "--file <path>",
-      "Path to a file containing the JSON payload. Alternative to piping via stdin.",
-    )
-    .option("--json", "Output result as machine-readable JSON.")
-    .addHelpText(
-      "after",
-      `
+      cache
+        .command("set")
+        .description("Store a JSON value in the cache")
+        .option(
+          "--key <key>",
+          "Cache key for idempotent upsert. Omit to auto-generate.",
+        )
+        .option(
+          "--ttl <duration>",
+          "Time-to-live (minimum 1s). Units: ms, s, m, h (e.g. 1000ms, 30s, 5m, 2h). Defaults to 30m if omitted.",
+        )
+        .option(
+          "--value <json>",
+          "JSON payload to store. Alternative to piping via stdin.",
+        )
+        .option(
+          "--file <path>",
+          "Path to a file containing the JSON payload. Alternative to piping via stdin.",
+        )
+        .option("--json", "Output result as machine-readable JSON.")
+        .addHelpText(
+          "after",
+          `
 Stores a JSON payload in the cache and prints the assigned key. The payload
 can be provided via --value, --file, or piped through stdin. If --key is
 provided, the entry is upserted (created or replaced). If omitted, a new
@@ -240,86 +247,86 @@ Examples:
   $ assistant cache set --file /tmp/payload.json --key scores --ttl 10m
   $ echo '{"scores":[98,85,72]}' | assistant cache set
   $ echo '"simple string"' | assistant cache set --ttl 1h --json`,
-    )
-    .action(
-      async (opts: {
-        key?: string;
-        ttl?: string;
-        value?: string;
-        file?: string;
-        json?: boolean;
-      }) => {
-        let data: unknown;
-        try {
-          data = resolvePayload(opts);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          if (opts.json) {
-            process.stdout.write(
-              JSON.stringify({ ok: false, error: msg }) + "\n",
-            );
-          } else {
-            log.error(msg);
-          }
-          process.exitCode = 1;
-          return;
-        }
+        )
+        .action(
+          async (opts: {
+            key?: string;
+            ttl?: string;
+            value?: string;
+            file?: string;
+            json?: boolean;
+          }) => {
+            let data: unknown;
+            try {
+              data = resolvePayload(opts);
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              if (opts.json) {
+                process.stdout.write(
+                  JSON.stringify({ ok: false, error: msg }) + "\n",
+                );
+              } else {
+                log.error(msg);
+              }
+              process.exitCode = 1;
+              return;
+            }
 
-        let ttl_ms: number | undefined;
-        try {
-          ttl_ms = parseTtl(opts.ttl);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          if (opts.json) {
-            process.stdout.write(
-              JSON.stringify({ ok: false, error: msg }) + "\n",
-            );
-          } else {
-            log.error(msg);
-          }
-          process.exitCode = 1;
-          return;
-        }
+            let ttl_ms: number | undefined;
+            try {
+              ttl_ms = parseTtl(opts.ttl);
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              if (opts.json) {
+                process.stdout.write(
+                  JSON.stringify({ ok: false, error: msg }) + "\n",
+                );
+              } else {
+                log.error(msg);
+              }
+              process.exitCode = 1;
+              return;
+            }
 
-        const params: Record<string, unknown> = { data };
-        if (ttl_ms !== undefined) params.ttl_ms = ttl_ms;
-        if (opts.key) params.key = opts.key;
+            const params: Record<string, unknown> = { data };
+            if (ttl_ms !== undefined) params.ttl_ms = ttl_ms;
+            if (opts.key) params.key = opts.key;
 
-        const result = await cliIpcCall<{ key: string }>("cache_set", {
-          body: params,
-        });
+            const result = await cliIpcCall<{ key: string }>("cache_set", {
+              body: params,
+            });
 
-        if (!result.ok) {
-          if (opts.json) {
-            process.stdout.write(
-              JSON.stringify({ ok: false, error: result.error }) + "\n",
-            );
-          } else {
-            log.error(`Error: ${result.error}`);
-          }
-          process.exitCode = 1;
-          return;
-        }
+            if (!result.ok) {
+              if (opts.json) {
+                process.stdout.write(
+                  JSON.stringify({ ok: false, error: result.error }) + "\n",
+                );
+              } else {
+                log.error(`Error: ${result.error}`);
+              }
+              process.exitCode = 1;
+              return;
+            }
 
-        if (opts.json) {
-          process.stdout.write(
-            JSON.stringify({ ok: true, key: result.result!.key }) + "\n",
-          );
-        } else {
-          log.info(`Cached with key: ${result.result!.key}`);
-        }
-      },
-    );
+            if (opts.json) {
+              process.stdout.write(
+                JSON.stringify({ ok: true, key: result.result!.key }) + "\n",
+              );
+            } else {
+              log.info(`Cached with key: ${result.result!.key}`);
+            }
+          },
+        );
 
-  // ── get ───────────────────────────────────────────────────────────
+      // ── get ───────────────────────────────────────────────────────────
 
-  cache
-    .command("get <key>")
-    .description("Retrieve a cached value by key")
-    .option("--json", "Output result as machine-readable JSON.")
-    .addHelpText(
-      "after",
-      `
+      cache
+        .command("get <key>")
+        .description("Retrieve a cached value by key")
+        .option("--json", "Output result as machine-readable JSON.")
+        .addHelpText(
+          "after",
+          `
 Arguments:
   key   The cache key to look up. Run 'assistant cache set' to store a
         value and receive its key.
@@ -331,49 +338,52 @@ exist or has expired, reports not-found. In --json mode, a miss returns
 Examples:
   $ assistant cache get my-key
   $ assistant cache get my-key --json`,
-    )
-    .action(async (key: string, opts: { json?: boolean }) => {
-      const result = await cliIpcCall<{ data: unknown } | null>("cache_get", {
-        body: { key },
-      });
-
-      if (!result.ok) {
-        if (opts.json) {
-          process.stdout.write(
-            JSON.stringify({ ok: false, error: result.error }) + "\n",
+        )
+        .action(async (key: string, opts: { json?: boolean }) => {
+          const result = await cliIpcCall<{ data: unknown } | null>(
+            "cache_get",
+            {
+              body: { key },
+            },
           );
-        } else {
-          log.error(`Error: ${result.error}`);
-        }
-        process.exitCode = 1;
-        return;
-      }
 
-      if (opts.json) {
-        process.stdout.write(
-          JSON.stringify({
-            ok: true,
-            data: result.result ? result.result.data : null,
-          }) + "\n",
-        );
-      } else {
-        if (result.result == null) {
-          log.info(`No cache entry found for key "${key}".`);
-        } else {
-          log.info(JSON.stringify(result.result.data, null, 2));
-        }
-      }
-    });
+          if (!result.ok) {
+            if (opts.json) {
+              process.stdout.write(
+                JSON.stringify({ ok: false, error: result.error }) + "\n",
+              );
+            } else {
+              log.error(`Error: ${result.error}`);
+            }
+            process.exitCode = 1;
+            return;
+          }
 
-  // ── delete ────────────────────────────────────────────────────────
+          if (opts.json) {
+            process.stdout.write(
+              JSON.stringify({
+                ok: true,
+                data: result.result ? result.result.data : null,
+              }) + "\n",
+            );
+          } else {
+            if (result.result == null) {
+              log.info(`No cache entry found for key "${key}".`);
+            } else {
+              log.info(JSON.stringify(result.result.data, null, 2));
+            }
+          }
+        });
 
-  cache
-    .command("delete <key>")
-    .description("Remove a cached entry by key")
-    .option("--json", "Output result as machine-readable JSON.")
-    .addHelpText(
-      "after",
-      `
+      // ── delete ────────────────────────────────────────────────────────
+
+      cache
+        .command("delete <key>")
+        .description("Remove a cached entry by key")
+        .option("--json", "Output result as machine-readable JSON.")
+        .addHelpText(
+          "after",
+          `
 Arguments:
   key   The cache key to remove. Run 'assistant cache get <key>' to
         verify a key exists before deleting.
@@ -384,36 +394,39 @@ existed or not, but reports whether an entry was actually removed.
 Examples:
   $ assistant cache delete my-key
   $ assistant cache delete my-key --json`,
-    )
-    .action(async (key: string, opts: { json?: boolean }) => {
-      const result = await cliIpcCall<{ deleted: boolean }>("cache_delete", {
-        body: { key },
-      });
-
-      if (!result.ok) {
-        if (opts.json) {
-          process.stdout.write(
-            JSON.stringify({ ok: false, error: result.error }) + "\n",
+        )
+        .action(async (key: string, opts: { json?: boolean }) => {
+          const result = await cliIpcCall<{ deleted: boolean }>(
+            "cache_delete",
+            {
+              body: { key },
+            },
           );
-        } else {
-          log.error(`Error: ${result.error}`);
-        }
-        process.exitCode = 1;
-        return;
-      }
 
-      const deleted = result.result!.deleted;
+          if (!result.ok) {
+            if (opts.json) {
+              process.stdout.write(
+                JSON.stringify({ ok: false, error: result.error }) + "\n",
+              );
+            } else {
+              log.error(`Error: ${result.error}`);
+            }
+            process.exitCode = 1;
+            return;
+          }
 
-      if (opts.json) {
-        process.stdout.write(JSON.stringify({ ok: true, deleted }) + "\n");
-      } else {
-        if (deleted) {
-          log.info(`Deleted cache entry "${key}".`);
-        } else {
-          log.info(`No cache entry "${key}" (nothing to delete).`);
-        }
-      }
-    });
+          const deleted = result.result!.deleted;
+
+          if (opts.json) {
+            process.stdout.write(JSON.stringify({ ok: true, deleted }) + "\n");
+          } else {
+            if (deleted) {
+              log.info(`Deleted cache entry "${key}".`);
+            } else {
+              log.info(`No cache entry "${key}" (nothing to delete).`);
+            }
+          }
+        });
     },
   });
 }
