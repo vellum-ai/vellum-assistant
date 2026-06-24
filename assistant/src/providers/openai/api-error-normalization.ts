@@ -68,8 +68,13 @@ export function normalizeOpenAIAPIError(
   rawBody: string | undefined = readCapturedErrorBody(error.headers),
 ): NormalizedOpenAIAPIError {
   // Prefer the captured raw body (intact upstream payload) over the SDK's
-  // already-parsed `error.error`, which may have collapsed the detail.
-  const parsed = parseBody(rawBody) ?? (error as { error?: unknown }).error;
+  // already-parsed `error.error`, which may have collapsed the detail. But if
+  // the captured body didn't parse as a JSON object — e.g. it was truncated
+  // past MAX_CAPTURED_BODY_CHARS into an invalid prefix — fall back to the
+  // SDK's parsed object so we don't drop code/type/param it already extracted.
+  const parsedRaw = parseBody(rawBody);
+  const sdkError = (error as { error?: unknown }).error;
+  const parsed = asRecord(parsedRaw) ?? sdkError ?? parsedRaw;
   const body = extractBody(parsed);
 
   const message =

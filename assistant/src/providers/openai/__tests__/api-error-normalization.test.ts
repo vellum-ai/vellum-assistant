@@ -96,6 +96,31 @@ describe("normalizeOpenAIAPIError", () => {
     expect(n.message).toBe("managed proxy rejected model");
   });
 
+  test("falls back to the SDK-parsed error when the captured JSON was truncated", () => {
+    // encodeCapturedBody slices oversized bodies, which can leave an invalid
+    // JSON prefix. Rather than render that fragment (and lose metadata), fall
+    // back to the body the SDK already parsed from the full response.
+    const truncated =
+      '{"error":{"message":"too long","code":"context_length_exceeded","type":"invalid_request_error","param":"messag';
+    const n = normalizeOpenAIAPIError(
+      apiError(400, {
+        sdkBody: {
+          error: {
+            message: "too long",
+            code: "context_length_exceeded",
+            type: "invalid_request_error",
+            param: "messages",
+          },
+        },
+      }),
+      truncated,
+    );
+    expect(n.message).toBe("too long");
+    expect(n.apiErrorCode).toBe("context_length_exceeded");
+    expect(n.apiErrorType).toBe("invalid_request_error");
+    expect(n.apiErrorParam).toBe("messages");
+  });
+
   test("uses a plain-text raw body when JSON parsing fails", () => {
     const n = normalizeOpenAIAPIError(apiError(502), "upstream timeout");
     expect(n.message).toBe("upstream timeout");
