@@ -194,6 +194,46 @@ export function gatewayChannelStatus(type: string, address: string): string | nu
   return row?.status ?? null;
 }
 
+export interface VerifiedChannelRow {
+  id: string;
+  contactId: string;
+  type: string;
+  address: string;
+  status: string;
+  verifiedAt: number | null;
+  verifiedVia: string | null;
+}
+
+/**
+ * Read the authoritative gateway channel row by the logical key
+ * (type, address) COLLATE NOCASE. Used to project an upsert result back to the
+ * caller; the source-of-truth row carries the post-write state.
+ */
+export function getGatewayChannelByKey(
+  type: string,
+  address: string,
+): VerifiedChannelRow | null {
+  const row = getGatewayDb()
+    .select({
+      id: gwContactChannels.id,
+      contactId: gwContactChannels.contactId,
+      type: gwContactChannels.type,
+      address: gwContactChannels.address,
+      status: gwContactChannels.status,
+      verifiedAt: gwContactChannels.verifiedAt,
+      verifiedVia: gwContactChannels.verifiedVia,
+    })
+    .from(gwContactChannels)
+    .where(
+      and(
+        eq(gwContactChannels.type, type),
+        sql`${gwContactChannels.address} = ${address} COLLATE NOCASE`,
+      ),
+    )
+    .get();
+  return row ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Upsert
 // ---------------------------------------------------------------------------
