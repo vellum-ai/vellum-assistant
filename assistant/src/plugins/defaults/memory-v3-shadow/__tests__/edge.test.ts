@@ -20,6 +20,11 @@ function withLinks(links: string[], body = "body"): string {
   return `---\ntitle: x\nlinks:\n${block}\n---\n\n${body}`;
 }
 
+/** Frontmatter helper: a page with a `skill:` link and an optional body. */
+function withSkill(skill: string, body = "body"): string {
+  return `---\ntitle: x\nskill: "${skill}"\n---\n\n${body}`;
+}
+
 describe("buildEdgeGraph — links: frontmatter", () => {
   test("parses target + description split on the first ' — '", async () => {
     const articles = [entry(1, "page-a"), entry(2, "page-b")];
@@ -71,6 +76,38 @@ describe("buildEdgeGraph — links: frontmatter", () => {
     // No curated descriptions on wikilink/numeric edges.
     expect(out.get("page-b")).toBeUndefined();
     expect(out.get("topic-x")).toBeUndefined();
+  });
+});
+
+describe("buildEdgeGraph — skill: frontmatter", () => {
+  test("derives a fact → skills/<id> edge when the skill page exists", async () => {
+    const articles = [entry(1, "a-fact"), entry(2, "skills/foo")];
+    const graph = await buildEdgeGraph(
+      articles,
+      rawReader({ "a-fact": withSkill("foo") }),
+    );
+    const out = graph.adjacency.get("a-fact")!;
+    expect(out.has("skills/foo")).toBe(true);
+    expect(out.get("skills/foo")).toBe("procedural knowledge for this skill");
+  });
+
+  test("drops the edge when the skill page is absent from the corpus", async () => {
+    const articles = [entry(1, "a-fact")];
+    const graph = await buildEdgeGraph(
+      articles,
+      rawReader({ "a-fact": withSkill("foo") }),
+    );
+    // No skills/foo in the corpus → no adjacency entry at all.
+    expect(graph.adjacency.get("a-fact")).toBeUndefined();
+  });
+
+  test("ignores an empty/whitespace skill value", async () => {
+    const articles = [entry(1, "a-fact"), entry(2, "skills/")];
+    const graph = await buildEdgeGraph(
+      articles,
+      rawReader({ "a-fact": withSkill("   ") }),
+    );
+    expect(graph.adjacency.get("a-fact")).toBeUndefined();
   });
 });
 
@@ -229,6 +266,55 @@ describe("edgeExpand", () => {
     });
     expect(out.find((n) => n.article === "page-c")).toBeUndefined();
     expect(out.find((n) => n.article === "page-b")).toBeDefined();
+  });
+
+  test("exempts a popular capability target from the hub filter", async () => {
+    // skills/foo receives 3 inbound fact edges; with hubDegree=2 it is a hub.
+    // A plain hub would be filtered out of expansion, but a capability target
+    // (skills/ prefix) is exempt so it still co-surfaces with its facts.
+    const articles = [
+      entry(1, "fact-a"),
+      entry(2, "fact-b"),
+      entry(3, "fact-c"),
+      entry(4, "skills/foo"),
+    ];
+    const graph = await buildEdgeGraph(
+      articles,
+      rawReader({
+        "fact-a": withSkill("foo"),
+        "fact-b": withSkill("foo"),
+        "fact-c": withSkill("foo"),
+      }),
+      { hubDegree: 2 },
+    );
+    // It is still recorded as a hub by in-degree...
+    expect(graph.hubs.has("skills/foo")).toBe(true);
+    // ...but expansion from a linking fact still surfaces it.
+    const out = edgeExpand(graph, ["fact-a"]);
+    expect(out.find((n) => n.article === "skills/foo")).toBeDefined();
+  });
+
+  test("a non-capability hub is still filtered out", async () => {
+    // Same shape as above but the popular target is an ordinary page, so the
+    // hub filter still excludes it — the exemption is capability-only.
+    const articles = [
+      entry(1, "fact-a"),
+      entry(2, "fact-b"),
+      entry(3, "fact-c"),
+      entry(4, "plain-hub"),
+    ];
+    const graph = await buildEdgeGraph(
+      articles,
+      rawReader({
+        "fact-a": withLinks(["plain-hub — to hub"]),
+        "fact-b": withLinks(["plain-hub — to hub"]),
+        "fact-c": withLinks(["plain-hub — to hub"]),
+      }),
+      { hubDegree: 2 },
+    );
+    expect(graph.hubs.has("plain-hub")).toBe(true);
+    const out = edgeExpand(graph, ["fact-a"]);
+    expect(out.find((n) => n.article === "plain-hub")).toBeUndefined();
   });
 
   test("does not surface the seeds themselves", async () => {
