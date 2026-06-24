@@ -152,6 +152,7 @@ function McpPageInner() {
         toast.error(`Authentication polling failed for ${serverId}`);
       } finally {
         setAuthenticatingServerId(null);
+        invalidateAll();
       }
     },
     [assistantId, invalidateAll],
@@ -181,7 +182,14 @@ function McpPageInner() {
       command?: string;
       args?: string[];
       headers?: Record<string, string>;
+      autoAuth?: boolean;
     }) => {
+      // Pre-open a popup synchronously while we still have user activation
+      // from the button click. Browsers block window.open after async calls.
+      const authWindow = config.autoAuth
+        ? window.open("about:blank", "_blank", "noopener")
+        : null;
+
       setIsAdding(true);
       try {
         await addMcpServer(assistantId, config);
@@ -190,8 +198,49 @@ function McpPageInner() {
         setAddModalOpen(false);
       } catch {
         toast.error(`Failed to add ${config.name}`);
-      } finally {
+        authWindow?.close();
         setIsAdding(false);
+        return;
+      }
+      setIsAdding(false);
+
+      if (config.autoAuth) {
+        setAuthenticatingServerId(config.name);
+        try {
+          const result = await startMcpAuth(assistantId, config.name);
+          if (result.already_authenticated) {
+            authWindow?.close();
+            toast.success(`${config.name} is already authenticated`);
+            invalidateAll();
+            return;
+          }
+          if (authWindow) {
+            authWindow.location.href = result.auth_url;
+          } else {
+            window.open(result.auth_url, "_blank", "noopener,noreferrer");
+          }
+          const maxAttempts = 60;
+          for (let i = 0; i < maxAttempts; i++) {
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+            const status = await pollMcpAuthStatus(assistantId, config.name);
+            if (status.status === "complete") {
+              toast.success(`${config.name} authenticated successfully`);
+              invalidateAll();
+              return;
+            }
+            if (status.status === "error") {
+              toast.error(status.error ?? `Authentication failed for ${config.name}`);
+              return;
+            }
+          }
+          toast.error(`Authentication timed out for ${config.name}`);
+        } catch {
+          authWindow?.close();
+          toast.error(`Failed to start authentication for ${config.name}`);
+        } finally {
+          setAuthenticatingServerId(null);
+          invalidateAll();
+        }
       }
     },
     [assistantId, invalidateAll],
