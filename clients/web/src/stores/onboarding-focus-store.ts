@@ -64,6 +64,14 @@ interface OnboardingFocusState {
   checkinUserName: string | null;
   beginCheckin: (userName?: string) => void;
   endCheckin: () => void;
+  /**
+   * Set by the onboarding handoff so the chat side panel opens collapsed for a
+   * focused first impression; consumed (cleared) once by `ChatLayout`. A
+   * one-shot signal, not a persistent preference.
+   */
+  sidebarCollapseRequested: boolean;
+  requestSidebarCollapse: () => void;
+  consumeSidebarCollapse: () => void;
 }
 
 const useOnboardingFocusStoreBase = create<OnboardingFocusState>((set) => ({
@@ -75,6 +83,7 @@ const useOnboardingFocusStoreBase = create<OnboardingFocusState>((set) => ({
       pendingFollowupMessage: null,
       checkinPending: false,
       pendingAvatarTraits: null,
+      sidebarCollapseRequested: false,
     }),
   pendingAvatarTraits: null,
   setPendingAvatarTraits: (traits) => set({ pendingAvatarTraits: traits }),
@@ -86,6 +95,9 @@ const useOnboardingFocusStoreBase = create<OnboardingFocusState>((set) => ({
   beginCheckin: (userName) =>
     set({ checkinPending: true, checkinUserName: userName ?? null }),
   endCheckin: () => set({ checkinPending: false }),
+  sidebarCollapseRequested: false,
+  requestSidebarCollapse: () => set({ sidebarCollapseRequested: true }),
+  consumeSidebarCollapse: () => set({ sidebarCollapseRequested: false }),
 }));
 
 export const useOnboardingFocusStore = createSelectors(
