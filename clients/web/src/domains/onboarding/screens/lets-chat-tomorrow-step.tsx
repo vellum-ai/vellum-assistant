@@ -79,12 +79,12 @@ export function LetsChatTomorrowStep({
         >
           {missingCalendarScope
             ? "Access not enabled"
-            : "I’ll also check in with you"}
+            : "Let me make this easy"}
         </h1>
         <p className="text-[16px]" style={{ color: tone.fgMuted }}>
           {missingCalendarScope
             ? "Check the box next to the Google Calendar permission so I can book the check-in."
-            : "Add a quick check-in to your calendar to follow up tomorrow."}
+            : "Connect your Google Calendar so I can find time to check in and start helping."}
         </p>
 
         <div className="mt-6 flex w-[234px] flex-col items-center gap-4">
@@ -106,7 +106,7 @@ export function LetsChatTomorrowStep({
             ) : missingCalendarScope ? (
               "Try again"
             ) : (
-              "Set it up"
+              "Connect Calendar →"
             )}
           </button>
           {/* Skip sits directly under the connect button. */}
