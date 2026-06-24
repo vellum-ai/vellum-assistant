@@ -3,24 +3,25 @@
 <plist version="1.0">
 <dict>
     <!--
-      Embedded into the bare executable's __TEXT,__info_plist section by
-      build-mac-helper.sh. TCC consults the requesting binary's Info.plist
-      for usage strings when the helper itself (not just the responsible
-      host app) is attributed for microphone / speech-recognition access,
-      so the dictation-partials session can prompt and run without a full
-      .app bundle.
+      Template: build-mac-helper.sh substitutes the __HELPER_*__ placeholders
+      per VELLUM_ENVIRONMENT, then embeds the result into the bare executable's
+      __TEXT,__info_plist section. TCC consults the requesting binary's
+      Info.plist for usage strings when the helper itself (not just the
+      responsible host app) is attributed for microphone / speech-recognition
+      access, so the dictation-partials session can prompt and run without a
+      full .app bundle.
     -->
     <key>CFBundleIdentifier</key>
-    <string>ai.vellum.assistant.mac-helper</string>
+    <string>__HELPER_BUNDLE_ID__</string>
     <key>CFBundleExecutable</key>
     <string>vellum-mac-helper</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <!-- User-facing name + icon in System Settings → Privacy & Security. -->
     <key>CFBundleName</key>
-    <string>Vellum Helper</string>
+    <string>__HELPER_DISPLAY_NAME__</string>
     <key>CFBundleDisplayName</key>
-    <string>Vellum Helper</string>
+    <string>__HELPER_DISPLAY_NAME__</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundlePackageType</key>
