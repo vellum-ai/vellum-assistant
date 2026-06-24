@@ -80,14 +80,12 @@ function InlineImage({ src, alt }: { src: string; alt: string }) {
   }
 
   return (
-    <a href={src} target="_blank" rel="noopener noreferrer" className="block my-2">
-      <img
-        src={src}
-        alt={alt}
-        onError={() => setFailed(true)}
-        className="max-w-full max-h-[400px] rounded-lg border border-[var(--border-default)] object-contain"
-      />
-    </a>
+    <img
+      src={src}
+      alt={alt}
+      onError={() => setFailed(true)}
+      className="my-2 max-w-full max-h-[400px] rounded-lg border border-[var(--border-default)] object-contain"
+    />
   );
 }
 
