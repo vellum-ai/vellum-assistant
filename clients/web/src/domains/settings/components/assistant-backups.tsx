@@ -210,7 +210,8 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
     <>
       <div className="space-y-2">
         <div className="flex justify-end">{createBackupButton}</div>
-        <div className="overflow-x-auto">
+        {/* Desktop table */}
+        <div className="hidden md:block">
           <table className="w-full text-body-medium-lighter">
             <thead>
               <tr className="border-b border-[var(--border-base)] text-left text-body-small-default text-[var(--content-secondary)]">
@@ -290,6 +291,70 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
               ))}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile stacked layout */}
+        <div className="flex flex-col gap-3 md:hidden">
+          {backups.map((backup) => (
+            <div
+              key={backup.snapshot_name}
+              className="rounded-lg border border-[var(--border-base)] p-3"
+            >
+              <div className="group/snapshot mb-2 flex items-center gap-1">
+                <code
+                  className="truncate text-body-small-default text-[var(--content-default)]"
+                  title={backup.snapshot_name}
+                >
+                  {backup.snapshot_name}
+                </code>
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleCopySnapshotName(backup.snapshot_name)
+                  }
+                  className="shrink-0 text-[var(--content-secondary)] hover:text-[var(--content-default)]"
+                  title="Copy snapshot name"
+                >
+                  {copiedSnapshot === backup.snapshot_name ? (
+                    <Check className="h-3.5 w-3.5 text-green-500" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </div>
+              <div className="mb-2 flex flex-wrap items-center gap-2 text-body-medium-lighter">
+                <BackupTypeBadge type={backup.backup_type} />
+                <Tag tone={backup.ready_to_use ? "positive" : "warning"}>
+                  {backup.ready_to_use ? "Ready" : "Pending"}
+                </Tag>
+                <span className="text-body-small-default text-[var(--content-secondary)]">
+                  {formatTimestamp(backup.created_at)}
+                </span>
+              </div>
+              <Button
+                variant="ghost"
+                size="compact"
+                leftIcon={
+                  restoringSnapshot === backup.snapshot_name ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <RotateCcw />
+                  )
+                }
+                onClick={() => setPendingBackup(backup)}
+                disabled={
+                  restoringSnapshot !== null || !backup.ready_to_use
+                }
+                title={
+                  !backup.ready_to_use
+                    ? "Backup is not ready to use"
+                    : undefined
+                }
+              >
+                Restore
+              </Button>
+            </div>
+          ))}
         </div>
       </div>
       <ConfirmDialog
