@@ -37,14 +37,20 @@ mock.module("../daemon/identity-helpers.js", () => ({
   getAssistantName: () => mockAssistantName,
 }));
 
-import { createConversation } from "../memory/conversation-crud.js";
+import {
+  createConversation,
+  setConversationProcessingStartedAt,
+} from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { messages } from "../memory/schema.js";
 import { writeSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+import type { AssistantEvent } from "../runtime/assistant-event.js";
 import {
   _resetStreamStateForTesting,
+  getCurrentSeq,
   recordPersistedSeq,
+  stampAndBuffer,
 } from "../runtime/assistant-stream-state.js";
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
 import { BadRequestError } from "../runtime/routes/errors.js";
@@ -112,6 +118,28 @@ interface ListResponse {
   oldestTimestamp?: number | null;
   oldestMessageId?: string | null;
   seq?: number | null;
+  processing?: boolean;
+}
+
+/**
+ * Stamp `count` conversation-scoped events to advance the global `seq`
+ * counter, mirroring `mkEvent` in assistant-stream-state.test.ts. The
+ * conversationId is irrelevant — `getCurrentSeq()` is process-global — so
+ * any value works for nudging the high-water mark before a creation.
+ */
+function advanceGlobalSeq(count: number): void {
+  for (let i = 0; i < count; i++) {
+    stampAndBuffer({
+      id: `seq-bump-${i}`,
+      conversationId: "seq-bump-conv",
+      emittedAt: new Date().toISOString(),
+      message: {
+        type: "assistant_text_delta",
+        conversationId: "seq-bump-conv",
+        text: "x",
+      },
+    } as AssistantEvent);
+  }
 }
 
 function callList(query: Record<string, string>): ListResponse {
@@ -178,6 +206,103 @@ describe("handleListMessages page=latest", () => {
 
       // THEN the seq still rides along
       expect(body.seq).toBe(7);
+    });
+
+    test("a freshly created conversation is anchored to the current global seq", () => {
+      /**
+       * Conversations created after some stream activity must not report a
+       * null `seq` — that would force the client to cold-start with no
+       * alignment baseline. They inherit the current high-water global seq
+       * at creation time so the first snapshot can align with the stream.
+       */
+
+      // GIVEN the global stream has already advanced past seq 0
+      advanceGlobalSeq(5);
+      expect(getCurrentSeq()).toBe(5);
+
+      // WHEN a brand-new conversation is created and its snapshot fetched
+      const conv = createConversation();
+      const body = callList({ conversationId: conv.id, page: "latest" });
+
+      // THEN the snapshot is anchored to the global seq at creation time
+      expect(body.seq).toBe(5);
+    });
+
+    test("a conversation created before any stream activity stays null", () => {
+      /**
+       * With nothing stamped this process, `getCurrentSeq()` is 0 and the
+       * seed is a no-op (`recordPersistedSeq` ignores non-positive values),
+       * so the snapshot legitimately reports null and the client cold-starts.
+       */
+
+      // GIVEN no events have been stamped (stream reset in beforeEach)
+      expect(getCurrentSeq()).toBe(0);
+
+      // WHEN a conversation is created and its snapshot fetched
+      const conv = createConversation();
+      const body = callList({ conversationId: conv.id, page: "latest" });
+
+      // THEN seq remains null
+      expect(body.seq).toBeNull();
+    });
+  });
+
+  describe("processing state", () => {
+    test("reports processing=true while the conversation is mid-turn", () => {
+      /**
+       * The authoritative processing flag lets a client recover from a
+       * dropped stream: it can ask the server whether a turn is still
+       * running rather than spinning forever.
+       */
+
+      // GIVEN a conversation marked as processing
+      const conv = createConversation();
+      seedMessages(conv.id, 1);
+      setConversationProcessingStartedAt(conv.id, Date.now());
+
+      // WHEN the snapshot is fetched
+      const body = callList({ conversationId: conv.id, page: "latest" });
+
+      // THEN it reports the conversation is processing
+      expect(body.processing).toBe(true);
+    });
+
+    test("reports processing=false when the conversation is idle", () => {
+      // GIVEN an idle conversation (processing_started_at is null)
+      const conv = createConversation();
+      seedMessages(conv.id, 2);
+
+      // WHEN the snapshot is fetched
+      const body = callList({ conversationId: conv.id, page: "latest" });
+
+      // THEN it reports the conversation is not processing
+      expect(body.processing).toBe(false);
+    });
+
+    test("the no-pagination path also reports processing state", () => {
+      /** `processing` is present on every resolved-conversation shape. */
+
+      // GIVEN a processing conversation
+      const conv = createConversation();
+      seedMessages(conv.id, 1);
+      setConversationProcessingStartedAt(conv.id, Date.now());
+
+      // WHEN fetched with no pagination params
+      const body = callList({ conversationId: conv.id });
+
+      // THEN processing rides along
+      expect(body.processing).toBe(true);
+    });
+
+    test("an unresolved conversationKey reports processing=false (page=latest)", () => {
+      // WHEN a never-created key is fetched with the stable contract
+      const body = callList({
+        conversationKey: "no-such-key",
+        page: "latest",
+      });
+
+      // THEN it cannot be processing
+      expect(body.processing).toBe(false);
     });
   });
 

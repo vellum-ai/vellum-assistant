@@ -34,6 +34,10 @@ import {
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   seedEverInjectedFromSlugs,
 } from "../plugins/defaults/memory-v3-shadow/ever-injected-store.js";
+import {
+  getCurrentSeq,
+  recordPersistedSeq,
+} from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { UserError } from "../util/errors.js";
 import { safeParseRecord } from "../util/json.js";
@@ -692,6 +696,19 @@ export function createConversation(
       }
     }
   }
+
+  // Anchor the snapshot↔stream alignment token to the current global `seq`
+  // at creation time instead of leaving it null. A null `seq` forces the
+  // client to cold-start, but it also means the very first `/messages`
+  // snapshot of a fresh conversation carries no alignment baseline: a client
+  // that loads the empty conversation before the first event is persisted has
+  // nothing to compare live `seq` values against. Seeding with the current
+  // high-water seq gives every new conversation a baseline immediately —
+  // the client applies only stream events with a higher `seq`. `getCurrentSeq`
+  // returns 0 before anything has been stamped this process, and
+  // `recordPersistedSeq` ignores non-positive values, so this is a no-op in
+  // that case (the snapshot legitimately stays null until the first event).
+  recordPersistedSeq(id, getCurrentSeq());
 
   initConversationDir({ ...conversation, originChannel: null });
 
