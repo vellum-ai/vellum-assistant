@@ -76,6 +76,9 @@ mock.module("../ipc/gateway-client.js", () => ({
     params?: Record<string, unknown>,
   ) => {
     gatewayIpcCalls.push({ method, params });
+    if (method === "contacts_get_rich") {
+      return richContactForId(params?.contactId as string);
+    }
     if (method === "record_invite_redemption") {
       return { ok: true, updated: true, mirrored: true };
     }
@@ -86,8 +89,46 @@ mock.module("../ipc/gateway-client.js", () => ({
   },
 }));
 
+// Serves contacts_get_rich (the gateway ACL read backing the gate-status
+// fallback) from the seeded local contact, so gate resolution sources status
+// from the gateway path rather than the local channel column.
+function richContactForId(contactId: string | undefined) {
+  if (!contactId) return undefined;
+  const contact = getContact(contactId);
+  if (!contact) return undefined;
+  return {
+    ok: true,
+    contact: {
+      id: contact.id,
+      displayName: contact.displayName,
+      role: contact.role,
+      interactionCount: contact.interactionCount,
+      createdAt: contact.createdAt,
+      updatedAt: contact.updatedAt,
+      channels: contact.channels.map((c) => ({
+        id: c.id,
+        contactId: c.contactId,
+        type: c.type,
+        address: c.address,
+        isPrimary: c.isPrimary,
+        externalUserId: c.externalChatId,
+        status: c.status,
+        policy: c.policy,
+        verifiedAt: c.verifiedAt,
+        verifiedVia: c.verifiedVia,
+        lastSeenAt: c.lastSeenAt,
+        interactionCount: c.interactionCount,
+        lastInteraction: c.lastInteraction,
+        revokedReason: c.revokedReason,
+        blockedReason: c.blockedReason,
+      })),
+    },
+  };
+}
+
 import {
   findContactChannel,
+  getContact,
   upsertContact,
 } from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";

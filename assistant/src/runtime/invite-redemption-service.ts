@@ -13,8 +13,9 @@ import {
 } from "../calls/inbound-trust-reader.js";
 import type { ChannelId } from "../channels/types.js";
 import { findContactChannel, getContact } from "../contacts/contact-store.js";
+import { gatewayContactChannelState } from "../contacts/gateway-channel-read.js";
 import { activateMemberChannel } from "../contacts/member-write-relay.js";
-import type { ChannelStatus } from "../contacts/types.js";
+import type { ChannelStatus, ContactChannel } from "../contacts/types.js";
 import { ipcCallPersistent } from "../ipc/gateway-client.js";
 import {
   findActiveVoiceInvites,
@@ -33,19 +34,33 @@ const log = getLogger("invite-redemption-service");
 
 /**
  * Resolve the sender's existing member status for the already_member/blocked
- * gate from the gateway trust verdict. Falls back to the local channel status
- * when the verdict is absent or carries no resolvable member status (e.g. an
- * externalChatId-only match or a resolutionFailed verdict), so a locally
- * blocked contact can't bypass the gate.
+ * gate from the gateway trust verdict. Falls back to the gateway-sourced channel
+ * status when the verdict is absent or carries no resolvable member status (e.g.
+ * an externalChatId-only match or a resolutionFailed verdict), so a blocked
+ * contact can't bypass the gate.
  */
 export async function resolveMemberGateStatus(
   verdict: Awaited<ReturnType<typeof getInboundTrustVerdict>>,
-  localChannelStatus: ChannelStatus | null,
+  fallbackStatus: ChannelStatus | null,
 ): Promise<ChannelStatus | null> {
   const memberStatus = verdict
     ? verdictMemberFromVerdict(verdict)?.status
     : null;
-  return memberStatus ?? localChannelStatus;
+  return memberStatus ?? fallbackStatus;
+}
+
+/**
+ * Gateway-sourced status for an existing local channel, used as the gate-status
+ * fallback when the verdict resolves no member. The local row is only located by
+ * identity; its status is read from the gateway (ACL source of truth), never the
+ * local column.
+ */
+async function gatewayFallbackStatus(
+  channel: Pick<ContactChannel, "id" | "contactId"> | null,
+): Promise<ChannelStatus | null> {
+  if (!channel) return null;
+  const state = await gatewayContactChannelState(channel);
+  return (state?.status as ChannelStatus | undefined) ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -245,7 +260,7 @@ export async function redeemInvite(params: {
       channelType: sourceChannel as ChannelId,
       actorExternalId: canonicalUserId,
     }),
-    existingChannel?.status ?? null,
+    await gatewayFallbackStatus(existingChannel),
   );
 
   if (existingChannel && gateStatus === "active" && !targetMismatch) {
@@ -481,7 +496,7 @@ export async function redeemVoiceInviteCode(params: {
 
   const gateStatus = await resolveMemberGateStatus(
     await getPhoneCallerVerdict(canonicalCallerId),
-    existingVoiceChannel?.status ?? null,
+    await gatewayFallbackStatus(existingVoiceChannel),
   );
 
   if (existingVoiceChannel && gateStatus === "active" && !targetMismatch) {
@@ -657,7 +672,7 @@ export async function redeemInviteByCode(params: {
       channelType: sourceChannel as ChannelId,
       actorExternalId: canonicalUserId,
     }),
-    existingChannel?.status ?? null,
+    await gatewayFallbackStatus(existingChannel),
   );
 
   if (existingChannel && gateStatus === "active" && !targetMismatch) {
