@@ -549,19 +549,6 @@ export function getMcpToolDefinitions(): Tool[] {
 }
 
 /**
- * Return tool definitions for all currently registered plugin-origin tools.
- * Used by the session resolver to dynamically pick up plugin tools that were
- * registered after session creation — e.g. a plugin installed at runtime and
- * activated on a subsequent turn (see `plugins/mtime-cache.ts`). Mirrors
- * {@link getMcpToolDefinitions} so a plugin install behaves like `mcp reload`.
- */
-export function getPluginToolDefinitions(): Tool[] {
-  return Array.from(tools.values()).filter(
-    (t) => ownersByName.get(t.name)?.kind === "plugin",
-  );
-}
-
-/**
  * Return MCP tools grouped by their owning server ID. Each entry contains
  * the server ID and the tool definitions registered by that server.
  */
