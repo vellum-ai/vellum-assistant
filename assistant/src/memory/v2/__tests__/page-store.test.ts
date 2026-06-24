@@ -227,6 +227,27 @@ describe("writePage + readPage round-trip", () => {
     expect(read!.frontmatter.skill).toBe("deploy-preview");
   });
 
+  test("tolerates a non-string skill: value — page still parses, skill coerces to undefined", async () => {
+    // A legacy page whose `skill:` is a non-string (e.g. a YAML list that
+    // predates the typed field and previously passed through via `.passthrough`)
+    // must NOT fail the whole-page parse. `.catch(undefined)` coerces the bad
+    // value to `undefined` so the page survives index/retrieval rather than being
+    // silently dropped — the loss-of-page regression #34800 guards against.
+    const slug = "legacy-list-skill";
+    const raw =
+      "---\nedges: []\nref_files: []\nskill:\n  - deploy-preview\n  - rollback\n---\nbody\n";
+    writeFileSync(
+      join(workspaceDir, "memory", "concepts", `${slug}.md`),
+      raw,
+      "utf-8",
+    );
+
+    const read = await readPage(workspaceDir, slug);
+    expect(read).not.toBeNull();
+    expect(read!.frontmatter.skill).toBeUndefined();
+    expect(read!.body).toBe("body\n");
+  });
+
   test("accepts and round-trips the v3 wiki-article frontmatter fields", async () => {
     // The full shape CONSOLIDATION_PROMPT_V3 teaches and migrated corpora
     // arrive in. readPage() throws on schema failure and one invalid page in
