@@ -635,6 +635,21 @@ describe("upsertVerifiedContactChannel — invite target-contact binding", () =>
     );
     expect(gwReparent).toBeTruthy();
 
+    // The re-parent keys on the (type,address) logical key, not the assistant
+    // channel id: the gateway row can live under a different UUID (m0006
+    // reconcile), where an id-only update would re-parent nothing.
+    const where = gwReparent!.where as {
+      op: string;
+      conds: { op: string; col?: unknown; val?: unknown }[];
+    };
+    expect(where.op).toBe("and");
+    expect(where.conds).toContainEqual({
+      op: "eq",
+      col: "type",
+      val: "telegram",
+    });
+    expect(where.conds.some((c) => c.op === "eq" && c.col === "id")).toBe(false);
+
     // The verified gateway write lands under the bound (target) contact.
     expect(
       gwUpdates.some(

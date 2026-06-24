@@ -181,12 +181,13 @@ function writeVerifiedGatewayChannel(params: {
  * not thrown, so a legitimate activation still proceeds.
  */
 function reassignChannelContact(params: {
-  channelId: string;
+  type: string;
+  address: string;
   toContactId: string;
   displayName: string;
   now: number;
 }): void {
-  const { channelId, toContactId, displayName, now } = params;
+  const { type, address, toContactId, displayName, now } = params;
   try {
     const gwDb = getGatewayDb();
     gwDb
@@ -200,10 +201,18 @@ function reassignChannelContact(params: {
       })
       .onConflictDoNothing()
       .run();
+    // Match by the (type,address) logical key, not the assistant channel id:
+    // the gateway row can live under a different UUID (m0006 reconcile), and an
+    // id-only update would re-parent nothing.
     gwDb
       .update(gwContactChannels)
       .set({ contactId: toContactId, updatedAt: now })
-      .where(eq(gwContactChannels.id, channelId))
+      .where(
+        and(
+          eq(gwContactChannels.type, type),
+          sql`${gwContactChannels.address} = ${address} COLLATE NOCASE`,
+        ),
+      )
       .run();
   } catch (gwErr) {
     log.warn({ err: gwErr }, "Gateway channel reassignment dual-write failed");
@@ -366,7 +375,8 @@ export async function upsertVerifiedContactChannel(params: {
         : row.contactId;
     if (boundContactId !== row.contactId) {
       reassignChannelContact({
-        channelId: row.channelId,
+        type: sourceChannel,
+        address,
         toContactId: boundContactId,
         displayName: contactDisplayName,
         now,
