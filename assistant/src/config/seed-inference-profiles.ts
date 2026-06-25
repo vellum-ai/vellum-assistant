@@ -438,9 +438,8 @@ export function seedInferenceProfiles(
     requestedAdvisorEntry?.source === "managed" &&
     requestedAdvisorEntry.status === "disabled";
   const preferPersonalAdvisor =
-    (userConnectionName !== undefined &&
-      hatchSelectedManagedConnection === undefined) ||
-    requestedAdvisorIsDisabledManaged;
+    userConnectionName !== undefined &&
+    hatchSelectedManagedConnection === undefined;
   if (
     requestedAdvisorProfile === undefined ||
     requestedAdvisorIsDisabledManaged

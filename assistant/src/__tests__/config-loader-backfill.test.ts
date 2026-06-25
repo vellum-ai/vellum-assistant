@@ -1453,7 +1453,58 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     expect(config.llm.profiles.frontier?.status).toBe("disabled");
   });
 
-  test("off-platform boot repairs a disabled managed advisor to a personal profile", () => {
+  test("off-platform boot repairs a disabled managed advisor to a personal profile when no active managed replacement exists", () => {
+    writeConfig({
+      llm: {
+        advisorProfile: "frontier",
+        profiles: {
+          frontier: {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-opus-4-8",
+            status: "disabled",
+          },
+          balanced: {
+            source: "managed",
+            provider: "together",
+            provider_connection: "together-managed",
+            model: "open-model",
+            status: "disabled",
+          },
+          "quality-optimized": {
+            source: "managed",
+            provider: "fireworks",
+            provider_connection: "fireworks-managed",
+            model: "accounts/fireworks/models/glm-5p2",
+            status: "disabled",
+          },
+          "cost-optimized": {
+            source: "managed",
+            provider: "fireworks",
+            provider_connection: "fireworks-managed",
+            model: "accounts/fireworks/models/deepseek-v4-flash",
+            status: "disabled",
+          },
+          "custom-quality-optimized": {
+            source: "user",
+            provider: "anthropic",
+            provider_connection: "anthropic-personal",
+            model: "claude-opus-4-8",
+            label: "Quality",
+          },
+        },
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+
+    expect(config.llm.advisorProfile).toBe("custom-quality-optimized");
+  });
+
+  test("platform boot repairs a disabled managed advisor to an active managed profile", () => {
+    process.env.IS_PLATFORM = "true";
     writeConfig({
       llm: {
         advisorProfile: "frontier",
@@ -1479,7 +1530,7 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const config = loadConfig();
 
-    expect(config.llm.advisorProfile).toBe("custom-quality-optimized");
+    expect(config.llm.advisorProfile).toBe("quality-optimized");
   });
 
   test("off-platform boot clears a disabled managed advisor when no active replacement exists", () => {
