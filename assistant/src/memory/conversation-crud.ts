@@ -957,6 +957,14 @@ export function forkConversation(params: {
     sourceConversation.id,
     boundaryMessageCreatedAt,
   );
+  // The Slack chronological-context watermark is single-valued on the source
+  // row and reflects only the latest compaction, so carry it only when the
+  // fork inherits that latest compaction. Pairing the latest watermark with an
+  // older inherited summary (a fork between two compactions) would filter out
+  // Slack messages the older summary does not cover.
+  const inheritsLatestCompaction =
+    inheritedCompaction != null &&
+    inheritedCompaction.compactedAt === sourceConversation.contextCompactedAt;
   const forkParentMessageId = messagesToCopy.at(-1)?.id ?? null;
   const forkTitle =
     params.title ?? `${sourceConversation.title ?? "Untitled"} (Fork)`;
@@ -992,14 +1000,12 @@ export function forkConversation(params: {
         contextCompactedMessageCount:
           inheritedCompaction?.compactedMessageCount ?? 0,
         contextCompactedAt: inheritedCompaction?.compactedAt ?? null,
-        slackContextCompactionWatermarkTs:
-          inheritedCompaction != null
-            ? sourceConversation.slackContextCompactionWatermarkTs
-            : null,
-        slackContextCompactionWatermarkAt:
-          inheritedCompaction != null
-            ? sourceConversation.slackContextCompactionWatermarkAt
-            : null,
+        slackContextCompactionWatermarkTs: inheritsLatestCompaction
+          ? sourceConversation.slackContextCompactionWatermarkTs
+          : null,
+        slackContextCompactionWatermarkAt: inheritsLatestCompaction
+          ? sourceConversation.slackContextCompactionWatermarkAt
+          : null,
         historyStrippedAt: inheritsHistoryStrippedAt
           ? sourceHistoryStrippedAt
           : null,
@@ -1377,6 +1383,11 @@ export async function forkConversationForRetrospective(params: {
     sourceConversation.id,
     boundaryMessageCreatedAt,
   );
+  // Carry the Slack watermark only when inheriting the latest compaction
+  // (see `forkConversation`).
+  const inheritsLatestCompaction =
+    inheritedCompaction != null &&
+    inheritedCompaction.compactedAt === sourceConversation.contextCompactedAt;
   const forkParentMessageId = messagesToCopy.at(-1)?.id ?? null;
   const forkTitle =
     params.title ?? `${sourceConversation.title ?? "Untitled"} (Fork)`;
@@ -1409,14 +1420,12 @@ export async function forkConversationForRetrospective(params: {
         contextCompactedMessageCount:
           inheritedCompaction?.compactedMessageCount ?? 0,
         contextCompactedAt: inheritedCompaction?.compactedAt ?? null,
-        slackContextCompactionWatermarkTs:
-          inheritedCompaction != null
-            ? sourceConversation.slackContextCompactionWatermarkTs
-            : null,
-        slackContextCompactionWatermarkAt:
-          inheritedCompaction != null
-            ? sourceConversation.slackContextCompactionWatermarkAt
-            : null,
+        slackContextCompactionWatermarkTs: inheritsLatestCompaction
+          ? sourceConversation.slackContextCompactionWatermarkTs
+          : null,
+        slackContextCompactionWatermarkAt: inheritsLatestCompaction
+          ? sourceConversation.slackContextCompactionWatermarkAt
+          : null,
         historyStrippedAt: inheritsHistoryStrippedAt
           ? sourceHistoryStrippedAt
           : null,

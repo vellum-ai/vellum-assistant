@@ -84,7 +84,7 @@ export const MemoryWorkerConfigSchema = z
       .boolean({ error: "memory.worker.enabled must be a boolean" })
       .default(false)
       .describe(
-        "Whether the memory jobs worker runs as a separate OS process spawned at assistant startup (the `assistant memory worker` implementation) instead of on the assistant's main event loop. Only affects startup; shutdown stops whichever worker is actually running.",
+        "Whether the memory jobs worker runs as a separate OS process instead of the assistant's synchronous in-process runner. The assistant's worker supervisor re-reads this flag on every poll: while it is set, the in-process runner stands down (the out-of-process worker, spawned at startup when set, owns the queue); while it is unset, the in-process runner drains the queue. `assistant memory worker start`/`stop` flip the flag (and spawn/stop the worker process) to switch modes at runtime without a restart.",
       ),
   })
   .describe("Memory jobs worker process configuration");
