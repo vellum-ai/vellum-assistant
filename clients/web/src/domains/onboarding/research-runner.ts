@@ -44,7 +44,6 @@ import {
   type ResearchSubject,
 } from "@/domains/onboarding/research-prompt";
 import { resolveDeterministicPlugins } from "@/domains/onboarding/onboarding-plugin-affinity";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import {
   parseResearchResultStreaming,
   type ResearchFact,
@@ -134,16 +133,11 @@ export function selectRecommendableCapabilities(
   return { capabilities, validNames };
 }
 
-const EMPTY_CAPABILITIES: RecommendableCapabilities = {
-  capabilities: [],
-  validNames: new Set<string>(),
-};
-
 /**
- * Pull the live marketplace catalog and compact it into the capability list the
- * research prompt advertises. Best-effort: any failure yields an empty list, in
- * which case the prompt simply omits the capabilities block (unchanged from the
- * pre-plugin behavior).
+ * Pull the live marketplace catalog and compact it into the first-party
+ * capability list the research prompt advertises. Best-effort: any failure
+ * yields an empty list, in which case the prompt simply omits the capabilities
+ * block.
  */
 async function fetchAvailableCapabilities(
   assistantId: string,
@@ -194,7 +188,8 @@ export interface ResearchRunnerState {
    * floor (always-install baseline + role affinity) unioned with the model's
    * top-level `plugins` picks, each narrowed to names present in the fetched
    * catalog. Persona-level (not tied to a suggestion); surfaced so the UI can
-   * confirm what was set up. Empty when plugins are disabled or nothing fit.
+   * confirm what was set up. Empty when the first-party catalog is unavailable
+   * or nothing fit.
    */
   installedPlugins: string[];
 }
@@ -219,8 +214,8 @@ export interface UseResearchRunner extends ResearchRunnerState {
    * Block a suggestion click only as long as the persona plugins need: waits for
    * the `plugins` decision to be final (so a click that beat the parse doesn't
    * skip selection), then for those installs to finish — never for the rest of
-   * the research turn. Resolves instantly when nothing is installable (plugins
-   * disabled, none picked, or already installed), so ordinary clicks don't hang.
+   * the research turn. Resolves instantly when nothing is installable (empty
+   * catalog, none picked, or already installed), so ordinary clicks don't hang.
    */
   awaitPluginInstalls: () => Promise<void>;
   /**
@@ -246,30 +241,21 @@ type GetMessage = MessagesGetResponses[200]["messages"][number];
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Bounded wait (ms) for the assistant flag store to hydrate before gating on it. */
-const FLAG_HYDRATE_TIMEOUT_MS = 8000;
-
-/**
- * Whether the experimental external-plugin surface is enabled for this
- * assistant. Plugin install/load lives behind the `external-plugins` rollout
- * gate (assistant flag store key `externalPlugins`), so onboarding must not
- * surface or materialize plugins when it's off — otherwise we'd bypass the gate
- * and expose/install marketplace plugins to an unentitled workspace. Waits
- * (bounded) for the flag store to hydrate so a cold load doesn't read the
- * default-off value as a hard "no"; an un-hydrated timeout is treated as off.
- */
-async function awaitExternalPluginsEnabled(
-  isStale: () => boolean,
-): Promise<boolean> {
-  const deadline = Date.now() + FLAG_HYDRATE_TIMEOUT_MS;
-  while (
-    !useAssistantFeatureFlagStore.getState().hasHydrated &&
-    Date.now() < deadline
-  ) {
-    await sleep(250);
-    if (isStale()) return false;
-  }
-  return useAssistantFeatureFlagStore.getState().externalPlugins === true;
+export function resolveOnboardingPluginInstalls({
+  role,
+  validNames,
+  modelPlugins,
+}: {
+  role: string;
+  validNames: Set<string>;
+  modelPlugins: readonly string[];
+}): string[] {
+  return [
+    ...new Set([
+      ...resolveDeterministicPlugins(role, validNames),
+      ...modelPlugins.filter((name) => validNames.has(name)),
+    ]),
+  ];
 }
 
 /** Latest assistant reply text from a messages list (text blocks, then legacy flat content). */
@@ -348,20 +334,16 @@ export function useResearchRunner(): UseResearchRunner {
           resolvedAssistantId = assistantId;
           if (isStale()) return;
 
-          // Advertise the live marketplace catalog to the research turn so it can
-          // pick the capabilities that best fit the person (returned as a
-          // top-level `plugins` list) for us to install. Only when the external-
-          // plugin surface is enabled for this assistant; otherwise run plain
-          // research with no plugin injection or install. Best-effort: an empty
-          // list just omits the capabilities block.
-          const pluginsEnabled = await awaitExternalPluginsEnabled(isStale);
+          // Advertise the Vellum-owned marketplace capabilities to the research
+          // turn so it can pick the ones that best fit the person (returned as a
+          // top-level `plugins` list) for us to install. The catalog filter keeps
+          // onboarding scoped to first-party plugins; third-party plugin
+          // browsing/install surfaces remain independently feature-gated.
+          const { capabilities, validNames } =
+            await fetchAvailableCapabilities(assistantId);
           if (isStale()) return;
-          const { capabilities, validNames } = pluginsEnabled
-            ? await fetchAvailableCapabilities(assistantId)
-            : EMPTY_CAPABILITIES;
-          if (isStale()) return;
-          // Nothing installable (plugins disabled or empty catalog) — release the
-          // click gate now so suggestion clicks never wait on the research turn.
+          // Nothing installable (empty/unavailable catalog) — release the click
+          // gate so suggestion clicks never wait on the research turn.
           if (validNames.size === 0) resolvePluginsReady();
 
           // Tracks every install fired this run (deterministic floor + the model's
@@ -479,9 +461,11 @@ export function useResearchRunner(): UseResearchRunner {
                 suggestions,
                 // Surface the full set actually installing: the deterministic
                 // floor plus the model's picks, deduped, baseline first.
-                installedPlugins: [
-                  ...new Set([...deterministicPlugins, ...validPlugins]),
-                ],
+                installedPlugins: resolveOnboardingPluginInstalls({
+                  role: subject.occupation,
+                  validNames,
+                  modelPlugins: validPlugins,
+                }),
               });
               stableReads = text === lastText ? stableReads + 1 : 0;
               lastText = text;
