@@ -9,19 +9,8 @@ import {
 } from "node:fs";
 import { basename, join } from "node:path";
 
-import { eq } from "drizzle-orm";
-
-import {
-  findContactByAddress,
-  generateUserFileSlug,
-} from "../../contacts/contact-store.js";
-import {
-  anyGuardian,
-  getGuardianDelivery,
-  guardianForChannel,
-} from "../../contacts/guardian-delivery-reader.js";
-import { getDb } from "../../memory/db-connection.js";
-import { contacts } from "../../memory/schema/contacts.js";
+import { generateUserFileSlug } from "../../contacts/contact-store.js";
+import { getSqlite } from "../../memory/db-connection.js";
 import { getLogger } from "../../util/logger.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -132,8 +121,7 @@ function isValidSlug(slug: string): boolean {
  * any customized content into `users/<slug>.md`.
  *
  * Handles four relevant states:
- *   1. Fresh install, no guardian → no-op (nothing to migrate yet;
- *      `USER.md` is no longer seeded post PR 11).
+ *   1. Fresh install, no guardian → no-op (nothing to migrate yet).
  *   2. Pre-017 customized `USER.md`, guardian has no `userFile` →
  *      backfill the slug, copy `USER.md` → `users/<slug>.md`, delete `USER.md`.
  *   3. Post-017 state where `users/<slug>.md` already has content →
@@ -141,74 +129,35 @@ function isValidSlug(slug: string): boolean {
  *   4. Missing `users/<slug>.md` after guardian is resolved → seed a bare
  *      `GUARDIAN_PERSONA_TEMPLATE` scaffold so downstream readers have a file.
  */
+interface GuardianRow {
+  id: string;
+  display_name: string;
+  user_file: string | null;
+}
+
 export const dropUserMdMigration: WorkspaceMigration = {
   id: "031-drop-user-md",
   description:
     "Delete legacy workspace-root USER.md after migrating content to users/<slug>.md",
-  // A null gateway read throws (below) so the checkpoint records `failed`; this
-  // flag lets the runner retry the cleanup on the next startup.
-  retryFailedCheckpoint: true,
 
-  async run(workspaceDir: string): Promise<void> {
+  run(workspaceDir: string): void {
     const userMdPath = join(workspaceDir, "USER.md");
 
-    // Resolve the guardian contact. Prefer the vellum-channel binding
-    // (the canonical local/native guardian); fall back to whichever
-    // guardian has the most recently verified active channel. Guardian
-    // identity comes from the gateway delivery; local INFO (id/displayName/
-    // userFile) is joined from the local contact by the guardian's address.
-    // `null` means the gateway read FAILED (timeout / unreachable / malformed).
-    // Treat that as DATA-PRESERVING: leave USER.md in place and throw so the
-    // checkpoint records `failed`. A clean return would record `completed` and
-    // skip this migration forever, permanently stranding the USER.md cleanup +
-    // guardian-persona seed on a transient gateway miss; `retryFailedCheckpoint`
-    // re-runs it on the next startup. Deleting on a failed read could destroy
-    // the only copy of a customized root USER.md. `[]` means the gateway
-    // DEFINITIVELY reported no guardian, which proceeds normally. Read outside
-    // the try below so the throw isn't swallowed by the DB-error guard.
-    const guardians = await getGuardianDelivery();
-    if (guardians === null) {
-      log.warn(
-        {},
-        "Gateway guardian read failed; deferring USER.md cleanup for retry",
-      );
-      throw new Error(
-        "Gateway guardian read failed; deferring USER.md cleanup for retry",
-      );
-    }
-
-    let guardian: { id: string; displayName: string; userFile: string | null };
+    // Resolve the guardian contact from the local DB. Prefer the
+    // vellum-channel binding (the canonical native guardian); fall back to
+    // whichever guardian has the most recently verified active channel.
+    let guardianRow: GuardianRow | null;
     try {
-      const delivery =
-        guardianForChannel(guardians, "vellum") ?? anyGuardian(guardians);
-      const localContact = delivery
-        ? findContactByAddress(delivery.channelType, delivery.address)
-        : null;
-      if (!localContact) {
-        // Fresh install or pre-onboarding. If a stale USER.md somehow
-        // remains on disk (e.g. leftover from an older build), best-
-        // effort remove it so future first runs are clean.
-        if (existsSync(userMdPath)) {
-          try {
-            unlinkSync(userMdPath);
-            log.info(
-              { path: userMdPath },
-              "Deleted stale pre-onboarding USER.md with no guardian",
-            );
-          } catch (err) {
-            log.warn(
-              { err, path: userMdPath },
-              "Failed to delete pre-onboarding USER.md; leaving in place",
-            );
-          }
-        }
-        return;
-      }
-      guardian = {
-        id: localContact.id,
-        displayName: localContact.displayName,
-        userFile: localContact.userFile ?? null,
-      };
+      guardianRow =
+        getSqlite()
+          .query<GuardianRow, []>(
+            `SELECT c.id AS id, c.display_name AS display_name, c.user_file AS user_file
+               FROM contacts c JOIN contact_channels cc ON cc.contact_id = c.id
+              WHERE c.role = 'guardian' AND cc.status = 'active'
+              ORDER BY (cc.type = 'vellum') DESC, cc.verified_at DESC
+              LIMIT 1`,
+          )
+          .get() ?? null;
     } catch (err) {
       // DB not ready or query failed — leave USER.md alone. The next
       // startup after DB init will try again.
@@ -219,15 +168,41 @@ export const dropUserMdMigration: WorkspaceMigration = {
       return;
     }
 
+    if (!guardianRow) {
+      // Fresh install or pre-onboarding. If a stale USER.md somehow remains
+      // on disk (e.g. leftover from an older build), best-effort remove it so
+      // future first runs are clean.
+      if (existsSync(userMdPath)) {
+        try {
+          unlinkSync(userMdPath);
+          log.info(
+            { path: userMdPath },
+            "Deleted stale pre-onboarding USER.md with no guardian",
+          );
+        } catch (err) {
+          log.warn(
+            { err, path: userMdPath },
+            "Failed to delete pre-onboarding USER.md; leaving in place",
+          );
+        }
+      }
+      return;
+    }
+
+    const guardian = {
+      id: guardianRow.id,
+      displayName: guardianRow.display_name,
+      userFile: guardianRow.user_file ?? null,
+    };
+
     // Backfill a userFile slug on the guardian contact if one isn't set.
     if (!guardian.userFile) {
       try {
         const slug = generateUserFileSlug(guardian.displayName);
-        const db = getDb();
-        db.update(contacts)
-          .set({ userFile: slug })
-          .where(eq(contacts.id, guardian.id))
-          .run();
+        getSqlite().run("UPDATE contacts SET user_file = ? WHERE id = ?", [
+          slug,
+          guardian.id,
+        ]);
         guardian.userFile = slug;
         log.info(
           { contactId: guardian.id, slug },
