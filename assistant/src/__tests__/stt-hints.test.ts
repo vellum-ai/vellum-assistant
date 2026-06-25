@@ -322,9 +322,7 @@ function makeContact(displayName: string): ContactWithChannels {
     interactionCount: 0,
     createdAt: now,
     updatedAt: now,
-    role: "contact",
     contactType: "human",
-    principalId: null,
     userFile: null,
     channels: [],
   };

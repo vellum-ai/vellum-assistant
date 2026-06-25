@@ -17,6 +17,7 @@ import {
 
 import type { ChannelId } from "../channels/types.js";
 import { ipcCall } from "../ipc/gateway-client.js";
+import { setMemberVerdict } from "../runtime/member-verdict-cache.js";
 
 // Short IPC timeout so the read resolves promptly rather than stalling call
 // setup on a gateway that accepts the socket but hangs.
@@ -36,7 +37,12 @@ export async function getInboundTrustVerdict(input: {
     if (!result) return null;
 
     const parsed = TrustVerdictSchema.safeParse(result.verdict);
-    return parsed.success ? parsed.data : null;
+    if (!parsed.success) return null;
+
+    // Single choke point: warm the member-verdict cache so the sync trust
+    // fallback resolves the member without a local ACL read.
+    setMemberVerdict(input.channelType, input.actorExternalId, parsed.data);
+    return parsed.data;
   } catch {
     return null;
   }

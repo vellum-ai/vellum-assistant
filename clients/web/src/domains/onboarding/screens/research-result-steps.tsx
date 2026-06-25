@@ -23,13 +23,24 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
-import { useOnboardingTone, type OnboardingTone } from "@/domains/onboarding/onboarding-tone";
+import {
+  toneForBg,
+  useOnboardingTone,
+  type OnboardingTone,
+} from "@/domains/onboarding/onboarding-tone";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import {
   pluginDisplayName,
   type ResearchFact,
   type ResearchSuggestion,
 } from "@/utils/research-facts";
+
+// Once the calendar step blends the background to black, every step from there
+// on sits on a constant dark surface — so their text/UI must be a constant
+// light tone, NOT one derived from the chosen avatar color (a light avatar like
+// yellow would otherwise render dark text, invisible on black). The avatar color
+// is still used where it's intentional (e.g. the plugin pills).
+const DARK_TONE = toneForBg("#17191C");
 
 function useViewportSize() {
   const [size, setSize] = useState(() => ({
@@ -81,7 +92,9 @@ export function MiniAssistant({
 // Meeting Created
 // ---------------------------------------------------------------------------
 
-const MINI = 48;
+// Matches the carousel/result steps' avatar size so the avatar doesn't jump
+// between the meeting step and the looking-you-up step that follows it.
+const MINI = 64;
 
 // The confirmation animation runs ~1.3s to reveal the title; hold well past it
 // so the booked time stays readable for ~3s before advancing.
@@ -132,39 +145,39 @@ export function MeetingCreatedStep({
     return () => clearTimeout(t);
   }, [onDone, awaitingTime, scheduledTime]);
 
-  // Center the avatar+title group as a unit. The title width varies a lot — the
-  // booked-time variant is far wider than the generic copy — so a fixed left
-  // offset shoves it off-center; measure the rendered group and center it.
-  // Re-measures when the title swaps (e.g. the booked time lands late).
-  const groupRef = useRef<HTMLDivElement>(null);
-  const [groupWidth, setGroupWidth] = useState<number | null>(null);
+  // Measure the avatar slot's center so the grow-in animation resolves to the
+  // exact resting position the next step's avatar uses — same column, same size
+  // — so there's no horizontal (or size) jump between the two steps. Re-measures
+  // on resize and when the title swaps (e.g. the booked time lands late).
+  const slotRef = useRef<HTMLDivElement>(null);
+  const [slot, setSlot] = useState<{ cx: number; cy: number } | null>(null);
   useLayoutEffect(() => {
-    if (groupRef.current) setGroupWidth(groupRef.current.offsetWidth);
-  }, [title, w, h]);
-
-  const groupLeft = groupWidth != null ? (w - groupWidth) / 2 : w / 2 - 170;
-  const slotCx = groupLeft + MINI / 2;
-  const slotCy = h * 0.26 + MINI / 2;
+    const measure = () => {
+      const r = slotRef.current?.getBoundingClientRect();
+      if (r) setSlot({ cx: r.left + r.width / 2, cy: r.top + r.height / 2 });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [title]);
 
   // The single giant avatar (eyes visible against the colored bg even while the
   // body blends; the body appears as the bg darkens) starts low, dips a touch,
   // then rises + shrinks into the slot with a small settle bounce.
   const bigScale = (1.3 * Math.max(w, h)) / MINI;
-  const startX = w / 2 - slotCx;
-  const startY = h * 0.88 - slotCy;
+  const startX = slot ? w / 2 - slot.cx : 0;
+  const startY = slot ? h * 0.88 - slot.cy : 0;
   const dip = h * 0.05;
 
   return (
     <div className="absolute inset-0 z-10 overflow-hidden text-white">
       <OnboardingTopBar onBack={onBack} onNext={onForward} tone="light" />
 
-      <div
-        ref={groupRef}
-        className="absolute flex items-center gap-4"
-        style={{ left: groupLeft, top: h * 0.26 }}
-      >
-        <div className="relative" style={{ width: MINI, height: MINI }}>
-          {components && chosen && groupWidth != null && (
+      {/* Same column layout as the looking-you-up / result steps so the avatar
+          lands exactly where the next step renders it. */}
+      <div className="absolute left-1/2 top-[14%] sm:top-[26%] flex w-full max-w-xl -translate-x-1/2 items-start gap-3 px-6">
+        <div ref={slotRef} className="relative shrink-0" style={{ width: MINI, height: MINI }}>
+          {components && chosen && slot && (
             <motion.div
               className="absolute inset-0"
               style={{ transformOrigin: "center" }}
@@ -189,7 +202,7 @@ export function MeetingCreatedStep({
           )}
         </div>
         <motion.span
-          className="max-w-[60vw] text-[2.6rem] leading-none"
+          className="text-[2.6rem] leading-none"
           style={{ fontFamily: "var(--font-serif)" }}
           initial={reduce ? false : { opacity: 0, x: -8 }}
           animate={{ opacity: 1, x: 0 }}
@@ -213,11 +226,15 @@ const LOOKING_MESSAGES = [
   "Almost there…",
 ];
 
+/** How long each rotating message lingers before advancing to the next. */
+const LOOKING_MESSAGE_INTERVAL_MS = 2800;
+
 export function LookingYouUpStep({
   onDone,
   onBack,
   onAdvance,
   onForward,
+  ready,
 }: {
   onDone: () => void;
   onBack: () => void;
@@ -225,19 +242,31 @@ export function LookingYouUpStep({
   onAdvance?: (index: number) => void;
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
+  /**
+   * The research turn has settled (results are ready, or there were none). Until
+   * then the carousel keeps rotating — looping the messages — so we never land
+   * on an empty "this is what I found" page.
+   */
+  ready: boolean;
 }) {
-  const tone = useOnboardingTone();
+  const tone = DARK_TONE;
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
     onAdvance?.(index);
-    if (index >= LOOKING_MESSAGES.length - 1) {
-      const done = setTimeout(onDone, 1500);
+    const isLast = index >= LOOKING_MESSAGES.length - 1;
+    // Finish on the last message once research is ready; otherwise keep cycling
+    // (looping back to the start) until it lands.
+    if (ready && isLast) {
+      const done = setTimeout(onDone, LOOKING_MESSAGE_INTERVAL_MS);
       return () => clearTimeout(done);
     }
-    const next = setTimeout(() => setIndex((i) => i + 1), 1500);
+    const next = setTimeout(
+      () => setIndex((i) => (i + 1) % LOOKING_MESSAGES.length),
+      LOOKING_MESSAGE_INTERVAL_MS,
+    );
     return () => clearTimeout(next);
-  }, [index, onDone, onAdvance]);
+  }, [index, ready, onDone, onAdvance]);
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
@@ -284,13 +313,14 @@ export function ResearchResultsStep({
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
 }) {
-  const tone = useOnboardingTone();
+  const tone = DARK_TONE;
   const reduce = useReducedMotion();
   // Locally track removed claims by their text so a user can prune what's wrong
   // without mutating the streamed list (which may still be growing).
   const [removed, setRemoved] = useState<Set<string>>(() => new Set());
   const visible = claims.filter((c) => !removed.has(c.claim));
   const hasClaims = visible.length > 0;
+  const canContinue = !loading;
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
@@ -305,7 +335,9 @@ export function ResearchResultsStep({
         </div>
         <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
           {hasClaims
-            ? "I searched the web. Feel free to remove anything that isn’t true"
+            ? loading
+              ? "Still checking the rest. You can review these as they come in."
+              : "I searched the web. Feel free to remove anything that isn’t true"
             : loading
               ? "Still putting this together…"
               : "I didn’t turn up much — we can fill it in as we chat."}
@@ -347,14 +379,15 @@ export function ResearchResultsStep({
         <button
           type="button"
           onClick={onContinue}
-          className="mt-8 flex h-11 w-[200px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition-transform duration-150 active:scale-[0.97]"
+          disabled={!canContinue}
+          className="mt-8 flex h-11 w-[200px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition duration-150 enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
           style={{
             backgroundColor: tone.isLight ? "#1A1A1A" : "#FFFFFF",
             color: tone.isLight ? "#FFFFFF" : "#1A1A1A",
           }}
         >
-          Continue
-          <ArrowRight className="h-4 w-4" />
+          {canContinue ? "Continue" : "Still searching…"}
+          {canContinue && <ArrowRight className="h-4 w-4" />}
         </button>
       </div>
     </div>
@@ -434,12 +467,16 @@ type Anchor = { x: number; y: number };
 function PluginSetupNote({
   pluginLabels,
   tone,
+  pillTone,
   reduce,
   slotRef,
   revealed,
 }: {
   pluginLabels: string[];
+  /** Surface tone for the line's text (constant light on the dark surface). */
   tone: OnboardingTone;
+  /** Avatar tone for the pills (their fill + contrast text). */
+  pillTone: OnboardingTone;
   reduce: boolean | null;
   slotRef: React.RefObject<HTMLDivElement | null>;
   /** True once the avatar has landed — the text only appears then. */
@@ -460,7 +497,7 @@ function PluginSetupNote({
         animate={{ opacity: revealed ? 1 : 0, x: revealed ? 0 : -6 }}
         transition={reduce ? { duration: 0 } : { duration: 0.35 }}
       >
-        Already set up the {joinPills(pluginLabels, tone)} plugin{plural ? "s" : ""}{" "}
+        Already set up the {joinPills(pluginLabels, pillTone)} plugin{plural ? "s" : ""}{" "}
         to help with your work
       </motion.p>
     </div>
@@ -549,7 +586,9 @@ export function SuggestionsStep({
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
 }) {
-  const tone = useOnboardingTone();
+  // Constant dark surface for the UI; the avatar tone is only for the pills.
+  const tone = DARK_TONE;
+  const avatarTone = useOnboardingTone();
   const reduce = useReducedMotion();
   // Show real suggestions as they arrive; only fall back once the turn settles
   // with nothing, so we never flash generic prompts over an in-flight result.
@@ -682,6 +721,7 @@ export function SuggestionsStep({
           <PluginSetupNote
             pluginLabels={pluginLabels}
             tone={tone}
+            pillTone={avatarTone}
             reduce={reduce}
             slotRef={noteSlotRef}
             revealed={landed}

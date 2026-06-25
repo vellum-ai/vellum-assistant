@@ -47,6 +47,7 @@ const fakeLogger = {
 mock.module("../../../../util/logger.js", () => ({
   getLogger: () => fakeLogger,
   getCliLogger: () => fakeLogger,
+  getCurrentLogFilePath: () => `${tmpDir}/assistant-test-mock.log`,
 }));
 
 // ---------------------------------------------------------------------------

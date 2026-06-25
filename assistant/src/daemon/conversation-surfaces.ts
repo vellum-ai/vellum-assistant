@@ -3,7 +3,10 @@ import { v4 as uuid } from "uuid";
 import { z } from "zod";
 
 import { SurfaceActionSchema } from "../api/events/ui-surface-show.js";
-import { CardSurfaceDataSchema } from "../api/surfaces.js";
+import {
+  CardSurfaceDataSchema,
+  FileUploadSurfaceDataSchema,
+} from "../api/surfaces.js";
 import { isActivationSession } from "../memory/activation-session-store.js";
 import {
   addAppConversationId,
@@ -56,6 +59,7 @@ import type {
   ConfirmationSurfaceData,
   CopyBlockSurfaceData,
   DynamicPageSurfaceData,
+  FileUploadSurfaceData,
   FormSurfaceData,
   ListSurfaceData,
   OAuthConnectSurfaceData,
@@ -854,6 +858,24 @@ function normalizeOAuthConnectShowData(
       ? { logoUrl: rawData.logoUrl }
       : {}),
   };
+}
+
+function normalizeFileUploadShowData(
+  rawData: Record<string, unknown>,
+): FileUploadSurfaceData {
+  // Parse against the canonical schema so the surface carries the shape the
+  // renderer expects. The schema is tolerant (every field optional and coerced)
+  // and recovers the common malformed `acceptedTypes` shapes — a comma-joined or
+  // bare string — into the `string[]` the renderer requires.
+  const parsed = FileUploadSurfaceDataSchema.safeParse(rawData);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  log.warn(
+    { issues: parsed.error.issues },
+    "ui_show file_upload data failed FileUploadSurfaceDataSchema; rendering an empty file_upload surface",
+  );
+  return {};
 }
 
 function buildChoiceActions(data: ChoiceSurfaceData): Array<{
@@ -2922,7 +2944,9 @@ export async function surfaceProxyResolver(
               ? normalizeOAuthConnectShowData(rawData)
               : surfaceType === "dynamic_page"
                 ? normalizeDynamicPageShowData(input, rawData)
-                : (rawData as SurfaceData);
+                : surfaceType === "file_upload"
+                  ? normalizeFileUploadShowData(rawData)
+                  : (rawData as SurfaceData);
     // Parse actions through the schema instead of typecasting raw model output.
     // The model may place actions inside `data` instead of the top-level
     // `actions` param — recover them so they aren't silently dropped.

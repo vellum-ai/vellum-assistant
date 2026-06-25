@@ -19,6 +19,8 @@
 
 import { type Dispatch, type MutableRefObject, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
+import { useActiveSubagentIds } from "@/domains/chat/hooks/use-active-subagent-ids";
+import { useActiveWorkflowRunIds } from "@/domains/chat/hooks/use-active-workflow-run-ids";
 import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
 import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
@@ -35,6 +37,8 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
 import { useComposerStore } from "@/domains/chat/composer-store";
+import { ActiveSubagentsOverlay } from "@/domains/chat/components/active-subagents-overlay/active-subagents-overlay";
+import { ActiveWorkflowsOverlay } from "@/domains/chat/components/active-workflows-overlay/active-workflows-overlay";
 import { ChatBody } from "@/domains/chat/components/chat-body";
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
 import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-modal";
@@ -206,6 +210,7 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const messages = useTranscriptMessages(assistantId, activeConversationId);
   const error = useChatSessionStore.use.error();
+  const notice = useChatSessionStore.use.notice();
   const isLoadingHistory = useChatSessionStore.use.isLoadingHistory();
   const contextWindowUsage = useChatSessionStore.use.contextWindowUsage();
   const compactionCircuitOpenUntil = useChatSessionStore.use.compactionCircuitOpenUntil();
@@ -258,6 +263,9 @@ export function ChatMainPanel({
     haptic.light();
     if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
   }, [assistantId]);
+
+  const activeSubagentIds = useActiveSubagentIds();
+  const activeWorkflowRunIds = useActiveWorkflowRunIds();
 
   const onSubagentClick = useCallback((id: string) => {
     useViewerStore.getState().openSubagentDetail(id);
@@ -471,6 +479,7 @@ export function ChatMainPanel({
   const genericChatError = shouldShowGenericChatErrorNotice(error) && error
     ? {
         message: error.message,
+        tone: "error" as const,
         actions: showDoctorAction ? (
           <Button asChild variant="outlined" size="compact">
             <Link to={`${routes.settings.debug}?tab=doctor`}>
@@ -480,12 +489,25 @@ export function ChatMainPanel({
         ) : undefined,
       }
     : null;
+  const hasGenericChatError = genericChatError !== null;
+  const genericChatNotice =
+    shouldShowGenericChatErrorNotice(notice) && notice
+      ? {
+          message: notice.message,
+          tone: "warning" as const,
+        }
+      : null;
+  const genericChatBanner = genericChatError ?? genericChatNotice;
 
   const handleDismissChatError = useCallback(() => {
     // Clears the inline `genericChatError` Notice. The modal variant has
     // its own close handler because it also restores the draft input.
-    useChatSessionStore.getState().setError(null);
-  }, []);
+    if (hasGenericChatError) {
+      useChatSessionStore.getState().setError(null);
+    } else {
+      useChatSessionStore.getState().setNotice(null);
+    }
+  }, [hasGenericChatError]);
 
   const sendErrorModalNode =
     error?.displayAs === "modal" ? (
@@ -680,7 +702,10 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Billing composer banner
   // -------------------------------------------------------------------------
-  const billingBannerDecision = getChatBillingBannerDecision(error);
+  const errorBillingBannerDecision = getChatBillingBannerDecision(error);
+  const noticeBillingBannerDecision = getChatBillingBannerDecision(notice);
+  const billingBannerDecision =
+    errorBillingBannerDecision ?? noticeBillingBannerDecision;
 
   // -------------------------------------------------------------------------
   // JSX construction
@@ -810,6 +835,24 @@ export function ChatMainPanel({
     transcriptProps: chatTranscriptProps,
   };
 
+  const activeSubagentsSlot =
+    activeSubagentIds.length > 0 ? (
+      <ActiveSubagentsOverlay
+        subagentIds={activeSubagentIds}
+        onSubagentClick={onSubagentClick}
+        onStopSubagent={onStopSubagent}
+      />
+    ) : undefined;
+
+  const activeWorkflowsSlot =
+    activeWorkflowRunIds.length > 0 ? (
+      <ActiveWorkflowsOverlay
+        workflowRunIds={activeWorkflowRunIds}
+        onWorkflowClick={onWorkflowClick}
+        onStopWorkflow={onStopWorkflow}
+      />
+    ) : undefined;
+
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
@@ -837,7 +880,7 @@ export function ChatMainPanel({
         refreshFeedback={refreshFeedback}
         onDismissRefreshFeedback={handleDismissRefreshFeedback}
         onRetryRefresh={handleRetryRefreshFromPill}
-        genericChatError={genericChatError}
+        genericChatError={genericChatBanner}
         onDismissChatError={handleDismissChatError}
         isChannelReadonly={isChannelReadonly}
         canStopGenerating={canStopGenerating}
@@ -845,6 +888,8 @@ export function ChatMainPanel({
         queuedDrawerSlot={isSidePanel ? undefined : mainQueuedDrawerSlot}
         readonlyBannerSlot={channelReadonlyBannerSlot}
         startersSlot={startersSlot}
+        activeSubagentsSlot={activeSubagentsSlot}
+        activeWorkflowsSlot={activeWorkflowsSlot}
       />
       <MicPermissionPrimer
         open={showPrimer}

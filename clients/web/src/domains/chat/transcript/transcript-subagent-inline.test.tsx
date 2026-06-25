@@ -1,16 +1,19 @@
 /**
- * PR-8 wiring: inline subagent cards render inside the message body next to
- * the spawn tool call, and the legacy bottom-of-message
+ * Transcript wiring: a turn that spawns subagents renders a single collapsible
+ * `SubagentSpawnGroup` (collapsed avatar summary by default) inside the message
+ * body next to the spawn tool call, and the legacy bottom-of-message
  * `SubagentProgressCard` mount is gone.
  *
- * We render the real Transcript with a stub `SubagentInlineProgressCard` so
- * we can assert placement without depending on the inline card's internal
- * markup (covered by its own test file).
+ * `SubagentSpawnGroup` and its collapsed `SubagentAvatarRow` summary render
+ * real, so the resting state shows `subagent-avatar-badge`s; the per-subagent
+ * `SubagentInlineProgressCard` rows render only after expansion and are stubbed
+ * here so we can assert id resolution + callback wiring without depending on the
+ * inline card's internal markup (covered by its own test file).
  */
 
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act } from "react";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 
 mock.module("@/domains/chat/components/chat-markdown-message", () => ({
   ChatMarkdownMessage: ({ content }: { content: string }) => (
@@ -40,8 +43,27 @@ mock.module(
 mock.module(
   "@/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card",
   () => ({
-    SubagentInlineProgressCard: ({ subagentId }: { subagentId: string }) => (
-      <div data-testid="subagent-inline-card" data-subagent-id={subagentId} />
+    SubagentInlineProgressCard: ({
+      subagentId,
+      onSubagentClick,
+      onStopSubagent,
+    }: {
+      subagentId: string;
+      onSubagentClick?: (id: string) => void;
+      onStopSubagent?: (id: string) => void;
+    }) => (
+      <div data-testid="subagent-inline-card" data-subagent-id={subagentId}>
+        <button
+          type="button"
+          data-testid="subagent-inline-card-open"
+          onClick={() => onSubagentClick?.(subagentId)}
+        />
+        <button
+          type="button"
+          data-testid="subagent-inline-card-stop"
+          onClick={() => onStopSubagent?.(subagentId)}
+        />
+      </div>
     ),
   }),
 );
@@ -59,6 +81,22 @@ import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
 const noop = () => {};
+
+/**
+ * Expand every collapsed `SubagentSpawnGroup` in the tree so its per-subagent
+ * `SubagentInlineProgressCard` rows mount. The resting state shows the avatar
+ * summary; clicking each "Details" toggle reveals the rows. A group already
+ * expanded (e.g. across a rerender that preserves state) has no toggle and is
+ * left untouched, so the helper is safe to re-run.
+ */
+function expandSubagentSummary(container: HTMLElement) {
+  const toggles = container.querySelectorAll<HTMLButtonElement>(
+    '[data-testid="subagent-avatar-row-details"]',
+  );
+  act(() => {
+    toggles.forEach((toggle) => fireEvent.click(toggle));
+  });
+}
 
 /**
  * Derive the `contentBlocks` projection a row carries past the ingest
@@ -202,14 +240,14 @@ function assistantMessageWithMixedSpawns(
   return { kind: "message", key: id, message: withContentBlocks(msg) };
 }
 
-describe("Transcript — inline subagent rendering (PR 8)", () => {
-  test("renders one inline card per spawn tool call inside the message body", () => {
+describe("Transcript — collapsible subagent spawn group", () => {
+  test("renders a collapsed avatar summary (one badge per spawn) by default, no rows", () => {
     const items: TranscriptItem[] = [
       userMessage("u1", "spawn two agents"),
       assistantMessageWithSpawn("a1", ["sa-1", "sa-2"]),
     ];
 
-    const { getAllByTestId } = render(
+    const { getAllByTestId, queryAllByTestId } = render(
       <Transcript
         items={items}
         conversationId={null}
@@ -217,6 +255,29 @@ describe("Transcript — inline subagent rendering (PR 8)", () => {
 
       />,
     );
+
+    // Resting state: the avatar summary is shown, the boxed rows are not.
+    expect(getAllByTestId("subagent-avatar-badge").length).toBe(2);
+    expect(queryAllByTestId("subagent-inline-card").length).toBe(0);
+  });
+
+  test("expanding the summary renders one inline row per spawn, in spawn order", () => {
+    const items: TranscriptItem[] = [
+      userMessage("u1", "spawn two agents"),
+      assistantMessageWithSpawn("a1", ["sa-1", "sa-2"]),
+    ];
+
+    const { container, getAllByTestId, queryAllByTestId } = render(
+      <Transcript
+        items={items}
+        conversationId={null}
+        onSurfaceAction={noop}
+
+      />,
+    );
+
+    expect(queryAllByTestId("subagent-inline-card").length).toBe(0);
+    expandSubagentSummary(container);
 
     const cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(2);
@@ -226,7 +287,39 @@ describe("Transcript — inline subagent rendering (PR 8)", () => {
     ]);
   });
 
-  test("renders no inline card when the message has no subagent_spawn calls", () => {
+  test("row open + stop fire the transcript callbacks end-to-end after expansion", () => {
+    const opened: string[] = [];
+    const stopped: string[] = [];
+
+    const items: TranscriptItem[] = [
+      userMessage("u1", "spawn one"),
+      assistantMessageWithSpawn("a1", ["sa-1"]),
+    ];
+
+    const { container, getByTestId } = render(
+      <Transcript
+        items={items}
+        conversationId={null}
+        onSurfaceAction={noop}
+        onSubagentClick={(id) => opened.push(id)}
+        onStopSubagent={(id) => stopped.push(id)}
+      />,
+    );
+
+    expandSubagentSummary(container);
+
+    act(() => {
+      fireEvent.click(getByTestId("subagent-inline-card-open"));
+    });
+    act(() => {
+      fireEvent.click(getByTestId("subagent-inline-card-stop"));
+    });
+
+    expect(opened).toEqual(["sa-1"]);
+    expect(stopped).toEqual(["sa-1"]);
+  });
+
+  test("renders no avatar summary or row when the message has no subagent_spawn calls", () => {
     const items: TranscriptItem[] = [
       userMessage("u1", "no spawn"),
       assistantMessageWithSpawn("a1", []),
@@ -241,10 +334,11 @@ describe("Transcript — inline subagent rendering (PR 8)", () => {
       />,
     );
 
+    expect(queryAllByTestId("subagent-avatar-badge").length).toBe(0);
     expect(queryAllByTestId("subagent-inline-card").length).toBe(0);
   });
 
-  test("spawn-only group renders the inline card and suppresses the redundant progress card", () => {
+  test("spawn-only group renders the avatar summary and suppresses the redundant progress card", () => {
     const items: TranscriptItem[] = [
       userMessage("u1", "spawn one"),
       assistantMessageWithSpawn("a1", ["sa-1"]),
@@ -259,8 +353,8 @@ describe("Transcript — inline subagent rendering (PR 8)", () => {
       />,
     );
 
-    // The subagent renders inline...
-    expect(getByTestId("subagent-inline-card")).toBeTruthy();
+    // The subagent renders inline (collapsed avatar summary)...
+    expect(getByTestId("subagent-avatar-badge")).toBeTruthy();
     // ...and the unified progress card is suppressed: with the spawn filtered
     // out of its body it would have no renderable steps, leaving just the
     // leading-thinking preamble (already shown as message text) — pure noise.
@@ -287,7 +381,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
       assistantMessageWithRunningSpawns("a1", 1),
     ];
 
-    const { getAllByTestId } = render(
+    const { container, getAllByTestId } = render(
       <Transcript
         items={items}
         conversationId={null}
@@ -296,6 +390,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
       />,
     );
 
+    expandSubagentSummary(container);
     const cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(1);
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-running-1");
@@ -321,7 +416,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
       ]),
     ];
 
-    const { getAllByTestId } = render(
+    const { container, getAllByTestId } = render(
       <Transcript
         items={items}
         conversationId={null}
@@ -330,6 +425,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
       />,
     );
 
+    expandSubagentSummary(container);
     const cards = getAllByTestId("subagent-inline-card");
     expect(cards.map((c) => c.getAttribute("data-subagent-id"))).toEqual([
       "sa-running",
@@ -369,7 +465,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
       { kind: "message", key: "a1", message: withContentBlocks(msg) },
     ];
 
-    const { getAllByTestId } = render(
+    const { container, getAllByTestId } = render(
       <Transcript
         items={items}
         conversationId={null}
@@ -378,6 +474,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
       />,
     );
 
+    expandSubagentSummary(container);
     const cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(1);
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-reloaded");
@@ -398,6 +495,8 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
       />,
     );
 
+    // No resolved spawn id — neither the collapsed summary nor any row mounts.
+    expect(queryAllByTestId("subagent-avatar-badge").length).toBe(0);
     expect(queryAllByTestId("subagent-inline-card").length).toBe(0);
   });
 });
@@ -450,13 +549,15 @@ describe("Transcript — toolUseId anchor (PR 3)", () => {
       />,
     );
 
-    const cards = getAllByTestId("subagent-inline-card");
-    expect(cards.length).toBe(1);
-    expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-anchored");
     // The spawn-only group must not surface a generic progress card.
     expect(
       container.querySelector('[data-testid="multi-activity-group"]'),
     ).toBeNull();
+
+    expandSubagentSummary(container);
+    const cards = getAllByTestId("subagent-inline-card");
+    expect(cards.length).toBe(1);
+    expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-anchored");
   });
 });
 
@@ -514,7 +615,7 @@ describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
       { kind: "message", key: "a1", message: withContentBlocks(msg) },
     ];
 
-    const { getAllByTestId } = render(
+    const { container, getAllByTestId } = render(
       <Transcript
         items={items}
         conversationId={null}
@@ -522,6 +623,14 @@ describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
 
       />,
     );
+
+    // The two spawns land in distinct activity groups (split by the interleaved
+    // text), so each renders its own collapsible group with its own toggle.
+    expect(
+      container.querySelectorAll('[data-testid="subagent-avatar-row-details"]')
+        .length,
+    ).toBe(2);
+    expandSubagentSummary(container);
 
     const cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(2);
@@ -582,19 +691,21 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
       parentToolUseId: "tu-1",
     });
 
-    const { getAllByTestId, queryByTestId, rerender } = render(
+    const { container, getAllByTestId, queryByTestId, rerender } = render(
       transcript([
         userMessage("u1", "spawn one"),
         spawnOnlyMessage("optimistic-1", "tu-1"),
       ]),
     );
 
-    // Exactly one inline card, and no generic progress card for the
-    // spawn-only group (zero renderable steps once the spawn is filtered out).
+    // Exactly one inline card (after expanding the collapsed summary), and no
+    // generic progress card for the spawn-only group (zero renderable steps
+    // once the spawn is filtered out).
+    expect(queryByTestId("multi-activity-group")).toBeNull();
+    expandSubagentSummary(container);
     let cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(1);
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-lifecycle");
-    expect(queryByTestId("multi-activity-group")).toBeNull();
 
     // Server reconcile: the parent message id swaps to "server-1" while the
     // local tool-call id "tu-1" is preserved (keepLocalToolState). The
@@ -612,6 +723,7 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
       ]),
     );
 
+    expandSubagentSummary(container);
     cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(1);
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-lifecycle");
@@ -632,13 +744,14 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
       parentMessageStableId: "optimistic-1",
     });
 
-    const { getAllByTestId, rerender } = render(
+    const { container, getAllByTestId, rerender } = render(
       transcript([
         userMessage("u1", "spawn one"),
         spawnOnlyMessage("optimistic-1", "tu-1"),
       ]),
     );
 
+    expandSubagentSummary(container);
     let cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(1);
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-byparent");
@@ -656,6 +769,7 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
       ]),
     );
 
+    expandSubagentSummary(container);
     cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(1);
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-byparent");
@@ -674,6 +788,8 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
       ]),
     );
 
+    // Nothing resolved — neither the collapsed avatar summary nor any row.
+    expect(queryAllByTestId("subagent-avatar-badge").length).toBe(0);
     expect(queryAllByTestId("subagent-inline-card").length).toBe(0);
     expect(queryByTestId("multi-activity-group")).toBeNull();
   });

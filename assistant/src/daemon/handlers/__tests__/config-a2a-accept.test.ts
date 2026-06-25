@@ -174,7 +174,6 @@ describe("acceptA2AInvite", () => {
     expect(contact).not.toBeNull();
     expect(contact!.channels).toHaveLength(1);
     expect(contact!.channels[0]!.type).toBe("a2a");
-    expect(contact!.channels[0]!.status).toBe("active");
 
     // Verify assistant metadata
     const metadata = getAssistantContactMetadata(result.contactId!);

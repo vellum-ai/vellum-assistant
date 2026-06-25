@@ -1097,6 +1097,29 @@ describe("parseAssistantEvent", () => {
     });
   });
 
+  // ---------------------------------------------------------------------
+  // conversation_notice (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses conversation_notice with billing fields", () => {
+    const event = parseEvent({
+      type: "conversation_notice",
+      conversationId: "conv-1",
+      source: "memory_v3",
+      code: "PROVIDER_BILLING",
+      userMessage: "You've run out of credits.",
+      errorCategory: "credits_exhausted",
+    });
+    expect(event).toEqual({
+      type: "conversation_notice",
+      conversationId: "conv-1",
+      source: "memory_v3",
+      code: "PROVIDER_BILLING",
+      userMessage: "You've run out of credits.",
+      errorCategory: "credits_exhausted",
+    });
+  });
+
   test("parses interaction_resolved with explicit conversationId", () => {
     const event = parseEvent({
       type: "interaction_resolved",

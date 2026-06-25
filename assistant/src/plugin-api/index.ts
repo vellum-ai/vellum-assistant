@@ -37,8 +37,8 @@
  *   (optionally overriding the profile) and run inference through the
  *   workspace's configured profiles and credentials — no plugin-supplied API key
  *
- * - {@link PluginInitContext} — passed to `init` hook at bootstrap
- * - {@link PluginShutdownContext} — passed to `shutdown` hook at teardown
+ * - {@link InitContext} — passed to `init` hook at bootstrap
+ * - {@link ShutdownContext} — passed to `shutdown` hook at teardown
  * - {@link UserPromptSubmitContext} — passed to `user-prompt-submit` hook,
  *   fired immediately before the agent loop receives a user's prompt
  * - {@link PostCompactContext} — passed to `post-compact` hook, fired after
@@ -55,7 +55,7 @@
  * - {@link PostModelCallContext} — passed to `post-model-call` hook, fired at
  *   every model-call outcome (a finalized reply or a provider rejection) to
  *   transform content and decide whether to retry
- * - {@link PluginHookFn} — signature every lifecycle hook implements
+ * - {@link HookFunction} — signature every lifecycle hook implements
  * - {@link PluginLogger} — pino-compatible logger shape on the contexts
  * - {@link ToolDefinition} — author-facing tool spec (default-export shape
  *   for both plugin tool files and workspace tool files)
@@ -98,16 +98,16 @@ export type {
 export type { LLMCallSite } from "../config/schemas/llm.js";
 export type {
   AgentLoopExitReason,
+  HookFunction,
+  InitContext,
   ModelProfileInfo,
-  PluginHookFn,
-  PluginInitContext,
   PluginLogger,
-  PluginShutdownContext,
   PostCompactContext,
   PostModelCallContext,
   PostModelCallDecision,
   PostToolUseContext,
   PreModelCallContext,
+  ShutdownContext,
   StopContext,
   ToolContext,
   ToolDefinition,

@@ -16,7 +16,7 @@ import {
     oauthCompletionStorageKey,
     type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
-import { resolveManagedOAuthPlatformAssistantId } from "@/lib/local-managed-oauth-identity";
+import { resolveLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
@@ -234,7 +234,7 @@ export function GoogleConnectScreen({
       void (async () => {
         let platformAssistantId: string;
         try {
-          platformAssistantId = await resolveManagedOAuthPlatformAssistantId(assistantId);
+          platformAssistantId = await resolveLocalAssistantPlatformIdentity(assistantId);
         } catch {
           clearPendingRequest();
           return;
@@ -355,7 +355,7 @@ export function GoogleConnectScreen({
     void (async () => {
       let platformAssistantId: string;
       try {
-        platformAssistantId = await resolveManagedOAuthPlatformAssistantId(assistantId);
+        platformAssistantId = await resolveLocalAssistantPlatformIdentity(assistantId);
       } catch {
         closePopupWindow();
         clearPendingRequest();

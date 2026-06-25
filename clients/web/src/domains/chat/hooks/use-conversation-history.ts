@@ -39,9 +39,9 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { reconcileSubagentStoreFromNotifications } from "@/domains/chat/hooks/reconcile-subagent-hydration";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { messageMatchKeys } from "@/domains/chat/utils/message-identity";
-import type { SubagentStatus } from "@vellumai/assistant-api";
 
 import {
   parsePendingSecretState,
@@ -278,8 +278,10 @@ export function useConversationHistory({
       }
     }
 
-    // Reconstruct subagent state from history notifications.
-    const notifications = pagination.latestPage?.subagentNotifications;
+    // Reconstruct subagent state from notifications across all loaded pages —
+    // not just the latest page, or a subagent whose notification is in an older
+    // page (e.g. one aborted early) gets an avatar badge but no inline row.
+    const notifications = pagination.subagentNotifications;
     if (notifications && notifications.length > 0) {
       const deduped = new Map<string, (typeof notifications)[number]>();
       for (const n of notifications) {
@@ -294,20 +296,11 @@ export function useConversationHistory({
         }
       }
 
-      const subagentStore = useSubagentStore.getState();
-      subagentStore.reset();
-      for (const n of deduped.values()) {
-        subagentStore.spawnSubagent({
-          subagentId: n.subagentId,
-          label: n.label,
-          objective: "",
-          status: (n.status as SubagentStatus) || "completed",
-          error: n.error,
-          conversationId: n.conversationId,
-          timestamp: Date.now(),
-          parentMessageId: n.parentMessageId,
-        });
-      }
+      reconcileSubagentStoreFromNotifications(
+        useSubagentStore.getState(),
+        deduped.values(),
+        Date.now(),
+      );
     }
 
     // Restore pending interactions (secrets, confirmations).

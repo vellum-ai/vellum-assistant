@@ -11,13 +11,17 @@
  * greeting bounces in with the Continue button.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { ArrowRight } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 
 import { ONBOARDING_STEP_CONTENT } from "@/domains/onboarding/onboarding-step-layout";
 import { OnboardingPeekingEyes } from "@/domains/onboarding/components/onboarding-peeking-eyes";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
+import {
+  OnboardingStageSizeProvider,
+  useElementSize,
+} from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
@@ -36,20 +40,6 @@ interface IntroductionScreenProps {
 const PICKER_SIZE = 200;
 const PICKER_CENTER_VH = 40;
 
-function useViewport() {
-  const [size, setSize] = useState(() => ({
-    w: typeof window === "undefined" ? 1280 : window.innerWidth,
-    h: typeof window === "undefined" ? 800 : window.innerHeight,
-  }));
-  useEffect(() => {
-    const onResize = () =>
-      setSize({ w: window.innerWidth, h: window.innerHeight });
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  return size;
-}
-
 export function IntroductionScreen({
   firstName,
   assistantName,
@@ -61,7 +51,12 @@ export function IntroductionScreen({
   const characters = useOnboardingAvatarPoolStore.use.characters();
   const selectedIndex = useOnboardingAvatarPoolStore.use.selectedIndex();
   const reduce = useReducedMotion();
-  const { w, h } = useViewport();
+  // Measure this screen's container so the body grow and the peeking eyes share
+  // one coordinate space (see use-onboarding-stage-size).
+  const {
+    ref: stageRef,
+    size: { w, h },
+  } = useElementSize();
   const tone = useOnboardingTone();
 
   const chosen = characters.length > 0 ? characters[selectedIndex] : undefined;
@@ -100,10 +95,11 @@ export function IntroductionScreen({
   return (
     // Starts on the picker's dark surface; the color layer below fades in.
     <div
+      ref={stageRef}
       data-theme="dark"
       className="relative h-full overflow-hidden"
       style={{ backgroundColor: "var(--surface-base)" }}
-    >
+    ><OnboardingStageSizeProvider size={{ w, h }}>
       {/* The avatar color fills in so coverage is end-to-end even where the
           body shape has gaps/spikes. */}
       <motion.div
@@ -184,6 +180,7 @@ export function IntroductionScreen({
           <ArrowRight className="h-4 w-4" />
         </motion.button>
       </div>
+      </OnboardingStageSizeProvider>
     </div>
   );
 }

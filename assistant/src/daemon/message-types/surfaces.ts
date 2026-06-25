@@ -3,14 +3,21 @@
 import {
   type CardSurfaceData,
   CardSurfaceDataSchema,
+  type FileUploadSurfaceData,
+  FileUploadSurfaceDataSchema,
 } from "../../api/surfaces.js";
 
 // Surface `data` shapes are wire payloads owned by `@vellumai/assistant-api`.
-// Card is migrated (canonical Zod schema); the remaining types below are still
-// hand-written interfaces pending migration. Re-exported so the daemon's
-// surface protocol barrel (`message-protocol.ts`) keeps surfacing them to
-// daemon consumers under their canonical names.
-export { type CardSurfaceData, CardSurfaceDataSchema };
+// Card and file_upload are migrated (canonical Zod schemas); the remaining
+// types below are still hand-written interfaces pending migration. Re-exported
+// so the daemon's surface protocol barrel (`message-protocol.ts`) keeps
+// surfacing them to daemon consumers under their canonical names.
+export {
+  type CardSurfaceData,
+  CardSurfaceDataSchema,
+  type FileUploadSurfaceData,
+  FileUploadSurfaceDataSchema,
+};
 
 // === Surface type definitions ===
 
@@ -153,13 +160,6 @@ export interface DynamicPageSurfaceData {
   reloadGeneration?: number;
   status?: string;
   preview?: DynamicPagePreview;
-}
-
-export interface FileUploadSurfaceData {
-  prompt: string;
-  acceptedTypes?: string[];
-  maxFiles?: number;
-  maxSizeBytes?: number;
 }
 
 export interface TableColumn {

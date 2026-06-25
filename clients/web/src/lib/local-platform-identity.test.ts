@@ -18,6 +18,7 @@ let activeAssistant = {
   resources: { gatewayPort: 20101 },
 };
 let isLocalModeValue = true;
+let isPlatformDisabledValue = false;
 let isRemoteGatewayModeValue = false;
 let selfHostedIngressUrl: string | null = GATEWAY_URL;
 let selfHostedActorToken: string | null = "actor-token";
@@ -46,8 +47,10 @@ mock.module("@/lib/local-mode", () => ({
   getActiveAssistant: () => activeAssistant,
   getLocalGatewayUrl: () => "/assistant/__gateway/20101",
   getPlatformRuntimeUrl: () => "http://localhost:8000",
+  getSelectedAssistant: () => activeAssistant,
   isLocalAssistant: (assistant: { cloud?: string }) => assistant?.cloud === "local",
   isLocalMode: () => isLocalModeValue,
+  isPlatformDisabled: () => isPlatformDisabledValue,
   isRemoteGatewayMode: () => isRemoteGatewayModeValue,
   primeLocalGatewayConnectionWithRepair:
     primeLocalGatewayConnectionWithRepairMock,
@@ -80,9 +83,10 @@ mock.module("@/stores/organization-store", () => ({
 }));
 
 const {
-  resetLocalManagedOAuthIdentityCacheForTesting,
-  resolveManagedOAuthPlatformAssistantId,
-} = await import("@/lib/local-managed-oauth-identity");
+  bootstrapLocalAssistantPlatformIdentity,
+  resetLocalPlatformIdentityCacheForTesting,
+  resolveLocalAssistantPlatformIdentity,
+} = await import("@/lib/local-platform-identity");
 
 const originalFetch = globalThis.fetch;
 
@@ -104,6 +108,10 @@ function requestNames(): string[] {
     .filter((value): value is string => Boolean(value));
 }
 
+async function flushAsyncWork(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 beforeEach(() => {
   activeAssistant = {
     assistantId: RUNTIME_ASSISTANT_ID,
@@ -112,6 +120,7 @@ beforeEach(() => {
     resources: { gatewayPort: 20101 },
   };
   isLocalModeValue = true;
+  isPlatformDisabledValue = false;
   isRemoteGatewayModeValue = false;
   selfHostedIngressUrl = GATEWAY_URL;
   selfHostedActorToken = "actor-token";
@@ -131,7 +140,7 @@ beforeEach(() => {
   buildVellumMutatingHeadersMock.mockClear();
   primeLocalGatewayConnectionWithRepairMock.mockClear();
   fetchOrganizationsMock.mockClear();
-  resetLocalManagedOAuthIdentityCacheForTesting();
+  resetLocalPlatformIdentityCacheForTesting();
 
   globalThis.fetch = mock(
     async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -174,13 +183,13 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  resetLocalManagedOAuthIdentityCacheForTesting();
+  resetLocalPlatformIdentityCacheForTesting();
 });
 
-describe("resolveManagedOAuthPlatformAssistantId", () => {
+describe("resolveLocalAssistantPlatformIdentity", () => {
   test("returns the stored platform id without registration when the API key is present", async () => {
     const platformAssistantId =
-      await resolveManagedOAuthPlatformAssistantId(RUNTIME_ASSISTANT_ID);
+      await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
 
     expect(platformAssistantId).toBe(PLATFORM_ASSISTANT_ID);
     expect(requestNames()).toEqual(["status"]);
@@ -198,7 +207,7 @@ describe("resolveManagedOAuthPlatformAssistantId", () => {
     };
 
     const platformAssistantId =
-      await resolveManagedOAuthPlatformAssistantId(RUNTIME_ASSISTANT_ID);
+      await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
 
     expect(platformAssistantId).toBe(PLATFORM_ASSISTANT_ID);
     expect(requestNames()).toEqual([
@@ -224,5 +233,70 @@ describe("resolveManagedOAuthPlatformAssistantId", () => {
       name: "vellum:platform_assistant_id",
       value: PLATFORM_ASSISTANT_ID,
     });
+  });
+
+  test("repairs gateway access by default for blocking platform identity resolution", async () => {
+    selfHostedIngressUrl = null;
+    selfHostedActorToken = null;
+    primeLocalGatewayConnectionWithRepairMock.mockImplementationOnce(async () => {
+      selfHostedIngressUrl = GATEWAY_URL;
+      selfHostedActorToken = "actor-token";
+    });
+
+    const platformAssistantId =
+      await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+
+    expect(platformAssistantId).toBe(PLATFORM_ASSISTANT_ID);
+    expect(primeLocalGatewayConnectionWithRepairMock).toHaveBeenCalledTimes(1);
+    expect(requestNames()).toEqual(["status"]);
+  });
+
+  test("skips raw platform calls when platform features are disabled", async () => {
+    isPlatformDisabledValue = true;
+
+    const platformAssistantId =
+      await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+
+    expect(platformAssistantId).toBe(RUNTIME_ASSISTANT_ID);
+    expect(requestNames()).toEqual([]);
+  });
+});
+
+describe("bootstrapLocalAssistantPlatformIdentity", () => {
+  test("uses the same identity resolution flow for best-effort bootstrap", async () => {
+    bootstrapLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+    await flushAsyncWork();
+
+    expect(requestNames()).toEqual(["status"]);
+  });
+
+  test("does not repair gateway access during best-effort bootstrap", async () => {
+    selfHostedIngressUrl = null;
+    selfHostedActorToken = null;
+    const onError = mock((_error: unknown) => {});
+
+    bootstrapLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID, { onError });
+    await flushAsyncWork();
+
+    expect(primeLocalGatewayConnectionWithRepairMock).not.toHaveBeenCalled();
+    expect(requestNames()).toEqual([]);
+    expect(onError).toHaveBeenCalled();
+  });
+
+  test("uses the selected local assistant when no id is supplied", async () => {
+    bootstrapLocalAssistantPlatformIdentity();
+    await flushAsyncWork();
+
+    expect(requestNames()).toEqual(["status"]);
+  });
+
+  test("does nothing when platform features are disabled", async () => {
+    isPlatformDisabledValue = true;
+
+    bootstrapLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+    await flushAsyncWork();
+
+    expect(primeLocalGatewayConnectionWithRepairMock).not.toHaveBeenCalled();
+    expect(requestNames()).toEqual([]);
   });
 });

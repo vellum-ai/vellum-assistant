@@ -9,10 +9,6 @@ import { isInviteCodeRedemptionEnabled } from "../../../channels/config.js";
 import type { ChannelId } from "../../../channels/types.js";
 import { getGuardianDelivery } from "../../../contacts/guardian-delivery-reader.js";
 import { channelStatusToMemberStatus } from "../../../contacts/member-status.js";
-import type {
-  ContactChannel,
-  ContactWithChannels,
-} from "../../../contacts/types.js";
 import { deleteInbound, recordInbound } from "../../../memory/delivery-crud.js";
 import { markProcessed } from "../../../memory/delivery-status.js";
 import {
@@ -95,12 +91,6 @@ export interface AclEnforcementParams {
    */
   effectiveAdmissionPolicy?: AdmissionPolicy;
 }
-
-/** Resolved contact + channel pair from ACL enforcement. */
-export type ResolvedMember = {
-  contact: ContactWithChannels;
-  channel: ContactChannel;
-};
 
 export interface AclResult {
   resolvedMember: VerdictMember | null;

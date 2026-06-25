@@ -52,7 +52,7 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     label: "Balanced",
     description: "Good balance of quality, cost, and speed",
     maxTokens: 32000,
-    effort: "high",
+    effort: "medium",
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
     topP: 0.95,
@@ -161,19 +161,20 @@ export const OS_BETA_FEATURE_FLAG_KEY = "os-beta";
  * Flag-gated managed profile. NOT in MANAGED_PROFILE_TEMPLATES, so the
  * unconditional boot seed never creates it. Reconciled in/out by
  * the flag-gated profile reconcile based on the `os-beta` feature flag.
- * Balanced-parity defaults; GLM 5.2 pinned explicitly via `model`.
+ * Balanced defaults, with lower reasoning effort while the profile is in beta.
  */
 export const OS_BETA_PROFILE_TEMPLATE: ManagedProfileTemplate = {
-  model: "accounts/fireworks/models/glm-5p2",
-  provider: "fireworks",
-  connectionName: "fireworks-managed",
+  intent: "balanced",
+  provider: "together",
+  connectionName: "together-managed",
   source: "managed",
   label: "OS Beta",
-  description: "Open-source frontier model (GLM 5.2), in beta",
+  description: "Good balance of quality, cost, and speed, in beta",
   maxTokens: 32000,
-  effort: "high",
+  effort: "low",
   thinking: { enabled: true, streamThinking: true },
   contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+  topP: 0.95,
 };
 
 // Membership here marks a name as managed. The route layer applies managed

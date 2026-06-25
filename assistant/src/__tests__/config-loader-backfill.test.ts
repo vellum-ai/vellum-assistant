@@ -1703,8 +1703,8 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
 // ---------------------------------------------------------------------------
 // Tests: OS Beta flag-gated managed profile. The template is defined but
 // intentionally NOT part of MANAGED_PROFILE_TEMPLATES, so seedInferenceProfiles
-// must never create it. A later PR reconciles it in/out based on the `os-beta`
-// feature flag.
+// must never create it. The flag-gated reconcile creates or removes it based on
+// the `os-beta` feature flag.
 // ---------------------------------------------------------------------------
 
 describe("OS Beta managed profile template", () => {
@@ -1751,20 +1751,21 @@ describe("OS Beta managed profile template", () => {
     expect(MANAGED_PROFILE_NAMES.has("os-beta")).toBe(true);
   });
 
-  test("materializeProfile honors the explicit OS Beta model", () => {
+  test("materializeProfile resolves OS Beta to the Balanced model with low effort", () => {
     const entry = materializeProfile(
       OS_BETA_PROFILE_TEMPLATE,
-      "fireworks",
-      "fireworks-managed",
+      "together",
+      "together-managed",
     );
 
-    expect(entry.model).toBe("accounts/fireworks/models/glm-5p2");
-    expect(entry.provider_connection).toBe("fireworks-managed");
-    expect(entry.provider).toBe("fireworks");
+    expect(entry.model).toBe("MiniMaxAI/MiniMax-M3");
+    expect(entry.provider_connection).toBe("together-managed");
+    expect(entry.provider).toBe("together");
     expect(entry.label).toBe("OS Beta");
     expect(entry.source).toBe("managed");
     expect(entry.maxTokens).toBe(32000);
-    expect(entry.effort).toBe("high");
+    expect(entry.effort).toBe("low");
     expect(entry.thinking?.enabled).toBe(true);
+    expect(entry.topP).toBe(0.95);
   });
 });

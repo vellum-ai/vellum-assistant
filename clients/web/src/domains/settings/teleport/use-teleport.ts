@@ -13,7 +13,7 @@ import { useNavigate } from "react-router";
 
 import { getAssistantHealthz, hatchAssistant } from "@/assistant/api";
 import { retireAssistant } from "@/assistant/retire-service";
-import { resolveManagedOAuthPlatformAssistantId } from "@/lib/local-managed-oauth-identity";
+import { bootstrapLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 import { getAppVersionInfo } from "@/runtime/app-info";
 import {
   assistantsList,
@@ -182,11 +182,12 @@ export function useTeleport(): TeleportController {
           // and inject those credentials (the web equivalent of the CLI's
           // post-import injection) so managed/platform integrations keep working.
           // Best-effort: a failure here shouldn't block the switch.
-          void resolveManagedOAuthPlatformAssistantId(target.id).catch((error) =>
-            captureError(error, {
-              context: "teleport-inject-platform-identity",
-            }),
-          );
+          bootstrapLocalAssistantPlatformIdentity(target.id, {
+            onError: (error) =>
+              captureError(error, {
+                context: "teleport-inject-platform-identity",
+              }),
+          });
         }
       } catch (error) {
         // The switch failed — keep the target around and surface the error

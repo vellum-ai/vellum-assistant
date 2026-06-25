@@ -28,7 +28,8 @@ export type ContactSelection =
 export interface ContactSummary {
   id: string;
   displayName: string;
-  role: "guardian" | "assistant" | string;
+  // Optional to match the contacts payload, which does not guarantee a role.
+  role?: "guardian" | "assistant" | string;
   contactType?: string | null;
   channelTypes?: string[];
 }

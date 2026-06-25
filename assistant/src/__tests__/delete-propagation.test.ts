@@ -23,7 +23,6 @@ mock.module("../config/env.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { linkMessage, recordInbound } from "../memory/delivery-crud.js";
@@ -33,7 +32,10 @@ import {
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import { _setDeleteLookupConfigForTests } from "../runtime/routes/inbound-message-handler.js";
-import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
+import {
+  handleChannelInbound,
+  seedContactChannel,
+} from "./helpers/channel-test-adapter.js";
 
 await initializeDb();
 
@@ -56,7 +58,7 @@ function resetState(): void {
 }
 
 function seedActiveDeleteActor(externalChatId: string): void {
-  upsertContactChannel({
+  seedContactChannel({
     sourceChannel: "slack",
     externalUserId: SLACK_DELETE_ACTOR_ID,
     externalChatId,

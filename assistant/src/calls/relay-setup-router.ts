@@ -246,7 +246,7 @@ export function routeSetup(ctx: SetupContext): {
     ? enforceAdmissionPolicy({
         sourceChannel: "phone",
         trustClass: actorTrust.trustClass,
-        memberStatus: actorTrust.memberRecord?.channel.status,
+        memberStatus: actorTrust.memberRecord?.status,
         policy: ctx.admissionPolicy!,
       })
     : ({ admitted: true } as const);
@@ -283,7 +283,7 @@ export function routeSetup(ctx: SetupContext): {
     !pendingChallenge
   ) {
     // Check for blocked caller
-    if (actorTrust.memberRecord?.channel.status === "blocked") {
+    if (actorTrust.memberRecord?.status === "blocked") {
       log.info(
         {
           callSessionId: ctx.callSessionId,
@@ -366,14 +366,14 @@ export function routeSetup(ctx: SetupContext): {
     // gateway and assistant DBs) still get useful guidance instead of
     // the "I don't recognize this number" name-capture script.
     const unverifiedStatuses = new Set(["unverified", "pending"]);
-    const memberChannel = actorTrust.memberRecord?.channel;
-    if (memberChannel && unverifiedStatuses.has(memberChannel.status)) {
+    const member = actorTrust.memberRecord;
+    if (member && unverifiedStatuses.has(member.status)) {
       log.info(
         {
           callSessionId: ctx.callSessionId,
           from: ctx.from,
-          channelId: memberChannel.id,
-          channelStatus: memberChannel.status,
+          channelId: member.channel.id,
+          channelStatus: member.status,
         },
         "Inbound voice ACL: known but unverified caller — returning verification guidance",
       );
@@ -382,8 +382,8 @@ export function routeSetup(ctx: SetupContext): {
           action: "unverified_caller",
           assistantId,
           fromNumber: ctx.from,
-          displayName: actorTrust.memberRecord!.contact.displayName,
-          isGuardian: actorTrust.memberRecord!.contact.role === "guardian",
+          displayName: member.contact.displayName,
+          isGuardian: member.role === "guardian",
         },
         resolved,
       };
@@ -409,7 +409,7 @@ export function routeSetup(ctx: SetupContext): {
   }
 
   // Members with policy: 'deny'
-  if (actorTrust.memberRecord?.channel.policy === "deny") {
+  if (actorTrust.memberRecord?.policy === "deny") {
     log.info(
       {
         callSessionId: ctx.callSessionId,
@@ -430,7 +430,7 @@ export function routeSetup(ctx: SetupContext): {
   }
 
   // Members with policy: 'escalate' — live calls can't wait for approval
-  if (actorTrust.memberRecord?.channel.policy === "escalate") {
+  if (actorTrust.memberRecord?.policy === "escalate") {
     log.info(
       {
         callSessionId: ctx.callSessionId,

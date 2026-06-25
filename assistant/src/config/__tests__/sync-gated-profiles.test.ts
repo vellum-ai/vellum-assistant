@@ -109,10 +109,13 @@ describe("reconcileFlagGatedProfiles", () => {
 
     const raw = readConfig();
     const osBeta = raw.llm.profiles["os-beta"]!;
-    expect(osBeta.model).toBe("accounts/fireworks/models/glm-5p2");
-    expect(osBeta.provider_connection).toBe("fireworks-managed");
+    expect(osBeta.model).toBe("MiniMaxAI/MiniMax-M3");
+    expect(osBeta.provider_connection).toBe("together-managed");
+    expect(osBeta.provider).toBe("together");
     expect(osBeta.source).toBe("managed");
     expect(osBeta.label).toBe("OS Beta");
+    expect(osBeta.effort).toBe("low");
+    expect(osBeta.topP).toBe(0.95);
 
     const order = raw.llm.profileOrder;
     expect(order.indexOf("os-beta")).toBe(order.indexOf("balanced") + 1);
@@ -128,6 +131,7 @@ describe("reconcileFlagGatedProfiles", () => {
     expect(osBeta.status).toBe("disabled");
     expect(osBeta.label).toBe("OS Beta (Managed)");
     expect(osBeta.source).toBe("managed");
+    expect(osBeta.effort).toBe("low");
   });
 
   test("flag on is idempotent across repeated runs", () => {
@@ -149,6 +153,7 @@ describe("reconcileFlagGatedProfiles", () => {
     const raw = readConfig();
     raw.llm.profiles["os-beta"]!.label = "My OS Beta";
     raw.llm.profiles["os-beta"]!.status = "disabled";
+    raw.llm.profiles["os-beta"]!.topP = 0.8;
     writeConfig(raw);
     invalidateConfigCache();
 
@@ -157,7 +162,10 @@ describe("reconcileFlagGatedProfiles", () => {
     const after = readConfig().llm.profiles["os-beta"]!;
     expect(after.label).toBe("My OS Beta");
     expect(after.status).toBe("disabled");
-    expect(after.model).toBe("accounts/fireworks/models/glm-5p2");
+    expect(after.topP).toBe(0.8);
+    expect(after.model).toBe("MiniMaxAI/MiniMax-M3");
+    expect(after.provider_connection).toBe("together-managed");
+    expect(after.effort).toBe("low");
   });
 
   test("flag off removes a managed os-beta and applies fallbacks", () => {

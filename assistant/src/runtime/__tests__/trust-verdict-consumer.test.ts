@@ -4,6 +4,8 @@ import type { TrustVerdict } from "@vellumai/gateway-client";
 
 import { channelStatusToMemberStatus } from "../../contacts/member-status.js";
 import type {
+  ChannelPolicy,
+  ChannelStatus,
   ContactChannel,
   ContactWithChannels,
 } from "../../contacts/types.js";
@@ -11,7 +13,6 @@ import type { ActorTrustContext } from "../actor-trust-resolver.js";
 import { toTrustContext } from "../actor-trust-resolver.js";
 import {
   actorTrustContextFromVerdict,
-  resolvedMemberFromVerdict,
   trustContextFromVerdict,
   verdictHasMemberIdentity,
   verdictMemberFromVerdict,
@@ -288,8 +289,77 @@ describe("actorTrustContextFromVerdict", () => {
     expect(ctx.memberRecord).not.toBeNull();
     expect(ctx.memberRecord!.contact.id).toBe("contact-1");
     expect(ctx.memberRecord!.channel.id).toBe("channel-1");
-    expect(ctx.memberRecord!.channel.status).toBe("blocked");
-    expect(ctx.memberRecord!.channel.policy).toBe("deny");
+    expect(ctx.memberRecord!.status).toBe("blocked");
+    expect(ctx.memberRecord!.policy).toBe("deny");
+  });
+
+  test("memberRecord surfaces channel ACL/identity, info fields null", () => {
+    const verdict = {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "u-1",
+      contactId: "contact-1",
+      channelId: "channel-1",
+      type: "slack",
+      address: "u-1",
+      status: "active",
+      policy: "allow",
+      externalChatId: "chat-1",
+      verifiedAt: 1700000000,
+      verifiedVia: "code",
+      memberDisplayName: "Dora",
+    } satisfies TrustVerdict;
+
+    const { memberRecord } = actorTrustContextFromVerdict(verdict, {
+      sourceChannel: "slack",
+      conversationExternalId: CONV,
+    });
+    expect(memberRecord!.status).toBe("active");
+    expect(memberRecord!.policy).toBe("allow");
+    expect(memberRecord!.channel.externalChatId).toBe("chat-1");
+
+    expect(memberRecord!.contact.displayName).toBe("Dora");
+    expect(memberRecord!.role).toBe("contact");
+    // INFO fields must be null/default placeholders.
+    expect(memberRecord!.contact.notes).toBeNull();
+    expect(memberRecord!.contact.userFile).toBeNull();
+    expect(memberRecord!.contact.interactionCount).toBe(0);
+    expect(memberRecord!.contact.lastInteraction).toBeNull();
+  });
+
+  test("guardian member verdict maps role guardian + principalId", () => {
+    const verdict = {
+      trustClass: "guardian",
+      canonicalSenderId: "u-g",
+      contactId: "contact-g",
+      channelId: "channel-g",
+      guardianPrincipalId: "vellum-principal-g",
+      status: "active",
+      policy: "allow",
+    } satisfies TrustVerdict;
+
+    const ctx = actorTrustContextFromVerdict(verdict, {
+      sourceChannel: "slack",
+      conversationExternalId: CONV,
+    });
+    expect(ctx.memberRecord!.role).toBe("guardian");
+    expect(ctx.guardianPrincipalId).toBe("vellum-principal-g");
+  });
+
+  test("memberRecord null when status missing (fail-closed)", () => {
+    const verdict = {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "u-4",
+      contactId: "contact-4",
+      channelId: "channel-4",
+      policy: "allow",
+    } satisfies TrustVerdict;
+
+    expect(
+      actorTrustContextFromVerdict(verdict, {
+        sourceChannel: "slack",
+        conversationExternalId: CONV,
+      }).memberRecord,
+    ).toBeNull();
   });
 
   test("stranger verdict (no contactId/channelId) leaves memberRecord null", () => {
@@ -347,20 +417,18 @@ describe("actorTrustContextFromVerdict", () => {
       actorTrustContextFromVerdict(verdict, input),
       input.conversationExternalId,
     );
-    const member = resolvedMemberFromVerdict(verdict);
+    const member = verdictMemberFromVerdict(verdict);
     expect(member).not.toBeNull();
-    expected.requesterContactId = member!.contact.id;
-    expected.memberStatus = channelStatusToMemberStatus(member!.channel.status);
-    expected.memberPolicy = member!.channel.policy;
+    expected.requesterContactId = member!.contactId;
+    expected.memberStatus = channelStatusToMemberStatus(member!.status);
+    expected.memberPolicy = member!.policy;
 
     expect(trustContextFromVerdict(verdict, input)).toEqual(expected);
   });
 });
 
 describe("toTrustContext member grounding", () => {
-  function memberChannel(
-    overrides: Partial<ContactChannel> = {},
-  ): ContactChannel {
+  function memberChannel(): ContactChannel {
     return {
       id: "channel-1",
       contactId: "contact-1",
@@ -368,19 +436,12 @@ describe("toTrustContext member grounding", () => {
       address: "+15550100",
       isPrimary: true,
       externalChatId: null,
-      status: "unverified",
-      policy: "escalate",
-      verifiedAt: null,
-      verifiedVia: null,
       inviteId: null,
-      revokedReason: null,
-      blockedReason: null,
       lastSeenAt: null,
       interactionCount: 0,
       lastInteraction: null,
       updatedAt: null,
       createdAt: 0,
-      ...overrides,
     };
   }
 
@@ -393,20 +454,29 @@ describe("toTrustContext member grounding", () => {
       interactionCount: 0,
       createdAt: 0,
       updatedAt: 0,
-      role: "contact",
       contactType: "human",
-      principalId: null,
       userFile: null,
       channels: [memberChannel()],
     };
   }
 
-  function ctxWithMember(channel: ContactChannel): ActorTrustContext {
+  function ctxWithMember(
+    acl: { status: ChannelStatus; policy: ChannelPolicy } = {
+      status: "unverified",
+      policy: "escalate",
+    },
+  ): ActorTrustContext {
     return {
       canonicalSenderId: "+15550100",
       guardianBindingMatch: null,
       guardianPrincipalId: undefined,
-      memberRecord: { contact: memberContact(), channel },
+      memberRecord: {
+        contact: memberContact(),
+        channel: memberChannel(),
+        status: acl.status,
+        policy: acl.policy,
+        role: "contact",
+      },
       trustClass: "trusted_contact",
       actorMetadata: {
         identifier: "+15550100",
@@ -421,7 +491,7 @@ describe("toTrustContext member grounding", () => {
   }
 
   test("populates member fields from memberRecord (voice path)", () => {
-    const context = toTrustContext(ctxWithMember(memberChannel()), CONV);
+    const context = toTrustContext(ctxWithMember(), CONV);
     expect(context.requesterContactId).toBe("contact-1");
     // "unverified" maps to the API-facing "pending" member status.
     expect(context.memberStatus).toBe("pending");
@@ -430,7 +500,7 @@ describe("toTrustContext member grounding", () => {
 
   test("passes through active status + allow policy", () => {
     const context = toTrustContext(
-      ctxWithMember(memberChannel({ status: "active", policy: "allow" })),
+      ctxWithMember({ status: "active", policy: "allow" }),
       CONV,
     );
     expect(context.memberStatus).toBe("active");
@@ -460,151 +530,6 @@ describe("toTrustContext member grounding", () => {
     expect(context.requesterContactId).toBeUndefined();
     expect(context.memberStatus).toBeUndefined();
     expect(context.memberPolicy).toBeUndefined();
-  });
-});
-
-describe("resolvedMemberFromVerdict", () => {
-  test("member verdict surfaces channel ACL/identity, info fields null", () => {
-    const verdict = {
-      trustClass: "trusted_contact",
-      canonicalSenderId: "u-1",
-      contactId: "contact-1",
-      channelId: "channel-1",
-      type: "slack",
-      address: "u-1",
-      status: "active",
-      policy: "allow",
-      externalChatId: "chat-1",
-      verifiedAt: 1700000000,
-      verifiedVia: "code",
-      memberDisplayName: "Dora",
-    } satisfies TrustVerdict;
-
-    const member = resolvedMemberFromVerdict(verdict);
-    expect(member).not.toBeNull();
-    expect(member!.channel.id).toBe("channel-1");
-    expect(member!.channel.status).toBe("active");
-    expect(member!.channel.policy).toBe("allow");
-    expect(member!.channel.verifiedAt).toBe(1700000000);
-    expect(member!.channel.verifiedVia).toBe("code");
-    expect(member!.channel.externalChatId).toBe("chat-1");
-
-    expect(member!.contact.id).toBe("contact-1");
-    expect(member!.contact.displayName).toBe("Dora");
-    expect(member!.contact.role).toBe("contact");
-    // INFO fields must be null/default placeholders.
-    expect(member!.contact.notes).toBeNull();
-    expect(member!.contact.userFile).toBeNull();
-    expect(member!.contact.interactionCount).toBe(0);
-    expect(member!.contact.lastInteraction).toBeNull();
-  });
-
-  test("guardian member verdict maps role guardian + principalId", () => {
-    const verdict = {
-      trustClass: "guardian",
-      canonicalSenderId: "u-g",
-      contactId: "contact-g",
-      channelId: "channel-g",
-      guardianPrincipalId: "vellum-principal-g",
-      status: "active",
-      policy: "allow",
-    } satisfies TrustVerdict;
-
-    const member = resolvedMemberFromVerdict(verdict);
-    expect(member!.contact.role).toBe("guardian");
-    expect(member!.contact.principalId).toBe("vellum-principal-g");
-  });
-
-  test("memberless verdict (no contactId) returns null", () => {
-    const verdict = {
-      trustClass: "unknown",
-      canonicalSenderId: "u-2",
-    } satisfies TrustVerdict;
-
-    expect(resolvedMemberFromVerdict(verdict)).toBeNull();
-  });
-
-  test("member verdict missing status returns null (fail-closed)", () => {
-    const verdict = {
-      trustClass: "trusted_contact",
-      canonicalSenderId: "u-4",
-      contactId: "contact-4",
-      channelId: "channel-4",
-      policy: "allow",
-    } satisfies TrustVerdict;
-
-    expect(resolvedMemberFromVerdict(verdict)).toBeNull();
-  });
-
-  test("member verdict missing policy returns null (fail-closed)", () => {
-    const verdict = {
-      trustClass: "trusted_contact",
-      canonicalSenderId: "u-5",
-      contactId: "contact-5",
-      channelId: "channel-5",
-      status: "active",
-    } satisfies TrustVerdict;
-
-    expect(resolvedMemberFromVerdict(verdict)).toBeNull();
-  });
-
-  test("member verdict with unknown policy returns null (fail-closed)", () => {
-    const verdict = {
-      trustClass: "trusted_contact",
-      canonicalSenderId: "u-6",
-      contactId: "contact-6",
-      channelId: "channel-6",
-      status: "active",
-      policy: "bogus",
-    } satisfies TrustVerdict;
-
-    expect(resolvedMemberFromVerdict(verdict)).toBeNull();
-  });
-
-  test("member verdict with unknown status returns null (fail-closed)", () => {
-    const verdict = {
-      trustClass: "trusted_contact",
-      canonicalSenderId: "u-7",
-      contactId: "contact-7",
-      channelId: "channel-7",
-      status: "quarantined",
-      policy: "allow",
-    } satisfies TrustVerdict;
-
-    expect(resolvedMemberFromVerdict(verdict)).toBeNull();
-  });
-
-  test("member verdict with valid known status+policy returns a member", () => {
-    const verdict = {
-      trustClass: "trusted_contact",
-      canonicalSenderId: "u-8",
-      contactId: "contact-8",
-      channelId: "channel-8",
-      status: "active",
-      policy: "allow",
-    } satisfies TrustVerdict;
-
-    const member = resolvedMemberFromVerdict(verdict);
-    expect(member).not.toBeNull();
-    expect(member!.channel.status).toBe("active");
-    expect(member!.channel.policy).toBe("allow");
-  });
-
-  test("blocked/revoked verdict surfaces channel.status verbatim", () => {
-    for (const status of ["blocked", "revoked"] as const) {
-      const verdict = {
-        trustClass: "unknown",
-        canonicalSenderId: "u-3",
-        contactId: "contact-3",
-        channelId: "channel-3",
-        status,
-        policy: "deny",
-      } satisfies TrustVerdict;
-
-      const member = resolvedMemberFromVerdict(verdict);
-      expect(member!.channel.status).toBe(status);
-      expect(member!.channel.policy).toBe("deny");
-    }
   });
 });
 
@@ -681,6 +606,27 @@ describe("verdictMemberFromVerdict", () => {
         channelId: "channel-6",
         status: "active",
         policy: "bogus",
+      } satisfies TrustVerdict),
+    ).toBeNull();
+  });
+
+  test("missing status or policy returns null (fail-closed)", () => {
+    expect(
+      verdictMemberFromVerdict({
+        trustClass: "trusted_contact",
+        canonicalSenderId: "u-4",
+        contactId: "contact-4",
+        channelId: "channel-4",
+        policy: "allow",
+      } satisfies TrustVerdict),
+    ).toBeNull();
+    expect(
+      verdictMemberFromVerdict({
+        trustClass: "trusted_contact",
+        canonicalSenderId: "u-5",
+        contactId: "contact-5",
+        channelId: "channel-5",
+        status: "active",
       } satisfies TrustVerdict),
     ).toBeNull();
   });

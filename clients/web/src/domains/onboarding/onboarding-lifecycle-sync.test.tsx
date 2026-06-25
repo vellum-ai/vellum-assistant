@@ -210,6 +210,7 @@ mock.module("@/lib/local-mode", () => ({
   isRemoteGatewayMode: () => false,
   isLocalAssistant: () => false,
   isPlatformAssistant: () => false,
+  isPlatformDisabled: () => false,
   hasAssistants: () => false,
   getPlatformAssistants: () => [],
   getPlatformRuntimeUrl: () => "https://platform.vellum.ai",

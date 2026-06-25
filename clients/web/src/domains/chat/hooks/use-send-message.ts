@@ -160,6 +160,7 @@ export function useSendMessage({
   const queryClient = useQueryClient();
   const setLiveTurn = useChatSessionStore.use.setLiveTurn();
   const setError = useChatSessionStore.use.setError();
+  const setNotice = useChatSessionStore.use.setNotice();
 
   // -------------------------------------------------------------------------
   // Server-mint in-flight gate
@@ -623,6 +624,7 @@ export function useSendMessage({
         return;
       }
       setError(null);
+      setNotice(null);
       // Local meta commands (/clean, /status, /commands, /models) never start a
       // turn: resolve them via the daemon and render an ephemeral card.
       if (isLocalMetaCommand(content)) {

@@ -25,9 +25,9 @@ import { join } from "node:path";
 import { getConfig } from "../config/loader.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
-  PluginHookFn,
-  PluginInitContext,
-  PluginShutdownContext,
+  HookFunction,
+  InitContext,
+  ShutdownContext,
 } from "../plugin-api/types.js";
 import { listSurfaceDir } from "../plugins/external-plugin-loader.js";
 import { getMtime, importWithTimeout } from "../plugins/surface-import.js";
@@ -53,7 +53,7 @@ export const WORKSPACE_HOOKS_OWNER = "__workspace__";
  * mtime changes, the hook is re-imported and the entry is replaced.
  */
 interface CachedHook {
-  readonly hook: PluginHookFn;
+  readonly hook: HookFunction;
   /** mtimeMs of the source file this hook was imported from. */
   readonly sourceMtime: number;
 }
@@ -83,7 +83,7 @@ async function resolveCachedHook<TCtx>(
   ownerName: string,
   hookName: string,
   filePath: string,
-): Promise<PluginHookFn<TCtx> | undefined> {
+): Promise<HookFunction<TCtx> | undefined> {
   const key = hookKey(ownerName, hookName);
   const currentMtime = getMtime(filePath);
 
@@ -94,7 +94,7 @@ async function resolveCachedHook<TCtx>(
     cached.sourceMtime === currentMtime &&
     currentMtime > 0
   ) {
-    return cached.hook as PluginHookFn<TCtx>;
+    return cached.hook as HookFunction<TCtx>;
   }
 
   // Cache miss — re-import.
@@ -105,7 +105,7 @@ async function resolveCachedHook<TCtx>(
   }
 
   try {
-    const hook = await importWithTimeout<PluginHookFn>(filePath);
+    const hook = await importWithTimeout<HookFunction>(filePath);
     if (hook === undefined || typeof hook !== "function") {
       log.error(
         { plugin: ownerName, hook: hookName, path: filePath },
@@ -114,7 +114,7 @@ async function resolveCachedHook<TCtx>(
       return undefined;
     }
     hookCache.set(key, { hook, sourceMtime: currentMtime });
-    return hook as PluginHookFn<TCtx>;
+    return hook as HookFunction<TCtx>;
   } catch (err) {
     log.error(
       { err, plugin: ownerName, hook: hookName, path: filePath },
@@ -141,8 +141,8 @@ async function resolveCachedHook<TCtx>(
 export async function collectUserHooks<TCtx = unknown>(
   hookName: string,
   pluginDirs: Iterable<readonly [string, string]>,
-): Promise<PluginHookFn<TCtx>[]> {
-  const out: PluginHookFn<TCtx>[] = [];
+): Promise<HookFunction<TCtx>[]> {
+  const out: HookFunction<TCtx>[] = [];
 
   for (const [pluginDir, pluginName] of pluginDirs) {
     const hookFile = listSurfaceDir(join(pluginDir, "hooks")).find(
@@ -191,7 +191,7 @@ export async function preImportHooksDir(
     if (currentMtime === 0) continue;
 
     try {
-      const hook = await importWithTimeout<PluginHookFn>(file.path);
+      const hook = await importWithTimeout<HookFunction>(file.path);
       if (hook !== undefined && typeof hook === "function") {
         hookCache.set(key, { hook, sourceMtime: currentMtime });
       }
@@ -233,7 +233,7 @@ export async function runInitHook(ownerName: string): Promise<void> {
   if (initHookEntry === undefined) return;
 
   try {
-    const initContext: PluginInitContext = {
+    const initContext: InitContext = {
       config: getConfig().plugins?.[ownerName],
       logger: log.child({ plugin: ownerName }),
       pluginStorageDir: ensureHookStorageDir(ownerName),
@@ -256,7 +256,7 @@ export async function runInitHook(ownerName: string): Promise<void> {
  */
 export async function runShutdownHook(
   ownerName: string,
-  context: PluginShutdownContext,
+  context: ShutdownContext,
   reason: string,
 ): Promise<void> {
   const shutdownHookEntry = hookCache.get(hookKey(ownerName, HOOKS.SHUTDOWN));

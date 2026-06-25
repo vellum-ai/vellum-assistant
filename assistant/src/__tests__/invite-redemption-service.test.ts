@@ -37,6 +37,12 @@ const gatewayIpc = {
     mirrored: boolean;
   },
   claimThrows: false,
+  // When set, contacts_get_rich throws (gateway read unreachable) so the
+  // gate-status fallback must fail open.
+  richThrows: false,
+  // When set, overrides the contacts_get_rich response (e.g. a gateway row
+  // under a divergent UUID for the same (type,address)).
+  richOverride: null as ((contactId: string | undefined) => unknown) | null,
   // Drives the upsert_verified_channel relay verdict. When false the gateway
   // refuses the actor (blocked/revoked) and the activation is refused.
   activationVerified: true,
@@ -52,6 +58,13 @@ mock.module("../ipc/gateway-client.js", () => ({
     params?: Record<string, unknown>,
   ) => {
     gatewayIpc.calls.push({ method, params });
+    if (method === "contacts_get_rich") {
+      if (gatewayIpc.richThrows) throw new Error("gateway read unreachable");
+      if (gatewayIpc.richOverride) {
+        return gatewayIpc.richOverride(params?.contactId as string);
+      }
+      return richContactForId(params?.contactId as string);
+    }
     if (method === "record_invite_redemption") {
       if (gatewayIpc.claimThrows) throw new Error("gateway unreachable");
       onGatewayClaim?.();
@@ -81,6 +94,76 @@ mock.module("../ipc/gateway-client.js", () => ({
   },
 }));
 
+// Serves contacts_get_rich (the gateway ACL read backing the gate-status
+// fallback) from the seeded local contact, so gate resolution sources status
+// from the gateway path rather than the local channel column.
+function richContactForId(contactId: string | undefined) {
+  if (!contactId) return undefined;
+  const contact = getContact(contactId);
+  if (!contact) return undefined;
+  // ACL columns live on the still-present DB rows, not the slimmed interfaces;
+  // read them raw to build the gateway-rich response the production read parses.
+  const contactRole = (
+    getSqlite()
+      .query("SELECT role FROM contacts WHERE id = ?")
+      .get(contact.id) as { role: string } | undefined
+  )?.role;
+  return {
+    ok: true,
+    contact: {
+      id: contact.id,
+      displayName: contact.displayName,
+      role: contactRole ?? "contact",
+      interactionCount: contact.interactionCount,
+      createdAt: contact.createdAt,
+      updatedAt: contact.updatedAt,
+      channels: contact.channels.map((c) => {
+        const acl = rawChannelAcl(c.id);
+        return {
+          id: c.id,
+          contactId: c.contactId,
+          type: c.type,
+          address: c.address,
+          isPrimary: c.isPrimary,
+          externalUserId: c.externalChatId,
+          status: acl.status,
+          policy: acl.policy,
+          verifiedAt: acl.verifiedAt,
+          verifiedVia: acl.verifiedVia,
+          lastSeenAt: acl.lastSeenAt,
+          interactionCount: acl.interactionCount,
+          lastInteraction: acl.lastInteraction,
+          revokedReason: acl.revokedReason,
+          blockedReason: acl.blockedReason,
+        };
+      }),
+    },
+  };
+}
+
+/** Read a channel's ACL columns straight off the still-present DB row. */
+function rawChannelAcl(channelId: string) {
+  return getSqlite()
+    .query(
+      `SELECT status, policy, verified_at AS verifiedAt, verified_via AS verifiedVia,
+              last_seen_at AS lastSeenAt, interaction_count AS interactionCount,
+              last_interaction AS lastInteraction, revoked_reason AS revokedReason,
+              blocked_reason AS blockedReason
+         FROM contact_channels WHERE id = ?`,
+    )
+    .get(channelId) as {
+    status: string;
+    policy: string;
+    verifiedAt: number | null;
+    verifiedVia: string | null;
+    lastSeenAt: number | null;
+    interactionCount: number;
+    lastInteraction: number | null;
+    revokedReason: string | null;
+    blockedReason: string | null;
+  };
+}
+
 // Lets a test inject a side-effect into the gateway claim — runs after the
 // service's pre-validation but before the assistant use-bump, so it can race a
 // revoke into the window that makes `recordInviteUse` return false.
@@ -89,6 +172,8 @@ let onGatewayClaim: (() => void) | null = null;
 function resetGatewayIpc() {
   gatewayIpc.claim = { ok: true, updated: true, mirrored: true };
   gatewayIpc.claimThrows = false;
+  gatewayIpc.richThrows = false;
+  gatewayIpc.richOverride = null;
   gatewayIpc.activationVerified = true;
   gatewayIpc.activationChannelId = "gw-channel-id";
   gatewayIpc.calls = [];
@@ -102,7 +187,6 @@ import {
   getContact,
   upsertContact,
 } from "../contacts/contact-store.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
@@ -116,6 +200,7 @@ import {
   resolveMemberGateStatus,
 } from "../runtime/invite-redemption-service.js";
 import { hashVoiceCode } from "../util/voice-code.js";
+import { seedContactChannel } from "./helpers/seed-contact-channel.js";
 
 await initializeDb();
 
@@ -128,6 +213,15 @@ function resetTables() {
 /** Create a throwaway contact and return its ID, for use as the invite's contactId. */
 function createTargetContact(displayName = "Target Contact"): string {
   return upsertContact({ displayName, role: "contact" }).id;
+}
+
+/** Read a contact's local role column (dropped from the Contact interface). */
+function localContactRole(contactId: string): string | undefined {
+  return (
+    getSqlite()
+      .query("SELECT role FROM contacts WHERE id = ?")
+      .get(contactId) as { role: string } | undefined
+  )?.role;
 }
 
 describe("invite-redemption-service", () => {
@@ -181,15 +275,16 @@ describe("invite-redemption-service", () => {
 
     expect(outcome.ok).toBe(true);
 
+    // The gateway owns the verified ACL verdict (relayed via
+    // upsert_verified_channel); the local mirror persists identity only.
     const result = findContactChannel({
       channelType: "telegram",
       address: "user-1",
     });
-
     expect(result).not.toBeNull();
-    expect(result!.channel.verifiedAt).toBeGreaterThan(0);
-    expect(result!.channel.verifiedVia).toBe("invite");
-    expect(result!.channel.status).toBe("active");
+    expect(
+      gatewayIpc.calls.some((c) => c.method === "upsert_verified_channel"),
+    ).toBe(true);
   });
 
   test("marks channel as verified via invite on 6-digit code redemption", async () => {
@@ -210,15 +305,15 @@ describe("invite-redemption-service", () => {
 
     expect(outcome.ok).toBe(true);
 
+    // The gateway owns the verified ACL verdict; the local mirror is identity-only.
     const result = findContactChannel({
       channelType: "telegram",
       address: "code-user-1",
     });
-
     expect(result).not.toBeNull();
-    expect(result!.channel.verifiedAt).toBeGreaterThan(0);
-    expect(result!.channel.verifiedVia).toBe("invite");
-    expect(result!.channel.status).toBe("active");
+    expect(
+      gatewayIpc.calls.some((c) => c.method === "upsert_verified_channel"),
+    ).toBe(true);
   });
 
   test("returns invalid_token for a bogus token", async () => {
@@ -329,7 +424,7 @@ describe("invite-redemption-service", () => {
 
   test("returns already_member when user is already an active member", async () => {
     // Pre-create an active member and find their contact
-    const member = upsertContactChannel({
+    const member = seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "existing-user",
       status: "active",
@@ -338,7 +433,7 @@ describe("invite-redemption-service", () => {
     // Create an invite targeting the same contact that owns the channel
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
-      contactId: member!.contact.id,
+      contactId: member.contactId,
       maxUses: 5,
     });
 
@@ -361,7 +456,7 @@ describe("invite-redemption-service", () => {
 
   test("returns invalid_token for a blocked member to avoid leaking membership status", async () => {
     // Pre-create a blocked member and find their contact
-    const member = upsertContactChannel({
+    const member = seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "blocked-user",
       status: "blocked",
@@ -370,7 +465,7 @@ describe("invite-redemption-service", () => {
     // Create an invite targeting the same contact that owns the channel
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
-      contactId: member!.contact.id,
+      contactId: member.contactId,
       maxUses: 5,
     });
 
@@ -383,18 +478,150 @@ describe("invite-redemption-service", () => {
     expect(outcome).toEqual({ ok: false, reason: "invalid_token" });
   });
 
+  test("matches an active member by (type,address) when the gateway row has a divergent uuid", async () => {
+    const member = seedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "divergent-user",
+      status: "active",
+    });
+
+    // The gateway row for the same (type,address) carries a DIFFERENT id, as a
+    // reconcile divergence would produce. Matching by id alone would miss it.
+    gatewayIpc.richOverride = () => ({
+      ok: true,
+      contact: {
+        id: member.contactId,
+        displayName: "divergent-user",
+        role: "contact",
+        interactionCount: 0,
+        createdAt: 1,
+        updatedAt: 1,
+        channels: [
+          {
+            id: "gateway-divergent-uuid",
+            contactId: member.contactId,
+            type: "telegram",
+            address: "divergent-user",
+            isPrimary: false,
+            externalUserId: null,
+            status: "active",
+            policy: "allow",
+            verifiedAt: 1,
+            verifiedVia: "invite",
+            lastSeenAt: null,
+            interactionCount: 0,
+            lastInteraction: null,
+            revokedReason: null,
+            blockedReason: null,
+          },
+        ],
+      },
+    });
+
+    const { rawToken } = createInvite({
+      sourceChannel: "telegram",
+      contactId: member.contactId,
+      maxUses: 5,
+    });
+
+    const outcome = await redeemInvite({
+      rawToken,
+      sourceChannel: "telegram",
+      externalUserId: "divergent-user",
+    });
+
+    expect(outcome.ok).toBe(true);
+    expect((outcome as { type: string }).type).toBe("already_member");
+  });
+
+  test("blocks via the (type,address) match when the gateway row has a divergent uuid", async () => {
+    const member = seedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "divergent-blocked",
+      status: "blocked",
+    });
+
+    gatewayIpc.richOverride = () => ({
+      ok: true,
+      contact: {
+        id: member.contactId,
+        displayName: "divergent-blocked",
+        role: "contact",
+        interactionCount: 0,
+        createdAt: 1,
+        updatedAt: 1,
+        channels: [
+          {
+            id: "gateway-divergent-blocked-uuid",
+            contactId: member.contactId,
+            type: "telegram",
+            // Case-divergent address must still match (COLLATE NOCASE).
+            address: "DIVERGENT-BLOCKED",
+            isPrimary: false,
+            externalUserId: null,
+            status: "blocked",
+            policy: "deny",
+            verifiedAt: null,
+            verifiedVia: null,
+            lastSeenAt: null,
+            interactionCount: 0,
+            lastInteraction: null,
+            revokedReason: null,
+            blockedReason: "guardian blocked",
+          },
+        ],
+      },
+    });
+
+    const { rawToken } = createInvite({
+      sourceChannel: "telegram",
+      contactId: member.contactId,
+      maxUses: 5,
+    });
+
+    const outcome = await redeemInvite({
+      rawToken,
+      sourceChannel: "telegram",
+      externalUserId: "divergent-blocked",
+    });
+
+    expect(outcome).toEqual({ ok: false, reason: "invalid_token" });
+  });
+
+  test("fails open (no throw) when the gateway gate-status read is unreachable", async () => {
+    // No verdict member and an unreachable gateway read must degrade to the
+    // fail-open path: redemption still resolves rather than throwing.
+    const member = seedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "readfail-user",
+      status: "revoked",
+    });
+
+    gatewayIpc.richThrows = true;
+
+    const { rawToken } = createInvite({
+      sourceChannel: "telegram",
+      contactId: member.contactId,
+      maxUses: 1,
+    });
+
+    const outcome = await redeemInvite({
+      rawToken,
+      sourceChannel: "telegram",
+      externalUserId: "readfail-user",
+    });
+
+    expect(outcome.ok).toBe(true);
+  });
+
   test("binds redeemer to the invite's target contact, not the guardian", async () => {
     // Pre-create a guardian contact with a revoked telegram channel
-    const guardianContact = upsertContact({
+    const guardianSeed = seedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "guardian-tg-id",
       displayName: "Guardian",
       role: "guardian",
-      channels: [
-        {
-          type: "telegram",
-          address: "guardian-tg-id",
-          status: "revoked",
-        },
-      ],
+      status: "revoked",
     });
 
     // Create a separate target contact "Mom"
@@ -440,32 +667,27 @@ describe("invite-redemption-service", () => {
     });
     expect(result).not.toBeNull();
     expect(result!.contact.id).toBe(momContact.id);
-    expect(result!.channel.status).toBe("active");
 
     // Verify the original guardian contact was NOT modified
-    const guardian = getContact(guardianContact.id);
+    const guardian = getContact(guardianSeed.contactId);
     expect(guardian).not.toBeNull();
-    expect(guardian!.role).toBe("guardian");
+    expect(localContactRole(guardianSeed.contactId)).toBe("guardian");
   });
 
   test("downgrades guardian to contact when redeeming invite targeting own contact", async () => {
     // Create a guardian contact with a revoked channel
-    const guardianContact = upsertContact({
+    const guardianSeed = seedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "guardian-own-id",
       displayName: "Guardian",
       role: "guardian",
-      channels: [
-        {
-          type: "telegram",
-          address: "guardian-own-id",
-          status: "revoked",
-        },
-      ],
+      status: "revoked",
     });
 
     // Create invite targeting the guardian's own contact
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
-      contactId: guardianContact.id,
+      contactId: guardianSeed.contactId,
       maxUses: 5,
     });
 
@@ -477,23 +699,23 @@ describe("invite-redemption-service", () => {
 
     expect(outcome.ok).toBe(true);
 
-    // The guardian should now be downgraded to "contact"
-    const updated = getContact(guardianContact.id);
-    expect(updated!.role).toBe("contact");
+    // The role downgrade is gateway-owned; redemption relays the activation for
+    // the guardian's own contact rather than mutating the local role.
+    expect(
+      gatewayIpc.calls.some((c) => c.method === "upsert_verified_channel"),
+    ).toBe(true);
+    const updated = getContact(guardianSeed.contactId);
+    expect(updated).not.toBeNull();
   });
 
   test("binds redeemer to the invite's target contact via 6-digit code, not the guardian", async () => {
     // Pre-create a guardian contact with a revoked telegram channel
-    const guardianContact = upsertContact({
+    const guardianSeed = seedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "guardian-code-id",
       displayName: "Guardian",
       role: "guardian",
-      channels: [
-        {
-          type: "telegram",
-          address: "guardian-code-id",
-          status: "revoked",
-        },
-      ],
+      status: "revoked",
     });
 
     // Create a separate target contact "Mom"
@@ -530,12 +752,11 @@ describe("invite-redemption-service", () => {
     });
     expect(result).not.toBeNull();
     expect(result!.contact.id).toBe(momContact.id);
-    expect(result!.channel.status).toBe("active");
 
     // Verify the original guardian contact was NOT modified
-    const guardian = getContact(guardianContact.id);
+    const guardian = getContact(guardianSeed.contactId);
     expect(guardian).not.toBeNull();
-    expect(guardian!.role).toBe("guardian");
+    expect(localContactRole(guardianSeed.contactId)).toBe("guardian");
   });
 
   test("does not return already_member for a revoked member", async () => {
@@ -547,12 +768,11 @@ describe("invite-redemption-service", () => {
     });
 
     // Pre-create a revoked member
-    const member = upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "revoked-user",
       status: "revoked",
     });
-    expect(member!.channel.status).toBe("revoked");
 
     const outcome = await redeemInvite({
       rawToken,
@@ -605,7 +825,7 @@ describe("invite-redemption-service", () => {
 
   test("returns invalid_token for an active member with a bogus token (no membership probing)", async () => {
     // Pre-create an active member
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "probed-user",
       status: "active",
@@ -632,7 +852,7 @@ describe("invite-redemption-service", () => {
     });
 
     // Pre-create an active member
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "expired-token-user",
       status: "active",
@@ -658,7 +878,7 @@ describe("invite-redemption-service", () => {
     });
 
     // Pre-create an active member on telegram
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "cross-channel-user",
       status: "active",
@@ -821,7 +1041,7 @@ describe("invite-redemption-service", () => {
     });
 
     // Seed an already-active member bound to the invite's target contact.
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "already-member-user",
       role: "contact",

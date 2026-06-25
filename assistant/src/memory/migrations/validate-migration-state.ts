@@ -9,7 +9,10 @@ import {
   STEP_CHECKPOINT_PREFIX,
 } from "./run-migrations.js";
 
-const log = getLogger("memory-db");
+// Share the DB-init logger namespace so the whole startup DB-migration
+// sequence (run steps -> summary -> post-run validation) reports under a
+// single `[db-init]` tag instead of being split across modules.
+const log = getLogger("db-init");
 
 export interface MigrationValidationResult {
   /** Keys of migrations whose checkpoint has value 'started' — started but never completed. */

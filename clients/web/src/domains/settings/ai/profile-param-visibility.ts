@@ -133,6 +133,9 @@ function supportsEffort(provider: string, modelId: string, supportsThinking: boo
   if (provider === "fireworks") {
     return supportsThinking;
   }
+  if (provider === "together") {
+    return supportsThinking;
+  }
   return false;
 }
 
@@ -149,6 +152,7 @@ const TOP_P_OPENAI_COMPAT_PROVIDERS = new Set([
   "atlascloud",
   "ollama",
   "openrouter",
+  "together",
 ]);
 
 /**

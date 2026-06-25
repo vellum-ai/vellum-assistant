@@ -1,46 +1,25 @@
-/**
- * Inline subagent progress card rendered per-subagent in the assistant
- * transcript. Built on `ToolProgressCardShell` with the
- * `SubagentAvatarChip` slotted into the leading-icon slot per
- * Figma node `4922-103839`.
- *
- * Subscribes to the subagent store via `useSubagentCardData(subagentId)`.
- * Returns `null` when the entry isn't in the store yet — handles the
- * spawn race where the assistant message containing the inline card
- * mounts a hair before the `subagent_spawned` SSE event lands. PR 8
- * wires this into the transcript; this PR ships the component standalone.
- *
- * Interaction model:
- *   - Clicking anywhere on the header row opens the subagent's full
- *     timeline panel via `onSubagentClick`. There is no inline expand —
- *     the panel is the only detail view, so a separate open affordance
- *     and an inline timeline both end up redundant.
- *   - Stop is exposed via `onStopSubagent`; the shell renders a small
- *     stop chip in the right rail while the subagent is in-flight.
- */
+// Inline per-subagent progress row in the transcript (Figma 6063:148642):
+// status indicator → avatar → Task Name | detail carousel → "X steps" → stop,
+// with a full-row --surface-active hover. The leading cluster is the open
+// affordance (role="button"); the stop button stays a separate sibling so it
+// isn't nested inside an interactive element.
 
-import { Square } from "lucide-react";
-import { useCallback, type MouseEvent } from "react";
+import { AlertCircle, CheckCircle2, Square } from "lucide-react";
+import { useCallback, type KeyboardEvent, type MouseEvent } from "react";
 
-import { Button } from "@vellumai/design-library";
+import { Button, Typography } from "@vellumai/design-library";
 
 import { SubagentAvatarChip } from "@/components/avatar/subagent-avatar-chip";
-import { PhaseGroupedStepList } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
-import { ToolProgressCardShell } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
+import { HeaderStepCarousel } from "@/domains/chat/components/tool-progress-card/header-step-carousel";
+import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
 import { useSubagentCardData } from "@/domains/chat/hooks/use-subagent-card-data";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 
 export interface SubagentInlineProgressCardProps {
   subagentId: string;
-  /**
-   * Invoked when the user activates the "open full timeline" button in
-   * the right rail. Routes to the subagent detail panel.
-   */
+  /** Open the subagent detail panel (row activation, not the stop button). */
   onSubagentClick?: (subagentId: string) => void;
-  /**
-   * Invoked when the user activates the stop button while the subagent
-   * is in-flight. Omitted callers hide the button entirely.
-   */
+  /** Stop an in-flight subagent; omit to hide the stop button. */
   onStopSubagent?: (subagentId: string) => void;
 }
 
@@ -50,18 +29,25 @@ export function SubagentInlineProgressCard({
   onStopSubagent,
 }: SubagentInlineProgressCardProps) {
   const data = useSubagentCardData(subagentId);
-  // The subagent's task name (e.g. "research-car-brands") titles the card so it
-  // reads as "which subagent"; the derived live status/detail moves to the
-  // subtitle (below).
   const label = useSubagentStore((s) => s.byId[subagentId]?.label);
-  // The shell's `loading` state subsumes running / pending / awaiting_input
-  // (see `deriveCardState` in use-subagent-card-data) — exactly the window
-  // where stopping the subagent is a meaningful action.
+  // "loading" = running / pending / awaiting_input (see deriveCardState).
   const isRunning = data?.state === "loading";
 
-  const handleHeaderClick = useCallback(() => {
+  const handleOpenClick = useCallback(() => {
     onSubagentClick?.(subagentId);
   }, [onSubagentClick, subagentId]);
+
+  const handleOpenKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      // Ignore keydowns bubbled from children (e.g. the stop button).
+      if (e.target !== e.currentTarget) return;
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onSubagentClick?.(subagentId);
+      }
+    },
+    [onSubagentClick, subagentId],
+  );
 
   const handleStop = useCallback(
     (e: MouseEvent) => {
@@ -71,67 +57,94 @@ export function SubagentInlineProgressCard({
     [onStopSubagent, subagentId],
   );
 
-  // Spawn-race: assistant message references a subagent before the
-  // `subagent_spawned` event lands. Render `null` rather than a blank
-  // shell so the transcript doesn't flicker an empty card.
+  // Spawn race: card mounts before the subagent_spawned event lands.
   if (!data) return null;
 
-  const leadingIcon = <SubagentAvatarChip subagentId={subagentId} size={20} />;
-
-  // Title = the subagent's task name. The derived status `data.currentStepTitle`
-  // ("Working", "Searching the web") and its detail collapse into the subtitle:
-  // prefer the specific detail, falling back to the status word when a step
-  // carries none (e.g. a web_search, whose detail is empty) or when the only
-  // "detail" is the label itself (no steps yet) — so the subtitle never reads
-  // blank or echoes the title.
+  // Title = task name; detail prefers the live step info, else the status word
+  // (so it never reads blank or just echoes the title).
   const headerTitle = label ?? data.currentStepTitle;
   const headerInfo =
     data.currentStepInfo && data.currentStepInfo !== label
       ? data.currentStepInfo
       : data.currentStepTitle;
 
-  // Stop button only — the open affordance is gone; the whole header row
-  // now fires `onSubagentClick` via the shell's `onHeaderClick` override.
-  // The shell slots this into a right-aligned flex rail (8px gap to the
-  // step-count pill); we use the design-library icon button so the stop
-  // affordance matches the platform button chrome.
-  const actionSlot =
-    onStopSubagent && isRunning ? (
-      <Button
-        variant="dangerGhost"
-        size="compact"
-        iconOnly={<Square fill="currentColor" />}
-        aria-label="Stop subagent"
-        data-testid="subagent-inline-card-stop"
-        onClick={handleStop}
-      />
-    ) : undefined;
+  // Local copy of the shell's StatusIndicator — avoids coupling the row to the
+  // shared shell's chrome.
+  const statusIndicator = isRunning ? (
+    <ThreeDotIndicator
+      className="shrink-0"
+      data-testid="subagent-inline-card-status-indicator"
+    />
+  ) : data.state === "complete" ? (
+    <CheckCircle2
+      data-testid="subagent-inline-card-status-indicator"
+      aria-hidden="true"
+      className="h-[14px] w-[14px] shrink-0 text-[var(--system-positive-strong)]"
+    />
+  ) : (
+    <AlertCircle
+      data-testid="subagent-inline-card-status-indicator"
+      aria-hidden="true"
+      className="h-[14px] w-[14px] shrink-0 text-[var(--system-negative-strong)]"
+    />
+  );
+
+  // Hidden for 0/1-step rows where the carousel detail already says it.
+  const stepCount = data.stepCount;
+  const showStepCount =
+    !!stepCount &&
+    !stepCount.startsWith("0 ") &&
+    !stepCount.startsWith("1 ");
+
+  // Without a click handler the leading cluster is inert (not a button).
+  const canOpen = !!onSubagentClick;
 
   return (
-    <div className="w-full" data-testid="subagent-inline-progress-card">
-      <ToolProgressCardShell
-        data-testid="subagent-inline-card-shell"
-        statusIndicatorTestId="subagent-inline-card-status-indicator"
-        state={data.state}
-        leadingIcon={leadingIcon}
-        currentStepTitle={headerTitle}
-        currentStepInfo={headerInfo}
-        stepCount={data.stepCount}
-        // The shell's expanded body is unused — there is no inline timeline
-        // to reveal. Disabling expand keeps the shell from tracking state
-        // that would never be exposed via UI.
-        disableExpand
-        headerActionSlot={actionSlot}
-        onHeaderClick={onSubagentClick ? handleHeaderClick : undefined}
-        headerAriaLabel={
-          onSubagentClick ? "Open subagent" : undefined
-        }
+    <div
+      data-testid="subagent-inline-progress-card"
+      className="group flex w-full items-center justify-between gap-2 rounded-md p-2 text-left hover:bg-[var(--surface-active)]"
+    >
+      <span
+        role={canOpen ? "button" : undefined}
+        tabIndex={canOpen ? 0 : undefined}
+        aria-label={canOpen ? "Open subagent" : undefined}
+        onClick={canOpen ? handleOpenClick : undefined}
+        onKeyDown={canOpen ? handleOpenKeyDown : undefined}
+        className={`flex min-w-0 flex-1 items-center gap-1 text-left${
+          canOpen ? " cursor-pointer" : ""
+        }`}
       >
-        {/* Children unused — `disableExpand` suppresses the body region. */}
-        <div className="hidden">
-          <PhaseGroupedStepList steps={data.steps} />
-        </div>
-      </ToolProgressCardShell>
+        {statusIndicator}
+        <span className="mx-1 flex shrink-0 items-center">
+          <SubagentAvatarChip subagentId={subagentId} size={16} />
+        </span>
+        <HeaderStepCarousel
+          currentStepTitle={headerTitle}
+          currentStepInfo={headerInfo}
+          bypassDwell={data.state !== "loading"}
+        />
+      </span>
+      <span className="flex shrink-0 items-center gap-2">
+        {showStepCount ? (
+          <Typography
+            variant="body-small-default"
+            className="text-[var(--content-tertiary)]"
+            data-testid="subagent-inline-card-step-count"
+          >
+            {stepCount}
+          </Typography>
+        ) : null}
+        {onStopSubagent && isRunning ? (
+          <Button
+            variant="dangerGhost"
+            size="compact"
+            iconOnly={<Square fill="currentColor" />}
+            aria-label="Stop subagent"
+            data-testid="subagent-inline-card-stop"
+            onClick={handleStop}
+          />
+        ) : null}
+      </span>
     </div>
   );
 }
