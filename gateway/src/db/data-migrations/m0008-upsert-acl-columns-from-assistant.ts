@@ -5,8 +5,11 @@
  * verification, revoked/blocked reasons) on rows that already exist in the
  * gateway.
  *
- * Channels are keyed on the logical (type, address) — the gateway has a UNIQUE
- * index there — because gateway-first mints its own ids, so the same channel can
+ * Channels match existing gateway rows on the case-insensitive logical key
+ * (type, lower(address)): the gateway UNIQUE(type, address) index is
+ * case-sensitive but lookups collate NOCASE, so matching on lower(address)
+ * updates the existing row in place instead of inserting a duplicate for the
+ * same actor. Gateway-first mints its own channel ids, so the same channel can
  * carry different ids across the two DBs.
  *
  * Never overwrites display_name, timestamps, or the gateway-owned INFO/telemetry
@@ -109,25 +112,38 @@ export async function up(): Promise<MigrationResult> {
     });
     contactsTxn();
 
-    // ── 4. Upsert channels keyed on (type, address) ────────────────────────
-    // Skip any channel whose parent contact is not among the assistant
-    // contacts we just upserted, to avoid an FK violation.
+    // ── 4. Upsert channels by the case-insensitive (type, lower(address)) key ─
+    // The gateway UNIQUE(type, address) index is case-sensitive, but the logical
+    // channel key and COLLATE NOCASE lookups treat address case-insensitively.
+    // Match existing gateway rows on lower(address) and UPDATE their ACL in
+    // place; INSERT only genuinely-new channels so a case-variant address never
+    // forks a second row for the same actor. Skip any channel whose parent
+    // contact is not among the assistant contacts we just upserted (FK safety).
     const contactIds = new Set(assistantContacts.map((c) => c.id));
 
-    const upsertChannel = gwDb.prepare(
+    const channelKey = (type: string, address: string): string =>
+      `${type}|${address.toLowerCase()}`;
+
+    const existingChannelIdByKey = new Map<string, string>();
+    for (const row of gwDb
+      .prepare(`SELECT id, type, address FROM contact_channels`)
+      .all() as { id: string; type: string; address: string }[]) {
+      existingChannelIdByKey.set(channelKey(row.type, row.address), row.id);
+    }
+
+    const updateChannelAcl = gwDb.prepare(
+      `UPDATE contact_channels SET
+         status = ?, policy = ?, verified_at = ?, verified_via = ?,
+         revoked_reason = ?, blocked_reason = ?
+       WHERE id = ?`,
+    );
+    const insertChannel = gwDb.prepare(
       `INSERT INTO contact_channels
          (id, contact_id, type, address, is_primary, external_chat_id,
           status, policy, verified_at, verified_via, invite_id,
           revoked_reason, blocked_reason, last_seen_at,
           interaction_count, last_interaction, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, NULL, ?, ?)
-       ON CONFLICT(type, address) DO UPDATE SET
-         status = excluded.status,
-         policy = excluded.policy,
-         verified_at = excluded.verified_at,
-         verified_via = excluded.verified_via,
-         revoked_reason = excluded.revoked_reason,
-         blocked_reason = excluded.blocked_reason`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, NULL, ?, ?)`,
     );
 
     let upsertedChannels = 0;
@@ -138,23 +154,39 @@ export async function up(): Promise<MigrationResult> {
           skippedOrphans += 1;
           continue;
         }
-        upsertChannel.run(
-          ch.id,
-          ch.contact_id,
-          ch.type,
-          ch.address,
-          ch.is_primary ? 1 : 0,
-          ch.external_chat_id,
-          ch.status,
-          ch.policy,
-          ch.verified_at,
-          ch.verified_via,
-          ch.invite_id,
-          ch.revoked_reason,
-          ch.blocked_reason,
-          ch.created_at,
-          ch.updated_at,
-        );
+        const key = channelKey(ch.type, ch.address);
+        const existingId = existingChannelIdByKey.get(key);
+        if (existingId) {
+          updateChannelAcl.run(
+            ch.status,
+            ch.policy,
+            ch.verified_at,
+            ch.verified_via,
+            ch.revoked_reason,
+            ch.blocked_reason,
+            existingId,
+          );
+        } else {
+          insertChannel.run(
+            ch.id,
+            ch.contact_id,
+            ch.type,
+            ch.address,
+            ch.is_primary ? 1 : 0,
+            ch.external_chat_id,
+            ch.status,
+            ch.policy,
+            ch.verified_at,
+            ch.verified_via,
+            ch.invite_id,
+            ch.revoked_reason,
+            ch.blocked_reason,
+            ch.created_at,
+            ch.updated_at,
+          );
+          // Track the inserted row so a later case-variant updates it in place.
+          existingChannelIdByKey.set(key, ch.id);
+        }
         upsertedChannels += 1;
       }
     });
