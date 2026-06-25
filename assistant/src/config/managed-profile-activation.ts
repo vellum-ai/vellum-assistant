@@ -8,6 +8,8 @@ import { MANAGED_PROFILE_NAMES } from "./seed-inference-profiles.js";
 
 export const MANAGED_PROFILE_BOOTSTRAP_COMPLETED_KEY =
   "managedProfileBootstrapCompleted";
+export const MANAGED_PROFILE_BOOTSTRAP_RECONCILED_KEY =
+  "managedProfileBootstrapReconciled";
 
 function readPlainObject(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -27,17 +29,21 @@ export async function activateManagedProfilesWhenProxyAvailable(
   const llm = readPlainObject(config.llm);
   if (!llm) return false;
 
-  if (llm[MANAGED_PROFILE_BOOTSTRAP_COMPLETED_KEY] === true) return false;
+  if (llm[MANAGED_PROFILE_BOOTSTRAP_RECONCILED_KEY] === true) return false;
 
-  if (options.hadManagedProxyBefore) {
+  const profiles = readPlainObject(llm?.profiles);
+  if (!profiles) return false;
+
+  if (
+    options.hadManagedProxyBefore &&
+    llm[MANAGED_PROFILE_BOOTSTRAP_COMPLETED_KEY] !== true
+  ) {
     llm[MANAGED_PROFILE_BOOTSTRAP_COMPLETED_KEY] = true;
+    llm[MANAGED_PROFILE_BOOTSTRAP_RECONCILED_KEY] = true;
     saveRawConfig(config);
     invalidateConfigCache();
     return false;
   }
-
-  const profiles = readPlainObject(llm?.profiles);
-  if (!profiles) return false;
 
   let changed = false;
   for (const name of MANAGED_PROFILE_NAMES) {
@@ -50,6 +56,7 @@ export async function activateManagedProfilesWhenProxyAvailable(
   }
 
   llm[MANAGED_PROFILE_BOOTSTRAP_COMPLETED_KEY] = true;
+  llm[MANAGED_PROFILE_BOOTSTRAP_RECONCILED_KEY] = true;
 
   saveRawConfig(config);
   invalidateConfigCache();

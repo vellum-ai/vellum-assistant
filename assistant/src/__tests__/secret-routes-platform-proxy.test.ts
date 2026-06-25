@@ -277,6 +277,44 @@ describe("secret routes managed proxy registry sync", () => {
       (rawConfigStore.llm as Record<string, unknown>)
         .managedProfileBootstrapCompleted,
     ).toBe(true);
+    expect(
+      (rawConfigStore.llm as Record<string, unknown>)
+        .managedProfileBootstrapReconciled,
+    ).toBe(true);
+    expect(configChangedCalls).toBe(1);
+  });
+
+  test("legacy completed marker still repairs disabled managed profiles", async () => {
+    secureKeyStore[ASSISTANT_API_KEY_PATH] = "ast-managed-key";
+    rawConfigStore = {
+      llm: {
+        managedProfileBootstrapCompleted: true,
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "together",
+            provider_connection: "together-managed",
+            model: "MiniMaxAI/MiniMax-M3",
+            status: "disabled",
+          },
+        },
+      },
+    };
+
+    await addCredential("vellum:platform_base_url", PLATFORM_BASE_URL);
+
+    const profiles = (
+      rawConfigStore.llm as { profiles: Record<string, unknown> }
+    ).profiles as Record<string, Record<string, unknown>>;
+    expect("status" in profiles.balanced!).toBe(false);
+    expect(
+      (rawConfigStore.llm as Record<string, unknown>)
+        .managedProfileBootstrapCompleted,
+    ).toBe(true);
+    expect(
+      (rawConfigStore.llm as Record<string, unknown>)
+        .managedProfileBootstrapReconciled,
+    ).toBe(true);
     expect(configChangedCalls).toBe(1);
   });
 
@@ -322,6 +360,10 @@ describe("secret routes managed proxy registry sync", () => {
       (rawConfigStore.llm as Record<string, unknown>)
         .managedProfileBootstrapCompleted,
     ).toBe(true);
+    expect(
+      (rawConfigStore.llm as Record<string, unknown>)
+        .managedProfileBootstrapReconciled,
+    ).toBe(true);
     expect(configChangedCalls).toBe(1);
   });
 
@@ -350,6 +392,10 @@ describe("secret routes managed proxy registry sync", () => {
     expect(
       (rawConfigStore.llm as Record<string, unknown>)
         .managedProfileBootstrapCompleted,
+    ).toBe(true);
+    expect(
+      (rawConfigStore.llm as Record<string, unknown>)
+        .managedProfileBootstrapReconciled,
     ).toBe(true);
     expect(configChangedCalls).toBe(0);
   });
