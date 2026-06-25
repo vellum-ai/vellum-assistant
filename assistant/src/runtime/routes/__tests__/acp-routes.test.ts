@@ -76,6 +76,7 @@ mock.module("../../../acp/index.js", () => ({
   getAcpSessionManager: () => ({
     getStatus: () => fakeInMemorySessions,
     getActiveAndPendingIds: () => fakeInMemorySessions.map((s) => s.id),
+    getBufferedUpdates: () => [],
     spawn: spawnMock,
     steerOrResume: steerOrResumeMock,
   }),
@@ -207,8 +208,8 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
       status: "running",
       startedAt: 1000,
     });
-    // No eventLog on in-memory sessions.
-    expect(body.sessions[0].eventLog).toBeUndefined();
+    // In-memory sessions carry eventLog from the live ring buffer (empty here).
+    expect(body.sessions[0].eventLog).toEqual([]);
   });
 
   test("returns only history rows when no in-memory sessions exist", async () => {
@@ -252,8 +253,8 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
   });
 
   test("dedupes by id with in-memory winning on collision", async () => {
-    // Same id in both layers — in-memory entry should win and eventLog
-    // (which only history carries) must be absent on the merged record.
+    // Same id in both layers — in-memory entry should win and its eventLog
+    // comes from the live ring buffer (empty here), not the stale history row.
     fakeInMemorySessions = [
       {
         id: "shared-1",
@@ -282,7 +283,7 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     expect(body.sessions[0].agentId).toBe("agent-live");
     expect(body.sessions[0].status).toBe("running");
     expect(body.sessions[0].startedAt).toBe(5000);
-    expect(body.sessions[0].eventLog).toBeUndefined();
+    expect(body.sessions[0].eventLog).toEqual([]);
   });
 
   test("merges in-memory and disjoint history rows", async () => {

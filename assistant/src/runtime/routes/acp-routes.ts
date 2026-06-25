@@ -689,6 +689,7 @@ function listMergedSessions(opts: {
       completedAt: s.completedAt ?? null,
       error: s.error ?? null,
       stopReason: s.stopReason ?? null,
+      eventLog: manager.getBufferedUpdates(s.id),
     });
   }
 
