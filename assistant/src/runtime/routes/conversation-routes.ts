@@ -90,6 +90,7 @@ import {
   addMessage,
   extractImageSourcePaths,
   getConversation,
+  getConversationCreationSeq,
   getMessages,
   getMessagesPaginated,
   hasMessages,
@@ -1007,9 +1008,14 @@ export function handleListMessages({
   // Snapshot↔stream alignment token: the `seq` of the last event whose
   // content is durably persisted for this conversation in the current
   // daemon process. Returned on every resolved-conversation response so a
-  // client can apply only stream events with a higher `seq`. Null when
-  // nothing has been persisted in-process (cold/aged-out/post-restart).
-  const persistedSeq = getPersistedSeq(resolvedConversationId);
+  // client can apply only stream events with a higher `seq`. When nothing
+  // has been persisted in-process (cold/aged-out/post-restart), fall back to
+  // the durable creation-time baseline stored on the conversation row, so a
+  // freshly created conversation still advertises an alignment anchor instead
+  // of forcing a cold start.
+  const persistedSeq =
+    getPersistedSeq(resolvedConversationId) ??
+    getConversationCreationSeq(resolvedConversationId);
 
   // Authoritative "is the agent mid-turn?" signal, sourced from the
   // `processing_started_at` column (persisted, survives daemon restarts).

@@ -34,10 +34,7 @@ import {
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   seedEverInjectedFromSlugs,
 } from "../plugins/defaults/memory-v3-shadow/ever-injected-store.js";
-import {
-  getCurrentSeq,
-  recordPersistedSeq,
-} from "../runtime/assistant-stream-state.js";
+import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { UserError } from "../util/errors.js";
 import { safeParseRecord } from "../util/json.js";
@@ -634,6 +631,10 @@ export function createConversation(
     memoryScopeId,
     scheduleJobId: opts.scheduleJobId ?? null,
     forkParentConversationId: opts.forkParentConversationId ?? null,
+    // Snapshot↔stream alignment baseline, captured at the creation instant.
+    // 0 (nothing stamped yet this process) is stored as NULL so `/messages`
+    // reports null and the client cold-starts rather than aligning to seq 0.
+    seq: initialSeq > 0 ? initialSeq : null,
   };
 
   // Retry on SQLITE_BUSY and SQLITE_IOERR — transient disk I/O errors or WAL
@@ -648,7 +649,6 @@ export function createConversation(
   for (let attempt = 0; ; attempt++) {
     try {
       db.insert(conversations).values(conversation).run();
-      recordPersistedSeq(id, initialSeq);
       break;
     } catch (err) {
       const code = (err as { code?: string }).code ?? "";
@@ -2222,6 +2222,21 @@ export function isConversationProcessing(id: string): boolean {
     id,
   );
   return row?.processing_started_at != null;
+}
+
+/**
+ * Global stream `seq` baseline captured on the `conversations` row when the
+ * conversation was created, or `null` when none was recorded (created before
+ * any stream activity, or row predates the column). `/messages` returns this
+ * as the snapshot↔stream alignment baseline when no in-process persisted-seq
+ * high-water exists yet. Returns `null` when the conversation row is absent.
+ */
+export function getConversationCreationSeq(id: string): number | null {
+  const row = rawGet<{ seq: number | null }>(
+    "SELECT seq FROM conversations WHERE id = ?",
+    id,
+  );
+  return row?.seq ?? null;
 }
 
 /**
