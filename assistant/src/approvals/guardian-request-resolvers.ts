@@ -619,17 +619,6 @@ const accessRequestResolver: GuardianRequestResolver = {
         return { ok: false, reason: "voice_activation_failed" };
       }
 
-      // Transient gateway outage: the activation write did not land, but this
-      // is not an authoritative deny. Surface a distinct retryable reason so the
-      // caller can retry rather than treating the caller as permanently denied.
-      if (activation.status === "unavailable") {
-        log.error(
-          { requesterExternalUserId },
-          "Access request resolver: gateway activation unavailable for voice caller (transient)",
-        );
-        return { ok: false, reason: "voice_activation_unavailable" };
-      }
-
       // Fail-closed: a refused activation did not land on the gateway source of
       // truth, so the caller is not actually trusted — do not report success.
       if (activation.status === "refused") {

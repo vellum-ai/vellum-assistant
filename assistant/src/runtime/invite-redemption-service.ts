@@ -24,7 +24,6 @@ import {
   hashToken,
   markInviteExpired,
   recordInviteUse,
-  releaseInviteUse,
 } from "../memory/invite-store.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
@@ -152,10 +151,7 @@ export type InviteRedemptionOutcome =
         | "revoked"
         | "max_uses_reached"
         | "channel_mismatch"
-        | "missing_identity"
-        // Transient gateway-activation outage: the invite use was NOT consumed,
-        // so the redeemer can retry once the gateway recovers.
-        | "temporarily_unavailable";
+        | "missing_identity";
     };
 
 // Generic failure reasons for voice redemption — intentionally vague to avoid
@@ -163,10 +159,7 @@ export type InviteRedemptionOutcome =
 export type VoiceRedemptionOutcome =
   | { ok: true; type: "redeemed"; memberId: string; inviteId: string }
   | { ok: true; type: "already_member"; memberId: string }
-  | { ok: false; reason: "invalid_or_expired" }
-  // Transient gateway-activation outage: the invite use was NOT consumed, so the
-  // caller can retry once the gateway recovers.
-  | { ok: false; reason: "temporarily_unavailable" };
+  | { ok: false; reason: "invalid_or_expired" };
 
 // ---------------------------------------------------------------------------
 // Error-string to typed-reason mapping
@@ -347,12 +340,6 @@ export async function redeemInvite(params: {
       contactId: invite.contactId,
     });
 
-    if (reactivated.status === "unavailable") {
-      // Transient outage — release the use so the invite isn't burned.
-      releaseInviteUse(invite.id);
-      return { ok: false, reason: "temporarily_unavailable" };
-    }
-
     if (reactivated.status === "refused") {
       return { ok: false, reason: "invalid_token" };
     }
@@ -411,12 +398,6 @@ export async function redeemInvite(params: {
     verifiedVia: "invite",
     contactId: invite.contactId,
   });
-
-  if (freshResult.status === "unavailable") {
-    // Transient outage — release the use so the invite isn't burned.
-    releaseInviteUse(invite.id);
-    return { ok: false, reason: "temporarily_unavailable" };
-  }
 
   if (freshResult.status === "refused") {
     return { ok: false, reason: "invalid_token" };
@@ -594,12 +575,6 @@ export async function redeemVoiceInviteCode(params: {
     contactId: invite.contactId,
   });
 
-  if (writeResult.status === "unavailable") {
-    // Transient outage — release the use so the invite isn't burned.
-    releaseInviteUse(invite.id);
-    return { ok: false, reason: "temporarily_unavailable" };
-  }
-
   if (writeResult.status === "refused") {
     return { ok: false, reason: "invalid_or_expired" };
   }
@@ -773,12 +748,6 @@ export async function redeemInviteByCode(params: {
       contactId: invite.contactId,
     });
 
-    if (reactivated.status === "unavailable") {
-      // Transient outage — release the use so the invite isn't burned.
-      releaseInviteUse(invite.id);
-      return { ok: false, reason: "temporarily_unavailable" };
-    }
-
     if (reactivated.status === "refused") {
       return { ok: false, reason: "invalid_token" };
     }
@@ -837,12 +806,6 @@ export async function redeemInviteByCode(params: {
     verifiedVia: "invite",
     contactId: invite.contactId,
   });
-
-  if (freshResult.status === "unavailable") {
-    // Transient outage — release the use so the invite isn't burned.
-    releaseInviteUse(invite.id);
-    return { ok: false, reason: "temporarily_unavailable" };
-  }
 
   if (freshResult.status === "refused") {
     return { ok: false, reason: "invalid_token" };

@@ -141,7 +141,7 @@ describe("activateMemberChannel gateway-first relay", () => {
     });
   });
 
-  test("returns unavailable (transient) and skips the local mirror when the gateway relay throws", async () => {
+  test("fails closed and skips the local mirror when the gateway relay throws", async () => {
     ipcThrows = true;
 
     const result = await activateMemberChannel({
@@ -153,11 +153,9 @@ describe("activateMemberChannel gateway-first relay", () => {
 
     expect(ipcCalls).toHaveLength(1);
     // Identity-only mirror would land at the schema-default unverified status, so
-    // a failed gateway write must not report success off it. A thrown relay is
-    // TRANSIENT, not an authoritative deny, so it surfaces `unavailable` — the
-    // caller must not burn an invite use on it.
+    // a failed gateway write must not report success off it.
     expect(upsertContactChannelMock).not.toHaveBeenCalled();
-    expect(result).toEqual({ status: "unavailable" });
+    expect(result).toEqual({ status: "refused" });
   });
 
   test("returns the gateway channel id when the gateway verifies but the local mirror throws", async () => {
@@ -181,7 +179,7 @@ describe("activateMemberChannel gateway-first relay", () => {
     });
   });
 
-  test("returns unavailable when the gateway throws even if the local mirror would have thrown", async () => {
+  test("refuses when the gateway throws even if the local mirror would have thrown", async () => {
     ipcThrows = true;
     upsertContactChannelMock.mockImplementation(() => {
       throw new Error("local mirror exploded");
@@ -193,29 +191,9 @@ describe("activateMemberChannel gateway-first relay", () => {
       externalChatId: "chat-1",
     });
 
-    // Fail-closed but TRANSIENT: a thrown gateway write surfaces `unavailable`
-    // before the mirror is touched.
+    // Fail-closed: a thrown gateway write refuses before the mirror is touched.
     expect(upsertContactChannelMock).not.toHaveBeenCalled();
-    expect(result).toEqual({ status: "unavailable" });
-  });
-
-  test("returns unavailable when the gateway verifies but yields no channel id and the mirror yields no row", async () => {
-    // Gateway verified (not a deny) but produced no channel id, and the
-    // best-effort mirror produced no row — an inconsistent/transient state, not
-    // an authoritative deny.
-    ipcCallPersistentMock.mockImplementationOnce(async (method, params) => {
-      ipcCalls.push({ method, params });
-      return { ok: true, verified: true, channel: undefined };
-    });
-    upsertContactChannelMock.mockImplementation(() => null);
-
-    const result = await activateMemberChannel({
-      sourceChannel: "telegram",
-      externalUserId: "user-1",
-      externalChatId: "chat-1",
-    });
-
-    expect(result).toEqual({ status: "unavailable" });
+    expect(result).toEqual({ status: "refused" });
   });
 
   test("refuses the activation when the gateway denies the actor (verified:false)", async () => {

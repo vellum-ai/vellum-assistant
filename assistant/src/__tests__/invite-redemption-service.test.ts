@@ -46,9 +46,6 @@ const gatewayIpc = {
   // Drives the upsert_verified_channel relay verdict. When false the gateway
   // refuses the actor (blocked/revoked) and the activation is refused.
   activationVerified: true,
-  // When set, the upsert_verified_channel relay throws — a TRANSIENT gateway
-  // outage. The activation must surface `unavailable` and preserve the use.
-  activationThrows: false,
   // Gateway channel returned on a verified activation, surfaced as the memberId
   // when the local mirror produces no row.
   activationChannelId: "gw-channel-id" as string | undefined,
@@ -74,9 +71,6 @@ mock.module("../ipc/gateway-client.js", () => ({
       return gatewayIpc.claim;
     }
     if (method === "upsert_verified_channel") {
-      if (gatewayIpc.activationThrows) {
-        throw new Error("gateway activation unreachable");
-      }
       if (!gatewayIpc.activationVerified) {
         return { ok: true, verified: false };
       }
@@ -181,7 +175,6 @@ function resetGatewayIpc() {
   gatewayIpc.richThrows = false;
   gatewayIpc.richOverride = null;
   gatewayIpc.activationVerified = true;
-  gatewayIpc.activationThrows = false;
   gatewayIpc.activationChannelId = "gw-channel-id";
   gatewayIpc.calls = [];
   onGatewayClaim = null;
@@ -198,7 +191,6 @@ import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
   createInvite,
-  findById,
   revokeInvite as revokeStoreFn,
 } from "../memory/invite-store.js";
 import {
@@ -1120,110 +1112,6 @@ describe("invite-redemption-service", () => {
     });
 
     expect(outcome).toEqual({ ok: false, reason: "invalid_token" });
-  });
-
-  test("preserves the invite use (no burn) on a transient gateway activation outage — fresh member", async () => {
-    const targetContactId = createTargetContact();
-    const { rawToken, invite } = createInvite({
-      sourceChannel: "telegram",
-      contactId: targetContactId,
-      maxUses: 1,
-    });
-
-    // The gateway activation relay throws (transient outage) AFTER the use was
-    // recorded. The use must be released so the single-use invite isn't burned.
-    gatewayIpc.activationThrows = true;
-
-    const outcome = await redeemInvite({
-      rawToken,
-      sourceChannel: "telegram",
-      externalUserId: "outage-user",
-    });
-
-    expect(outcome).toEqual({ ok: false, reason: "temporarily_unavailable" });
-
-    // The invite use was rolled back: still active with a zero use count, so the
-    // redeemer can retry once the gateway recovers.
-    const after = findById(invite.id);
-    expect(after?.useCount).toBe(0);
-    expect(after?.status).toBe("active");
-  });
-
-  test("preserves the invite use (no burn) on a transient gateway activation outage — reactivation", async () => {
-    const member = seedContactChannel({
-      sourceChannel: "telegram",
-      externalUserId: "outage-reactivate-user",
-      status: "revoked",
-    });
-    const { rawToken, invite } = createInvite({
-      sourceChannel: "telegram",
-      contactId: member.contactId,
-      maxUses: 1,
-    });
-
-    gatewayIpc.activationThrows = true;
-
-    const outcome = await redeemInvite({
-      rawToken,
-      sourceChannel: "telegram",
-      externalUserId: "outage-reactivate-user",
-    });
-
-    expect(outcome).toEqual({ ok: false, reason: "temporarily_unavailable" });
-
-    const after = findById(invite.id);
-    expect(after?.useCount).toBe(0);
-    expect(after?.status).toBe("active");
-  });
-
-  test("keeps the use consumed on an authoritative deny (refused), distinct from the transient path", async () => {
-    const targetContactId = createTargetContact();
-    const { rawToken, invite } = createInvite({
-      sourceChannel: "telegram",
-      contactId: targetContactId,
-      maxUses: 1,
-    });
-
-    // Authoritative deny (blocked/revoked actor): the use stays consumed and the
-    // outcome is invalid_token — unchanged by the transient-path fix.
-    gatewayIpc.activationVerified = false;
-
-    const outcome = await redeemInvite({
-      rawToken,
-      sourceChannel: "telegram",
-      externalUserId: "denied-user",
-    });
-
-    expect(outcome).toEqual({ ok: false, reason: "invalid_token" });
-
-    const after = findById(invite.id);
-    expect(after?.useCount).toBe(1);
-    expect(after?.status).toBe("redeemed");
-  });
-
-  test("preserves the invite use on a transient gateway outage via 6-digit code", async () => {
-    const targetContactId = createTargetContact();
-    const code = "778899";
-    const { invite } = createInvite({
-      sourceChannel: "telegram",
-      contactId: targetContactId,
-      maxUses: 1,
-      inviteCodeHash: hashVoiceCode(code),
-    });
-
-    gatewayIpc.activationThrows = true;
-
-    const outcome = await redeemInviteByCode({
-      code,
-      sourceChannel: "telegram",
-      externalUserId: "outage-code-user",
-    });
-
-    expect(outcome).toEqual({ ok: false, reason: "temporarily_unavailable" });
-
-    const after = findById(invite.id);
-    expect(after?.useCount).toBe(0);
-    expect(after?.status).toBe("active");
   });
 
   test("redeems with the gateway channel id when the gateway verifies but the local mirror fails", async () => {

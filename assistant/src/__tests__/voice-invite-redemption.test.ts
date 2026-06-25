@@ -22,9 +22,6 @@ const gatewayIpc = {
   richOverride: null as ((contactId: string | undefined) => unknown) | null,
   // Drives the upsert_verified_channel relay verdict; false refuses the actor.
   activationVerified: true,
-  // When set, the upsert_verified_channel relay throws — a TRANSIENT gateway
-  // outage that must surface `temporarily_unavailable` and preserve the use.
-  activationThrows: false,
   calls: [] as { method: string; params?: Record<string, unknown> }[],
 };
 
@@ -46,9 +43,6 @@ mock.module("../ipc/gateway-client.js", () => ({
       return gatewayIpc.claim;
     }
     if (method === "upsert_verified_channel") {
-      if (gatewayIpc.activationThrows) {
-        throw new Error("gateway activation unreachable");
-      }
       if (!gatewayIpc.activationVerified) {
         return { ok: true, verified: false };
       }
@@ -143,7 +137,6 @@ function resetGatewayIpc() {
   gatewayIpc.richThrows = false;
   gatewayIpc.richOverride = null;
   gatewayIpc.activationVerified = true;
-  gatewayIpc.activationThrows = false;
   gatewayIpc.calls = [];
 }
 
@@ -154,7 +147,7 @@ import {
 } from "../contacts/contact-store.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import { createInvite, findById, revokeInvite } from "../memory/invite-store.js";
+import { createInvite, revokeInvite } from "../memory/invite-store.js";
 import { redeemVoiceInviteCode } from "../runtime/invite-redemption-service.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 import { seedContactChannel } from "./helpers/seed-contact-channel.js";
@@ -355,27 +348,6 @@ describe("redeemVoiceInviteCode", () => {
     });
 
     expect(result).toEqual({ ok: false, reason: "invalid_or_expired" });
-  });
-
-  test("preserves the invite use on a transient gateway activation outage (temporarily_unavailable)", async () => {
-    const phone = "+15551234567";
-    const { invite, code } = createVoiceInvite({ callerPhone: phone });
-
-    // The gateway activation relay throws (transient outage) AFTER the use was
-    // recorded — the use must be released so the single-use code isn't burned.
-    gatewayIpc.activationThrows = true;
-
-    const result = await redeemVoiceInviteCode({
-      callerExternalUserId: phone,
-      sourceChannel: "phone",
-      code,
-    });
-
-    expect(result).toEqual({ ok: false, reason: "temporarily_unavailable" });
-
-    const after = findById(invite.id);
-    expect(after?.useCount).toBe(0);
-    expect(after?.status).toBe("active");
   });
 
   test("proceeds for a legacy voice invite the gateway has never seen (mirrored:false)", async () => {
