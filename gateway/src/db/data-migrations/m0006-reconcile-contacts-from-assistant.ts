@@ -2,11 +2,13 @@
  * One-time migration: seed contacts + contact_channels into the gateway DB
  * for any rows that exist in the assistant DB but are missing from the gateway.
  *
- * Copies ONLY ACL fields (role, principalId, channel status/policy/verification).
- * Informational fields (notes, userFile, contactType, assistant_contact_metadata)
- * remain in the assistant DB per the ACL/info split (see
- * memory/concepts/decision/contact-data-split.md and the comment block in
- * schema.ts).
+ * Copies identity/info columns only (id, display_name, type, address,
+ * external_chat_id, is_primary, invite_id, telemetry, timestamps). ACL columns
+ * (role, principal_id; channel status/policy/verification/reasons) are NOT read
+ * from the assistant: the gateway owns ACL, so inserted rows fall to the
+ * gateway schema defaults (role='contact', status='unverified', policy='allow').
+ * Backfilling ACL from the assistant would let a later retry downgrade an
+ * already-active gateway guardian/channel with stale assistant defaults.
  *
  * Idempotent: uses INSERT OR IGNORE so existing gateway rows are never
  * overwritten. Safe to re-run.
@@ -29,8 +31,6 @@ function getRawGatewayDb(): Database {
 interface AssistantContactRow {
   id: string;
   display_name: string;
-  role: string;
-  principal_id: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -42,13 +42,7 @@ interface AssistantChannelRow {
   address: string;
   is_primary: number;
   external_chat_id: string | null;
-  status: string;
-  policy: string;
-  verified_at: number | null;
-  verified_via: string | null;
   invite_id: string | null;
-  revoked_reason: string | null;
-  blocked_reason: string | null;
   last_seen_at: number | null;
   interaction_count: number;
   last_interaction: number | null;
@@ -70,7 +64,7 @@ export async function up(): Promise<MigrationResult> {
 
   // ── 2. Read all contacts from assistant DB ─────────────────────────────
   const assistantContacts = await assistantDbQuery<AssistantContactRow>(
-    `SELECT id, display_name, role, principal_id, created_at, updated_at
+    `SELECT id, display_name, created_at, updated_at
        FROM contacts`,
   );
 
@@ -91,19 +85,12 @@ export async function up(): Promise<MigrationResult> {
   if (missingContacts.length > 0) {
     const insertContact = gwDb.prepare(
       `INSERT OR IGNORE INTO contacts
-         (id, display_name, role, principal_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+         (id, display_name, created_at, updated_at)
+       VALUES (?, ?, ?, ?)`,
     );
     const txn = gwDb.transaction(() => {
       for (const c of missingContacts) {
-        insertContact.run(
-          c.id,
-          c.display_name,
-          c.role,
-          c.principal_id,
-          c.created_at,
-          c.updated_at,
-        );
+        insertContact.run(c.id, c.display_name, c.created_at, c.updated_at);
       }
     });
     txn();
@@ -125,9 +112,8 @@ export async function up(): Promise<MigrationResult> {
   if (hasChannelsTable.length > 0) {
     const assistantChannels = await assistantDbQuery<AssistantChannelRow>(
       `SELECT id, contact_id, type, address, is_primary, external_chat_id,
-              status, policy, verified_at, verified_via, invite_id,
-              revoked_reason, blocked_reason, last_seen_at,
-              interaction_count, last_interaction, created_at, updated_at
+              invite_id, last_seen_at, interaction_count, last_interaction,
+              created_at, updated_at
          FROM contact_channels`,
     );
 
@@ -186,10 +172,9 @@ export async function up(): Promise<MigrationResult> {
       const insertChannel = gwDb.prepare(
         `INSERT OR IGNORE INTO contact_channels
            (id, contact_id, type, address, is_primary, external_chat_id,
-            status, policy, verified_at, verified_via, invite_id,
-            revoked_reason, blocked_reason, last_seen_at,
-            interaction_count, last_interaction, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            invite_id, last_seen_at, interaction_count, last_interaction,
+            created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       const txn = gwDb.transaction(() => {
         for (const ch of missingChannels) {
@@ -209,13 +194,7 @@ export async function up(): Promise<MigrationResult> {
             ch.address,
             ch.is_primary,
             ch.external_chat_id,
-            ch.status,
-            ch.policy,
-            ch.verified_at,
-            ch.verified_via,
             ch.invite_id,
-            ch.revoked_reason,
-            ch.blocked_reason,
             ch.last_seen_at,
             ch.interaction_count,
             ch.last_interaction,
