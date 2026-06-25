@@ -36,6 +36,7 @@ import {
 import { getLogger } from "../../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
 import type { ApprovalConversationGenerator } from "../../http-types.js";
+import { setMemberVerdict } from "../../member-verdict-cache.js";
 import { resolveTrustContext } from "../../trust-context-resolver.js";
 import { handleGuardianReplyIntercept } from "./guardian-reply-intercept.js";
 
@@ -135,6 +136,14 @@ export async function handleSlackReactionIntercept(
   // empty snapshot would otherwise survive the TTL. This await runs in the
   // already-async intercept, off the sync resolver's hot path.
   await getGuardianDeliveryFresh({ channelTypes: [sourceChannel] });
+
+  // Reactions carry the gateway-stamped verdict but skip getInboundTrustVerdict,
+  // which warms the member-verdict cache the sync resolver reads. Seed it from
+  // the stamped verdict so an active non-guardian contact's reaction resolves
+  // instead of failing closed to `unknown` on a cold cache.
+  if (sourceMetadata?.trustVerdict) {
+    setMemberVerdict(sourceChannel, rawSenderId, sourceMetadata.trustVerdict);
+  }
 
   // Classify the reactor. No timezone enrichment — reactions never drive an
   // agent turn, so only the trust class / guardian principal matter.
