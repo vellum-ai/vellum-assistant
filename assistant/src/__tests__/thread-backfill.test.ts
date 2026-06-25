@@ -98,7 +98,6 @@ import {
   saveRawConfig,
   setNestedValue,
 } from "../config/loader.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
 import {
   type ChannelCapabilities,
   loadSlackChronologicalContext,
@@ -121,6 +120,7 @@ import {
 } from "../runtime/routes/inbound-message-handler.js";
 import {
   handleChannelInbound,
+  seedContactChannel,
   setAdapterProcessMessage,
 } from "./helpers/channel-test-adapter.js";
 
@@ -1902,7 +1902,7 @@ function resetHttpState(): void {
 }
 
 function seedHttpActiveMember(chatId = HTTP_SLACK_CHANNEL_ID): void {
-  upsertContactChannel({
+  seedContactChannel({
     sourceChannel: "slack",
     externalUserId: HTTP_SLACK_USER_ID,
     externalChatId: chatId,
@@ -1913,7 +1913,7 @@ function seedHttpActiveMember(chatId = HTTP_SLACK_CHANNEL_ID): void {
 }
 
 function seedHttpGuardianMember(chatId = HTTP_SLACK_CHANNEL_ID): void {
-  upsertContactChannel({
+  seedContactChannel({
     sourceChannel: "slack",
     externalUserId: HTTP_SLACK_USER_ID,
     externalChatId: chatId,

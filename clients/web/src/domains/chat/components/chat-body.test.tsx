@@ -66,11 +66,13 @@ mock.module("@vellumai/design-library", () => ({
   Notice: ({
     children,
     actions,
+    tone,
   }: {
     children?: ReactNode;
     actions?: ReactNode;
+    tone?: string;
   }) => (
-    <div data-testid="notice">
+    <div data-testid="notice" data-tone={tone}>
       {children}
       {actions ? <div data-testid="notice-actions">{actions}</div> : null}
     </div>
@@ -252,6 +254,136 @@ describe("ChatBody — startersSlot rendering", () => {
 
 });
 
+describe("ChatBody — active subagents overlay slot", () => {
+  const activeSubagentsSlot = (
+    <div data-testid="active-subagents-slot">ACTIVE_SUBAGENTS</div>
+  );
+
+  test("renders the slot top-center when scrolled up and slot is provided", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          showScrollToLatest: true,
+          activeSubagentsSlot,
+        })}
+      />,
+    );
+    expect(html).toContain("ACTIVE_SUBAGENTS");
+  });
+
+  test("does NOT render the slot when pinned (showScrollToLatest false)", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          showScrollToLatest: false,
+          activeSubagentsSlot,
+        })}
+      />,
+    );
+    expect(html).not.toContain("ACTIVE_SUBAGENTS");
+  });
+
+  test("does NOT render the slot on the empty state", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...withEmptyState({
+          showScrollToLatest: true,
+          activeSubagentsSlot,
+        })}
+      />,
+    );
+    expect(html).not.toContain("ACTIVE_SUBAGENTS");
+  });
+
+  test("Go-to-Newest bottom overlay still renders alongside the slot (no regression)", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          showScrollToLatest: true,
+          activeSubagentsSlot,
+        })}
+      />,
+    );
+    expect(html).toContain("SCROLL_TO_LATEST");
+    expect(html).toContain("ACTIVE_SUBAGENTS");
+  });
+});
+
+describe("ChatBody — active workflows overlay slot", () => {
+  const activeSubagentsSlot = (
+    <div data-testid="active-subagents-slot">ACTIVE_SUBAGENTS</div>
+  );
+  const activeWorkflowsSlot = (
+    <div data-testid="active-workflows-slot">ACTIVE_WORKFLOWS</div>
+  );
+
+  test("renders the slot top-center when scrolled up and slot is provided", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          showScrollToLatest: true,
+          activeWorkflowsSlot,
+        })}
+      />,
+    );
+    expect(html).toContain("ACTIVE_WORKFLOWS");
+  });
+
+  test("does NOT render the slot when pinned (showScrollToLatest false)", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          showScrollToLatest: false,
+          activeWorkflowsSlot,
+        })}
+      />,
+    );
+    expect(html).not.toContain("ACTIVE_WORKFLOWS");
+  });
+
+  test("does NOT render the slot on the empty state", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...withEmptyState({
+          showScrollToLatest: true,
+          activeWorkflowsSlot,
+        })}
+      />,
+    );
+    expect(html).not.toContain("ACTIVE_WORKFLOWS");
+  });
+
+  test("renders BOTH slots simultaneously when both are provided", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          showScrollToLatest: true,
+          activeSubagentsSlot,
+          activeWorkflowsSlot,
+        })}
+      />,
+    );
+    expect(html).toContain("ACTIVE_SUBAGENTS");
+    expect(html).toContain("ACTIVE_WORKFLOWS");
+  });
+
+  test("renders the subagent pill to the LEFT of the workflow pill", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          showScrollToLatest: true,
+          activeSubagentsSlot,
+          activeWorkflowsSlot,
+        })}
+      />,
+    );
+    // DOM order: subagents must precede workflows in the centered row.
+    expect(html.indexOf("ACTIVE_SUBAGENTS")).toBeLessThan(
+      html.indexOf("ACTIVE_WORKFLOWS"),
+    );
+  });
+});
+
 describe("ChatBody — read-only cancellation", () => {
   test("renders the read-only banner without a stop control while idle", () => {
     const html = renderToStaticMarkup(
@@ -325,6 +457,23 @@ describe("ChatBody — generic chat error Notice (dismiss UX)", () => {
 
     expect(html).toContain("Go to Doctor");
     expect(html).toContain("Dismiss");
+  });
+
+  test("renders warning-tone generic notices as status banners", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          genericChatError: {
+            message: "Memory is temporarily unavailable.",
+            tone: "warning",
+          },
+          onDismissChatError: () => {},
+        })}
+      />,
+    );
+
+    expect(html).toContain("Memory is temporarily unavailable.");
+    expect(html).toContain('data-tone="warning"');
   });
 
   test("does NOT render the Dismiss button when onDismissChatError is omitted", () => {

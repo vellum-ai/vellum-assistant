@@ -35,10 +35,7 @@ import {
   runShutdownHook,
   WORKSPACE_HOOKS_OWNER,
 } from "../hooks/hook-loader.js";
-import type {
-  PluginHookFn,
-  PluginShutdownContext,
-} from "../plugin-api/types.js";
+import type { HookFunction, ShutdownContext } from "../plugin-api/types.js";
 import {
   registerPluginTools,
   unregisterPluginTools,
@@ -60,9 +57,9 @@ import {
   setSurfaceImportTimeout,
 } from "./surface-import.js";
 
-// Re-export for type compat — consumers that import PluginHookFn from
+// Re-export for type compat — consumers that import HookFunction from
 // the mtime cache module still resolve.
-export type { PluginHookFn } from "./types.js";
+export type { HookFunction } from "./types.js";
 
 const log = getLogger("plugin-mtime-cache");
 
@@ -184,7 +181,7 @@ const disabledPluginDirs = new Set<string>();
  */
 export async function getUserHooksFor<TCtx = unknown>(
   hookName: string,
-): Promise<PluginHookFn<TCtx>[]> {
+): Promise<HookFunction<TCtx>[]> {
   await scanPlugins();
   return collectUserHooks<TCtx>(hookName, discoveredPluginDirs);
 }
@@ -323,6 +320,7 @@ async function scanPlugins(): Promise<void> {
       const manifest = await parsePluginManifest(pluginDir);
       const pluginName = manifest?.name ?? entry;
       if (discoveredPluginDirs.has(pluginDir)) {
+        await deactivatePlugin(pluginName);
         await evictPlugin(pluginDir, pluginName);
       }
       if (!disabledPluginDirs.has(pluginDir)) {
@@ -350,9 +348,10 @@ async function scanPlugins(): Promise<void> {
     await reconcilePluginTools(pluginDir, pluginName);
   }
 
-  // Evict cache entries for deleted plugins.
+  // Deactivate and evict cache entries for deleted plugins.
   for (const [pluginDir, pluginName] of discoveredPluginDirs) {
     if (!currentDirs.has(pluginDir)) {
+      await deactivatePlugin(pluginName);
       await evictPlugin(pluginDir, pluginName);
     }
   }
@@ -365,6 +364,15 @@ async function scanPlugins(): Promise<void> {
   );
   for (const [dir, name] of sorted) {
     discoveredPluginDirs.set(dir, name);
+  }
+
+  // Activate any plugin not yet brought up. Idempotent: already-active plugins
+  // are skipped by the `activatedNames` guard, so steady-state scans (one per
+  // hook dispatch) cost only a membership check per plugin. Tools were imported
+  // into `toolCache` by `reconcilePluginTools` above, so they are ready to
+  // register here.
+  for (const [dir, name] of discoveredPluginDirs) {
+    await activatePlugin(dir, name);
   }
 }
 
@@ -410,28 +418,121 @@ async function evictAll(): Promise<void> {
   disabledPluginDirs.clear();
 }
 
-// ─── Boot population ─────────────────────────────────────────────────────────
+// ─── Activation lifecycle ────────────────────────────────────────────────────
 
 /**
- * Plugins (and the workspace-hooks pseudo-owner) that were fully activated at
- * boot (tools registered + init hook run). Used by the shutdown hook to tear
- * down only what was actually brought up.
+ * Plugins (and the workspace-hooks pseudo-owner) fully activated (tools
+ * registered + `init` hook run) within this process, in activation order. The
+ * process shutdown hook walks this list in reverse to tear everything down.
  */
 const activatedPlugins: Array<{ name: string }> = [];
 
 /**
- * Populate the caches at boot by scanning the plugins directory once,
- * importing all surfaces, registering tools into the tool registry,
- * running `init` hooks, and installing a shutdown hook.
+ * Names in {@link activatedPlugins}, kept as a set for O(1) membership and —
+ * critically — reserved *synchronously* at the top of `activatePlugin`. The
+ * per-turn hook dispatch reaches `scanPlugins` on every turn (sometimes
+ * concurrently), so the synchronous reservation is what prevents a second scan
+ * from double-activating a plugin while its async `init()` is still in flight.
+ */
+const activatedNames = new Set<string>();
+
+const shutdownContext: ShutdownContext = {
+  assistantVersion: APP_VERSION,
+};
+
+/**
+ * Activate a single discovered plugin: pre-import its hooks, register its tools
+ * into the global tool registry, and run its `init` hook. Idempotent — a plugin
+ * already activated (or mid-activation) is skipped. Never throws; per-surface
+ * failures are logged and the plugin still counts as activated so the shutdown
+ * hook tears down whatever came up (mirrors boot semantics).
+ *
+ * Called from `scanPlugins`, which runs both at boot and on every subsequent
+ * scan — so a plugin whose files appear at runtime (installed via the CLI or
+ * provisioned out-of-band) becomes live without a daemon restart.
+ */
+async function activatePlugin(
+  pluginDir: string,
+  pluginName: string,
+): Promise<void> {
+  if (activatedNames.has(pluginName)) return;
+  // Reserve synchronously, before any await, so a re-entrant or concurrent
+  // scan observes this plugin as already handled.
+  activatedNames.add(pluginName);
+
+  // Pre-import all hooks so the first dispatch doesn't pay the import cost.
+  await preImportHooksDir(join(pluginDir, "hooks"), pluginName);
+
+  // Register this plugin's tools into the global tool registry so
+  // `getAllTools()` and `getTool()` can find them. Tools were already imported
+  // and cached by `reconcilePluginTools` during the scan.
+  const pluginTools = Array.from(toolCache.values())
+    .filter((c) => c.pluginName === pluginName)
+    .map((c) => c.tool);
+  if (pluginTools.length > 0) {
+    try {
+      registerPluginTools(pluginName, pluginTools);
+      log.info(
+        { plugin: pluginName, count: pluginTools.length },
+        "user plugin tools registered",
+      );
+    } catch (err) {
+      log.error(
+        { err, plugin: pluginName },
+        `Failed to register tools for user plugin ${pluginName}`,
+      );
+    }
+  }
+
+  // Run the `init` hook if present.
+  await runInitHook(pluginName);
+
+  activatedPlugins.push({ name: pluginName });
+}
+
+/**
+ * Deactivate a plugin whose directory was removed or disabled at runtime:
+ * unregister its tools and run its `shutdown` hook. Must run *before*
+ * `evictPlugin` clears the hook cache, since the shutdown hook is read from it.
+ * Idempotent — a plugin that was never activated is a no-op.
+ */
+async function deactivatePlugin(pluginName: string): Promise<void> {
+  if (!activatedNames.has(pluginName)) return;
+  activatedNames.delete(pluginName);
+  const idx = activatedPlugins.findIndex((p) => p.name === pluginName);
+  if (idx >= 0) activatedPlugins.splice(idx, 1);
+
+  // Unregister tools before running shutdown so the model-visible surface is
+  // clean before teardown.
+  try {
+    unregisterPluginTools(pluginName);
+  } catch (err) {
+    log.warn(
+      { err, plugin: pluginName },
+      "user plugin tool unregister failed (continuing)",
+    );
+  }
+
+  await runShutdownHook(pluginName, shutdownContext, "plugin-removed");
+}
+
+// ─── Boot population ─────────────────────────────────────────────────────────
+
+/**
+ * Populate the caches at boot by scanning the plugins directory once (which
+ * imports surfaces, registers tools, and runs `init` hooks via `activatePlugin`
+ * inside `scanPlugins`), activating standalone workspace hooks, and installing
+ * the process shutdown hook.
  *
  * This replaces the old `loadExternalPlugin` → `registerPlugin` →
  * `bootstrapPlugins` path for user plugins. Instead of registering whole
- * `Plugin` objects into the plugin registry, we register individual tools
- * into the tool registry and cache hooks by mtime. The `init` and
- * `shutdown` hooks are still run exactly once per boot, preserving the
- * activation lifecycle that plugins rely on.
+ * `Plugin` objects into the plugin registry, we register individual tools into
+ * the tool registry and cache hooks by mtime.
  *
- * Called by `loadUserPlugins()` during daemon startup.
+ * Called by `loadUserPlugins()` during daemon startup. After boot, the same
+ * `scanPlugins` → `activatePlugin`/`deactivatePlugin` reconciliation runs on
+ * every turn via `getUserHooksFor` (plugin hook dispatch), so plugins whose
+ * files appear or disappear at runtime are picked up without a restart.
  */
 export async function populateCacheAtBoot(
   opts: { importTimeoutMs?: number } = {},
@@ -440,42 +541,8 @@ export async function populateCacheAtBoot(
     setSurfaceImportTimeout(opts.importTimeoutMs);
   }
 
+  // Scans + activates every discovered plugin (tools registered + `init` run).
   await scanPlugins();
-
-  const shutdownContext: PluginShutdownContext = {
-    assistantVersion: APP_VERSION,
-  };
-
-  for (const [pluginDir, pluginName] of discoveredPluginDirs) {
-    // Pre-import all hooks so the first turn doesn't pay the import cost.
-    await preImportHooksDir(join(pluginDir, "hooks"), pluginName);
-
-    // Register user plugin tools into the global tool registry so
-    // `getAllTools()` and `getTool()` can find them. Tools were already
-    // imported and cached by `reconcilePluginTools` during `scanPlugins`.
-    const pluginTools = Array.from(toolCache.values())
-      .filter((c) => c.pluginName === pluginName)
-      .map((c) => c.tool);
-    if (pluginTools.length > 0) {
-      try {
-        registerPluginTools(pluginName, pluginTools);
-        log.info(
-          { plugin: pluginName, count: pluginTools.length },
-          "user plugin tools registered",
-        );
-      } catch (err) {
-        log.error(
-          { err, plugin: pluginName },
-          `Failed to register tools for user plugin ${pluginName}`,
-        );
-      }
-    }
-
-    // Run the `init` hook if present.
-    await runInitHook(pluginName);
-
-    activatedPlugins.push({ name: pluginName });
-  }
 
   // Activate standalone workspace hooks under `<workspace>/hooks/`. These
   // carry no package.json, no tools, and no install-date ordering — just hook
@@ -490,11 +557,14 @@ export async function populateCacheAtBoot(
   }
 
   // Register a single shutdown hook that walks all activated owners in reverse
-  // order, unregistering tools and running shutdown hooks.
-  const shutdownSnapshot = [...activatedPlugins];
+  // order, unregistering tools and running shutdown hooks. It reads the live
+  // `activatedPlugins` array at teardown time, so plugins activated after boot
+  // (runtime installs) are torn down too.
   registerShutdownHook("user-plugins", async (reason) => {
-    for (let i = shutdownSnapshot.length - 1; i >= 0; i--) {
-      const { name } = shutdownSnapshot[i]!;
+    for (let i = activatedPlugins.length - 1; i >= 0; i--) {
+      const entry = activatedPlugins[i];
+      if (entry === undefined) continue;
+      const { name } = entry;
 
       // Unregister tools before running shutdown so onShutdown sees a
       // clean model-visible surface. (No-op for the workspace-hooks owner,
@@ -533,6 +603,7 @@ export function resetPluginCacheForTests(): void {
   discoveredPluginDirs.clear();
   installDateCache.clear();
   activatedPlugins.length = 0;
+  activatedNames.clear();
   disabledPluginDirs.clear();
 }
 

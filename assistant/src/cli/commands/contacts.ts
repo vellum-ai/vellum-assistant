@@ -8,13 +8,16 @@ import { shouldOutputJson, writeOutput } from "../output.js";
 // IPC response shapes
 // ---------------------------------------------------------------------------
 
+// ACL fields (role, status, policy) are gateway-owned and not hydrated by the
+// daemon-native filtered reads (`--query`/`--channel-address`/`--channel-type`),
+// so they are optional here. The unfiltered default read carries them.
 interface ContactChannel {
   id: string;
   contactId: string;
   type: string;
   address: string;
-  status: string;
-  policy: string;
+  status?: string;
+  policy?: string;
   isPrimary?: boolean;
   revokedReason?: string | null;
   blockedReason?: string | null;
@@ -23,7 +26,7 @@ interface ContactChannel {
 interface ContactWithChannels {
   id: string;
   displayName: string;
-  role: string;
+  role?: string;
   contactType: string;
   notes?: string;
   principalId?: string;
@@ -56,7 +59,7 @@ function formatContactTable(contacts: ContactWithChannels[]): string {
   const rows = contacts.map((c) => [
     c.id,
     c.displayName,
-    `${c.role}/${c.contactType}`,
+    `${c.role ?? "—"}/${c.contactType}`,
     String(c.channels.length),
   ]);
 
@@ -81,8 +84,8 @@ function formatChannelTable(channels: ContactChannel[]): string {
   const rows = channels.map((ch) => {
     const flags = [
       ch.isPrimary ? "primary" : null,
-      ch.status !== "active" ? ch.status : null,
-      ch.policy !== "allow" ? ch.policy : null,
+      ch.status && ch.status !== "active" ? ch.status : null,
+      ch.policy && ch.policy !== "allow" ? ch.policy : null,
     ]
       .filter(Boolean)
       .join(", ");
@@ -124,7 +127,7 @@ function formatContactDetail(
   const lines: string[] = [];
   lines.push(`ID:           ${c.id}`);
   lines.push(`Display Name: ${c.displayName}`);
-  lines.push(`Role:         ${c.role}`);
+  if (c.role) lines.push(`Role:         ${c.role}`);
   lines.push(`Type:         ${c.contactType}`);
   if (c.notes) lines.push(`Notes:        ${c.notes}`);
   if (c.principalId) lines.push(`Principal:    ${c.principalId}`);

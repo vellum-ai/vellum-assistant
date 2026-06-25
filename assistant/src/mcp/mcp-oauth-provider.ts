@@ -570,12 +570,20 @@ export class McpOAuthProvider implements OAuthClientProvider {
 // --- Static helpers ---
 
 /**
+ * Check whether OAuth tokens exist in the credential store for a server.
+ */
+export async function hasMcpOAuthTokens(serverId: string): Promise<boolean> {
+  const raw = await getSecureKeyAsync(tokensKey(serverId));
+  return raw != null && raw.length > 0;
+}
+
+/**
  * Delete all OAuth credentials for a given MCP server.
  * Used by `mcp remove` for cleanup.
  */
 export async function deleteMcpOAuthCredentials(
   serverId: string,
-): Promise<void> {
+): Promise<{ ok: boolean; failedKeys: string[] }> {
   const [tokensResult, clientResult, discoveryResult] = await Promise.all([
     deleteSecureKeyAsync(tokensKey(serverId)),
     deleteSecureKeyAsync(clientInfoKey(serverId)),
@@ -586,20 +594,23 @@ export async function deleteMcpOAuthCredentials(
     { key: "client_info", result: clientResult },
     { key: "discovery", result: discoveryResult },
   ];
-  const errors = results.filter((r) => r.result === "error").map((r) => r.key);
-  if (errors.length > 0) {
+  const failedKeys = results
+    .filter((r) => r.result === "error")
+    .map((r) => r.key);
+  if (failedKeys.length > 0) {
     log.warn(
-      { serverId, failedKeys: errors },
+      { serverId, failedKeys },
       "Some OAuth credentials could not be deleted from secure storage",
     );
   }
-  const hasErrors = errors.length > 0;
+  const ok = failedKeys.length === 0;
   log.info(
     { serverId },
-    hasErrors
-      ? "OAuth credential deletion completed with errors"
-      : "OAuth credentials deleted",
+    ok
+      ? "OAuth credentials deleted"
+      : "OAuth credential deletion completed with errors",
   );
+  return { ok, failedKeys };
 }
 
 // --- HTML rendering ---

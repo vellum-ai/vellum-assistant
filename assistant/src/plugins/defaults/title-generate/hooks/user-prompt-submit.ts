@@ -11,14 +11,14 @@
  */
 
 import type {
-  PluginHookFn,
+  HookFunction,
   UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
 
 import { getConversation } from "../../../../memory/conversation-crud.js";
 import { queueGenerateConversationTitle } from "../../../../memory/conversation-title-service.js";
 
-const userPromptSubmit: PluginHookFn<UserPromptSubmitContext> = async (ctx) => {
+const userPromptSubmit: HookFunction<UserPromptSubmitContext> = async (ctx) => {
   // System conversations (background/scheduled) carry a deterministic title
   // from bootstrap. Their own job prompts arrive as non-interactive turns and
   // must not spend an LLM call on a title nobody reads — only a genuine user

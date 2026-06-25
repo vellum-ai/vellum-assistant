@@ -30,7 +30,7 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 
 ### `init`
 
-**Context:** `PluginInitContext`
+**Context:** `InitContext`
 **When:** Once, when the plugin is first registered (on boot or install).
 **Use it to:** Validate config and open resources. Throwing aborts the plugin's load.
 
@@ -143,7 +143,7 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 
 ### `shutdown`
 
-**Context:** `PluginShutdownContext`
+**Context:** `ShutdownContext`
 **When:** Once, when the Assistant tears down the plugin (process exit, unload).
 **Use it to:** Best-effort cleanup. Do not rely on it for critical writes; persist durably during normal operation instead.
 
@@ -170,9 +170,9 @@ These are the hook-related exports from [`@vellumai/plugin-api`](https://github.
 | ------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `HOOKS`                   | const | Wired hook names keyed by constant (INIT, PRE_MODEL_CALL, and so on). Reference hooks by this instead of free-form strings.       |
 | `HookName`                | type  | Union of every wired hook name declared in HOOKS.                                                                                 |
-| `PluginHookFn`            | type  | Signature every hook implements: `(ctx) => Promise<Partial<ctx> \| void>`.                                                        |
-| `PluginInitContext`       | type  | Passed to the init hook at bootstrap.                                                                                             |
-| `PluginShutdownContext`   | type  | Passed to the shutdown hook at teardown.                                                                                          |
+| `HookFunction`            | type  | Signature every hook implements: `(ctx) => Promise<Partial<ctx> \| void>`.                                                        |
+| `InitContext`             | type  | Passed to the init hook at bootstrap.                                                                                             |
+| `ShutdownContext`         | type  | Passed to the shutdown hook at teardown.                                                                                          |
 | `UserPromptSubmitContext` | type  | Passed to user-prompt-submit, before a turn's messages reach the agent loop.                                                      |
 | `PreModelCallContext`     | type  | Passed to pre-model-call, before each provider call.                                                                              |
 | `PostToolUseContext`      | type  | Passed to post-tool-use, once per tool result.                                                                                    |
@@ -187,7 +187,7 @@ These are the hook-related exports from [`@vellumai/plugin-api`](https://github.
 Every hook has the same shape: it receives a typed context and either mutates it in place and returns nothing, or returns a **partial** context. A returned partial is merged onto the threaded context - only the keys it includes are overwritten, every other field is preserved - so a hook can edit just the subset of fields it cares about without re-specifying the rest. The runtime threads the merged context to the next plugin and then to the Assistant.
 
 ```ts
-type PluginHookFn<TCtx> = (ctx: TCtx) => Promise<Partial<TCtx> | void>;
+type HookFunction<TCtx> = (ctx: TCtx) => Promise<Partial<TCtx> | void>;
 ```
 
 Because an omitted key means "keep the existing value", every context field is required and uses `| null` rather than `?` or `| undefined`: a present key always carries a concrete value, so a field absent from a returned partial is never ambiguous with one a hook meant to clear.

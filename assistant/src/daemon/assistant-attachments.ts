@@ -284,6 +284,19 @@ interface VellumLinkExtractResult {
  * markdown links from assistant text and return corresponding directive
  * requests. The text is NOT modified — the links remain as rendered markdown.
  */
+/**
+ * Decode a vellum:// path segment, returning null on malformed percent-encoding
+ * (e.g. a literal `%` not followed by two hex digits). This prevents a single
+ * bad link from throwing URIError and aborting the entire assistant message.
+ */
+function safeDecodePath(rawPath: string): string | null {
+  try {
+    return decodeURIComponent(rawPath);
+  } catch {
+    return null;
+  }
+}
+
 export function extractVellumLinks(text: string): VellumLinkExtractResult {
   const directiveRequests: DirectiveRequest[] = [];
   const parseWarnings: string[] = [];
@@ -294,9 +307,19 @@ export function extractVellumLinks(text: string): VellumLinkExtractResult {
     const authority = m[2]!;
     const rawPath = m[3]!;
 
+    const decodedPath = safeDecodePath(rawPath);
+    if (decodedPath === null) {
+      parseWarnings.push(
+        `Ignored vellum://${authority} link "${linkText}": malformed percent-encoding in path.`,
+      );
+      continue;
+    }
+
     if (authority === "workspace") {
       // Strip the leading "/" to get a workspace-relative path
-      const path = rawPath.startsWith("/") ? rawPath.slice(1) : rawPath;
+      const path = decodedPath.startsWith("/")
+        ? decodedPath.slice(1)
+        : decodedPath;
       if (!path) {
         parseWarnings.push(
           `Ignored vellum://workspace link "${linkText}": empty path.`,
@@ -310,8 +333,8 @@ export function extractVellumLinks(text: string): VellumLinkExtractResult {
         mimeType: undefined,
       });
     } else {
-      // host: rawPath is already absolute (starts with /)
-      if (!rawPath || rawPath === "/") {
+      // host: decodedPath is already absolute (starts with /)
+      if (!decodedPath || decodedPath === "/") {
         parseWarnings.push(
           `Ignored vellum://host link "${linkText}": empty path.`,
         );
@@ -319,7 +342,7 @@ export function extractVellumLinks(text: string): VellumLinkExtractResult {
       }
       directiveRequests.push({
         source: "host",
-        path: rawPath,
+        path: decodedPath,
         filename: linkText || undefined,
         mimeType: undefined,
       });

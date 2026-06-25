@@ -140,6 +140,15 @@ export interface IngestAskResult {
    * error.
    */
   questionAnswered: boolean;
+  /**
+   * Whether the daemon's turn-completion signal (`message_complete`) arrived
+   * before the `questionMaxMs` wall-clock cap. `true` means the agent
+   * finished its turn (even if it produced no text); `false` means the cap
+   * elapsed or the stream ended mid-turn. Callers can use this to
+   * distinguish "agent finished but said nothing" from "agent timed out"
+   * in the metric reason.
+   */
+  questionCompleted: boolean;
   /** Raw events captured during conversation A's drain. */
   ingestEvents: AgentEvent[];
   /** Raw events captured during conversation B's drain. */
@@ -412,11 +421,21 @@ export async function runIngestAsk(
       conversationKey: questionConversationKey,
     }).catch(() => undefined);
     await agent.send({ content: input.questionMessage });
-    const questionEvents = await questionCollector.collectUntilQuiet({
-      quietMs,
-      maxMs: questionMaxMs,
-      onEvent: autoConfirm,
-    });
+    // Use `collectUntilTurnComplete` instead of `collectUntilQuiet` so the
+    // collector waits for the daemon's `message_complete` signal rather
+    // than cutting the turn short after `quietMs` of event silence. A long
+    // LLM call (extended thinking + generation) can stream zero events for
+    // 30+ seconds while the model is actively producing a response; a
+    // quiet-window collector would abandon the turn mid-call and capture
+    // an empty hypothesis even though the agent answered. The turn-
+    // completion signal is the authoritative "done" marker.
+    const { events: questionEvents, completed: questionCompleted } =
+      await questionCollector.collectUntilTurnComplete({
+        isComplete: (event) => agent.isTurnComplete(event),
+        maxMs: questionMaxMs,
+        graceQuietMs: quietMs,
+        onEvent: autoConfirm,
+      });
     if (questionEvents.length === 0) {
       throw new IngestAskError(
         `Question turn produced no events for conversation ${questionConversationKey}.`,
@@ -461,6 +480,7 @@ export async function runIngestAsk(
       questionConversationKey,
       hypothesis,
       questionAnswered: hypothesis.trim() !== "",
+      questionCompleted,
       ingestEvents,
       questionEvents,
       recordedUsage,

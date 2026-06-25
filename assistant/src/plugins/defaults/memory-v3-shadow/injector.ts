@@ -63,6 +63,10 @@
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../config/loader.js";
 import { isMemoryV3Live } from "../../../config/memory-v3-gate.js";
+import {
+  type PendingConversationNotice,
+  queueConversationNotice,
+} from "../../../daemon/conversation-notices.js";
 import { isPersonalMemoryAllowed } from "../../../daemon/trust-context.js";
 import {
   wrapMemoryBlock,
@@ -118,6 +122,26 @@ function lruSet<V>(map: Map<string, V>, key: string, value: V): void {
     if (oldest !== undefined) map.delete(oldest);
   }
   map.set(key, value);
+}
+
+function queueMemoryV3ConversationNotice(
+  err: MemoryV3RetrievalUnavailableError,
+  ctx: TurnContext,
+  live: boolean,
+): void {
+  if (!live) return;
+  const notice: PendingConversationNotice = err.conversationNotice ?? {
+    source: "memory_v3",
+    code: "UNKNOWN",
+    userMessage:
+      "Memory is temporarily unavailable, so this response may not use your saved memories. You can retry in a moment.",
+    errorCategory: "memory_v3_degraded",
+  };
+  queueConversationNotice(
+    ctx.conversationId,
+    `memory_v3:${ctx.turnIndex}:${notice.errorCategory ?? notice.code}`,
+    notice,
+  );
 }
 
 // ─── shared per-turn orchestration memo ─────────────────────────────────────
@@ -245,16 +269,16 @@ export const memoryV3Injector: Injector = {
     try {
       observed = await observeTurnOnce(ctx.conversationId, ctx.turnIndex);
     } catch (err) {
-      // A memory-v3 INFRASTRUCTURE failure (the selector lost its provider —
-      // e.g. a transient CES credential blip). Under `memory-v3-live` the
-      // user-prompt-submit hook already skipped v2 retrieval, so swallowing
-      // here would ship the turn with NO memory at all — exactly the silent
-      // degradation we want to eliminate. Hard-fail the turn instead (a clean,
-      // retryable error). In shadow mode v2 still ran this turn, so fall back
-      // to it (return null). Non-infra errors are already swallowed inside
-      // observeTurn; anything else reaching here stays non-fatal.
-      if (live && err instanceof MemoryV3RetrievalUnavailableError) {
-        throw err;
+      if (err instanceof MemoryV3RetrievalUnavailableError) {
+        queueMemoryV3ConversationNotice(err, ctx, live);
+        log.error(
+          {
+            err: err.message,
+            conversationId: ctx.conversationId,
+            mode: live ? "live" : "shadow",
+          },
+          "memory-v3 selection failed; skipping v3 memory for this turn",
+        );
       }
       return null;
     }
@@ -405,12 +429,16 @@ export const memoryV3SpotlightInjector: Injector = {
         placement: "after-memory-prefix",
       };
     } catch (err) {
-      // Live-only injector: an infra failure must hard-fail the turn. The cards
-      // injector (ordered ahead of this one) normally throws first, so this
-      // path is defensive — it keeps the behavior correct if the cards injector
-      // is ever disabled or reordered.
       if (err instanceof MemoryV3RetrievalUnavailableError) {
-        throw err;
+        queueMemoryV3ConversationNotice(err, ctx, true);
+        log.error(
+          {
+            err: err.message,
+            conversationId: ctx.conversationId,
+          },
+          "memory-v3 spotlight selection failed; skipping spotlight",
+        );
+        return null;
       }
       log.warn(
         {

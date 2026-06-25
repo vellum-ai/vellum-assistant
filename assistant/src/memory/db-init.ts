@@ -243,7 +243,7 @@ export async function initializeDb(): Promise<void> {
       skipped: skipped.length,
       total: migrationSteps.length,
     },
-    `DB migration steps complete (${applied.length} applied, ${skipped.length} skipped via checkpoint)`,
+    "DB migration steps complete",
   );
 
   if (failed.length > 0) {

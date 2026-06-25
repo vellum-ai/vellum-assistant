@@ -45,7 +45,7 @@ function renderStep(props: Partial<Parameters<typeof LetsChatTomorrowStep>[0]>) 
   return render(
     <LetsChatTomorrowStep
       assistantId="asst-1"
-      assistantReady
+      assistantReady={true}
       onConnected={() => {}}
       onSkip={() => {}}
       onBack={() => {}}
@@ -74,11 +74,11 @@ describe("LetsChatTomorrowStep", () => {
     ]);
   });
 
-  test("hides the re-prompt and shows 'Set it up' by default", () => {
+  test("hides the re-prompt and shows the connect CTA by default", () => {
     renderStep({ missingCalendarScope: false });
 
     expect(screen.queryByText(RE_PROMPT)).toBeNull();
-    expect(screen.getByText("Set it up")).toBeDefined();
+    expect(screen.getByText("Connect Calendar →")).toBeDefined();
   });
 
   test("shows the re-prompt and 'Try again' when the scope is missing", () => {
@@ -96,5 +96,24 @@ describe("LetsChatTomorrowStep", () => {
 
     expect(onRetry).toHaveBeenCalledTimes(1);
     expect(handleConnectMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("explains why calendar setup is disabled while the assistant starts", () => {
+    renderStep({ assistantReady: false });
+
+    expect(screen.getByText("Almost ready")).toBeDefined();
+    expect(
+      screen.getByText(
+        "Your assistant is still getting ready. Calendar setup will be available in a moment.",
+      ),
+    ).toBeDefined();
+    const button = screen.getByRole("button", {
+      name: /Starting assistant/,
+    });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(button);
+
+    expect(handleConnectMock).not.toHaveBeenCalled();
   });
 });

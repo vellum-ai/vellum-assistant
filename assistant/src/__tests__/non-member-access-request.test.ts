@@ -551,10 +551,14 @@ describe("access-request-helper unit tests", () => {
     expect(payload.guardianBindingChannel).toBe("telegram");
   });
 
-  test("notifyGuardianOfAccessRequest falls back to local source-channel binding when gateway delivery is empty", async () => {
-    // Gateway delivery read yields nothing (restart/timeout/malformed IPC).
-    gatewayGuardians = [];
-    // Local dual-written mirror still has the vellum anchor + telegram binding.
+  test("notifyGuardianOfAccessRequest resolves the source-channel guardian from the gateway delivery", async () => {
+    // Gateway delivery serves a telegram guardian matching the vellum anchor.
+    seedGatewayGuardian({
+      channelType: "telegram",
+      address: "guardian-tg",
+      externalChatId: "tg-chat",
+      principalId: anchorPrincipalId,
+    });
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-tg",
@@ -578,7 +582,7 @@ describe("access-request-helper unit tests", () => {
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
-    // Request is decidable: local read supplied the principal + source binding.
+    // Request is decidable: gateway delivery supplied the principal + source binding.
     expect(pending[0].guardianPrincipalId).toBe(anchorPrincipalId);
     expect(pending[0].guardianExternalUserId).toBe("guardian-tg");
 
@@ -589,10 +593,8 @@ describe("access-request-helper unit tests", () => {
     expect(payload.guardianBindingChannel).toBe("telegram");
   });
 
-  test("notifyGuardianOfAccessRequest falls back to local vellum anchor when gateway delivery is empty", async () => {
-    // Gateway empty; only the local vellum anchor from resetState remains.
-    gatewayGuardians = [];
-
+  test("notifyGuardianOfAccessRequest resolves the vellum anchor from the gateway delivery", async () => {
+    // Only the vellum anchor (seeded in resetState) is served by the gateway.
     const result = await notifyGuardianOfAccessRequest({
       canonicalAssistantId: "self",
       sourceChannel: "telegram",
@@ -608,7 +610,7 @@ describe("access-request-helper unit tests", () => {
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
-    // Decidable via the local vellum anchor principal.
+    // Decidable via the gateway-served vellum anchor principal.
     expect(pending[0].guardianPrincipalId).toBe(anchorPrincipalId);
 
     const payload = emitSignalCalls[0].contextPayload as Record<
@@ -618,9 +620,9 @@ describe("access-request-helper unit tests", () => {
     expect(payload.guardianBindingChannel).toBe("vellum");
   });
 
-  test("notifyGuardianOfAccessRequest does not create a decisionable request when both gateway and local reads are empty", async () => {
-    // Genuinely unbound assistant: gateway empty AND no local binding. Prior
-    // behavior rejects creation of a decisionable request without a principal.
+  test("notifyGuardianOfAccessRequest does not create a decisionable request when the gateway delivery is empty", async () => {
+    // Genuinely unbound assistant: gateway serves no guardian. The guard
+    // rejects creation of a decisionable request without a principal.
     gatewayGuardians = [];
     const db = getDb();
     db.run("DELETE FROM contact_channels");

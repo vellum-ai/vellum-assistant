@@ -17,14 +17,14 @@
 
 import {
   doesSupportVision,
-  type PluginHookFn,
+  type HookFunction,
   type PostToolUseContext,
 } from "@vellumai/plugin-api";
 
 import { captionImageBlocks } from "../src/caption-blocks.js";
 import { findVisionProfile } from "../src/vision-caption.js";
 
-const postToolUse: PluginHookFn<PostToolUseContext> = async (ctx) => {
+const postToolUse: HookFunction<PostToolUseContext> = async (ctx) => {
   // Cheapest gate first: bail unless the tool actually returned an image,
   // before touching the model catalog or resolving a vision profile.
   const blocks = ctx.toolResponse.contentBlocks;

@@ -7,7 +7,14 @@
  * cache miss (changed mtime → re-import), plugin deletion (eviction),
  * and hook collection across multiple plugins.
  */
-import { mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -27,6 +34,11 @@ import {
   populateCacheAtBoot,
   resetPluginCacheForTests,
 } from "../plugins/mtime-cache.js";
+import {
+  getAllToolDefinitions,
+  getPluginToolDefinitions,
+  getToolOwner,
+} from "../tools/registry.js";
 
 // ─── Test fixtures ───────────────────────────────────────────────────────────
 
@@ -512,5 +524,122 @@ describe("workspace hooks (<workspace>/hooks/)", () => {
     const { readFileSync: rf, existsSync: ex } = await import("node:fs");
     expect(ex(sentinel)).toBe(true);
     expect(rf(sentinel, "utf8")).toBe("x");
+  });
+});
+
+// ─── Runtime activation (hot-reload without a daemon restart) ──────────────────
+
+/**
+ * Write a hook that appends `token` to `markerPath` each time it runs, so a
+ * test can count how many times `init`/`shutdown` fired.
+ */
+function writeMarkerHook(
+  dir: string,
+  hookName: string,
+  markerPath: string,
+  token: string,
+): void {
+  writeHook(
+    dir,
+    hookName,
+    `import { appendFileSync } from "node:fs";\nexport default () => { appendFileSync(${JSON.stringify(markerPath)}, ${JSON.stringify(`${token}\n`)}); };`,
+  );
+}
+
+const TOOL_SRC = (name: string) =>
+  `export default { name: ${JSON.stringify(name)}, description: "test", parameters: { type: "object", properties: {} } };`;
+
+/**
+ * Simulate the per-turn plugin hook dispatch that drives runtime reconciliation
+ * in production: any `getUserHooksFor` call runs `scanPlugins`, which activates
+ * newly present plugins and deactivates removed ones. The hook name is
+ * irrelevant — the scan runs regardless of whether a plugin defines that hook.
+ */
+async function triggerScan(): Promise<void> {
+  await getUserHooksFor("user-prompt-submit");
+}
+
+describe("plugin runtime activation", () => {
+  test("a plugin installed after boot becomes live on the next scan", async () => {
+    await populateCacheAtBoot(); // empty plugins dir
+    expect(getAllToolDefinitions().some((t) => t.name === "late-tool")).toBe(
+      false,
+    );
+
+    const dir = freshPluginDir("late-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "late-plugin" });
+    writeTool(dir, "late-tool", TOOL_SRC("late-tool"));
+    const initMarker = join(ROOT, "late-init.log");
+    writeMarkerHook(dir, "init", initMarker, "init");
+
+    await triggerScan();
+
+    // Registered into the global registry as a plugin-owned tool, and exposed
+    // to the per-turn resolver via getPluginToolDefinitions().
+    expect(getToolOwner("late-tool")).toEqual({
+      kind: "plugin",
+      id: "late-plugin",
+    });
+    expect(getAllToolDefinitions().some((t) => t.name === "late-tool")).toBe(
+      true,
+    );
+    expect(getPluginToolDefinitions().some((t) => t.name === "late-tool")).toBe(
+      true,
+    );
+    // init ran exactly once.
+    expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(1);
+  });
+
+  test("activation is idempotent — repeated scans do not re-run init", async () => {
+    const dir = freshPluginDir("idem-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "idem-plugin" });
+    writeTool(dir, "idem-tool", TOOL_SRC("idem-tool"));
+    const initMarker = join(ROOT, "idem-init.log");
+    writeMarkerHook(dir, "init", initMarker, "init");
+
+    await populateCacheAtBoot();
+    await triggerScan();
+    await triggerScan();
+
+    expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(1);
+    // Registered exactly once (no refcount inflation from re-registration).
+    expect(getToolOwner("idem-tool")).toEqual({
+      kind: "plugin",
+      id: "idem-plugin",
+    });
+  });
+
+  test("removing a plugin directory deactivates it (unregister + shutdown)", async () => {
+    const dir = freshPluginDir("temp-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "temp-plugin" });
+    writeTool(dir, "temp-tool", TOOL_SRC("temp-tool"));
+    const shutdownMarker = join(ROOT, "temp-shutdown.log");
+    writeMarkerHook(dir, "shutdown", shutdownMarker, "bye");
+
+    await populateCacheAtBoot();
+    expect(getToolOwner("temp-tool")?.kind).toBe("plugin");
+
+    rmSync(dir, { recursive: true, force: true });
+    await triggerScan();
+
+    expect(getToolOwner("temp-tool")).toBeUndefined();
+    expect(getPluginToolDefinitions().some((t) => t.name === "temp-tool")).toBe(
+      false,
+    );
+    expect(existsSync(shutdownMarker)).toBe(true);
+  });
+
+  test("disabling a plugin at runtime tears down its tools", async () => {
+    const dir = freshPluginDir("disable-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "disable-plugin" });
+    writeTool(dir, "disable-tool", TOOL_SRC("disable-tool"));
+
+    await populateCacheAtBoot();
+    expect(getToolOwner("disable-tool")?.kind).toBe("plugin");
+
+    writeFileSync(join(dir, ".disabled"), "");
+    await triggerScan();
+
+    expect(getToolOwner("disable-tool")).toBeUndefined();
   });
 });

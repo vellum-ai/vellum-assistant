@@ -34,6 +34,40 @@ mock.module("../calls/call-domain.js", () => ({
   startInviteCall: async () => mockStartInviteCallResult,
 }));
 
+// Model the gateway: the redemption claim (record_invite_redemption) and the
+// gateway-owned activation (upsert_verified_channel) are both relayed. The
+// activation write fails closed in production, so the mock must serve a
+// verified upsert for the legitimate-success redemption paths.
+const gatewayIpc = {
+  claim: { ok: true, updated: true, mirrored: true },
+  activationVerified: true,
+};
+mock.module("../ipc/gateway-client.js", () => ({
+  ipcCallPersistent: async (
+    method: string,
+    params?: Record<string, unknown>,
+  ) => {
+    if (method === "record_invite_redemption") return gatewayIpc.claim;
+    if (method === "upsert_verified_channel") {
+      if (!gatewayIpc.activationVerified) return { ok: true, verified: false };
+      return {
+        ok: true,
+        verified: true,
+        channel: {
+          id: "gw-channel-id",
+          contactId: (params?.contactId as string) ?? "gw-contact",
+          type: (params?.type as string) ?? "telegram",
+          address: (params?.address as string) ?? "gw-addr",
+          status: "active",
+          verifiedAt: 1,
+          verifiedVia: (params?.verifiedVia as string) ?? "invite",
+        },
+      };
+    }
+    return undefined;
+  },
+}));
+
 import { upsertContact } from "../contacts/contact-store.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";

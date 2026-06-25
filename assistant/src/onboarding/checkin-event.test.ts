@@ -54,6 +54,8 @@ describe("buildCheckinDescription", () => {
     expect(html).toContain(
       "https://www.vellum.ai/assistant/conversations/uuid-123?prompt=What%20would%20you%20recommend",
     );
+    // Carries onboarding attribution for the calendar-event CTA.
+    expect(html).toContain("&utm_source=onboarding&utm_medium=calendar_event");
     // Only sanitization-safe tags; the CTA is a bold link, not a styled button.
     expect(html).toContain("<a href=");
     expect(html).toContain("<strong>");

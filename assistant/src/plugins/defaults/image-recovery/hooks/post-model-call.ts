@@ -24,7 +24,7 @@
  * empty-response hook; only a provider rejection is this hook's to act on.
  */
 
-import type { PluginHookFn, PostModelCallContext } from "@vellumai/plugin-api";
+import type { HookFunction, PostModelCallContext } from "@vellumai/plugin-api";
 
 import { isImageDimensionsTooLargeError } from "../detect.js";
 import {
@@ -36,7 +36,7 @@ import {
   recoverOversizedImages,
 } from "../recover.js";
 
-const postModelCall: PluginHookFn<PostModelCallContext> = async (ctx) => {
+const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   if (
     ctx.error &&
     isImageDimensionsTooLargeError(ctx.error.message) &&

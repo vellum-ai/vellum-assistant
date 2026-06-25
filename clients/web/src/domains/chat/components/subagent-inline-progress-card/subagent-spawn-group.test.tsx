@@ -1,0 +1,116 @@
+/**
+ * Tests for `SubagentSpawnGroup`.
+ *
+ * Drives the Zustand subagent store with spawned ids so badges/rows render,
+ * then asserts the collapse/expand contract: the resting state is the compact
+ * `SubagentAvatarRow` summary (badges present, list rows absent); "Details"
+ * expands into the `SubagentInlineProgressCard` list plus a "Collapse" toggle;
+ * and "Collapse" returns to the summary.
+ */
+
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { cleanup, fireEvent, render, within } from "@testing-library/react";
+
+import { SubagentSpawnGroup } from "@/domains/chat/components/subagent-inline-progress-card/subagent-spawn-group";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
+
+const NOW = 1700000000000;
+
+beforeEach(() => {
+  useSubagentStore.getState().reset();
+});
+
+afterEach(() => {
+  cleanup();
+});
+
+/** Spawn `count` subagents and return their ids so badges/rows render. */
+function spawnIds(count: number): string[] {
+  const ids = Array.from({ length: count }, (_, i) => `sa-${i}`);
+  for (const id of ids) {
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: id,
+      label: "Research Agent",
+      objective: "Find the answer",
+      timestamp: NOW,
+    });
+  }
+  return ids;
+}
+
+describe("SubagentSpawnGroup", () => {
+  test("renders null for an empty id set", () => {
+    const { container } = render(<SubagentSpawnGroup subagentIds={[]} />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  test("defaults to the collapsed avatar summary (no list rows)", () => {
+    const ids = spawnIds(3);
+    const { queryAllByTestId } = render(
+      <SubagentSpawnGroup subagentIds={ids} />,
+    );
+
+    // Badges present, but the expanded list rows are not yet rendered.
+    expect(queryAllByTestId("subagent-avatar-badge")).toHaveLength(3);
+    expect(queryAllByTestId("subagent-inline-progress-card")).toHaveLength(0);
+  });
+
+  test("Details expands to the row list plus a Collapse toggle", () => {
+    const ids = spawnIds(3);
+    const { getByTestId, queryAllByTestId } = render(
+      <SubagentSpawnGroup subagentIds={ids} />,
+    );
+
+    fireEvent.click(getByTestId("subagent-avatar-row-details"));
+
+    // The summary is replaced by one inline card per id, capped by Collapse.
+    expect(queryAllByTestId("subagent-inline-progress-card")).toHaveLength(3);
+    expect(queryAllByTestId("subagent-avatar-badge")).toHaveLength(0);
+    expect(getByTestId("subagent-spawn-group-collapse")).toBeTruthy();
+  });
+
+  test("Collapse returns to the avatar summary", () => {
+    const ids = spawnIds(3);
+    const { getByTestId, queryAllByTestId, queryByTestId } = render(
+      <SubagentSpawnGroup subagentIds={ids} />,
+    );
+
+    fireEvent.click(getByTestId("subagent-avatar-row-details"));
+    fireEvent.click(getByTestId("subagent-spawn-group-collapse"));
+
+    expect(queryAllByTestId("subagent-avatar-badge")).toHaveLength(3);
+    expect(queryAllByTestId("subagent-inline-progress-card")).toHaveLength(0);
+    expect(queryByTestId("subagent-spawn-group-collapse")).toBeNull();
+  });
+
+  test("threads onSubagentClick and onStopSubagent to each expanded row", () => {
+    const ids = spawnIds(2);
+    // Mark in-flight so the stop button renders on the rows.
+    for (const id of ids) {
+      useSubagentStore.getState().changeStatus({ subagentId: id, status: "running" });
+    }
+
+    const clicked: string[] = [];
+    const stopped: string[] = [];
+    const { getByTestId, getAllByTestId } = render(
+      <SubagentSpawnGroup
+        subagentIds={ids}
+        onSubagentClick={(id) => clicked.push(id)}
+        onStopSubagent={(id) => stopped.push(id)}
+      />,
+    );
+
+    fireEvent.click(getByTestId("subagent-avatar-row-details"));
+
+    const rows = getAllByTestId("subagent-inline-progress-card");
+    // The open affordance lives on the leading cluster (a `role="button"`
+    // element inside the row), not on the row container itself, so the stop
+    // button is not nested inside it. Click the affordance, not the row.
+    fireEvent.click(within(rows[0]).getByRole("button", { name: /open subagent/i }));
+    expect(clicked).toEqual([ids[0]]);
+
+    const stopButtons = getAllByTestId("subagent-inline-card-stop");
+    fireEvent.click(stopButtons[1]);
+    expect(stopped).toEqual([ids[1]]);
+  });
+});

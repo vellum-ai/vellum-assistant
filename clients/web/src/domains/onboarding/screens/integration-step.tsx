@@ -14,6 +14,7 @@ import { motion, useReducedMotion } from "motion/react";
 
 import { OnboardingCoin } from "@/domains/onboarding/components/onboarding-coin";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
+import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
 
 interface IntegrationStepProps {
@@ -38,6 +39,7 @@ export function IntegrationStep({
 }: IntegrationStepProps) {
   const reduce = useReducedMotion();
   const tone = useOnboardingTone();
+  const { h: vh } = useOnboardingStageSize();
   const [claiming, setClaiming] = useState(false);
 
   function handleClaim() {
@@ -51,7 +53,6 @@ export function IntegrationStep({
     window.setTimeout(onBumpEyes, DROP * 1000);
   }
 
-  const vh = typeof window === "undefined" ? 800 : window.innerHeight;
   const dropY = vh * 0.42; // down to the eyes
   const apexY = -vh * 0.08; // bumped just a little above the start
   const fallY = vh * 0.9; // falls away off the bottom

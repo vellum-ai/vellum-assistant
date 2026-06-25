@@ -19,10 +19,11 @@
  * that drive it live in the screen above). Reduced-motion safe.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { motion, useReducedMotion, type Easing } from "motion/react";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
+import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 
 /** Where the centered avatar sits, as viewport fractions. */
@@ -94,20 +95,6 @@ function offscreenPoint(
   return { x: from.x + (dx / len) * push, y: from.y + (dy / len) * push };
 }
 
-function useViewport() {
-  const [size, setSize] = useState(() => ({
-    w: typeof window === "undefined" ? 1280 : window.innerWidth,
-    h: typeof window === "undefined" ? 800 : window.innerHeight,
-  }));
-  useEffect(() => {
-    const onResize = () =>
-      setSize({ w: window.innerWidth, h: window.innerHeight });
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  return size;
-}
-
 export interface OnboardingCharacterStageProps {
   components: CharacterComponents;
   characters: CharacterTraits[];
@@ -142,7 +129,7 @@ export function OnboardingCharacterStage({
   onEnterComplete,
   onSelectChar,
 }: OnboardingCharacterStageProps) {
-  const { w, h } = useViewport();
+  const { w, h } = useOnboardingStageSize();
   const reduce = useReducedMotion();
 
   // On narrow screens the side avatars sit behind the title/fields and feel
@@ -176,7 +163,7 @@ export function OnboardingCharacterStage({
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none fixed inset-0 z-0 overflow-hidden"
+      className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
     >
       {/* Soft contact shadow under the centered avatar. */}
       <div

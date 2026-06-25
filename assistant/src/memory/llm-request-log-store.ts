@@ -94,14 +94,21 @@ export type CompactionAgentLogRow = LogMetaRow & {
  * can either stringify it directly (daemon-path `recordRequestLog`) or
  * store it on a pending-log queue that stringifies later (wake-path
  * `PendingLog.rawResponse`), without double-encoding.
+ *
+ * When the provider captured the verbatim upstream body, it is attached as a
+ * top-level `rawResponse` sibling so the inspector's Raw tab can show the
+ * actual provider payload (parsed JSON, or the raw string for non-JSON error
+ * pages) — matching the success path, where Raw shows the real provider JSON.
  */
 export function buildProviderErrorResponsePayload(err: Error): {
   error: Record<string, unknown>;
+  rawResponse?: unknown;
 } {
   const payload: Record<string, unknown> = {
     name: err.name,
     message: err.message,
   };
+  let rawResponse: unknown;
   if (err instanceof ProviderError) {
     payload.code = err.code;
     payload.provider = err.provider;
@@ -111,10 +118,28 @@ export function buildProviderErrorResponsePayload(err: Error): {
     if (err.retryAfterMs !== undefined) {
       payload.retryAfterMs = err.retryAfterMs;
     }
+    if (err.apiErrorCode !== undefined) payload.apiErrorCode = err.apiErrorCode;
+    if (err.apiErrorType !== undefined) payload.apiErrorType = err.apiErrorType;
+    if (err.apiErrorParam !== undefined)
+      payload.apiErrorParam = err.apiErrorParam;
+    if (err.requestId !== undefined) payload.requestId = err.requestId;
+    if (err.rawBody !== undefined) rawResponse = parseRawBody(err.rawBody);
   } else if (err instanceof AssistantError) {
     payload.code = err.code;
   }
-  return { error: payload };
+  return rawResponse !== undefined
+    ? { error: payload, rawResponse }
+    : { error: payload };
+}
+
+/** Parse a captured upstream body as JSON, falling back to the raw string for
+ *  non-JSON error pages (HTML, plain text) or a truncated/invalid prefix. */
+function parseRawBody(rawBody: string): unknown {
+  try {
+    return JSON.parse(rawBody);
+  } catch {
+    return rawBody;
+  }
 }
 
 export function recordRequestLog(

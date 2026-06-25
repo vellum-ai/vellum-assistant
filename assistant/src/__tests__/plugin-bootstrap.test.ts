@@ -2,7 +2,7 @@
  * Tests for plugin bootstrap (PR 14).
  *
  * Covers:
- * - A noop `init()` fires with a valid `PluginInitContext` that exposes every
+ * - A noop `init()` fires with a valid `InitContext` that exposes every
  *   documented field.
  * - Version-mismatch registration fails with an error that names the plugin
  *   (the registry enforces this at `registerPlugin` time, so bootstrap never
@@ -29,7 +29,7 @@ import {
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
-import { type Plugin, type PluginInitContext } from "../plugins/types.js";
+import { type InitContext, type Plugin } from "../plugins/types.js";
 import { APP_VERSION } from "../version.js";
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
@@ -51,7 +51,7 @@ function buildPlugin(
   name: string,
   extras: Partial<Omit<Plugin, "manifest" | "hooks">> & {
     hooks?: Plugin["hooks"];
-    init?: (ctx: PluginInitContext) => Promise<void>;
+    init?: (ctx: InitContext) => Promise<void>;
     onShutdown?: () => Promise<void>;
   } = {},
   options: {
@@ -98,8 +98,8 @@ describe("plugin bootstrap", () => {
     await rm(TEST_WORKSPACE_DIR, { recursive: true, force: true });
   });
 
-  test("noop plugin: init fires with a fully-populated PluginInitContext", async () => {
-    let received: PluginInitContext | undefined;
+  test("noop plugin: init fires with a fully-populated InitContext", async () => {
+    let received: InitContext | undefined;
     const plugin: Plugin = buildPlugin("alpha", {
       async init(ctx) {
         received = ctx;

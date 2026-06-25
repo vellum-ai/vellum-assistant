@@ -42,6 +42,7 @@ import {
   PluginPinHistoryError,
   resolvePinToMarketplaceCommit,
 } from "../lib/plugin-pin-history.js";
+import { runPublish } from "../lib/publish-plugin.js";
 import { registerCommand } from "../lib/register-command.js";
 import {
   InvalidSearchPatternError,
@@ -161,7 +162,6 @@ Examples:
               console.log(
                 `Installed plugin "${result.name}" (${result.fileCount} file${result.fileCount === 1 ? "" : "s"})${pinned} → ${result.target}`,
               );
-              console.log("Restart the assistant to pick up the new plugin.");
             } catch (err) {
               if (err instanceof PluginAlreadyInstalledError) {
                 console.error(`${err.message}\nPass --force to overwrite.`);
@@ -245,9 +245,7 @@ Examples:
 
       plugins
         .command("list")
-        .description(
-          "List plugins installed in your workspace.",
-        )
+        .description("List plugins installed in your workspace.")
         .option("--json", "Emit machine-readable JSON instead of a table")
         .option(
           "--all",
@@ -276,8 +274,7 @@ Examples:
             const nameW = Math.max(4, ...rows.map((r) => r.name.length));
             const versionW = Math.max(7, ...rows.map((r) => r.version.length));
             const sourceW = Math.max(6, ...rows.map((r) => r.source.length));
-            const pad = (s: string, w: number) =>
-              s + " ".repeat(w - s.length);
+            const pad = (s: string, w: number) => s + " ".repeat(w - s.length);
             console.log(
               `${pad("NAME", nameW)}  ${pad("VERSION", versionW)}  ${pad("SOURCE", sourceW)}  STATUS`,
             );
@@ -294,9 +291,7 @@ Examples:
             console.log(
               `${all.length} plugin${all.length === 1 ? "" : "s"} ` +
                 `(${userCount} user, ${defaultCount} default` +
-                (disabledCount > 0
-                  ? `, ${disabledCount} disabled`
-                  : "") +
+                (disabledCount > 0 ? `, ${disabledCount} disabled` : "") +
                 `).`,
             );
             return;
@@ -512,6 +507,56 @@ Examples:
         });
 
       plugins
+        .command("publish")
+        .description(
+          "Validate and submit the plugin in the current directory to the Vellum marketplace catalog",
+        )
+        .option(
+          "--print",
+          "Print the entry JSON without submitting to the platform",
+        )
+        .option(
+          "--path <dir>",
+          "Validate a plugin at the given path instead of CWD",
+        )
+        .option("--force", "Skip the confirmation prompt")
+        .option("--json", "Emit machine-readable JSON instead of human output")
+        .option(
+          "--category <cat>",
+          "Set the category, skipping the interactive prompt",
+        )
+        .addHelpText(
+          "after",
+          `
+
+Validates the plugin in the current directory (or --path), resolves the
+git commit SHA and GitHub remote, and submits the entry to the Vellum
+platform API. The platform creates a pull request against
+vellum-ai/vellum-assistant adding the plugin to the marketplace catalog.
+
+Requires a connected Vellum platform account (run \`assistant platform connect\`).
+Use --print to validate and print the entry without submitting.
+
+Examples:
+$ assistant plugins publish
+$ assistant plugins publish --print
+$ assistant plugins publish --path ./my-plugin --category productivity
+$ assistant plugins publish --json`,
+        )
+        .action(
+          async (opts: {
+            print?: boolean;
+            path?: string;
+            force?: boolean;
+            json?: boolean;
+            category?: string;
+          }) => {
+            const ok = await runPublish(opts, { confirmPrompt });
+            if (!ok) process.exitCode = 1;
+          },
+        );
+
+      plugins
         .command("uninstall <name>")
         .description("Remove a plugin from <workspaceDir>/plugins/<name>/")
         .option("--force", "Skip the confirmation prompt")
@@ -540,7 +585,6 @@ Examples:
             console.log(
               `Uninstalled plugin "${result.name}" from ${result.target}`,
             );
-            console.log("Restart the assistant to drop the plugin.");
           } catch (err) {
             if (err instanceof InvalidPluginNameError) {
               console.error(err.message);
@@ -561,15 +605,13 @@ Examples:
       plugins
         .command("disable <name>")
         .description(
-          "Disable a plugin by creating a .disabled sentinel file. Works for both user-installed and default plugins. Restart the assistant for the change to take effect.",
+          "Disable a plugin by creating a .disabled sentinel file. Works for both user-installed and default plugins. Takes effect immediately in a running assistant.",
         )
         .action((name: string) => {
           try {
             const result = disablePlugin(name);
             log.info({ name: result.name }, "plugin disabled");
-            console.log(
-              `Disabled plugin "${result.name}". Restart the assistant for the change to take effect.`,
-            );
+            console.log(`Disabled plugin "${result.name}".`);
           } catch (err) {
             if (
               err instanceof PluginAlreadyInStateException ||
@@ -589,15 +631,13 @@ Examples:
       plugins
         .command("enable <name>")
         .description(
-          "Re-enable a disabled plugin by removing the .disabled sentinel file. Restart the assistant for the change to take effect.",
+          "Re-enable a disabled plugin by removing the .disabled sentinel file. Takes effect immediately.",
         )
         .action((name: string) => {
           try {
             const result = enablePlugin(name);
             log.info({ name: result.name }, "plugin enabled");
-            console.log(
-              `Enabled plugin "${result.name}". Restart the assistant for the change to take effect.`,
-            );
+            console.log(`Enabled plugin "${result.name}".`);
           } catch (err) {
             if (
               err instanceof PluginAlreadyInStateException ||

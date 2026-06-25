@@ -66,7 +66,8 @@ export function LetsChatTomorrowStep({
   };
   // Wait for full readiness (not just an id): the post-OAuth `scheduleCheckin`
   // hits the daemon, which may not be reachable until healthz passes.
-  const connectDisabled = !assistantId || !assistantReady || oauthInProgress;
+  const waitingForAssistant = !assistantId || !assistantReady;
+  const connectDisabled = waitingForAssistant || oauthInProgress;
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
@@ -77,14 +78,18 @@ export function LetsChatTomorrowStep({
           className="text-[2.6rem] leading-tight"
           style={{ fontFamily: "var(--font-serif)" }}
         >
-          {missingCalendarScope
-            ? "Access not enabled"
-            : "I’ll also check in with you"}
+          {waitingForAssistant
+            ? "Almost ready"
+            : missingCalendarScope
+              ? "Access not enabled"
+              : "Let me make this easy"}
         </h1>
         <p className="text-[16px]" style={{ color: tone.fgMuted }}>
-          {missingCalendarScope
-            ? "Check the box next to the Google Calendar permission so I can book the check-in."
-            : "Add a quick check-in to your calendar to follow up tomorrow."}
+          {waitingForAssistant
+            ? "Your assistant is still getting ready. Calendar setup will be available in a moment."
+            : missingCalendarScope
+              ? "Check the box next to the Google Calendar permission so I can book the check-in."
+              : "Connect your Google Calendar so I can find time to check in and start helping."}
         </p>
 
         <div className="mt-6 flex w-[234px] flex-col items-center gap-4">
@@ -92,13 +97,18 @@ export function LetsChatTomorrowStep({
             type="button"
             onClick={handleConnectClick}
             disabled={connectDisabled}
-            className="flex h-11 w-full items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition-transform duration-150 active:scale-[0.97] disabled:opacity-60"
+            className="flex h-11 w-full items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition-transform duration-150 enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
             style={{
               backgroundColor: tone.isLight ? "#1A1A1A" : "#FFFFFF",
               color: tone.isLight ? "#FFFFFF" : "#1A1A1A",
             }}
           >
-            {oauthInProgress ? (
+            {waitingForAssistant ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                Starting assistant…
+              </>
+            ) : oauthInProgress ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
                 Waiting for authorization…
@@ -106,7 +116,7 @@ export function LetsChatTomorrowStep({
             ) : missingCalendarScope ? (
               "Try again"
             ) : (
-              "Set it up"
+              "Connect Calendar →"
             )}
           </button>
           {/* Skip sits directly under the connect button. */}

@@ -19,6 +19,10 @@ import { ArrowLeft, ArrowRight, Pencil } from "lucide-react";
 
 import { OnboardingCharacterStage } from "@/domains/onboarding/components/onboarding-character-stage";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
+import {
+  OnboardingStageSizeProvider,
+  useElementSize,
+} from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import type { CharacterTraits } from "@/types/avatar";
@@ -76,6 +80,10 @@ export function GiveMeAFaceScreen({
   // so their custom name survives cycling through avatars.
   const nameCustomized = useRef(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  // Measure this screen's container so the decorative stage shares the exact
+  // coordinate space as the foreground arrows/title/buttons (see
+  // use-onboarding-stage-size).
+  const { ref: stageRef, size: stageSize } = useElementSize();
   // The current swap: the newly selected char + the slot it came from
   // (entering), and the old center + the slot it's heading to (exiting).
   const [swap, setSwap] = useState<{
@@ -151,9 +159,11 @@ export function GiveMeAFaceScreen({
 
   return (
     <div
+      ref={stageRef}
       data-theme="dark"
       className="relative h-full overflow-hidden bg-[var(--surface-base)] text-[var(--content-default)]"
     >
+      <OnboardingStageSizeProvider size={stageSize}>
       {ready && (
         <OnboardingCharacterStage
           components={components}
@@ -256,6 +266,7 @@ export function GiveMeAFaceScreen({
           Continue
         </Button>
       </div>
+      </OnboardingStageSizeProvider>
     </div>
   );
 }

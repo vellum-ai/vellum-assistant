@@ -15,7 +15,7 @@ import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-s
 import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
-import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useSlackConversationDisplay } from "@/domains/chat/hooks/use-slack-conversation-display";
 import {
@@ -51,7 +51,7 @@ export function useChatHeaderRegistration({
 }: UseChatHeaderRegistrationOptions): void {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const activeConversationId = useConversationStore.use.activeConversationId();
-  const messages = useChatSessionStore.use.messages();
+  const messages = useTranscriptMessages(assistantId, activeConversationId);
   const setTopBarRightSlot = useChatLayoutSlotsStore.use.setTopBarRightSlot();
   const setHeaderSupplements = useChatLayoutSlotsStore.use.setHeaderSupplements();
 

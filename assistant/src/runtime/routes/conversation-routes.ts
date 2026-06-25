@@ -135,7 +135,10 @@ import type {
   RuntimeMessagePayload,
   SendMessageDeps,
 } from "../http-types.js";
-import { findLocalGuardianPrincipalId } from "../local-actor-identity.js";
+import {
+  findLocalGuardianPrincipalId,
+  resolveActorPrincipalIdForLocalGuardian,
+} from "../local-actor-identity.js";
 import { resolveLocalPrincipalTrustContext } from "../local-principal-trust.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
@@ -1509,10 +1512,13 @@ export async function handleSendMessage(
   }
 
   const isInteractive = isInteractiveInterface(sourceInterface);
-  // Use the JWT-verified requester principal — not guardianPrincipalId,
-  // which is the workspace owner and would let a trusted contact's web
-  // turn match against the guardian's macOS client.
-  const sourceActorPrincipalId = actorPrincipalId ?? undefined;
+  // Translate the dev-bypass actor principal to the real guardian principal
+  // before the same-actor host-proxy gate so web/iOS turns match the macOS
+  // client's SSE-registered principal. No-op for real JWT principals in
+  // non-dev-bypass deployments.
+  const sourceActorPrincipalId = await resolveActorPrincipalIdForLocalGuardian(
+    actorPrincipalId ?? undefined,
+  );
   // Bash/File/Transfer singletons are globally available via isAvailable() —
   // no per-conversation gating needed. CU is per-conversation (owns step
   // count, AX tree history, loop detection).

@@ -1,11 +1,9 @@
 /**
  * Tests for getConnectedChannels connectivity resolution.
  *
- * Connectivity must mirror destination-resolver's `resolveGuardian`:
- * gateway-first, with a LOCAL contacts fallback on ANY per-channel no-match
- * (gateway list null OR no active gateway entry for the channel). This keeps a
- * channel from being marked connected when it can't be delivered (and
- * vice-versa).
+ * Connectivity mirrors destination-resolver's `resolveGuardian`: guardian
+ * delivery is sourced solely from the gateway. A channel with no active gateway
+ * binding is not connected, keeping connectivity aligned with deliverability.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -20,7 +18,6 @@ mock.module("../../util/logger.js", () => ({
 
 let deliverableChannels: string[] = [];
 let gatewayGuardians: GuardianDelivery[] | null = null;
-let localChatId: string | null = null;
 
 const realConfig = await import("../../channels/config.js");
 
@@ -36,16 +33,6 @@ mock.module("../../contacts/guardian-delivery-reader.js", () => ({
   getGuardianDelivery: async () => gatewayGuardians,
 }));
 
-const realContactStore = await import("../../contacts/contact-store.js");
-
-mock.module("../../contacts/contact-store.js", () => ({
-  ...realContactStore,
-  findGuardianForChannel: (_channelType: string) =>
-    localChatId === null
-      ? null
-      : { contact: { principalId: "p1" }, channel: { externalChatId: localChatId } },
-}));
-
 const { getConnectedChannels } = await import("../emit-signal.js");
 
 function gatewayBinding(channelType: string, externalChatId: string): GuardianDelivery {
@@ -55,43 +42,28 @@ function gatewayBinding(channelType: string, externalChatId: string): GuardianDe
 beforeEach(() => {
   deliverableChannels = [];
   gatewayGuardians = null;
-  localChatId = null;
 });
 
-describe("getConnectedChannels gateway-first-then-local connectivity", () => {
-  test("marks telegram connected from a gateway-only binding", async () => {
+describe("getConnectedChannels gateway connectivity", () => {
+  test("marks telegram connected from a gateway binding", async () => {
     deliverableChannels = ["telegram"];
     gatewayGuardians = [gatewayBinding("telegram", "123")];
-    localChatId = null;
 
     expect(await getConnectedChannels()).toContain("telegram");
   });
 
-  test("falls back to a local binding when the gateway is unreachable (null)", async () => {
+  test("marks telegram disconnected when the gateway is unreachable (null)", async () => {
     deliverableChannels = ["telegram"];
     gatewayGuardians = null;
-    localChatId = "456";
-
-    expect(await getConnectedChannels()).toContain("telegram");
-  });
-
-  test("marks telegram disconnected when neither source has a binding", async () => {
-    deliverableChannels = ["telegram"];
-    gatewayGuardians = null;
-    localChatId = null;
 
     expect(await getConnectedChannels()).not.toContain("telegram");
   });
 
-  test("falls back to local when the gateway responds without that channel", async () => {
-    // Gateway present but with no active telegram entry ⇒ per-channel no-match,
-    // so connectivity falls back to the local mirror (mirrors
-    // destination-resolver's per-channel fallback).
+  test("marks telegram disconnected when the gateway has no binding", async () => {
     deliverableChannels = ["telegram"];
     gatewayGuardians = [];
-    localChatId = "789";
 
-    expect(await getConnectedChannels()).toContain("telegram");
+    expect(await getConnectedChannels()).not.toContain("telegram");
   });
 
   test("only marks slack connected for D-prefixed (DM) chat IDs", async () => {

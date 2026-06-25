@@ -9,6 +9,7 @@
 import { findContactChannel } from "../contacts/contact-store.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import { getCachedMemberAcl } from "../runtime/member-verdict-cache.js";
 import { getLogger } from "../util/logger.js";
 import {
   getGuardianWaitUpdateInitialIntervalMs,
@@ -252,12 +253,11 @@ export function emitAccessRequestCallbackHandoff(
         address: fromNumber,
         externalChatId: fromNumber,
       });
-      if (
-        contactResult &&
-        contactResult.channel.status === "active" &&
-        contactResult.channel.policy === "allow"
-      ) {
-        requesterMemberId = contactResult.channel.id;
+      if (contactResult) {
+        const acl = getCachedMemberAcl("phone", fromNumber);
+        if (acl?.status === "active" && acl.policy === "allow") {
+          requesterMemberId = contactResult.channel.id;
+        }
       }
     } catch (err) {
       log.warn(

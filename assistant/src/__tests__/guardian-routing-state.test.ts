@@ -14,7 +14,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { upsertContact } from "../contacts/contact-store.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
@@ -27,6 +26,7 @@ import {
 } from "../runtime/trust-context-resolver.js";
 import {
   handleChannelInbound,
+  seedContactChannel,
   setAdapterProcessMessage,
 } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
@@ -155,16 +155,12 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
     resetTables();
     setAdapterProcessMessage(undefined);
     // Insert a test contact so the contacts-based ACL lookup passes
-    upsertContact({
+    seedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "telegram-user-default",
       displayName: "Test User",
-      channels: [
-        {
-          type: "telegram",
-          address: "telegram-user-default",
-          status: "active",
-          policy: "allow",
-        },
-      ],
+      status: "active",
+      policy: "allow",
     });
   });
 

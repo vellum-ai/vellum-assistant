@@ -37,14 +37,6 @@ mock.module("../../contacts/guardian-delivery-reader.js", () => ({
   getGuardianDelivery: async () => null,
 }));
 
-// Use the real destination-resolver (DB-free via the local-read stub below)
-// so this mock does not leak into destination-resolver.test.ts under a shared
-// bun-test invocation. With no guardian, the resolver still yields a vellum
-// destination, which is all these tests exercise.
-mock.module("../../contacts/contact-store.js", () => ({
-  findGuardianForChannel: () => null,
-}));
-
 mock.module("../conversation-pairing.js", () => ({
   pairDeliveryWithConversation: async () => ({
     conversationId: undefined,

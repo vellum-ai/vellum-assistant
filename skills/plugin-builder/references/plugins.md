@@ -58,7 +58,7 @@ The marketplace catalog entry can point at a subdirectory of a repo using `sourc
 
 Plugins import everything they need from a single package, [`@vellumai/plugin-api`](https://github.com/vellum-ai/vellum-assistant/tree/main/assistant/src/plugin-api). It is the only supported contract: anything not exported from there is assistant-internal and can change without notice. Most of the surface is types (the contexts the host hands your code), with a small set of runtime handles that resolve to the assistant's live singletons.
 
-The hook-related exports (context types, `HOOKS` constant, `PluginHookFn` signature) are documented in `references/hooks.md`. The tool-related exports (`ToolDefinition`, `ToolContext`, `ToolExecutionResult`, `RiskLevel`) are documented in `references/tools.md`. The remaining exports are covered below.
+The hook-related exports (context types, `HOOKS` constant, `HookFunction` signature) are documented in `references/hooks.md`. The tool-related exports (`ToolDefinition`, `ToolContext`, `ToolExecutionResult`, `RiskLevel`) are documented in `references/tools.md`. The remaining exports are covered below.
 
 ### Logging
 

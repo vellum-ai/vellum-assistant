@@ -1633,6 +1633,19 @@ jobs:
           VITE_SENTRY_DSN_MACOS: ${{ secrets.SENTRY_DSN_MACOS }}
           VITE_SENTRY_ENVIRONMENT: dev
           VITE_SESSION_REPLAY_APP_ID: ${{ vars.VITE_SESSION_REPLAY_APP_ID }}
+          # Sentry release tracking for the Electron renderer (mirrors release.yml).
+          # VITE_APP_VERSION tags renderer events with the release (read in
+          # clients/web/src/lib/sentry/sentry-init.ts) and names the registered
+          # release; the Vite Sentry plugin uploads source maps to SENTRY_PROJECT
+          # (vellum-assistant-macos, overriding the web default) so dev-build
+          # stacks symbolicate and issues resolve per release.
+          VITE_APP_VERSION: ${{ needs.compute-version.outputs.version }}
+          SENTRY_UPLOAD_SOURCE_MAPS: "true"
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_PROJECT: vellum-assistant-macos
+          # A source-map upload failure degrades to a warning instead of failing
+          # the dev-release build (see clients/web/vite.config.ts).
+          SENTRY_ALLOW_UPLOAD_FAILURE: "true"
         run: bun run pack --environment dev
 
       - name: Rename DMG for release

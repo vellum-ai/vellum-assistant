@@ -49,6 +49,11 @@ describe("feature flag catalog", () => {
     expect(ASSISTANT_FLAG_DEFAULTS.webRemoteIngress).toBe(false);
     expect("webRemoteIngress" in CLIENT_FLAG_DEFAULTS).toBe(false);
   });
+
+  test("exposes the MCP add-server gate without a page-level MCP gate", () => {
+    expect("mcpSettings" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
+    expect(ASSISTANT_FLAG_DEFAULTS.mcpAddServer).toBe(false);
+  });
 });
 
 describe("readEnvFlagOverrides", () => {

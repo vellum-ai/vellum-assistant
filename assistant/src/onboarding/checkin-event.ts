@@ -66,7 +66,7 @@ export function buildCheckinTitle({
  * (`uuid`) pre-seeded with the first-week prompt.
  */
 export function buildCheckinDescription(uuid: string): string {
-  const href = `https://www.vellum.ai/assistant/conversations/${uuid}?prompt=${CTA_ENCODED_PROMPT}`;
+  const href = `https://www.vellum.ai/assistant/conversations/${uuid}?prompt=${CTA_ENCODED_PROMPT}&utm_source=onboarding&utm_medium=calendar_event`;
   return [
     "<p>👋 <strong>Hi, it was great to meet you properly.</strong></p>",
     "<p>You just set me up, and I've already started learning <strong>what you're working on</strong>. This 15 minutes is the natural place to put that to work. I'll walk you through one thing I'd like to do for you this week.</p>",

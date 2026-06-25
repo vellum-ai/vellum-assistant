@@ -34,6 +34,10 @@ function OAuthDesktopCompleteRedirect() {
   );
 }
 
+function McpSettingsRedirect() {
+  return <Navigate to={`${routes.settings.integrations}?tab=mcp`} replace />;
+}
+
 export function getRouterBasename(): string | undefined {
   if (!isRemoteGatewayMode()) return undefined;
   return remoteGatewayPublicPathPrefix() || undefined;
@@ -259,7 +263,7 @@ export const routeTree = [
                 { path: "billing/upgrade/cancel", lazy: { Component: () => import("@/domains/settings/billing/upgrade-cancel-page").then((m) => m.UpgradeCancelPage) } },
                 { path: "billing/upgrade/success", lazy: { Component: () => import("@/domains/settings/billing/upgrade-success-page").then((m) => m.UpgradeSuccessPage) } },
                 { path: "community", lazy: { Component: () => import("@/domains/settings/pages/community-page").then((m) => m.CommunityPage) } },
-                { path: "mcp", lazy: { Component: () => import("@/domains/settings/mcp/mcp-page").then((m) => m.McpPage) } },
+                { path: "mcp", Component: McpSettingsRedirect },
                 { path: "debug", lazy: { Component: () => import("@/domains/settings/pages/debug-page").then((m) => m.DebugPage) } },
                 { path: "developer", lazy: { Component: () => import("@/domains/settings/pages/developer-page").then((m) => m.DeveloperPage) } },
                 { path: "advanced", lazy: { Component: () => import("@/domains/settings/pages/advanced-page").then((m) => m.AdvancedPage) } },

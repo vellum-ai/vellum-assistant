@@ -2,8 +2,9 @@
  * Tests for `WorkflowInlineProgressCard`.
  *
  * Drives the Zustand workflow store with fixture runs/leaves and asserts
- * the rendered shell's presence, step-count pill, the spawn-race `null`
- * fallback, the stop affordance gating, and the header-click callback.
+ * the rendered card's presence, the agent count, the step-count→stop order,
+ * the spawn-race `null` fallback, the stop affordance gating, and the
+ * header-click callback.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -41,7 +42,7 @@ describe("WorkflowInlineProgressCard — spawn race", () => {
 });
 
 describe("WorkflowInlineProgressCard — fixture run", () => {
-  test("renders the shell and the agent-count pill once an entry exists", () => {
+  test("renders the card and the agent count once an entry exists", () => {
     startRun("wf-1");
     addLeaf("wf-1", 0, "Agent A");
     addLeaf("wf-1", 1, "Agent B");
@@ -50,8 +51,26 @@ describe("WorkflowInlineProgressCard — fixture run", () => {
       <WorkflowInlineProgressCard runId="wf-1" />,
     );
 
-    expect(getByTestId("workflow-inline-card-shell")).toBeTruthy();
+    expect(getByTestId("workflow-inline-progress-card")).toBeTruthy();
     expect(getByText("2 agents")).toBeTruthy();
+  });
+
+  test("orders the step count before the stop button (matching the subagent card)", () => {
+    startRun("wf-order");
+    addLeaf("wf-order", 0, "Agent A");
+    addLeaf("wf-order", 1, "Agent B");
+
+    const { getByTestId } = render(
+      <WorkflowInlineProgressCard runId="wf-order" onStopWorkflow={() => {}} />,
+    );
+
+    const stepCount = getByTestId("workflow-inline-card-step-count");
+    const stop = getByTestId("workflow-inline-card-stop");
+    // The stop button follows the step count in DOM order (step count first).
+    expect(
+      stepCount.compareDocumentPosition(stop) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });
 
