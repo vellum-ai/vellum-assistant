@@ -81,6 +81,19 @@ describe("member-verdict-cache", () => {
     expect(getCachedMemberAcl("phone", PHONE)).toBeUndefined();
   });
 
+  test("memberless verdict clears a stale active entry for the actor", () => {
+    setMemberVerdict("phone", PHONE, memberVerdict());
+    expect(getCachedMemberAcl("phone", PHONE)).toBeDefined();
+    // A later memberless verdict (deleted contact / stranger) must invalidate
+    // the stale active ACL, not leave it readable for the rest of the TTL.
+    setMemberVerdict(
+      "phone",
+      PHONE,
+      memberVerdict({ contactId: undefined, channelId: undefined }),
+    );
+    expect(getCachedMemberAcl("phone", PHONE)).toBeUndefined();
+  });
+
   test("expired entry returns undefined", () => {
     const t0 = realNow();
     Date.now = () => t0;
