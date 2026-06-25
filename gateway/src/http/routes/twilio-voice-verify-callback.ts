@@ -12,8 +12,6 @@
  * calls from callers whose identity the gateway has already confirmed.
  */
 
-import { eq } from "drizzle-orm";
-
 import type { GatewayConfig } from "../../config.js";
 import { credentialKey } from "../../credential-key.js";
 import { getLogger } from "../../logger.js";
@@ -33,12 +31,8 @@ import {
   failureTwiml,
 } from "../../voice/verification.js";
 import { createGuardianBinding } from "../../auth/guardian-bootstrap.js";
-import { getGatewayDb } from "../../db/connection.js";
-import { contactChannels as gwContactChannels } from "../../db/schema.js";
-import {
-  assistantDbQuery,
-  assistantDbRun,
-} from "../../db/assistant-db-proxy.js";
+import { assistantDbQuery } from "../../db/assistant-db-proxy.js";
+import { revokeExistingChannelGuardian } from "../../verification/binding-helpers.js";
 import { upsertVerifiedContactChannel } from "../../verification/contact-helpers.js";
 
 const log = getLogger("twilio-voice-verify-callback");
@@ -166,7 +160,7 @@ export function createTwilioVoiceVerifyCallbackHandler(
         } else {
           // Revoke existing phone guardian binding before creating new one
           if (existingGuardian) {
-            await revokeExistingPhoneGuardian();
+            await revokeExistingChannelGuardian("phone");
           }
 
           await createGuardianBinding({
@@ -237,51 +231,6 @@ export function createTwilioVoiceVerifyCallbackHandler(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Revoke the existing phone guardian binding by setting status to 'revoked'.
- * Dual-writes to both assistant DB and gateway DB.
- */
-async function revokeExistingPhoneGuardian(): Promise<void> {
-  const now = Date.now();
-
-  const revokedRows = await assistantDbQuery<{ id: string }>(
-    `SELECT cc.id
-     FROM contacts c
-     JOIN contact_channels cc ON cc.contact_id = c.id
-     WHERE c.role = 'guardian' AND cc.type = 'phone' AND cc.status = 'active'`,
-    [],
-  );
-
-  if (revokedRows.length === 0) return;
-
-  const ids = revokedRows.map((r) => r.id);
-  const placeholders = ids.map(() => "?").join(", ");
-
-  await assistantDbRun(
-    `UPDATE contact_channels
-     SET status = 'revoked', policy = 'deny', updated_at = ?
-     WHERE id IN (${placeholders})`,
-    [now, ...ids],
-  );
-
-  // Gateway DB dual-write (best-effort)
-  try {
-    const gwDb = getGatewayDb();
-    for (const id of ids) {
-      gwDb
-        .update(gwContactChannels)
-        .set({ status: "revoked", policy: "deny", updatedAt: now })
-        .where(eq(gwContactChannels.id, id))
-        .run();
-    }
-  } catch (gwErr) {
-    log.warn(
-      { err: gwErr },
-      "Gateway DB revoke dual-write failed (best-effort)",
-    );
-  }
-}
 
 /**
  * Build the action URL for the next Gather attempt, preserving the base
