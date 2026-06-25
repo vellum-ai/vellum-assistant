@@ -80,6 +80,8 @@ export function handleToolResult(
       riskAllowlistOptions: event.riskAllowlistOptions,
       riskScopeOptions: event.riskScopeOptions,
       riskDirectoryScopeOptions: event.riskDirectoryScopeOptions,
+      imageData: event.imageData,
+      imageDataList: event.imageDataList,
       activityMetadata: event.activityMetadata,
       completedAt:
         "completedAt" in event &&
