@@ -63,6 +63,10 @@
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../config/loader.js";
 import { isMemoryV3Live } from "../../../config/memory-v3-gate.js";
+import {
+  type PendingConversationNotice,
+  queueConversationNotice,
+} from "../../../daemon/conversation-notices.js";
 import { isPersonalMemoryAllowed } from "../../../daemon/trust-context.js";
 import {
   wrapMemoryBlock,
@@ -118,6 +122,26 @@ function lruSet<V>(map: Map<string, V>, key: string, value: V): void {
     if (oldest !== undefined) map.delete(oldest);
   }
   map.set(key, value);
+}
+
+function queueMemoryV3ConversationNotice(
+  err: MemoryV3RetrievalUnavailableError,
+  ctx: TurnContext,
+  live: boolean,
+): void {
+  if (!live) return;
+  const notice: PendingConversationNotice = err.conversationNotice ?? {
+    source: "memory_v3",
+    code: "UNKNOWN",
+    userMessage:
+      "Memory is temporarily unavailable, so this response may not use your saved memories. You can retry in a moment.",
+    errorCategory: "memory_v3_degraded",
+  };
+  queueConversationNotice(
+    ctx.conversationId,
+    `memory_v3:${ctx.turnIndex}:${notice.errorCategory ?? notice.code}`,
+    notice,
+  );
 }
 
 // ─── shared per-turn orchestration memo ─────────────────────────────────────
@@ -246,6 +270,7 @@ export const memoryV3Injector: Injector = {
       observed = await observeTurnOnce(ctx.conversationId, ctx.turnIndex);
     } catch (err) {
       if (err instanceof MemoryV3RetrievalUnavailableError) {
+        queueMemoryV3ConversationNotice(err, ctx, live);
         log.error(
           {
             err: err.message,
@@ -405,6 +430,7 @@ export const memoryV3SpotlightInjector: Injector = {
       };
     } catch (err) {
       if (err instanceof MemoryV3RetrievalUnavailableError) {
+        queueMemoryV3ConversationNotice(err, ctx, true);
         log.error(
           {
             err: err.message,

@@ -48,6 +48,8 @@
 
 import { z } from "zod";
 
+import { classifyConversationError } from "../../../daemon/conversation-error.js";
+import type { PendingConversationNotice } from "../../../daemon/conversation-notices.js";
 import { loadPromptOverride } from "../../../memory/prompt-override.js";
 import { cachedTextBlock } from "../../../providers/cache-control.js";
 import {
@@ -79,10 +81,37 @@ const log = getLogger("memory-v3-pool-select");
  * shadow/observation path catches and swallows it.
  */
 export class MemoryV3RetrievalUnavailableError extends Error {
-  constructor(message: string) {
-    super(message);
+  readonly conversationNotice?: PendingConversationNotice;
+
+  constructor(
+    message: string,
+    options?: {
+      cause?: unknown;
+      conversationNotice?: PendingConversationNotice;
+    },
+  ) {
+    super(
+      message,
+      options?.cause === undefined ? undefined : { cause: options.cause },
+    );
     this.name = "MemoryV3RetrievalUnavailableError";
+    this.conversationNotice = options?.conversationNotice;
   }
+}
+
+function providerBillingNoticeFromError(
+  error: unknown,
+): PendingConversationNotice | undefined {
+  const classified = classifyConversationError(error, {
+    phase: "agent_loop",
+  });
+  if (classified.code !== "PROVIDER_BILLING") return undefined;
+  return {
+    source: "memory_v3",
+    code: classified.code,
+    userMessage: classified.userMessage,
+    errorCategory: classified.errorCategory,
+  };
 }
 
 /** A dynamic-tail (finder) candidate: the slug plus the descriptor that
@@ -419,6 +448,12 @@ export async function selectPool(
   // (no usable tool_use, or tool input that fails the schema) re-prompts before
   // we give up. `null` from an attempt means "unusable, retry"; the provider
   // layer already backs off transient throws, so this loop adds no delay.
+  //
+  // `lastError` captures the most recent attempt's thrown provider error —
+  // `retryForResult` swallows attempt throws, so without this an infrastructure
+  // failure (e.g. an upstream HTTP 4xx/5xx) is indistinguishable from a 200 that
+  // carried no usable tool_use. It is cleared on every attempt that reaches a
+  // response, so it reflects the LAST attempt's failure mode.
   let lastError: unknown = null;
   const parsed = await retryForResult(async () => {
     attempt += 1;
@@ -505,6 +540,10 @@ export async function selectPool(
       );
       throw new MemoryV3RetrievalUnavailableError(
         `memory-v3 pool selector provider call failed after retries: ${redactedDetail}`,
+        {
+          cause: lastError,
+          conversationNotice: providerBillingNoticeFromError(lastError),
+        },
       );
     }
     log.warn(

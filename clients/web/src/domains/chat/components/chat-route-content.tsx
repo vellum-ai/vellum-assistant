@@ -206,6 +206,7 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const messages = useTranscriptMessages(assistantId, activeConversationId);
   const error = useChatSessionStore.use.error();
+  const notice = useChatSessionStore.use.notice();
   const isLoadingHistory = useChatSessionStore.use.isLoadingHistory();
   const contextWindowUsage = useChatSessionStore.use.contextWindowUsage();
   const compactionCircuitOpenUntil = useChatSessionStore.use.compactionCircuitOpenUntil();
@@ -471,6 +472,7 @@ export function ChatMainPanel({
   const genericChatError = shouldShowGenericChatErrorNotice(error) && error
     ? {
         message: error.message,
+        tone: "error" as const,
         actions: showDoctorAction ? (
           <Button asChild variant="outlined" size="compact">
             <Link to={`${routes.settings.debug}?tab=doctor`}>
@@ -480,12 +482,25 @@ export function ChatMainPanel({
         ) : undefined,
       }
     : null;
+  const hasGenericChatError = genericChatError !== null;
+  const genericChatNotice =
+    shouldShowGenericChatErrorNotice(notice) && notice
+      ? {
+          message: notice.message,
+          tone: "warning" as const,
+        }
+      : null;
+  const genericChatBanner = genericChatError ?? genericChatNotice;
 
   const handleDismissChatError = useCallback(() => {
     // Clears the inline `genericChatError` Notice. The modal variant has
     // its own close handler because it also restores the draft input.
-    useChatSessionStore.getState().setError(null);
-  }, []);
+    if (hasGenericChatError) {
+      useChatSessionStore.getState().setError(null);
+    } else {
+      useChatSessionStore.getState().setNotice(null);
+    }
+  }, [hasGenericChatError]);
 
   const sendErrorModalNode =
     error?.displayAs === "modal" ? (
@@ -680,7 +695,10 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Billing composer banner
   // -------------------------------------------------------------------------
-  const billingBannerDecision = getChatBillingBannerDecision(error);
+  const errorBillingBannerDecision = getChatBillingBannerDecision(error);
+  const noticeBillingBannerDecision = getChatBillingBannerDecision(notice);
+  const billingBannerDecision =
+    errorBillingBannerDecision ?? noticeBillingBannerDecision;
 
   // -------------------------------------------------------------------------
   // JSX construction
@@ -837,7 +855,7 @@ export function ChatMainPanel({
         refreshFeedback={refreshFeedback}
         onDismissRefreshFeedback={handleDismissRefreshFeedback}
         onRetryRefresh={handleRetryRefreshFromPill}
-        genericChatError={genericChatError}
+        genericChatError={genericChatBanner}
         onDismissChatError={handleDismissChatError}
         isChannelReadonly={isChannelReadonly}
         canStopGenerating={canStopGenerating}
