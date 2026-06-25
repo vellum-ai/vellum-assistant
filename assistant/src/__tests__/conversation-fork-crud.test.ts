@@ -1603,4 +1603,113 @@ describe("forkConversation + memory_retrospective_state", () => {
     expect(reFork.contextSummary).toBe("Compacted summary");
     expect(reFork.contextCompactedMessageCount).toBe(2);
   });
+
+  test("drops the stale Slack watermark when forking inherits an older compaction", async () => {
+    const source = createConversation("Slack twice-compacted thread");
+    const m1 = await addMessage(source.id, "user", "Message 1", {
+      skipIndexing: true,
+    });
+    const m2 = await addMessage(source.id, "assistant", "Message 2", {
+      skipIndexing: true,
+    });
+    const m3 = await addMessage(source.id, "user", "Message 3", {
+      skipIndexing: true,
+    });
+    const m4 = await addMessage(source.id, "assistant", "Message 4", {
+      skipIndexing: true,
+    });
+
+    const db = getDb();
+    const base = Date.now();
+    db.run(`UPDATE messages SET created_at = ${base} WHERE id = '${m1.id}'`);
+    db.run(
+      `UPDATE messages SET created_at = ${base + 2} WHERE id = '${m2.id}'`,
+    );
+    db.run(
+      `UPDATE messages SET created_at = ${base + 4} WHERE id = '${m3.id}'`,
+    );
+    db.run(
+      `UPDATE messages SET created_at = ${base + 6} WHERE id = '${m4.id}'`,
+    );
+    appendCompactionEvent(source.id, {
+      compactedAt: base + 1,
+      summary: "Summary 1",
+      compactedMessageCount: 1,
+    });
+    appendCompactionEvent(source.id, {
+      compactedAt: base + 5,
+      summary: "Summary 2",
+      compactedMessageCount: 3,
+    });
+    // The source's single-valued watermark reflects only the latest compaction.
+    db.update(conversations)
+      .set({
+        contextSummary: "Summary 2",
+        contextCompactedMessageCount: 3,
+        contextCompactedAt: base + 5,
+        slackContextCompactionWatermarkTs: "ts-latest",
+        slackContextCompactionWatermarkAt: base + 5,
+      })
+      .where(eq(conversations.id, source.id))
+      .run();
+
+    // Forking through M3 inherits the OLDER compaction (Summary 1); the latest
+    // watermark must not ride along, or it would hide Slack messages the older
+    // summary does not cover.
+    const fork = forkConversation({
+      conversationId: source.id,
+      throughMessageId: m3.id,
+    });
+    expect(fork.contextSummary).toBe("Summary 1");
+    expect(fork.contextCompactedMessageCount).toBe(1);
+    expect(fork.slackContextCompactionWatermarkTs).toBeNull();
+    expect(fork.slackContextCompactionWatermarkAt).toBeNull();
+  });
+
+  test("carries the Slack watermark when forking inherits the latest compaction", async () => {
+    const source = createConversation("Slack compacted thread");
+    const m1 = await addMessage(source.id, "user", "Message 1", {
+      skipIndexing: true,
+    });
+    const m2 = await addMessage(source.id, "assistant", "Message 2", {
+      skipIndexing: true,
+    });
+    const m3 = await addMessage(source.id, "user", "Message 3", {
+      skipIndexing: true,
+    });
+
+    const db = getDb();
+    const base = Date.now();
+    db.run(`UPDATE messages SET created_at = ${base} WHERE id = '${m1.id}'`);
+    db.run(
+      `UPDATE messages SET created_at = ${base + 1} WHERE id = '${m2.id}'`,
+    );
+    db.run(
+      `UPDATE messages SET created_at = ${base + 3} WHERE id = '${m3.id}'`,
+    );
+    const compactedAt = base + 2; // latest (and only) compaction, covers M1+M2
+    appendCompactionEvent(source.id, {
+      compactedAt,
+      summary: "Compacted summary",
+      compactedMessageCount: 2,
+    });
+    db.update(conversations)
+      .set({
+        contextSummary: "Compacted summary",
+        contextCompactedMessageCount: 2,
+        contextCompactedAt: compactedAt,
+        slackContextCompactionWatermarkTs: "ts-latest",
+        slackContextCompactionWatermarkAt: compactedAt,
+      })
+      .where(eq(conversations.id, source.id))
+      .run();
+
+    const fork = forkConversation({
+      conversationId: source.id,
+      throughMessageId: m3.id,
+    });
+    expect(fork.contextCompactedMessageCount).toBe(2);
+    expect(fork.slackContextCompactionWatermarkTs).toBe("ts-latest");
+    expect(fork.slackContextCompactionWatermarkAt).toBe(compactedAt);
+  });
 });
