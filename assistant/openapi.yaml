@@ -17426,6 +17426,30 @@ paths:
                                 webUrl:
                                   type: string
                               additionalProperties: false
+                            eventKind:
+                              type: string
+                              enum:
+                                - message
+                                - reaction
+                            reaction:
+                              type: object
+                              properties:
+                                emoji:
+                                  type: string
+                                op:
+                                  type: string
+                                  enum:
+                                    - added
+                                    - removed
+                                actorDisplayName:
+                                  type: string
+                                targetChannelTs:
+                                  type: string
+                              required:
+                                - emoji
+                                - op
+                                - targetChannelTs
+                              additionalProperties: false
                           required:
                             - channelId
                             - channelTs
