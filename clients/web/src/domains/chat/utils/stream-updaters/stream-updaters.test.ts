@@ -945,6 +945,36 @@ describe("finalizeOnIdle", () => {
 // ---------------------------------------------------------------------------
 
 describe("applyToolResult — cross-message matching", () => {
+  it("preserves image data from tool result events on the matching tool call", () => {
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-img",
+      name: "media_generate_image",
+      input: { prompt: "diagram" },
+    };
+    const msg = makeAssistantMsg({
+      toolCalls: [toolCall],
+      contentOrder: [{ type: "toolCall", id: "tc-img" }],
+      contentBlocks: [{ type: "tool_use", toolCall }],
+    });
+
+    const result = applyToolResult([msg], {
+      toolUseId: "tc-img",
+      result: "Generated 2 images",
+      imageData: "img-a",
+      imageDataList: ["img-a", "img-b"],
+    });
+
+    const updatedToolCall = result[0]!.toolCalls![0]!;
+    expect(updatedToolCall.imageData).toBe("img-a");
+    expect(updatedToolCall.imageDataList).toEqual(["img-a", "img-b"]);
+
+    const toolUseBlock = result[0]!.contentBlocks!.find(
+      (block) => block.type === "tool_use",
+    );
+    expect(toolUseBlock?.toolCall.imageData).toBe("img-a");
+    expect(toolUseBlock?.toolCall.imageDataList).toEqual(["img-a", "img-b"]);
+  });
+
   it("finds the tool call on an earlier message when toolUseId is provided", () => {
     // Simulate: tool_use_start on msg1, then a new bubble was created (msg2),
     // then tool_result arrives with toolUseId pointing to msg1's tool call.

@@ -521,6 +521,41 @@ describe("TranscriptMessageBody", () => {
     ).toBeNull();
   });
 
+  test("renders images returned by an assistant tool result", () => {
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-img",
+      name: "media_generate_image",
+      input: { prompt: "diagram" },
+      result: "Generated 2 images",
+      imageData: "img-a",
+      imageDataList: ["img-a", "img-b"],
+      completedAt: 1,
+    };
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-generated-images",
+          role: "assistant",
+          contentBlocks: [toolUseBlock(toolCall)],
+          toolCalls: [toolCall],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const images = container.querySelectorAll(
+      "[data-testid='tool-result-image']",
+    );
+    expect(images.length).toBe(2);
+    expect(images[0]!.getAttribute("src")).toBe(
+      "data:image/png;base64,img-a",
+    );
+    expect(images[1]!.getAttribute("src")).toBe(
+      "data:image/png;base64,img-b",
+    );
+  });
+
   test("a tool + thinking run still renders the boxed activity card", () => {
     // A run with more than one card item (tool + thinking) is NOT a lone tool,
     // so it stays the boxed card rather than collapsing to the inline chip.
