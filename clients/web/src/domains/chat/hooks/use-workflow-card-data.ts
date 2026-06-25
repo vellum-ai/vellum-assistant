@@ -108,34 +108,35 @@ function sortedLeaves(entry: WorkflowEntry): WorkflowLeaf[] {
 }
 
 /**
- * Derive the header `(title, info)` tuple. When the run carries a `phase`
- * we surface it; otherwise we fall back to the latest leaf (the deepest
- * `seq`), and finally to the run label. The latest `log(...)` `message`
- * fills the secondary line when there is no more-specific leaf info or
- * phase, so a log-only update doesn't read as stale.
+ * Derive the header `(title, info)` tuple.
+ *
+ * The bold title is the workflow's *name* (`label`) — stable and
+ * recognizable, matching the detail panel header. The card's leading glyph
+ * is a generic workflow icon (no avatar), so unlike the subagent inline
+ * card — whose identity rides the avatar and whose title is the live
+ * activity verb — the workflow card has nowhere else to surface its name;
+ * it belongs in the title.
+ *
+ * The live activity is demoted to the secondary info line so the card still
+ * reads as in-flight: the current `phase`, else the latest leaf's prompt
+ * summary (or its label), else the latest `log(...)` `message`, else the
+ * final `summary`. (A leaf with neither prompt nor label no longer leaks a
+ * `Leaf <seq>` fallback into the header — the row's own list still labels it.)
  */
 function deriveCurrentStep(
   entry: WorkflowEntry,
   leaves: WorkflowLeaf[],
 ): { currentStepTitle: string; currentStepInfo: string } {
-  if (entry.phase) {
-    return {
-      currentStepTitle: entry.phase,
-      currentStepInfo: entry.summary ?? entry.message ?? entry.label ?? "",
-    };
-  }
-
   const latest = leaves[leaves.length - 1];
-  if (latest) {
-    return {
-      currentStepTitle: latest.label ?? `Leaf ${latest.seq}`,
-      currentStepInfo: latest.promptSummary ?? "",
-    };
-  }
-
   return {
     currentStepTitle: entry.label ?? "Workflow",
-    currentStepInfo: entry.message ?? entry.summary ?? "",
+    currentStepInfo:
+      entry.phase ||
+      latest?.promptSummary ||
+      latest?.label ||
+      entry.message ||
+      entry.summary ||
+      "",
   };
 }
 
