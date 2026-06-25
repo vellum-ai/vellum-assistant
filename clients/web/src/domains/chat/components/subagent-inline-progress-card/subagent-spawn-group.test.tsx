@@ -55,35 +55,37 @@ describe("SubagentSpawnGroup", () => {
     expect(queryAllByTestId("subagent-inline-progress-card")).toHaveLength(0);
   });
 
-  test("Details expands to the row list plus a Collapse toggle", () => {
+  test("Details expands to the row list plus a Collapse toggle", async () => {
     const ids = spawnIds(3);
-    const { getByTestId, queryAllByTestId } = render(
+    const { getByTestId, findAllByTestId, queryAllByTestId } = render(
       <SubagentSpawnGroup subagentIds={ids} />,
     );
 
     fireEvent.click(getByTestId("subagent-avatar-row-details"));
 
-    // The summary is replaced by one inline card per id, capped by Collapse.
-    expect(queryAllByTestId("subagent-inline-progress-card")).toHaveLength(3);
+    // The crossfade defers the incoming view (AnimatePresence mode="wait"),
+    // so wait for the inline cards to mount.
+    expect(await findAllByTestId("subagent-inline-progress-card")).toHaveLength(
+      3,
+    );
     expect(queryAllByTestId("subagent-avatar-badge")).toHaveLength(0);
     expect(getByTestId("subagent-spawn-group-collapse")).toBeTruthy();
   });
 
-  test("Collapse returns to the avatar summary", () => {
+  test("Collapse returns to the avatar summary", async () => {
     const ids = spawnIds(3);
-    const { getByTestId, queryAllByTestId, queryByTestId } = render(
-      <SubagentSpawnGroup subagentIds={ids} />,
-    );
+    const { getByTestId, findByTestId, findAllByTestId, queryAllByTestId, queryByTestId } =
+      render(<SubagentSpawnGroup subagentIds={ids} />);
 
     fireEvent.click(getByTestId("subagent-avatar-row-details"));
-    fireEvent.click(getByTestId("subagent-spawn-group-collapse"));
+    fireEvent.click(await findByTestId("subagent-spawn-group-collapse"));
 
-    expect(queryAllByTestId("subagent-avatar-badge")).toHaveLength(3);
+    expect(await findAllByTestId("subagent-avatar-badge")).toHaveLength(3);
     expect(queryAllByTestId("subagent-inline-progress-card")).toHaveLength(0);
     expect(queryByTestId("subagent-spawn-group-collapse")).toBeNull();
   });
 
-  test("threads onSubagentClick and onStopSubagent to each expanded row", () => {
+  test("threads onSubagentClick and onStopSubagent to each expanded row", async () => {
     const ids = spawnIds(2);
     // Mark in-flight so the stop button renders on the rows.
     for (const id of ids) {
@@ -92,7 +94,7 @@ describe("SubagentSpawnGroup", () => {
 
     const clicked: string[] = [];
     const stopped: string[] = [];
-    const { getByTestId, getAllByTestId } = render(
+    const { getByTestId, getAllByTestId, findAllByTestId } = render(
       <SubagentSpawnGroup
         subagentIds={ids}
         onSubagentClick={(id) => clicked.push(id)}
@@ -102,7 +104,7 @@ describe("SubagentSpawnGroup", () => {
 
     fireEvent.click(getByTestId("subagent-avatar-row-details"));
 
-    const rows = getAllByTestId("subagent-inline-progress-card");
+    const rows = await findAllByTestId("subagent-inline-progress-card");
     // The open affordance lives on the leading cluster (a `role="button"`
     // element inside the row), not on the row container itself, so the stop
     // button is not nested inside it. Click the affordance, not the row.
