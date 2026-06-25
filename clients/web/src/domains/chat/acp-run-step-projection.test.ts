@@ -290,14 +290,15 @@ describe("createAcpRunStepProjection — incremental", () => {
     expect(incremental).toEqual(computeAcpRunSteps(events2));
   });
 
-  test("mutate-last (coalesced chunk) falls back to a correct full rebuild", () => {
+  test("a grown-last-element diff falls back to a correct full rebuild", () => {
     const projector = createAcpRunStepProjection();
     const c1 = event({ updateType: "agent_message_chunk", messageId: "m1", content: "Hel" });
     projector.project([c1]);
 
-    // Store coalesces same-messageId chunks into the last element (new object,
-    // same length) — the mutate-last shape.
-    const c1grown = { ...c1, seq: c1.seq + 1, content: "Hello" };
+    // The raw buffer no longer coalesces, but the projector still defends
+    // against a same-length diff whose last element grew (the mutate-last shape)
+    // by doing a full rebuild.
+    const c1grown = { ...c1, seq: (c1.seq ?? 0) + 1, content: "Hello" };
     const result = projector.project([c1grown]);
     expect(messageStep(result[0]!).content).toBe("Hello");
     expect(result).toEqual(computeAcpRunSteps([c1grown]));

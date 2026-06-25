@@ -193,7 +193,7 @@ describe("receiveEvent", () => {
     expect(getState().highWaterMark.size).toBe(0);
   });
 
-  it("coalesces consecutive same-messageId message chunks into one event", () => {
+  it("stores each message chunk as its own event (coalescing is the projection's job)", () => {
     spawn();
     const store = getState();
     store.receiveEvent({
@@ -209,14 +209,14 @@ describe("receiveEvent", () => {
       event: event({ seq: 3, content: "!", messageId: "m-1" }),
     });
 
+    // The raw buffer stays un-coalesced so history reconciliation can dedup by
+    // seq; the step projection concatenates these into one rendered message.
     const events = getState().byId["acp-1"]!.events;
-    expect(events).toHaveLength(1);
-    expect(events[0]!.content).toBe("Hello world!");
-    // The coalesced event's seq tracks the latest chunk.
-    expect(events[0]!.seq).toBe(3);
+    expect(events.map((e) => e.content)).toEqual(["Hello", " world", "!"]);
+    expect(events.map((e) => e.seq)).toEqual([1, 2, 3]);
   });
 
-  it("coalesces consecutive same-messageId thought chunks", () => {
+  it("stores each thought chunk as its own event", () => {
     spawn();
     const store = getState();
     store.receiveEvent({
@@ -229,8 +229,7 @@ describe("receiveEvent", () => {
     });
 
     const events = getState().byId["acp-1"]!.events;
-    expect(events).toHaveLength(1);
-    expect(events[0]!.content).toBe("thinking");
+    expect(events.map((e) => e.content)).toEqual(["think", "ing"]);
   });
 
   it("does not coalesce chunks with different messageIds", () => {

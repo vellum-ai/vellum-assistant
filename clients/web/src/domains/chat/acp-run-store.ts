@@ -20,7 +20,12 @@ import { isActiveAcpStatus, type AcpRunStatus } from "@/utils/acp-run-status";
 // ---------------------------------------------------------------------------
 
 export interface AcpRunRawEvent {
-  seq: number;
+  /**
+   * Daemon-assigned sequence number. Live events always carry one; persisted
+   * events from older daemons may not. Seqless events are appended without
+   * deduping and excluded from the high-water mark.
+   */
+  seq?: number;
   updateType:
     | "agent_message_chunk"
     | "agent_thought_chunk"
@@ -155,36 +160,18 @@ const INITIAL_STATE: AcpRunState = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const COALESCE_TYPES = new Set<AcpRunRawEvent["updateType"]>([
-  "agent_message_chunk",
-  "agent_thought_chunk",
-]);
-
 /**
- * Append an event to a run's buffer, coalescing consecutive
- * message/thought chunks of the same `messageId` into the last event's
- * `content` by building a new last element (never mutating in place).
+ * Append an event to a run's buffer. Message/thought chunks are kept as
+ * individual events — coalescing happens in the step projection for display.
+ * Leaving the raw buffer un-coalesced lets history reconciliation
+ * ({@link mergeEvents}) dedup by `seq` without mixing a coalesced live chunk
+ * with the individual persisted chunks it would otherwise span (which double-
+ * counted the overlapping text).
  */
 function appendEvent(
   events: AcpRunRawEvent[],
   event: AcpRunRawEvent,
 ): AcpRunRawEvent[] {
-  const last = events[events.length - 1];
-  if (
-    last &&
-    COALESCE_TYPES.has(event.updateType) &&
-    last.updateType === event.updateType &&
-    last.messageId !== undefined &&
-    last.messageId === event.messageId
-  ) {
-    const next = events.slice(0, -1);
-    next.push({
-      ...last,
-      seq: event.seq,
-      content: (last.content ?? "") + (event.content ?? ""),
-    });
-    return next;
-  }
   return [...events, event];
 }
 
@@ -192,10 +179,9 @@ function appendEvent(
  * Seq-keyed union of live + history events. Buffer length is not recency: a
  * stale-but-longer history snapshot can have a lower max seq than the few live
  * events already received, so keeping the longer buffer would drop them. Dedup
- * by `seq` instead, preferring the existing (live) event on collision — it may
- * be a coalesced/newer-shaped representation — and sort ascending by seq.
- * Events lacking `seq` (older/fallback data) are appended without deduping so a
- * missing seq never collapses distinct events.
+ * by `seq` instead, preferring the existing (live) event on collision, and
+ * sort ascending by seq. Events lacking `seq` (older/fallback data) are appended
+ * without deduping so a missing seq never collapses distinct events.
  */
 function mergeEvents(
   existing: AcpRunRawEvent[],
@@ -212,7 +198,9 @@ function mergeEvents(
     if (!bySeq.has(event.seq)) bySeq.set(event.seq, event);
   }
 
-  const merged = Array.from(bySeq.values()).sort((a, b) => a.seq - b.seq);
+  const merged = Array.from(bySeq.values()).sort(
+    (a, b) => (a.seq ?? 0) - (b.seq ?? 0),
+  );
   return seqless.length ? [...merged, ...seqless] : merged;
 }
 
@@ -250,12 +238,16 @@ function mergeHistoryEntry(
   };
 }
 
-/** Raise a session's high-water mark to the given seq if higher. */
+/**
+ * Raise a session's high-water mark to the given seq if higher. A seqless event
+ * (no numeric seq) never advances the mark — it must not gate live replay.
+ */
 function bumpHighWaterMark(
   highWaterMark: Map<string, number>,
   acpSessionId: string,
-  seq: number,
+  seq: number | undefined,
 ): Map<string, number> {
+  if (typeof seq !== "number") return highWaterMark;
   const prev = highWaterMark.get(acpSessionId);
   if (prev !== undefined && prev >= seq) return highWaterMark;
   return new Map(highWaterMark).set(acpSessionId, seq);

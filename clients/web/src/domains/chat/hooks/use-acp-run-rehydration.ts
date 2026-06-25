@@ -32,6 +32,9 @@ interface AcpSessionEventLogItem {
 }
 
 interface AcpSessionRow {
+  // Vellum ACP session id — the key SSE events and steer/cancel routes address.
+  // The store is keyed by this, NOT the agent-protocol `acpSessionId`.
+  id: string;
   acpSessionId: string;
   agentId?: string;
   agent?: string;
@@ -71,10 +74,15 @@ function toRunStatus(status: string): AcpRunStatus {
 
 function toRawEvents(eventLog: AcpSessionEventLogItem[]): AcpRunRawEvent[] {
   const events: AcpRunRawEvent[] = [];
-  for (const [index, item] of eventLog.entries()) {
+  for (const item of eventLog) {
     if (!item.updateType) continue;
+    // Leave `seq` undefined when the persisted item lacks one (event logs from
+    // older daemons). The store keeps seqless events out of the high-water mark,
+    // matching the daemon, which seeds its resume counter from numeric seqs only
+    // — a synthetic index here would make the client drop the first live updates
+    // after resume as phantom replays.
     events.push({
-      seq: item.seq ?? index,
+      seq: item.seq,
       updateType: item.updateType,
       content: item.content,
       toolCallId: item.toolCallId,
@@ -93,7 +101,7 @@ function toRunEntry(row: AcpSessionRow): AcpRunEntry {
   const events = toRawEvents(row.eventLog ?? []);
 
   return {
-    acpSessionId: row.acpSessionId,
+    acpSessionId: row.id,
     agent: row.agent ?? row.agentId ?? "",
     parentConversationId: row.parentConversationId ?? "",
     task: row.task,
@@ -124,7 +132,7 @@ export async function fetchAcpSessions(
     });
     if (!response?.ok || !data?.sessions) return [];
     return data.sessions
-      .filter((row): row is AcpSessionRow => !!row?.acpSessionId)
+      .filter((row): row is AcpSessionRow => !!row?.id)
       .map(toRunEntry);
   } catch (err) {
     captureError(err, { context: "fetchAcpSessions" });

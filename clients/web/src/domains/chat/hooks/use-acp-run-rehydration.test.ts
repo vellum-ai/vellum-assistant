@@ -53,6 +53,7 @@ mock.module("@/lib/sentry/capture-error", () => ({
 import { fetchAcpSessions } from "@/domains/chat/hooks/use-acp-run-rehydration";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { handleAcpSessionUpdate } from "@/domains/chat/utils/stream-handlers/acp-handlers";
+import { computeAcpRunSteps } from "@/domains/chat/acp-run-step-projection";
 
 function getState() {
   return useAcpRunStore.getState();
@@ -95,7 +96,8 @@ describe("rehydration — terminal session", () => {
   test("reconstructs the timeline with terminal status and usage", async () => {
     await seed([
       {
-        acpSessionId: "acp-1",
+        id: "acp-1",
+        acpSessionId: "proto-1",
         agentId: "claude",
         parentConversationId: "conv-1",
         parentToolUseId: "tool-1",
@@ -149,7 +151,8 @@ describe("rehydration — terminal session", () => {
   test("a pre-migration row without usage hides the meter and degrades gracefully", async () => {
     await seed([
       {
-        acpSessionId: "acp-1",
+        id: "acp-1",
+        acpSessionId: "proto-1",
         agentId: "claude",
         parentConversationId: "conv-1",
         status: "completed",
@@ -168,10 +171,11 @@ describe("rehydration — terminal session", () => {
     expect(entry.costCurrency).toBeUndefined();
   });
 
-  test("falls back to the array index when seq is absent", async () => {
+  test("leaves seq undefined when absent and never advances the high-water mark", async () => {
     await seed([
       {
-        acpSessionId: "acp-1",
+        id: "acp-1",
+        acpSessionId: "proto-1",
         agentId: "claude",
         parentConversationId: "conv-1",
         status: "completed",
@@ -183,8 +187,14 @@ describe("rehydration — terminal session", () => {
       },
     ]);
 
-    expect(getState().byId["acp-1"]!.events.map((e) => e.seq)).toEqual([0, 1]);
-    expect(getState().highWaterMark.get("acp-1")).toBe(1);
+    // Seqless events keep `seq` undefined: a synthetic index would seed the
+    // high-water mark above the daemon's resume counter (which it derives from
+    // numeric seqs only), dropping the first live updates after resume.
+    expect(getState().byId["acp-1"]!.events.map((e) => e.seq)).toEqual([
+      undefined,
+      undefined,
+    ]);
+    expect(getState().highWaterMark.get("acp-1")).toBeUndefined();
   });
 });
 
@@ -192,7 +202,8 @@ describe("rehydration — active session + live stream dedup", () => {
   test("drops a subsequent live event at or below the seeded high-water mark", async () => {
     await seed([
       {
-        acpSessionId: "acp-1",
+        id: "acp-1",
+        acpSessionId: "proto-1",
         agentId: "claude",
         parentConversationId: "conv-1",
         status: "running",
@@ -228,7 +239,8 @@ describe("rehydration — active session + live stream dedup", () => {
   test("applies a live event with seq above the seeded high-water mark", async () => {
     await seed([
       {
-        acpSessionId: "acp-1",
+        id: "acp-1",
+        acpSessionId: "proto-1",
         agentId: "claude",
         parentConversationId: "conv-1",
         status: "running",
@@ -280,7 +292,8 @@ describe("rehydration — active session + live stream dedup", () => {
     // Stale-but-longer history snapshot: more events, but max seq 3 < 9.
     await seed([
       {
-        acpSessionId: "acp-1",
+        id: "acp-1",
+        acpSessionId: "proto-1",
         agentId: "claude",
         parentConversationId: "conv-1",
         status: "running",
@@ -309,5 +322,55 @@ describe("rehydration — active session + live stream dedup", () => {
       seq: 9,
     });
     expect(getState().byId["acp-1"]!.events).toHaveLength(4);
+  });
+
+  test("history chunks merging with live chunks do not duplicate message text", async () => {
+    // Regression: the raw buffer no longer coalesces, so a history snapshot of
+    // individual chunks unions with the live chunks by seq instead of mixing
+    // pre-coalesced live text with the same persisted chunks (which rendered
+    // "aab" instead of "ab").
+    getState().spawnRun({
+      acpSessionId: "acp-1",
+      agent: "claude",
+      parentConversationId: "conv-1",
+      startedAt: 1000,
+    });
+    handleAcpSessionUpdate({
+      type: "acp_session_update",
+      acpSessionId: "acp-1",
+      updateType: "agent_message_chunk",
+      content: "a",
+      messageId: "m-1",
+      seq: 1,
+    });
+    handleAcpSessionUpdate({
+      type: "acp_session_update",
+      acpSessionId: "acp-1",
+      updateType: "agent_message_chunk",
+      content: "b",
+      messageId: "m-1",
+      seq: 2,
+    });
+
+    await seed([
+      {
+        id: "acp-1",
+        acpSessionId: "proto-1",
+        agentId: "claude",
+        parentConversationId: "conv-1",
+        status: "running",
+        startedAt: 1000,
+        eventLog: [
+          { type: "acp_session_update", updateType: "agent_message_chunk", content: "a", messageId: "m-1", seq: 1 },
+          { type: "acp_session_update", updateType: "agent_message_chunk", content: "b", messageId: "m-1", seq: 2 },
+        ],
+      },
+    ]);
+
+    const events = getState().byId["acp-1"]!.events;
+    expect(events.map((e) => e.content)).toEqual(["a", "b"]);
+    const steps = computeAcpRunSteps(events);
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toMatchObject({ kind: "message", content: "ab" });
   });
 });

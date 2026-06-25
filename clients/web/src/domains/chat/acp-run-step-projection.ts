@@ -5,28 +5,21 @@
  * into an ordered `AcpTimelineStep[]` — a discriminated union of tool / message
  * / thought / plan steps consumed by the inline card and detail panel.
  *
- * The store mutates `entry.events` in exactly two shapes (see
- * `acp-run-store.ts` `appendEvent`):
- *
- *  1. **Append** — a new event lands → `[...events, ev]`. A new array, every
- *     prior element keeps its reference, exactly one new element at the tail.
- *  2. **Mutate-last** — consecutive `agent_message_chunk` / `agent_thought_chunk`
- *     of the same `messageId` coalesce → the array is copied with only the last
- *     element replaced by a grown-`content` clone (same `seq` bumped, same
- *     `updateType`/`messageId`, content only extends).
+ * The store appends each event to `entry.events` (see `acp-run-store.ts`
+ * `appendEvent`); message/thought chunks are NOT coalesced in the buffer, so
+ * the live shape is always a plain **append** — `[...events, ev]`, a new array
+ * with every prior element reference-equal and one new element at the tail.
+ * Coalescing same-`messageId` chunks into a single rendered message happens
+ * here in the projection, not the buffer.
  *
  * `computeAcpRunSteps(events)` is O(n); running it on every streamed event is
  * O(n^2) over a run. This projector replays only the diff vs the previous call
  * through the same `applyAcpEvent` reducer the full rebuild uses, so the
- * incremental and full paths can never drift. Any diff that doesn't fit the
- * append / mutate-last shapes (full-replace on history hydration, truncation,
- * reorder) falls back to a full O(n) rebuild, which is always correct.
- *
- * Mutate-last is folded by re-running the full O(n) rebuild only when the
- * grown tail is a message/thought chunk — message/thought steps accumulate
- * across multiple prior steps so a cheap "pop and re-derive tail" isn't safe;
- * instead we replay from the last append boundary. In practice the common
- * streaming path is plain append, so the incremental win is preserved there.
+ * incremental and full paths can never drift. Any diff that isn't a plain
+ * append (full-replace on history hydration, truncation, reorder, or a
+ * same-length last-element change) falls back to a full O(n) rebuild, which is
+ * always correct. The common streaming path is plain append, so the
+ * incremental win is preserved there.
  *
  * `isComplete` rule for message steps: a message step flips to `isComplete:
  * true` once any later step is appended after it (a different message,
