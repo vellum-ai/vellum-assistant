@@ -35,10 +35,8 @@ import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/
 import { ToolDetailBody } from "@/domains/chat/components/tool-detail-panel";
 import { WebFetchDetailView } from "@/domains/chat/components/web-fetch/web-fetch-detail-view";
 import { WebSearchDetailView } from "@/domains/chat/components/web-search/web-search-detail-view";
-import {
-    buildSubagentStepDetails,
-    computeSubagentCardData,
-} from "@/domains/chat/hooks/use-subagent-card-data";
+import { useSubagentSteps } from "@/domains/chat/subagent-step-projection";
+import { useSubagentStepDetails } from "@/domains/chat/subagent-detail-projection";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 /**
@@ -103,8 +101,14 @@ export function SubagentDetailPanel({
   // three separate times in the JSX below.
   const traits = useMemo(() => subagentTraits(entry.subagentId), [entry.subagentId]);
   // The panel re-renders when `entry` changes via the store subscription in
-  // chat-content-layout.tsx, so memoizing on `entry` keeps the steps fresh.
-  const cardData = useMemo(() => computeSubagentCardData(entry), [entry]);
+  // chat-content-layout.tsx. The store bumps `entry` identity on every
+  // token/status/usage update but keeps `entry.events` reference-stable. Rather
+  // than rebuild the whole timeline on each tick, `useSubagentSteps` replays
+  // only the events that changed since the last render (append / text-coalesce),
+  // and preserves the `steps` array identity when nothing visible changed so the
+  // timeline below can bail. The panel renders its own header from `entry`
+  // directly, so it needs only the projected `steps`.
+  const { steps } = useSubagentSteps(entry.events);
 
   // `toolCallId`-keyed map of nested tool-detail payloads, used to swap the
   // panel body to a tool's input/output when its timeline pill is clicked —
@@ -117,7 +121,13 @@ export function SubagentDetailPanel({
   // `mapDetailEvents` carries through); thinking/text steps key on the source
   // event id and carry the full, un-truncated reasoning. Steps with no entry
   // here render as non-clickable pills — a graceful fallback, not an error.
-  const stepDetails = useMemo(() => buildSubagentStepDetails(entry), [entry]);
+  //
+  // Built incrementally (mirrors `useSubagentSteps`): the projector replays only
+  // the events that changed since the last render through the shared
+  // `applyDetailEvent` reducer, with an O(n) full-rebuild fallback. This map is
+  // read lazily (only on pill click), so the win is avoiding the O(n) re-walk
+  // per streamed event, not re-render avoidance.
+  const stepDetails = useSubagentStepDetails(entry.events);
 
   // Which step's detail (if any) is shown nested inside this panel — the key
   // into `stepDetails` (a tool call or a thinking segment), or `null` to show
@@ -126,6 +136,20 @@ export function SubagentDetailPanel({
   const [selectedDetailKey, setSelectedDetailKey] = useState<string | null>(
     null,
   );
+
+  // Read `stepDetails` through a ref so the click handler below can stay
+  // identity-stable across `entry.events` changes. `stepDetails` is rebuilt
+  // (new Map identity) on most streamed events, so closing over it directly
+  // would change the handler identity every tick — which, passed down to the
+  // now-memoized `SubagentPhaseRow`s, would re-render every row on each event.
+  // The ref is assigned during render (not in an effect) so the handler always
+  // sees the latest map without listing it as a dependency.
+  const stepDetailsRef = useRef(stepDetails);
+  // eslint-disable-next-line react-hooks/refs -- render-phase sync so the stable handler below reads the latest map
+  stepDetailsRef.current = stepDetails;
+  const handleStepDetailClick = useCallback((key: string) => {
+    if (stepDetailsRef.current.has(key)) setSelectedDetailKey(key);
+  }, []);
 
   // Which timeline groups are expanded. Lifted out of `SubagentPhaseTimeline`
   // so the expansion survives the timeline unmounting while a nested tool
@@ -273,7 +297,8 @@ export function SubagentDetailPanel({
         <Typography
           variant="title-medium"
           title={headerTitle}
-          className="min-w-0 shrink truncate text-[var(--content-default)]"
+          // leading-snug: title-medium is line-height:1, so truncate clips the descenders.
+          className="min-w-0 shrink truncate leading-snug text-[var(--content-default)]"
         >
           {headerTitle}
         </Typography>
@@ -408,25 +433,23 @@ export function SubagentDetailPanel({
                * subagent's same-positioned phase.
                */}
               {/*
-               * Gate the empty state on the RAW `entry.events`, not on
-               * `cardData.steps`. `computeSubagentCardData` can intentionally
+               * Gate the empty state on the RAW `entry.events`, not on the
+               * projected `steps`. `computeSubagentSteps` can intentionally
                * DROP events (e.g. a `tool_result` with no preceding in-flight
-               * `tool_call`), so `entry.events` can be non-empty while
-               * `cardData.steps` is empty. Gating on steps would show a false
-               * "No events yet" AND — because `entry.events.length !== 0` — the
-               * detail-refetch effect above wouldn't fire to recover. When the
-               * store has events we render the timeline (which returns null for
-               * zero steps, an acceptable no-op).
+               * `tool_call`), so `entry.events` can be non-empty while `steps`
+               * is empty. Gating on steps would show a false "No events yet"
+               * AND — because `entry.events.length !== 0` — the detail-refetch
+               * effect above wouldn't fire to recover. When the store has events
+               * we render the timeline (which returns null for zero steps, an
+               * acceptable no-op).
                */}
               {entry.events.length > 0 ? (
                 <SubagentPhaseTimeline
                   key={entry.subagentId}
-                  steps={cardData.steps}
+                  steps={steps}
                   expandedKeys={expandedSectionKeys}
                   onExpandedKeysChange={setExpandedSectionKeys}
-                  onStepDetailClick={(key) => {
-                    if (stepDetails.has(key)) setSelectedDetailKey(key);
-                  }}
+                  onStepDetailClick={handleStepDetailClick}
                   // Keeps the last phase's node pulsing while the subagent is
                   // still active but its last phase has settled.
                   isRunning={isRunning}

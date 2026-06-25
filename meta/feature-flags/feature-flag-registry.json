@@ -403,11 +403,11 @@
       "defaultEnabled": false
     },
     {
-      "id": "mcp-settings",
+      "id": "mcp-add-server",
       "scope": "assistant",
-      "key": "mcp-settings",
-      "label": "MCP Settings",
-      "description": "Show the MCP page in Settings for managing Model Context Protocol server connections: view status, enable/disable, configure, and inspect registered tools per server.",
+      "key": "mcp-add-server",
+      "label": "MCP Add Server",
+      "description": "Show the Add Server action on the MCP settings page. The MCP page itself remains visible; this flag gates only creating new Model Context Protocol server connections.",
       "defaultEnabled": false
     },
     {
@@ -415,7 +415,7 @@
       "scope": "assistant",
       "key": "os-beta",
       "label": "OS Beta",
-      "description": "Enable the OS Beta model profile (GLM 5.2 / Fireworks) in the assistant's model profile selection.",
+      "description": "Enable the OS Beta model profile (MiniMax M3 / Together) in the assistant's model profile selection.",
       "defaultEnabled": false
     }
   ]

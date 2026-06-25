@@ -3,7 +3,10 @@ import { v4 as uuid } from "uuid";
 import { z } from "zod";
 
 import { SurfaceActionSchema } from "../api/events/ui-surface-show.js";
-import { CardSurfaceDataSchema } from "../api/surfaces.js";
+import {
+  CardSurfaceDataSchema,
+  FileUploadSurfaceDataSchema,
+} from "../api/surfaces.js";
 import { isActivationSession } from "../memory/activation-session-store.js";
 import {
   addAppConversationId,
@@ -56,6 +59,7 @@ import type {
   ConfirmationSurfaceData,
   CopyBlockSurfaceData,
   DynamicPageSurfaceData,
+  FileUploadSurfaceData,
   FormSurfaceData,
   ListSurfaceData,
   OAuthConnectSurfaceData,
@@ -583,12 +587,20 @@ function normalizeCardShowData(
           (typeof input[k] === "string" &&
             (input[k] as string).trim().length > 0),
       );
-      Sentry.addBreadcrumb({
-        category: "card-normalization",
-        message: `alias recovery: ${usedAliases.join(", ")} → body`,
-        level: "info",
-        data: { usedAliases, candidateCount: candidates.length },
-      });
+      try {
+        Sentry.withScope((scope) => {
+          scope.setLevel("info");
+          scope.setTag("card_normalization", "alias_recovery");
+          scope.setTag("target_field", "body");
+          scope.setContext("card_normalization", {
+            used_aliases: usedAliases,
+            candidate_count: candidates.length,
+          });
+          Sentry.captureMessage("card_normalization:alias_recovery:body");
+        });
+      } catch {
+        // Never let telemetry break card rendering.
+      }
     }
   }
   for (const key of bodyAliasKeys) {
@@ -605,11 +617,16 @@ function normalizeCardShowData(
     ]);
     if (aliased !== undefined) {
       normalized.title = aliased;
-      Sentry.addBreadcrumb({
-        category: "card-normalization",
-        message: `alias recovery: title`,
-        level: "info",
-      });
+      try {
+        Sentry.withScope((scope) => {
+          scope.setLevel("info");
+          scope.setTag("card_normalization", "alias_recovery");
+          scope.setTag("target_field", "title");
+          Sentry.captureMessage("card_normalization:alias_recovery:title");
+        });
+      } catch {
+        // Never let telemetry break card rendering.
+      }
     }
   }
   for (const key of titleAliasKeys) {
@@ -634,11 +651,16 @@ function normalizeCardShowData(
     ]);
     if (aliased !== undefined) {
       normalized.subtitle = aliased;
-      Sentry.addBreadcrumb({
-        category: "card-normalization",
-        message: `alias recovery: subtitle`,
-        level: "info",
-      });
+      try {
+        Sentry.withScope((scope) => {
+          scope.setLevel("info");
+          scope.setTag("card_normalization", "alias_recovery");
+          scope.setTag("target_field", "subtitle");
+          Sentry.captureMessage("card_normalization:alias_recovery:subtitle");
+        });
+      } catch {
+        // Never let telemetry break card rendering.
+      }
     }
   }
   for (const key of subtitleAliasKeys) {
@@ -688,12 +710,21 @@ function normalizeCardShowData(
       { droppedKeys },
       "ui_show card data carried keys the card contract does not model; their content will not render",
     );
-    Sentry.addBreadcrumb({
-      category: "card-normalization",
-      message: `dropped keys: ${droppedKeys.join(", ")}`,
-      level: "warning",
-      data: { droppedKeys },
-    });
+    try {
+      Sentry.withScope((scope) => {
+        scope.setLevel("warning");
+        scope.setTag("card_normalization", "dropped_keys");
+        scope.setContext("card_normalization", {
+          dropped_count: droppedKeys.length,
+        });
+        // Key names are model-controlled, so they ride in `extra`, which
+        // beforeSend redacts (it does not scrub `contexts`) — see instrument.ts.
+        scope.setExtra("dropped_keys", droppedKeys);
+        Sentry.captureMessage("card_normalization:dropped_keys");
+      });
+    } catch {
+      // Never let telemetry break card rendering.
+    }
   }
   const parsed = CardSurfaceDataSchema.safeParse(normalized);
   if (parsed.success) {
@@ -827,6 +858,24 @@ function normalizeOAuthConnectShowData(
       ? { logoUrl: rawData.logoUrl }
       : {}),
   };
+}
+
+function normalizeFileUploadShowData(
+  rawData: Record<string, unknown>,
+): FileUploadSurfaceData {
+  // Parse against the canonical schema so the surface carries the shape the
+  // renderer expects. The schema is tolerant (every field optional and coerced)
+  // and recovers the common malformed `acceptedTypes` shapes — a comma-joined or
+  // bare string — into the `string[]` the renderer requires.
+  const parsed = FileUploadSurfaceDataSchema.safeParse(rawData);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  log.warn(
+    { issues: parsed.error.issues },
+    "ui_show file_upload data failed FileUploadSurfaceDataSchema; rendering an empty file_upload surface",
+  );
+  return {};
 }
 
 function buildChoiceActions(data: ChoiceSurfaceData): Array<{
@@ -2895,7 +2944,9 @@ export async function surfaceProxyResolver(
               ? normalizeOAuthConnectShowData(rawData)
               : surfaceType === "dynamic_page"
                 ? normalizeDynamicPageShowData(input, rawData)
-                : (rawData as SurfaceData);
+                : surfaceType === "file_upload"
+                  ? normalizeFileUploadShowData(rawData)
+                  : (rawData as SurfaceData);
     // Parse actions through the schema instead of typecasting raw model output.
     // The model may place actions inside `data` instead of the top-level
     // `actions` param — recover them so they aren't silently dropped.
@@ -2912,18 +2963,27 @@ export async function surfaceProxyResolver(
         if (result.success) {
           valid.push(result.data);
         } else {
-          Sentry.addBreadcrumb({
-            category: "card-normalization",
-            message: "action parse failure (individual)",
-            level: "warning",
-            data: {
-              issuePaths: result.error.issues.map((i) => i.path.join(".")),
-              keys:
+          try {
+            Sentry.withScope((scope) => {
+              scope.setLevel("warning");
+              scope.setTag("card_normalization", "action_parse_failure");
+              scope.setContext("card_normalization", {
+                issue_paths: result.error.issues.map((i) => i.path.join(".")),
+              });
+              // raw object keys are model-controlled, so they ride in `extra`,
+              // which beforeSend redacts (it does not scrub `contexts`) — see
+              // instrument.ts.
+              scope.setExtra(
+                "raw_keys",
                 typeof raw === "object" && raw !== null
                   ? Object.keys(raw)
                   : [typeof raw],
-            },
-          });
+              );
+              Sentry.captureMessage("card_normalization:action_parse_failure");
+            });
+          } catch {
+            // Never let telemetry break card rendering.
+          }
         }
       }
       inputActions = valid.length > 0 ? valid : undefined;
@@ -2961,11 +3021,24 @@ export async function surfaceProxyResolver(
         !hasTemplate &&
         !hasActions
       ) {
-        Sentry.addBreadcrumb({
-          category: "card-normalization",
-          message: "empty card rejected",
-          level: "warning",
-        });
+        try {
+          Sentry.withScope((scope) => {
+            scope.setLevel("warning");
+            scope.setTag("card_normalization", "empty_card_rejected");
+            scope.setContext("card_normalization", {
+              surface_type: surfaceType,
+              has_title: hasTitle,
+              has_body: hasBody,
+              has_subtitle: hasSubtitle,
+              has_metadata: hasMetadata,
+              has_template: hasTemplate,
+              has_actions: hasActions,
+            });
+            Sentry.captureMessage("card_normalization:empty_card_rejected");
+          });
+        } catch {
+          // Never let telemetry break card rendering.
+        }
         return {
           content:
             "Error: ui_show card requires content — provide `data.body`, a `template` (e.g. task_progress with steps), `data.metadata`, `data.subtitle`, a `title`, or `actions`. The surface was not displayed because it carried no renderable content. Resend ui_show with populated card content.",

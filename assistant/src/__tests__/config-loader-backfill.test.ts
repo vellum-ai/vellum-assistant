@@ -98,6 +98,64 @@ function writeConfig(obj: unknown): void {
   writeFileSync(CONFIG_PATH, JSON.stringify(obj, null, 2) + "\n");
 }
 
+function latencySeed(): Record<string, unknown> {
+  return {
+    model: "claude-haiku-4-5-20251001",
+    effort: "low",
+    thinking: { enabled: false },
+  };
+}
+
+function fullSeededCallSites(): Record<string, Record<string, unknown>> {
+  return {
+    guardianQuestionCopy: latencySeed(),
+    interactionClassifier: latencySeed(),
+    skillCategoryInference: latencySeed(),
+    inviteInstructionGenerator: latencySeed(),
+    notificationDecision: latencySeed(),
+    preferenceExtraction: latencySeed(),
+    commitMessage: {
+      model: "claude-haiku-4-5-20251001",
+      maxTokens: 120,
+      temperature: 0.2,
+      effort: "low",
+      thinking: { enabled: false },
+    },
+    conversationStarters: latencySeed(),
+    conversationSummarization: {
+      model: "claude-opus-4-7",
+      effort: "low",
+      thinking: { enabled: false },
+    },
+    recall: {
+      profile: "cost-optimized",
+      maxTokens: 4096,
+      effort: "low",
+      thinking: { enabled: false, streamThinking: false },
+      temperature: 0,
+      disableCache: true,
+    },
+    heartbeatAgent: {
+      profile: "cost-optimized",
+      maxTokens: 2048,
+      effort: "low",
+      temperature: 0,
+      thinking: { enabled: false, streamThinking: false },
+      contextWindow: { maxInputTokens: 16000 },
+    },
+    replySuggestion: {
+      model: "claude-haiku-4-5-20251001",
+      effort: "low",
+      thinking: { enabled: false },
+      disableCache: true,
+    },
+    memoryRouter: {
+      profile: "cost-optimized",
+      contextWindow: { maxInputTokens: 1_000_000 },
+    },
+  };
+}
+
 function mergeDefaultConfigAndSeedInferenceProfiles(db?: DrizzleDb): void {
   const defaultConfigMerge = mergeDefaultWorkspaceConfig();
   seedInferenceProfiles({
@@ -370,6 +428,56 @@ describe("loadConfig startup behavior", () => {
     const config = getConfig();
 
     expect(config.memory.v2.bm25_b).toBe(0.4);
+  });
+
+  test("default workspace config merge prunes exact seeded call-site defaults", () => {
+    const seededCallSites = fullSeededCallSites();
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          gateway: {
+            unmappedPolicy: "default",
+            defaultAssistantId: "self",
+          },
+          llm: {
+            activeProfile: "balanced",
+            advisorProfile: "frontier",
+            callSites: {
+              ...seededCallSites,
+              recall: {
+                ...seededCallSites.recall,
+                disableCache: false,
+              },
+              customSite: { profile: "frontier" },
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    const result = mergeDefaultWorkspaceConfig();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8")) as Record<
+      string,
+      Record<string, unknown>
+    >;
+    const llm = raw.llm as Record<string, unknown>;
+    const callSites = llm.callSites as Record<string, Record<string, unknown>>;
+
+    expect(result.hadOverlay).toBe(true);
+    expect(raw.gateway).toEqual({
+      unmappedPolicy: "default",
+      defaultAssistantId: "self",
+    });
+    expect(llm.activeProfile).toBe("balanced");
+    expect(llm.advisorProfile).toBe("frontier");
+    expect(Object.keys(callSites).sort()).toEqual(["customSite", "recall"]);
+    expect(callSites.recall?.disableCache).toBe(false);
+    expect(callSites.customSite).toEqual({ profile: "frontier" });
   });
 
   test("reloads cached config when config.json is updated externally", () => {
@@ -1595,8 +1703,8 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
 // ---------------------------------------------------------------------------
 // Tests: OS Beta flag-gated managed profile. The template is defined but
 // intentionally NOT part of MANAGED_PROFILE_TEMPLATES, so seedInferenceProfiles
-// must never create it. A later PR reconciles it in/out based on the `os-beta`
-// feature flag.
+// must never create it. The flag-gated reconcile creates or removes it based on
+// the `os-beta` feature flag.
 // ---------------------------------------------------------------------------
 
 describe("OS Beta managed profile template", () => {
@@ -1643,20 +1751,21 @@ describe("OS Beta managed profile template", () => {
     expect(MANAGED_PROFILE_NAMES.has("os-beta")).toBe(true);
   });
 
-  test("materializeProfile honors the explicit OS Beta model", () => {
+  test("materializeProfile resolves OS Beta to the Balanced model with low effort", () => {
     const entry = materializeProfile(
       OS_BETA_PROFILE_TEMPLATE,
-      "fireworks",
-      "fireworks-managed",
+      "together",
+      "together-managed",
     );
 
-    expect(entry.model).toBe("accounts/fireworks/models/glm-5p2");
-    expect(entry.provider_connection).toBe("fireworks-managed");
-    expect(entry.provider).toBe("fireworks");
+    expect(entry.model).toBe("MiniMaxAI/MiniMax-M3");
+    expect(entry.provider_connection).toBe("together-managed");
+    expect(entry.provider).toBe("together");
     expect(entry.label).toBe("OS Beta");
     expect(entry.source).toBe("managed");
     expect(entry.maxTokens).toBe(32000);
-    expect(entry.effort).toBe("high");
+    expect(entry.effort).toBe("low");
     expect(entry.thinking?.enabled).toBe(true);
+    expect(entry.topP).toBe(0.95);
   });
 });

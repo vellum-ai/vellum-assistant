@@ -24,7 +24,7 @@ my-plugin/
 
 Loader rules:
 
-- **Compiled files win.** When both a `.js` and a `.ts` exist for the same basename, the `.js` is used, matching compiled-binary semantics.
+- **Compiled files win.** When both a `.js` and a `.ts` exist for the same basename, the `.js` is used, matching compiled-binary semantics. Clean stale `.js` files when iterating on `.ts` source, or the loader will silently pick up old code.
 - **Missing directories are skipped.** A plugin contributes only the surfaces it ships. Absent surface directories are silently omitted.
 - **A broken surface file fails only itself.** A surface file present but missing a usable default export is logged with attribution and skipped. Sibling plugins keep loading.
 - **`src/` is yours.** Only the named surface directories are walked. Put shared helpers in `src/` (or any other directory) and import from them normally.
@@ -47,10 +47,12 @@ Every plugin has a `package.json`. The loader reads three fields and passes ever
 }
 ```
 
-- **`name`** (required). Any npm-style name. The loader strips the scope (`@you/`) for the in-runtime plugin name, and duplicate names fail registration.
+- **`name`** (required). Any npm-style name. The loader strips the scope (`@you/`) for the in-runtime plugin name, and duplicate names fail registration. The unscoped portion must be kebab-case (e.g. `my-plugin`, not `myPlugin` or `my_plugin`), matching the convention used for catalog entries and directory names.
 - **`version`**. Informational, and defaults to `0.0.0` when absent.
 - **`peerDependencies["@vellumai/plugin-api"]`**. A semver range checked against the running assistant. While plugins are in beta a mismatch is logged but does not block load. Once the install path stabilizes the mismatch will harden into a hard reject, so pin a real range.
 - **`vellum`**. Reserved for future use.
+
+The marketplace catalog entry can point at a subdirectory of a repo using `source.path` in the catalog manifest. See `references/distribution.md` for the full `source.path` field and the catalog manifest schema.
 
 ## The @vellumai/plugin-api surface
 
@@ -82,3 +84,20 @@ Values, not just types, that a plugin consumes at module-load or init time. A bo
 | `AssistantEventCallback`     | type  | Subscriber callback invoked for each matching event.                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `AssistantEventFilter`       | type  | Filter narrowing which events a subscription receives.                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `AssistantEventSubscription` | type  | Handle returned by subscribing, used to unsubscribe.                                                                                                                                                                                                                                                                                                                                                                                                                      |
+
+## Surfaces not yet available in plugins
+
+The assistant supports these surfaces today, but they are not yet contributed through the plugin system. They may be added in the future.
+
+| Surface        | What it does                                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------- |
+| Schedules      | Cron-style triggers that fire on a recurring schedule.                                                        |
+| Apps           | Persistent interactive apps (dashboards, games, tools) served in the workspace panel.                         |
+| Routes         | HTTP routes the assistant exposes, used for webhooks and integrations.                                        |
+| Artifacts      | Versioned outputs the assistant produces and tracks (documents, diagrams, generated files).                   |
+| Webhooks       | Inbound HTTP endpoints that deliver external events into the assistant.                                       |
+| Prompts        | Reusable system prompt fragments and templates.                                                               |
+| UIs            | Custom UI surfaces rendered in the conversation or workspace.                                                 |
+| Bin            | CLI commands the assistant exposes as tools.                                                                  |
+| Integrations   | OAuth-connected and MCP-connected external services (Google, Linear, Slack, etc.) with credential management. |
+| Slash commands | Shortcuts triggered by typing `/` in the conversation, expanding into prompts or actions.                     |

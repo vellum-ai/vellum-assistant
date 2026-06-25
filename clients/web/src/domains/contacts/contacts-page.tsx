@@ -55,6 +55,7 @@ import type {
     ChannelsAvailableGetResponse,
     IntegrationsSlackChannelConfigGetResponse,
 } from "@/generated/daemon/types.gen";
+import { useChannelTrustFloors } from "@/domains/contacts/hooks/use-channel-trust-floors";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { toastOnError } from "@/utils/mutation-error";
@@ -242,6 +243,10 @@ export function ContactsPage({
   });
 
   const slackThreadMode = slackConfigQuery.data as SlackThreadMode | undefined;
+
+  // Per-channel trust floors (admission policy), shown inline on each connected
+  // channel when the `channelTrustFloors` flag is on.
+  const channelTrustFloors = useChannelTrustFloors(assistantId);
 
   // ---------------------------------------------------------------------------
   // Mutations
@@ -633,6 +638,11 @@ export function ContactsPage({
             }
             slackThreadMode={slackThreadMode}
             slackThreadModePending={slackThreadModeMutation.isPending}
+            channelPolicies={channelTrustFloors.policies}
+            policySavingKey={channelTrustFloors.savingKey}
+            policiesLoading={channelTrustFloors.isLoading}
+            policiesError={channelTrustFloors.isError}
+            onChannelPolicyChange={channelTrustFloors.onChange}
             onSetup={onStartSetupConversation ? handleAssistantSetup : undefined}
             onDisconnect={handleDisconnect}
             onSaveTelegramToken={handleSaveTelegramToken}

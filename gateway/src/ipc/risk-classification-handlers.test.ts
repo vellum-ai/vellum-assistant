@@ -500,13 +500,33 @@ describe("credentialed proxied bash", () => {
 // ── Unknown tool fallback ───────────────────────────────────────────────────
 
 describe("unknown tool fallback", () => {
-  test("unknown tool returns medium risk", async () => {
+  test("truly unknown tool returns medium risk with warning reason", async () => {
     const result = await classify({
       tool: "some_unknown_tool",
     });
     expect(result.risk).toBe("medium");
     expect(result.matchType).toBe("unknown");
     expect(result.reason).toContain("Unknown tool");
+  });
+
+  test("registered tool with registryDefaultRisk uses registry match, no reason", async () => {
+    const result = await classify({
+      tool: "remember",
+      registryDefaultRisk: "low",
+    });
+    expect(result.risk).toBe("low");
+    expect(result.matchType).toBe("registry");
+    expect(result.reason).toBe("");
+  });
+
+  test("registered tool with high registryDefaultRisk preserves risk level", async () => {
+    const result = await classify({
+      tool: "some_plugin_tool",
+      registryDefaultRisk: "high",
+    });
+    expect(result.risk).toBe("high");
+    expect(result.matchType).toBe("registry");
+    expect(result.reason).toBe("");
   });
 });
 

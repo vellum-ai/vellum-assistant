@@ -24,6 +24,16 @@ let lastConstructorOptions: Record<string, unknown> | null = null;
 let shouldThrow: Error | null = null;
 const DEFAULT_SDK_TIMEOUT_MS = 1_860_000;
 
+// Each provider installs a `fetch` wrapper to capture raw error bodies, so the
+// constructor options carry a `fetch` function; assert the meaningful options
+// via objectContaining and confirm `fetch` is wired.
+function expectOpenAIConstructorOptions(
+  expected: Record<string, unknown>,
+): void {
+  expect(lastConstructorOptions).toEqual(expect.objectContaining(expected));
+  expect(typeof lastConstructorOptions?.fetch).toBe("function");
+}
+
 // Simulate OpenAI.APIError
 class FakeAPIError extends Error {
   status: number;
@@ -218,7 +228,7 @@ describe("OpenAIResponsesProvider", () => {
       providerLabel: "Managed OpenAI",
     });
 
-    expect(lastConstructorOptions).toEqual({
+    expectOpenAIConstructorOptions({
       apiKey: "sk-custom",
       baseURL: "https://proxy.example.com/v1",
       timeout: DEFAULT_SDK_TIMEOUT_MS,
@@ -230,7 +240,7 @@ describe("OpenAIResponsesProvider", () => {
       streamTimeoutMs: 300_000,
     });
 
-    expect(lastConstructorOptions).toEqual({
+    expectOpenAIConstructorOptions({
       apiKey: "sk-custom",
       baseURL: undefined,
       timeout: 360_000,

@@ -30,7 +30,7 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
   attachments,
   assistantId,
 }) => {
-  const { openPreview, previewModal } = useAttachmentPreview(assistantId);
+  const { openPreview, previewModal } = useAttachmentPreview(assistantId, attachments);
 
   const handleDownload = useCallback(
     (att: DisplayAttachment) => {

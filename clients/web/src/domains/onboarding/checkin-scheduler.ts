@@ -10,8 +10,9 @@
  *
  * Best-effort and fire-and-forget: a failure here must not block the
  * onboarding handoff, so every error is swallowed and surfaced only via the
- * returned boolean. The endpoint itself returns `scheduled: false` (not an
- * error) when no calendar is connected or the calendar scope wasn't granted.
+ * returned result's `scheduled` flag. The endpoint itself returns
+ * `scheduled: false` (not an error) when no calendar is connected or the
+ * calendar scope wasn't granted.
  */
 
 import { onboardingCheckinPost } from "@/generated/daemon/sdk.gen";
@@ -22,16 +23,27 @@ export interface ScheduleCheckinOptions {
   assistantName?: string;
 }
 
+export interface CheckinScheduleResult {
+  /** True only when the daemon actually booked an event. */
+  scheduled: boolean;
+  /** ISO start of the booked event (present only when scheduled). */
+  start?: string;
+  /** IANA timeZone the event was booked in (present only when scheduled). */
+  timeZone?: string;
+}
+
 /**
- * Book the Day 2 Check-in event. Returns `true` when an event was created,
- * `false` otherwise (no calendar connected, scope not granted, or any error —
- * all treated identically as "best-effort, carry on").
+ * Book the Day 2 Check-in event. Resolves to `{ scheduled: true, start,
+ * timeZone }` when an event was created, surfacing the daemon's booked start
+ * time and timeZone. Resolves to `{ scheduled: false }` otherwise (no calendar
+ * connected, scope not granted, or any error — all treated identically as
+ * "best-effort, carry on"); `start`/`timeZone` are only set on a real booking.
  */
 export async function scheduleCheckin({
   assistantId,
   userName,
   assistantName,
-}: ScheduleCheckinOptions): Promise<boolean> {
+}: ScheduleCheckinOptions): Promise<CheckinScheduleResult> {
   try {
     // Carry the browser timezone so "tomorrow" and the 12pm–5pm window resolve
     // to the user's local clock when the daemon books the slot. The daemon
@@ -53,8 +65,15 @@ export async function scheduleCheckin({
       throwOnError: false,
     });
 
-    return result.response?.ok === true && result.data?.scheduled === true;
+    const ok =
+      result.response?.ok === true && result.data?.scheduled === true;
+    if (!ok) return { scheduled: false };
+    return {
+      scheduled: true,
+      start: result.data?.start,
+      timeZone: result.data?.timeZone,
+    };
   } catch {
-    return false;
+    return { scheduled: false };
   }
 }

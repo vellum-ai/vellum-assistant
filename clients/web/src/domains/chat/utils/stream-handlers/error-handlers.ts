@@ -5,6 +5,7 @@ import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/
 import { patchConversation } from "@/utils/conversation-cache";
 import type {
   ConversationErrorEvent,
+  ConversationNoticeEvent,
   ErrorEvent,
 } from "@vellumai/assistant-api";
 
@@ -65,4 +66,15 @@ export function handleConversationErrorEvent(
   if (!isBannerError) {
     ctx.cancelAndClearStream();
   }
+}
+
+export function handleConversationNoticeEvent(
+  event: ConversationNoticeEvent,
+  ctx: StreamHandlerContext,
+): void {
+  ctx.setNotice({
+    message: event.userMessage,
+    code: event.code,
+    errorCategory: event.errorCategory,
+  });
 }

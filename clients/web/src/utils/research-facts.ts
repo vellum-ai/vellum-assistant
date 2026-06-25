@@ -51,16 +51,6 @@ export interface ResearchSuggestion {
    * talking to itself.
    */
   prompt: string;
-  /**
-   * Optional marketplace plugin (install name, e.g. "marketing-expert") whose
-   * skills this suggestion's prompt is designed to trigger. Set by the model
-   * when it matches a capability from the injected catalog to the user's
-   * situation. The runner background-installs any tagged plugin so its skills
-   * are discoverable in the fresh conversation the click opens (plugin-resident
-   * skills load per-conversation from disk — no daemon restart needed). Absent
-   * for ordinary suggestions.
-   */
-  plugin?: string;
 }
 
 /** Bare registrable domain from a URL (www stripped), or null if unparseable. */
@@ -155,12 +145,68 @@ function toSuggestion(entry: unknown): ResearchSuggestion | null {
     typeof rawPrompt === "string" && rawPrompt.trim()
       ? rawPrompt.trim()
       : suggestion.trim();
-  const rawPlugin = (entry as { plugin?: unknown }).plugin;
-  const plugin =
-    typeof rawPlugin === "string" && rawPlugin.trim()
-      ? rawPlugin.trim()
-      : undefined;
-  return { suggestion: suggestion.trim(), prompt, ...(plugin ? { plugin } : {}) };
+  return { suggestion: suggestion.trim(), prompt };
+}
+
+/**
+ * Normalize the top-level `plugins` install list: keep non-blank string names,
+ * trimmed and de-duplicated, order-stable. Anything that isn't a clean string
+ * array yields `[]`. The runner gates these against the fetched catalog before
+ * installing, so a hallucinated name here never reaches the install route.
+ */
+function normalizePlugins(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "string") continue;
+    const name = entry.trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    names.push(name);
+  }
+  return names;
+}
+
+/**
+ * Parse the top-level `plugins` array once it has fully CLOSED, even while the
+ * rest of the payload is still streaming. The prompt emits `plugins` first
+ * precisely so installs can start early — but we only act on a `]`-terminated
+ * array, never a half-written one (a truncated name must never hit the install
+ * route). Returns the normalized names once the array closes (possibly `[]` when
+ * the model picked none), or `null` while it's still absent or unterminated — so
+ * callers can tell "decided, none" from "not decided yet". String-aware so a `]`
+ * inside a value doesn't end the scan early.
+ */
+function parseClosedPluginsArray(body: string): string[] | null {
+  const scope = arrayScopeFor(body, "plugins");
+  if (scope === null) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < scope.length; i++) {
+    const c = scope[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === "\\") escaped = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') inString = true;
+    else if (c === "[") depth++;
+    else if (c === "]") {
+      if (depth > 0) {
+        depth--;
+        continue;
+      }
+      try {
+        return normalizePlugins(JSON.parse(`[${scope.slice(0, i + 1)}`));
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
 }
 
 /** Body after a `"key": [` opening, or null if that array isn't present yet. */
@@ -179,6 +225,22 @@ export interface ResearchResult {
    * card and the user-voiced message sent when it's clicked.
    */
   suggestions: ResearchSuggestion[];
+  /**
+   * Marketplace capability install names the model judged a good overall fit for
+   * the user (top-level `plugins` array). Persona-level, NOT tied to any single
+   * suggestion: the runner installs these for the assistant globally and gates
+   * them against the fetched catalog first. The prompt emits this array first so
+   * it's honored as soon as it closes — even mid-stream, before `complete` — to
+   * start installs ASAP; `[]` until the array is fully terminated.
+   */
+  plugins: string[];
+  /**
+   * True once the `plugins` decision is final — the array has fully closed (even
+   * if empty) or the whole payload parsed. Lets the runner gate a suggestion
+   * click on just the plugin decision + its installs, NOT the entire research
+   * turn: `false` only while `plugins` is still absent or mid-stream.
+   */
+  pluginsResolved: boolean;
   /**
    * True once the reply parses as ONE complete, well-formed JSON object — i.e.
    * the full payload has arrived and was parsed by `JSON.parse` (not the
@@ -223,17 +285,28 @@ function parseWholePayload(body: string): Record<string, unknown> | null {
  * top-level array as `claims` for back-compat.
  */
 export function parseResearchResultStreaming(text: string): ResearchResult {
-  if (!text) return { claims: [], suggestions: [], complete: false };
+  if (!text)
+    return {
+      claims: [],
+      suggestions: [],
+      plugins: [],
+      pluginsResolved: false,
+      complete: false,
+    };
   const body = stripFence(text);
 
   // Fast path: the whole payload parsed in one shot. Correct (handles escaping)
   // and authoritative once the reply has fully arrived — so it also tells the
-  // caller the result is `complete` and safe to settle on.
+  // caller the result is `complete` and safe to settle on. The `plugins` install
+  // list is only honored here (not in the streaming fallback) so we never act on
+  // a half-written array.
   const whole = parseWholePayload(body);
   if (whole) {
     return {
       claims: mapEntries(whole.claims, toFact),
       suggestions: mapEntries(whole.suggestions, toSuggestion),
+      plugins: normalizePlugins(whole.plugins),
+      pluginsResolved: true,
       complete: true,
     };
   }
@@ -262,7 +335,14 @@ export function parseResearchResultStreaming(text: string): ResearchResult {
           .map(toSuggestion)
           .filter((s): s is ResearchSuggestion => s !== null);
 
-  return { claims, suggestions, complete: false };
+  const closedPlugins = parseClosedPluginsArray(body);
+  return {
+    claims,
+    suggestions,
+    plugins: closedPlugins ?? [],
+    pluginsResolved: closedPlugins !== null,
+    complete: false,
+  };
 }
 
 /**

@@ -39,7 +39,7 @@ Each subagent is spawned with a role that determines its tool access. Choose the
 | `researcher` | `web_search`, `web_fetch`, `file_read`, `file_list`, `recall`, `notify_parent` | Information gathering, web research, codebase exploration, reading documentation |
 | `coder` | `bash`, `file_read`, `file_write`, `file_edit`, `web_search`, `recall`, `notify_parent` | Code changes, file editing, running commands, build/test tasks |
 | `planner` | `file_read`, `file_list`, `web_search`, `web_fetch`, `recall`, `notify_parent` | Analysis, planning, synthesizing information, reviewing approaches |
-| `investigator` | `bash`, `file_read`, `file_list`, `web_search`, `web_fetch`, `recall`, `notify_parent` | Root-cause analysis: debugging, log forensics, tracing behavior across many files. Shell access is for read-only investigation (grep/find/reading logs); returns a compact root-cause report |
+| `investigator` | `code_search`, `file_read`, `file_list`, `web_search`, `web_fetch`, `recall`, `notify_parent` | Root-cause analysis: debugging, log forensics, tracing behavior across many files. Read-only search/read tools only (no shell): use `code_search` to grep file contents across directories, `file_list` to enumerate paths, `file_read` to read whole files and logs; returns a compact root-cause report |
 
 All specialized roles (`researcher`, `coder`, `planner`) include `notify_parent` for mid-run communication with the parent.
 

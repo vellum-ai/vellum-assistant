@@ -515,6 +515,7 @@ const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
  */
 export const SUBAGENT_ONLY_TOOL_NAMES = new Set<string>([
   "file_list",
+  "code_search",
   "notify_parent",
 ]);
 

@@ -1,26 +1,16 @@
-export const CHANNEL_IDS = [
-  "telegram",
-  "phone",
-  "vellum",
-  "whatsapp",
-  "slack",
-  "email",
-  "platform",
-  "a2a",
-] as const;
+import {
+  CHANNEL_IDS,
+  type ChannelId,
+  isChannelId,
+} from "@vellumai/service-contracts/channels";
 
-export type ChannelId = (typeof CHANNEL_IDS)[number];
-
-export function isChannelId(value: unknown): value is ChannelId {
-  return (
-    typeof value === "string" &&
-    (CHANNEL_IDS as readonly string[]).includes(value)
-  );
-}
+// The assistant understands the full canonical channel set, so it adopts the
+// shared vocabulary wholesale. `parseChannelId` stays local — it is only used
+// daemon-side and is a thin convenience over the shared guard.
+export { CHANNEL_IDS, type ChannelId, isChannelId };
 
 export function parseChannelId(value: unknown): ChannelId | null {
-  if (isChannelId(value)) return value;
-  return null;
+  return isChannelId(value) ? value : null;
 }
 
 export interface TurnChannelContext {

@@ -11,6 +11,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { addTrustRule, fetchTrustRules, suggestTrustRule, updateTrustRule } from "@/lib/trust-rules-api";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useRuleEditorStore } from "@/domains/chat/rule-editor-store";
@@ -157,7 +158,7 @@ async function executeSaveRule(
     useInteractionStore.getState().dismissConfirmationIfMatches(context.requestId);
     useInteractionStore.getState().setInlineConfirmationToolCallId(null);
     useChatSessionStore.getState().deleteConfirmationToolCall(context.requestId);
-    useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) =>
+    patchTranscriptMessages((prev: DisplayMessage[]) =>
       clearConfirmationByRequestId(prev, context.requestId),
     );
     useRuleEditorStore.getState().dismissRuleEditor();

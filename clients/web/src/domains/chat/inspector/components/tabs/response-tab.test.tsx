@@ -41,6 +41,10 @@ describe("ResponseTab — failed calls", () => {
           code: "PROVIDER_ERROR",
           provider: "fireworks",
           statusCode: 400,
+          apiErrorCode: "model_not_supported",
+          apiErrorType: "invalid_request_error",
+          apiErrorParam: "model",
+          requestId: "req_abc123",
         },
       }),
     );
@@ -52,6 +56,10 @@ describe("ResponseTab — failed calls", () => {
     expect(html).toContain("400");
     expect(html).toContain("ProviderError");
     expect(html).toContain("PROVIDER_ERROR");
+    // Upstream provider error metadata chips.
+    expect(html).toContain("model_not_supported");
+    expect(html).toContain("invalid_request_error");
+    expect(html).toContain("req_abc123");
     // The generic fallback must not appear when the call failed.
     expect(html).not.toContain("Section rendering unavailable");
   });

@@ -4,7 +4,7 @@
  * SPIKE — research-onboarding flow.
  *
  * These render the visual sequence that follows the calendar step:
- *   - MeetingCreatedStep   a brief "Meeting Created!" confirmation
+ *   - MeetingCreatedStep   a brief "Check-in scheduled…" confirmation
  *   - LookingYouUpStep     a loading carousel ("looking you up")
  *   - ResearchResultsStep  the editable "Alright, this is what I got:" claims
  *   - SuggestionsStep      tappable suggestions that open a new chat
@@ -16,20 +16,31 @@
  * loading / empty presentation while the turn is still streaming.
  */
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowRight, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
-import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
+import {
+  toneForBg,
+  useOnboardingTone,
+  type OnboardingTone,
+} from "@/domains/onboarding/onboarding-tone";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import {
   pluginDisplayName,
   type ResearchFact,
   type ResearchSuggestion,
 } from "@/utils/research-facts";
+
+// Once the calendar step blends the background to black, every step from there
+// on sits on a constant dark surface — so their text/UI must be a constant
+// light tone, NOT one derived from the chosen avatar color (a light avatar like
+// yellow would otherwise render dark text, invisible on black). The avatar color
+// is still used where it's intentional (e.g. the plugin pills).
+const DARK_TONE = toneForBg("#17191C");
 
 function useViewportSize() {
   const [size, setSize] = useState(() => ({
@@ -54,13 +65,25 @@ function useChosenAvatar() {
   return { components, chosen };
 }
 
-/** The chosen assistant as a small live avatar (for the heading rows). */
-export function MiniAssistant({ size = 48 }: { size?: number }) {
+/** The chosen assistant as a live avatar (for the heading rows). */
+export function MiniAssistant({
+  size = 64,
+  isStreaming = false,
+}: {
+  size?: number;
+  /** Morph the body while active (e.g. during the looking-you-up carousel). */
+  isStreaming?: boolean;
+}) {
   const { components, chosen } = useChosenAvatar();
   if (!components || !chosen) return <div style={{ width: size, height: size }} />;
   return (
     <div className="shrink-0" style={{ width: size, height: size }}>
-      <AnimatedAvatar components={components} traits={chosen} size={size} />
+      <AnimatedAvatar
+        components={components}
+        traits={chosen}
+        size={size}
+        isStreaming={isStreaming}
+      />
     </div>
   );
 }
@@ -69,57 +92,92 @@ export function MiniAssistant({ size = 48 }: { size?: number }) {
 // Meeting Created
 // ---------------------------------------------------------------------------
 
-const MINI = 48;
+// Matches the carousel/result steps' avatar size so the avatar doesn't jump
+// between the meeting step and the looking-you-up step that follows it.
+const MINI = 64;
+
+// The confirmation animation runs ~1.3s to reveal the title; hold well past it
+// so the booked time stays readable for ~3s before advancing.
+const MEETING_MIN_MS = 4500;
+// Cap how long we hold for a slow-but-pending booking before advancing anyway.
+const MEETING_MAX_MS = 7000;
 
 /**
  * Reverse of the Introduction grow-in. The toned backdrop (behind) blends to
  * black and hides its bottom eyes; here the eyes lead — shrinking and rising
  * up out of the bottom (the opposite of growing + sinking) — and the body
- * follows a beat later, shrinking into a small avatar beside the "Meeting
- * Created!" text. The edge characters stay (they live in the backdrop).
+ * follows a beat later, shrinking into a small avatar beside the "Check-in
+ * scheduled…" text. The edge characters stay (they live in the backdrop).
  */
 export function MeetingCreatedStep({
   onDone,
   onBack,
   onForward,
+  scheduledTime,
+  awaitingTime,
 }: {
   onDone: () => void;
   onBack: () => void;
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
+  /** Pre-formatted wall-clock time (e.g. "2:30 PM"); generic copy when absent. */
+  scheduledTime?: string;
+  /** True while the check-in booking is still in flight; holds the step (capped) so a slow-but-successful booking can still reveal the time. */
+  awaitingTime?: boolean;
 }) {
   const { components, chosen } = useChosenAvatar();
   const reduce = useReducedMotion();
   const { w, h } = useViewportSize();
 
-  useEffect(() => {
-    const t = setTimeout(onDone, 2600);
-    return () => clearTimeout(t);
-  }, [onDone]);
+  const title = scheduledTime
+    ? `Check-in scheduled for tomorrow at ${scheduledTime}!`
+    : "Check-in scheduled!";
 
-  // Mini avatar slot: left of the title, in a left-anchored group.
-  const groupLeft = w / 2 - 170;
-  const slotCx = groupLeft + MINI / 2;
-  const slotCy = h * 0.26 + MINI / 2;
+  // Hold the step long enough to reveal the booked time. While a booking is
+  // still in flight and we don't yet have the time, wait up to the cap; once
+  // the time lands (or the booking settles, or we were never waiting) advance
+  // after the normal minimum. The effect re-runs when those inputs change, so
+  // the timer re-anchors to the moment the time arrives.
+  useEffect(() => {
+    const holdForBooking = awaitingTime && !scheduledTime;
+    const delay = holdForBooking ? MEETING_MAX_MS : MEETING_MIN_MS;
+    const t = setTimeout(onDone, delay);
+    return () => clearTimeout(t);
+  }, [onDone, awaitingTime, scheduledTime]);
+
+  // Measure the avatar slot's center so the grow-in animation resolves to the
+  // exact resting position the next step's avatar uses — same column, same size
+  // — so there's no horizontal (or size) jump between the two steps. Re-measures
+  // on resize and when the title swaps (e.g. the booked time lands late).
+  const slotRef = useRef<HTMLDivElement>(null);
+  const [slot, setSlot] = useState<{ cx: number; cy: number } | null>(null);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const r = slotRef.current?.getBoundingClientRect();
+      if (r) setSlot({ cx: r.left + r.width / 2, cy: r.top + r.height / 2 });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [title]);
 
   // The single giant avatar (eyes visible against the colored bg even while the
   // body blends; the body appears as the bg darkens) starts low, dips a touch,
   // then rises + shrinks into the slot with a small settle bounce.
   const bigScale = (1.3 * Math.max(w, h)) / MINI;
-  const startX = w / 2 - slotCx;
-  const startY = h * 0.88 - slotCy;
+  const startX = slot ? w / 2 - slot.cx : 0;
+  const startY = slot ? h * 0.88 - slot.cy : 0;
   const dip = h * 0.05;
 
   return (
     <div className="absolute inset-0 z-10 overflow-hidden text-white">
       <OnboardingTopBar onBack={onBack} onNext={onForward} tone="light" />
 
-      <div
-        className="absolute flex items-center gap-4"
-        style={{ left: groupLeft, top: h * 0.26 }}
-      >
-        <div className="relative" style={{ width: MINI, height: MINI }}>
-          {components && chosen && (
+      {/* Same column layout as the looking-you-up / result steps so the avatar
+          lands exactly where the next step renders it. */}
+      <div className="absolute left-1/2 top-[14%] sm:top-[26%] flex w-full max-w-xl -translate-x-1/2 items-start gap-3 px-6">
+        <div ref={slotRef} className="relative shrink-0" style={{ width: MINI, height: MINI }}>
+          {components && chosen && slot && (
             <motion.div
               className="absolute inset-0"
               style={{ transformOrigin: "center" }}
@@ -144,13 +202,13 @@ export function MeetingCreatedStep({
           )}
         </div>
         <motion.span
-          className="whitespace-nowrap text-[2.6rem] leading-none"
+          className="text-[2.6rem] leading-none"
           style={{ fontFamily: "var(--font-serif)" }}
           initial={reduce ? false : { opacity: 0, x: -8 }}
           animate={{ opacity: 1, x: 0 }}
           transition={reduce ? { duration: 0 } : { duration: 0.4, delay: 0.9 }}
         >
-          Meeting Created!
+          {title}
         </motion.span>
       </div>
     </div>
@@ -168,11 +226,15 @@ const LOOKING_MESSAGES = [
   "Almost there…",
 ];
 
+/** How long each rotating message lingers before advancing to the next. */
+const LOOKING_MESSAGE_INTERVAL_MS = 2800;
+
 export function LookingYouUpStep({
   onDone,
   onBack,
   onAdvance,
   onForward,
+  ready,
 }: {
   onDone: () => void;
   onBack: () => void;
@@ -180,25 +242,39 @@ export function LookingYouUpStep({
   onAdvance?: (index: number) => void;
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
+  /**
+   * The research turn has settled (results are ready, or there were none). Until
+   * then the carousel keeps rotating — looping the messages — so we never land
+   * on an empty "this is what I found" page.
+   */
+  ready: boolean;
 }) {
-  const tone = useOnboardingTone();
+  const tone = DARK_TONE;
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
     onAdvance?.(index);
-    if (index >= LOOKING_MESSAGES.length - 1) {
-      const done = setTimeout(onDone, 1500);
+    const isLast = index >= LOOKING_MESSAGES.length - 1;
+    // Finish on the last message once research is ready; otherwise keep cycling
+    // (looping back to the start) until it lands.
+    if (ready && isLast) {
+      const done = setTimeout(onDone, LOOKING_MESSAGE_INTERVAL_MS);
       return () => clearTimeout(done);
     }
-    const next = setTimeout(() => setIndex((i) => i + 1), 1500);
+    const next = setTimeout(
+      () => setIndex((i) => (i + 1) % LOOKING_MESSAGES.length),
+      LOOKING_MESSAGE_INTERVAL_MS,
+    );
     return () => clearTimeout(next);
-  }, [index, onDone, onAdvance]);
+  }, [index, ready, onDone, onAdvance]);
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
       <OnboardingTopBar onBack={onBack} onNext={onForward} />
-      <div className="absolute left-1/2 top-[26%] flex w-full max-w-xl -translate-x-1/2 items-center gap-3 px-6">
-        <MiniAssistant />
+      {/* Top-align so the avatar stays put as messages change line count
+          (centering would bob it up and down between carousel lines). */}
+      <div className="absolute left-1/2 top-[14%] sm:top-[26%] flex w-full max-w-xl -translate-x-1/2 items-start gap-3 px-6">
+        <MiniAssistant isStreaming />
         <AnimatePresence mode="wait">
           <motion.p
             key={index}
@@ -237,19 +313,20 @@ export function ResearchResultsStep({
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
 }) {
-  const tone = useOnboardingTone();
+  const tone = DARK_TONE;
   const reduce = useReducedMotion();
   // Locally track removed claims by their text so a user can prune what's wrong
   // without mutating the streamed list (which may still be growing).
   const [removed, setRemoved] = useState<Set<string>>(() => new Set());
   const visible = claims.filter((c) => !removed.has(c.claim));
   const hasClaims = visible.length > 0;
+  const canContinue = !loading;
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
       <OnboardingTopBar onBack={onBack} onNext={onForward} />
 
-      <div className="absolute left-1/2 top-[26%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6">
+      <div className="absolute left-1/2 top-[14%] sm:top-[26%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6">
         <div className="flex items-center gap-3">
           <MiniAssistant />
           <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
@@ -258,7 +335,9 @@ export function ResearchResultsStep({
         </div>
         <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
           {hasClaims
-            ? "I searched the web. Feel free to remove anything that isn’t true"
+            ? loading
+              ? "Still checking the rest. You can review these as they come in."
+              : "I searched the web. Feel free to remove anything that isn’t true"
             : loading
               ? "Still putting this together…"
               : "I didn’t turn up much — we can fill it in as we chat."}
@@ -300,14 +379,15 @@ export function ResearchResultsStep({
         <button
           type="button"
           onClick={onContinue}
-          className="mt-8 flex h-11 w-[200px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition-transform duration-150 active:scale-[0.97]"
+          disabled={!canContinue}
+          className="mt-8 flex h-11 w-[200px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition duration-150 enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
           style={{
             backgroundColor: tone.isLight ? "#1A1A1A" : "#FFFFFF",
             color: tone.isLight ? "#FFFFFF" : "#1A1A1A",
           }}
         >
-          Continue
-          <ArrowRight className="h-4 w-4" />
+          {canContinue ? "Continue" : "Still searching…"}
+          {canContinue && <ArrowRight className="h-4 w-4" />}
         </button>
       </div>
     </div>
@@ -317,33 +397,6 @@ export function ResearchResultsStep({
 // ---------------------------------------------------------------------------
 // Suggestions
 // ---------------------------------------------------------------------------
-
-/**
- * Vibrant badge colors handed out to plugins by order of first appearance, so
- * two different plugins on the same screen never collide on one color (a hash
- * would). See `pluginColorByOrder` in `SuggestionsStep`.
- */
-const PLUGIN_CHIP_PALETTE = [
-  "#6366F1", // indigo
-  "#EC4899", // pink
-  "#10B981", // emerald
-  "#F59E0B", // amber
-  "#06B6D4", // cyan
-  "#A855F7", // violet
-  "#EF4444", // red
-  "#14B8A6", // teal
-];
-
-/** Black or white text for legibility on a given `#rrggbb` chip color (YIQ). */
-function chipTextColor(hex: string): string {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
-  if (!m) return "#FFFFFF";
-  const n = parseInt(m[1]!, 16);
-  const yiq =
-    (((n >> 16) & 0xff) * 299 + ((n >> 8) & 0xff) * 587 + (n & 0xff) * 114) /
-    1000;
-  return yiq > 150 ? "#1A1A1A" : "#FFFFFF";
-}
 
 /**
  * Generic fallbacks shown only if the research turn produced no suggestions
@@ -370,10 +423,148 @@ const FALLBACK_SUGGESTIONS: ResearchSuggestion[] = [
   },
 ];
 
+/** A plugin name rendered as a pill tinted with the chosen avatar's color. */
+function PluginPill({ label, tone }: { label: string; tone: OnboardingTone }) {
+  return (
+    <span
+      className="inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-[3px] text-[12px] font-medium align-middle"
+      style={{ backgroundColor: tone.bg, color: tone.fg }}
+    >
+      {label}
+    </span>
+  );
+}
+
+/** Interleave plugin pills with readable connectors: "A", "A and B", "A, B, and C". */
+function joinPills(labels: string[], tone: OnboardingTone) {
+  return labels.map((label, i) => {
+    let connector = "";
+    if (i > 0) {
+      const isLast = i === labels.length - 1;
+      connector = isLast ? (labels.length === 2 ? " and " : ", and ") : ", ";
+    }
+    return (
+      <Fragment key={label}>
+        {connector}
+        <PluginPill label={label} tone={tone} />
+      </Fragment>
+    );
+  });
+}
+
+/** Avatar box size — the same at the heading and where it lands by the note. */
+const HEADING_AVATAR = 64;
+const NOTE_AVATAR = HEADING_AVATAR;
+
+type Anchor = { x: number; y: number };
+
+/**
+ * The "already set up …" confirmation line. No avatar of its own — it just
+ * reserves a small landing slot (`slotRef`) for the single avatar that flies
+ * down from the heading — and names the installed plugins as avatar-tinted
+ * pills.
+ */
+function PluginSetupNote({
+  pluginLabels,
+  tone,
+  pillTone,
+  reduce,
+  slotRef,
+  revealed,
+}: {
+  pluginLabels: string[];
+  /** Surface tone for the line's text (constant light on the dark surface). */
+  tone: OnboardingTone;
+  /** Avatar tone for the pills (their fill + contrast text). */
+  pillTone: OnboardingTone;
+  reduce: boolean | null;
+  slotRef: React.RefObject<HTMLDivElement | null>;
+  /** True once the avatar has landed — the text only appears then. */
+  revealed: boolean;
+}) {
+  const plural = pluginLabels.length > 1;
+  return (
+    <div className="mt-12 flex items-center gap-3">
+      <div
+        ref={slotRef}
+        className="shrink-0"
+        style={{ width: NOTE_AVATAR, height: NOTE_AVATAR }}
+      />
+      <motion.p
+        className="text-[14px]"
+        style={{ color: tone.fg }}
+        initial={false}
+        animate={{ opacity: revealed ? 1 : 0, x: revealed ? 0 : -6 }}
+        transition={reduce ? { duration: 0 } : { duration: 0.35 }}
+      >
+        Already set up the {joinPills(pluginLabels, pillTone)} plugin{plural ? "s" : ""}{" "}
+        to help with your work
+      </motion.p>
+    </div>
+  );
+}
+
+/**
+ * The chosen avatar as a single overlay that rests over the heading and — once
+ * the plugin note is present and the layout has settled — flies down along a
+ * curved arc to the note's landing slot and stays there (shrinking from the
+ * heading size to the note size). Positions are measured from the slots so the
+ * flight tracks the real layout as suggestions stream in.
+ */
+function FlyingHeadingAvatar({
+  head,
+  note,
+  flyToNote,
+  reduce,
+  onLanded,
+}: {
+  head: Anchor;
+  note?: Anchor;
+  flyToNote: boolean;
+  reduce: boolean | null;
+  /** Fired when the flight to the note finishes (gates the note text reveal). */
+  onLanded: () => void;
+}) {
+  const { components, chosen } = useChosenAvatar();
+  if (!components || !chosen) return null;
+
+  const half = HEADING_AVATAR / 2;
+  const landing = flyToNote && note ? note : head;
+
+  // Same size throughout (no shrink); straight vertical drop into the note slot.
+  const animate = {
+    x: landing.x - half,
+    y: landing.y - half,
+  };
+
+  return (
+    <motion.div
+      className="pointer-events-none absolute left-0 top-0"
+      style={{ width: HEADING_AVATAR, height: HEADING_AVATAR, transformOrigin: "center" }}
+      initial={false}
+      animate={animate}
+      transition={
+        reduce
+          ? { duration: 0 }
+          : flyToNote && note
+            ? { type: "spring", duration: 0.9, bounce: 0.45 }
+            : { duration: 0.4 }
+      }
+      onAnimationComplete={() => {
+        if (flyToNote && note) onLanded();
+      }}
+    >
+      <AnimatedAvatar components={components} traits={chosen} size={HEADING_AVATAR} />
+    </motion.div>
+  );
+}
+
 export function SuggestionsStep({
   suggestions,
   loading,
+  installedPlugins = [],
   onSuggestionClick,
+  onSkip,
   onBack,
   onForward,
 }: {
@@ -382,15 +573,22 @@ export function SuggestionsStep({
   /** True while the research turn is still streaming. */
   loading: boolean;
   /**
-   * Opens the chat on the clicked suggestion. Receives the whole suggestion so
-   * the caller can await any tagged plugin's install before navigating.
+   * Capabilities installed for the assistant this run (from the model's
+   * persona-level `plugins` picks, already catalog-gated). Surfaced as a small
+   * confirmation note; empty when none were set up.
    */
+  installedPlugins?: string[];
+  /** Opens the chat on the clicked suggestion (sends its user-voiced prompt). */
   onSuggestionClick: (suggestion: ResearchSuggestion) => void;
+  /** Skips the suggestions and drops the user straight into a blank chat. */
+  onSkip: () => void;
   onBack: () => void;
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
 }) {
-  const tone = useOnboardingTone();
+  // Constant dark surface for the UI; the avatar tone is only for the pills.
+  const tone = DARK_TONE;
+  const avatarTone = useOnboardingTone();
   const reduce = useReducedMotion();
   // Show real suggestions as they arrive; only fall back once the turn settles
   // with nothing, so we never flash generic prompts over an in-flight result.
@@ -401,78 +599,144 @@ export function SuggestionsStep({
         ? []
         : FALLBACK_SUGGESTIONS;
 
-  // Hand each distinct plugin its own palette color by order of first
-  // appearance, so two different plugins never end up the same color.
-  const pluginColorByOrder = new Map<string, string>();
-  for (const s of items) {
-    if (s.plugin && !pluginColorByOrder.has(s.plugin)) {
-      pluginColorByOrder.set(
-        s.plugin,
-        PLUGIN_CHIP_PALETTE[
-          pluginColorByOrder.size % PLUGIN_CHIP_PALETTE.length
-        ]!,
-      );
-    }
-  }
+  const pluginLabels = installedPlugins
+    .map(pluginDisplayName)
+    .filter((label) => label.length > 0);
+  const hasNote = pluginLabels.length > 0;
+
+  // A single avatar starts over the heading slot and flies down to the note's
+  // landing slot. We measure both slot centers (relative to the column) so the
+  // flight follows the real layout as suggestions stream in and reflow.
+  const columnRef = useRef<HTMLDivElement>(null);
+  const headSlotRef = useRef<HTMLDivElement>(null);
+  const noteSlotRef = useRef<HTMLDivElement>(null);
+  const [anchors, setAnchors] = useState<{ head: Anchor; note?: Anchor } | null>(
+    null,
+  );
+  const [flown, setFlown] = useState(false);
+  const [landed, setLanded] = useState(false);
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      const col = columnRef.current;
+      const head = headSlotRef.current;
+      if (!col || !head) return;
+      const c = col.getBoundingClientRect();
+      const center = (r: DOMRect): Anchor => ({
+        x: r.left - c.left + r.width / 2,
+        y: r.top - c.top + r.height / 2,
+      });
+      const note = noteSlotRef.current;
+      setAnchors({
+        head: center(head.getBoundingClientRect()),
+        note: note ? center(note.getBoundingClientRect()) : undefined,
+      });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+    // Intentionally not re-measuring on `flown`: the head anchor must stay at
+    // its pre-collapse position so the flight starts from where the avatar sat.
+  }, [items.length, hasNote]);
+
+  // Fly down the moment we have the data: as soon as the note slot is measured.
+  const noteY = anchors?.note?.y;
+  useEffect(() => {
+    if (!hasNote || noteY === undefined || flown) return;
+    setFlown(true);
+  }, [hasNote, noteY, flown]);
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
       <OnboardingTopBar onBack={onBack} onNext={onForward} />
 
-      <div className="absolute left-1/2 top-[26%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6">
-        <div className="flex items-center gap-3">
-          <MiniAssistant />
+      <div
+        ref={columnRef}
+        className="absolute left-1/2 top-[14%] sm:top-[26%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6"
+      >
+        <div className="flex items-center">
+          {/*
+            Empty slot the flying avatar rests over. Once the avatar departs
+            (`flown`), it collapses its width + right margin so the title slides
+            smoothly to left-aligned.
+          */}
+          <motion.div
+            ref={headSlotRef}
+            className="shrink-0"
+            style={{ height: HEADING_AVATAR }}
+            initial={false}
+            animate={
+              flown
+                ? { width: 0, marginRight: 0 }
+                : { width: HEADING_AVATAR, marginRight: 12 }
+            }
+            transition={reduce ? { duration: 0 } : { duration: 0.5, ease: "easeInOut" }}
+          />
           <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
             Here&rsquo;s what we could do first
           </h1>
         </div>
         <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
-          {items.length > 0
-            ? "Pick one to jump in — or start your own thing."
-            : "Putting together a few ideas…"}
+          {items.length > 0 ? (
+            <>
+              Pick one to jump in — or start your own thing.{" "}
+              <button
+                type="button"
+                onClick={onSkip}
+                className="underline underline-offset-2 transition-opacity hover:opacity-80"
+                style={{ color: tone.fg }}
+              >
+                Skip to Chat
+              </button>
+            </>
+          ) : (
+            "Putting together a few ideas…"
+          )}
         </p>
 
         <div className="flex flex-col gap-3">
-          {items.map((s, i) => {
-            const chipBg = s.plugin
-              ? pluginColorByOrder.get(s.plugin)
-              : undefined;
-            return (
-              <motion.button
-                key={`${i}-${s.suggestion}`}
-                type="button"
-                onClick={() => onSuggestionClick(s)}
-                initial={reduce ? false : { opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={
-                  reduce ? { duration: 0 } : { duration: 0.3, delay: i * 0.06 }
-                }
-                className="relative rounded-2xl px-5 py-4 text-left text-[15px] transition-transform duration-150 hover:scale-[1.01] active:scale-[0.99]"
-                style={{
-                  backgroundColor: tone.isLight
-                    ? "rgba(0,0,0,0.06)"
-                    : "rgba(255,255,255,0.1)",
-                }}
-              >
-                <span>{s.suggestion}</span>
-                {s.plugin && chipBg && (
-                  // Solid per-plugin colored badge straddling the card's
-                  // top-right edge — each plugin gets its own distinct color.
-                  <span
-                    className="absolute -top-2.5 right-4 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold leading-none"
-                    style={{
-                      backgroundColor: chipBg,
-                      color: chipTextColor(chipBg),
-                      boxShadow: "0 1px 4px rgba(0,0,0,0.25)",
-                    }}
-                  >
-                    {pluginDisplayName(s.plugin)}
-                  </span>
-                )}
-              </motion.button>
-            );
-          })}
+          {items.map((s, i) => (
+            <motion.button
+              key={`${i}-${s.suggestion}`}
+              type="button"
+              onClick={() => onSuggestionClick(s)}
+              initial={reduce ? false : { opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={
+                reduce ? { duration: 0 } : { duration: 0.3, delay: i * 0.06 }
+              }
+              className="rounded-2xl px-5 py-4 text-left text-[15px] transition-transform duration-150 hover:scale-[1.01] active:scale-[0.99]"
+              style={{
+                backgroundColor: tone.isLight
+                  ? "rgba(0,0,0,0.06)"
+                  : "rgba(255,255,255,0.1)",
+              }}
+            >
+              <span>{s.suggestion}</span>
+            </motion.button>
+          ))}
         </div>
+
+        {hasNote && (
+          <PluginSetupNote
+            pluginLabels={pluginLabels}
+            tone={tone}
+            pillTone={avatarTone}
+            reduce={reduce}
+            slotRef={noteSlotRef}
+            revealed={landed}
+          />
+        )}
+
+        {anchors && (
+          <FlyingHeadingAvatar
+            head={anchors.head}
+            note={anchors.note}
+            flyToNote={flown && hasNote && anchors.note !== undefined}
+            reduce={reduce}
+            onLanded={() => setLanded(true)}
+          />
+        )}
       </div>
     </div>
   );

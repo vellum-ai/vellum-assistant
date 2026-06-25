@@ -87,6 +87,10 @@ export const LLMCallErrorSchema = z.object({
   provider: z.string().nullish(),
   statusCode: z.number().nullish(),
   retryAfterMs: z.number().nullish(),
+  apiErrorCode: z.string().nullish(),
+  apiErrorType: z.string().nullish(),
+  apiErrorParam: z.string().nullish(),
+  requestId: z.string().nullish(),
 });
 
 export type LLMCallError = z.infer<typeof LLMCallErrorSchema>;

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { Download, FileIcon, Loader2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, FileIcon, Loader2, X } from "lucide-react";
 import type { FC, KeyboardEvent, MouseEvent } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { attachmentsByIdContentGet } from "@/generated/daemon/sdk.gen";
@@ -51,6 +51,12 @@ interface AttachmentPreviewModalProps {
   /** When set, the modal will fetch missing content from
    *  /v1/assistants/{assistantId}/attachments/{attachment.id}/content. */
   assistantId?: string | null;
+  /** Full list of sibling attachments for gallery navigation. When provided
+   *  with more than one entry, prev/next arrows and a position counter render. */
+  siblingAttachments?: DisplayAttachment[];
+  /** Called when the user navigates to a different attachment via the gallery
+   *  arrows. The parent swaps the active `attachment` prop in response. */
+  onNavigate?: (attachment: DisplayAttachment) => void;
 }
 
 /**
@@ -67,6 +73,8 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   onClose,
   attachment,
   assistantId,
+  siblingAttachments,
+  onNavigate,
 }) => {
   const overlayRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -141,16 +149,39 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       ? "Failed to load preview."
       : null;
 
+  const currentIndex = useMemo(() => {
+    if (!siblingAttachments || siblingAttachments.length <= 1) return -1;
+    return siblingAttachments.findIndex((a) => a.id === attachment.id);
+  }, [siblingAttachments, attachment.id]);
+
+  const hasGallery = currentIndex !== -1 && siblingAttachments != null && siblingAttachments.length > 1;
+
+  const goToPrev = useCallback(() => {
+    if (!hasGallery || !siblingAttachments || !onNavigate) return;
+    const prevIndex = (currentIndex - 1 + siblingAttachments.length) % siblingAttachments.length;
+    onNavigate(siblingAttachments[prevIndex]!);
+  }, [hasGallery, siblingAttachments, currentIndex, onNavigate]);
+
+  const goToNext = useCallback(() => {
+    if (!hasGallery || !siblingAttachments || !onNavigate) return;
+    const nextIndex = (currentIndex + 1) % siblingAttachments.length;
+    onNavigate(siblingAttachments[nextIndex]!);
+  }, [hasGallery, siblingAttachments, currentIndex, onNavigate]);
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        // Mark the key as consumed so the window-level Escape listener
-        // (which closes the right-hand side panel) doesn't also fire.
         e.preventDefault();
         onClose();
+      } else if (e.key === "ArrowLeft" && hasGallery) {
+        e.preventDefault();
+        goToPrev();
+      } else if (e.key === "ArrowRight" && hasGallery) {
+        e.preventDefault();
+        goToNext();
       }
     },
-    [onClose],
+    [onClose, goToPrev, goToNext, hasGallery],
   );
 
   const handleBackdropClick = useCallback(
@@ -301,6 +332,29 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
         tintColor="currentColor"
       />
 
+      {hasGallery && (
+        <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 flex -translate-y-1/2 items-center justify-between px-4">
+          <Button
+            variant="ghost"
+            iconOnly={<ChevronLeft />}
+            expandOnMobile={false}
+            onClick={goToPrev}
+            aria-label="Previous attachment"
+            className="pointer-events-auto h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
+            tintColor="currentColor"
+          />
+          <Button
+            variant="ghost"
+            iconOnly={<ChevronRight />}
+            expandOnMobile={false}
+            onClick={goToNext}
+            aria-label="Next attachment"
+            className="pointer-events-auto h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
+            tintColor="currentColor"
+          />
+        </div>
+      )}
+
       <div
         className="flex items-center justify-center"
         onClick={(e) => e.stopPropagation()}
@@ -326,6 +380,14 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
           >
             {formatAttachmentSize(attachment.sizeBytes)}
           </Typography>
+          {hasGallery && (
+            <Typography
+              variant="body-small-default"
+              className="shrink-0 text-white/50"
+            >
+              {currentIndex + 1} / {siblingAttachments!.length}
+            </Typography>
+          )}
         </div>
         <Button
           variant="ghost"

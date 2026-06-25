@@ -12,6 +12,13 @@ import {
   patchConversation,
 } from "@/utils/conversation-cache";
 import { useConversationStore } from "@/stores/conversation-store";
+import { messageIdentityKeys } from "@/domains/chat/utils/message-identity";
+import { mergeAdjacentAssistantMessages } from "@/domains/chat/utils/message-merge";
+import {
+  conversationHistoryQueryKey,
+  type HistoryCache,
+} from "@/domains/chat/transcript/use-history-pagination";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import type {
   AssistantActivityStateEvent,
   AssistantTextDeltaEvent,
@@ -38,6 +45,52 @@ function resolveConversationId(
   ctx: StreamHandlerContext,
 ): string | undefined {
   return event.conversationId ?? ctx.streamContext?.conversationId;
+}
+
+/**
+ * Find the persisted assistant row this event's `messageId` belongs to in the
+ * history cache, if any — the "history twin" used to seed the live streaming
+ * row on re-attach.
+ *
+ * The daemon reserves the row at turn start and flushes partial content under
+ * a stable `messageId`, then stamps that same id on every delta. So when this
+ * client attaches mid-turn, the snapshot's persisted prefix sits in the history
+ * cache under the id the replayed deltas carry. Returning it lets the first
+ * delta extend the prefix instead of opening a fresh, prefix-less bubble.
+ *
+ * Called lazily (only when a delta finds no live row to append to), so the
+ * per-token streaming path never pays for this lookup.
+ */
+function resolveHistoryTwin(
+  event: AssistantTextDeltaEvent | AssistantThinkingDeltaEvent,
+  ctx: StreamHandlerContext,
+): DisplayMessage | undefined {
+  const { messageId } = event;
+  if (!messageId || !ctx.assistantId) return undefined;
+  const conversationId = resolveConversationId(event, ctx);
+  if (!conversationId) return undefined;
+
+  const cached = ctx.queryClient.getQueryData<HistoryCache>(
+    conversationHistoryQueryKey(ctx.assistantId, conversationId),
+  );
+  if (!cached) return undefined;
+
+  // Search the same merged view the transcript renders.
+  // `mergeAdjacentAssistantMessages` folds an assistant turn that straddles a
+  // history page boundary into one row (carrying the other page's content as a
+  // merged alias). Seeding from a raw per-page row would carry only one page's
+  // prefix, and the overlay would then drop the rest when the live row replaces
+  // the merged history twin by `mergedMessageIds`. Paid only on the cold
+  // re-attach branch (no live row owns the id), never on the per-token path.
+  const merged = mergeAdjacentAssistantMessages(
+    [...cached.pages].reverse().flatMap((page) => page.messages),
+  );
+  for (const row of merged) {
+    if (row.role === "assistant" && messageIdentityKeys(row).includes(messageId)) {
+      return row;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -121,7 +174,9 @@ export function handleAssistantTextDelta(
   }
 
   ctx.setMessages((prev) => {
-    const next = appendTextDelta(prev, event.text, event.messageId);
+    const next = appendTextDelta(prev, event.text, event.messageId, () =>
+      resolveHistoryTwin(event, ctx),
+    );
     const tail = next[next.length - 1];
     // Stamp the current-assistant ref to the assistant tail. Subagent
     // handlers read this to attribute nested notifications to the right
@@ -152,7 +207,9 @@ export function handleAssistantThinkingDelta(
   ctx.cancelReconciliation();
 
   ctx.setMessages((prev) => {
-    const next = appendThinkingDelta(prev, event.thinking, event.messageId);
+    const next = appendThinkingDelta(prev, event.thinking, event.messageId, () =>
+      resolveHistoryTwin(event, ctx),
+    );
     const tail = next[next.length - 1];
     if (tail?.role === "assistant") {
       ctx.currentAssistantMessageIdRef.current = tail.id;
