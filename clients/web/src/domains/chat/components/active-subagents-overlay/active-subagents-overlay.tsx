@@ -71,8 +71,7 @@ export function ActiveSubagentsOverlay({
           >
             {subagentIds.length} Active Subagents
           </Typography>
-          {/* -mx-2 aligns row content with the title (rows add their own p-2). */}
-          <div className="-mx-2 flex max-h-[320px] flex-col gap-2 overflow-y-auto">
+          <div className="flex max-h-[320px] flex-col gap-2 overflow-y-auto">
             {subagentIds.map((id) => (
               <SubagentInlineProgressCard
                 key={id}
