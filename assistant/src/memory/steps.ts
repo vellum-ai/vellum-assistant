@@ -412,6 +412,7 @@ import { createWatchdogEventsTable } from "./migrations/301-create-watchdog-even
 import { migrateCreateCompactionEvents } from "./migrations/302-create-compaction-events.js";
 import { migrateAddConversationCreationSeq } from "./migrations/303-add-conversation-creation-seq.js";
 import { migrateAcpSessionHistoryUsageColumns } from "./migrations/304-acp-session-history-usage-columns.js";
+import { migrateAcpSessionHistoryTokenColumns } from "./migrations/305-acp-session-history-token-columns.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1295,4 +1296,5 @@ export const migrationSteps: MigrationStep[] = [
   migrateCreateCompactionEvents,
   migrateAddConversationCreationSeq,
   migrateAcpSessionHistoryUsageColumns,
+  migrateAcpSessionHistoryTokenColumns,
 ];
