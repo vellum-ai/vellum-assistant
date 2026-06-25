@@ -14,7 +14,7 @@
 import type { ChannelId } from "../channels/types.js";
 import { isHttpAuthDisabled } from "../config/env.js";
 import {
-  getGuardianDelivery,
+  getGuardianDeliveryFresh,
   guardianForChannel,
   peekCachedGuardianDelivery,
 } from "../contacts/guardian-delivery-reader.js";
@@ -51,9 +51,10 @@ export function buildLocalAuthContext(conversationId: string): AuthContext {
 /**
  * Resolve the local vellum guardian's principalId from the gateway.
  *
- * The gateway owns guardian binding; this reads it through the cached
- * `getGuardianDelivery` reader (PR-3 TTL + single-flight) so hot paths don't
- * storm the IPC.
+ * The gateway owns guardian binding. A warm cache snapshot satisfies hot paths
+ * without IO; on a cold/expired snapshot this force-refreshes the gateway
+ * delivery read (single-flight, repopulates the cache) rather than reading the
+ * local contacts table.
  *
  * Returns `undefined` when no vellum guardian binding exists (e.g. fresh
  * install before bootstrap, or the gateway is unreachable). Callers should
@@ -62,9 +63,12 @@ export function buildLocalAuthContext(conversationId: string): AuthContext {
 export async function findLocalGuardianPrincipalId(): Promise<
   string | undefined
 > {
-  const list = await getGuardianDelivery({ channelTypes: ["vellum"] });
-  if (!list) return undefined;
-  return guardianForChannel(list, "vellum")?.principalId ?? undefined;
+  const warm = findLocalGuardianPrincipalIdFromStore();
+  if (warm) return warm;
+
+  const fresh = await getGuardianDeliveryFresh({ channelTypes: ["vellum"] });
+  if (!fresh) return undefined;
+  return guardianForChannel(fresh, "vellum")?.principalId ?? undefined;
 }
 
 /**
@@ -141,10 +145,9 @@ export async function resolveActorPrincipalIdForLocalGuardian(
  * Synchronous variant of {@link resolveActorPrincipalIdForLocalGuardian} for
  * the SSE eager-subscribe path, which registers before the response stream is
  * created and cannot await. Resolves the guardian from the IO-free gateway
- * cache snapshot first (same source the async path reads), falling back to the
- * local store when the cache is cold — so SSE registers the SAME principal the
- * send/result routes resolve and host-proxy targeting matches the same-user
- * client even when the local contact row is stale.
+ * cache snapshot (same source the async path reads), returning `undefined` on a
+ * cold cache so SSE registers the SAME gateway-owned principal the send/result
+ * routes resolve and host-proxy targeting matches the same-user client.
  */
 export function resolveActorPrincipalIdForLocalGuardianSync(
   rawHeader: string | undefined,

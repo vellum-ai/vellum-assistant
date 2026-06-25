@@ -34,6 +34,7 @@ mock.module("../config/env.js", () => ({
 
 import { __resetGuardianDeliveryCacheForTest } from "../contacts/guardian-delivery-reader.js";
 import {
+  findLocalGuardianPrincipalId,
   findLocalGuardianPrincipalIdFromStore,
   resolveActorPrincipalIdForLocalGuardianSync,
   warmLocalGuardianPrincipalCache,
@@ -104,5 +105,57 @@ describe("warmLocalGuardianPrincipalCache", () => {
     ipcHandlers.set(METHOD, () => ({ guardians: [vellumGuardian] }));
     await warmLocalGuardianPrincipalCache();
     expect(findLocalGuardianPrincipalIdFromStore()).toBe("principal-abc");
+  });
+});
+
+describe("findLocalGuardianPrincipalId", () => {
+  beforeEach(() => {
+    __resetGuardianDeliveryCacheForTest();
+    ipcHandlers.clear();
+    httpAuthDisabled = false;
+  });
+
+  afterEach(() => {
+    __resetGuardianDeliveryCacheForTest();
+  });
+
+  test("cold cache force-refreshes the gateway delivery read", async () => {
+    let calls = 0;
+    ipcHandlers.set(METHOD, () => {
+      calls += 1;
+      return { guardians: [vellumGuardian] };
+    });
+
+    expect(await findLocalGuardianPrincipalId()).toBe("principal-abc");
+    expect(calls).toBe(1);
+  });
+
+  test("warm cache resolves without hitting the gateway", async () => {
+    let calls = 0;
+    ipcHandlers.set(METHOD, () => {
+      calls += 1;
+      return { guardians: [vellumGuardian] };
+    });
+
+    await warmLocalGuardianPrincipalCache();
+    expect(calls).toBe(1);
+
+    // Warm snapshot satisfies the read with no further IPC.
+    expect(await findLocalGuardianPrincipalId()).toBe("principal-abc");
+    expect(calls).toBe(1);
+  });
+
+  test("returns undefined when the gateway has no vellum guardian", async () => {
+    ipcHandlers.set(METHOD, () => ({ guardians: [] }));
+
+    expect(await findLocalGuardianPrincipalId()).toBeUndefined();
+  });
+
+  test("returns undefined when the gateway is unreachable", async () => {
+    ipcHandlers.set(METHOD, () => {
+      throw new Error("gateway down");
+    });
+
+    expect(await findLocalGuardianPrincipalId()).toBeUndefined();
   });
 });
