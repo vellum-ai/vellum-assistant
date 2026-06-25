@@ -8,7 +8,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 
 import { ActiveSubagentsOverlay } from "@/domains/chat/components/active-subagents-overlay/active-subagents-overlay";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -138,7 +144,7 @@ describe("ActiveSubagentsOverlay — expanded", () => {
 });
 
 describe("ActiveSubagentsOverlay — dismissal", () => {
-  test("Escape collapses the open panel", () => {
+  test("Escape collapses the open panel", async () => {
     const ids = seedMany(2);
     const { queryByText } = render(<ActiveSubagentsOverlay subagentIds={ids} />);
 
@@ -146,10 +152,15 @@ describe("ActiveSubagentsOverlay — dismissal", () => {
     expect(queryByText("2 Active Subagents")).toBeTruthy();
 
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(queryByText("2 Active Subagents")).toBeNull();
+    // The dropdown animates out via AnimatePresence, so it lingers for the
+    // exit animation before unmounting.
+    await waitFor(
+      () => expect(queryByText("2 Active Subagents")).toBeNull(),
+      { timeout: 4000 },
+    );
   });
 
-  test("pointerdown outside the container collapses the open panel", () => {
+  test("pointerdown outside the container collapses the open panel", async () => {
     const ids = seedMany(2);
     const { queryByText } = render(<ActiveSubagentsOverlay subagentIds={ids} />);
 
@@ -157,6 +168,9 @@ describe("ActiveSubagentsOverlay — dismissal", () => {
     expect(queryByText("2 Active Subagents")).toBeTruthy();
 
     fireEvent.pointerDown(document.body);
-    expect(queryByText("2 Active Subagents")).toBeNull();
+    await waitFor(
+      () => expect(queryByText("2 Active Subagents")).toBeNull(),
+      { timeout: 4000 },
+    );
   });
 });

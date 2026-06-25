@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { Typography } from "@vellumai/design-library";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 export interface ActiveOverlayShellProps {
   /** `data-testid` for the root container (e.g. `"active-workflows-overlay"`). */
@@ -30,6 +31,7 @@ export function ActiveOverlayShell({
 }: ActiveOverlayShellProps) {
   const [expanded, setExpanded] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const reduce = useReducedMotion();
 
   // While open, dismiss on outside pointerdown or Escape.
   useEffect(() => {
@@ -72,21 +74,32 @@ export function ActiveOverlayShell({
     >
       {renderPill({ expanded, onToggle: () => setExpanded((v) => !v) })}
 
-      {expanded && (
-        // Absolute dropdown anchored under the pill so its 589px width no longer
-        // dictates the row's width (Figma 6063:149685).
-        <div className="pointer-events-auto absolute left-1/2 top-full z-20 mt-2 flex w-[min(589px,calc(100vw-2rem))] -translate-x-1/2 flex-col gap-4 rounded-xl bg-[var(--surface-lift)] px-3 py-4 shadow-lg">
-          <Typography
-            variant="title-small"
-            className="text-[var(--content-emphasised)]"
+      <AnimatePresence>
+        {expanded && (
+          // Absolute dropdown anchored under the pill so its 589px width no longer
+          // dictates the row's width (Figma 6063:149685).
+          <motion.div
+            className="pointer-events-auto absolute left-1/2 top-full z-20 mt-2 flex w-[min(589px,calc(100vw-2rem))] -translate-x-1/2 flex-col gap-4 rounded-xl bg-[var(--surface-lift)] px-3 py-4 shadow-lg"
+            style={{ transformOrigin: "top center" }}
+            initial={{ opacity: 0, scale: 0.96, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: -4 }}
+            transition={
+              reduce ? { duration: 0 } : { duration: 0.16, ease: [0.16, 1, 0.3, 1] }
+            }
           >
-            {title}
-          </Typography>
-          <div className="flex max-h-[320px] flex-col gap-2 overflow-y-auto">
-            {children}
-          </div>
-        </div>
-      )}
+            <Typography
+              variant="title-small"
+              className="text-[var(--content-emphasised)]"
+            >
+              {title}
+            </Typography>
+            <div className="flex max-h-[320px] flex-col gap-2 overflow-y-auto">
+              {children}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
