@@ -51,6 +51,8 @@ export function handleAcpSessionUsage(event: AcpSessionUsageEvent): void {
     acpSessionId: event.acpSessionId,
     usedTokens: event.usedTokens,
     contextSize: event.contextSize,
+    inputTokens: event.inputTokens,
+    outputTokens: event.outputTokens,
     costAmount: event.costAmount,
     costCurrency: event.costCurrency,
   });

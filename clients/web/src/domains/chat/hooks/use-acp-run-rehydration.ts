@@ -48,6 +48,8 @@ interface AcpSessionRow {
   completedAt?: number | null;
   usedTokens?: number;
   contextSize?: number;
+  inputTokens?: number;
+  outputTokens?: number;
   costAmount?: number;
   costCurrency?: string;
   eventLog?: AcpSessionEventLogItem[];
@@ -113,6 +115,8 @@ function toRunEntry(row: AcpSessionRow): AcpRunEntry {
     parentToolUseId: row.parentToolUseId,
     usedTokens: row.usedTokens ?? 0,
     contextSize: row.contextSize ?? 0,
+    inputTokens: row.inputTokens,
+    outputTokens: row.outputTokens,
     costAmount: row.costAmount,
     costCurrency: row.costCurrency,
     events,

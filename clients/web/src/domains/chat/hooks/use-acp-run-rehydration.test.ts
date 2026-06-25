@@ -148,6 +148,27 @@ describe("rehydration — terminal session", () => {
     expect(getState().byToolUseId.get("tool-1")).toBe("acp-1");
   });
 
+  test("carries cumulative input/output tokens from the session row", async () => {
+    await seed([
+      {
+        id: "acp-1",
+        acpSessionId: "proto-1",
+        agentId: "claude",
+        parentConversationId: "conv-1",
+        status: "completed",
+        startedAt: 1000,
+        completedAt: 5000,
+        inputTokens: 12000,
+        outputTokens: 3400,
+        eventLog: [],
+      },
+    ]);
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.inputTokens).toBe(12000);
+    expect(entry.outputTokens).toBe(3400);
+  });
+
   test("a pre-migration row without usage hides the meter and degrades gracefully", async () => {
     await seed([
       {
@@ -167,6 +188,8 @@ describe("rehydration — terminal session", () => {
     expect(entry.status).toBe("completed");
     expect(entry.usedTokens).toBe(0);
     expect(entry.contextSize).toBe(0);
+    expect(entry.inputTokens).toBeUndefined();
+    expect(entry.outputTokens).toBeUndefined();
     expect(entry.costAmount).toBeUndefined();
     expect(entry.costCurrency).toBeUndefined();
   });

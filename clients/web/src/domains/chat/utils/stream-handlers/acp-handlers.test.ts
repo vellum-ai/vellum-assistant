@@ -122,6 +122,21 @@ describe("handleAcpSessionUsage", () => {
     expect(entry?.costCurrency).toBe("USD");
   });
 
+  it("maps cumulative input/output tokens into the store", () => {
+    spawn();
+    handleAcpSessionUsage({
+      type: "acp_session_usage",
+      acpSessionId: "acp-1",
+      usedTokens: 1500,
+      contextSize: 200000,
+      inputTokens: 12000,
+      outputTokens: 3400,
+    });
+    const entry = getState().byId["acp-1"];
+    expect(entry?.inputTokens).toBe(12000);
+    expect(entry?.outputTokens).toBe(3400);
+  });
+
   it("ignores usage for an unknown session", () => {
     handleAcpSessionUsage({
       type: "acp_session_usage",
