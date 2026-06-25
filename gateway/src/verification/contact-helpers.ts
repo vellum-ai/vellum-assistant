@@ -295,7 +295,7 @@ export function getGatewayChannelByKey(
  *
  * Returns `{ verified: false }` when the authoritative gateway row is
  * blocked/revoked, or when the authoritative gateway write fails, so the caller
- * suppresses the success reply (the mirror no longer records ACL state, so a
+ * suppresses the success reply (the mirror carries identity/info only, so a
  * lost gateway write must fail closed). Returns `{ verified: true }` on the
  * normal activate/insert paths.
  */
@@ -428,9 +428,10 @@ export async function upsertVerifiedContactChannel(params: {
         gatewayRejected = true;
       }
     } catch (gwErr) {
-      // The gateway is the source of truth and the mirror no longer records ACL
-      // state, so a thrown write means NO DB recorded an active verified channel.
-      // Fail closed rather than reply success off a stale best-effort mirror.
+      // The gateway DB is the source of truth and the assistant mirror carries
+      // identity/info only, so a thrown gateway write means no DB recorded an
+      // active verified channel. Fail closed rather than reply success off the
+      // mirror.
       log.error(
         { err: gwErr },
         "Gateway DB contact channel update failed; failing verification closed",
@@ -442,8 +443,8 @@ export async function upsertVerifiedContactChannel(params: {
       return { verified: false };
     }
 
-    // Activate the assistant mirror. ACL columns are gateway-owned and no
-    // longer mirrored; only identity/info columns are written here.
+    // Activate the assistant mirror. ACL columns are gateway-owned; only
+    // identity/info columns are written here.
     await assistantDbRun(
       `UPDATE contact_channels
        SET address = ?,
@@ -517,9 +518,10 @@ export async function upsertVerifiedContactChannel(params: {
       gatewayRejected = true;
     }
   } catch (gwErr) {
-    // The gateway is the source of truth and the mirror no longer records ACL
-    // state, so a thrown write means NO DB recorded an active verified channel.
-    // Fail closed rather than reply success off a stale best-effort mirror.
+    // The gateway DB is the source of truth and the assistant mirror carries
+    // identity/info only, so a thrown gateway write means no DB recorded an
+    // active verified channel. Fail closed rather than reply success off the
+    // mirror.
     log.error(
       { err: gwErr },
       "Gateway DB contact create failed; failing verification closed",
@@ -591,25 +593,19 @@ export async function upsertContactChannel(params: {
   const existing = await assistantDbQuery<{
     channelId: string;
     contactId: string;
-    channelStatus: string;
   }>(
-    `SELECT cc.id AS channelId, cc.contact_id AS contactId, cc.status AS channelStatus
+    `SELECT cc.id AS channelId, cc.contact_id AS contactId
      FROM contact_channels cc
      WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
-     ORDER BY
-       CASE cc.status
-         WHEN 'active' THEN 0
-         WHEN 'unverified' THEN 1
-         ELSE 2
-       END,
-       cc.updated_at DESC
+     ORDER BY cc.updated_at DESC
      LIMIT 1`,
     [sourceChannel, address],
   );
 
   if (existing.length > 0) {
     const row = existing[0];
-    if (row.channelStatus === "blocked") return;
+    // Gateway DB is the source of truth for ACL: a blocked channel stays blocked.
+    if (gatewayChannelStatus(sourceChannel, address) === "blocked") return;
 
     // Update identity/display fields; preserve status and policy.
     await assistantDbRun(

@@ -13,14 +13,16 @@ import { join } from "node:path";
  *   contact_channels.{status, policy, verified_at, verified_via,
  *                     revoked_reason, blocked_reason}
  *
- * RESIDUAL ASSISTANT-DB ACL READS still pending before the DROP (PR-7 inventory):
+ * RESIDUAL ASSISTANT-DB ACL READS still pending before the DROP:
  *   - gateway/src/db/data-migrations/m0006-*: one-time reconcile reads assistant
  *     ACL columns to seed the gateway DB.
  *   - gateway/src/db/data-migrations/m0008-*: one-time backfill reads assistant
  *     ACL columns.
- *   These are append-only one-time migrations and must be drained (no longer
- *   reading assistant ACL) before migration 302 drops the columns. The
- *   WRITE side is now clean — this guard asserts and protects that.
+ *   These append-only one-time migrations are the ONLY remaining assistant-DB
+ *   ACL reads; they are retired at the assistant DROP-COLUMN migration (302).
+ *   The heal/seed reads (the channel-mirror heal and the inbound contact-seed
+ *   blocked-check) are drained — they read identity/info only and resolve ACL
+ *   from the gateway DB. The WRITE side is clean — this guard asserts that.
  */
 
 // Deliberate, greppable exceptions. Must stay empty: every entry is an

@@ -453,10 +453,8 @@ export class ContactStore {
    *   - any other status → both reasons cleared to null
    *   - status unchanged → reasons left untouched (pass undefined)
    *
-   * Channel ID resolution: the caller may pass an assistant-side channel ID
-   * (legacy clients reading the assistant DB). If the ID isn't found
-   * in the gateway DB, we resolve it from the assistant DB by
-   * (contactId, type, address) and then find the matching gateway channel.
+   * Gateway DB is the source of truth; a channel absent from the gateway
+   * returns null.
    */
   async updateChannelStatus(
     channelId: string,
@@ -466,27 +464,10 @@ export class ContactStore {
       reason?: string | null;
     },
   ): Promise<ContactChannel | null> {
-    let gwChannel = await this.resolveGatewayChannel(channelId);
+    const gwChannel = await this.resolveGatewayChannel(channelId);
 
-    // Still absent → legacy assistant-only channel. Mirror it (plus its parent
-    // contact) into the gateway DB so the status write resolves instead of
-    // 404ing — matching the verify path. The mirror reuses the assistant-side
-    // id; soft-fails to null when the assistant DB is unreachable.
-    if (!gwChannel) {
-      const mirrored = await this.mirrorChannelFromAssistantIfMissing(
-        channelId,
-      ).catch((err) => {
-        log.warn(
-          { channelId, err },
-          "updateChannelStatus: assistant-only backfill failed (best-effort)",
-        );
-        return false;
-      });
-      if (mirrored) {
-        gwChannel = await this.resolveGatewayChannel(channelId);
-      }
-    }
-
+    // Gateway DB is the source of truth; a channel absent from the gateway
+    // has no status to update.
     if (!gwChannel) return null;
 
     // Guard: cannot revoke a blocked channel.
@@ -546,135 +527,6 @@ export class ContactStore {
   }
 
   /**
-   * Migration-window backfill: ensure a channel exists in the gateway DB
-   * by mirroring it (plus its parent contact) from the assistant DB when
-   * absent. Returns `true` when the channel is present in the gateway DB
-   * after the call (pre-existing or just mirrored), `false` when neither
-   * side has it.
-   *
-   * Why this exists: during the gateway-security-migration the assistant
-   * DB is the present-day source of truth for contacts. The gateway DB is
-   * back-filled lazily as contacts are touched. Without this hop, any
-   * channel created before the dual-write was wired would 404 from
-   * gateway-native channel mutators even though the user sees it in the
-   * assistant UI.
-   *
-   * Idempotent — both INSERTs are `INSERT ... ON CONFLICT DO NOTHING`, so
-   * concurrent mirrors converge without conflict.
-   */
-  private async mirrorChannelFromAssistantIfMissing(
-    channelId: string,
-  ): Promise<boolean> {
-    const existing = this.db
-      .select({ id: contactChannels.id })
-      .from(contactChannels)
-      .where(eq(contactChannels.id, channelId))
-      .get();
-    if (existing) return true;
-
-    type ChannelRow = {
-      id: string;
-      contact_id: string;
-      type: string;
-      address: string;
-      is_primary: number;
-      external_chat_id: string | null;
-      status: string;
-      policy: string;
-      verified_at: number | null;
-      verified_via: string | null;
-      invite_id: string | null;
-      revoked_reason: string | null;
-      blocked_reason: string | null;
-      last_seen_at: number | null;
-      interaction_count: number;
-      last_interaction: number | null;
-      created_at: number;
-      updated_at: number | null;
-    };
-    const channelRows = await assistantDbQuery<ChannelRow>(
-      `SELECT id, contact_id, type, address, is_primary,
-              external_chat_id, status, policy, verified_at, verified_via,
-              invite_id, revoked_reason, blocked_reason, last_seen_at,
-              interaction_count, last_interaction, created_at, updated_at
-         FROM contact_channels WHERE id = ?`,
-      [channelId],
-    );
-    if (channelRows.length === 0) return false;
-    const channelRow = channelRows[0]!;
-
-    type ContactRow = {
-      id: string;
-      display_name: string;
-      role: string | null;
-      principal_id: string | null;
-      created_at: number;
-      updated_at: number | null;
-    };
-    const contactRows = await assistantDbQuery<ContactRow>(
-      `SELECT id, display_name, role, principal_id, created_at, updated_at
-         FROM contacts WHERE id = ?`,
-      [channelRow.contact_id],
-    );
-    if (contactRows.length === 0) {
-      log.warn(
-        { channelId, contactId: channelRow.contact_id },
-        "mirrorChannelFromAssistantIfMissing: assistant channel references missing contact — refusing to mirror",
-      );
-      return false;
-    }
-    const contactRow = contactRows[0]!;
-
-    // Parent contact first so the channel's FK lands. Both INSERTs are
-    // conflict-tolerant: contact may already exist (e.g. a sibling channel
-    // mirrored earlier), and a concurrent mirror of this channel by another
-    // request must not collide.
-    this.db
-      .insert(contacts)
-      .values({
-        id: contactRow.id,
-        displayName: contactRow.display_name,
-        role: contactRow.role ?? "contact",
-        principalId: contactRow.principal_id,
-        createdAt: contactRow.created_at,
-        updatedAt: contactRow.updated_at ?? contactRow.created_at,
-      })
-      .onConflictDoNothing()
-      .run();
-
-    this.db
-      .insert(contactChannels)
-      .values({
-        id: channelRow.id,
-        contactId: channelRow.contact_id,
-        type: channelRow.type,
-        address: channelRow.address,
-        isPrimary: Boolean(channelRow.is_primary),
-        externalChatId: channelRow.external_chat_id,
-        status: channelRow.status,
-        policy: channelRow.policy,
-        verifiedAt: channelRow.verified_at,
-        verifiedVia: channelRow.verified_via,
-        inviteId: channelRow.invite_id,
-        revokedReason: channelRow.revoked_reason,
-        blockedReason: channelRow.blocked_reason,
-        lastSeenAt: channelRow.last_seen_at,
-        interactionCount: channelRow.interaction_count,
-        lastInteraction: channelRow.last_interaction,
-        createdAt: channelRow.created_at,
-        updatedAt: channelRow.updated_at,
-      })
-      .onConflictDoNothing()
-      .run();
-
-    log.info(
-      { channelId, contactId: channelRow.contact_id },
-      "mirrorChannelFromAssistantIfMissing: mirrored channel + parent contact from assistant DB",
-    );
-    return true;
-  }
-
-  /**
    * Resolve a gateway channel row by id, falling back to its logical
    * (type, address) key when the id-based lookup misses. Legacy channels can
    * live under a different gateway UUID than the assistant id, so the id
@@ -728,12 +580,8 @@ export class ContactStore {
    * and the other will see `changes=0`. Both still return the post-state
    * row.
    *
-   * Returns the channel after the write, or `null` if neither the gateway
-   * DB nor the assistant DB has a channel with that id.
-   *
-   * Gateway DB is the source of truth. When the channel is missing on the
-   * gateway but present on the assistant, it (plus its parent contact) is
-   * mirrored into the gateway first.
+   * Gateway DB is the source of truth; a channel absent from the gateway
+   * returns `null`.
    */
   async markChannelVerified(
     channelId: string,
@@ -742,17 +590,10 @@ export class ContactStore {
     channel: ContactChannel;
     didWrite: boolean;
   } | null> {
-    // Migration-window backfill: if the gateway DB has never seen this
-    // channel, but the assistant DB has it, mirror channel + parent contact
-    // into the gateway DB before attempting the verify write. Without this,
-    // any contact channel created before the dual-write was wired would
-    // 404 here even though the user can see the channel in their UI.
-    const mirrored = await this.mirrorChannelFromAssistantIfMissing(channelId);
-    if (!mirrored) return null;
-
     // Legacy channels may live under a different gateway id than the assistant
     // channel id passed in; resolve the gateway row (by id, then by logical
-    // (type,address) key) before keying writes on it.
+    // (type,address) key) before keying writes on it. Gateway DB is the source
+    // of truth; a channel absent from the gateway returns null.
     const gwChannel = await this.resolveGatewayChannel(channelId);
     if (!gwChannel) return null;
     const gwChannelId = gwChannel.id;
@@ -789,21 +630,17 @@ export class ContactStore {
    * (`reason="guardian_binding_revoked"`). Any other reason on a guardian
    * channel is rejected here at the boundary rather than silently applied.
    *
-   * Mirrors `markChannelVerified`: when the channel is missing on the gateway
-   * but present on the assistant, it (plus its parent contact) is mirrored in
-   * first so a UI-visible channel id doesn't 404.
-   *
-   * Returns the channel after the write, or `null` if neither DB has the id.
+   * Gateway DB is the source of truth; a channel absent from the gateway
+   * returns `null`.
    */
   async markChannelRevoked(
     channelId: string,
     reason?: string,
   ): Promise<{ channel: ContactChannel; didWrite: boolean } | null> {
-    const mirrored = await this.mirrorChannelFromAssistantIfMissing(channelId);
-    if (!mirrored) return null;
-
     // Legacy channels may live under a different gateway id than the assistant
     // channel id passed in; resolve the gateway row before keying writes on it.
+    // Gateway DB is the source of truth; a channel absent from the gateway
+    // returns null.
     const channel = await this.resolveGatewayChannel(channelId);
     if (!channel) return null;
     const gwChannelId = channel.id;
