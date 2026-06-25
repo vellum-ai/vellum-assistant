@@ -37,6 +37,7 @@ import { persistPreChatOnboardingProfile } from "@/domains/onboarding/prechat-pr
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
 import { getEffectiveTimezone } from "@/utils/effective-timezone";
+import { detectInterfaceId } from "@/runtime/platform-detection";
 
 const POLL_INTERVAL_MS = 1000;
 const POLL_TIMEOUT_MS = 120_000;
@@ -449,7 +450,12 @@ export async function postChatMessage(
   const body: MessagesPostData["body"] = {
     content,
     sourceChannel: "vellum",
-    interface: "vellum",
+    // Report the real platform so the assistant's per-turn `client_os`
+    // context distinguishes web / iOS / macOS. All three load this same
+    // bundle, so the value must be detected at runtime rather than hardcoded
+    // (see `detectInterfaceId`). The backend normalizes the legacy "vellum"
+    // alias to "web"; we now send the canonical value directly.
+    interface: detectInterfaceId(),
   };
   // Read the effective timezone LIVE at send time (not from cached state) so
   // every message carries the user's current zone, keeping the assistant's

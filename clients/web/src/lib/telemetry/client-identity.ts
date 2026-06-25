@@ -1,3 +1,5 @@
+import { detectInterfaceId } from "@/runtime/platform-detection";
+
 let cached: string | null = null;
 
 /**
@@ -36,6 +38,11 @@ export function getClientId(): string {
 export function getClientRegistrationHeaders(): Record<string, string> {
   return {
     "X-Vellum-Client-Id": getClientId(),
-    "X-Vellum-Interface-Id": "vellum",
+    // Report the real platform (web / ios / macos) so the hub registers this
+    // subscriber under the correct interface for interface-scoped SSE event
+    // routing. Derived from the same `detectInterfaceId` helper the message
+    // body uses (see `domains/chat/api/messages.ts`) so the registration
+    // header and the per-turn `client_os` value can never disagree.
+    "X-Vellum-Interface-Id": detectInterfaceId(),
   };
 }

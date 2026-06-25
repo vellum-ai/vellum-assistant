@@ -81,6 +81,9 @@ describe("client-identity", () => {
       "X-Vellum-Interface-Id",
     ]);
     expect(headers["X-Vellum-Client-Id"]).toBe(mod.getClientId());
-    expect(headers["X-Vellum-Interface-Id"]).toBe("vellum");
+    // Default test env has no Electron/Capacitor host and a desktop UA, so
+    // `detectInterfaceId()` resolves to the canonical "web" interface (the
+    // legacy "vellum" alias is gone; see `detectInterfaceId`).
+    expect(headers["X-Vellum-Interface-Id"]).toBe("web");
   });
 });
