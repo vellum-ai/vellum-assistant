@@ -276,18 +276,11 @@ export function AcpRunDetailPanel({
       setApprovalPending(false);
 
       // Optimistic timeline marker so the steer is visible immediately, ahead
-      // of the daemon's echoed events. Seq sits above the run's high-water mark
-      // so it sorts last and never collides with a replayed event.
-      const store = useAcpRunStore.getState();
-      const seq = (store.highWaterMark.get(entry.acpSessionId) ?? 0) + 1;
-      store.receiveEvent({
+      // of the daemon's echoed events. Appended without advancing the dedup
+      // high-water mark so the daemon's first real post-steer event survives.
+      useAcpRunStore.getState().appendLocalMarker({
         acpSessionId: entry.acpSessionId,
-        event: {
-          seq,
-          updateType: "agent_message_chunk",
-          messageId: `steer-${seq}`,
-          content: `↻ Steering: ${instruction}`,
-        },
+        content: `↻ Steering: ${instruction}`,
       });
 
       void steerAcpRun(entry.acpSessionId, instruction)

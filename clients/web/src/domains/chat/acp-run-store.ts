@@ -93,6 +93,19 @@ export interface AcpRunActions {
     event: AcpRunRawEvent;
   }) => void;
 
+  /**
+   * Append a local-only timeline marker (e.g. an optimistic steering note)
+   * without touching `highWaterMark`. Uses a fractional seq that sorts after
+   * existing events but never equals a daemon integer seq, and a unique
+   * synthetic `messageId` so it can't coalesce into an adjacent real message.
+   * Leaving the dedup mark untouched keeps the next real daemon event (which
+   * the daemon stamps with a contiguous integer seq) from being dropped.
+   */
+  appendLocalMarker: (params: {
+    acpSessionId: string;
+    content: string;
+  }) => void;
+
   setTerminal: (params: {
     acpSessionId: string;
     status: AcpRunStatus;
@@ -328,6 +341,37 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
         params.acpSessionId,
         params.event.seq,
       ),
+    });
+  },
+
+  appendLocalMarker: (params) => {
+    const { byId } = get();
+    const existing = byId[params.acpSessionId];
+    if (!existing) return;
+
+    // Fractional seq sorts after existing events but never collides with a
+    // daemon integer seq; the events-length-derived messageId is unique so it
+    // can't coalesce into an adjacent real message. highWaterMark is left
+    // untouched so the next real daemon event survives the dedup gate.
+    const maxSeq = existing.events.reduce(
+      (max, ev) => (typeof ev.seq === "number" && ev.seq > max ? ev.seq : max),
+      0,
+    );
+    const marker: AcpRunRawEvent = {
+      seq: maxSeq + 0.5,
+      updateType: "agent_message_chunk",
+      messageId: `local-marker-${existing.events.length}`,
+      content: params.content,
+    };
+
+    set({
+      byId: {
+        ...byId,
+        [params.acpSessionId]: {
+          ...existing,
+          events: [...existing.events, marker],
+        },
+      },
     });
   },
 

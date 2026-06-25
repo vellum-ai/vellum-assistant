@@ -78,7 +78,7 @@ export type AcpTimelineStep =
 // Reducer
 // ---------------------------------------------------------------------------
 
-/** Synthetic id for chunks that arrive without a `messageId` (pre-PR-2 daemon). */
+/** Synthetic id for chunks from older daemons that don't emit a messageId. */
 const ANONYMOUS_MESSAGE_ID = "";
 
 /** Map a raw daemon `toolStatus` to a step status; keep `fallback` if absent. */
