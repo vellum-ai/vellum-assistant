@@ -312,6 +312,8 @@ export class AcpSessionManager {
       parentConversationId: opts.parentConversationId,
       status: "initializing",
       startedAt: opts.startedAt,
+      task: opts.task,
+      parentToolUseId: opts.parentToolUseId,
     };
 
     const entry: SessionEntry = {

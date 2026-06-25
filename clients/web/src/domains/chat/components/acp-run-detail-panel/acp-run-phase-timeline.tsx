@@ -40,6 +40,7 @@ export function AcpRunPhaseTimeline({
           step={step}
           index={index}
           isRunActive={isRunActive}
+          isLast={index === steps.length - 1}
           onClick={onStepDetailClick}
         />
       ))}

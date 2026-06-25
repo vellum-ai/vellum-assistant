@@ -50,6 +50,8 @@ const sessionEntrySchema = z.object({
   completedAt: z.number().nullable().optional(),
   error: z.string().nullable().optional(),
   stopReason: z.string().nullable().optional(),
+  task: z.string().optional(),
+  parentToolUseId: z.string().optional(),
   eventLog: z.array(z.unknown()).optional(),
 });
 
@@ -689,6 +691,8 @@ function listMergedSessions(opts: {
       completedAt: s.completedAt ?? null,
       error: s.error ?? null,
       stopReason: s.stopReason ?? null,
+      task: s.task,
+      parentToolUseId: s.parentToolUseId,
       eventLog: manager.getBufferedUpdates(s.id),
     });
   }
@@ -723,6 +727,8 @@ function listMergedSessions(opts: {
         "Failed to parse event_log_json for ACP session history row",
       );
     }
+    // Terminal rows omit task and parentToolUseId — acp_session_history has no
+    // columns for them, so they degrade to undefined here.
     merged.set(row.id, {
       id: row.id,
       agentId: row.agentId,

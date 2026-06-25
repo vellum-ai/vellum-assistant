@@ -60,18 +60,24 @@ function stepLabel(step: AcpTimelineStep): string {
 }
 
 /**
- * A step's status, used to pick the trailing status glyph. A message step shows
- * `running` only while the run is active; once the run is terminal a still-open
- * trailing message (nothing closed it) renders as complete. Tool steps keep
- * their own status regardless of run state.
+ * A step's status, used to pick the trailing status glyph. A trailing
+ * message/thought shows `running` only while the run is active; once the run is
+ * terminal (or a later step closes it) it renders as complete. A thought has no
+ * `isComplete` field, so its liveness is inferred from being the tail step.
+ * Tool steps keep their own status regardless of run state.
  */
-function stepStatus(step: AcpTimelineStep, isRunActive: boolean): AcpToolStatus {
+function stepStatus(
+  step: AcpTimelineStep,
+  isRunActive: boolean,
+  isLast: boolean,
+): AcpToolStatus {
   switch (step.kind) {
     case "tool":
       return step.status;
     case "message":
-      return step.isComplete || !isRunActive ? "completed" : "running";
+      return !step.isComplete && isRunActive ? "running" : "completed";
     case "thought":
+      return isLast && isRunActive ? "running" : "completed";
     case "plan":
       return "completed";
   }
@@ -104,17 +110,20 @@ export function AcpRunStepPill({
   step,
   index,
   isRunActive,
+  isLast = false,
   onClick,
 }: {
   step: AcpTimelineStep;
   /** This step's position in the run's projected steps — its selection identity. */
   index: number;
-  /** Whether the owning run is still active; gates the trailing-message indicator. */
+  /** Whether the owning run is still active; gates the trailing message/thought indicator. */
   isRunActive: boolean;
+  /** Whether this is the tail step; a trailing thought stays live while active. */
+  isLast?: boolean;
   /** Opens the step's nested detail. When omitted the row is non-interactive. */
   onClick?: (index: number) => void;
 }) {
-  const status = stepStatus(step, isRunActive);
+  const status = stepStatus(step, isRunActive, isLast);
   const label = stepLabel(step);
   const tone = status === "error";
   const iconColor = tone

@@ -28,4 +28,8 @@ export interface AcpSessionState {
   completedAt?: number;
   error?: string;
   stopReason?: StopReason;
+  /** Objective text the session was spawned with, if known. */
+  task?: string;
+  /** Tool-use id of the `acp_spawn` call that spawned this session, if any. */
+  parentToolUseId?: string;
 }
