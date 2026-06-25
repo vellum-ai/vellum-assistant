@@ -4,12 +4,15 @@ import {
   __resetOnboardingFunnelEventsForTests,
   buildOnboardingFunnelEvent,
   emitOnboardingFunnelStepCompleted,
+  emitResearchOnboardingStepCompleted,
   onboardingFunnelVariantFromExperiment,
   ONBOARDING_FUNNEL_STEPS,
   ONBOARDING_FUNNEL_VERSION,
   ONBOARDING_FUNNEL_VARIANTS,
   readOnboardingFunnelVariant,
   resolveOnboardingFunnelVariant,
+  RESEARCH_ONBOARDING_FUNNEL_STEPS,
+  RESEARCH_ONBOARDING_FUNNEL_VERSION,
 } from "@/domains/onboarding/funnel-events";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 
@@ -143,6 +146,73 @@ describe("onboarding funnel events", () => {
       funnel_version: ONBOARDING_FUNNEL_VERSION,
       ab_variant: "pared_down",
     });
+  });
+
+  test("stamps research-onboarding steps with the research funnel version", () => {
+    localStorage.setItem("device:share_analytics", "true");
+    const fetchMock = mock(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response("{}", { status: 200 }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    emitResearchOnboardingStepCompleted(RESEARCH_ONBOARDING_FUNNEL_STEPS.form, {
+      userId: "user-123",
+    });
+    // Skipping a step is still a completion of that step (same as the pre-chat
+    // funnel — Continue and Skip both emit the step-completed event).
+    emitResearchOnboardingStepCompleted(
+      RESEARCH_ONBOARDING_FUNNEL_STEPS.suggestions,
+      { userId: "user-123" },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const calls = fetchMock.mock.calls as Array<
+      [RequestInfo | URL, RequestInit | undefined]
+    >;
+    const firstEvent = (
+      JSON.parse(calls[0]?.[1]?.body as string) as {
+        events: Array<Record<string, unknown>>;
+      }
+    ).events[0];
+    const secondEvent = (
+      JSON.parse(calls[1]?.[1]?.body as string) as {
+        events: Array<Record<string, unknown>>;
+      }
+    ).events[0];
+
+    expect(calls[0]?.[0]).toBe("/v1/telemetry/ingest/");
+    expect(firstEvent).toMatchObject({
+      type: "onboarding",
+      screen: "research_form",
+      step_name: "research_form",
+      step_index: 0,
+      user_id: "user-123",
+      funnel_version: RESEARCH_ONBOARDING_FUNNEL_VERSION,
+      ab_variant: "control",
+    });
+    // Shares the funnel session id with the rest of the journey.
+    expect(secondEvent?.session_id).toBe(firstEvent?.session_id);
+    expect(secondEvent).toMatchObject({
+      step_name: "research_suggestions",
+      step_index: 9,
+      funnel_version: RESEARCH_ONBOARDING_FUNNEL_VERSION,
+    });
+  });
+
+  test("does not emit research telemetry until analytics sharing is opted in", () => {
+    useOnboardingStore.setState({ shareAnalytics: false });
+    const fetchMock = mock(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response("{}", { status: 200 }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    emitResearchOnboardingStepCompleted(RESEARCH_ONBOARDING_FUNNEL_STEPS.form, {
+      userId: "user-123",
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test("does not emit telemetry until analytics sharing is explicitly opted in", () => {
