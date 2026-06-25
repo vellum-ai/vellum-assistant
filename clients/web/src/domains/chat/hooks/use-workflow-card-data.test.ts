@@ -225,6 +225,36 @@ describe("computeWorkflowCardData — current step title/info", () => {
     expect(data.currentStepTitle).toBe("Research workflow");
     expect(data.currentStepInfo).toBe("reading sources");
   });
+
+  test("a terminal run prefers the final summary over a stale phase", () => {
+    // completeRun() leaves the last live phase set, so a finished card must
+    // surface the outcome (summary) instead of "Synthesizing…".
+    const data = computeWorkflowCardData(
+      makeEntry({
+        status: "completed",
+        label: "Research workflow",
+        phase: "Synthesizing",
+        summary: "Compiled all six divisions",
+        leaves: [
+          { seq: 0, label: "leaf", status: "completed", promptSummary: "go" },
+        ],
+      }),
+    );
+    expect(data.currentStepTitle).toBe("Research workflow");
+    expect(data.currentStepInfo).toBe("Compiled all six divisions");
+  });
+
+  test("a terminal run with no summary falls back to the log message, not the phase", () => {
+    const data = computeWorkflowCardData(
+      makeEntry({
+        status: "failed",
+        label: "Research workflow",
+        phase: "Synthesizing",
+        message: "hit an error",
+      }),
+    );
+    expect(data.currentStepInfo).toBe("hit an error");
+  });
 });
 
 // ---------------------------------------------------------------------------

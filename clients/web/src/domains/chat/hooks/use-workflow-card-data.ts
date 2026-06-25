@@ -25,6 +25,7 @@ import {
   type WorkflowLeaf,
 } from "@/domains/chat/workflow-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { isActiveStatus } from "@/utils/workflow-status";
 import type { WorkflowRunStatus } from "@vellumai/assistant-api";
 import {
   type ToolCallCardData,
@@ -117,25 +118,44 @@ function sortedLeaves(entry: WorkflowEntry): WorkflowLeaf[] {
  * activity verb — the workflow card has nowhere else to surface its name;
  * it belongs in the title.
  *
- * The live activity is demoted to the secondary info line so the card still
- * reads as in-flight: the current `phase`, else the latest leaf's prompt
- * summary (or its label), else the latest `log(...)` `message`, else the
- * final `summary`. (A leaf with neither prompt nor label no longer leaks a
+ * While the run is active, the live activity is demoted to the secondary info
+ * line so the card still reads as in-flight: the current `phase`, else the
+ * latest leaf's prompt summary (or its label), else the latest `log(...)`
+ * `message`. (A leaf with neither prompt nor label no longer leaks a
  * `Leaf <seq>` fallback into the header — the row's own list still labels it.)
+ *
+ * Once the run is terminal, the secondary line reflects the *outcome* — the
+ * final `summary` — instead. `completeRun()` leaves the last `entry.phase` set,
+ * so without this gate a finished card would keep showing a stale live phase
+ * (e.g. "Synthesizing…") rather than the result.
  */
 function deriveCurrentStep(
   entry: WorkflowEntry,
   leaves: WorkflowLeaf[],
 ): { currentStepTitle: string; currentStepInfo: string } {
   const latest = leaves[leaves.length - 1];
+  const title = entry.label ?? "Workflow";
+
+  if (!isActiveStatus(entry.status)) {
+    return {
+      currentStepTitle: title,
+      currentStepInfo:
+        entry.summary ||
+        entry.message ||
+        latest?.resultSummary ||
+        latest?.promptSummary ||
+        latest?.label ||
+        "",
+    };
+  }
+
   return {
-    currentStepTitle: entry.label ?? "Workflow",
+    currentStepTitle: title,
     currentStepInfo:
       entry.phase ||
       latest?.promptSummary ||
       latest?.label ||
       entry.message ||
-      entry.summary ||
       "",
   };
 }
