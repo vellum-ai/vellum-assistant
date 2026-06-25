@@ -23,15 +23,16 @@ export function WorkflowAgentsChip({
   seeds,
 }: WorkflowAgentsChipProps) {
   return (
-    <span
+    <div
       data-testid="workflow-inline-card-agents-chip"
       className="inline-flex items-center gap-1 rounded-full bg-[var(--surface-overlay)] px-1.5 py-1"
     >
       {seeds.length > 0 && (
         // Decorative identicons seeded by `runId:seq` (not real subagent
         // identities), so the stack is aria-hidden and the count text carries
-        // the accessible meaning.
-        <span aria-hidden className="flex items-center">
+        // the accessible meaning. The wrappers are divs because
+        // `SubagentAvatarChip` renders a div, which is invalid inside a span.
+        <div aria-hidden className="flex items-center">
           {seeds.map((seed, index) => (
             <SubagentAvatarChip
               key={seed}
@@ -44,7 +45,7 @@ export function WorkflowAgentsChip({
               }
             />
           ))}
-        </span>
+        </div>
       )}
 
       <Typography
@@ -54,6 +55,6 @@ export function WorkflowAgentsChip({
       >
         {countLabel}
       </Typography>
-    </span>
+    </div>
   );
 }
