@@ -209,9 +209,11 @@ export function AcpRunDetailPanel({
   const isRunning = isActiveAcpStatus(entry.status);
   const steps = useAcpRunSteps(entry.events);
 
-  // Which step's nested detail is shown (its `detailKey`), or `null` for the
-  // timeline. Reset on run switch via the render-phase block below.
-  const [selectedDetailKey, setSelectedDetailKey] = useState<string | null>(
+  // Which step's nested detail is shown (its array index in `steps`), or `null`
+  // for the timeline. Index — not `detailKey` — because anonymous message/thought
+  // steps (no `messageId`) share a `detailKey`, so a key-based lookup would
+  // collide. Reset on run switch via the render-phase block below.
+  const [selectedStepIndex, setSelectedStepIndex] = useState<number | null>(
     null,
   );
 
@@ -225,26 +227,20 @@ export function AcpRunDetailPanel({
   const [prevSessionId, setPrevSessionId] = useState(entry.acpSessionId);
   if (prevSessionId !== entry.acpSessionId) {
     setPrevSessionId(entry.acpSessionId);
-    setSelectedDetailKey(null);
+    setSelectedStepIndex(null);
     setObjectiveExpanded(false);
   }
 
-  // Derived map of clickable steps keyed by their `detailKey`.
-  const stepDetails = useMemo(() => {
-    const map = new Map<string, AcpTimelineStep>();
-    for (const step of steps) map.set(step.detailKey, step);
-    return map;
-  }, [steps]);
-
   const handleStepDetailClick = useCallback(
-    (key: string) => setSelectedDetailKey(key),
+    (index: number) => setSelectedStepIndex(index),
     [],
   );
-  const handleBack = useCallback(() => setSelectedDetailKey(null), []);
+  const handleBack = useCallback(() => setSelectedStepIndex(null), []);
 
-  const activeStep = selectedDetailKey
-    ? stepDetails.get(selectedDetailKey)
-    : undefined;
+  // Resolve by index; fall back to the timeline if the steps array shrank past
+  // the selected index (e.g. history hydration replaced the buffer).
+  const activeStep =
+    selectedStepIndex !== null ? steps[selectedStepIndex] : undefined;
 
   const detailTitle = activeStep ? stepTitle(activeStep) : "";
   const headerTitle = activeStep ? detailTitle : entry.agent;
@@ -427,6 +423,7 @@ export function AcpRunDetailPanel({
               {steps.length > 0 ? (
                 <AcpRunPhaseTimeline
                   steps={steps}
+                  isRunActive={isRunning}
                   onStepDetailClick={handleStepDetailClick}
                 />
               ) : (

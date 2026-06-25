@@ -247,6 +247,65 @@ describe("AcpRunDetailPanel — timeline + nested detail", () => {
     expect(screen.getByText("Second step")).toBeDefined();
   });
 
+  test("anonymous message steps don't collide — first pill opens the first message", () => {
+    // Two `agent_message_chunk`s with no `messageId`, separated by a tool_call so
+    // the projector closes the first message and starts a second. Both anonymous
+    // steps share `detailKey` "msg:", so selection must key by index, not key.
+    const entry = makeEntry({
+      events: [
+        {
+          seq: 1,
+          updateType: "agent_message_chunk",
+          content: "First anonymous message",
+        },
+        { ...TOOL_CALL_EVENT, seq: 2, toolStatus: "completed" },
+        {
+          seq: 3,
+          updateType: "agent_message_chunk",
+          content: "Second anonymous message",
+        },
+      ],
+    });
+    seedStore(entry);
+    render(<AcpRunDetailPanel entry={entry} onClose={noop} />);
+
+    const pills = screen.getAllByTestId("acp-step-pill");
+    // [message, tool, message]
+    expect(pills.length).toBe(3);
+
+    fireEvent.click(pills[0]!);
+    expect(screen.getByText("First anonymous message")).toBeDefined();
+    expect(screen.queryByText("Second anonymous message")).toBeNull();
+  });
+
+  test("terminal run's trailing message renders complete, not running", () => {
+    // A completed run whose last event is a message chunk: nothing closes it, so
+    // the step stays `isComplete:false`. The pill must show complete, not running.
+    const events: AcpRunRawEvent[] = [
+      {
+        seq: 1,
+        updateType: "agent_message_chunk",
+        messageId: "m-1",
+        content: "Final answer",
+      },
+    ];
+    const terminal = makeEntry({ status: "completed", events });
+    seedStore(terminal);
+    const { rerender } = render(
+      <AcpRunDetailPanel entry={terminal} onClose={noop} />,
+    );
+
+    expect(screen.queryByTestId("acp-step-running")).toBeNull();
+    expect(screen.getByTestId("acp-step-complete")).toBeDefined();
+
+    // The same trailing message on a still-active run DOES show the indicator.
+    const active = makeEntry({ status: "running", events });
+    seedStore(active);
+    rerender(<AcpRunDetailPanel entry={active} onClose={noop} />);
+
+    expect(screen.getByTestId("acp-step-running")).toBeDefined();
+  });
+
   test("nested state resets when switching to a different run", () => {
     const entry = makeEntry({ events: [TOOL_CALL_EVENT] });
     seedStore(entry);

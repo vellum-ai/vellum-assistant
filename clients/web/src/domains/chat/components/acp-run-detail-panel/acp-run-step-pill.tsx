@@ -59,13 +59,18 @@ function stepLabel(step: AcpTimelineStep): string {
   }
 }
 
-/** A step's tool status, used to pick the trailing status glyph. */
-function stepStatus(step: AcpTimelineStep): AcpToolStatus {
+/**
+ * A step's status, used to pick the trailing status glyph. A message step shows
+ * `running` only while the run is active; once the run is terminal a still-open
+ * trailing message (nothing closed it) renders as complete. Tool steps keep
+ * their own status regardless of run state.
+ */
+function stepStatus(step: AcpTimelineStep, isRunActive: boolean): AcpToolStatus {
   switch (step.kind) {
     case "tool":
       return step.status;
     case "message":
-      return step.isComplete ? "completed" : "running";
+      return step.isComplete || !isRunActive ? "completed" : "running";
     case "thought":
     case "plan":
       return "completed";
@@ -97,13 +102,19 @@ function StatusGlyph({ status }: { status: AcpToolStatus }) {
 
 export function AcpRunStepPill({
   step,
+  index,
+  isRunActive,
   onClick,
 }: {
   step: AcpTimelineStep;
+  /** This step's position in the run's projected steps — its selection identity. */
+  index: number;
+  /** Whether the owning run is still active; gates the trailing-message indicator. */
+  isRunActive: boolean;
   /** Opens the step's nested detail. When omitted the row is non-interactive. */
-  onClick?: (detailKey: string) => void;
+  onClick?: (index: number) => void;
 }) {
-  const status = stepStatus(step);
+  const status = stepStatus(step, isRunActive);
   const label = stepLabel(step);
   const tone = status === "error";
   const iconColor = tone
@@ -133,7 +144,7 @@ export function AcpRunStepPill({
         type="button"
         data-testid="acp-step-pill"
         aria-label={`View step details: ${label}`}
-        onClick={() => onClick(step.detailKey)}
+        onClick={() => onClick(index)}
         className={`flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 transition-colors hover:bg-[var(--surface-active)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)] ${colorClasses}`}
       >
         {body}

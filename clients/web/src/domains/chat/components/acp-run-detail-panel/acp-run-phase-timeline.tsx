@@ -3,8 +3,9 @@
  *
  * ACP steps are a flat, ordered `AcpTimelineStep[]` (not phase-grouped like the
  * subagent timeline), so this renders one `AcpRunStepPill` per step. Selection
- * is lifted to the owning panel via `onStepDetailClick(detailKey)`, mirroring how
- * `SubagentPhaseTimeline` lifts its expand/selection state.
+ * is lifted to the owning panel via `onStepDetailClick(index)` — by array index,
+ * since anonymous steps share a `detailKey` — mirroring how `SubagentPhaseTimeline`
+ * lifts its expand/selection state.
  *
  * Pure / presentational: takes only `steps`. The owning panel renders the empty
  * state, so this returns `null` for an empty input.
@@ -20,11 +21,14 @@ function stepKey(step: AcpTimelineStep, index: number): string {
 
 export function AcpRunPhaseTimeline({
   steps,
+  isRunActive,
   onStepDetailClick,
 }: {
   steps: AcpTimelineStep[];
-  /** Opens a step's nested detail. */
-  onStepDetailClick: (detailKey: string) => void;
+  /** Whether the owning run is still active (drives trailing-message liveness). */
+  isRunActive: boolean;
+  /** Opens a step's nested detail, identified by its array index. */
+  onStepDetailClick: (index: number) => void;
 }) {
   if (steps.length === 0) return null;
 
@@ -34,6 +38,8 @@ export function AcpRunPhaseTimeline({
         <AcpRunStepPill
           key={stepKey(step, index)}
           step={step}
+          index={index}
+          isRunActive={isRunActive}
           onClick={onStepDetailClick}
         />
       ))}
