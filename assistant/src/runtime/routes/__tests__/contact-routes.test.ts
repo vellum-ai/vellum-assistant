@@ -58,16 +58,17 @@ mock.module("../../../contacts/contact-store.js", () => ({
   searchContacts: searchContactsMock,
 }));
 
-const { handleListContacts, handleGetContact, ROUTES } = await import(
-  "../contact-routes.js"
-);
+const { handleListContacts, handleGetContact, ROUTES } =
+  await import("../contact-routes.js");
 
-// Daemon-native contact: INFO is hydrated locally; ACL fields (role/status/
-// policy/verification) are gateway-owned and legitimately absent.
+// Daemon-native contact: INFO is hydrated locally; channel-level ACL fields
+// (status/policy/verification) are gateway-owned and absent on native reads.
+// Contact-level `role` is stored locally (NOT NULL) and always returned.
 const nativeContact = {
   id: "ct_2",
   displayName: "Bob",
   notes: null,
+  role: "contact",
   contactType: "human",
   lastInteraction: 4200,
   interactionCount: 4,
@@ -284,9 +285,9 @@ describe("filtered/native contact reads stay daemon-native", () => {
     expect(channel.interactionCount).toBe(4);
     expect(channel.lastSeenAt).toBe(4100);
     expect(channel.externalUserId).toBe("+15550200");
-    // Gateway-owned ACL fields are absent — and that validates because they're
-    // optional in the response schema.
-    expect("role" in contact).toBe(false);
+    // Contact-level `role` is locally stored (NOT NULL) and always present.
+    expect((contact as { role: string }).role).toBe("contact");
+    // Channel-level ACL fields (status/policy) are gateway-owned and absent.
     expect("status" in channel).toBe(false);
     expect(() => listResponseSchema.parse(result)).not.toThrow();
   });
