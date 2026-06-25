@@ -78,15 +78,24 @@ function withChannelCompat<T extends { channels: { address: string }[] }>(
   };
 }
 
-/** Compose both response transforms (guardian display name + channel compat). */
+/** Compose both response transforms (guardian display name + channel compat).
+ * Also coerces nullable gateway-sourced fields to their DB defaults so the
+ * response satisfies the strict enum schema even in degraded mode (assistant
+ * DB unreachable → gateway soft-fail join produces nulls).
+ */
 function prepareContactResponse<
   T extends {
     role: string;
     displayName: string;
+    contactType?: string | null;
     channels: { address: string }[];
   },
 >(contact: T): T {
-  return withChannelCompat(withGuardianNameOverride(contact));
+  const coerced =
+    contact.contactType == null
+      ? { ...contact, contactType: "human" as T["contactType"] }
+      : contact;
+  return withChannelCompat(withGuardianNameOverride(coerced));
 }
 
 const VALID_CONTACT_TYPES: readonly ContactType[] = ["human", "assistant"];
