@@ -9,6 +9,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  resolveOnboardingPluginInstalls,
   selectRecommendableCapabilities,
   shouldSettleResearchPoll,
 } from "@/domains/onboarding/research-runner";
@@ -74,6 +75,39 @@ describe("selectRecommendableCapabilities", () => {
     expect(capabilities[0]?.description).toBe(
       "Acts as a full-stack marketing expert for any business.",
     );
+  });
+});
+
+describe("resolveOnboardingPluginInstalls", () => {
+  test("includes admin-copilot from the first-party catalog for every role", () => {
+    const { validNames } = selectRecommendableCapabilities([
+      match("admin-copilot", "vellum-ai/admin-copilot", "Chief-of-staff."),
+      match("marketing-expert", "vellum-ai/marketing-expert", "Full-stack marketing."),
+    ]);
+
+    expect(
+      resolveOnboardingPluginInstalls({
+        role: "Teacher",
+        validNames,
+        modelPlugins: [],
+      }),
+    ).toEqual(["admin-copilot"]);
+  });
+
+  test("dedupes deterministic and model picks while rejecting non-catalog names", () => {
+    const { validNames } = selectRecommendableCapabilities([
+      match("admin-copilot", "vellum-ai/admin-copilot", "Chief-of-staff."),
+      match("marketing-expert", "vellum-ai/marketing-expert", "Full-stack marketing."),
+      match("caveman", "JuliusBrussee/caveman", "Compression mode."),
+    ]);
+
+    expect(
+      resolveOnboardingPluginInstalls({
+        role: "Founder",
+        validNames,
+        modelPlugins: ["marketing-expert", "caveman", "made-up-plugin"],
+      }),
+    ).toEqual(["admin-copilot", "marketing-expert"]);
   });
 });
 
