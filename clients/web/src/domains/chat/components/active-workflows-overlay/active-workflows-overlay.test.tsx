@@ -79,8 +79,15 @@ describe("ActiveWorkflowsOverlay — expanded", () => {
     fireEvent.click(pill);
 
     expect(pill.getAttribute("aria-expanded")).toBe("true");
-    expect(getByText("3 Active Workflows")).toBeTruthy();
+    const title = getByText("3 Active Workflows");
+    expect(title).toBeTruthy();
     expect(getAllByTestId("wf-card").length).toBe(3);
+
+    // Panel is an absolutely-positioned dropdown so its width can't stretch the
+    // row when a sibling overlay pill is present (regression guard).
+    const panel = title.parentElement;
+    expect(panel?.className).toContain("absolute");
+    expect(panel?.className).toContain("pointer-events-auto");
   });
 
   test("uses the singular noun when exactly one workflow is active", () => {
