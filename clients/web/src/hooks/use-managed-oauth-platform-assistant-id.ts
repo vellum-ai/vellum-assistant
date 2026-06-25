@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { resolveManagedOAuthPlatformAssistantId } from "@/lib/local-managed-oauth-identity";
+import { resolveLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 
 type ManagedOAuthPlatformAssistantIdState = {
   platformAssistantId: string | null;
@@ -27,7 +27,7 @@ export function useManagedOAuthPlatformAssistantId(
     let active = true;
     setState({ platformAssistantId: null, isLoading: true, error: null });
 
-    void resolveManagedOAuthPlatformAssistantId(assistantId)
+    void resolveLocalAssistantPlatformIdentity(assistantId)
       .then((resolvedPlatformAssistantId) => {
         if (!active) return;
         setState({
