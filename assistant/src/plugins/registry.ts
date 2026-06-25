@@ -19,6 +19,7 @@
  * Design doc: `.private/plans/agent-plugin-system.md`.
  */
 
+import { isPluginDisabled } from "./disabled-state.js";
 import { getUserHooksFor } from "./mtime-cache.js";
 import {
   type HookFunction,
@@ -34,6 +35,25 @@ import {
  * `getRegisteredPlugins()` output.
  */
 const registeredPlugins = new Map<string, Plugin>();
+
+/**
+ * Hook registry — the per-surface registry for default plugin hooks. Each
+ * hook name maps to an ordered list of `{fn, pluginName}` entries, one per
+ * plugin that contributes that hook. The list order matches registration
+ * order (i.e. {@link getAllDefaultPlugins} array order), which fixes
+ * hook-chain ordering the same way the old `registeredPlugins` map did.
+ *
+ * Populated by {@link registerPlugin} alongside `registeredPlugins` and
+ * depleted by {@link unregisterPlugin}. {@link getHooksFor} reads from this
+ * map (not `registeredPlugins`) so it can filter disabled plugins at read
+ * time via {@link isPluginDisabled} — the key mechanism that makes
+ * `assistant plugins disable default-*` take effect immediately in a
+ * running assistant.
+ */
+const hookRegistry = new Map<
+  string,
+  Array<{ fn: HookFunction; pluginName: string }>
+>();
 
 /**
  * Latch that closes the per-boot registration window. Flipped to `true` by
@@ -126,6 +146,22 @@ export function registerPlugin(plugin: Plugin): void {
   }
 
   registeredPlugins.set(name, plugin);
+
+  // Register each hook into the per-surface hook registry. `getHooksFor`
+  // reads from this map (filtered by `isPluginDisabled`) rather than from
+  // `registeredPlugins`, so toggling the `.disabled` sentinel at runtime
+  // takes effect on the next turn without mutating the plugin registry.
+  if (plugin.hooks) {
+    for (const [hookName, fn] of Object.entries(plugin.hooks)) {
+      if (typeof fn !== "function") continue;
+      let list = hookRegistry.get(hookName);
+      if (!list) {
+        list = [];
+        hookRegistry.set(hookName, list);
+      }
+      list.push({ fn: fn as HookFunction, pluginName: name });
+    }
+  }
 }
 
 // ─── Queries ─────────────────────────────────────────────────────────────────
@@ -159,12 +195,14 @@ export function getRegisteredPlugins(): Plugin[] {
 export async function getHooksFor<TCtx = unknown>(
   name: string,
 ): Promise<HookFunction<TCtx>[]> {
-  // First-party defaults from the registry (synchronous).
+  // First-party defaults from the hook registry, filtered by the `.disabled`
+  // sentinel at read time. This is what makes `assistant plugins disable
+  // default-*` take effect immediately in a running assistant: the hooks stay
+  // registered but are filtered out on the next turn.
   const defaultHooks: HookFunction<TCtx>[] = [];
-  for (const plugin of registeredPlugins.values()) {
-    const hook = plugin.hooks?.[name];
-    if (hook) {
-      defaultHooks.push(hook as HookFunction<TCtx>);
+  for (const entry of hookRegistry.get(name) ?? []) {
+    if (!isPluginDisabled(entry.pluginName)) {
+      defaultHooks.push(entry.fn as HookFunction<TCtx>);
     }
   }
 
@@ -199,14 +237,18 @@ export function closeRegistration(): void {
  */
 export function unregisterPlugin(name: string): void {
   registeredPlugins.delete(name);
-}
 
-export function getRegisteredPlugin(name: string): Plugin | undefined {
-  return registeredPlugins.get(name);
-}
-
-export function setRegisteredPlugin(plugin: Plugin): void {
-  registeredPlugins.set(plugin.manifest.name, plugin);
+  // Remove all hooks contributed by this plugin from the hook registry.
+  // Used by the bootstrap failure path (init threw) and the feature-flag
+  // skip path — both are boot-time decisions where the plugin's hooks should
+  // never participate in the turn lifecycle.
+  for (const [, list] of hookRegistry) {
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (list[i]!.pluginName === name) {
+        list.splice(i, 1);
+      }
+    }
+  }
 }
 
 // ─── Test hooks ──────────────────────────────────────────────────────────────
@@ -228,6 +270,7 @@ export function resetPluginRegistryForTests(): void {
     );
   }
   registeredPlugins.clear();
+  hookRegistry.clear();
   // Re-open the registration window so subsequent tests can register plugins
   // again. Without this, the latch set by a prior `closeRegistration()` call
   // would leak across test cases and reject legitimate registrations.

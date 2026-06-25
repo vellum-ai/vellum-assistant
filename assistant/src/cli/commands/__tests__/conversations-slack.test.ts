@@ -142,6 +142,7 @@ mock.module("../../../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
   pruneOldLogFiles: () => 0,
   LOG_FILE_PATTERN: /^assistant-(\d{4}-\d{2}-\d{2})\.log$/,
+  getCurrentLogFilePath: () => "/tmp/test-assistant.log",
 }));
 
 const { registerConversationsCommand } = await import("../conversations.js");

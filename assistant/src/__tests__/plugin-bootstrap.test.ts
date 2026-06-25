@@ -475,11 +475,13 @@ describe("plugin bootstrap", () => {
   //
   // A plugin is disabled when a `.disabled` file exists at
   // <workspace>/plugins/<manifest-name>/.disabled. The bootstrap must
-  // skip the plugin entirely — no init, no tools, no routes, no shutdown
-  // hook — and remove it from the registry, mirroring the requiresFlag
-  // gate.
+  // skip the plugin's init, tools, routes, and shutdown hook. Unlike the
+  // requiresFlag gate, the plugin is NOT removed from the registry — its
+  // hooks stay registered and are filtered at read time by
+  // `isPluginDisabled` in `getHooksFor`, so `assistant plugins enable`
+  // takes effect on the next turn without a restart.
 
-  test(".disabled sentinel: init does not fire and plugin is unregistered", async () => {
+  test(".disabled sentinel: init does not fire and hooks are filtered at read time", async () => {
     let initFired = false;
     const plugin = buildPlugin("sentinel-off", {
       async init() {
@@ -497,8 +499,14 @@ describe("plugin bootstrap", () => {
     await bootstrapPlugins();
 
     expect(initFired).toBe(false);
+    // The plugin stays in the registry (not unregistered) so its hooks can
+    // be re-enabled at runtime by removing the sentinel.
     const names = getRegisteredPlugins().map((p) => p.manifest.name);
-    expect(names).not.toContain("sentinel-off");
+    expect(names).toContain("sentinel-off");
+    // But its hooks are filtered out at read time by `isPluginDisabled`.
+    const { getHooksFor } = await import("../plugins/registry.js");
+    const hooks = await getHooksFor("init");
+    expect(hooks).toHaveLength(0);
 
     await rm(sentinelDir, { recursive: true, force: true });
   });
