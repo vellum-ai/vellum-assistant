@@ -50,13 +50,12 @@ afterEach(() => {
 });
 
 describe("buildNavigationState — isAuthenticated mirrors sessionStatus", () => {
-  // App access is decided entirely by `sessionStatus`. The earlier
-  // `|| canAccessApp` reachability OR was removed as value-redundant: the local
-  // gateway is the sole session authority (#35152), so a reachable local user is
-  // already `sessionStatus: "authenticated"`. The "a platform 401 does not evict
-  // a local user" guarantee is asserted at the store layer — see
-  // auth-store.test.ts, "refreshSession keeps the local gateway session but
-  // clears stale platform state on a settled 401".
+  // `isAuthenticated` is decided entirely by `sessionStatus`: the local gateway
+  // is the sole session authority (#35152), so a reachable local user is already
+  // `"authenticated"`. The "a platform 401 does not evict a local user" guarantee
+  // is asserted at the store layer — see auth-store.test.ts, "refreshSession
+  // keeps the local gateway session but clears stale platform state on a settled
+  // 401".
 
   test("an authenticated session is admitted", () => {
     useAuthStore.setState({

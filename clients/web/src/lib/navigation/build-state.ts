@@ -31,14 +31,11 @@ export function buildNavigationState(
     isGatewayAuth: isGatewayAuthMode(),
     hasAssistants: useResolvedAssistantsStore.getState().assistants.length > 0,
     sessionSettled: isSessionSettled(sessionStatus),
-    // `isAuthenticated` mirrors `sessionStatus` directly — no "reachable
-    // assistant" OR is needed here. The local gateway is the sole session
-    // authority (#35152), so a reachable local user is already
-    // `sessionStatus: "authenticated"`: a platform `getSession()` 401 only drops
-    // `platformSession`, never `sessionStatus` (see `probePlatformSession` in the
-    // auth store), and a live platform session is authenticated too. Keeping the
-    // single source means this can't drift from `useIsAuthenticated()`, which
-    // reads `sessionStatus` the same way.
+    // `isAuthenticated` mirrors `sessionStatus`. The local gateway is the sole
+    // session authority (#35152), so a reachable local user is already
+    // `"authenticated"` — a platform `getSession()` 401 drops only
+    // `platformSession`, never `sessionStatus` (see `probePlatformSession`).
+    // Reading the one source keeps this from drifting from `useIsAuthenticated()`.
     isAuthenticated: isAuthenticated(sessionStatus),
     platformSession,
     tosAccepted: readTosAccepted(),

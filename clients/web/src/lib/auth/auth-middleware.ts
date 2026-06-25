@@ -18,8 +18,6 @@ const PLATFORM_SESSION_PROBE_TIMEOUT_MS = 5_000;
 export const authMiddleware: MiddlewareFunction = async ({ request, context }, next) => {
   const url = new URL(request.url);
 
-  // The admit decision is derived from the settled session state, so the settle
-  // waits below are the only probe gates — they keep us from routing mid-probe.
   const state = buildNavigationState();
 
   const decision = resolveNavigation(state, {

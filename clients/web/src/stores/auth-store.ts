@@ -93,10 +93,10 @@ import {
 
 export interface AuthUser {
   /**
-   * Distinguishes a real platform account from local gateway access. Both
-   * carry a stable `id` (local's is the synthetic `"gateway-local"`, kept for
-   * storage namespacing), so consumers that mean "real platform account" must
-   * read `kind` rather than assuming any non-null user is a platform user.
+   * Discriminates a real platform account (`"platform"`) from synthetic local
+   * gateway access (`"local"`). Both carry a stable `id` — local's is the
+   * synthetic `"gateway-local"`, kept for storage namespacing — so a non-null
+   * user does not by itself imply a platform account.
    */
   kind: "platform" | "local";
   id: string | null;
@@ -847,9 +847,9 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     // hatch — is left for the gateway to settle once its token mints.
     //
     // Holding `sessionStatus` "authenticated" is load-bearing: in-app consumers
-    // read `useIsAuthenticated()` directly (the QueryClient cache scope in
-    // `providers.tsx`, gated UI like `preferences-menu.tsx`), so ending the
-    // session would drop them into the anonymous cache scope and hide that UI.
+    // read `useIsAuthenticated()` directly to scope the QueryClient cache and
+    // gate signed-in UI, so ending the session would drop them into the
+    // anonymous cache scope and hide that UI.
     if (isGatewayAuthEnabled()) {
       const wasAuthenticated = isAuthenticated(get().sessionStatus);
       if (wasAuthenticated) {

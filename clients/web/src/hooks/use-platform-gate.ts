@@ -198,12 +198,11 @@ export function usePlatformGate(
   // does not loop. See CONVENTIONS.md § State management — `useShallow`
   // is not introduced in new code; atomic selectors avoid the need.
   //
-  // Gate on the bare platform-session signal. A per-assistant reachability check
-  // would fork on hosting type and change the self-hosted rows (states 3–5) of
-  // the truth table. `"unknown"` (pre-settle) gates the surface like `"absent"`,
-  // and a re-probe keeps the last `"present"`/`"absent"` so the gate doesn't
-  // flicker on resume.
-  const platformReachable = useHasPlatformSession();
+  // Gate on the bare platform-session signal — deliberately not a per-assistant
+  // reachability check, which would fork on hosting type and change the
+  // self-hosted rows (states 3–5) of the truth table. `"unknown"` (pre-settle)
+  // gates the surface like `"absent"`.
+  const hasPlatformSession = useHasPlatformSession();
   const platformDisabled = isPlatformDisabled();
   const activeIsSelfHosted = useActiveAssistantIsSelfHosted();
 
@@ -214,12 +213,12 @@ export function usePlatformGate(
   // "is this UI's target assistant platform-hosted?"
   if (options.platformHostedOnly) {
     if (activeIsSelfHosted) return "gated";
-    if (!platformReachable) return "disabled";
+    if (!hasPlatformSession) return "disabled";
     return "full";
   }
 
   const local = isLocalMode();
   if (local && platformDisabled) return "gated";
-  if (!platformReachable) return "disabled";
+  if (!hasPlatformSession) return "disabled";
   return "full";
 }

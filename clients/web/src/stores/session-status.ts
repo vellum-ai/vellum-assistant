@@ -2,10 +2,10 @@
  * Session state as discriminated unions, plus the pure predicates that answer
  * each session-state question in one place.
  *
- * This module is intentionally dependency-free at runtime: it imports no
- * runtime values, so any module — including ones the auth store itself depends
- * on (e.g. the assistant lifecycle service) — can read session meaning without
- * creating an import cycle through the store.
+ * This module is intentionally dependency-free: it imports nothing, so any
+ * module — including ones the auth store itself depends on (e.g. the assistant
+ * lifecycle service) — can read session meaning without creating an import
+ * cycle through the store.
  *
  * Imperative readers (middleware, lifecycle, route resolvers) call these
  * predicates directly with a status value. Reactive components read the
