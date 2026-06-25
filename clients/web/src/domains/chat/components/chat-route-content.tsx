@@ -807,8 +807,7 @@ export function ChatMainPanel({
           }
           diskPressureBanner={diskPressureBannerSlot}
           showMissingApiKeyBanner={
-            error?.code === "PROVIDER_NOT_CONFIGURED" ||
-            error?.code === "MANAGED_KEY_INVALID"
+            error?.code === "PROVIDER_NOT_CONFIGURED"
           }
           onOpenAiSettings={pushToAiSettings}
           onDismissApiKeyError={handleDismissApiKeyError}

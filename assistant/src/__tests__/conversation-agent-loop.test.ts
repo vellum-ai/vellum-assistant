@@ -278,6 +278,7 @@ const deleteMessageByIdMock = mock(() => ({
 }));
 const reserveMessageMock = mock(async () => ({ id: "msg-reserve" }));
 const updateMessageContentMock = mock(() => {});
+const addMessageMock = mock(() => ({ id: "mock-msg-id" }));
 mock.module("../memory/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
@@ -292,7 +293,7 @@ mock.module("../memory/conversation-crud.js", () => ({
     trustContext: undefined,
   }),
   getConversationOriginInterface: () => null,
-  addMessage: () => ({ id: "mock-msg-id" }),
+  addMessage: addMessageMock,
   deleteMessageById: deleteMessageByIdMock,
   updateConversationContextWindow: () => {},
   updateConversationSlackContextWatermark:
@@ -560,13 +561,16 @@ mock.module("../workspace/git-service.js", () => ({
   }),
 }));
 
+let mockConversationErrorClassification = {
+  code: "CONVERSATION_PROCESSING_FAILED",
+  userMessage: "Something went wrong processing your message.",
+  retryable: false,
+  errorCategory: "processing_failed",
+};
+
 mock.module("../daemon/conversation-error.js", () => ({
-  classifyConversationError: (_err: unknown, _ctx: unknown) => ({
-    code: "CONVERSATION_PROCESSING_FAILED",
-    userMessage: "Something went wrong processing your message.",
-    retryable: false,
-    errorCategory: "processing_failed",
-  }),
+  classifyConversationError: (_err: unknown, _ctx: unknown) =>
+    mockConversationErrorClassification,
   isUserCancellation: (err: unknown, ctx: { aborted?: boolean }) => {
     if (!ctx.aborted) return false;
     if (err instanceof DOMException && err.name === "AbortError") return true;
@@ -872,6 +876,13 @@ beforeEach(() => {
   deleteMessageByIdMock.mockClear();
   reserveMessageMock.mockClear();
   updateMessageContentMock.mockClear();
+  addMessageMock.mockClear();
+  mockConversationErrorClassification = {
+    code: "CONVERSATION_PROCESSING_FAILED",
+    userMessage: "Something went wrong processing your message.",
+    retryable: false,
+    errorCategory: "processing_failed",
+  };
   indexMessageNowMock.mockClear();
   projectAssistantMessageMock.mockClear();
   publishSyncInvalidationMock.mockClear();
@@ -2240,6 +2251,49 @@ describe("session-agent-loop", () => {
         .calls[0] as unknown as [string, string];
       expect(backfillCall[0]).toBe("test-conv");
       expect(backfillCall[1]).toBe("mock-msg-id");
+    });
+
+    test("does not persist managed credential refresh failures as assistant text", async () => {
+      mockConversationErrorClassification = {
+        code: "MANAGED_KEY_INVALID",
+        userMessage: "Couldn't refresh assistant credentials.",
+        retryable: false,
+        errorCategory: "managed_key_invalid",
+      };
+      const events: ServerMessage[] = [];
+
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("API key has expired.");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(
+        events.filter((event) => event.type === "assistant_text_delta"),
+      ).toHaveLength(0);
+
+      const conversationError = events.find(
+        (event) => event.type === "conversation_error",
+      );
+      expect(conversationError).toBeDefined();
+      expect(conversationError).toMatchObject({
+        code: "MANAGED_KEY_INVALID",
+        userMessage: "Couldn't refresh assistant credentials.",
+        errorCategory: "managed_key_invalid",
+      });
+
+      expect(addMessageMock).not.toHaveBeenCalled();
+      expect(recordRequestLogMock).not.toHaveBeenCalled();
+      expect(backfillMessageIdOnLogsMock).not.toHaveBeenCalled();
+      expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
+      const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [
+        string,
+      ];
+      expect(deleteCall[0]).toBe("msg-reserve");
     });
   });
 

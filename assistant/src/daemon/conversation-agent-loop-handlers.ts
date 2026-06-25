@@ -102,6 +102,12 @@ import type {
 
 const log = getLogger("agent-loop-handlers");
 
+function shouldPersistProviderErrorAsAssistantMessage(classified: {
+  code: string;
+}): boolean {
+  return classified.code !== "MANAGED_KEY_INVALID";
+}
+
 /**
  * Persist the history-stripped marker after the loop strips runtime injections
  * for compaction / overflow recovery. The marker is a durability hint, not
@@ -161,6 +167,7 @@ export interface EventHandlerState {
   readonly exchangeRawResponses: unknown[];
   model: string;
   providerErrorUserMessage: string | null;
+  persistProviderErrorAsAssistantMessage: boolean;
   lastAssistantMessageId: string | undefined;
   /**
    * True when `handleLlmCallStarted` has reserved an empty assistant row
@@ -339,6 +346,7 @@ export function createEventHandlerState(): EventHandlerState {
     exchangeRawResponses: [],
     model: "",
     providerErrorUserMessage: null,
+    persistProviderErrorAsAssistantMessage: false,
     lastAssistantMessageId: undefined,
     assistantRowAwaitingFinalization: false,
     pendingToolResults: new Map(),
@@ -1616,6 +1624,8 @@ function handleError(
     buildConversationErrorMessage(deps.ctx.conversationId, classified),
   );
   state.providerErrorUserMessage = classified.userMessage;
+  state.persistProviderErrorAsAssistantMessage =
+    shouldPersistProviderErrorAsAssistantMessage(classified);
 }
 
 export function handleMaxTokensReached(
@@ -2129,6 +2139,13 @@ function handleProviderError(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "provider_error" }>,
 ): void {
+  const classified = classifyConversationError(event.error, {
+    phase: "agent_loop",
+  });
+  if (!shouldPersistProviderErrorAsAssistantMessage(classified)) {
+    return;
+  }
+
   try {
     recordRequestLog(
       deps.ctx.conversationId,

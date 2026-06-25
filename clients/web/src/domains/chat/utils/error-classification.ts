@@ -12,7 +12,6 @@ export type ChatBillingBannerDecision = "managed_credits" | "provider_billing";
 
 const PROVIDER_BILLING_CODE = "PROVIDER_BILLING";
 const PROVIDER_NOT_CONFIGURED_CODE = "PROVIDER_NOT_CONFIGURED";
-const MANAGED_KEY_INVALID_CODE = "MANAGED_KEY_INVALID";
 const MANAGED_CREDITS_EXHAUSTED_CATEGORY = "credits_exhausted";
 const PROVIDER_BILLING_CATEGORY = "provider_billing";
 
@@ -56,7 +55,6 @@ export function shouldSuppressGenericChatErrorNotice(
   return (
     getChatBillingBannerDecision(error) !== null ||
     error?.code === PROVIDER_NOT_CONFIGURED_CODE ||
-    error?.code === MANAGED_KEY_INVALID_CODE ||
     error?.displayAs === "modal"
   );
 }

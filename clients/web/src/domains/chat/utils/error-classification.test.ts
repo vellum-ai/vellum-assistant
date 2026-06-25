@@ -54,6 +54,16 @@ describe("chat error classification", () => {
     expect(shouldShowGenericChatErrorNotice(error)).toBe(true);
   });
 
+  test("routes managed key failures through the generic Doctor-capable notice", () => {
+    const error = {
+      code: "MANAGED_KEY_INVALID",
+      errorCategory: "managed_key_invalid",
+    };
+
+    expect(shouldSuppressGenericChatErrorNotice(error)).toBe(false);
+    expect(shouldShowGenericChatErrorNotice(error)).toBe(true);
+  });
+
   test("suppresses inline notice when displayAs is modal", () => {
     // secret_blocked from a fresh new-conversation POST is surfaced as a
     // dialog, not an inline banner. The inline Notice must stay hidden so
