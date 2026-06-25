@@ -243,6 +243,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "acp-chat-view",
+      "scope": "client",
+      "key": "acp-chat-view",
+      "label": "ACP Chat View",
+      "description": "Render the ACP run detail panel as a chat-style conversation (agent messages, thinking, tool/code, plan, and a clickable file-diff view) instead of the event timeline.",
+      "defaultEnabled": false
+    },
+    {
       "id": "compaction-playground",
       "scope": "assistant",
       "key": "compaction-playground",
