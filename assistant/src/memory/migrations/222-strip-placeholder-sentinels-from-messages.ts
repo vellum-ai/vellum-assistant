@@ -19,6 +19,14 @@ import { getSqliteFrom } from "../db-connection.js";
  * the null-byte prefix, to cover rows that round-tripped through tools that
  * stripped null bytes). If stripping leaves the message empty, stores [].
  *
+ * The `content LIKE '%__PLACEHOLDER__%'` predicate uses a leading wildcard, so
+ * it can never ride an index — it costs one full scan of the assistant
+ * messages regardless of how the rows are paged. That scan already narrows to
+ * the (expected small) set of leaked rows, so the matches are collected in a
+ * single pass and rewritten through one prepared statement inside one
+ * transaction, rather than re-issuing the scan per batch and committing each
+ * UPDATE on its own.
+ *
  * Idempotent — safe to re-run.
  */
 export function migrateStripPlaceholderSentinelsFromMessages(
@@ -26,30 +34,19 @@ export function migrateStripPlaceholderSentinelsFromMessages(
 ): void {
   const raw = getSqliteFrom(database);
 
-  const BATCH_SIZE = 100;
-  let lastRowid = 0;
+  const rows = raw
+    .query(
+      `SELECT id, content FROM messages
+       WHERE role = 'assistant'
+         AND content LIKE '%__PLACEHOLDER__%'`,
+    )
+    .all() as Array<{ id: string; content: string }>;
+  if (rows.length === 0) return;
 
-  for (;;) {
-    const rows = raw
-      .query(
-        `SELECT rowid, id, content FROM messages
-         WHERE role = 'assistant'
-           AND content LIKE '%__PLACEHOLDER__%'
-           AND rowid > ?
-         ORDER BY rowid
-         LIMIT ?`,
-      )
-      .all(lastRowid, BATCH_SIZE) as Array<{
-      rowid: number;
-      id: string;
-      content: string;
-    }>;
+  const update = raw.prepare(`UPDATE messages SET content = ? WHERE id = ?`);
 
-    if (rows.length === 0) break;
-
+  const apply = raw.transaction(() => {
     for (const row of rows) {
-      lastRowid = row.rowid;
-
       let blocks: Array<Record<string, unknown>>;
       try {
         const parsed = JSON.parse(row.content);
@@ -68,9 +65,9 @@ export function migrateStripPlaceholderSentinelsFromMessages(
 
       if (stripped.length === blocks.length) continue;
 
-      raw
-        .query(`UPDATE messages SET content = ? WHERE id = ?`)
-        .run(JSON.stringify(stripped), row.id);
+      update.run(JSON.stringify(stripped), row.id);
     }
-  }
+  });
+
+  apply();
 }
