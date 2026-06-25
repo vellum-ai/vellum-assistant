@@ -1,4 +1,7 @@
+import type { ReactNode } from "react";
+
 import { Ban, CircleCheck, TriangleAlert } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { Typography } from "@vellumai/design-library";
 
@@ -13,35 +16,55 @@ import { subagentTraits } from "@/utils/avatar-subagent";
  * while the leaf is in flight, otherwise a compact terminal status icon.
  */
 function LeadIndicator({ status }: { status: WorkflowLeaf["status"] }) {
-  if (status === "running") {
-    return <ThreeDotIndicator className="shrink-0" dotSize={4} gap={2} />;
-  }
+  const reduce = useReducedMotion();
   const baseClass = "h-3.5 w-3.5 shrink-0";
-  switch (status) {
-    case "completed":
-      return (
-        <CircleCheck
-          className={baseClass}
-          style={{ color: "var(--system-positive-strong)" }}
-        />
-      );
-    case "failed":
-      return (
-        <TriangleAlert
-          className={baseClass}
-          style={{ color: "var(--system-negative-strong)" }}
-        />
-      );
-    default:
-      return (
-        <Ban
-          className={baseClass}
-          style={{ color: "var(--content-secondary)" }}
-          role="img"
-          aria-label="Cancelled"
-        />
-      );
+
+  let icon: ReactNode;
+  if (status === "running") {
+    icon = <ThreeDotIndicator className="shrink-0" dotSize={4} gap={2} />;
+  } else if (status === "completed") {
+    icon = (
+      <CircleCheck
+        className={baseClass}
+        style={{ color: "var(--system-positive-strong)" }}
+      />
+    );
+  } else if (status === "failed") {
+    icon = (
+      <TriangleAlert
+        className={baseClass}
+        style={{ color: "var(--system-negative-strong)" }}
+      />
+    );
+  } else {
+    icon = (
+      <Ban
+        className={baseClass}
+        style={{ color: "var(--content-secondary)" }}
+        role="img"
+        aria-label="Cancelled"
+      />
+    );
   }
+
+  return (
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.span
+        key={status}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={
+          reduce
+            ? { duration: 0 }
+            : { duration: 0.15, ease: [0.16, 1, 0.3, 1] }
+        }
+        className="flex shrink-0 items-center"
+      >
+        {icon}
+      </motion.span>
+    </AnimatePresence>
+  );
 }
 
 export interface WorkflowSubagentRowProps {
