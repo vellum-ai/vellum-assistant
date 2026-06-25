@@ -77,7 +77,11 @@ import {
   stopCanonicalGuardianExpirySweep,
 } from "./routes/canonical-guardian-expiry-sweep.js";
 import { RouteError } from "./routes/errors.js";
-import { handleHealth, handleReadyz } from "./routes/identity-routes.js";
+import {
+  dbMigrationUnavailableResponse,
+  handleHealth,
+  handleReadyz,
+} from "./routes/identity-routes.js";
 import {
   startInferenceProfileSessionReaper,
   stopInferenceProfileSessionReaper,
@@ -93,9 +97,37 @@ const log = getLogger("runtime-http");
 
 const DEFAULT_PORT = 7821;
 const DEFAULT_HOSTNAME = "127.0.0.1";
+const DB_MIGRATION_READINESS_EXEMPT_ENDPOINTS = new Set([
+  "diagnostics/env-vars",
+  "gateway/logs/tail",
+  "health",
+  "healthz",
+  "identity",
+  "ps",
+]);
 
 /** Global hard cap on request body size (512 MB — accommodates large .vbundle backup imports). */
 const MAX_REQUEST_BODY_BYTES = 512 * 1024 * 1024;
+
+function shouldBypassDbMigrationReadiness(endpoint: string): boolean {
+  return (
+    DB_MIGRATION_READINESS_EXEMPT_ENDPOINTS.has(endpoint) ||
+    endpoint === "config" ||
+    endpoint.startsWith("config/")
+  );
+}
+
+function dbMigrationUnavailableForEndpoint(endpoint: string): Response | null {
+  if (shouldBypassDbMigrationReadiness(endpoint)) return null;
+  return dbMigrationUnavailableResponse();
+}
+
+function isTwilioWebhookRequest(req: Request, path: string): boolean {
+  return (
+    req.method === "POST" &&
+    (TWILIO_WEBHOOK_RE.test(path) || TWILIO_GATEWAY_WEBHOOK_RE.test(path))
+  );
+}
 
 /**
  * WebSocket data attached to `/v1/calls/media-stream` connections.
@@ -583,6 +615,11 @@ export class RuntimeHttpServer {
       return this.handleLiveVoiceUpgrade(req, server);
     }
 
+    if (isTwilioWebhookRequest(req, path)) {
+      const migrationResponse = dbMigrationUnavailableResponse();
+      if (migrationResponse) return migrationResponse;
+    }
+
     // Twilio webhook endpoints — before auth check because Twilio
     // webhook POSTs don't include bearer tokens.
     const twilioResponse = await this.handleTwilioWebhook(req, path);
@@ -644,6 +681,9 @@ export class RuntimeHttpServer {
     // Serve shareable app pages (outside /v1/ namespace, no rate limiting)
     const pagesMatch = path.match(/^\/pages\/([^/]+)$/);
     if (pagesMatch && req.method === "GET") {
+      const migrationResponse = dbMigrationUnavailableResponse();
+      if (migrationResponse) return migrationResponse;
+
       return withErrorHandling("pages", async () => {
         const pageDef = APP_ROUTES.find(
           (r) => r.operationId === "pages_serve",
@@ -672,6 +712,8 @@ export class RuntimeHttpServer {
     // caller includes one (e.g. platform proxy paths use Django's trailing-
     // slash convention, so the gateway may forward paths with a trailing /).
     const endpoint = path.slice("/v1/".length).replace(/\/$/, "");
+    const migrationResponse = dbMigrationUnavailableForEndpoint(endpoint);
+    if (migrationResponse) return migrationResponse;
 
     if (!isHttpAuthDisabled()) {
       const clientIp = extractClientIp(req, server);

@@ -109,12 +109,15 @@ export async function wake(): Promise<void> {
   const pidFile = getDaemonPidPath(resources);
 
   let daemonRunning = false;
+  let daemonUnready = false;
   const daemonState = await resolveProcessState(
     pidFile,
     resources.daemonPort,
     "Assistant",
+    60_000,
+    "readyz",
   );
-  if (daemonState.status === "healthy") {
+  if (daemonState.status === "healthy" || daemonState.status === "unready") {
     if (watch && isAssistantWatchModeAvailable()) {
       console.log(
         `Assistant running (pid ${daemonState.pid}) — restarting in watch mode...`,
@@ -122,9 +125,14 @@ export async function wake(): Promise<void> {
       await stopProcessByPidFile(pidFile, "assistant");
     } else {
       daemonRunning = true;
+      daemonUnready = daemonState.status === "unready";
       if (watch) {
         console.log(
           `Assistant running (pid ${daemonState.pid}) — watch mode not available (no source files). Keeping existing process.`,
+        );
+      } else if (daemonUnready) {
+        console.log(
+          `Assistant running (pid ${daemonState.pid}) but not ready yet.`,
         );
       } else {
         console.log(`Assistant already running (pid ${daemonState.pid}).`);
@@ -256,7 +264,11 @@ export async function wake(): Promise<void> {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         await resetGuardianBootstrap(loopbackUrl, bootstrapSecret);
-        await leaseGuardianToken(loopbackUrl, entry.assistantId, bootstrapSecret);
+        await leaseGuardianToken(
+          loopbackUrl,
+          entry.assistantId,
+          bootstrapSecret,
+        );
         console.log("   Re-provisioned guardian token.");
         break;
       } catch (err) {
@@ -282,6 +294,11 @@ export async function wake(): Promise<void> {
     writeFileSync(ngrokPidFile, String(ngrokChild.pid));
   }
 
+  if (daemonUnready) {
+    console.log(
+      "Assistant is still starting; DB-backed routes may return 503.",
+    );
+  }
   console.log("Wake complete.");
 
   if (foreground) {

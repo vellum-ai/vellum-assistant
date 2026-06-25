@@ -10,6 +10,7 @@ import { z } from "zod";
 import { getCpuLimit, getIsPlatform } from "../../config/env-registry.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getProfilerRuntimeStatus } from "../../daemon/profiler-run-store.js";
+import { getDbMigrationReadiness } from "../../memory/db-readiness.js";
 import { getMaxRollbackVersion } from "../../memory/migrations/run-migrations.js";
 import { migrationSteps } from "../../memory/steps.js";
 import { getCesClient } from "../../security/secure-keys.js";
@@ -354,7 +355,25 @@ export function handleDetailedHealth(): Response {
   return Response.json(getDetailedHealth());
 }
 
+export function dbMigrationUnavailableResponse(): Response | null {
+  const dbMigrations = getDbMigrationReadiness();
+  if (dbMigrations.ready) return null;
+
+  return Response.json(
+    {
+      status: dbMigrations.state === "failed" ? "error" : "starting",
+      ready: false,
+      reason: dbMigrations.reason,
+      dbMigrations,
+    },
+    { status: 503 },
+  );
+}
+
 export function handleReadyz(): Response {
+  const dbMigrationResponse = dbMigrationUnavailableResponse();
+  if (dbMigrationResponse) return dbMigrationResponse;
+
   const cesClient = getCesClient();
   if (!cesClient?.isReady()) {
     // TODO: Return 503 once we confirm via logs that this won't cause
@@ -364,7 +383,7 @@ export function handleReadyz(): Response {
       "CES not ready — pod would be unready if 503 were enabled",
     );
   }
-  return Response.json({ status: "ok" });
+  return Response.json({ status: "ok", ready: true });
 }
 
 function getIdentity() {

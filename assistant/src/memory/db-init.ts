@@ -8,7 +8,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
+import { findBun } from "../util/bun-runtime.js";
 import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getMemoryDbPath } from "../util/memory-db-path.js";
@@ -208,7 +210,17 @@ export async function checkpointWalBeforeOpen(): Promise<void> {
 
 // ---------------------------------------------------------------------------
 
-export async function initializeDb(): Promise<void> {
+interface InitializeDbOptions {
+  failOnMigrationErrors?: boolean;
+}
+
+function isVirtualBunfsPath(path: string): boolean {
+  return path === "/$bunfs" || path.startsWith("/$bunfs/");
+}
+
+export async function initializeDb(
+  options: InitializeDbOptions = {},
+): Promise<void> {
   if (process.env.BUN_TEST === "1" && tryRestoreTemplate()) {
     return;
   }
@@ -251,6 +263,14 @@ export async function initializeDb(): Promise<void> {
       { failedMigrations: failed, count: failed.length },
       `DB initialization completed with ${failed.length} failed migration(s)`,
     );
+    if (options.failOnMigrationErrors) {
+      throw new Error(
+        [
+          `DB initialization failed: ${failed.length} migration step(s) failed`,
+          failed.join(", "),
+        ].join(": "),
+      );
+    }
   }
 
   try {
@@ -261,5 +281,41 @@ export async function initializeDb(): Promise<void> {
 
   if (process.env.BUN_TEST === "1") {
     saveTemplate();
+  }
+}
+
+export async function startInitializeDbWorker(): Promise<void> {
+  if (process.env.BUN_TEST === "1" || process.env.NODE_ENV === "test") {
+    await initializeDb();
+    return;
+  }
+
+  const log = getLogger("db-init");
+  const bunPath = findBun() ?? "bun";
+  const workerPath = fileURLToPath(
+    new URL("./db-init-worker.ts", import.meta.url),
+  );
+  const cmd = isVirtualBunfsPath(workerPath)
+    ? [process.execPath, "--db-init-worker"]
+    : [bunPath, "run", workerPath];
+
+  let proc: ReturnType<typeof Bun.spawn>;
+  try {
+    proc = Bun.spawn({
+      cmd,
+      stdout: "inherit",
+      stderr: "inherit",
+      cwd: process.cwd(),
+    });
+  } catch (err) {
+    log.error({ err, cmd }, "Failed to spawn DB initialization worker");
+    throw err;
+  }
+
+  log.info({ pid: proc.pid }, "DB initialization worker started");
+
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) {
+    throw new Error(`DB initialization worker exited with code ${exitCode}`);
   }
 }

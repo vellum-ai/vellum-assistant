@@ -23,6 +23,11 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import {
+  markDbMigrationsFailed,
+  markDbMigrationsReady,
+  markDbMigrationsRunning,
+} from "../memory/db-readiness.js";
+import {
   handleDetailedHealth,
   handleReadyz,
   ROUTES,
@@ -132,6 +137,7 @@ beforeEach(() => {
   rmSync(getHatchedSidecarPath(), { force: true });
   rmSync(join(getWorkspaceDir(), "IDENTITY.md"), { force: true });
   rmSync(join(getWorkspaceDir(), "SOUL.md"), { force: true });
+  markDbMigrationsReady();
 });
 
 afterEach(() => {
@@ -194,6 +200,26 @@ describe("identity routes — health endpoint", () => {
   describe("CES readiness", () => {
     beforeEach(() => {
       setCesClient(undefined);
+    });
+
+    test("readyz returns 503 while DB migrations are running", async () => {
+      markDbMigrationsRunning();
+      const res = handleReadyz();
+      expect(res.status).toBe(503);
+
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.ready).toBe(false);
+      expect(body.reason).toBe("db_migrations_running");
+    });
+
+    test("readyz returns 503 when DB migrations fail", async () => {
+      markDbMigrationsFailed(new Error("migration failed"));
+      const res = handleReadyz();
+      expect(res.status).toBe(503);
+
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.ready).toBe(false);
+      expect(body.reason).toBe("db_migrations_failed");
     });
 
     test("readyz returns 200 and logs warning when CES is unavailable", () => {
