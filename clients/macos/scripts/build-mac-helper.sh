@@ -4,13 +4,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PACKAGE_DIR="$ROOT_DIR/native/mac-helper"
 OUTPUT_DIR="$ROOT_DIR/resources"
-# $OUTPUT_BUNDLE (the .app folder) is set after the env block below: its name is
-# per-environment, since macOS System Settings → Privacy & Security renders the
-# .app folder name (not CFBundleName/CFBundleDisplayName, and not the executable
-# filename) when listing this helper's grants — leaving the folder as
-# `vellum-mac-helper.app` would keep the old label visible even after #36120
-# renamed the binary. CFBundleExecutable must still match the on-disk filename or
-# codesign rejects the bundle.
+# $OUTPUT_BUNDLE (the .app folder) is set after the env block below. macOS
+# System Settings → Privacy & Security renders the .app folder name — not
+# CFBundleName/CFBundleDisplayName, and not the executable filename — when
+# listing this helper's grants, so the folder is named per-environment.
+# CFBundleExecutable must still match the on-disk filename or codesign
+# rejects the bundle.
 TEMPLATE_PLIST="$PACKAGE_DIR/Sources/MacHelperExecutable/Info.plist"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -46,14 +45,12 @@ else
   HELPER_DISPLAY_NAME="Vellum Helper ${ENV_CAP}"
 fi
 
-# Name the .app folder AND the executable per environment. The helper is spawned
-# directly (execve, not via LaunchServices); the Privacy & Security list shows
-# the .app folder name, not CFBundleName/CFBundleDisplayName or the executable
-# filename. Renaming just the executable (as #36120 did) leaves the Settings
-# pane reading "vellum-mac-helper" because the parent .app folder is unchanged
-# — the displayed label is the folder name minus ".app". Naming both the folder
-# and the binary after the env display name ("Vellum Helper", "Vellum Helper
-# Dev", …) is what makes the Settings entry read correctly.
+# Name the .app folder AND the executable per environment. The helper is
+# spawned directly (execve, not via LaunchServices); the Privacy & Security
+# list shows the .app folder name, not CFBundleName/CFBundleDisplayName or
+# the executable filename. Naming both the folder and the binary after the
+# env display name ("Vellum Helper", "Vellum Helper Dev", …) is what makes
+# the Settings entry read correctly.
 HELPER_BUNDLE_NAME="$HELPER_DISPLAY_NAME"
 HELPER_EXEC_NAME="$HELPER_DISPLAY_NAME"
 OUTPUT_BUNDLE="$OUTPUT_DIR/$HELPER_BUNDLE_NAME.app"
@@ -87,11 +84,10 @@ BUILD_ARGS+=(
   -Xlinker "$RENDERED_PLIST"
 )
 
-# Legacy layouts (bare binary / old name) — always clear. Also remove the old
-# .app folder so users upgrading don't keep an orphan bundle on disk (its TCC
-# grant stays in Settings until manually toggled off — that's expected; the
-# orphan row will persist across upgrades and the only way to remove it is
-# `tccutil reset Accessibility`).
+# Legacy layouts (bare binary / old name) — always clear. The .app folder is
+# removed so users upgrading don't keep an orphan bundle on disk; the
+# corresponding TCC row in Settings persists until manually toggled off (or
+# `tccutil reset Accessibility ai.vellum.assistant.mac-helper`).
 rm -f "$OUTPUT_DIR/hotkey-helper" "$OUTPUT_DIR/vellum-mac-helper" "$OUTPUT_DIR/Info.plist"
 rm -rf "$OUTPUT_DIR/vellum-mac-helper.app"
 xcrun swift build "${BUILD_ARGS[@]}"

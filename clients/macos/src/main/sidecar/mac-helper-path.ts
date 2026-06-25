@@ -4,17 +4,16 @@
  * and the host-proxy computer-use executors) so the path logic lives in one
  * place.
  *
- * Why the sidecar: macOS System Settings → Privacy & Security renders the
- * .app folder name (not CFBundleName/CFBundleDisplayName, and not the binary
- * filename) when listing the helper's grants. PR #36120 renamed the
- * executable per env, but kept the .app folder as `vellum-mac-helper.app`,
- * which left the Accessibility entry reading "vellum-mac-helper". The build
- * script now names both the folder AND the binary per env, and writes a
- * sidecar at `<bin>/.vellum-mac-helper.bundle-name` so the runtime can
- * resolve the new folder name without duplicating the env→name mapping in
- * TS. Falls back to the legacy `vellum-mac-helper.app` folder name (and to
- * discovering the bundle by walking the bin directory) when the sidecar is
- * absent — so existing installs that haven't rebuilt yet still work.
+ * The helper bundle's folder name is per-environment (e.g. "Vellum Helper",
+ * "Vellum Helper Dev"). macOS System Settings → Privacy & Security renders
+ * the .app folder name — not CFBundleName/CFBundleDisplayName, and not the
+ * binary's filename — when listing the helper's grants, so the runtime
+ * resolves the folder from the sidecar that build-mac-helper.sh writes
+ * alongside the bundle (`.vellum-mac-helper.bundle-name`).
+ *
+ * When the sidecar is absent, discovery walks `<bin>/` for any `.app` folder
+ * whose Info.plist matches the expected CFBundleExecutable, then falls back
+ * to `vellum-mac-helper.app`.
  */
 
 import { app } from "electron";
@@ -74,11 +73,10 @@ const resolveHelperBundleName = (binDir: string): string => {
   const sidecar = readSidecarBundleName(binDir);
   if (sidecar) return sidecar;
 
-  // Legacy installs (build before this PR) have `bin/vellum-mac-helper.app`
-  // with an Info.plist whose CFBundleExecutable is the new per-env name.
-  // Walk the bin directory to discover the actual folder name. If there's no
-  // .app folder at all, the consumer will surface "mac helper is not
-  // available" via the existing missing-bundle guard.
+  // No sidecar: enumerate `<bin>/` for an `.app` folder whose
+  // CFBundleExecutable matches the expected name. When there's no `.app`
+  // folder at all, the consumer surfaces "mac helper is not available" via
+  // its existing missing-bundle guard.
   const discovered = resolveHelperBundleNameFromExecutable(
     binDir,
     DEFAULT_HELPER_EXECUTABLE,
