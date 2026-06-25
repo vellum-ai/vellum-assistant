@@ -24,15 +24,21 @@ mock.module("../util/logger.js", () => ({
 
 import { and, desc, eq } from "drizzle-orm";
 
+import type { ChannelId } from "../channels/types.js";
 import { findContactChannel } from "../contacts/contact-store.js";
 import {
   revokeMember,
   upsertContactChannel,
 } from "../contacts/contacts-write.js";
+import type { ChannelStatus } from "../contacts/types.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { contactChannels, contacts } from "../memory/schema.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
+import {
+  __resetMemberVerdictCacheForTest,
+  setMemberVerdict,
+} from "../runtime/member-verdict-cache.js";
 import {
   createOutboundSession,
   validateAndConsumeVerification,
@@ -51,6 +57,26 @@ function resetTables(): void {
   db.run("DELETE FROM channel_guardian_rate_limits");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
+}
+
+// Mirror a warmed gateway verdict so the sync resolveActorTrust fallback
+// resolves the member with the given status; the local ACL columns are no
+// longer read.
+function warmMemberVerdict(
+  channelType: ChannelId,
+  address: string,
+  status: ChannelStatus = "unverified",
+): void {
+  const found = findContactChannel({ channelType, address });
+  if (!found) return;
+  setMemberVerdict(channelType, address, {
+    trustClass: "unknown",
+    canonicalSenderId: address,
+    contactId: found.contact.id,
+    channelId: found.channel.id,
+    status,
+    policy: "allow",
+  });
 }
 
 /**
@@ -82,6 +108,7 @@ function localGuardianForChannel(channelType: string) {
 describe("trusted contact verification → member activation", () => {
   beforeEach(() => {
     resetTables();
+    __resetMemberVerdictCacheForTest();
   });
 
   test("successful verification creates active member with allow policy", () => {
@@ -142,6 +169,7 @@ describe("trusted contact verification → member activation", () => {
       displayName: "Jeff",
       username: "jeff_handle",
     });
+    warmMemberVerdict("telegram", "requester-user-jeff");
 
     const trust = resolveActorTrust({
       assistantId: "self",
@@ -170,6 +198,7 @@ describe("trusted contact verification → member activation", () => {
       displayName: "Jeff",
       username: "jeff_handle",
     });
+    warmMemberVerdict("telegram", "requester-user-jeff-priority");
 
     const trust = resolveActorTrust({
       assistantId: "self",
