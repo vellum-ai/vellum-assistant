@@ -8,6 +8,7 @@ import {
 import {
   captureImageRefs,
   GATEWAY_INTERNAL_PORT,
+  ASSISTANT_INTERNAL_PORT,
   dockerResourceNames,
   startContainers,
   stopContainers,
@@ -324,6 +325,9 @@ export async function rollback(): Promise<void> {
       // use default
     }
 
+    // Recover the assistant host port from the entry, fall back to default.
+    const assistantPort = entry.containerInfo?.assistantPort ?? ASSISTANT_INTERNAL_PORT;
+
     // Notify connected clients that a rollback is about to begin (best-effort)
     console.log("📢 Notifying connected clients...");
     await broadcastUpgradeEvent(
@@ -373,6 +377,7 @@ export async function rollback(): Promise<void> {
         extraAssistantEnv,
         extraGatewayEnv,
         gatewayPort,
+        assistantPort,
         imageTags: previousImageRefs,
         instanceName,
         res,

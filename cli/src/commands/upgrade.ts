@@ -14,6 +14,7 @@ import {
 import {
   captureImageRefs,
   GATEWAY_INTERNAL_PORT,
+  ASSISTANT_INTERNAL_PORT,
   dockerResourceNames,
   startContainers,
   stopContainers,
@@ -432,6 +433,9 @@ async function upgradeDocker(
     // use default
   }
 
+  // Recover the assistant host port from the entry, fall back to default.
+  const assistantPort = entry.containerInfo?.assistantPort ?? ASSISTANT_INTERNAL_PORT;
+
   // Create pre-upgrade backup (best-effort, daemon must be running)
   await broadcastUpgradeEvent(
     entry.runtimeUrl,
@@ -483,6 +487,7 @@ async function upgradeDocker(
       extraAssistantEnv,
       extraGatewayEnv,
       gatewayPort,
+      assistantPort,
       imageTags,
       instanceName,
       res,
@@ -589,6 +594,7 @@ async function upgradeDocker(
             extraAssistantEnv,
             extraGatewayEnv,
             gatewayPort,
+            assistantPort,
             imageTags: previousImageRefs,
             instanceName,
             res,
