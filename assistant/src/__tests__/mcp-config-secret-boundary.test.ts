@@ -137,6 +137,33 @@ describe("MCP config secret boundary", () => {
     });
   });
 
+  test("config_get omits headers inside malformed MCP server trees", () => {
+    rawConfig = {
+      mcp: {
+        servers: [
+          {
+            transport: {
+              headers: { Authorization: "Bearer malformed-secret" },
+            },
+          },
+        ],
+      },
+    };
+
+    const result = configGetRoute.handler({}) as Record<string, unknown>;
+
+    expect(JSON.stringify(result)).not.toContain("malformed-secret");
+    expect(result).toEqual({
+      mcp: {
+        servers: [
+          {
+            transport: {},
+          },
+        ],
+      },
+    });
+  });
+
   test("config_patch rejects MCP transport headers so generic writes cannot reintroduce plaintext credentials", async () => {
     await expect(
       configPatchRoute.handler({
@@ -152,6 +179,24 @@ describe("MCP config secret boundary", () => {
               },
             },
           },
+        },
+      }),
+    ).rejects.toThrow(BadRequestError);
+    expect(savedRawConfig).toBeNull();
+  });
+
+  test("config_set rejects malformed MCP server trees containing headers", async () => {
+    await expect(
+      configSetRoute.handler({
+        body: {
+          path: "mcp.servers",
+          value: [
+            {
+              transport: {
+                headers: { Authorization: "Bearer malformed-secret" },
+              },
+            },
+          ],
         },
       }),
     ).rejects.toThrow(BadRequestError);

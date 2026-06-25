@@ -486,32 +486,48 @@ function readPlainObject(value: unknown): Record<string, unknown> | undefined {
   return value as Record<string, unknown>;
 }
 
+function stripHeadersRecursively(value: unknown): void {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      stripHeadersRecursively(item);
+    }
+    return;
+  }
+
+  const object = readPlainObject(value);
+  if (!object) return;
+  delete object.headers;
+  for (const child of Object.values(object)) {
+    stripHeadersRecursively(child);
+  }
+}
+
+function containsHeadersRecursively(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some((item) => containsHeadersRecursively(item));
+  }
+
+  const object = readPlainObject(value);
+  if (!object) return false;
+  if (Object.hasOwn(object, "headers")) return true;
+  return Object.values(object).some((child) =>
+    containsHeadersRecursively(child),
+  );
+}
+
 function sanitizeMcpTransportHeadersForSettingsRead(config: unknown): void {
   const root = readPlainObject(config);
   if (!root) return;
   const mcp = readPlainObject(root.mcp);
-  const servers = readPlainObject(mcp?.servers);
-  if (!servers) return;
-
-  for (const server of Object.values(servers)) {
-    const serverConfig = readPlainObject(server);
-    const transport = readPlainObject(serverConfig?.transport);
-    if (!transport) continue;
-    delete transport.headers;
-  }
+  if (!mcp || !Object.hasOwn(mcp, "servers")) return;
+  stripHeadersRecursively(mcp.servers);
 }
 
 function patchContainsMcpTransportHeaders(patch: unknown): boolean {
   const root = readPlainObject(patch);
   const mcp = readPlainObject(root?.mcp);
-  const servers = readPlainObject(mcp?.servers);
-  if (!servers) return false;
-
-  return Object.values(servers).some((server) => {
-    const serverConfig = readPlainObject(server);
-    const transport = readPlainObject(serverConfig?.transport);
-    return transport ? Object.hasOwn(transport, "headers") : false;
-  });
+  if (!mcp || !Object.hasOwn(mcp, "servers")) return false;
+  return containsHeadersRecursively(mcp.servers);
 }
 
 function rejectMcpTransportHeaderWrite(patch: unknown): void {
