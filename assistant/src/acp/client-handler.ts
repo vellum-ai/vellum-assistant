@@ -63,6 +63,17 @@ export class VellumAcpClientHandler implements Client {
     return this.accumulatedText;
   }
 
+  /**
+   * Advances the seq counter to at least `maxSeq` so updates forwarded by a
+   * handler created for a resumed session continue strictly increasing past
+   * any seq already persisted. Ignores non-finite or smaller values.
+   */
+  seedSeq(maxSeq: number): void {
+    if (Number.isFinite(maxSeq) && maxSeq > this.lastSeq) {
+      this.lastSeq = maxSeq;
+    }
+  }
+
   constructor(
     private readonly acpSessionId: string,
     private readonly sendToVellum: (msg: ServerMessage) => void,

@@ -152,6 +152,51 @@ describe("VellumAcpClientHandler seq + enriched fields", () => {
     expect(sent.map((m) => (m as { seq: number }).seq)).toEqual([1, 2, 3]);
   });
 
+  test("seedSeq continues seq past the persisted max after resume", async () => {
+    const { handler, sent } = makeHandler();
+
+    // Simulate resume: a fresh handler re-seeded from a persisted log whose
+    // updates carried seq up to 5.
+    handler.seedSeq(5);
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "live after resume" },
+      },
+    });
+
+    // The first live update must continue at 6 (N + 1), not reset to 1, so
+    // the web client's highWaterMark de-dupe doesn't drop it.
+    expect((sent[0] as { seq: number }).seq).toBe(6);
+  });
+
+  test("seedSeq ignores smaller or non-finite values", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "a" },
+      },
+    });
+    // Already at seq 1; a smaller/NaN seed must not regress the counter.
+    handler.seedSeq(0);
+    handler.seedSeq(Number.NaN);
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "b" },
+      },
+    });
+
+    expect(sent.map((m) => (m as { seq: number }).seq)).toEqual([1, 2]);
+  });
+
   test("forwards ContentChunk messageId on message chunks", async () => {
     const { handler, sent } = makeHandler();
 

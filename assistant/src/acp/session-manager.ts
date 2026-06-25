@@ -480,12 +480,18 @@ export class AcpSessionManager {
 
     // Re-seed the ring buffer from the persisted event log, routed through
     // appendToBuffer so the count/byte caps still apply. The terminal
-    // upsert then persists the merged (old + new) log.
+    // upsert then persists the merged (old + new) log. Track the highest
+    // persisted seq and advance the fresh handler's counter to it so live
+    // updates after resume continue strictly increasing instead of resetting
+    // to 1 (which the web client would drop as seq <= highWaterMark).
+    let maxSeq = 0;
     try {
       const persisted = JSON.parse(row.eventLogJson) as unknown;
       if (Array.isArray(persisted)) {
         for (const update of persisted) {
           this.appendToBuffer(acpSessionId, update as AcpSessionUpdate);
+          const seq = (update as AcpSessionUpdate)?.seq;
+          if (typeof seq === "number" && seq > maxSeq) maxSeq = seq;
         }
       }
     } catch (err) {
@@ -494,6 +500,8 @@ export class AcpSessionManager {
         "Failed to re-seed ACP event buffer from persisted history",
       );
     }
+    // Seed before the child process spawns so no live update can fire first.
+    entry.clientHandler.seedSeq(maxSeq);
 
     try {
       log.info(
