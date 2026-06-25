@@ -220,9 +220,40 @@ async function collectRoutesFromModules(): Promise<RouteEntry[]> {
  * Top-level routes outside the /v1/ namespace.
  * These are added to the spec separately.
  */
-const NON_V1_ROUTES: Array<{ method: string; path: string }> = [
+const NON_V1_ROUTES: Array<{
+  method: string;
+  path: string;
+  summary?: string;
+  description?: string;
+  responseBody?: unknown;
+  additionalResponses?: Record<
+    string,
+    { description: string; schema?: unknown }
+  >;
+}> = [
   { method: "GET", path: "/healthz" },
-  { method: "GET", path: "/readyz" },
+  {
+    method: "GET",
+    path: "/readyz",
+    summary: "Readiness probe",
+    description:
+      "Returns 200 once critical startup is complete (HTTP bound, DB initialized, daemon started). Returns 503 while startup is still in progress. CES is a soft dependency and does not gate readiness.",
+    responseBody: {
+      type: "object",
+      properties: { status: { type: "string", enum: ["ok"] } },
+      required: ["status"],
+    },
+    additionalResponses: {
+      "503": {
+        description: "Runtime is still starting up and not yet ready.",
+        schema: {
+          type: "object",
+          properties: { status: { type: "string", enum: ["starting"] } },
+          required: ["status"],
+        },
+      },
+    },
+  },
   { method: "GET", path: "/pages/{id}" },
 ];
 
@@ -322,7 +353,16 @@ function buildSpec(
         path: r.path,
         method: r.method,
         endpoint: r.path,
-        entry: { method: r.method, endpoint: r.path },
+        entry: {
+          method: r.method,
+          endpoint: r.path,
+          ...(r.summary ? { summary: r.summary } : {}),
+          ...(r.description ? { description: r.description } : {}),
+          ...(r.responseBody ? { responseBody: r.responseBody } : {}),
+          ...(r.additionalResponses
+            ? { additionalResponses: r.additionalResponses }
+            : {}),
+        },
       });
     }
   }

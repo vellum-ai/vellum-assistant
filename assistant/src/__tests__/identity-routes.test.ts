@@ -39,9 +39,7 @@ mock.module("../runtime/ready-state.js", () => ({
 }));
 
 import {
-  __resetReadyzCesStateForTest,
   handleDetailedHealth,
-  handleReadyz,
   ROUTES,
 } from "../runtime/routes/identity-routes.js";
 import { setCesClient } from "../security/secure-keys.js";
@@ -209,12 +207,19 @@ describe("identity routes — health endpoint", () => {
   });
 
   describe("readyz — runtime readiness gating", () => {
-    beforeEach(() => {
+    // The CES soft-dependency warning is a process-global one-way latch
+    // (`cesWarned`) inside identity-routes, so a fresh module instance is
+    // imported per test to start each case from an un-latched state without a
+    // production reset export.
+    let handleReadyz: () => Response;
+
+    beforeEach(async () => {
       setCesClient(undefined);
       runtimeReadyFlag = true;
-      // Reset the transition-tracking state so each case's first not-ready
-      // observation registers as a transition and warns once.
-      __resetReadyzCesStateForTest();
+      const mod = await import(
+        `../runtime/routes/identity-routes.js?fresh=${Math.random()}`
+      );
+      handleReadyz = mod.handleReadyz as () => Response;
       healthWarn.mockClear();
     });
 
@@ -248,11 +253,11 @@ describe("identity routes — health endpoint", () => {
       } as unknown as import("../credential-execution/client.js").CesClient;
       setCesClient(mockClient);
 
-      // First not-ready observation is a transition → warns once.
+      // First not-ready observation latches → warns once.
       expect(handleReadyz().status).toBe(200);
       expect(healthWarn).toHaveBeenCalledTimes(1);
 
-      // Second consecutive not-ready observation is steady-state → no new warn.
+      // Second not-ready observation is already latched → no new warn.
       expect(handleReadyz().status).toBe(200);
       expect(healthWarn).toHaveBeenCalledTimes(1);
     });
