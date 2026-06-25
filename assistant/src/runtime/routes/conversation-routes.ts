@@ -393,6 +393,8 @@ function buildSlackHistoryMessage(
       : {}),
     ...(messageLink ? { messageLink } : {}),
     ...(threadLink ? { threadLink } : {}),
+    ...(slackMeta.eventKind ? { eventKind: slackMeta.eventKind } : {}),
+    ...(slackMeta.reaction ? { reaction: slackMeta.reaction } : {}),
   };
 }
 

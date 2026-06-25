@@ -588,7 +588,7 @@ export function ContactsPage({
           displayName: guardian.displayName.startsWith("vellum-principal-")
             ? ""
             : guardian.displayName,
-          role: guardian.role,
+          role: guardian.role ?? "guardian",
           channelTypes: channelTypeLabels(guardian.channels, a2aChannel),
         }
       : null,
@@ -597,7 +597,7 @@ export function ContactsPage({
       .map((c) => ({
         id: c.id,
         displayName: c.displayName,
-        role: c.role,
+        role: c.role ?? "",
         contactType: c.contactType,
         channelTypes: channelTypeLabels(c.channels, a2aChannel),
       })),
