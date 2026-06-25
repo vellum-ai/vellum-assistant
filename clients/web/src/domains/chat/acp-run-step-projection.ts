@@ -127,7 +127,8 @@ export function applyAcpEvent(
         title: event.toolTitle ?? "",
         toolKind: event.toolKind,
         status: "running",
-        outputChunks: [],
+        // Content (if carried) is the initial snapshot, same as tool_call_update.
+        outputChunks: event.content !== undefined ? [event.content] : [],
         detailKey: `tool:${toolCallId}`,
       });
       return;
@@ -141,10 +142,11 @@ export function applyAcpEvent(
       );
       if (index === -1) return;
       const target = steps[index] as Extract<AcpTimelineStep, { kind: "tool" }>;
+      // ACP `ToolCallUpdate.content` REPLACES the tool's content collection: the
+      // daemon forwards each update as the full current snapshot, not a delta.
+      // Hold the latest snapshot as the sole element so `.join("")` still works.
       const outputChunks =
-        event.content !== undefined
-          ? [...target.outputChunks, event.content]
-          : target.outputChunks;
+        event.content !== undefined ? [event.content] : target.outputChunks;
       steps[index] = {
         ...target,
         title: event.toolTitle ?? target.title,
@@ -210,6 +212,8 @@ export function applyAcpEvent(
         detailKey: "plan",
       };
       if (index === -1) {
+        // First plan step is a later timeline step; close any live message.
+        closeTrailingMessage(steps);
         steps.push(planStep);
       } else {
         steps[index] = planStep;

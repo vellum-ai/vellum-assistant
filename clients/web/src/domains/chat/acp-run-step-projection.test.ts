@@ -63,7 +63,7 @@ describe("computeAcpRunSteps — folding rules", () => {
     expect(tool.detailKey).toBe("tool:t1");
   });
 
-  test("tool_call_update correlates by toolCallId: accumulates output + status", () => {
+  test("tool_call_update correlates by toolCallId: replaces output + status", () => {
     const steps = computeAcpRunSteps([
       event({ updateType: "tool_call", toolCallId: "t1", toolTitle: "Run" }),
       event({ updateType: "tool_call_update", toolCallId: "t1", content: "out-a" }),
@@ -72,8 +72,38 @@ describe("computeAcpRunSteps — folding rules", () => {
     ]);
     expect(steps).toHaveLength(1);
     const tool = toolStep(steps[0]!);
-    expect(tool.outputChunks).toEqual(["out-a", "out-b"]);
+    // Each update carries the full snapshot; the latest replaces prior ones.
+    expect(tool.outputChunks).toEqual(["out-b"]);
     expect(tool.status).toBe("completed");
+  });
+
+  test("tool_call_update content replaces (latest snapshot), not appends", () => {
+    const steps = computeAcpRunSteps([
+      event({ updateType: "tool_call", toolCallId: "t1", toolTitle: "Run" }),
+      event({ updateType: "tool_call_update", toolCallId: "t1", content: "[A]" }),
+      event({ updateType: "tool_call_update", toolCallId: "t1", content: "[A, B]" }),
+    ]);
+    const tool = toolStep(steps[0]!);
+    expect(tool.outputChunks.join("")).toBe("[A, B]");
+  });
+
+  test("tool_call_update without content leaves the prior snapshot intact", () => {
+    const steps = computeAcpRunSteps([
+      event({ updateType: "tool_call", toolCallId: "t1" }),
+      event({ updateType: "tool_call_update", toolCallId: "t1", content: "[A]" }),
+      event({ updateType: "tool_call_update", toolCallId: "t1", toolStatus: "complete" }),
+    ]);
+    const tool = toolStep(steps[0]!);
+    expect(tool.outputChunks).toEqual(["[A]"]);
+    expect(tool.status).toBe("completed");
+  });
+
+  test("tool_call carrying initial content seeds it as the first snapshot", () => {
+    const steps = computeAcpRunSteps([
+      event({ updateType: "tool_call", toolCallId: "t1", content: "[A]" }),
+      event({ updateType: "tool_call_update", toolCallId: "t1", content: "[A, B]" }),
+    ]);
+    expect(toolStep(steps[0]!).outputChunks).toEqual(["[A, B]"]);
   });
 
   test("tool_call_update maps failed/error to error status", () => {
@@ -184,6 +214,18 @@ describe("computeAcpRunSteps — folding rules", () => {
     const plans = steps.filter((s) => s.kind === "plan");
     expect(plans).toHaveLength(1);
     expect(planStep(plans[0]!).entries).toEqual([{ label: "Only", checked: true }]);
+  });
+
+  test("plan after a message closes the trailing message step", () => {
+    const steps = computeAcpRunSteps([
+      event({ updateType: "agent_message_chunk", messageId: "m1", content: "hi" }),
+      event({
+        updateType: "plan",
+        content: JSON.stringify([{ label: "Step 1", checked: false }]),
+      }),
+    ]);
+    expect(steps.map((s) => s.kind)).toEqual(["message", "plan"]);
+    expect(messageStep(steps[0]!).isComplete).toBe(true);
   });
 
   test("plan tolerates entries wrapped in an object", () => {
