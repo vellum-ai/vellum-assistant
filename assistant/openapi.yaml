@@ -29653,12 +29653,6 @@ components:
                 - $ref: "#/components/schemas/ProfileStatus"
                 - type: "null"
             - type: "null"
-        advisorEnabled:
-          anyOf:
-            - anyOf:
-                - type: boolean
-                - type: "null"
-            - type: "null"
         mix:
           anyOf:
             - minItems: 2
@@ -30385,10 +30379,6 @@ components:
         status:
           anyOf:
             - $ref: "#/components/schemas/ProfileStatus"
-            - type: "null"
-        advisorEnabled:
-          anyOf:
-            - type: boolean
             - type: "null"
         mix:
           minItems: 2

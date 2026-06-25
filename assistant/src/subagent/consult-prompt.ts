@@ -1,47 +1,18 @@
 /**
- * Prompt fragments for the advisor plugin:
- *  - `appendSteering` / `stripSteering` — the executor-facing steering block the
- *    `pre-model-call` hook injects so the model reaches for the advisor tool at
- *    the right times.
- *  - `buildAdvisorSystem` / `advisorRequestText` — the advisor-facing framing for
- *    the consult itself.
+ * Advice-framing prompt fragments for the advisor consult:
+ *  - `buildAdvisorSystem` — the advisor-facing system prompt; frames the role and,
+ *    for context, embeds the executor's own system prompt.
+ *  - `advisorRequestText` — the final user turn appended to the transcript asking
+ *    for guidance.
  */
-
-/** Idempotency marker; the steering block is appended at the end of the prompt. */
-export const STEERING_MARKER = "<!-- advisor:steering -->";
-
-const STEERING_BODY = `You have an \`advisor\` tool backed by a stronger reviewer model. It takes NO parameters — calling it forwards your entire conversation automatically (the task, every tool call, every result). Call advisor BEFORE you start building or implementing: once you understand what's being asked, consult it to shape the plan — it can lay out the plan when you don't have one yet, or pressure-test and sharpen a plan you've already drafted. Orient yourself first (read the relevant files, understand the task), then call advisor before you commit to an approach and start producing work. Also call it when you get stuck, when you're weighing a change in direction, and once before you declare the task done. Give its guidance serious weight; only override it when primary-source evidence contradicts a specific claim, and say so when you do.`;
-
-const ADVISOR_STEERING = `${STEERING_MARKER}\n${STEERING_BODY}`;
-
-/** Append the steering block to the executor's system prompt (idempotent). */
-export function appendSteering(systemPrompt: string | null): string | null {
-  if (systemPrompt === null) return null;
-  if (systemPrompt.includes(STEERING_MARKER)) return systemPrompt;
-  return `${systemPrompt}\n\n${ADVISOR_STEERING}`;
-}
-
-/** Remove a previously-appended steering block, recovering the original prompt. */
-export function stripSteering(systemPrompt: string | null): string | null {
-  if (systemPrompt === null) return null;
-  const idx = systemPrompt.indexOf(STEERING_MARKER);
-  if (idx === -1) return systemPrompt;
-  return systemPrompt.slice(0, idx).trimEnd();
-}
 
 /**
  * System prompt for the advisor sub-call. Frames the advisor's role and, for
  * context, quotes the executor's own system prompt (as the advisor tool does —
  * the advisor sees the system prompt as context about the executor's task).
- *
- * `runtimeContext`, when present, carries the agent's situational context that
- * lives outside its system prompt — available tools and skills, workspace /
- * project context, and recalled memory (see `buildAdvisorContext`) — so the
- * advisor can ground its recommendations in what the agent can actually do.
  */
 export function buildAdvisorSystem(
   originalSystemPrompt: string | null,
-  runtimeContext?: string | null,
 ): string {
   const base = `You are a senior advisor consulted by another AI agent working on a task — most often at the planning stage, before it starts building, but sometimes partway through. The entire conversation above is the agent's working context: its task or goal, every tool call it has made, and every result it has seen. The agent has paused to consult you because you bring a second, independent perspective it cannot get from inside its own reasoning loop. Your job is to maximize its odds of completing the task correctly and efficiently.
 
@@ -64,16 +35,23 @@ Write as much as the guidance genuinely needs, and no more.`;
   if (originalSystemPrompt) {
     prompt += `\n\nFor context, the agent is operating under this system prompt:\n<agent_system_prompt>\n${originalSystemPrompt}\n</agent_system_prompt>`;
   }
-  if (runtimeContext) {
-    prompt += `\n\nThe agent's runtime context — the tools and skills available to it, the loaded workspace/project context, and relevant memory — follows. Ground your recommendations in what the agent can actually do and what is around it; reference specific tools, skills, files, or memory where relevant.\n<agent_runtime_context>\n${runtimeContext}\n</agent_runtime_context>`;
-  }
   return prompt;
 }
 
 /**
  * The final user turn appended to the transcript for the advisor sub-call. Asks
  * for guidance; imposes no length limit — the advisor decides how much to say.
+ *
+ * `agentRequest` is the executing agent's own `objective` from the
+ * `subagent_spawn` call — the agent's framing of what it wants weighed in on.
+ * It is included verbatim because (a) the agent naturally states the task there,
+ * and (b) the inherited transcript can be thin (e.g. a wake turn whose task
+ * lives in memory rather than a user message), so the request text is often the
+ * advisor's clearest signal of what is actually being asked.
  */
-export function advisorRequestText(): string {
-  return `Review the conversation above — the task, the tool calls, and their results — and give focused strategic guidance on how to proceed.`;
+export function advisorRequestText(agentRequest?: string): string {
+  const base = `Review the conversation above — the task, the tool calls, and their results — and give focused strategic guidance on how to proceed.`;
+  const trimmed = agentRequest?.trim();
+  if (!trimmed) return base;
+  return `${base}\n\nThe agent described what it wants your input on:\n<agent_request>\n${trimmed}\n</agent_request>\nTreat this as the agent's framing of the task. If it conflicts with the transcript above, say so; if the transcript is sparse, rely on it.`;
 }

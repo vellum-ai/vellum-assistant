@@ -196,10 +196,6 @@ function ProfileEditorModalInner({
   const [status, setStatus] = useState<ProfileStatus>(
     initialValues?.status ?? "active",
   );
-  // Per-profile advisor toggle. Absent/null means ENABLED (default on); only an
-  // explicit `false` disables — so coalesce nil to `true`.
-  const initialAdvisorEnabled = initialValues?.advisorEnabled ?? true;
-  const [advisorEnabled, setAdvisorEnabled] = useState(initialAdvisorEnabled);
   // Connections created inline this session, before the parent's `connections`
   // prop has refetched. Unioned into the available-connections set so a
   // just-created binding is treated as valid immediately — otherwise
@@ -247,7 +243,7 @@ function ProfileEditorModalInner({
 
   // Advanced params — top P. Top P is editable in view mode (managed
   // profiles), so capture its initial enabled flag + value as the baseline
-  // `hasViewModeChanges` compares against — mirroring `initialAdvisorEnabled`.
+  // `hasViewModeChanges` compares against.
   const initialTopPEnabled = typeof initialValues?.topP === "number";
   const initialTopP =
     typeof initialValues?.topP === "number" ? initialValues.topP : 0.95;
@@ -255,15 +251,14 @@ function ProfileEditorModalInner({
   const [topP, setTopP] = useState<number>(initialTopP);
 
   // True when in view mode and the user has touched one of the fields that
-  // view mode permits editing (label, status, advisor, Top P). Drives the
-  // view-mode Save button's enabled state and the partial-update save path.
-  // Top P is compared on both the enabled flag and the value so flipping the
-  // toggle or dragging the slider both arm Save.
+  // view mode permits editing (label, status, Top P). Drives the view-mode
+  // Save button's enabled state and the partial-update save path. Top P is
+  // compared on both the enabled flag and the value so flipping the toggle or
+  // dragging the slider both arm Save.
   const hasViewModeChanges =
     isReadOnly &&
     (label !== initialLabel ||
       status !== initialStatus ||
-      advisorEnabled !== initialAdvisorEnabled ||
       topPEnabled !== initialTopPEnabled ||
       (topPEnabled && topP !== initialTopP));
 
@@ -519,7 +514,6 @@ function ProfileEditorModalInner({
         const entry: ProfileEntry = {
           label: label.trim() || null,
           status,
-          advisorEnabled,
         };
         // Top P is the one advanced param managed profiles may override.
         // Mirror the create/edit build-entry logic: enabled → number,
@@ -624,13 +618,6 @@ function ProfileEditorModalInner({
       } else if (status !== "active") {
         entry.status = status;
       }
-      // Advisor toggle — always include in edit mode; omit in create when
-      // enabled (absent/null already means enabled, so the default round-trips).
-      if (effectiveMode === "edit") {
-        entry.advisorEnabled = advisorEnabled;
-      } else if (!advisorEnabled) {
-        entry.advisorEnabled = advisorEnabled;
-      }
       // Do NOT include source or name
       await onSave(keyTrimmed, entry);
     } catch {
@@ -717,15 +704,6 @@ function ProfileEditorModalInner({
       checked={status === "active"}
       onChange={(v) => setStatus(v ? "active" : "disabled")}
       label="Active"
-    />
-  );
-
-  const advisorToggle = (
-    <Toggle
-      checked={advisorEnabled}
-      onChange={setAdvisorEnabled}
-      label="Advisor"
-      helperText="Let the model consult a stronger advisor model while using this profile."
     />
   );
 
@@ -920,7 +898,6 @@ function ProfileEditorModalInner({
             {keyField}
             {descriptionField}
             {activeToggle}
-            {advisorToggle}
 
             {/* Advanced params — collapsed by default in create mode. */}
             {createAdvancedDisclosure}
@@ -936,7 +913,6 @@ function ProfileEditorModalInner({
             {descriptionField}
             {keyField}
             {activeToggle}
-            {advisorToggle}
 
             <ProfileEditorProviderSection
               provider={provider}

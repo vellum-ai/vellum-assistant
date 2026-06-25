@@ -1,6 +1,10 @@
 /**
- * Convert a captured executor transcript into the message list sent to the
- * advisor sub-call.
+ * Sanitize an inherited parent transcript before it is injected into a
+ * tool-less advisor consult subagent.
+ *
+ * `Conversation.injectInheritedContext` injects the parent's messages VERBATIM
+ * with no sanitization, so the advisor path must run this over the parent
+ * messages before they are injected.
  *
  * Strips blocks the advisor shouldn't (or can't) replay:
  *  - thinking / redacted-thinking (the advisor tool drops thinking),
@@ -16,13 +20,17 @@
  * Visual tasks depend on it; the advisor profile is expected to be vision-capable.
  *
  * It also strips the *pending* client tool calls from the final assistant turn:
- * at capture time (a `post-model-call` before tools run) the last assistant
- * message carries the `advisor` tool_use with no matching `tool_result` yet, so
- * sending it would be a dangling call. Earlier, completed `tool_use` /
- * `tool_result` pairs are preserved intact.
+ * at capture time the last assistant message can carry a `tool_use` with no
+ * matching `tool_result` yet, so sending it would be a dangling call. Earlier,
+ * completed `tool_use` / `tool_result` pairs are preserved intact.
+ *
+ * In-flight-turn parity — ensuring the assistant's just-written plan from the
+ * current turn is included while its dangling tool_use is stripped — is handled
+ * by the consumer (the wiring that calls this before injection); this function
+ * only strips a dangling `tool_use` IF it appears on the final assistant turn.
  */
 
-import type { ContentBlock, Message } from "../../../providers/types.js";
+import type { ContentBlock, Message } from "../providers/types.js";
 
 /** Drop disallowed blocks; recursively sanitize tool_result content. `null` = drop. */
 function sanitize(block: ContentBlock): ContentBlock | null {
@@ -51,7 +59,9 @@ function sanitize(block: ContentBlock): ContentBlock | null {
   }
 }
 
-export function toAdvisorMessages(messages: ReadonlyArray<Message>): Message[] {
+export function sanitizeConsultTranscript(
+  messages: ReadonlyArray<Message>,
+): Message[] {
   const out: Message[] = [];
   const lastIndex = messages.length - 1;
 

@@ -153,7 +153,6 @@ describe("reconcileFlagGatedProfiles", () => {
     const raw = readConfig();
     raw.llm.profiles["os-beta"]!.label = "My OS Beta";
     raw.llm.profiles["os-beta"]!.status = "disabled";
-    raw.llm.profiles["os-beta"]!.advisorEnabled = true;
     raw.llm.profiles["os-beta"]!.topP = 0.8;
     writeConfig(raw);
     invalidateConfigCache();
@@ -163,7 +162,6 @@ describe("reconcileFlagGatedProfiles", () => {
     const after = readConfig().llm.profiles["os-beta"]!;
     expect(after.label).toBe("My OS Beta");
     expect(after.status).toBe("disabled");
-    expect(after.advisorEnabled).toBe(true);
     expect(after.topP).toBe(0.8);
     expect(after.model).toBe("MiniMaxAI/MiniMax-M3");
     expect(after.provider_connection).toBe("together-managed");
@@ -324,7 +322,7 @@ describe("reconcileFlagGatedProfiles", () => {
 
     const raw = readConfig();
     (raw.llm as Record<string, unknown>).callSites = {
-      advisor: { profile: "os-beta", temperature: 0.3 },
+      inference: { profile: "os-beta", temperature: 0.3 },
     };
     writeConfig(raw);
     invalidateConfigCache();
@@ -333,14 +331,14 @@ describe("reconcileFlagGatedProfiles", () => {
     expect(reconcileFlagGatedProfiles()).toBe(true);
 
     const after = readConfig();
-    const advisor = (
+    const inference = (
       after.llm as unknown as Record<
         string,
         Record<string, Record<string, unknown>>
       >
-    ).callSites.advisor;
-    expect(advisor.profile).toBeUndefined();
-    expect(advisor.temperature).toBe(0.3);
+    ).callSites.inference;
+    expect(inference.profile).toBeUndefined();
+    expect(inference.temperature).toBe(0.3);
 
     expect(LLMSchema.safeParse(after.llm).success).toBe(true);
   });

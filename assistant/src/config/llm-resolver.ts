@@ -497,9 +497,6 @@ function profileConfigFragment(profile: ProfileEntry): Mergeable {
     // lower-precedence (e.g. active) profile into one that merely inherited it.
     // `RetryProvider` resolves it from the applied profile, not the merge.
     logitBias: _logitBias,
-    // Per-profile advisor toggle is profile identity, not inheritable model
-    // config — strip it so it can't leak into the merged `LLMConfigBase`.
-    advisorEnabled: _advisorEnabled,
     // `temperature`/`top_p` are provider-coupled: only the winning profile
     // contributes them (tracked via `samplingRef`, applied post-merge), so a
     // shadowed profile's sampling can never reach a different provider through

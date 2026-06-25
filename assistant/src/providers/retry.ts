@@ -622,6 +622,12 @@ export class RetryProvider implements Provider {
     return this.inner.supportsNativeWebSearch;
   }
 
+  supportsNativeWebSearchFor(options?: SendMessageOptions): boolean {
+    return this.inner.supportsNativeWebSearchFor
+      ? this.inner.supportsNativeWebSearchFor(options)
+      : this.inner.supportsNativeWebSearch === true;
+  }
+
   // Forward the optional token-counting endpoint so the capability survives
   // the wrapper chain (callers gate on its presence). Bound straight to the
   // inner provider — count_tokens is a cheap separate endpoint and its caller
