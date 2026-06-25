@@ -11442,6 +11442,32 @@ paths:
                 properties:
                   status:
                     type: string
+                  reason:
+                    type: string
+                  dbMigrations:
+                    type: object
+                    properties:
+                      ready:
+                        type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - ready
+                          - not_started
+                          - running
+                          - failed
+                      reason:
+                        type: string
+                        enum:
+                          - db_migrations_not_started
+                          - db_migrations_running
+                          - db_migrations_failed
+                      error:
+                        type: string
+                    required:
+                      - ready
+                      - state
+                    additionalProperties: false
                   timestamp:
                     type: string
                   version:
@@ -11619,6 +11645,32 @@ paths:
                 properties:
                   status:
                     type: string
+                  reason:
+                    type: string
+                  dbMigrations:
+                    type: object
+                    properties:
+                      ready:
+                        type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - ready
+                          - not_started
+                          - running
+                          - failed
+                      reason:
+                        type: string
+                        enum:
+                          - db_migrations_not_started
+                          - db_migrations_running
+                          - db_migrations_failed
+                      error:
+                        type: string
+                    required:
+                      - ready
+                      - state
+                    additionalProperties: false
                   timestamp:
                     type: string
                   version:
