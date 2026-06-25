@@ -187,6 +187,21 @@ export {
   type SideMenuItemProps,
 } from "./components/side-menu/side-menu";
 export {
+  VirtualList,
+  type VirtualListProps,
+  type VirtualListHandle,
+} from "./components/virtual-list/virtual-list";
+export {
+  VirtualGroupedList,
+  type VirtualGroupedListProps,
+  type VirtualGroupedListHandle,
+  type VirtualListGroup,
+} from "./components/virtual-list/virtual-grouped-list";
+export {
+  GoToNewest,
+  type GoToNewestProps,
+} from "./components/virtual-list/go-to-newest";
+export {
   Collapsible,
   type CollapsibleRootProps,
   type CollapsibleItemProps,
