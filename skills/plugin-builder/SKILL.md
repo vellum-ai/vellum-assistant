@@ -52,6 +52,18 @@ The two extensibility patterns serve different goals. **Plugins are for distribu
 
 Several surfaces that plugins contribute run in the same process as the main Assistant process. They can import all internal methods from the Assistant from the single public package, [`@vellumai/plugin-api`](https://github.com/vellum-ai/vellum-assistant/tree/main/assistant/src/plugin-api), which is the only supported contract. Anything not exported from there is internal and can change without notice. See `references/plugins.md` for the full export surface.
 
+## What should I know about plugins if I'm not an engineer?
+
+Plugins are packages that add new capabilities to your assistant. You don't need to write code to benefit from them. The **Plugins tab** in the app lets you browse the catalog, read what each plugin does, and install or uninstall with a click. Think of it like an app store: someone else did the engineering, you just pick what's useful.
+
+If you have an idea for a capability your assistant lacks, describe it to your assistant in plain language. If a plugin already exists for it, the assistant will find and install it. If not, the assistant can build one for you, handle the publishing, and submit it to the catalog for review.
+
+## Am I expected to use the plugins CLI?
+
+No. The `assistant plugins` CLI exists primarily for **your assistant to use on your behalf**. When you ask your assistant to install, search, or publish a plugin, it runs the CLI commands under the hood. You can type the commands yourself if you prefer, but most users never need to.
+
+The one exception is plugin authoring: if you are a developer building a plugin, you will use the CLI directly to test, inspect, and publish your work. The rest of the time, just ask your assistant.
+
 ## Coming from another harness?
 
 Vellum's plugin model was designed to line up with the agent harnesses you may already use. The shared vocabulary is deliberate to be as portable as possible with the other entrants in the industry.

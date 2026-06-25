@@ -254,3 +254,34 @@ e83c5163316f89bfbde7d9ab23ca2e25604af290  refs/tags/v1.2.0^{}
 ## Adapting external plugins
 
 Listing a plugin makes it install by name, but a plugin authored for another ecosystem may not match this loader's conventions and so contribute nothing on boot. A **postinstall adapter** bridges that gap: a small, curated transform committed alongside the marketplace entry that reshapes the cloned tree into Vellum's layout during install.
+
+The adapter is a single JavaScript file referenced from the marketplace entry's `adapter` field. It runs after the plugin is cloned but before the loader scans for surfaces, so it can move files, generate a manifest, or rename entry points. The transform receives the cloned directory path and the marketplace entry, and is expected to leave the tree in Vellum's plugin layout:
+
+```js
+// adapter.js — reshapes a Claude Code skill into Vellum layout
+export default function adapt({ dir, entry }) {
+  // The source repo ships instructions in SKILL.md at the root.
+  // Vellum expects them under skills/<name>/SKILL.md.
+  const fs = require("fs");
+  const path = require("path");
+
+  const skillDir = path.join(dir, "skills", entry.name);
+  fs.mkdirSync(skillDir, { recursive: true });
+  fs.renameSync(
+    path.join(dir, "SKILL.md"),
+    path.join(skillDir, "SKILL.md"),
+  );
+
+  // Generate a minimal package.json so the loader recognizes the plugin.
+  fs.writeFileSync(
+    path.join(dir, "package.json"),
+    JSON.stringify({
+      name: entry.name,
+      version: entry.version,
+      peerDependencies: { "@vellumai/plugin-api": ">=0.40.0" },
+    }, null, 2),
+  );
+}
+```
+
+The adapter runs in a sandboxed Bun process with filesystem access limited to the plugin directory. Network access is not available during the adapt step. If the adapter exits non-zero, the install fails and the partial clone is cleaned up.
