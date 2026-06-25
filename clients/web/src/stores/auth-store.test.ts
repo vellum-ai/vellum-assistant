@@ -32,9 +32,8 @@ let mockIsGatewayAuth = false;
 let mockIsLocalMode = false;
 let mockIsRemoteGatewayMode = false;
 // The assistant `getSelectedAssistant()` resolves; `undefined` means none selected.
-let mockSelectedAssistant: { cloud?: string } | undefined;
-let mockPlatformAssistants: unknown[] = [];
 let mockSelectedAssistant: { assistantId: string; cloud: string } | undefined;
+let mockPlatformAssistants: unknown[] = [];
 let mockPrimeError: Error | null = null;
 let mockGatewayToken: string | null = null;
 const setSelectedAssistantMock = mock(async (_id: string | null) => {});
@@ -352,7 +351,6 @@ beforeEach(() => {
   mockIsRemoteGatewayMode = false;
   mockSelectedAssistant = undefined;
   mockPlatformAssistants = [];
-  mockSelectedAssistant = undefined;
   mockIsNativePlatform = false;
   mockIsBiometricEnabled = false;
   mockBiometricToken = null;
