@@ -72,11 +72,21 @@ export const RESEARCH_ONBOARDING_FUNNEL_STEPS = {
 export type ResearchOnboardingFunnelStep =
   (typeof RESEARCH_ONBOARDING_FUNNEL_STEPS)[keyof typeof RESEARCH_ONBOARDING_FUNNEL_STEPS];
 
+/**
+ * How the user left a step: `completed` (clicked the primary Continue/action) vs
+ * `skipped` (clicked Skip). Lets analytics tell a deliberate completion apart
+ * from a skip on steps that offer both. The pre-chat funnel omits this (it never
+ * distinguished the two), so it ingests as null there.
+ */
+export type OnboardingFunnelStepOutcome = "completed" | "skipped";
+
 export interface OnboardingFunnelStepCompletedOptions {
   userId?: string | null;
   variant?: OnboardingFunnelVariant;
   /** Funnel this step belongs to; defaults to the pre-chat funnel version. */
   funnelVersion?: string;
+  /** Completed vs skipped; omitted when the funnel doesn't distinguish. */
+  outcome?: OnboardingFunnelStepOutcome;
 }
 
 export interface OnboardingFunnelEvent {
@@ -91,6 +101,8 @@ export interface OnboardingFunnelEvent {
   user_id: string | null;
   funnel_version: string;
   ab_variant: OnboardingFunnelVariant;
+  /** Completed vs skipped; absent when the funnel doesn't distinguish. */
+  outcome?: OnboardingFunnelStepOutcome;
 }
 
 function stripUndefined(value: object): Record<string, unknown> {
@@ -171,6 +183,8 @@ export function buildOnboardingFunnelEvent(
     user_id: options.userId ?? null,
     funnel_version: options.funnelVersion ?? ONBOARDING_FUNNEL_VERSION,
     ab_variant: variant,
+    // Omitted (→ stripped before send) unless the caller distinguishes the two.
+    outcome: options.outcome,
   };
 }
 
@@ -205,15 +219,19 @@ export function emitOnboardingFunnelStepCompleted(
  * The research flow has no A/B arm, so events are stamped with the `control`
  * variant (passed explicitly so this never reads the pre-chat funnel's stored
  * variant) and the research funnel version.
+ *
+ * `outcome` records whether the step was completed (Continue) or skipped;
+ * defaults to `completed` for the Continue-only steps.
  */
 export function emitResearchOnboardingStepCompleted(
   step: ResearchOnboardingFunnelStep,
-  options: { userId?: string | null } = {},
+  options: { userId?: string | null; outcome?: OnboardingFunnelStepOutcome } = {},
 ): void {
   emitOnboardingFunnelStepCompleted(step, {
     userId: options.userId,
     variant: ONBOARDING_FUNNEL_VARIANTS.control,
     funnelVersion: RESEARCH_ONBOARDING_FUNNEL_VERSION,
+    outcome: options.outcome ?? "completed",
   });
 }
 

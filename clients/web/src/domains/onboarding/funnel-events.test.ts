@@ -159,11 +159,10 @@ describe("onboarding funnel events", () => {
     emitResearchOnboardingStepCompleted(RESEARCH_ONBOARDING_FUNNEL_STEPS.form, {
       userId: "user-123",
     });
-    // Skipping a step is still a completion of that step (same as the pre-chat
-    // funnel — Continue and Skip both emit the step-completed event).
+    // A skip is recorded against the same step, tagged outcome: "skipped".
     emitResearchOnboardingStepCompleted(
       RESEARCH_ONBOARDING_FUNNEL_STEPS.suggestions,
-      { userId: "user-123" },
+      { userId: "user-123", outcome: "skipped" },
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -190,6 +189,8 @@ describe("onboarding funnel events", () => {
       user_id: "user-123",
       funnel_version: RESEARCH_ONBOARDING_FUNNEL_VERSION,
       ab_variant: "control",
+      // Continue-only steps default to "completed".
+      outcome: "completed",
     });
     // Shares the funnel session id with the rest of the journey.
     expect(secondEvent?.session_id).toBe(firstEvent?.session_id);
@@ -197,6 +198,7 @@ describe("onboarding funnel events", () => {
       step_name: "research_suggestions",
       step_index: 9,
       funnel_version: RESEARCH_ONBOARDING_FUNNEL_VERSION,
+      outcome: "skipped",
     });
   });
 
