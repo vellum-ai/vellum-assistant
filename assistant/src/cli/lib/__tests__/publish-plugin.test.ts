@@ -342,13 +342,22 @@ describe("runPublish", () => {
     const dir = makePluginDir(tmpdir(), validPkg, { hooks: true });
     // Initialize a git repo so resolveGitContext doesn't fail
     const { execSync } = await import("node:child_process");
+    const gitEnv = {
+      ...process.env,
+      GIT_AUTHOR_NAME: "Test",
+      GIT_AUTHOR_EMAIL: "test@test.com",
+      GIT_COMMITTER_NAME: "Test",
+      GIT_COMMITTER_EMAIL: "test@test.com",
+    };
     execSync("git init && git add -A && git commit -m init", {
       cwd: dir,
       stdio: "ignore",
+      env: gitEnv,
     });
     execSync("git remote add origin https://github.com/test/test-plugin.git", {
       cwd: dir,
       stdio: "ignore",
+      env: gitEnv,
     });
 
     const ok = await runPublish(
