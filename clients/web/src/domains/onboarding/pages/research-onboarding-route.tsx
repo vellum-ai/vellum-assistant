@@ -133,7 +133,10 @@ export function ResearchOnboardingRoute() {
   // "done" WITHOUT a live start, so this stays false there and we don't
   // re-report plugins already reported in the original session.
   const liveRunRef = useRef(false);
-  // Guards the plugins report to once per session.
+  // Guards the plugins report to once per LIVE RUN, not once per component
+  // session: re-armed (set false) wherever a new live run starts, so an
+  // edited-subject rerun (back to the form → resubmit) reports its own
+  // installed set instead of being suppressed by the abandoned first run.
   const pluginsReportedRef = useRef(false);
 
   function navTo(next: ResearchStep) {
@@ -313,6 +316,8 @@ export function ResearchOnboardingRoute() {
       conversationTitle: researchTitleFor(formValues),
     });
     liveRunRef.current = true;
+    // Re-arm the per-run plugins marker so this fresh live run can emit its own.
+    pluginsReportedRef.current = false;
   }, [
     restored,
     enabled,
@@ -443,6 +448,10 @@ export function ResearchOnboardingRoute() {
       conversationTitle: researchTitleFor(values),
     });
     liveRunRef.current = true;
+    // Re-arm the per-run plugins marker so this fresh live run can emit its own
+    // (e.g. an edited-subject rerun after backing to the form), not be suppressed
+    // by a prior run's report.
+    pluginsReportedRef.current = false;
     goForwardTo("face");
   }
 
