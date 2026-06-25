@@ -4841,14 +4841,18 @@ paths:
                         type: string
                       role:
                         type: string
+                        enum:
+                          - guardian
+                          - contact
                       notes:
                         anyOf:
                           - type: string
                           - type: "null"
                       contactType:
-                        anyOf:
-                          - type: string
-                          - type: "null"
+                        type: string
+                        enum:
+                          - human
+                          - assistant
                       lastInteraction:
                         anyOf:
                           - type: number
@@ -4923,6 +4927,7 @@ paths:
                       - id
                       - displayName
                       - role
+                      - contactType
                       - interactionCount
                       - createdAt
                       - updatedAt
@@ -4996,14 +5001,18 @@ paths:
                           type: string
                         role:
                           type: string
+                          enum:
+                            - guardian
+                            - contact
                         notes:
                           anyOf:
                             - type: string
                             - type: "null"
                         contactType:
-                          anyOf:
-                            - type: string
-                            - type: "null"
+                          type: string
+                          enum:
+                            - human
+                            - assistant
                         lastInteraction:
                           anyOf:
                             - type: number
@@ -5078,6 +5087,7 @@ paths:
                         - id
                         - displayName
                         - role
+                        - contactType
                         - interactionCount
                         - createdAt
                         - updatedAt
@@ -5120,14 +5130,18 @@ paths:
                         type: string
                       role:
                         type: string
+                        enum:
+                          - guardian
+                          - contact
                       notes:
                         anyOf:
                           - type: string
                           - type: "null"
                       contactType:
-                        anyOf:
-                          - type: string
-                          - type: "null"
+                        type: string
+                        enum:
+                          - human
+                          - assistant
                       lastInteraction:
                         anyOf:
                           - type: number
@@ -5202,6 +5216,7 @@ paths:
                       - id
                       - displayName
                       - role
+                      - contactType
                       - interactionCount
                       - createdAt
                       - updatedAt
@@ -5489,14 +5504,18 @@ paths:
                         type: string
                       role:
                         type: string
+                        enum:
+                          - guardian
+                          - contact
                       notes:
                         anyOf:
                           - type: string
                           - type: "null"
                       contactType:
-                        anyOf:
-                          - type: string
-                          - type: "null"
+                        type: string
+                        enum:
+                          - human
+                          - assistant
                       lastInteraction:
                         anyOf:
                           - type: number
@@ -5571,6 +5590,7 @@ paths:
                       - id
                       - displayName
                       - role
+                      - contactType
                       - interactionCount
                       - createdAt
                       - updatedAt
@@ -5678,14 +5698,18 @@ paths:
                       type: string
                     role:
                       type: string
+                      enum:
+                        - guardian
+                        - contact
                     notes:
                       anyOf:
                         - type: string
                         - type: "null"
                     contactType:
-                      anyOf:
-                        - type: string
-                        - type: "null"
+                      type: string
+                      enum:
+                        - human
+                        - assistant
                     lastInteraction:
                       anyOf:
                         - type: number
@@ -5760,6 +5784,7 @@ paths:
                     - id
                     - displayName
                     - role
+                    - contactType
                     - interactionCount
                     - createdAt
                     - updatedAt

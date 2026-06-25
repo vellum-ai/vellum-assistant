@@ -128,9 +128,9 @@ const contactChannelSchema = z.object({
 const contactSchema = z.object({
   id: z.string(),
   displayName: z.string(),
-  role: z.string(),
+  role: z.enum(["guardian", "contact"]),
   notes: z.string().nullable().optional(),
-  contactType: z.string().nullable().optional(),
+  contactType: z.enum(["human", "assistant"]),
   lastInteraction: z.number().nullable().optional(),
   interactionCount: z.number(),
   createdAt: z.number(),
