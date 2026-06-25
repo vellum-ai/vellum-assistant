@@ -1184,8 +1184,8 @@ export class ContactStore {
     // ── 6. Read back full contact shape (best-effort) ─────────────────
     // Source ACL (role/principalId, channel status/policy/verified_*) from the
     // gateway DB — the just-written source of truth — and overlay assistant-
-    // owned info. readAssistantContact would return assistant-mirror defaults
-    // (unverified/allow, role=contact), misreporting fresh creates.
+    // owned info. The assistant mirror would report stale unverified/allow/
+    // contact defaults for fresh creates.
     const fullContact = await this.getContactWithInfo(contactId).catch((err) => {
       log.warn(
         { contactId, err },
@@ -1732,16 +1732,28 @@ export class ContactStore {
     principalId: string | null,
   ): Promise<string> {
     if (principalId) {
-      const sibling = await assistantDbQuery<{ userFile: string | null }>(
-        `SELECT user_file AS userFile
-           FROM contacts
-          WHERE principal_id = ?
-            AND user_file IS NOT NULL
-          LIMIT 1`,
-        [principalId],
-      );
-      if (sibling.length && sibling[0].userFile) {
-        return sibling[0].userFile;
+      // principalId is gateway-owned: resolve sibling contact ids from the
+      // gateway DB (source of truth), then read the assistant-owned user_file
+      // for those ids from the assistant DB.
+      const siblingIds = getGatewayDb()
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(eq(contacts.principalId, principalId))
+        .all()
+        .map((r) => r.id);
+      if (siblingIds.length) {
+        const placeholders = siblingIds.map(() => "?").join(", ");
+        const sibling = await assistantDbQuery<{ userFile: string | null }>(
+          `SELECT user_file AS userFile
+             FROM contacts
+            WHERE id IN (${placeholders})
+              AND user_file IS NOT NULL
+            LIMIT 1`,
+          siblingIds,
+        );
+        if (sibling.length && sibling[0].userFile) {
+          return sibling[0].userFile;
+        }
       }
     }
 

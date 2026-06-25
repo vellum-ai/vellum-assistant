@@ -36,7 +36,6 @@ export interface ContactChannelRow {
   address: string;
   externalChatId: string | null;
   displayName: string | null;
-  status: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -54,8 +53,7 @@ export async function findContactChannelByAddress(
     `SELECT cc.id AS channelId, cc.contact_id AS contactId,
             cc.address,
             cc.external_chat_id AS externalChatId,
-            c.display_name AS displayName,
-            cc.status
+            c.display_name AS displayName
      FROM contact_channels cc
      JOIN contacts c ON c.id = cc.contact_id
      WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE

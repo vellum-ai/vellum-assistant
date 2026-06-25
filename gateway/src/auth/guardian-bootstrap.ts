@@ -191,8 +191,8 @@ export async function createGuardianBinding(
   const displayName = params.displayName ?? params.externalUserId;
   const verifiedVia = params.verifiedVia ?? "challenge";
 
-  // Resolve ids from the gateway DB; the dual-write keeps both DBs in sync, so
-  // a gateway-resolved id matches the assistant row in normal operation.
+  // The gateway DB is the source of truth for contact ids; resolve them
+  // directly from it.
   const gwReadDb = getGatewayDb();
 
   const existingGuardianContact = gwReadDb

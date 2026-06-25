@@ -132,8 +132,8 @@ export async function handleContactPromptSubmit(
     let createdNewContact = false;
 
     if (isGuardian) {
-      // Guardian lives in the gateway DB (source of truth) — bootstrap
-      // dual-writes it there. Resolve from there, not the assistant mirror.
+      // Guardian lives in the gateway DB (source of truth). Resolve from the
+      // gateway DB, not the assistant mirror.
       const guardianRow = getGatewayDb()
         .select({ id: gwContacts.id })
         .from(gwContacts)
@@ -244,10 +244,10 @@ export async function handleContactPromptSubmit(
     if (existingChannel && existingChannel.contactId === contactId) {
       // Reuse is success-guaranteed: the gateway channel already belongs to
       // this guardian. Best-effort heal the assistant-DB mirror (passing the
-      // guardian's id preserves role="guardian" via upsertContact's id-path
-      // role preservation). The gateway-side syncChannels UPDATE here is
-      // incidental — the real purpose is recovering a stale mirror — so a
-      // transient gateway error must never fail the request.
+      // guardian's id keeps the gateway DB authoritative for role="guardian").
+      // The gateway-side syncChannels UPDATE here is incidental — the real
+      // purpose is recovering a stale mirror — so a transient gateway error
+      // must never fail the request.
       try {
         await getStore().upsertContact({
           id: contactId,
@@ -314,9 +314,8 @@ export async function handleContactPromptSubmit(
 
       try {
         // Bind gateway-first. Passing the guardian's id keys the update to the
-        // existing guardian and preserves role="guardian" (upsertContact's
-        // id-path role preservation); the gateway channel is the source of
-        // truth, the assistant mirror is dual-written best-effort.
+        // existing guardian; the gateway DB is authoritative for role="guardian"
+        // and the channel, and the assistant mirror carries identity/info only.
         await getStore().upsertContact({
           id: contactId,
           channels: [

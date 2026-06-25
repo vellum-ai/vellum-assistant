@@ -2,8 +2,8 @@
  * Guardian binding helpers for gateway-owned verification.
  *
  * Provides lookup, conflict detection, and revocation of existing bindings.
- * Binding creation uses the existing createGuardianBinding from
- * gateway/src/auth/guardian-bootstrap.ts which already dual-writes.
+ * Binding creation uses createGuardianBinding from
+ * gateway/src/auth/guardian-bootstrap.ts (gateway-authoritative).
  *
  * Guardian lookups and revokes read and write the gateway DB, the source of
  * truth for ACL.
