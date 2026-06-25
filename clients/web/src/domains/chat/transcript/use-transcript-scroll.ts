@@ -76,6 +76,11 @@ export function useTranscriptScroll(
     onLoadOlder,
   } = args;
 
+  // Coerced to boolean so the dep arrays below re-fire exactly once on
+  // the 0→N transition (Transcript mounts) without re-firing on every
+  // TanStack Query background refetch that produces a new `items` array.
+  const hasItems = items.length > 0;
+
   const [isPinnedToLatest, setIsPinnedToLatest] = useState(true);
   const [showScrollToLatest, setShowScrollToLatest] = useState(false);
 
@@ -389,6 +394,12 @@ export function useTranscriptScroll(
   // (e.g. Transcript remounts inside ResizablePanel). `conversationId`
   // is the dep-array signal for remounts — it corresponds directly to
   // the `key={conversationId}` prop on the scroll container.
+  //
+  // `hasItems` covers the deferred-mount case: `Transcript` only
+  // renders when `messageCount > 0`, so on initial conversation load
+  // `conversationId` fires before the element exists. The boolean
+  // flips once on the 0→N transition, re-running the effect after
+  // the element mounts, without re-running on every TQ refetch.
   // -----------------------------------------------------------------------
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const observedElRef = useRef<HTMLElement | null>(null);
@@ -414,7 +425,7 @@ export function useTranscriptScroll(
     });
     observer.observe(el);
     resizeObserverRef.current = observer;
-  }, [conversationId, transcriptRef]);
+  }, [conversationId, transcriptRef, hasItems]);
 
   // Disconnect observer on hook unmount.
   useEffect(() => () => {
@@ -458,7 +469,7 @@ export function useTranscriptScroll(
     });
     observer.observe(el);
     contentObserverRef.current = observer;
-  }, [conversationId, transcriptRef]);
+  }, [conversationId, transcriptRef, hasItems]);
 
   useEffect(() => () => {
     contentObserverRef.current?.disconnect();
@@ -482,7 +493,7 @@ export function useTranscriptScroll(
       el.removeEventListener("touchmove", disengageAutoPin);
       el.removeEventListener("keydown", disengageAutoPin);
     };
-  }, [conversationId, transcriptRef, disengageAutoPin]);
+  }, [conversationId, transcriptRef, disengageAutoPin, hasItems]);
 
   // -----------------------------------------------------------------------
   // Stable scroll handler. Reads latest props via the ref pattern.
@@ -564,7 +575,7 @@ export function useTranscriptScroll(
     return () => {
       el.removeEventListener("scroll", handleScroll);
     };
-  }, [handleScroll, transcriptRef, conversationId]);
+  }, [handleScroll, transcriptRef, conversationId, hasItems]);
 
   return {
     showScrollToLatest,
