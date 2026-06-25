@@ -484,6 +484,13 @@ export class AcpSessionManager {
       cwd: row.cwd,
       startedAt: row.startedAt,
       sendToVellum,
+      // Carry the persisted metadata onto the fresh in-memory state so the
+      // next terminal upsert rewrites the same values instead of NULLing
+      // them. A resumed run only emits a usage_update if it does fresh work;
+      // without seeding, a resume->re-terminate would clobber the stored
+      // task/parentToolUseId/usage.
+      task: row.task ?? undefined,
+      parentToolUseId: row.parentToolUseId ?? undefined,
     });
 
     log.info(
@@ -491,6 +498,19 @@ export class AcpSessionManager {
       "ACP resume from history requested",
     );
     const { process: agentProcess, state } = entry;
+
+    // Seed the latest usage snapshot from the persisted columns. A fresh
+    // usage_update during the resumed run overwrites this; if none fires the
+    // prior snapshot is re-persisted on terminal transition. Pre-migration
+    // rows have null token columns and leave latestUsage undefined.
+    if (row.usedTokens !== null && row.contextSize !== null) {
+      state.latestUsage = {
+        usedTokens: row.usedTokens,
+        contextSize: row.contextSize,
+        costAmount: row.costAmount ?? undefined,
+        costCurrency: row.costCurrency ?? undefined,
+      };
+    }
 
     // Re-seed the ring buffer from the persisted event log, routed through
     // appendToBuffer so the count/byte caps still apply. The terminal

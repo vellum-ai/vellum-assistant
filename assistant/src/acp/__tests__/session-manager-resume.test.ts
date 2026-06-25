@@ -103,6 +103,20 @@ class FakeAcpAgentProcess {
     });
   }
 
+  /** Drives a usage_update through the real client handler. */
+  async emitUsage(used: number, size: number, cost?: number): Promise<void> {
+    await this.clientFactory(this).sessionUpdate({
+      sessionId: "proto-old",
+      update: {
+        sessionUpdate: "usage_update",
+        used,
+        size,
+        cost:
+          cost === undefined ? undefined : { amount: cost, currency: "USD" },
+      },
+    });
+  }
+
   prompt(sessionId: string, text: string): Promise<{ stopReason: string }> {
     if (promptThrowsSync) {
       throw new Error("prompt transport dead");
@@ -621,6 +635,75 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     expect(log).toHaveLength(2);
     expect(log[0]!.content).toBe("original-run-chunk");
     expect(log[1]!.content).toBe("resumed-run-chunk");
+  });
+
+  test("re-terminate after a resume preserves the persisted task/parentToolUseId/usage when no fresh usage_update fires", async () => {
+    fakeCaps.resume = true;
+    insertHistoryRow({
+      id: "resume-meta-1",
+      eventLogJson: JSON.stringify([PERSISTED_EVENT]),
+      task: "Summarize the report",
+      parentToolUseId: "tool-use-123",
+      usedTokens: 4200,
+      contextSize: 200_000,
+      costAmount: 0.0123,
+      costCurrency: "USD",
+    });
+
+    const manager = new AcpSessionManager(4);
+    await manager.resumeFromHistory("resume-meta-1", () => {});
+    await manager.steer("resume-meta-1", "keep going");
+
+    const fake = fakeInstances[0]!;
+    // No usage_update emitted during the resumed run.
+    fake.resolvePrompt!({ stopReason: "end_turn" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const row = readHistoryRow("resume-meta-1")!;
+    expect(row.status).toBe("completed");
+    // The metadata seeded from the prior row is re-persisted, not NULLed.
+    expect(row.task).toBe("Summarize the report");
+    expect(row.parent_tool_use_id).toBe("tool-use-123");
+    expect(row.used_tokens).toBe(4200);
+    expect(row.context_size).toBe(200_000);
+    expect(row.cost_amount).toBe(0.0123);
+    expect(row.cost_currency).toBe("USD");
+  });
+
+  test("re-terminate after a resume persists fresh usage from a usage_update during the resumed run", async () => {
+    fakeCaps.resume = true;
+    insertHistoryRow({
+      id: "resume-meta-2",
+      eventLogJson: JSON.stringify([PERSISTED_EVENT]),
+      task: "Summarize the report",
+      parentToolUseId: "tool-use-123",
+      usedTokens: 4200,
+      contextSize: 200_000,
+      costAmount: 0.0123,
+      costCurrency: "USD",
+    });
+
+    const manager = new AcpSessionManager(4);
+    await manager.resumeFromHistory("resume-meta-2", () => {});
+    await manager.steer("resume-meta-2", "keep going");
+
+    const fake = fakeInstances[0]!;
+    // A fresh usage_update lands during the resumed run.
+    await fake.emitUsage(9000, 200_000, 0.05);
+
+    fake.resolvePrompt!({ stopReason: "end_turn" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const row = readHistoryRow("resume-meta-2")!;
+    // Task/parentToolUseId still carried from the seeded state; usage updated.
+    expect(row.task).toBe("Summarize the report");
+    expect(row.parent_tool_use_id).toBe("tool-use-123");
+    expect(row.used_tokens).toBe(9000);
+    expect(row.context_size).toBe(200_000);
+    expect(row.cost_amount).toBe(0.05);
+    expect(row.cost_currency).toBe("USD");
   });
 
   test("concurrent resumes of the same id: one wins, the loser fails cleanly without leaking a process", async () => {
