@@ -43,22 +43,22 @@ const POLICY_CONFIRMATIONS: Partial<
   >
 > = {
   no_one: {
-    title: "Block all inbound messages?",
+    title: "Block all messages?",
     message:
-      "Setting this channel to “No one” hard-denies every inbound message — including messages from you. You can reverse this at any time.",
+      "Setting this channel to “No one” hard-denies every inbound message — including messages from you.\n\nYou can reverse this at any time.",
     confirmLabel: "Block all",
     destructive: true,
   },
   any_contact: {
-    title: "Allow any contact to reach your assistant?",
+    title: "Allow any contact?",
     message:
-      "“Any contact” admits every matched contact in this channel — including pending, unverified ones — not just your verified contacts. Best for channels consisting of only people you already trust.",
+      "“Any contact” admits every matched contact in this channel — including pending, unverified ones — not just your verified contacts.\n\nBest for channels consisting of only people you already trust.",
     confirmLabel: "Allow any contact",
   },
   strangers: {
-    title: "Allow strangers to reach your assistant?",
+    title: "Allow strangers?",
     message:
-      "Are you sure you want to allow strangers to contact your assistant through this channel? Doing so could cost you money and open you up to security and privacy vulnerabilities. Enable with extreme caution.",
+      "Are you sure you want to allow strangers to contact your assistant through this channel?\n\nDoing so could cost you money and open you up to security and privacy vulnerabilities.\n\nEnable with extreme caution.",
     confirmLabel: "Allow strangers",
     destructive: true,
   },
