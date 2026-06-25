@@ -746,33 +746,6 @@ export function findContactChannel(params: {
   return null;
 }
 
-/** Member ACL view: status/policy off the channel row, role off the contact. */
-export interface LocalMemberAcl {
-  status: ChannelStatus;
-  policy: ChannelPolicy;
-  role: ContactRole;
-}
-
-/** Read a channel's local ACL columns (status/policy/role) by row id; null if missing. */
-export function getLocalMemberAcl(channelId: string): LocalMemberAcl | null {
-  const row = getDb()
-    .select({
-      status: contactChannels.status,
-      policy: contactChannels.policy,
-      role: contacts.role,
-    })
-    .from(contactChannels)
-    .innerJoin(contacts, eq(contacts.id, contactChannels.contactId))
-    .where(eq(contactChannels.id, channelId))
-    .get();
-  if (!row) return null;
-  return {
-    status: row.status as ChannelStatus,
-    policy: row.policy as ChannelPolicy,
-    role: row.role as ContactRole,
-  };
-}
-
 /**
  * Heal a guardian channel's identity address when the JWT principal no longer
  * matches the stored guardian binding after a DB reset. The principalId ACL

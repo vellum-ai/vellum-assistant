@@ -66,10 +66,10 @@ mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
   ) => list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
-// Member ACL rides on memberRecord via getLocalMemberAcl; no local contact here.
+// Member ACL rides on memberRecord via the member-verdict cache; no local
+// contact here.
 mock.module("../../../contacts/contact-store.js", () => ({
   findContactByAddress: () => null,
-  getLocalMemberAcl: () => null,
 }));
 
 mock.module("../../../config/env.js", () => ({

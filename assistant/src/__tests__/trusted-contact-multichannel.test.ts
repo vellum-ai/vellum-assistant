@@ -72,11 +72,8 @@ mock.module("../runtime/approval-message-composer.js", () => ({
   composeApprovalMessageGenerative: async () => "mock generative message",
 }));
 
-import {
-  findContactChannel,
-  getLocalMemberAcl,
-} from "../contacts/contact-store.js";
-import { getDb } from "../memory/db-connection.js";
+import { findContactChannel } from "../contacts/contact-store.js";
+import { getDb, getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
   createOutboundSession,
@@ -274,7 +271,13 @@ for (const config of CHANNEL_CONFIGS) {
       });
 
       expect(contactResult).not.toBeNull();
-      const acl = getLocalMemberAcl(contactResult!.channel.id);
+      // Assert the gateway dual-write landed in the local ACL columns.
+      const acl = getSqlite()
+        .query("SELECT status, policy FROM contact_channels WHERE id = ?")
+        .get(contactResult!.channel.id) as {
+        status: string;
+        policy: string;
+      } | null;
       expect(acl!.status).toBe("active");
       expect(acl!.policy).toBe("allow");
       expect(contactResult!.channel.type).toBe(config.channel);

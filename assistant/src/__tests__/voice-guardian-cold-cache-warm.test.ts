@@ -49,7 +49,6 @@ mock.module("../ipc/gateway-client.js", () => ({
 // cached delivery decides it); return null so the member path is a no-op.
 mock.module("../contacts/contact-store.js", () => ({
   findContactByAddress: () => null,
-  getLocalMemberAcl: () => null,
 }));
 
 import {

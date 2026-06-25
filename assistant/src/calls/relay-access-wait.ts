@@ -6,12 +6,10 @@
  * and makes the wait-state logic independently testable.
  */
 
-import {
-  findContactChannel,
-  getLocalMemberAcl,
-} from "../contacts/contact-store.js";
+import { findContactChannel } from "../contacts/contact-store.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import { getCachedMemberAcl } from "../runtime/member-verdict-cache.js";
 import { getLogger } from "../util/logger.js";
 import {
   getGuardianWaitUpdateInitialIntervalMs,
@@ -256,7 +254,7 @@ export function emitAccessRequestCallbackHandoff(
         externalChatId: fromNumber,
       });
       if (contactResult) {
-        const acl = getLocalMemberAcl(contactResult.channel.id);
+        const acl = getCachedMemberAcl("phone", fromNumber);
         if (acl?.status === "active" && acl.policy === "allow") {
           requesterMemberId = contactResult.channel.id;
         }
