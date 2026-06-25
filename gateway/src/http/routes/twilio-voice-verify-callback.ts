@@ -31,8 +31,11 @@ import {
   failureTwiml,
 } from "../../voice/verification.js";
 import { createGuardianBinding } from "../../auth/guardian-bootstrap.js";
-import { assistantDbQuery } from "../../db/assistant-db-proxy.js";
-import { revokeExistingChannelGuardian } from "../../verification/binding-helpers.js";
+import {
+  getExistingGuardianBinding,
+  resolveCanonicalPrincipal,
+  revokeExistingChannelGuardian,
+} from "../../verification/binding-helpers.js";
 import { upsertVerifiedContactChannel } from "../../verification/contact-helpers.js";
 
 const log = getLogger("twilio-voice-verify-callback");
@@ -121,33 +124,14 @@ export function createTwilioVoiceVerifyCallbackHandler(
     // Verification succeeded — create guardian binding if this is a guardian verification
     if (result.verificationType === "guardian") {
       try {
-        // Resolve the canonical principal from the vellum channel guardian binding
-        const vellumGuardians = await assistantDbQuery<{
-          principalId: string | null;
-        }>(
-          `SELECT c.principal_id AS principalId
-           FROM contacts c
-           JOIN contact_channels cc ON cc.contact_id = c.id
-           WHERE c.role = 'guardian' AND cc.type = 'vellum' AND cc.status = 'active'
-           LIMIT 1`,
-          [],
-        );
-        const canonicalPrincipal =
-          vellumGuardians[0]?.principalId ?? fromNumber;
+        // Resolve the canonical principal from the gateway DB (ACL source of
+        // truth) via the vellum channel guardian binding.
+        const canonicalPrincipal = await resolveCanonicalPrincipal(fromNumber);
 
-        // Check for existing phone guardian binding conflict
-        const existingPhoneGuardians = await assistantDbQuery<{
-          address: string;
-        }>(
-          `SELECT cc.address
-           FROM contacts c
-           JOIN contact_channels cc ON cc.contact_id = c.id
-           WHERE c.role = 'guardian' AND cc.type = 'phone' AND cc.status = 'active'
-           LIMIT 1`,
-          [],
-        );
-
-        const existingGuardian = existingPhoneGuardians[0];
+        // Check for an existing phone guardian binding conflict against the
+        // gateway DB so the revoke below never displaces a real gateway
+        // binding based on a stale assistant mirror.
+        const existingGuardian = await getExistingGuardianBinding("phone");
         if (existingGuardian && existingGuardian.address !== fromNumber) {
           log.warn(
             {
