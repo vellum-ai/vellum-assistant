@@ -415,7 +415,7 @@
       "scope": "assistant",
       "key": "os-beta",
       "label": "OS Beta",
-      "description": "Enable the OS Beta model profile (GLM 5.2 / Fireworks) in the assistant's model profile selection.",
+      "description": "Enable the OS Beta model profile (MiniMax M3 / Together) in the assistant's model profile selection.",
       "defaultEnabled": false
     }
   ]
