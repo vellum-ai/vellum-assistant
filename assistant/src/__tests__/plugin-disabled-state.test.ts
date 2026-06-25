@@ -14,25 +14,25 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { getPluginToolDefinitions } from "../tools/registry.js";
+import {
+  getPluginToolDefinitions,
+  registerPluginTools,
+} from "../tools/registry.js";
 import {
   getHooksFor,
   registerPlugin,
   resetPluginRegistryForTests,
   unregisterPlugin,
 } from "../plugins/registry.js";
-import { registerPluginTools } from "../tools/registry.js";
 import { type HookFunction, type Plugin } from "../plugins/types.js";
+import { RiskLevel } from "../permissions/types.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 
 const TEST_WORKSPACE_DIR = join(
   tmpdir(),
   `vellum-plugin-disabled-state-test-${process.pid}-${Date.now()}`,
 );
 process.env.VELLUM_WORKSPACE_DIR = TEST_WORKSPACE_DIR;
-
-function sentinelPath(name: string): string {
-  return join(TEST_WORKSPACE_DIR, "plugins", name, ".disabled");
-}
 
 async function createSentinel(name: string): Promise<void> {
   const dir = join(TEST_WORKSPACE_DIR, "plugins", name);
@@ -55,6 +55,23 @@ function buildPlugin(
   };
 }
 
+function makeFakeTool(name: string): Tool {
+  return {
+    name,
+    description: `Fake ${name}`,
+    defaultRiskLevel: RiskLevel.Low,
+    executionTarget: "sandbox",
+    input_schema: { type: "object", properties: {}, required: [] },
+    category: "plugin",
+    async execute(
+      _input: Record<string, unknown>,
+      _context: ToolContext,
+    ): Promise<ToolExecutionResult> {
+      return { content: "ok", isError: false };
+    },
+  };
+}
+
 beforeEach(() => {
   resetPluginRegistryForTests();
 });
@@ -73,6 +90,7 @@ describe("per-surface disabled-state filtering", () => {
     const plugin = buildPlugin("default-test-hook", {
       "user-prompt-submit": () => {
         hookFired = true;
+        return Promise.resolve();
       },
     });
     registerPlugin(plugin);
@@ -94,7 +112,7 @@ describe("per-surface disabled-state filtering", () => {
 
   test("getHooksFor re-includes hooks when a disabled plugin is re-enabled", async () => {
     const plugin = buildPlugin("default-test-reenable", {
-      "user-prompt-submit": () => {},
+      "user-prompt-submit": () => Promise.resolve(),
     });
     registerPlugin(plugin);
 
@@ -112,14 +130,7 @@ describe("per-surface disabled-state filtering", () => {
   test("getPluginToolDefinitions filters out tools from a disabled plugin", async () => {
     const plugin: Plugin = {
       manifest: { name: "default-test-tools", version: "1.0.0" },
-      tools: [
-        {
-          name: "test_tool",
-          description: "A test tool",
-          parameters: { type: "object", properties: {} },
-          category: "plugin",
-        },
-      ],
+      tools: [makeFakeTool("test_tool")],
     };
     registerPlugin(plugin);
     registerPluginTools("default-test-tools", plugin.tools!);
@@ -143,10 +154,10 @@ describe("per-surface disabled-state filtering", () => {
 
   test("disabling one plugin does not affect others", async () => {
     const pluginA = buildPlugin("default-test-alpha", {
-      "user-prompt-submit": () => {},
+      "user-prompt-submit": () => Promise.resolve(),
     });
     const pluginB = buildPlugin("default-test-beta", {
-      "user-prompt-submit": () => {},
+      "user-prompt-submit": () => Promise.resolve(),
     });
     registerPlugin(pluginA);
     registerPlugin(pluginB);
@@ -168,7 +179,7 @@ describe("per-surface disabled-state filtering", () => {
 
   test("unregisterPlugin removes hooks from the hook registry", async () => {
     const plugin = buildPlugin("default-test-unreg", {
-      "user-prompt-submit": () => {},
+      "user-prompt-submit": () => Promise.resolve(),
     });
     registerPlugin(plugin);
 
