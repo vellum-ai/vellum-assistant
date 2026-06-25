@@ -12,7 +12,7 @@
  */
 
 import type { ChannelId } from "../channels/types.js";
-import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
+import { getGuardianDeliveryFresh } from "../contacts/guardian-delivery-reader.js";
 import type { ChannelStatus } from "../contacts/types.js";
 import {
   createCanonicalGuardianRequest,
@@ -99,7 +99,7 @@ export async function notifyGuardianOfAccessRequest(
   // source-channel match validated against the vellum anchor, else the vellum
   // anchor).
   const anchored = resolveAnchoredGuardian({
-    guardians: await getGuardianDelivery(),
+    guardians: await getGuardianDeliveryFresh(),
     sourceChannel,
   });
   const guardianExternalUserId = anchored?.address ?? null;
