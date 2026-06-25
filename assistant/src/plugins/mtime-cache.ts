@@ -35,10 +35,7 @@ import {
   runShutdownHook,
   WORKSPACE_HOOKS_OWNER,
 } from "../hooks/hook-loader.js";
-import type {
-  PluginHookFn,
-  PluginShutdownContext,
-} from "../plugin-api/types.js";
+import type { PluginHookFn, ShutdownContext } from "../plugin-api/types.js";
 import {
   registerPluginTools,
   unregisterPluginTools,
@@ -439,7 +436,7 @@ const activatedPlugins: Array<{ name: string }> = [];
  */
 const activatedNames = new Set<string>();
 
-const shutdownContext: PluginShutdownContext = {
+const shutdownContext: ShutdownContext = {
   assistantVersion: APP_VERSION,
 };
 

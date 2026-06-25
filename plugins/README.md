@@ -152,9 +152,9 @@ plugin.
 
 ```ts
 // hooks/init.ts
-import type { PluginInitContext } from "@vellumai/plugin-api";
+import type { InitContext } from "@vellumai/plugin-api";
 
-export default async function init(ctx: PluginInitContext): Promise<void> {
+export default async function init(ctx: InitContext): Promise<void> {
   // ctx.config            — your validated config (typed `unknown` for now)
   // ctx.logger            — pino child, bound to { plugin: <name> }
   // ctx.pluginStorageDir  — writable dir at <workspace>/plugins-data/<name>/
@@ -176,10 +176,10 @@ explicit unload, etc.).
 
 ```ts
 // hooks/shutdown.ts
-import type { PluginShutdownContext } from "@vellumai/plugin-api";
+import type { ShutdownContext } from "@vellumai/plugin-api";
 
 export default async function shutdown(
-  ctx: PluginShutdownContext,
+  ctx: ShutdownContext,
 ): Promise<void> {
   // ctx.assistantVersion  — host semver string
 }
@@ -286,7 +286,7 @@ whenever you need the current set — at `init` to build a map once, or per call
 
 ```ts
 // hooks/init.ts — build and validate the router's category → profile map
-import { getModelProfiles, type PluginInitContext } from "@vellumai/plugin-api";
+import { getModelProfiles, type InitContext } from "@vellumai/plugin-api";
 
 const CATEGORY_PROFILE: Record<string, string> = {
   chat: "cost-optimized",
@@ -294,7 +294,7 @@ const CATEGORY_PROFILE: Record<string, string> = {
   deep: "quality-optimized",
 };
 
-export default function init(ctx: PluginInitContext): void {
+export default function init(ctx: InitContext): void {
   const routable = new Set(
     getModelProfiles()
       .filter((p) => !p.isDisabled)

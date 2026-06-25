@@ -37,8 +37,8 @@
  *   (optionally overriding the profile) and run inference through the
  *   workspace's configured profiles and credentials — no plugin-supplied API key
  *
- * - {@link PluginInitContext} — passed to `init` hook at bootstrap
- * - {@link PluginShutdownContext} — passed to `shutdown` hook at teardown
+ * - {@link InitContext} — passed to `init` hook at bootstrap
+ * - {@link ShutdownContext} — passed to `shutdown` hook at teardown
  * - {@link UserPromptSubmitContext} — passed to `user-prompt-submit` hook,
  *   fired immediately before the agent loop receives a user's prompt
  * - {@link PostCompactContext} — passed to `post-compact` hook, fired after
@@ -98,16 +98,16 @@ export type {
 export type { LLMCallSite } from "../config/schemas/llm.js";
 export type {
   AgentLoopExitReason,
+  InitContext,
   ModelProfileInfo,
   PluginHookFn,
-  PluginInitContext,
   PluginLogger,
-  PluginShutdownContext,
   PostCompactContext,
   PostModelCallContext,
   PostModelCallDecision,
   PostToolUseContext,
   PreModelCallContext,
+  ShutdownContext,
   StopContext,
   ToolContext,
   ToolDefinition,
