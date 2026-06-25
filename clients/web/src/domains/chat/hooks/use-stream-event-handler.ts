@@ -28,6 +28,7 @@ import {
 import {
   handleStreamError,
   handleConversationErrorEvent,
+  handleConversationNoticeEvent,
 } from "@/domains/chat/utils/stream-handlers/error-handlers";
 import {
   handleSecretRequest,
@@ -232,6 +233,7 @@ export function useStreamEventHandler(
         getTurnState: () => useTurnStore.getState(),
         endTurn,
         setError: store.setError,
+        setNotice: store.setNotice,
         cancelAndClearStream: useStreamStore.getState().cancelAndClearStream,
         cancelReconciliation,
         startReconciliationLoop,
@@ -287,6 +289,9 @@ export function useStreamEventHandler(
           break;
         case "conversation_error":
           handleConversationErrorEvent(event, ctx);
+          break;
+        case "conversation_notice":
+          handleConversationNoticeEvent(event, ctx);
           break;
         case "generation_cancelled":
           handleGenerationCancelled(event, ctx);

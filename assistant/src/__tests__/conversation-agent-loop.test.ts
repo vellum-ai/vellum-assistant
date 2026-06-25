@@ -10,8 +10,14 @@ import {
 } from "bun:test";
 
 import type { LoopToolExecutor } from "../agent/loop.js";
+import {
+  queueConversationNotice,
+  resetConversationNoticesForTests,
+} from "../daemon/conversation-notices.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
+import { registerPlugin } from "../plugins/registry.js";
 import type { Message, Provider, ToolDefinition } from "../providers/types.js";
 import { ContextOverflowError } from "../providers/types.js";
 
@@ -273,8 +279,8 @@ const deleteMessageByIdMock = mock(() => ({
 const reserveMessageMock = mock(async () => ({ id: "msg-reserve" }));
 const updateMessageContentMock = mock(() => {});
 mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationUsage: () => {},
   updateMessageMetadata: updateMessageMetadataMock,
@@ -867,7 +873,14 @@ beforeEach(() => {
   indexMessageNowMock.mockClear();
   projectAssistantMessageMock.mockClear();
   publishSyncInvalidationMock.mockClear();
+  resolveAssistantAttachmentsMock.mockClear();
+  resolveAssistantAttachmentsMock.mockImplementation(async () => ({
+    assistantAttachments: [],
+    emittedAttachments: [],
+    directiveWarnings: [],
+  }));
   mockMessageById = null;
+  resetConversationNoticesForTests();
   // The compaction pipeline runs through the plugin registry; reset and
   // re-register every default so it dispatches to middleware backed by the
   // mocked collaborators these tests install (`syncMessageToDisk`, etc.)
@@ -876,6 +889,120 @@ beforeEach(() => {
 });
 
 describe("session-agent-loop", () => {
+  describe("user-prompt-submit hook failures", () => {
+    test("logs and continues with prior hook mutations", async () => {
+      registerPlugin({
+        manifest: {
+          name: "test-user-prompt-rewrite",
+          version: "1.0.0",
+        },
+        hooks: {
+          "user-prompt-submit": async (_ctx: UserPromptSubmitContext) => ({
+            latestMessages: [
+              {
+                role: "user" as const,
+                content: [{ type: "text" as const, text: "rewritten prompt" }],
+              },
+            ],
+          }),
+        },
+      });
+      registerPlugin({
+        manifest: {
+          name: "test-user-prompt-throw",
+          version: "1.0.0",
+        },
+        hooks: {
+          "user-prompt-submit": async () => {
+            throw new Error("simulated hook failure");
+          },
+        },
+      });
+
+      const events: ServerMessage[] = [];
+      const ctx = makeCtx({ providerResponses: [textResponse("ok")] });
+      const runSpy = spyOn(ctx.agentLoop, "run");
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(runSpy).toHaveBeenCalledTimes(1);
+      const call = runSpy.mock.calls[0]?.[0] as
+        | { messages: Message[] }
+        | undefined;
+      expect(call?.messages[0]?.content).toEqual([
+        { type: "text", text: "rewritten prompt" },
+      ]);
+      expect(
+        events.find((event) => event.type === "conversation_error"),
+      ).toBeUndefined();
+      expect(
+        events.find((event) => event.type === "message_complete"),
+      ).toBeDefined();
+    });
+  });
+
+  describe("conversation notices", () => {
+    test("emits queued billing notices after a successful turn", async () => {
+      const events: ServerMessage[] = [];
+      const ctx = makeCtx({ providerResponses: [textResponse("ok")] });
+      queueConversationNotice(ctx.conversationId, "memory-v3-test", {
+        source: "memory_v3",
+        code: "PROVIDER_BILLING",
+        userMessage: "You've run out of credits.",
+        errorCategory: "credits_exhausted",
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(
+        events.find((event) => event.type === "conversation_error"),
+      ).toBeUndefined();
+      const messageCompleteIndex = events.findIndex(
+        (event) => event.type === "message_complete",
+      );
+      const conversationNoticeIndex = events.findIndex(
+        (event) => event.type === "conversation_notice",
+      );
+
+      expect(messageCompleteIndex).toBeGreaterThanOrEqual(0);
+      expect(conversationNoticeIndex).toBeGreaterThan(messageCompleteIndex);
+      expect(events[conversationNoticeIndex]).toEqual({
+        type: "conversation_notice",
+        conversationId: "test-conv",
+        source: "memory_v3",
+        code: "PROVIDER_BILLING",
+        userMessage: "You've run out of credits.",
+        errorCategory: "credits_exhausted",
+      });
+    });
+
+    test("clears queued notices when post-loop success work fails", async () => {
+      resolveAssistantAttachmentsMock.mockImplementation(async () => {
+        throw new Error("attachment resolution failed");
+      });
+      const events: ServerMessage[] = [];
+      const ctx = makeCtx({ providerResponses: [textResponse("ok")] });
+      queueConversationNotice(ctx.conversationId, "memory-v3-test", {
+        source: "memory_v3",
+        code: "PROVIDER_BILLING",
+        userMessage: "You've run out of credits.",
+        errorCategory: "credits_exhausted",
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(
+        events.find((event) => event.type === "conversation_notice"),
+      ).toBeUndefined();
+      expect(
+        events.find((event) => event.type === "message_complete"),
+      ).toBeUndefined();
+      expect(
+        events.find((event) => event.type === "conversation_error"),
+      ).toBeDefined();
+    });
+  });
+
   describe("timezone turn context", () => {
     test("passes ctx.clientTimezone and ui.detectedTimezone into timezone resolution", async () => {
       mockUiConfig = {

@@ -3,6 +3,7 @@ import { Cable, Loader2, Plus, RefreshCw } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { McpAddServerModal } from "./mcp-add-server-modal";
 import {
   addMcpServer,
@@ -29,6 +30,7 @@ const MCP_TOOLS_KEY = "mcp-tools-summary";
 function McpPageInner() {
   const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
+  const mcpAddServerEnabled = useAssistantFeatureFlagStore.use.mcpAddServer();
 
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [configureServerId, setConfigureServerId] = useState<string | null>(null);
@@ -150,6 +152,7 @@ function McpPageInner() {
         toast.error(`Authentication polling failed for ${serverId}`);
       } finally {
         setAuthenticatingServerId(null);
+        invalidateAll();
       }
     },
     [assistantId, invalidateAll],
@@ -179,7 +182,14 @@ function McpPageInner() {
       command?: string;
       args?: string[];
       headers?: Record<string, string>;
+      autoAuth?: boolean;
     }) => {
+      // Pre-open a popup synchronously while we still have user activation
+      // from the button click. Browsers block window.open after async calls.
+      const authWindow = config.autoAuth
+        ? window.open("about:blank", "_blank", "noopener")
+        : null;
+
       setIsAdding(true);
       try {
         await addMcpServer(assistantId, config);
@@ -188,8 +198,49 @@ function McpPageInner() {
         setAddModalOpen(false);
       } catch {
         toast.error(`Failed to add ${config.name}`);
-      } finally {
+        authWindow?.close();
         setIsAdding(false);
+        return;
+      }
+      setIsAdding(false);
+
+      if (config.autoAuth) {
+        setAuthenticatingServerId(config.name);
+        try {
+          const result = await startMcpAuth(assistantId, config.name);
+          if (result.already_authenticated) {
+            authWindow?.close();
+            toast.success(`${config.name} is already authenticated`);
+            invalidateAll();
+            return;
+          }
+          if (authWindow) {
+            authWindow.location.href = result.auth_url;
+          } else {
+            window.open(result.auth_url, "_blank", "noopener,noreferrer");
+          }
+          const maxAttempts = 60;
+          for (let i = 0; i < maxAttempts; i++) {
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+            const status = await pollMcpAuthStatus(assistantId, config.name);
+            if (status.status === "complete") {
+              toast.success(`${config.name} authenticated successfully`);
+              invalidateAll();
+              return;
+            }
+            if (status.status === "error") {
+              toast.error(status.error ?? `Authentication failed for ${config.name}`);
+              return;
+            }
+          }
+          toast.error(`Authentication timed out for ${config.name}`);
+        } catch {
+          authWindow?.close();
+          toast.error(`Failed to start authentication for ${config.name}`);
+        } finally {
+          setAuthenticatingServerId(null);
+          invalidateAll();
+        }
       }
     },
     [assistantId, invalidateAll],
@@ -251,14 +302,16 @@ function McpPageInner() {
             tooltip="Reload all servers"
             aria-label="Reload MCP servers"
           />
-          <Button
-            variant="primary"
-            size="compact"
-            leftIcon={<Plus />}
-            onClick={() => setAddModalOpen(true)}
-          >
-            Add Server
-          </Button>
+          {mcpAddServerEnabled ? (
+            <Button
+              variant="primary"
+              size="compact"
+              leftIcon={<Plus />}
+              onClick={() => setAddModalOpen(true)}
+            >
+              Add Server
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -306,12 +359,14 @@ function McpPageInner() {
         </div>
       )}
 
-      <McpAddServerModal
-        open={addModalOpen}
-        onClose={() => setAddModalOpen(false)}
-        onAdd={handleAdd}
-        isPending={isAdding}
-      />
+      {mcpAddServerEnabled ? (
+        <McpAddServerModal
+          open={addModalOpen}
+          onClose={() => setAddModalOpen(false)}
+          onAdd={handleAdd}
+          isPending={isAdding}
+        />
+      ) : null}
 
       <McpServerDetailModal
         server={configureServer}

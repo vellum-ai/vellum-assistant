@@ -58,6 +58,7 @@ export interface StreamHandlerContext {
 
   // --- Error & stream lifecycle ---
   setError: Dispatch<SetStateAction<ChatError | null>>;
+  setNotice: Dispatch<SetStateAction<ChatError | null>>;
   /** Cancel the active SSE stream and clear the store's stream state. */
   cancelAndClearStream: () => void;
 

@@ -23,6 +23,7 @@ let mockIsGatewayAuth = false;
 let mockIsLocalMode = false;
 let mockIsRemoteGatewayMode = false;
 let mockPlatformAssistants: unknown[] = [];
+let mockSelectedAssistant: { assistantId: string; cloud: string } | undefined;
 let mockPrimeError: Error | null = null;
 let mockGatewayToken: string | null = null;
 const setSelectedAssistantMock = mock(async (_id: string | null) => {});
@@ -116,6 +117,9 @@ const listAssistantsMock = mock(async () => mockListAssistantsResult);
 const syncPlatformAssistantsToLockfileMock = mock(
   async (_list: unknown, _orgId?: string) => {},
 );
+const bootstrapLocalAssistantPlatformIdentityMock = mock(
+  (_assistantId?: string) => {},
+);
 
 mock.module("@/lib/auth/allauth-client", () => ({
   getSession: async () => {
@@ -170,10 +174,16 @@ mock.module("@/lib/local-mode", () => ({
   isPlatformAssistant: (a: { cloud?: string }) => a.cloud === "vellum",
   getPlatformAssistants: () => mockPlatformAssistants,
   getLocalAssistants: () => [],
+  getSelectedAssistant: () => mockSelectedAssistant,
   primeLocalGatewayConnection: primeLocalGatewayConnectionMock,
   primeLocalGatewayConnectionWithRepair:
     primeLocalGatewayConnectionWithRepairMock,
   syncPlatformAssistantsToLockfile: syncPlatformAssistantsToLockfileMock,
+}));
+
+mock.module("@/lib/local-platform-identity", () => ({
+  bootstrapLocalAssistantPlatformIdentity:
+    bootstrapLocalAssistantPlatformIdentityMock,
 }));
 
 mock.module("@/runtime/native-auth", () => ({
@@ -324,6 +334,7 @@ beforeEach(() => {
   mockIsLocalMode = false;
   mockIsRemoteGatewayMode = false;
   mockPlatformAssistants = [];
+  mockSelectedAssistant = undefined;
   mockIsNativePlatform = false;
   mockIsBiometricEnabled = false;
   mockBiometricToken = null;
@@ -360,6 +371,7 @@ beforeEach(() => {
   mockListAssistantsResult = [];
   listAssistantsMock.mockClear();
   syncPlatformAssistantsToLockfileMock.mockClear();
+  bootstrapLocalAssistantPlatformIdentityMock.mockClear();
   resetAuthStore();
 });
 
@@ -491,6 +503,19 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(useAuthStore.getState().platformSession).toBe("present");
     // A live probe confirmed it — not a believed offline restore.
     expect(useAuthStore.getState().platformSessionRestoredOffline).toBe(false);
+  });
+
+  test("successful local platform probe bootstraps the selected local assistant identity", async () => {
+    mockIsLocalMode = true;
+    mockIsGatewayAuth = true;
+    mockGatewayToken = "access-token";
+    mockSelectedAssistant = { assistantId: "local-a", cloud: "local" };
+    sessionUser = { id: "user-1", email: "user@example.com" };
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(bootstrapLocalAssistantPlatformIdentityMock).toHaveBeenCalledWith();
   });
 
   test("initSession uses server consent when server has a consent record", async () => {
@@ -1018,6 +1043,21 @@ describe("connectLocalAssistant", () => {
     await useAuthStore.getState().connectLocalAssistant("local-a");
 
     expect(lifecycleCheckAssistantMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("bootstraps a newly connected local assistant when already signed into the platform", async () => {
+    mockIsLocalMode = true;
+    mockPlatformAssistants = [];
+    useAuthStore.setState({
+      platformSession: "present",
+      platformSessionRestoredOffline: false,
+    });
+
+    await useAuthStore.getState().connectLocalAssistant("local-a");
+
+    expect(bootstrapLocalAssistantPlatformIdentityMock).toHaveBeenCalledWith(
+      "local-a",
+    );
   });
 
   test("rethrows the prime failure without selecting or marking the session logged in", async () => {

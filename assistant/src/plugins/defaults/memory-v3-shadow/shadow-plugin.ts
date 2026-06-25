@@ -605,13 +605,9 @@ export async function observeTurn(
     writeSelections(conversationId, turnIndex, rows);
     return result;
   } catch (err) {
-    // An INFRASTRUCTURE failure (the selector lost its provider — e.g. a
-    // transient CES credential blip) must NOT be silently swallowed: re-throw
-    // so the LIVE injector hard-fails the turn (a clean, retryable failure)
-    // rather than shipping it with no `<memory>` block. The shadow/observation
-    // callers (the injector in shadow mode, runShadowObservation) catch this
-    // and swallow it, so observation never fails a turn. Other (non-infra)
-    // errors stay non-fatal and degrade to no v3 block, as before.
+    // Infrastructure failures are surfaced to callers that want distinct
+    // logging from ordinary orchestration misses. Observation callers swallow
+    // them so memory-v3 never fails the turn.
     if (err instanceof MemoryV3RetrievalUnavailableError) {
       throw err;
     }
@@ -641,8 +637,6 @@ export async function runShadowObservation(
   try {
     await observeTurn(conversationId, turnIndex);
   } catch {
-    // Shadow observation is fire-and-forget and must NEVER fail a turn.
-    // `observeTurn` now re-throws infra failures so the LIVE injector can
-    // hard-fail on them; here (observation only) we swallow them.
+    // Shadow observation is fire-and-forget and must never fail a turn.
   }
 }

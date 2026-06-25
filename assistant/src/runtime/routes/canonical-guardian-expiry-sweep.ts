@@ -8,13 +8,16 @@
  * requester.
  *
  * This sweep operates on the unified canonical domain
- * (`canonical_guardian_requests`) and does not auto-deny pending interactions
- * or deliver channel notices — the canonical request status transition is the
- * single source of truth, and consumers (resolvers, clients polling prompts)
- * observe the expired status directly.
+ * (`canonical_guardian_requests`). On expiry it transitions the request status
+ * (the single source of truth), withdraws the approval cards on every surface,
+ * notifies the requester that their request expired, and releases any in-memory
+ * pending interaction. Requester notices are delivered straight to the
+ * requester's channel — not the guardian-facing notification pipeline — and the
+ * guardian stays passive, since the withdrawn card already reflects expiry.
  */
 
 import { withdrawGuardianRequestCards } from "../../approvals/guardian-card-withdrawal.js";
+import { notifyExpiredGuardianRequest } from "../../approvals/guardian-expiry-notifier.js";
 import {
   listCanonicalGuardianRequests,
   resolveCanonicalGuardianRequest,
@@ -39,7 +42,7 @@ let sweepInProgress = false;
  * concurrent decision that wins the race is never overwritten by the
  * sweep.  Returns the count of requests transitioned to expired.
  */
-async function sweepExpiredCanonicalGuardianRequests(): Promise<number> {
+export async function sweepExpiredCanonicalGuardianRequests(): Promise<number> {
   const pending = listCanonicalGuardianRequests({ status: "pending" });
   const now = Date.now();
   let expiredCount = 0;
@@ -76,6 +79,11 @@ async function sweepExpiredCanonicalGuardianRequests(): Promise<number> {
         request: resolved,
         status: "expired",
       });
+
+      // Notify the requester their request expired and release any in-memory
+      // pending interaction. Best-effort and non-throwing, like the card
+      // withdrawal above.
+      await notifyExpiredGuardianRequest(resolved);
     }
   }
 

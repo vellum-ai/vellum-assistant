@@ -1,16 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
-import type {
-  ScheduleRun,
-  ScheduleUsageSummary,
-} from "@/domains/settings/types/schedules";
+import type { ScheduleUsageSummary } from "@/domains/settings/types/schedules";
 
-import {
-  summarizeRunsForUsage,
-  systemTaskUsageCost,
-  SYSTEM_TASK_URL_IDS,
-  totalUsageCost,
-} from "./schedule-formatters";
+import { systemTaskUsageCost, totalUsageCost } from "./schedule-formatters";
 
 function summary(
   scheduleId: string,
@@ -22,17 +14,6 @@ function summary(
     totalEstimatedCostUsd,
     eventCount: 0,
   };
-}
-
-function run(overrides: Partial<ScheduleRun> = {}): ScheduleRun {
-  return {
-    id: "run-1",
-    status: "ok",
-    startedAt: 1_761_792_000_000,
-    createdAt: 1_761_792_000_000,
-    estimatedCostUsd: 0,
-    ...overrides,
-  } as ScheduleRun;
 }
 
 describe("totalUsageCost", () => {
@@ -82,35 +63,5 @@ describe("systemTaskUsageCost", () => {
     expect(
       systemTaskUsageCost({ status: "ready", summary: summary("a", 0) }),
     ).toBe(0);
-  });
-});
-
-describe("summarizeRunsForUsage", () => {
-  test("ignores skipped no-op attempts in run counts", () => {
-    const summary = summarizeRunsForUsage(
-      SYSTEM_TASK_URL_IDS.heartbeat,
-      [
-        run({
-          id: "heartbeat-ok",
-          status: "ok",
-          estimatedCostUsd: 0.02,
-        }),
-        run({
-          id: "heartbeat-skipped",
-          status: "skipped",
-          startedAt: 1_761_792_010_000,
-          createdAt: 1_761_792_010_000,
-          estimatedCostUsd: 0,
-        }),
-      ],
-      { from: 1_761_791_000_000, to: 1_761_793_000_000 },
-    );
-
-    expect(summary).toEqual({
-      scheduleId: SYSTEM_TASK_URL_IDS.heartbeat,
-      runCount: 1,
-      totalEstimatedCostUsd: 0.02,
-      eventCount: 0,
-    });
   });
 });

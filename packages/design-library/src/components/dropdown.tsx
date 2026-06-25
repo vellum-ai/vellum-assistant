@@ -17,6 +17,7 @@ import { createPortal } from "react-dom";
 
 import { cn } from "../utils/cn";
 import { usePortalContainer } from "../utils/portal-container";
+import { Tooltip } from "./tooltip";
 
 export interface DropdownMenuPosition {
   readonly left: number;
@@ -31,6 +32,12 @@ export interface DropdownOption<T extends string> {
   readonly label: string;
   readonly icon?: ReactNode;
   readonly suffix?: ReactNode;
+  /**
+   * Optional hover/focus tooltip describing the option. When present, the
+   * option row is wrapped in a styled `Tooltip` (anchored to its right) so the
+   * meaning is discoverable without selecting. Only shows while the menu is open.
+   */
+  readonly tooltip?: ReactNode;
   /**
    * When true, the option renders dimmed and cannot be selected (by click,
    * keyboard, or hover-highlight). The option still occupies a row so the
@@ -311,7 +318,7 @@ export function Dropdown<T extends string>({
         const isSelected = option.value === value;
         const isDisabled = Boolean(option.disabled);
         const isHighlighted = !isDisabled && index === highlightedIndex;
-        return (
+        const optionRow = (
           <li
             key={option.value}
             id={`${triggerId}-option-${index}`}
@@ -367,6 +374,13 @@ export function Dropdown<T extends string>({
               />
             )}
           </li>
+        );
+        return option.tooltip ? (
+          <Tooltip key={option.value} content={option.tooltip} side="right">
+            {optionRow}
+          </Tooltip>
+        ) : (
+          optionRow
         );
       })}
     </ul>

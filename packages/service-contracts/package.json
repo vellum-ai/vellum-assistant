@@ -6,6 +6,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./channels": "./src/channels.ts",
     "./credential-rpc": "./src/credential-rpc.ts",
     "./ingress": "./src/ingress.ts",
     "./twilio-ingress": "./src/twilio-ingress.ts",

@@ -22,8 +22,15 @@ export function SubagentAvatarRow({
   const overflowCount = subagentIds.length - MAX_VISIBLE_SUBAGENT_AVATARS;
 
   return (
-    <div className="flex items-center gap-3">
-      <div className="flex items-center gap-1">
+    <button
+      type="button"
+      onClick={onExpand}
+      aria-label="Show subagent details"
+      data-testid="subagent-avatar-row-details"
+      className="flex cursor-pointer items-center gap-3"
+    >
+      {/* pointer-events-none so clicking an avatar triggers the button, not the avatar. */}
+      <div className="pointer-events-none flex items-center gap-1">
         {subagentIds
           .slice(0, MAX_VISIBLE_SUBAGENT_AVATARS)
           .map((id) => (
@@ -45,13 +52,7 @@ export function SubagentAvatarRow({
         )}
       </div>
 
-      <button
-        type="button"
-        onClick={onExpand}
-        aria-label="Show subagent details"
-        data-testid="subagent-avatar-row-details"
-        className="flex cursor-pointer items-center gap-1"
-      >
+      <span className="flex items-center gap-1">
         <Typography
           variant="body-medium-default"
           className="text-[var(--content-tertiary)]"
@@ -59,7 +60,7 @@ export function SubagentAvatarRow({
           Details
         </Typography>
         <ChevronDown className="h-3 w-3 text-[var(--content-tertiary)]" />
-      </button>
-    </div>
+      </span>
+    </button>
   );
 }

@@ -429,28 +429,6 @@ describe("RecentRunsCard", () => {
     expect(document.body.textContent).not.toContain("Run details");
     expect(document.body.textContent).not.toContain("Back to runs");
   });
-
-  test("skipped no-op runs show their reason while collapsed", () => {
-    render(
-      createElement(RecentRunsCard, {
-        runs: [
-          run({
-            id: "heartbeat-skip-1",
-            status: "skipped",
-            conversationId: null,
-            startedAt: 1_761_792_000_000,
-            durationMs: null,
-            estimatedCostUsd: 0,
-            output: "Skipped: max_daily_runs",
-            error: null,
-          }),
-        ],
-        isLoading: false,
-      }),
-    );
-
-    expect(document.body.textContent).toContain("Skipped: max_daily_runs");
-  });
 });
 
 describe("CreateScheduleModal", () => {

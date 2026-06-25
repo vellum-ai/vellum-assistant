@@ -10,7 +10,7 @@ import {
     RefreshFeedbackPill,
     type RefreshFeedback,
 } from "@/domains/chat/refresh-feedback-pill";
-import { Button, Notice } from "@vellumai/design-library";
+import { Button, Notice, type NoticeTone } from "@vellumai/design-library";
 
 /**
  * Single composition of a chat panel: a scrollable messages/empty-state
@@ -93,8 +93,12 @@ export interface ChatBodyProps {
   /** Retry handler for {@link refreshFeedback}. */
   onRetryRefresh: () => void;
 
-  /** Generic chat error rendered above the composer, or `null` when none. */
-  genericChatError: { message: string; actions?: ReactNode } | null;
+  /** Generic chat notice rendered above the composer, or `null` when none. */
+  genericChatError: {
+    message: string;
+    actions?: ReactNode;
+    tone?: NoticeTone;
+  } | null;
   /**
    * Dismiss handler for {@link genericChatError}. When provided, the
    * banner renders a "Dismiss" button as a second action next to the
@@ -144,6 +148,13 @@ export interface ChatBodyProps {
    * starter data model.
    */
   startersSlot?: ReactNode;
+
+  /**
+   * Top-center floating overlay; shown only when scrolled up. Visibility on
+   * scroll is gated here on `showScrollToLatest`; the caller passes the slot
+   * only when there is ≥1 active subagent.
+   */
+  activeSubagentsSlot?: ReactNode;
 }
 
 /**
@@ -199,6 +210,7 @@ export function ChatBody({
   channelFooterSlot,
   readonlyBannerSlot,
   startersSlot,
+  activeSubagentsSlot,
 }: ChatBodyProps) {
   const isEmptyState = scrollAreaProps.showEmptyState;
 
@@ -235,6 +247,12 @@ export function ChatBody({
     >
       <ChatScrollArea {...scrollAreaProps} />
 
+      {!isEmptyState && showScrollToLatest && activeSubagentsSlot && (
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center px-3 pt-2">
+          {activeSubagentsSlot}
+        </div>
+      )}
+
       {/* Composer stack — stays at the same tree position across the
           empty→active transition so React preserves its state (focus,
           draft text, attachments) and iOS Safari does not blur the input
@@ -268,7 +286,7 @@ export function ChatBody({
           {genericChatError && (
             <div className="mb-2">
               <Notice
-                tone="error"
+                tone={genericChatError.tone ?? "error"}
                 actions={
                   <>
                     {genericChatError.actions}

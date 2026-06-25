@@ -141,6 +141,13 @@ export function PitchStep({
   const selectedIndex = useOnboardingAvatarPoolStore.use.selectedIndex();
   const chosen = characters.length > 0 ? characters[selectedIndex] : undefined;
 
+  // Push the text/Continue block up so it doesn't crowd the eyes peeking from
+  // the bottom — more so on short viewports, where the three lines + button and
+  // the eyes are otherwise tight. The eye-wipe "above" target tracks this.
+  const shortScreen = h > 0 && h <= 800;
+  const contentTopFrac = shortScreen ? 0.12 : 0.22;
+  const topClass = shortScreen ? "top-[12%]" : "top-[22%]";
+
   // The assistant's eyes rise to wipe the first lines in, then settle at rest.
   const eyeCy = useMotionValue(0);
   const eyeScale = useMotionValue(1);
@@ -233,7 +240,7 @@ export function PitchStep({
     setCarousel2(false);
 
     const smallScale = 0.55; // up above the words
-    const aboveCy = Math.max(eyesH * 0.5, h * 0.3 - 36); // clear above the title
+    const aboveCy = Math.max(eyesH * 0.5, h * contentTopFrac - 36); // clear above the title
 
     const controls: ReturnType<typeof animate>[] = [];
     const timeouts: ReturnType<typeof setTimeout>[] = [];
@@ -310,6 +317,7 @@ export function PitchStep({
     reduce,
     art,
     h,
+    contentTopFrac,
     eyesH,
     restCy,
     eyeCy,
@@ -407,7 +415,7 @@ export function PitchStep({
         </motion.div>
       )}
 
-      <div className={`${ONBOARDING_STEP_CONTENT} max-w-3xl`}>
+      <div className={`${ONBOARDING_STEP_CONTENT.replace("top-[30%]", topClass)} max-w-3xl`}>
         <div
           className="flex w-full flex-col gap-3 text-[clamp(2.25rem,5.5vw,4.5rem)] leading-[1.15]"
           style={{ fontFamily: "var(--font-serif)" }}

@@ -11,6 +11,7 @@ import { ConfirmationRequestEventSchema } from "./events/confirmation-request.js
 import { ContactRequestEventSchema } from "./events/contact-request.js";
 import { ConversationErrorEventSchema } from "./events/conversation-error.js";
 import { ConversationListInvalidatedEventSchema } from "./events/conversation-list-invalidated.js";
+import { ConversationNoticeEventSchema } from "./events/conversation-notice.js";
 import { ConversationTitleUpdatedEventSchema } from "./events/conversation-title-updated.js";
 import { DiskPressureStatusChangedEventSchema } from "./events/disk-pressure-status-changed.js";
 import { DocumentCommentCreatedEventSchema } from "./events/document-comment-created.js";
@@ -138,6 +139,11 @@ export {
   type ConversationListInvalidatedReason,
   ConversationListInvalidatedReasonSchema,
 } from "./events/conversation-list-invalidated.js";
+export {
+  type ConversationNoticeEvent,
+  ConversationNoticeEventSchema,
+  ConversationNoticeSourceSchema,
+} from "./events/conversation-notice.js";
 export {
   type ConversationTitleUpdatedEvent,
   ConversationTitleUpdatedEventSchema,
@@ -509,6 +515,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ContactRequestEventSchema,
   ConversationErrorEventSchema,
   ConversationListInvalidatedEventSchema,
+  ConversationNoticeEventSchema,
   ConversationTitleUpdatedEventSchema,
   DiskPressureStatusChangedEventSchema,
   DocumentCommentCreatedEventSchema,

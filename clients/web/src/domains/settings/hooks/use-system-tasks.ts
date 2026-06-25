@@ -17,11 +17,10 @@ import {
   useHeartbeatRunnowPostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
-  consolidationRunsGet,
-  heartbeatRunsGet,
-  retrospectiveRunsGet,
-} from "@/generated/daemon/sdk.gen";
-import { fetchSystemTaskRunsForUsage } from "@/domains/settings/utils/system-task-run-transforms";
+  selectConsolidationRuns,
+  selectHeartbeatRuns,
+  selectRetrospectiveRuns,
+} from "@/domains/settings/utils/system-task-run-transforms";
 import {
   type ScheduleRowUsage,
   SYSTEM_TASK_STATS_RUN_LIMIT,
@@ -53,9 +52,8 @@ function deriveUsage(
 
 /**
  * Composes all TanStack Query state + mutations for system tasks (heartbeat,
- * consolidation, memory retrospective). Generated SDK options provide cache
- * keys; stats queries page through generated SDK calls so usage summaries cover
- * the full window.
+ * consolidation, memory retrospective). Uses generated SDK options for both
+ * query keys and query functions — no custom fetch wrappers or hand-rolled keys.
  */
 export function useSystemTasks(assistantId: string | undefined, tz: string) {
   const queryClient = useQueryClient();
@@ -98,11 +96,6 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
     staleTime: STALE_TIME,
   });
 
-  const systemStatsRange = useMemo(
-    () => resolveScheduleUsageWindow(tz),
-    [tz],
-  );
-
   // ---------------------------------------------------------------------------
   // Stats queries (recent runs for usage summary in the list view)
   // ---------------------------------------------------------------------------
@@ -117,26 +110,9 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
     isLoading: isHeartbeatStatsLoading,
     isError: isHeartbeatStatsError,
     refetch: refetchHeartbeatStats,
-  } = useQuery<ScheduleRun[]>({
-    queryKey: heartbeatRunsGetOptions(statsOpts).queryKey,
-    queryFn: ({ signal }) =>
-      fetchSystemTaskRunsForUsage({
-        kind: "heartbeat",
-        range: systemStatsRange,
-        signal,
-        fetchPage: async (before, signal) => {
-          const { data } = await heartbeatRunsGet({
-            ...statsOpts,
-            query:
-              before == null
-                ? statsOpts.query
-                : { ...statsOpts.query, before },
-            signal,
-            throwOnError: true,
-          });
-          return data;
-        },
-      }),
+  } = useQuery({
+    ...heartbeatRunsGetOptions(statsOpts),
+    select: selectHeartbeatRuns,
     enabled: Boolean(assistantId) && heartbeatConfig != null,
     staleTime: STALE_TIME,
   });
@@ -146,26 +122,9 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
     isLoading: isConsolidationStatsLoading,
     isError: isConsolidationStatsError,
     refetch: refetchConsolidationStats,
-  } = useQuery<ScheduleRun[]>({
-    queryKey: consolidationRunsGetOptions(statsOpts).queryKey,
-    queryFn: ({ signal }) =>
-      fetchSystemTaskRunsForUsage({
-        kind: "consolidation",
-        range: systemStatsRange,
-        signal,
-        fetchPage: async (before, signal) => {
-          const { data } = await consolidationRunsGet({
-            ...statsOpts,
-            query:
-              before == null
-                ? statsOpts.query
-                : { ...statsOpts.query, before },
-            signal,
-            throwOnError: true,
-          });
-          return data;
-        },
-      }),
+  } = useQuery({
+    ...consolidationRunsGetOptions(statsOpts),
+    select: selectConsolidationRuns,
     enabled: Boolean(assistantId) && consolidationConfig?.available === true,
     staleTime: STALE_TIME,
   });
@@ -175,26 +134,9 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
     isLoading: isRetrospectiveStatsLoading,
     isError: isRetrospectiveStatsError,
     refetch: refetchRetrospectiveStats,
-  } = useQuery<ScheduleRun[]>({
-    queryKey: retrospectiveRunsGetOptions(statsOpts).queryKey,
-    queryFn: ({ signal }) =>
-      fetchSystemTaskRunsForUsage({
-        kind: "retrospective",
-        range: systemStatsRange,
-        signal,
-        fetchPage: async (before, signal) => {
-          const { data } = await retrospectiveRunsGet({
-            ...statsOpts,
-            query:
-              before == null
-                ? statsOpts.query
-                : { ...statsOpts.query, before },
-            signal,
-            throwOnError: true,
-          });
-          return data;
-        },
-      }),
+  } = useQuery({
+    ...retrospectiveRunsGetOptions(statsOpts),
+    select: selectRetrospectiveRuns,
     enabled: Boolean(assistantId) && retrospectiveConfig?.available === true,
     staleTime: STALE_TIME,
   });
@@ -202,6 +144,11 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
   // ---------------------------------------------------------------------------
   // Derived usage stats
   // ---------------------------------------------------------------------------
+
+  const systemStatsRange = useMemo(
+    () => resolveScheduleUsageWindow(tz),
+    [tz],
+  );
 
   const heartbeatUsage: ScheduleRowUsage = useMemo(
     () => deriveUsage(isHeartbeatStatsLoading, isHeartbeatStatsError, SYSTEM_TASK_URL_IDS.heartbeat, heartbeatRunsForStats, systemStatsRange),
