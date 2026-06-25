@@ -43,8 +43,8 @@ let mockedRowContent = "";
 const updates: Array<{ id: string; content: string }> = [];
 
 mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: () => ({ id: "mock-msg-id" }),
   getMessageById: (id: string) =>
     mockedRowContent ? { id, content: mockedRowContent } : null,
@@ -53,6 +53,8 @@ mock.module("../memory/conversation-crud.js", () => ({
   },
   provenanceFromTrustContext: () => ({}),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  recordConversationPersistedSeq: () => {},
+  getConversationPersistedSeq: () => null,
 }));
 
 mock.module("../memory/llm-request-log-store.js", () => ({
@@ -62,7 +64,6 @@ mock.module("../memory/llm-request-log-store.js", () => ({
 
 mock.module("../runtime/assistant-stream-state.js", () => ({
   getCurrentSeq: () => 0,
-  recordPersistedSeq: () => {},
 }));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────

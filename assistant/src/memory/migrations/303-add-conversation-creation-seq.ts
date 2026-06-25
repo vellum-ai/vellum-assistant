@@ -7,11 +7,10 @@ const COLUMN_DEFINITION = "seq INTEGER";
 /**
  * Add the `seq` column to the `conversations` table.
  *
- * The column holds the global stream `seq` high-water mark captured at the
- * moment the conversation row is inserted. It is the durable snapshot↔stream
- * alignment baseline returned by `/messages` for a conversation that has no
- * in-process persisted-seq high-water yet (a freshly created conversation, or
- * one that has aged out of the in-memory map / outlived a daemon restart). A
+ * The column holds the highest stream `seq` whose content is durably persisted
+ * to the conversation's message rows: seeded with the global high-water seq
+ * when the row is inserted and advanced on each persistence flush. It is the
+ * durable snapshot↔stream alignment baseline returned by `/messages` — a
  * client aligns its snapshot with the `/events` stream by applying only events
  * with a higher `seq`.
  *

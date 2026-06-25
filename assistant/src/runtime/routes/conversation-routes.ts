@@ -90,7 +90,7 @@ import {
   addMessage,
   extractImageSourcePaths,
   getConversation,
-  getConversationCreationSeq,
+  getConversationPersistedSeq,
   getMessages,
   getMessagesPaginated,
   hasMessages,
@@ -124,7 +124,6 @@ import {
 } from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
-import { getPersistedSeq } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   type GuardianPendingScope,
@@ -1009,16 +1008,12 @@ export function handleListMessages({
   });
 
   // Snapshot↔stream alignment token: the `seq` of the last event whose
-  // content is durably persisted for this conversation in the current
-  // daemon process. Returned on every resolved-conversation response so a
-  // client can apply only stream events with a higher `seq`. When nothing
-  // has been persisted in-process (cold/aged-out/post-restart), fall back to
-  // the durable creation-time baseline stored on the conversation row, so a
-  // freshly created conversation still advertises an alignment anchor instead
-  // of forcing a cold start.
-  const persistedSeq =
-    getPersistedSeq(resolvedConversationId) ??
-    getConversationCreationSeq(resolvedConversationId);
+  // content is durably persisted for this conversation, read from the
+  // `conversations.seq` column. Returned on every resolved-conversation
+  // response so a client can apply only stream events with a higher `seq`.
+  // Null when nothing has been persisted (the conversation was created before
+  // any stream activity, or predates the column) -- the client cold-starts.
+  const persistedSeq = getConversationPersistedSeq(resolvedConversationId);
 
   // Authoritative "is the agent mid-turn?" signal, sourced from the
   // `processing_started_at` column (persisted, survives daemon restarts).

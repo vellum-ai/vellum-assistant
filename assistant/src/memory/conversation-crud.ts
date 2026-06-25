@@ -2255,18 +2255,42 @@ export function isConversationProcessing(id: string): boolean {
 }
 
 /**
- * Global stream `seq` baseline captured on the `conversations` row when the
- * conversation was created, or `null` when none was recorded (created before
- * any stream activity, or row predates the column). `/messages` returns this
- * as the snapshot↔stream alignment baseline when no in-process persisted-seq
- * high-water exists yet. Returns `null` when the conversation row is absent.
+ * Highest stream `seq` whose content is durably persisted to this
+ * conversation's message rows, read from the `conversations.seq` column. This
+ * is the snapshot↔stream alignment baseline `/messages` returns so a client
+ * applies only stream events with a higher `seq`. `null` when none was
+ * recorded (created before any stream activity, row predates the column, or
+ * the conversation row is absent), in which case the client cold-starts.
+ *
+ * Seeded at creation with the global high-water seq and advanced on each
+ * persistence flush by {@link recordConversationPersistedSeq}.
  */
-export function getConversationCreationSeq(id: string): number | null {
+export function getConversationPersistedSeq(id: string): number | null {
   const row = rawGet<{ seq: number | null }>(
     "SELECT seq FROM conversations WHERE id = ?",
     id,
   );
   return row?.seq ?? null;
+}
+
+/**
+ * Record that conversation `id` has durably persisted all of its events
+ * through `seq`, writing the `conversations.seq` column. Called at each
+ * persistence flush with the `seq` of the last event whose content the write
+ * committed.
+ *
+ * Monotonic: the `WHERE seq IS NULL OR seq < ?` guard makes the update raise
+ * the high-water mark only, so out-of-order async commits never regress it.
+ * Non-positive or non-finite `seq` values are ignored.
+ */
+export function recordConversationPersistedSeq(id: string, seq: number): void {
+  if (!Number.isFinite(seq) || seq <= 0) return;
+  rawRun(
+    "UPDATE conversations SET seq = ? WHERE id = ? AND (seq IS NULL OR seq < ?)",
+    seq,
+    id,
+    seq,
+  );
 }
 
 /**

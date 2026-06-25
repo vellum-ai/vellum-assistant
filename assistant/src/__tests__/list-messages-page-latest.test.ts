@@ -39,6 +39,7 @@ mock.module("../daemon/identity-helpers.js", () => ({
 
 import {
   createConversation,
+  recordConversationPersistedSeq,
   setConversationProcessingStartedAt,
 } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
@@ -49,7 +50,6 @@ import type { AssistantEvent } from "../runtime/assistant-event.js";
 import {
   _resetStreamStateForTesting,
   getCurrentSeq,
-  recordPersistedSeq,
   stampAndBuffer,
 } from "../runtime/assistant-stream-state.js";
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
@@ -166,7 +166,7 @@ describe("handleListMessages page=latest", () => {
       const conv = createConversation();
       seedMessages(conv.id, 3);
       // AND the daemon has recorded a persisted seq for it
-      recordPersistedSeq(conv.id, 42);
+      recordConversationPersistedSeq(conv.id, 42);
 
       // WHEN the snapshot is fetched
       const body = callList({ conversationId: conv.id, page: "latest" });
@@ -199,13 +199,48 @@ describe("handleListMessages page=latest", () => {
       // GIVEN a conversation with a recorded persisted seq
       const conv = createConversation();
       seedMessages(conv.id, 2);
-      recordPersistedSeq(conv.id, 7);
+      recordConversationPersistedSeq(conv.id, 7);
 
       // WHEN fetched with no pagination params
       const body = callList({ conversationId: conv.id });
 
       // THEN the seq still rides along
       expect(body.seq).toBe(7);
+    });
+
+    test("recording advances the seq monotonically and never regresses", () => {
+      /**
+       * Out-of-order async commits must not lower the high-water mark — the
+       * `WHERE seq < ?` guard on the persist UPDATE keeps it monotonic.
+       */
+
+      // GIVEN a conversation whose persisted seq has been recorded
+      const conv = createConversation();
+      recordConversationPersistedSeq(conv.id, 12);
+
+      // WHEN a lower seq is recorded (a late, out-of-order commit)
+      recordConversationPersistedSeq(conv.id, 8);
+
+      // THEN the high-water seq is unchanged
+      expect(callList({ conversationId: conv.id }).seq).toBe(12);
+
+      // AND a higher seq still advances it
+      recordConversationPersistedSeq(conv.id, 20);
+      expect(callList({ conversationId: conv.id }).seq).toBe(20);
+    });
+
+    test("recording ignores non-positive and non-finite seq values", () => {
+      // GIVEN a freshly created conversation (no stream activity → null seed)
+      const conv = createConversation();
+
+      // WHEN non-positive / non-finite seqs are recorded
+      recordConversationPersistedSeq(conv.id, 0);
+      recordConversationPersistedSeq(conv.id, -3);
+      recordConversationPersistedSeq(conv.id, Number.NaN);
+      recordConversationPersistedSeq(conv.id, Number.POSITIVE_INFINITY);
+
+      // THEN none take effect and seq stays null
+      expect(callList({ conversationId: conv.id }).seq).toBeNull();
     });
 
     test("a freshly created conversation is anchored to the current global seq", () => {
@@ -231,8 +266,8 @@ describe("handleListMessages page=latest", () => {
     test("a conversation created before any stream activity stays null", () => {
       /**
        * With nothing stamped this process, `getCurrentSeq()` is 0 and the
-       * seed is a no-op (`recordPersistedSeq` ignores non-positive values),
-       * so the snapshot legitimately reports null and the client cold-starts.
+       * creation seed stores NULL (non-positive seqs aren't recorded), so the
+       * snapshot legitimately reports null and the client cold-starts.
        */
 
       // GIVEN no events have been stamped (stream reset in beforeEach)
