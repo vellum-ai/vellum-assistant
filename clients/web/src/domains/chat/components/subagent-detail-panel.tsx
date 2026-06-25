@@ -413,7 +413,9 @@ export function SubagentDetailPanel({
                     variant="body-medium-lighter"
                     as="p"
                     className={`whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)] ${
-                      objectiveExpanded ? "" : "line-clamp-5"
+                      objectiveExpanded
+                        ? "max-h-[280px] overflow-y-auto"
+                        : "line-clamp-5"
                     }`}
                   >
                     {entry.objective}
