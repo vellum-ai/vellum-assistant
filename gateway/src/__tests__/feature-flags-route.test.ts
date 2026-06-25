@@ -40,6 +40,14 @@ const TEST_REGISTRY = {
       defaultEnabled: false,
     },
     {
+      id: "mcp-add-server",
+      scope: "assistant",
+      key: "mcp-add-server",
+      label: "MCP Add Server",
+      description: "Allow adding MCP servers",
+      defaultEnabled: false,
+    },
+    {
       id: "user-hosted-enabled",
       scope: "client",
       key: "user-hosted-enabled",
@@ -394,6 +402,55 @@ describe("GET /v1/feature-flags handler", () => {
       (f: { key: string }) => f.key === "a2a-channel",
     );
     expect(a2aFlag2.enabled).toBe(true);
+  });
+
+  test("maps legacy remote MCP settings assignments to MCP add-server", async () => {
+    writeRemoteFeatureFlags({ "mcp-settings": true });
+
+    const handler = createFeatureFlagsGetHandler();
+    const res = await handler(
+      new Request("http://gateway.test/v1/feature-flags"),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    const mcpFlag = body.flags.find(
+      (f: { key: string }) => f.key === "mcp-add-server",
+    );
+    expect(mcpFlag).toBeDefined();
+    expect(mcpFlag.enabled).toBe(true);
+    expect(
+      body.flags.some((f: { key: string }) => f.key === "mcp-settings"),
+    ).toBe(false);
+  });
+
+  test("maps legacy remote MCP settings assignments loaded from disk", async () => {
+    writeFileSync(
+      remoteFeatureFlagStorePath,
+      JSON.stringify({
+        version: 1,
+        values: { "mcp-settings": true },
+      }),
+    );
+    clearRemoteFeatureFlagStoreCache();
+
+    const handler = createFeatureFlagsGetHandler();
+    const res = await handler(
+      new Request("http://gateway.test/v1/feature-flags"),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    const mcpFlag = body.flags.find(
+      (f: { key: string }) => f.key === "mcp-add-server",
+    );
+    expect(mcpFlag).toBeDefined();
+    expect(mcpFlag.enabled).toBe(true);
+    expect(
+      body.flags.some((f: { key: string }) => f.key === "mcp-settings"),
+    ).toBe(false);
   });
 
   test("registry default used when neither local nor remote is set", async () => {

@@ -49,6 +49,31 @@ export function getRemoteFeatureFlagStorePath(): string {
 
 let cachedRemoteValues: Record<string, boolean | string> | null = null;
 
+const REMOTE_FLAG_KEY_ALIASES: Record<string, string> = {
+  "mcp-settings": "mcp-add-server",
+};
+
+function normalizeRemoteFeatureFlags(
+  values: Record<string, boolean | string>,
+): Record<string, boolean | string> {
+  const normalized: Record<string, boolean | string> = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (REMOTE_FLAG_KEY_ALIASES[key]) continue;
+    normalized[key] = value;
+  }
+
+  for (const [key, value] of Object.entries(values)) {
+    const canonicalKey = REMOTE_FLAG_KEY_ALIASES[key];
+    if (!canonicalKey) continue;
+    if (Object.prototype.hasOwnProperty.call(normalized, canonicalKey)) {
+      continue;
+    }
+    normalized[canonicalKey] = value;
+  }
+
+  return normalized;
+}
+
 export function readRemoteFeatureFlags(): Record<string, boolean | string> {
   if (cachedRemoteValues != null) return cachedRemoteValues;
 
@@ -80,7 +105,7 @@ export function readRemoteFeatureFlags(): Record<string, boolean | string> {
       for (const [k, v] of Object.entries(data.values)) {
         if (typeof v === "boolean" || typeof v === "string") filtered[k] = v;
       }
-      cachedRemoteValues = filtered;
+      cachedRemoteValues = normalizeRemoteFeatureFlags(filtered);
     } else {
       cachedRemoteValues = {};
     }
@@ -99,23 +124,24 @@ export function readRemoteFeatureFlags(): Record<string, boolean | string> {
 export function writeRemoteFeatureFlags(
   values: Record<string, boolean | string>,
 ): boolean {
+  const normalizedValues = normalizeRemoteFeatureFlags(values);
   const path = getRemoteFeatureFlagStorePath();
   const dir = dirname(path);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
 
-  const data: FeatureFlagFileData = { version: 1, values };
+  const data: FeatureFlagFileData = { version: 1, values: normalizedValues };
   const tmpPath = path + ".tmp." + process.pid;
   writeFileSync(tmpPath, JSON.stringify(data, null, 2), { mode: 0o600 });
   renameSync(tmpPath, path);
   chmodSync(path, 0o600);
 
-  const changed = !shallowEqual(cachedRemoteValues, values);
-  cachedRemoteValues = values;
+  const changed = !shallowEqual(cachedRemoteValues, normalizedValues);
+  cachedRemoteValues = normalizedValues;
 
   const msg = "Wrote remote feature flags";
-  const meta = { count: Object.keys(values).length };
+  const meta = { count: Object.keys(normalizedValues).length };
   if (changed) {
     log.info(meta, msg);
   } else {
