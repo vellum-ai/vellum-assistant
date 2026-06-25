@@ -65,14 +65,17 @@ export function ActiveSubagentsOverlay({
       />
 
       {expanded && (
-        <div className="pointer-events-auto flex w-full flex-col gap-4 rounded-xl bg-[var(--surface-lift)] p-4 shadow-lg">
+        <div className="pointer-events-auto flex w-full flex-col gap-4 rounded-xl bg-[var(--surface-lift)] px-3 py-4 shadow-lg">
           <Typography
             variant="title-small"
             className="text-[var(--content-emphasised)]"
           >
             {subagentIds.length} Active Subagents
           </Typography>
-          <div className="flex max-h-[320px] flex-col gap-2 overflow-y-auto">
+          {/* -mx-2 cancels each row's own p-2 so row content aligns with the
+              title at the panel's 12px edge, while the hover highlight keeps a
+              small gutter. */}
+          <div className="-mx-2 flex max-h-[320px] flex-col gap-2 overflow-y-auto">
             {subagentIds.map((id) => (
               <SubagentInlineProgressCard
                 key={id}
