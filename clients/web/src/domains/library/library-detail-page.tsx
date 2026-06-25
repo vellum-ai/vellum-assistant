@@ -11,6 +11,7 @@ import { appsByIdOpenPost } from "@/generated/daemon/sdk.gen";
 import { useEditApp } from "@/hooks/use-edit-app";
 import { useDeployStore } from "@/stores/deploy-store";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
+import { navigateToNewConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { shareApp } from "@/utils/share-app";
 
@@ -93,6 +94,19 @@ export function LibraryDetailPage() {
       .deployApp(assistantId, app.appId, app.name, app.html);
   }, [assistantId, app]);
 
+  // When the complex-deploy confirmation lands here (the app's HTML uses
+  // backend hooks so a static Vercel page isn't viable), hand off to the
+  // assistant by starting a fresh conversation with the deploy prompt.
+  // Without this, confirming "Let your assistant handle it" would clear the
+  // dialog state and silently no-op — the same wiring `library-view.tsx`
+  // already does via `onStartConversation`.
+  const handleStartConversation = useCallback(
+    (initialMessage: string) => {
+      navigateToNewConversation(navigate, { prompt: initialMessage });
+    },
+    [navigate],
+  );
+
   if (!appId) return null;
 
   if (error) {
@@ -135,7 +149,10 @@ export function LibraryDetailPage() {
         isDeploying={isDeploying}
         enableFullscreen
       />
-      <DeployDialogs assistantId={assistantId} />
+      <DeployDialogs
+          assistantId={assistantId}
+          onStartConversation={handleStartConversation}
+        />
     </>
   );
 }
