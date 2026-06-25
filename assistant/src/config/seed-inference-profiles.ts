@@ -426,19 +426,31 @@ export function seedInferenceProfiles(
     }
   }
 
-  // Advisor profile: default to the strongest managed profile when unset, so
-  // the advisor consults `frontier` (Anthropic Opus) out of the box, falling
-  // back to `quality-optimized` if `frontier` is unavailable. The `frontier`
-  // arm requires managed ownership: the seed loop above leaves a user-owned
-  // profile named `frontier` in place, and pointing the advisor at that would
-  // consult an arbitrary user model. Guarded on existence so it never names a
-  // missing profile (superRefine rejects that); off-platform/BYOK installs can
-  // repoint it at one of their own profiles.
-  if (readString(llm.advisorProfile) === undefined) {
-    if (readObject(profiles["frontier"])?.source === "managed") {
-      llm.advisorProfile = "frontier";
-    } else if (readObject(profiles["quality-optimized"]) !== null) {
-      llm.advisorProfile = "quality-optimized";
+  // Advisor profile: BYOK hatches default to the strongest personal profile
+  // backed by the entered provider key. Managed-profile hatches and registered
+  // platform installs default to the strongest active managed profile.
+  const requestedAdvisorProfile = readString(llm.advisorProfile);
+  const requestedAdvisorEntry =
+    requestedAdvisorProfile !== undefined
+      ? readObject(profiles[requestedAdvisorProfile])
+      : null;
+  const requestedAdvisorIsDisabledManaged =
+    requestedAdvisorEntry?.source === "managed" &&
+    requestedAdvisorEntry.status === "disabled";
+  const preferPersonalAdvisor =
+    (userConnectionName !== undefined &&
+      hatchSelectedManagedConnection === undefined) ||
+    requestedAdvisorIsDisabledManaged;
+  if (
+    requestedAdvisorProfile === undefined ||
+    requestedAdvisorIsDisabledManaged
+  ) {
+    const defaultAdvisorProfile = selectDefaultAdvisorProfile(
+      profiles,
+      preferPersonalAdvisor,
+    );
+    if (defaultAdvisorProfile) {
+      llm.advisorProfile = defaultAdvisorProfile;
     }
   }
 
@@ -576,6 +588,48 @@ function pruneRemovedProfileReferences(
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function selectDefaultAdvisorProfile(
+  profiles: Record<string, Record<string, unknown>>,
+  preferPersonalProfile: boolean,
+): string | undefined {
+  const personal = firstActiveProfile(profiles, [
+    "custom-quality-optimized",
+    "custom-balanced",
+    "custom-cost-optimized",
+  ]);
+  const managed = firstActiveManagedProfile(profiles, [
+    "frontier",
+    "quality-optimized",
+    "balanced",
+    "cost-optimized",
+  ]);
+  return preferPersonalProfile ? (personal ?? managed) : (managed ?? personal);
+}
+
+function firstActiveProfile(
+  profiles: Record<string, Record<string, unknown>>,
+  names: string[],
+): string | undefined {
+  for (const name of names) {
+    const profile = readObject(profiles[name]);
+    if (profile && profile.status !== "disabled") return name;
+  }
+  return undefined;
+}
+
+function firstActiveManagedProfile(
+  profiles: Record<string, Record<string, unknown>>,
+  names: string[],
+): string | undefined {
+  for (const name of names) {
+    const profile = readObject(profiles[name]);
+    if (profile?.source === "managed" && profile.status !== "disabled") {
+      return name;
+    }
+  }
+  return undefined;
 }
 
 function getHatchSelectedManagedConnection(
