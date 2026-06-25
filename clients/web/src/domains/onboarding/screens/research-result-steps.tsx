@@ -213,6 +213,9 @@ const LOOKING_MESSAGES = [
   "Almost there…",
 ];
 
+/** How long each rotating message lingers before advancing to the next. */
+const LOOKING_MESSAGE_INTERVAL_MS = 2800;
+
 export function LookingYouUpStep({
   onDone,
   onBack,
@@ -232,10 +235,13 @@ export function LookingYouUpStep({
   useEffect(() => {
     onAdvance?.(index);
     if (index >= LOOKING_MESSAGES.length - 1) {
-      const done = setTimeout(onDone, 1500);
+      const done = setTimeout(onDone, LOOKING_MESSAGE_INTERVAL_MS);
       return () => clearTimeout(done);
     }
-    const next = setTimeout(() => setIndex((i) => i + 1), 1500);
+    const next = setTimeout(
+      () => setIndex((i) => i + 1),
+      LOOKING_MESSAGE_INTERVAL_MS,
+    );
     return () => clearTimeout(next);
   }, [index, onDone, onAdvance]);
 
