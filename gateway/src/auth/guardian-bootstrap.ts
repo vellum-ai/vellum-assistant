@@ -254,15 +254,15 @@ export async function createGuardianBinding(
     if (existingGuardianContact || claimableChannel) {
       await assistantDbRun(
         `UPDATE contacts
-         SET display_name = ?, role = 'guardian', principal_id = ?, updated_at = ?
+         SET display_name = ?, updated_at = ?
          WHERE id = ?`,
-        [displayName, params.guardianPrincipalId, now, contactId],
+        [displayName, now, contactId],
       );
     } else {
       await assistantDbRun(
-        `INSERT INTO contacts (id, display_name, role, principal_id, notes, created_at, updated_at)
-         VALUES (?, ?, 'guardian', ?, 'guardian', ?, ?)`,
-        [contactId, displayName, params.guardianPrincipalId, now, now],
+        `INSERT INTO contacts (id, display_name, notes, created_at, updated_at)
+         VALUES (?, ?, 'guardian', ?, ?)`,
+        [contactId, displayName, now, now],
       );
     }
 
@@ -270,7 +270,7 @@ export async function createGuardianBinding(
       // Remove duplicate channels with the same address (defensive).
       await assistantDbRun(
         `DELETE FROM contact_channels
-         WHERE type = ? AND address = ? COLLATE NOCASE AND id != ? AND status != 'blocked'`,
+         WHERE type = ? AND address = ? COLLATE NOCASE AND id != ?`,
         [params.channel, params.externalUserId, channelId],
       );
 
@@ -278,16 +278,12 @@ export async function createGuardianBinding(
         `UPDATE contact_channels
          SET contact_id = ?, address = ?, external_chat_id = ?,
              is_primary = 1,
-             status = 'active', policy = 'allow', verified_at = ?,
-             verified_via = ?, revoked_reason = NULL, blocked_reason = NULL,
              updated_at = ?
          WHERE id = ?`,
         [
           contactId,
           params.externalUserId,
           params.deliveryChatId,
-          now,
-          verifiedVia,
           now,
           channelId,
         ],
@@ -296,16 +292,14 @@ export async function createGuardianBinding(
       await assistantDbRun(
         `INSERT INTO contact_channels
            (id, contact_id, type, address, external_chat_id,
-            is_primary, status, policy, verified_at, verified_via, interaction_count, created_at)
-         VALUES (?, ?, ?, ?, ?, 1, 'active', 'allow', ?, ?, 0, ?)`,
+            is_primary, interaction_count, created_at)
+         VALUES (?, ?, ?, ?, ?, 1, 0, ?)`,
         [
           channelId,
           contactId,
           params.channel,
           params.externalUserId,
           params.deliveryChatId,
-          now,
-          verifiedVia,
           now,
         ],
       );
