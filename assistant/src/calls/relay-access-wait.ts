@@ -255,8 +255,6 @@ export function emitAccessRequestCallbackHandoff(
         address: fromNumber,
         externalChatId: fromNumber,
       });
-      // DRAIN-MISS (PR 6 member ACL): status/policy still read from the local
-      // ACL columns until the member-ACL drain to the gateway lands.
       if (contactResult) {
         const acl = getLocalMemberAcl(contactResult.channel.id);
         if (acl?.status === "active" && acl.policy === "allow") {
