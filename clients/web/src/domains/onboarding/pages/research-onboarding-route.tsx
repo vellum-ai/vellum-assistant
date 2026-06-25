@@ -56,6 +56,10 @@ import {
   SuggestionsStep,
 } from "@/domains/onboarding/screens/research-result-steps";
 import { OnboardingTonedBackdrop } from "@/domains/onboarding/components/onboarding-toned-backdrop";
+import {
+  OnboardingStageSizeProvider,
+  useElementSize,
+} from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 
 type ResearchStep =
   | "form"
@@ -89,6 +93,10 @@ export function ResearchOnboardingRoute() {
   // persistent backdrop so the avatars/eyes stay put. The handoff fires from
   // the "let's chat tomorrow" step (or the picker's skip).
   const [step, setStep] = useState<ResearchStep>("form");
+  // Measure the shared toned-step container so the persistent backdrop, eyes,
+  // peekers, and coin all position against the same box as the foreground
+  // content (see use-onboarding-stage-size).
+  const { ref: tonedStageRef, size: tonedStageSize } = useElementSize();
   // Forward-history (redo) stack: pushed when the user steps back, popped when
   // they step forward via the header's forward chevron. The chevron only shows
   // while this is non-empty — i.e. only after a back. A deliberate forward move
@@ -359,7 +367,8 @@ export function ResearchOnboardingRoute() {
       ? edgeAvatars
       : 0;
     return (
-      <div data-theme="dark" className="relative h-full overflow-hidden">
+      <div ref={tonedStageRef} data-theme="dark" className="relative h-full overflow-hidden">
+        <OnboardingStageSizeProvider size={tonedStageSize}>
         <OnboardingTonedBackdrop
           eyesBumpNonce={eyesBump}
           peekLevel={peekLevel}
@@ -449,6 +458,7 @@ export function ResearchOnboardingRoute() {
             onForward={onForward}
           />
         )}
+        </OnboardingStageSizeProvider>
       </div>
     );
   }
