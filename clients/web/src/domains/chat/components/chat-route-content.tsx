@@ -21,6 +21,7 @@ import { type Dispatch, type MutableRefObject, type RefObject, type SetStateActi
 
 import { useActiveSubagentIds } from "@/domains/chat/hooks/use-active-subagent-ids";
 import { useActiveAcpRunIds } from "@/domains/chat/hooks/use-active-acp-run-ids";
+import { useAcpRunRehydration } from "@/domains/chat/hooks/use-acp-run-rehydration";
 import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
 import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
@@ -266,6 +267,10 @@ export function ChatMainPanel({
 
   const activeSubagentIds = useActiveSubagentIds();
   const activeAcpRunIds = useActiveAcpRunIds();
+
+  // Rehydrate ACP runs from the daemon on conversation load so completed and
+  // in-progress runs reappear after a refresh / reconnect.
+  useAcpRunRehydration(assistantId, activeConversationId);
 
   const onSubagentClick = useCallback((id: string) => {
     useViewerStore.getState().openSubagentDetail(id);
