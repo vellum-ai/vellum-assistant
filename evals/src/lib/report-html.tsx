@@ -1581,7 +1581,10 @@ function Transcript({
           <select
             className="conversation-select"
             data-conv-count={groups.length}
-            onChange="document.querySelectorAll('.conversation-panel').forEach((p,i)=>{p.style.display=i===this.selectedIndex?'flex':'none'});const u=new URL(location.href);u.searchParams.set('conv',this.selectedIndex);history.replaceState(null,'',u)"
+            {...({
+              onChange:
+                "document.querySelectorAll('.conversation-panel').forEach((p,i)=>{p.style.display=i===this.selectedIndex?'flex':'none'});const u=new URL(location.href);u.searchParams.set('conv',this.selectedIndex);history.replaceState(null,'',u)",
+            } as { onChange: string })}
           >
             {groups.map((group, index) => (
               <option key={group.key} value={index}>
