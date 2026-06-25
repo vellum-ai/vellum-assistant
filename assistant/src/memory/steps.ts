@@ -473,7 +473,7 @@ export const migrationSteps: MigrationStep[] = [
       {
         version: 5,
         description:
-          'Normalize all assistant_id values in scoped tables to the implicit "self" single-tenant identity',
+          "Normalize all assistant_id values in scoped tables to the implicit single-tenant identity",
         down: downAssistantIdToSelf,
       },
     ],
