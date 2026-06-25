@@ -306,6 +306,7 @@ export async function startInitializeDbWorker(): Promise<void> {
       stdout: "inherit",
       stderr: "inherit",
       cwd: process.cwd(),
+      env: { ...process.env },
     });
   } catch (err) {
     log.error({ err, cmd }, "Failed to spawn DB initialization worker");
