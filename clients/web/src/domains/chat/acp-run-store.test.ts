@@ -4,6 +4,7 @@ import {
   type AcpRunEntry,
   type AcpRunRawEvent,
 } from "@/domains/chat/acp-run-store";
+import { computeAcpRunSteps } from "@/domains/chat/acp-run-step-projection";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -296,6 +297,79 @@ describe("receiveEvent", () => {
     store.receiveEvent({ acpSessionId: "acp-1", event: event({ seq: 3 }) });
     expect(getState().highWaterMark.get("acp-1")).toBe(9);
     expect(getState().highWaterMark).toBe(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// appendLocalMarker
+// ---------------------------------------------------------------------------
+
+describe("appendLocalMarker", () => {
+  it("appends a marker without advancing the high-water mark", () => {
+    spawn();
+    const store = getState();
+    // Catch the client up to seq N — the normal steer-time case.
+    store.receiveEvent({ acpSessionId: "acp-1", event: event({ seq: 5, content: "a" }) });
+    expect(getState().highWaterMark.get("acp-1")).toBe(5);
+
+    store.appendLocalMarker({ acpSessionId: "acp-1", content: "↻ Steering: go" });
+
+    const events = getState().byId["acp-1"]!.events;
+    const marker = events[events.length - 1]!;
+    expect(marker.content).toBe("↻ Steering: go");
+    expect(marker.updateType).toBe("agent_message_chunk");
+    // Fractional seq sorts after seq 5 but is never a real daemon integer seq.
+    expect(marker.seq).toBe(5.5);
+    // Crucially, the dedup high-water mark is UNCHANGED.
+    expect(getState().highWaterMark.get("acp-1")).toBe(5);
+
+    // The projection renders the marker as a trailing message step.
+    const steps = computeAcpRunSteps(events);
+    const lastStep = steps[steps.length - 1]!;
+    expect(lastStep.kind).toBe("message");
+    expect(lastStep.kind === "message" && lastStep.content).toBe("↻ Steering: go");
+  });
+
+  it("does not coalesce into an adjacent real message — uses a unique messageId", () => {
+    spawn();
+    const store = getState();
+    store.receiveEvent({
+      acpSessionId: "acp-1",
+      event: event({ seq: 1, content: "real", messageId: "m-1" }),
+    });
+
+    store.appendLocalMarker({ acpSessionId: "acp-1", content: "↻ Steering: go" });
+
+    const events = getState().byId["acp-1"]!.events;
+    expect(events).toHaveLength(2);
+    expect(events[1]!.messageId).not.toBe("m-1");
+  });
+
+  it("keeps the next real daemon event after a marker — it is not dropped by the dedup gate", () => {
+    spawn();
+    const store = getState();
+    // Client is caught up at seq N when the steer fires.
+    store.receiveEvent({ acpSessionId: "acp-1", event: event({ seq: 5, content: "a" }) });
+    store.appendLocalMarker({ acpSessionId: "acp-1", content: "↻ Steering: go" });
+
+    // Simulate the SSE dedup gate (acp-handlers): drop seq <= hwm, else apply.
+    const hwm = getState().highWaterMark.get("acp-1") ?? -1;
+    const nextSeq = 6; // daemon's contiguous ++lastSeq
+    expect(nextSeq).toBeGreaterThan(hwm);
+    store.receiveEvent({
+      acpSessionId: "acp-1",
+      event: event({ seq: nextSeq, content: "post-steer", messageId: "m-post" }),
+    });
+
+    // The daemon's first real post-steer event survives.
+    const events = getState().byId["acp-1"]!.events;
+    expect(events.some((e) => e.content === "post-steer")).toBe(true);
+    expect(getState().highWaterMark.get("acp-1")).toBe(6);
+  });
+
+  it("ignores an unknown session", () => {
+    getState().appendLocalMarker({ acpSessionId: "acp-missing", content: "x" });
+    expect(getState().byId).toEqual({});
   });
 });
 
