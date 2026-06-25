@@ -5,6 +5,8 @@ import type { Surface } from "@/domains/chat/types/types";
 import { Button, Toggle } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import { PageProgress } from "@/domains/chat/components/surfaces/page-progress";
+import { PageTabs } from "@/domains/chat/components/surfaces/page-tabs";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -25,7 +27,7 @@ interface FormField {
   options?: FormFieldOption[];
 }
 
-interface FormPage {
+export interface FormPage {
   id: string;
   title: string;
   description?: string;
@@ -157,64 +159,6 @@ function renderField(
         />
       );
   }
-}
-
-// ---------------------------------------------------------------------------
-// Progress indicator for multi-page forms
-// ---------------------------------------------------------------------------
-
-function PageProgress({ current, total }: { current: number; total: number }) {
-  return (
-    <div className="mb-4 flex items-center gap-1.5">
-      {Array.from({ length: total }, (_, i) => (
-        <div
-          key={i}
-          className={`h-1.5 flex-1 rounded-full transition-colors ${
-            i <= current ? "bg-[var(--primary-base)]" : "bg-[var(--border-subtle)]"
-          }`}
-        />
-      ))}
-    </div>
-  );
-}
-
-function PageTabs({
-  current,
-  pages,
-  onNavigate,
-}: {
-  current: number;
-  pages: FormPage[];
-  onNavigate: (index: number) => void;
-}) {
-  return (
-    <div className="mb-4 flex items-center gap-4 overflow-x-auto border-b border-[var(--border-subtle)]">
-      {pages.map((page, i) => {
-        const isActive = i === current;
-        const isCompleted = i < current;
-        const isClickable = isCompleted;
-        const textClass = isActive
-          ? "text-[var(--content-strong)]"
-          : isCompleted
-            ? "text-[var(--content-default)]"
-            : "text-[var(--content-faint)]";
-        return (
-          <button
-            key={page.id}
-            type="button"
-            onClick={isClickable ? () => onNavigate(i) : undefined}
-            disabled={!isClickable}
-            aria-current={isActive ? "step" : undefined}
-            className={`-mb-px whitespace-nowrap border-b-2 pb-2 text-body-medium-default transition-colors ${
-              isActive ? "border-[var(--primary-base)]" : "border-transparent"
-            } ${textClass} ${isClickable ? "cursor-pointer" : "cursor-default"}`}
-          >
-            {i + 1}. {page.title}
-          </button>
-        );
-      })}
-    </div>
-  );
 }
 
 // ---------------------------------------------------------------------------
