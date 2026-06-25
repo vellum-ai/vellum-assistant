@@ -24,9 +24,11 @@ mock.module("@/assistant/avatar-api", () => ({
   saveCharacterTraits: saveCharacterTraitsMock,
 }));
 
-const { OnboardingAvatarApplier } = await import(
-  "@/components/onboarding-avatar-applier"
-);
+const {
+  OnboardingAvatarApplier,
+  getAvatarApplyRetryDelayMs,
+  shouldDropAvatarHandoff,
+} = await import("@/components/onboarding-avatar-applier");
 
 describe("OnboardingAvatarApplier", () => {
   beforeEach(() => {
@@ -65,5 +67,17 @@ describe("OnboardingAvatarApplier", () => {
     expect(useOnboardingFocusStore.getState().pendingAvatarTraits).toEqual(
       TRAITS,
     );
+  });
+
+  test("backs off retry delays after failed saves", () => {
+    expect(getAvatarApplyRetryDelayMs(1)).toBe(1_500);
+    expect(getAvatarApplyRetryDelayMs(2)).toBe(3_000);
+    expect(getAvatarApplyRetryDelayMs(3)).toBe(6_000);
+    expect(getAvatarApplyRetryDelayMs(5)).toBe(15_000);
+  });
+
+  test("drops the staged handoff after the retry budget is exhausted", () => {
+    expect(shouldDropAvatarHandoff(5)).toBe(false);
+    expect(shouldDropAvatarHandoff(6)).toBe(true);
   });
 });
