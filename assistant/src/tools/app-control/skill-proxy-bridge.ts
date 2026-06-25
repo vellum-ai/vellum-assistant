@@ -5,7 +5,7 @@
  * the proxy resolver, which forwards the call to the connected client.
  */
 
-import type { ToolContext, ToolExecutionResult } from "../types.js";
+import type { CoreToolContext, ToolExecutionResult } from "../types.js";
 
 /**
  * Forward an app-control proxy tool call through the context's proxyToolResolver.
@@ -16,7 +16,7 @@ import type { ToolContext, ToolExecutionResult } from "../types.js";
 export function forwardAppControlProxyTool(
   toolName: string,
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   if (!context.proxyToolResolver) {
     return Promise.resolve({

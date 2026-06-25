@@ -13,7 +13,7 @@ import type {
 } from "../../../../playbooks/types.js";
 import { parsePlaybookStatement } from "../../../../playbooks/types.js";
 import type {
-  ToolContext,
+  CoreToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
@@ -21,7 +21,7 @@ const VALID_AUTONOMY_LEVELS = new Set<string>(["auto", "draft", "notify"]);
 
 export async function executePlaybookUpdate(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  _context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const playbookId = input.playbook_id as string;
   if (!playbookId || typeof playbookId !== "string") {

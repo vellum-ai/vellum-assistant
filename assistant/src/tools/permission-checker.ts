@@ -21,7 +21,7 @@ import { getLogger } from "../util/logger.js";
 import { buildPolicyContext } from "./policy-context.js";
 import { isSideEffectTool } from "./side-effects.js";
 import type { ExecutionTarget } from "./types.js";
-import type { Tool, ToolContext, ToolLifecycleEvent } from "./types.js";
+import type { CoreToolContext, Tool, ToolLifecycleEvent } from "./types.js";
 
 const log = getLogger("permission-checker");
 
@@ -92,7 +92,7 @@ export class PermissionChecker {
     name: string,
     input: Record<string, unknown>,
     tool: Tool,
-    context: ToolContext,
+    context: CoreToolContext,
     executionTarget: ExecutionTarget,
     emitLifecycleEvent: (event: ToolLifecycleEvent) => void,
     startTime: number,

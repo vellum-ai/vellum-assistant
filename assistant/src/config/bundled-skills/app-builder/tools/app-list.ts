@@ -1,6 +1,6 @@
 import * as appStore from "../../../../memory/app-store.js";
 import type {
-  ToolContext,
+  CoreToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
@@ -24,7 +24,7 @@ function toEntry(app: appStore.AppDefinition): AppListEntry {
 
 export async function run(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  _context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const apps = appStore.listApps();
   const entries = apps.map(toEntry);

@@ -29,8 +29,8 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -154,7 +154,7 @@ function makeContext(
     conversationId,
     trustClass: "guardian" as const,
     ...extras,
-  } as import("../tools/types.js").ToolContext;
+  } as import("../tools/types.js").CoreToolContext;
 }
 
 // ── Tool definitions ────────────────────────────────────────────────

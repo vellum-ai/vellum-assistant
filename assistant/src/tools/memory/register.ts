@@ -12,8 +12,8 @@ import {
 import { RiskLevel } from "../../permissions/types.js";
 import { resolveCapabilities } from "../../runtime/capabilities.js";
 import type {
-  ToolContext,
-  ToolDefinition,
+  CoreToolContext,
+  CoreToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 
@@ -29,7 +29,7 @@ export const rememberTool = {
 
   async execute(
     input: Record<string, unknown>,
-    context: ToolContext,
+    context: CoreToolContext,
   ): Promise<ToolExecutionResult> {
     const typedInput = input as unknown as RememberInput;
     const result = handleRemember(
@@ -44,7 +44,7 @@ export const rememberTool = {
       ...(typedInput.finish_turn === true ? { yieldToUser: true } : {}),
     };
   },
-} satisfies ToolDefinition;
+} satisfies CoreToolDefinition;
 
 // ── recall ──────────────────────────────────────────────────────────
 
@@ -58,7 +58,7 @@ export const recallTool = {
 
   async execute(
     input: Record<string, unknown>,
-    context: ToolContext,
+    context: CoreToolContext,
   ): Promise<ToolExecutionResult> {
     if (!resolveCapabilities(context.trustClass).canAccessMemory) {
       return {
@@ -78,4 +78,4 @@ export const recallTool = {
 
     return { content: result.content, isError: false };
   },
-} satisfies ToolDefinition;
+} satisfies CoreToolDefinition;

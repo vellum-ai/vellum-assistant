@@ -8,7 +8,7 @@ import {
   identifyEntityById,
   updateWorkItem,
 } from "../../work-items/work-item-store.js";
-import type { ToolContext, ToolExecutionResult } from "../types.js";
+import type { CoreToolContext, ToolExecutionResult } from "../types.js";
 
 const log = getLogger("task-list-add");
 
@@ -79,7 +79,7 @@ function handleDuplicate(
 
 export async function executeTaskListAdd(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  _context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   try {
     const taskId = input.task_id as string | undefined;

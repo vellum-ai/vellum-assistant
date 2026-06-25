@@ -45,7 +45,7 @@ mock.module("../util/logger.js", () => ({
 
 import { run } from "../config/bundled-skills/settings/tools/voice-config-update.js";
 import { invalidateConfigCache } from "../config/loader.js";
-import type { ToolContext } from "../tools/types.js";
+import type { CoreToolContext } from "../tools/types.js";
 import { listCatalogProviderIds } from "../tts/provider-catalog.js";
 
 // ---------------------------------------------------------------------------
@@ -60,13 +60,13 @@ function readConfig(): Record<string, unknown> {
   return JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
 }
 
-function makeContext(overrides?: Partial<ToolContext>): ToolContext {
+function makeContext(overrides?: Partial<CoreToolContext>): CoreToolContext {
   return {
     conversationId: "test-conv",
     turnId: "test-turn",
     sendToClient: overrides?.sendToClient ?? (() => {}),
     ...overrides,
-  } as ToolContext;
+  } as CoreToolContext;
 }
 
 // ---------------------------------------------------------------------------

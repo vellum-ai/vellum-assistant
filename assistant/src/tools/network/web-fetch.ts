@@ -24,8 +24,8 @@ import {
 import { safeStringSlice } from "../../util/unicode.js";
 import { registerTool } from "../registry.js";
 import type {
-  ToolContext,
-  ToolDefinition,
+  CoreToolContext,
+  CoreToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 import { extractDomain } from "./domain-normalize.js";
@@ -1352,7 +1352,11 @@ export async function executeFirecrawlScrape(
     }
 
     if (response.status === 429 && attempt < DEFAULT_MAX_RETRIES) {
-      const delayMs = getHttpRetryDelay(response, attempt, DEFAULT_BASE_DELAY_MS);
+      const delayMs = getHttpRetryDelay(
+        response,
+        attempt,
+        DEFAULT_BASE_DELAY_MS,
+      );
       log.warn(
         { attempt: attempt + 1, delayMs },
         "Firecrawl scrape rate limited, retrying",
@@ -1432,9 +1436,12 @@ export const webFetchTool = {
 
   async execute(
     input: Record<string, unknown>,
-    context: ToolContext,
+    context: CoreToolContext,
   ): Promise<ToolExecutionResult> {
-    if (getWebFetchProvider() === "firecrawl" && (await canRouteToFirecrawl(input))) {
+    if (
+      getWebFetchProvider() === "firecrawl" &&
+      (await canRouteToFirecrawl(input))
+    ) {
       const apiKey = await getProviderKeyAsync("firecrawl");
       if (apiKey) {
         return executeFirecrawlScrape(input, {
@@ -1449,6 +1456,6 @@ export const webFetchTool = {
     }
     return executeWebFetch(input, { signal: context.signal });
   },
-} satisfies ToolDefinition;
+} satisfies CoreToolDefinition;
 
 registerTool(webFetchTool);

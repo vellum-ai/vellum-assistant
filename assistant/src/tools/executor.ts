@@ -28,8 +28,8 @@ import { MAX_FILE_SIZE_BYTES } from "./shared/filesystem/size-guard.js";
 import { ToolApprovalHandler } from "./tool-approval-handler.js";
 import { resolveToolInvocationAlias } from "./tool-name-aliases.js";
 import {
+  type CoreToolContext,
   stringifyToolInput,
-  type ToolContext,
   type ToolExecutionResult,
   type ToolLifecycleEvent,
 } from "./types.js";
@@ -50,7 +50,7 @@ export class ToolExecutor {
   async execute(
     name: string,
     input: Record<string, unknown>,
-    context: ToolContext,
+    context: CoreToolContext,
   ): Promise<ToolExecutionResult> {
     const { name: executionName, input: executionInput } =
       resolveToolInvocationAlias(name, input, context.allowedToolNames);
@@ -60,7 +60,7 @@ export class ToolExecutor {
   private async executeInternal(
     name: string,
     input: Record<string, unknown>,
-    context: ToolContext,
+    context: CoreToolContext,
   ): Promise<ToolExecutionResult> {
     const startTime = Date.now();
     let decision = "allow";
@@ -575,7 +575,7 @@ function sanitizeToolInput(
 }
 
 function emitLifecycleEvent(
-  context: ToolContext,
+  context: CoreToolContext,
   event: ToolLifecycleEvent,
 ): void {
   const handler = context.onToolLifecycleEvent;

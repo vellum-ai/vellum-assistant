@@ -11,7 +11,7 @@ import {
 import { getConfig } from "../../../config/loader.js";
 import { HostBrowserProxy } from "../../../daemon/host-browser-proxy.js";
 import { getLogger } from "../../../util/logger.js";
-import type { ToolContext } from "../../types.js";
+import type { CoreToolContext } from "../../types.js";
 import { getPinnedTab } from "../pinned-tabs.js";
 import { createCdpInspectClient } from "./cdp-inspect-client.js";
 import { CdpError } from "./errors.js";
@@ -192,7 +192,7 @@ export interface GetCdpClientOptions {
 
 /**
  * Select the appropriate CdpClient implementation for a tool
- * invocation based on the ToolContext and config. Three backends are
+ * invocation based on the CoreToolContext and config. Three backends are
  * considered in priority order:
  *
  *  1. **Extension** -- When `HostBrowserProxy.instance` is available
@@ -238,7 +238,7 @@ export interface GetCdpClientOptions {
  * owned by the conversation.
  */
 export function getCdpClient(
-  context: ToolContext,
+  context: CoreToolContext,
   options?: GetCdpClientOptions,
 ): ScopedCdpClient {
   const mode: InternalBrowserMode = options?.mode ?? "auto";
@@ -272,7 +272,7 @@ export function getCdpClient(
  * Exported for testing.
  */
 export function buildPinnedCandidateList(
-  context: ToolContext,
+  context: CoreToolContext,
   mode: Exclude<InternalBrowserMode, "auto">,
   targetClientId?: string,
 ): BackendCandidate[] {
@@ -280,25 +280,25 @@ export function buildPinnedCandidateList(
 
   switch (mode) {
     case "extension": {
-        const hostBrowserProxy = HostBrowserProxy.instance;
-        if (!hostBrowserProxy.hasExtensionClient(sourceActorPrincipalId)) {
-          throw new CdpError(
-            "transport_error",
-            `Pinned mode "extension" unavailable: no Chrome Extension connected`,
-            {
-              attemptDiagnostics: [
-                {
-                  candidateKind: "extension",
-                  inclusionReason: `pinned mode: extension`,
-                  stage: "candidate_selection",
-                  errorCode: "transport_error",
-                  errorMessage: "no Chrome Extension connected",
-                },
-              ],
-            },
-          );
-        }
-        return [
+      const hostBrowserProxy = HostBrowserProxy.instance;
+      if (!hostBrowserProxy.hasExtensionClient(sourceActorPrincipalId)) {
+        throw new CdpError(
+          "transport_error",
+          `Pinned mode "extension" unavailable: no Chrome Extension connected`,
+          {
+            attemptDiagnostics: [
+              {
+                candidateKind: "extension",
+                inclusionReason: `pinned mode: extension`,
+                stage: "candidate_selection",
+                errorCode: "transport_error",
+                errorMessage: "no Chrome Extension connected",
+              },
+            ],
+          },
+        );
+      }
+      return [
         {
           kind: "extension",
           reason: "pinned mode: extension",
@@ -429,7 +429,10 @@ export function buildPinnedCandidateList(
  *
  * Exported for testing.
  */
-export function buildCandidateList(context: ToolContext, targetClientId?: string): BackendCandidate[] {
+export function buildCandidateList(
+  context: CoreToolContext,
+  targetClientId?: string,
+): BackendCandidate[] {
   const { conversationId, sourceActorPrincipalId } = context;
   const candidates: BackendCandidate[] = [];
   const hostBrowserProxy = HostBrowserProxy.instance;
@@ -836,7 +839,10 @@ export function buildChainedClient(
       // Fresh client: route through the failover walk so the extension
       // backend is selected automatically. The Vellum.listTabs pseudo-method
       // is handled by the extension dispatcher before chrome.debugger.sendCommand.
-      const result = await scopedClient.send<{ tabs?: TabInfo[] }>("Vellum.listTabs", {});
+      const result = await scopedClient.send<{ tabs?: TabInfo[] }>(
+        "Vellum.listTabs",
+        {},
+      );
       if (!active?.client.listTabs) {
         // Backend became sticky but isn't an extension client — not supported.
         throw new CdpError(

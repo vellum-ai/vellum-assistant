@@ -157,14 +157,14 @@ import {
   formatModeSelectionFailure,
   parseBrowserMode,
 } from "../tools/browser/browser-execution.js";
-import type { ToolContext } from "../tools/types.js";
+import type { CoreToolContext } from "../tools/types.js";
 
 // Restore all module mocks after this file completes so they don't
 // bleed into other test files when Bun runs multiple suites in a
 // single invocation (e.g. factory.test.ts receiving our fake getCdpClient).
 afterAll(() => mock.restore());
 
-const ctx: ToolContext = {
+const ctx: CoreToolContext = {
   conversationId: "test-conversation",
   workingDir: "/tmp",
   trustClass: "guardian",

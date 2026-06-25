@@ -107,7 +107,7 @@ import {
   ToolApprovalHandler,
   waitForInlineGrant,
 } from "../tools/tool-approval-handler.js";
-import type { ToolContext, ToolLifecycleEvent } from "../tools/types.js";
+import type { CoreToolContext, ToolLifecycleEvent } from "../tools/types.js";
 
 /** Short wait config for tests — avoids blocking test suite on the 60s default. */
 const TEST_INLINE_WAIT_CONFIG = { maxWaitMs: 100, intervalMs: 20 };
@@ -131,7 +131,9 @@ function resetTables(): void {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
+function makeContext(
+  overrides: Partial<CoreToolContext> = {},
+): CoreToolContext {
   return {
     workingDir: testDir,
     conversationId: "conv-1",

@@ -6,13 +6,13 @@ import {
   resolveWorkItem,
   type WorkItemStatus,
 } from "../../work-items/work-item-store.js";
-import type { ToolContext, ToolExecutionResult } from "../types.js";
+import type { CoreToolContext, ToolExecutionResult } from "../types.js";
 
 const log = getLogger("task-list-remove");
 
 export async function executeTaskListRemove(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  _context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const selectorType = input.work_item_id
     ? "work_item_id"

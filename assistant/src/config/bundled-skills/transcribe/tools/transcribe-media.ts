@@ -6,7 +6,7 @@ import { extname, join } from "node:path";
 import { resolveBatchTranscriber } from "../../../../providers/speech-to-text/resolve.js";
 import type { BatchTranscriber } from "../../../../stt/types.js";
 import type {
-  ToolContext,
+  CoreToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { silentlyWithLog } from "../../../../util/silently.js";
@@ -157,7 +157,7 @@ async function toWav(inputPath: string, isVideo: boolean): Promise<string> {
 async function transcribeWithProvider(
   audioPath: string,
   transcriber: BatchTranscriber,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<string> {
   const duration = await getAudioDuration(audioPath);
   const fileSize = Bun.file(audioPath).size;
@@ -214,7 +214,7 @@ async function transcribeWithProvider(
 
 export async function run(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   // Reject legacy callers that pass the now-removed `mode` parameter to avoid
   // silently routing audio through a different provider than expected.

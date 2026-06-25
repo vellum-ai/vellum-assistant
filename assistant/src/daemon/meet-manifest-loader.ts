@@ -40,7 +40,7 @@ import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import { registerSkillRoute } from "../runtime/skill-route-registry.js";
 import { getRepoSkillsDir } from "../skills/catalog-install.js";
 import { registerExternalTools } from "../tools/registry.js";
-import type { ExecutionTarget, Tool, ToolContext } from "../tools/types.js";
+import type { CoreToolContext, ExecutionTarget, Tool } from "../tools/types.js";
 import { RiskLevel } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { getSkillRuntimePath } from "../util/platform.js";
@@ -88,7 +88,7 @@ function coerceRiskLevel(value: string, toolName: string): RiskLevel {
 }
 
 /**
- * Allowlist of {@link ToolContext} fields that survive JSON serialization
+ * Allowlist of {@link CoreToolContext} fields that survive JSON serialization
  * cleanly and that a remote skill might reasonably consult. Function /
  * AbortSignal / CesClient / proxy fields are intentionally excluded —
  * they cannot cross the IPC boundary.
@@ -111,9 +111,11 @@ const SERIALIZABLE_TOOL_CONTEXT_KEYS = [
   "transportInterface",
   "isInteractive",
   "isPlatformHosted",
-] as const satisfies ReadonlyArray<keyof ToolContext>;
+] as const satisfies ReadonlyArray<keyof CoreToolContext>;
 
-function serializeToolContext(context: ToolContext): Record<string, unknown> {
+function serializeToolContext(
+  context: CoreToolContext,
+): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const key of SERIALIZABLE_TOOL_CONTEXT_KEYS) {
     const value = context[key];

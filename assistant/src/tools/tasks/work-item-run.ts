@@ -5,11 +5,11 @@ import {
   identifyEntityById,
   listWorkItems,
 } from "../../work-items/work-item-store.js";
-import type { ToolContext, ToolExecutionResult } from "../types.js";
+import type { CoreToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeTaskQueueRun(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  _context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const workItemId = input.work_item_id as string | undefined;
   const taskName = input.task_name as string | undefined;

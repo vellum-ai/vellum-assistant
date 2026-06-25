@@ -1,9 +1,9 @@
 import { deleteSchedule, getSchedule } from "../../schedule/schedule-store.js";
-import type { ToolContext, ToolExecutionResult } from "../types.js";
+import type { CoreToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeScheduleDelete(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  _context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const jobId = input.job_id as string;
   if (!jobId || typeof jobId !== "string") {

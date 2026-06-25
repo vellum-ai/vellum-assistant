@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import { forwardAppControlProxyTool } from "../tools/app-control/skill-proxy-bridge.js";
-import type { ToolContext } from "../tools/types.js";
+import type { CoreToolContext } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------
 // Load TOOLS.json (the production source of truth for app-control tool
@@ -132,7 +132,7 @@ function validate(
   return { ok: true };
 }
 
-const ctx: ToolContext = {
+const ctx: CoreToolContext = {
   workingDir: "/tmp",
   conversationId: "test-conversation",
   trustClass: "guardian",
@@ -594,7 +594,7 @@ describe("forwardAppControlProxyTool", () => {
   test("delegates to proxy resolver when available", async () => {
     let capturedName = "";
     let capturedInput: Record<string, unknown> = {};
-    const ctxWithProxy: ToolContext = {
+    const ctxWithProxy: CoreToolContext = {
       ...ctx,
       proxyToolResolver: async (name, input) => {
         capturedName = name;

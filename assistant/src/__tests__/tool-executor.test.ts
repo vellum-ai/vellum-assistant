@@ -172,9 +172,9 @@ import {
   isSideEffectTool,
   ToolExecutor,
 } from "../tools/executor.js";
-import type { ToolContext } from "../tools/types.js";
+import type { CoreToolContext } from "../tools/types.js";
 
-function makeContext(overrides?: Partial<ToolContext>): ToolContext {
+function makeContext(overrides?: Partial<CoreToolContext>): CoreToolContext {
   return {
     workingDir: "/tmp/project",
     conversationId: "conversation-1",

@@ -4,8 +4,8 @@ import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatEditDiff } from "../shared/filesystem/format-diff.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
 import type {
-  ToolContext,
-  ToolDefinition,
+  CoreToolContext,
+  CoreToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 
@@ -49,7 +49,7 @@ export const fileEditTool = {
 
   async execute(
     input: Record<string, unknown>,
-    context: ToolContext,
+    context: CoreToolContext,
   ): Promise<ToolExecutionResult> {
     const rawPath = input.path as string;
     if (!rawPath || typeof rawPath !== "string") {
@@ -157,6 +157,6 @@ export const fileEditTool = {
       diff: { filePath, oldContent, newContent, isNewFile: false },
     };
   },
-} satisfies ToolDefinition;
+} satisfies CoreToolDefinition;
 
 registerTool(fileEditTool);

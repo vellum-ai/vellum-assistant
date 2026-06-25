@@ -1,5 +1,5 @@
 import { listAcpAgents } from "../../acp/resolve-agent.js";
-import type { ToolContext, ToolExecutionResult } from "../types.js";
+import type { CoreToolContext, ToolExecutionResult } from "../types.js";
 
 /**
  * Lists ACP coding agents available to spawn (configured + bundled defaults),
@@ -8,7 +8,7 @@ import type { ToolContext, ToolExecutionResult } from "../types.js";
  */
 export async function executeAcpListAgents(
   _input: Record<string, unknown>,
-  _context: ToolContext,
+  _context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const { agents } = listAcpAgents();
 

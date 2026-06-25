@@ -15,7 +15,7 @@ import {
   computerUseWaitTool,
 } from "../tools/computer-use/definitions.js";
 import { forwardComputerUseProxyTool } from "../tools/computer-use/skill-proxy-bridge.js";
-import type { ToolContext } from "../tools/types.js";
+import type { CoreToolContext } from "../tools/types.js";
 
 interface JsonSchema {
   type?: string;
@@ -28,7 +28,7 @@ function schema(tool: { input_schema?: object }): JsonSchema {
   return tool.input_schema as JsonSchema;
 }
 
-const ctx: ToolContext = {
+const ctx: CoreToolContext = {
   workingDir: "/tmp",
   conversationId: "test-conversation",
   trustClass: "guardian",
@@ -246,7 +246,7 @@ describe("forwardComputerUseProxyTool", () => {
   });
 
   test("delegates to proxy resolver when available", async () => {
-    const ctxWithProxy: ToolContext = {
+    const ctxWithProxy: CoreToolContext = {
       ...ctx,
       proxyToolResolver: async (
         name: string,

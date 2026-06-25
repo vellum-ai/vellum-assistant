@@ -1,12 +1,12 @@
 import { executeAcpAbort } from "../../../../tools/acp/abort.js";
 import type {
-  ToolContext,
+  CoreToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
 export async function run(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   return executeAcpAbort(input, context);
 }

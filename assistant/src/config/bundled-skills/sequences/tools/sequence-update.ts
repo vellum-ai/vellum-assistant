@@ -11,14 +11,14 @@ import type {
   SequenceStep,
 } from "../../../../sequence/types.js";
 import type {
-  ToolContext,
+  CoreToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { err, ok } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  _context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const id = input.id as string | undefined;
   const enrollmentId = input.enrollment_id as string | undefined;

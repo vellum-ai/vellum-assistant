@@ -6,7 +6,7 @@ import {
   getScheduleRuns,
   listSchedules,
 } from "../../schedule/schedule-store.js";
-import type { ToolContext, ToolExecutionResult } from "../types.js";
+import type { CoreToolContext, ToolExecutionResult } from "../types.js";
 
 function describeSchedule(job: {
   syntax: string;
@@ -31,7 +31,7 @@ function describeAuthoredPurpose(job: { description: string }): string {
 
 export async function executeScheduleList(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  _context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const jobId = input.job_id as string | undefined;
   const enabledOnly = (input.enabled_only as boolean) ?? false;

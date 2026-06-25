@@ -41,8 +41,8 @@ import {
 } from "../shared/shell-output.js";
 import { buildSanitizedEnv } from "../terminal/safe-env.js";
 import type {
-  ToolContext,
-  ToolDefinition,
+  CoreToolContext,
+  CoreToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 
@@ -147,7 +147,7 @@ export const hostShellTool = {
 
   async execute(
     input: Record<string, unknown>,
-    context: ToolContext,
+    context: CoreToolContext,
   ): Promise<ToolExecutionResult> {
     const command = input.command as string;
     if (!command || typeof command !== "string") {
@@ -590,4 +590,4 @@ export const hostShellTool = {
       });
     });
   },
-} satisfies ToolDefinition;
+} satisfies CoreToolDefinition;

@@ -1,12 +1,12 @@
 import { forwardAppControlProxyTool } from "../../../../tools/app-control/skill-proxy-bridge.js";
 import type {
-  ToolContext,
+  CoreToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
 export async function run(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   return forwardAppControlProxyTool("app_control_sequence", input, context);
 }

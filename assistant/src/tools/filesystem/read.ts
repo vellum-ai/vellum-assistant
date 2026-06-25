@@ -13,8 +13,8 @@ import {
 } from "../shared/filesystem/image-read.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
 import type {
-  ToolContext,
-  ToolDefinition,
+  CoreToolContext,
+  CoreToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 
@@ -53,7 +53,7 @@ export const fileReadTool = {
 
   async execute(
     input: Record<string, unknown>,
-    context: ToolContext,
+    context: CoreToolContext,
   ): Promise<ToolExecutionResult> {
     const rawPath = input.path as string;
     if (!rawPath || typeof rawPath !== "string") {
@@ -126,6 +126,6 @@ export const fileReadTool = {
 
     return { content: result.value.content, isError: false };
   },
-} satisfies ToolDefinition;
+} satisfies CoreToolDefinition;
 
 registerTool(fileReadTool);

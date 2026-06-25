@@ -18,10 +18,10 @@ import { getAllTools, getTool, getToolOwner } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
 import { summarizeToolInput } from "./tool-input-summary.js";
 import {
+  type CoreToolContext,
   type ExecutionTarget,
   isDiskPressureCleanupToolName,
   type Tool,
-  type ToolContext,
   type ToolExecutionResult,
   type ToolLifecycleEvent,
 } from "./types.js";
@@ -32,7 +32,7 @@ const log = getLogger("tool-approval-handler");
 function buildToolGrantQuestionText(
   toolName: string,
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): string {
   const senderLabel =
     context.requesterDisplayName ||
@@ -173,7 +173,7 @@ function requiresGuardianApprovalForActor(
 }
 
 function guardianApprovalDeniedMessage(
-  trustClass: ToolContext["trustClass"],
+  trustClass: CoreToolContext["trustClass"],
   toolName: string,
 ): string {
   if (resolveCapabilities(trustClass).sensitiveToolApproval === "deny") {
@@ -214,7 +214,7 @@ export class ToolApprovalHandler {
   async checkPreExecutionGates(
     name: string,
     input: Record<string, unknown>,
-    context: ToolContext,
+    context: CoreToolContext,
     executionTarget: ExecutionTarget,
     riskLevel: string,
     startTime: number,

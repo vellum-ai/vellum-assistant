@@ -3,7 +3,7 @@ import {
   resolveFollowUp,
 } from "../../followups/followup-store.js";
 import type { FollowUp } from "../../followups/types.js";
-import type { ToolContext, ToolExecutionResult } from "../types.js";
+import type { CoreToolContext, ToolExecutionResult } from "../types.js";
 
 function formatFollowUp(f: FollowUp): string {
   const lines = [
@@ -18,7 +18,7 @@ function formatFollowUp(f: FollowUp): string {
 
 export async function executeFollowupResolve(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  _context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const id = input.id as string | undefined;
   const channel = input.channel as string | undefined;

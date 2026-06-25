@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import { forwardComputerUseProxyTool } from "../tools/computer-use/skill-proxy-bridge.js";
-import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
+import type { CoreToolContext, ToolExecutionResult } from "../tools/types.js";
 
 describe("forwardComputerUseProxyTool", () => {
   test("returns error when proxyToolResolver is missing", async () => {
-    const context = {} as ToolContext;
+    const context = {} as CoreToolContext;
     const result = await forwardComputerUseProxyTool(
       "computer_use_click",
       { x: 100, y: 200 },
@@ -35,7 +35,7 @@ describe("forwardComputerUseProxyTool", () => {
         capturedInput = input;
         return expectedResult;
       },
-    } as unknown as ToolContext;
+    } as unknown as CoreToolContext;
 
     const result = await forwardComputerUseProxyTool(
       "computer_use_click",
@@ -56,7 +56,7 @@ describe("forwardComputerUseProxyTool", () => {
 
     const context = {
       proxyToolResolver: async () => errorResult,
-    } as unknown as ToolContext;
+    } as unknown as CoreToolContext;
 
     const result = await forwardComputerUseProxyTool(
       "computer_use_click",

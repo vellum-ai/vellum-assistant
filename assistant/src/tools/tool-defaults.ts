@@ -12,9 +12,9 @@
 
 import { resolveExecutionTarget } from "./execution-target.js";
 import type {
+  CoreToolDefinition,
   RiskLevel,
   Tool,
-  ToolDefinition,
   ToolExecutionResult,
 } from "./types.js";
 
@@ -73,7 +73,7 @@ export const TOOL_DEFAULTS = Object.freeze({
  * registers the tool cleanly — a broken individual tool must never block
  * the registration batch.
  */
-export function finalizeTool(tool: ToolDefinition, defaultName = ""): Tool {
+export function finalizeTool(tool: CoreToolDefinition, defaultName = ""): Tool {
   const name = tool.name ?? defaultName;
   const description =
     typeof tool.description === "string"

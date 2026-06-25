@@ -89,9 +89,9 @@ import {
 import { executeDeleteManagedSkill } from "../tools/skills/delete-managed.js";
 import { skillLoadTool } from "../tools/skills/load.js";
 import { executeScaffoldManagedSkill } from "../tools/skills/scaffold-managed.js";
-import type { ToolContext } from "../tools/types.js";
+import type { CoreToolContext } from "../tools/types.js";
 
-function makeContext(): ToolContext {
+function makeContext(): CoreToolContext {
   return {
     workingDir: "/tmp",
     conversationId: "test-conversation",

@@ -5,7 +5,7 @@
  * in the tool definition's execute() handler.  They accept plain typed
  * parameters and return plain result objects, making them reusable from
  * both core tool handlers and skill scripts without depending on
- * ToolDefinition or ToolContext types.
+ * CoreToolDefinition or CoreToolContext types.
  */
 
 import { compileApp } from "../../bundler/app-compiler.js";

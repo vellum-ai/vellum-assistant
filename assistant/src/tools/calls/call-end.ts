@@ -1,9 +1,9 @@
 import { cancelCall } from "../../calls/call-domain.js";
-import type { ToolContext, ToolExecutionResult } from "../types.js";
+import type { CoreToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeCallEnd(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  _context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const callSessionId = input.call_session_id as string | undefined;
   if (!callSessionId || typeof callSessionId !== "string") {

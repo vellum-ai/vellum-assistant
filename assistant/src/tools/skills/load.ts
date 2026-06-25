@@ -27,8 +27,8 @@ import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDirDisplay } from "../../util/platform.js";
 import { registerTool } from "../registry.js";
 import type {
-  ToolContext,
-  ToolDefinition,
+  CoreToolContext,
+  CoreToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 
@@ -160,7 +160,7 @@ export const skillLoadTool = {
 
   async execute(
     input: Record<string, unknown>,
-    context: ToolContext,
+    context: CoreToolContext,
   ): Promise<ToolExecutionResult> {
     const selector = input.skill;
     if (typeof selector !== "string" || selector.trim().length === 0) {
@@ -571,5 +571,5 @@ export const skillLoadTool = {
       isError: false,
     };
   },
-} satisfies ToolDefinition;
+} satisfies CoreToolDefinition;
 registerTool(skillLoadTool);

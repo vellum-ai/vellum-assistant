@@ -2,14 +2,14 @@ import { RiskLevel } from "../../permissions/types.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { registerTool } from "../registry.js";
 import type {
-  ToolContext,
-  ToolDefinition,
+  CoreToolContext,
+  CoreToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 
 export async function executeSubagentNotifyParent(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const message = input.message as string;
   const urgency = (input.urgency as string) || "info";
@@ -67,10 +67,10 @@ export const notifyParentTool = {
 
   async execute(
     input: Record<string, unknown>,
-    context: ToolContext,
+    context: CoreToolContext,
   ): Promise<ToolExecutionResult> {
     return executeSubagentNotifyParent(input, context);
   },
-} satisfies ToolDefinition;
+} satisfies CoreToolDefinition;
 
 registerTool(notifyParentTool);

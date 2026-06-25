@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ToolContext } from "../types.js";
+import type { CoreToolContext } from "../types.js";
 
 interface SteerCall {
   acpSessionId: string;
@@ -45,13 +45,13 @@ mock.module("../../acp/index.js", () => ({
 
 const { executeAcpSteer } = await import("./steer.js");
 
-function makeContext(opts?: { withClient?: boolean }): ToolContext {
+function makeContext(opts?: { withClient?: boolean }): CoreToolContext {
   return {
     workingDir: "/tmp",
     conversationId: "conv-test",
     trustClass: "guardian",
     ...(opts?.withClient ? { sendToClient: () => {} } : {}),
-  } as ToolContext;
+  } as CoreToolContext;
 }
 
 beforeEach(() => {

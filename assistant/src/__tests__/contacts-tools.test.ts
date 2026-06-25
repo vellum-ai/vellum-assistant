@@ -69,7 +69,7 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { ROUTES } from "../runtime/routes/contact-routes.js";
 import { RouteError } from "../runtime/routes/errors.js";
-import type { ToolContext } from "../tools/types.js";
+import type { CoreToolContext } from "../tools/types.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
 await initializeDb();
@@ -135,7 +135,7 @@ function getRawDb(): Database {
   return (getDb() as unknown as { $client: Database }).$client;
 }
 
-const ctx: ToolContext = {
+const ctx: CoreToolContext = {
   workingDir: "/tmp",
   conversationId: "test-conversation",
   trustClass: "guardian",

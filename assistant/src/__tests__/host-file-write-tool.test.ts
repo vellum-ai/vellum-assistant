@@ -27,11 +27,11 @@ mock.module("../daemon/host-file-proxy.js", () => ({
 }));
 
 import { hostFileWriteTool } from "../tools/host-filesystem/write.js";
-import type { ToolContext } from "../tools/types.js";
+import type { CoreToolContext } from "../tools/types.js";
 
 const testDirs: string[] = [];
 
-function makeContext(): ToolContext {
+function makeContext(): CoreToolContext {
   return {
     workingDir: "/tmp",
     conversationId: "test-conversation",

@@ -56,7 +56,11 @@ import {
 } from "../providers/provider-send-message.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
+import type {
+  CoreToolContext,
+  Tool,
+  ToolExecutionResult,
+} from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 
@@ -502,7 +506,7 @@ async function runToolLeaf(
 
 /**
  * Execute one tool invocation for the tool path, restricted to the supplied
- * set. Builds a minimal {@link ToolContext} — the leaf is anonymous, runs in
+ * set. Builds a minimal {@link CoreToolContext} — the leaf is anonymous, runs in
  * the sandbox, and self-approves as the requested trust class (the workflow
  * manifest is the single consent point, resolved by the engine before the run).
  */
@@ -526,7 +530,7 @@ async function executeLeafTool(
     };
   }
 
-  const toolContext: ToolContext = {
+  const toolContext: CoreToolContext = {
     conversationId: ctx.ephemeralConversationId,
     workingDir: ctx.workingDir,
     requestId: ctx.ephemeralConversationId,

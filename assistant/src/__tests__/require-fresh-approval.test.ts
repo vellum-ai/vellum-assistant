@@ -158,7 +158,7 @@ mock.module("../tools/shared/filesystem/path-policy.js", () => ({
 
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { ToolExecutor } from "../tools/executor.js";
-import type { ToolContext as TC } from "../tools/types.js";
+import type { CoreToolContext as TC } from "../tools/types.js";
 
 function makeContext(overrides?: Partial<TC>): TC {
   return {

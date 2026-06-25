@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 
 import type { AppDefinition } from "../memory/app-store.js";
 import type { AppStore } from "../tools/apps/executors.js";
-import type { ToolContext } from "../tools/types.js";
+import type { CoreToolContext } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------
 // Mock factory helpers
@@ -38,7 +38,9 @@ function makeMockStore(overrides: Partial<AppStore> = {}): AppStore {
   };
 }
 
-function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
+function makeContext(
+  overrides: Partial<CoreToolContext> = {},
+): CoreToolContext {
   return {
     workingDir: "/tmp",
     conversationId: "conv-1",
@@ -106,7 +108,7 @@ describe("app-builder skill tool scripts", () => {
     });
 
     test("passes proxyToolResolver from context for auto-open", async () => {
-      const proxy: ToolContext["proxyToolResolver"] = async () => ({
+      const proxy: CoreToolContext["proxyToolResolver"] = async () => ({
         content: "opened",
         isError: false,
       });

@@ -10,9 +10,12 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { createMockLoggerModule } from "../../../__tests__/helpers/mock-logger.js";
-import type { ToolContext } from "../../types.js";
+import type { CoreToolContext } from "../../types.js";
 import { CdpError } from "../cdp-client/errors.js";
-import type { CdpClientKind, InternalBrowserMode } from "../cdp-client/types.js";
+import type {
+  CdpClientKind,
+  InternalBrowserMode,
+} from "../cdp-client/types.js";
 
 // ---------------------------------------------------------------------------
 // Captured call state
@@ -35,7 +38,7 @@ function makeFakeScopedClient(kind: CdpClientKind, conversationId: string) {
 }
 
 const getCdpClientMock = mock(
-  (ctx: ToolContext, opts?: CdpClientCallOpts) => {
+  (ctx: CoreToolContext, opts?: CdpClientCallOpts) => {
     getCdpClientCalls.push({
       mode: opts?.mode,
       targetClientId: opts?.targetClientId,
@@ -126,13 +129,13 @@ const { executeBrowserAttach } = await import("../browser-execution.js");
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeContext(conversationId: string): ToolContext {
+function makeContext(conversationId: string): CoreToolContext {
   return {
     conversationId,
     workingDir: "/tmp",
     trustClass: "guardian",
     signal: new AbortController().signal,
-  } as unknown as ToolContext;
+  } as unknown as CoreToolContext;
 }
 
 // ---------------------------------------------------------------------------

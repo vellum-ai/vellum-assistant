@@ -1,9 +1,9 @@
 import { getAcpSessionManager } from "../../acp/index.js";
-import type { ToolContext, ToolExecutionResult } from "../types.js";
+import type { CoreToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeAcpStatus(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  _context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const acpSessionId = input.acp_session_id as string | undefined;
   const manager = getAcpSessionManager();

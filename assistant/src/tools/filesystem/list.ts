@@ -3,8 +3,8 @@ import { registerTool } from "../registry.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
 import type {
-  ToolContext,
-  ToolDefinition,
+  CoreToolContext,
+  CoreToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 
@@ -38,7 +38,7 @@ export const fileListTool = {
 
   async execute(
     input: Record<string, unknown>,
-    context: ToolContext,
+    context: CoreToolContext,
   ): Promise<ToolExecutionResult> {
     const rawPath = input.path as string;
     if (!rawPath || typeof rawPath !== "string") {
@@ -85,6 +85,6 @@ export const fileListTool = {
 
     return { content: result.value.listing, isError: false };
   },
-} satisfies ToolDefinition;
+} satisfies CoreToolDefinition;
 
 registerTool(fileListTool);

@@ -13,7 +13,7 @@ import {
 } from "../../documents/document-comments-store.js";
 import { initializeDb } from "../../memory/db-init.js";
 import { rawRun, resetTestTables } from "../../memory/raw-query.js";
-import type { ToolContext, ToolExecutionResult } from "../types.js";
+import type { CoreToolContext, ToolExecutionResult } from "../types.js";
 import {
   executeCommentList,
   executeCommentReply,
@@ -29,7 +29,9 @@ await initializeDb();
 const SURFACE_ID = "doc-comment-tool-test";
 const CONVERSATION_ID = "conv-comment-tool";
 
-function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
+function makeContext(
+  overrides: Partial<CoreToolContext> = {},
+): CoreToolContext {
   return {
     workingDir: "/tmp/project",
     conversationId: CONVERSATION_ID,

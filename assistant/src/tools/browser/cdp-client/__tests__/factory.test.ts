@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { HostBrowserProxy } from "../../../../daemon/host-browser-proxy.js";
-import type { ToolContext } from "../../../types.js";
+import type { CoreToolContext } from "../../../types.js";
 import { CdpError } from "../errors.js";
 
 type FakeClient = {
@@ -193,14 +193,14 @@ const {
 } = await import("../factory.js");
 
 /**
- * Minimal ToolContext suitable for factory tests. Only `conversationId`
+ * Minimal CoreToolContext suitable for factory tests. Only `conversationId`
  * needs to be populated; other required fields are cast away.
  * Extension availability is controlled via `mockSingletonProxy`.
  */
 function makeContext(
-  overrides: Partial<ToolContext> & { conversationId: string },
-): ToolContext {
-  return overrides as unknown as ToolContext;
+  overrides: Partial<CoreToolContext> & { conversationId: string },
+): CoreToolContext {
+  return overrides as unknown as CoreToolContext;
 }
 
 /**
@@ -730,11 +730,11 @@ describe("getCdpClient", () => {
     expect(createCdpInspectClientMock).toHaveBeenCalledTimes(1);
   });
 
-  test("threads sourceActorPrincipalId from ToolContext into createExtensionCdpClient", async () => {
+  test("threads sourceActorPrincipalId from CoreToolContext into createExtensionCdpClient", async () => {
     // The proxy uses sourceActorPrincipalId to refuse cross-user dispatch
     // when host_browser is exposed cross-client (web/iOS turn → connected
     // extension/macOS bridge). The factory must thread the value from the
-    // ToolContext through to ExtensionCdpClient on every candidate-list path
+    // CoreToolContext through to ExtensionCdpClient on every candidate-list path
     // so the actor identity reaches the proxy at request time.
     const fakeProxy = makeAvailableProxy();
     mockSingletonProxy = fakeProxy;
@@ -785,7 +785,10 @@ describe("getCdpClient", () => {
     const ctx = makeContext({ conversationId: "auto-targeted-no-ext" });
 
     expect(() =>
-      getCdpClient(ctx, { mode: "auto", targetClientId: "specific-host-client" }),
+      getCdpClient(ctx, {
+        mode: "auto",
+        targetClientId: "specific-host-client",
+      }),
     ).toThrow(
       expect.objectContaining({
         code: "transport_error",
@@ -968,7 +971,6 @@ describe("buildCandidateList", () => {
     expect(isHostBridgeCooldownActive(30_000, "actor-a")).toBe(true);
     expect(isHostBridgeCooldownActive(30_000, "actor-b")).toBe(false);
   });
-
 
   test("ordering on a macOS turn with bridge only: host-bridge > cdp-inspect > local", () => {
     mockSingletonProxy = makeMacosBridgeOnlyProxy();

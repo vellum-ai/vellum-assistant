@@ -3,8 +3,8 @@ import { z } from "zod";
 import { QuestionPrompter } from "../../permissions/question-prompter.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type {
-  ToolContext,
-  ToolDefinition,
+  CoreToolContext,
+  CoreToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 
@@ -170,7 +170,7 @@ export const askQuestionTool = {
 
   async execute(
     input: Record<string, unknown>,
-    context: ToolContext,
+    context: CoreToolContext,
   ): Promise<ToolExecutionResult> {
     const parsed = InputSchema.safeParse(input);
     if (!parsed.success) {
@@ -243,4 +243,4 @@ export const askQuestionTool = {
         };
     }
   },
-} satisfies ToolDefinition;
+} satisfies CoreToolDefinition;

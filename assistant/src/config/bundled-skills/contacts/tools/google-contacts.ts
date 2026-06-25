@@ -5,7 +5,7 @@ import {
 import type { Person } from "../../../../messaging/providers/gmail/people-types.js";
 import { resolveOAuthConnection } from "../../../../oauth/connection-resolver.js";
 import type {
-  ToolContext,
+  CoreToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
@@ -34,7 +34,7 @@ function formatContact(person: Person): Record<string, unknown> {
 
 export async function run(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  _context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const account = input.account as string | undefined;
   const action = input.action as string;

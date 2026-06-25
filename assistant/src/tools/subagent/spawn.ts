@@ -6,11 +6,11 @@ import { getConversationOverrideProfile } from "../../memory/conversation-crud.j
 import type { Message } from "../../providers/types.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import type { SubagentRole } from "../../subagent/types.js";
-import type { ToolContext, ToolExecutionResult } from "../types.js";
+import type { CoreToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeSubagentSpawn(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const label = input.label as string;
   const objective = input.objective as string;

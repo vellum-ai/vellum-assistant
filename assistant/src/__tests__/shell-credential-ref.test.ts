@@ -68,9 +68,9 @@ const META_PATH = join(TEST_DIR, "metadata.json");
 
 // Import the shell tool after mocks
 import { shellTool } from "../tools/terminal/shell.js";
-import type { ToolContext } from "../tools/types.js";
+import type { CoreToolContext } from "../tools/types.js";
 
-const ctx: ToolContext = {
+const ctx: CoreToolContext = {
   workingDir: "/tmp",
   conversationId: "test-conv",
   trustClass: "guardian",

@@ -4,7 +4,7 @@ import { readFileSync } from "fs";
 import { dirname, join } from "path";
 
 import { __resetRegistryForTesting, getTool } from "../tools/registry.js";
-import type { ToolContext } from "../tools/types.js";
+import type { CoreToolContext } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------
 // Mock dependencies for the tool wrapper
@@ -129,7 +129,7 @@ beforeEach(() => {
 const fakeContext = {
   conversationId: "conv-123",
   workingDir: "/tmp",
-} as unknown as ToolContext;
+} as unknown as CoreToolContext;
 
 describe("image-studio skill script wrapper", () => {
   test("exports a run function without registering media_generate_image in the tool registry", async () => {

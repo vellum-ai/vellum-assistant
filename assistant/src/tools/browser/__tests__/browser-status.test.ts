@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ToolContext } from "../../types.js";
+import type { CoreToolContext } from "../../types.js";
 import {
   BROWSER_STATUS_INPUT_FIELD,
   BROWSER_STATUS_MODE,
@@ -21,7 +21,7 @@ const probeErrors: Record<string, CdpError | null> = {
 };
 
 const buildCandidateListMock = mock(
-  (_context: ToolContext): Array<{ kind: string; reason: string }> => [
+  (_context: CoreToolContext): Array<{ kind: string; reason: string }> => [
     { kind: BROWSER_STATUS_MODE.EXTENSION, reason: "mock" },
     { kind: BROWSER_STATUS_MODE.CDP_INSPECT, reason: "mock" },
     { kind: BROWSER_STATUS_MODE.LOCAL, reason: "mock" },
@@ -29,7 +29,7 @@ const buildCandidateListMock = mock(
 );
 
 const getCdpClientMock = mock(
-  (_context: ToolContext, options?: { mode?: string }) => {
+  (_context: CoreToolContext, options?: { mode?: string }) => {
     const mode = (options?.mode ?? "auto") as string;
     const outcome = probeOutcomes[mode];
     return {
@@ -107,13 +107,15 @@ mock.module("../../../daemon/host-browser-proxy.js", () => ({
 
 const { executeBrowserStatus } = await import("../browser-execution.js");
 
-function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
+function makeContext(
+  overrides: Partial<CoreToolContext> = {},
+): CoreToolContext {
   return {
     workingDir: "/tmp",
     conversationId: "test-conversation",
     trustClass: "guardian",
     ...overrides,
-  } as ToolContext;
+  } as CoreToolContext;
 }
 
 describe("executeBrowserStatus", () => {
@@ -163,7 +165,11 @@ describe("executeBrowserStatus", () => {
   });
 
   test("reports extension as connected when probe fails on restricted chrome:// page", async () => {
-    mockSingletonProxy = { isAvailable: () => true, hasExtensionClient: () => true, request: () => {} };
+    mockSingletonProxy = {
+      isAvailable: () => true,
+      hasExtensionClient: () => true,
+      request: () => {},
+    };
     probeOutcomes[BROWSER_STATUS_MODE.EXTENSION] = "fail";
     probeErrors[BROWSER_STATUS_MODE.EXTENSION] = new CdpError(
       "cdp_error",
@@ -185,7 +191,11 @@ describe("executeBrowserStatus", () => {
   // ── macOS host-browser proxy mode tests ─────────────────────────────
 
   test("reports extension as available when singleton proxy is connected", async () => {
-    mockSingletonProxy = { isAvailable: () => true, hasExtensionClient: () => true, request: () => {} };
+    mockSingletonProxy = {
+      isAvailable: () => true,
+      hasExtensionClient: () => true,
+      request: () => {},
+    };
     const result = await executeBrowserStatus(
       {},
       makeContext({
@@ -204,22 +214,26 @@ describe("executeBrowserStatus", () => {
   });
 
   test("reports extension unavailable when no Chrome Extension is connected", async () => {
-      // mockSingletonProxy = null → falls back to unavailableFallback (hasExtensionClient = false)
-      const result = await executeBrowserStatus({}, makeContext());
-      expect(result.isError).toBe(false);
-      const payload = JSON.parse(result.content);
-      const extension = payload.modes.find(
-        (m: { mode: string }) => m.mode === BROWSER_STATUS_MODE.EXTENSION,
-      );
-      expect(extension).toBeDefined();
-      expect(extension.available).toBe(false);
-      expect(extension.summary).toContain("no Chrome Extension is connected");
-      expect(extension.verified).toBe("preflight");
-      expect(extension.details.transport).toBe("extension-ws");
-    });
+    // mockSingletonProxy = null → falls back to unavailableFallback (hasExtensionClient = false)
+    const result = await executeBrowserStatus({}, makeContext());
+    expect(result.isError).toBe(false);
+    const payload = JSON.parse(result.content);
+    const extension = payload.modes.find(
+      (m: { mode: string }) => m.mode === BROWSER_STATUS_MODE.EXTENSION,
+    );
+    expect(extension).toBeDefined();
+    expect(extension.available).toBe(false);
+    expect(extension.summary).toContain("no Chrome Extension is connected");
+    expect(extension.verified).toBe("preflight");
+    expect(extension.details.transport).toBe("extension-ws");
+  });
 
   test("probe failure diagnostics include remediation actions", async () => {
-    mockSingletonProxy = { isAvailable: () => true, hasExtensionClient: () => true, request: () => {} };
+    mockSingletonProxy = {
+      isAvailable: () => true,
+      hasExtensionClient: () => true,
+      request: () => {},
+    };
     probeOutcomes[BROWSER_STATUS_MODE.EXTENSION] = "fail";
     probeErrors[BROWSER_STATUS_MODE.EXTENSION] = new CdpError(
       "transport_error",
@@ -238,7 +252,11 @@ describe("executeBrowserStatus", () => {
   });
 
   test("recommendation order follows auto candidate precedence with available extension", async () => {
-    mockSingletonProxy = { isAvailable: () => true, hasExtensionClient: () => true, request: () => {} };
+    mockSingletonProxy = {
+      isAvailable: () => true,
+      hasExtensionClient: () => true,
+      request: () => {},
+    };
     const result = await executeBrowserStatus({}, makeContext());
     expect(result.isError).toBe(false);
     const payload = JSON.parse(result.content);
@@ -265,11 +283,13 @@ describe("executeBrowserStatus", () => {
       hasExtensionClient: () => false,
       request: () => {},
     };
-    buildCandidateListMock.mockImplementationOnce((_context: ToolContext) => [
-      { kind: "host-bridge", reason: "mock bridge" },
-      { kind: BROWSER_STATUS_MODE.CDP_INSPECT, reason: "mock" },
-      { kind: BROWSER_STATUS_MODE.LOCAL, reason: "mock" },
-    ]);
+    buildCandidateListMock.mockImplementationOnce(
+      (_context: CoreToolContext) => [
+        { kind: "host-bridge", reason: "mock bridge" },
+        { kind: BROWSER_STATUS_MODE.CDP_INSPECT, reason: "mock" },
+        { kind: BROWSER_STATUS_MODE.LOCAL, reason: "mock" },
+      ],
+    );
 
     const result = await executeBrowserStatus({}, makeContext());
     expect(result.isError).toBe(false);
@@ -279,7 +299,11 @@ describe("executeBrowserStatus", () => {
   });
 
   test("restricted chrome:// page probe includes transport details", async () => {
-    mockSingletonProxy = { isAvailable: () => true, hasExtensionClient: () => true, request: () => {} };
+    mockSingletonProxy = {
+      isAvailable: () => true,
+      hasExtensionClient: () => true,
+      request: () => {},
+    };
     probeOutcomes[BROWSER_STATUS_MODE.EXTENSION] = "fail";
     probeErrors[BROWSER_STATUS_MODE.EXTENSION] = new CdpError(
       "cdp_error",
@@ -298,7 +322,11 @@ describe("executeBrowserStatus", () => {
   });
 
   test("reports extension as connected when probe fails on the Chrome Web Store / extensions gallery", async () => {
-    mockSingletonProxy = { isAvailable: () => true, hasExtensionClient: () => true, request: () => {} };
+    mockSingletonProxy = {
+      isAvailable: () => true,
+      hasExtensionClient: () => true,
+      request: () => {},
+    };
     probeOutcomes[BROWSER_STATUS_MODE.EXTENSION] = "fail";
     probeErrors[BROWSER_STATUS_MODE.EXTENSION] = new CdpError(
       "cdp_error",

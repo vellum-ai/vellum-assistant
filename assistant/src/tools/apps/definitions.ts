@@ -10,8 +10,8 @@
 
 import { RiskLevel } from "../../permissions/types.js";
 import type {
-  ToolContext,
-  ToolDefinition,
+  CoreToolContext,
+  CoreToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 
@@ -28,7 +28,7 @@ import type {
 function proxyExecute(toolName: string) {
   return async (
     input: Record<string, unknown>,
-    context: ToolContext,
+    context: CoreToolContext,
   ): Promise<ToolExecutionResult> => {
     if (!context.proxyToolResolver) {
       return {
@@ -70,10 +70,10 @@ const appOpenTool = {
   },
 
   execute: proxyExecute("app_open"),
-} satisfies ToolDefinition;
+} satisfies CoreToolDefinition;
 
 // ---------------------------------------------------------------------------
 // Proxy-only tools registered in the core daemon registry
 // ---------------------------------------------------------------------------
 
-export const coreAppProxyTools: ToolDefinition[] = [appOpenTool];
+export const coreAppProxyTools: CoreToolDefinition[] = [appOpenTool];

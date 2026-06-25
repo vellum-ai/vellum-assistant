@@ -1,5 +1,5 @@
 import { getSubagentManager } from "../../subagent/index.js";
-import type { ToolContext } from "../types.js";
+import type { CoreToolContext } from "../types.js";
 
 /**
  * Resolve a subagent ID from tool input.
@@ -7,7 +7,7 @@ import type { ToolContext } from "../types.js";
  */
 export function resolveSubagentId(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): string | undefined {
   if (input.subagent_id) return input.subagent_id as string;
   if (input.label) {

@@ -7,7 +7,7 @@ import {
 import { VALID_CONVERSATION_TIMEOUTS } from "../../../../config/schemas/elevenlabs.js";
 import { normalizeActivationKey } from "../../../../daemon/handlers/config-voice.js";
 import type {
-  ToolContext,
+  CoreToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { listCatalogProviderIds } from "../../../../tts/provider-catalog.js";
@@ -133,7 +133,7 @@ function validateSetting(
 
 export async function run(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const setting = input.setting as string | undefined;
   const value = input.value;

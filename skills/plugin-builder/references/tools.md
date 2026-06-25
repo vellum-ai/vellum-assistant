@@ -28,45 +28,19 @@ These are the fields a tool definition can set. Names and types come from `ToolD
 
 ### The execute context
 
-`execute(input, ctx)` receives the model-supplied `input` (validated against your `input_schema`) and a `ToolContext`, and returns a `ToolExecutionResult`. The complete `ToolContext` is listed below. Most tools only reach for the first few fields; the rest carry routing, permission, and trust metadata the host threads through, and the surface is still being narrowed while plugins are in beta.
+`execute(input, ctx)` receives the model-supplied `input` (validated against your `input_schema`) and a `ToolContext`, and returns a `ToolExecutionResult`. The complete `ToolContext` plugin and workspace tools receive is listed below — a small, stable surface.
 
-| Field                           | Type                                       | Description                                                                                                                   |
-| ------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| `conversationId`                | `string`                                   | Conversation this tool invocation belongs to.                                                                                 |
-| `workingDir`                    | `string`                                   | Working directory the assistant was launched from.                                                                            |
-| `requestId`                     | `string?`                                  | Per-turn request id for cross-component log correlation.                                                                      |
-| `signal`                        | `AbortSignal?`                             | Cooperative cancellation. Check `signal.aborted` periodically, or forward it to `fetch` and child-process options.            |
-| `onOutput`                      | `(chunk: string) => void?`                 | Incremental-output callback for streaming tools. Fall back to returning the full result in `content` when it is absent.       |
-| `assistantId`                   | `string?`                                  | Logical assistant scope for multi-assistant routing.                                                                          |
-| `taskRunId`                     | `string?`                                  | Set when the execution is part of a task run; used to retrieve ephemeral permission rules.                                    |
-| `skillId`                       | `string?`                                  | Id of the skill whose `skill_execute` dispatch triggered this invocation. Absent for direct (non-skill) tool calls.           |
-| `onToolLifecycleEvent`          | `ToolLifecycleEventHandler?`               | Callback for tool lifecycle events (start, prompt, deny, execute, error).                                                     |
-| `proxyToolResolver`             | `ProxyToolResolver?`                       | Resolver for proxy tools; delegates execution to an external client.                                                          |
-| `allowedToolNames`              | `Set<string>?`                             | When set, only tools in this set may execute; others are blocked with an error.                                               |
-| `diskPressureCleanupModeActive` | `boolean?`                                 | True when the turn is restricted to storage cleanup-safe tools.                                                               |
-| `requestSecret`                 | `(params) => Promise<SecretPromptResult>?` | Prompt the user for a secret value via the native SecureField UI.                                                             |
-| `sendToClient`                  | `(msg) => void?`                           | Send a message to the connected client (for example, `open_url`).                                                             |
-| `isInteractive`                 | `boolean?`                                 | True when an interactive client is connected (not just a no-op callback).                                                     |
-| `forcePromptSideEffects`        | `boolean?`                                 | When true, tools with side effects should always prompt for confirmation.                                                     |
-| `requireFreshApproval`          | `boolean?`                                 | When true, every invocation needs a fresh interactive approval; no cached grants or auto-approve shortcuts bypass the prompt. |
-| `proxyApprovalCallback`         | `ProxyApprovalCallback?`                   | Approval callback for proxy policy decisions that require user confirmation.                                                  |
-| `principal`                     | `string?`                                  | Principal identifier propagated to sub-tool confirmation flows.                                                               |
-| `trustClass`                    | `TrustClass`                               | Trust classification of the initiating actor; determines permission level (guardian, trusted contact, unknown).               |
-| `executionChannel`              | `string?`                                  | Channel the invocation originates through (for example telegram, phone). Used for scoped grant consumption.                   |
-| `callSessionId`                 | `string?`                                  | Voice/call session id when the invocation originates from a call. Used for scoped grant consumption.                          |
-| `triggeredBySurfaceAction`      | `boolean?`                                 | True when the invocation was triggered by a user clicking a surface action button.                                            |
-| `approvedViaPrompt`             | `boolean?`                                 | True when the user explicitly approved this invocation via the interactive permission prompt.                                 |
-| `batchAuthorizedByTask`         | `boolean?`                                 | True when a scheduled task run pre-authorized this tool via its `required_tools` array.                                       |
-| `requesterExternalUserId`       | `string?`                                  | External user id of the requester (non-guardian actor). Used for scoped grant consumption.                                    |
-| `requesterChatId`               | `string?`                                  | Chat id of the requester (non-guardian actor). Used for grant request escalation notifications.                               |
-| `requesterIdentifier`           | `string?`                                  | Human-readable identifier for the requester (for example @username).                                                          |
-| `requesterDisplayName`          | `string?`                                  | Preferred display name for the requester.                                                                                     |
-| `channelPermissionChannelId`    | `string?`                                  | Slack channel id for channel-scoped permission enforcement.                                                                   |
-| `toolUseId`                     | `string?`                                  | The tool_use block id from the LLM response, used to correlate confirmation prompts with invocations.                         |
-| `isPlatformHosted`              | `boolean?`                                 | True when the assistant runs as a platform-managed remote instance. Used to auto-approve sandboxed bash tools.                |
-| `transportInterface`            | `InterfaceId?`                             | Interface id of the connected client driving the turn (for example macos, chrome-extension).                                  |
-| `overrideProfile`               | `string?`                                  | Per-turn inference-profile override, forwarded when spawning nested subagents.                                                |
-| `sourceActorPrincipalId`        | `string?`                                  | Canonical principal id of the actor on whose behalf the invocation runs.                                                      |
+| Field            | Type                       | Description                                                                                                             |
+| ---------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `conversationId` | `string`                   | Conversation this tool invocation belongs to.                                                                         |
+| `workingDir`     | `string`                   | Working directory the assistant was launched from.                                                                    |
+| `requestId`      | `string?`                  | Per-turn request id for cross-component log correlation.                                                              |
+| `signal`         | `AbortSignal?`             | Cooperative cancellation. Check `signal.aborted` periodically, or forward it to `fetch` and child-process options.    |
+| `onOutput`       | `(chunk: string) => void?` | Incremental-output callback for streaming tools. Fall back to returning the full result in `content` when it is absent. |
+| `assistantId`    | `string?`                  | Logical assistant scope for multi-assistant routing.                                                                  |
+| `isInteractive`  | `boolean?`                 | True when an interactive client is connected (not just a no-op callback).                                            |
+
+> **Breaking change (plugins in beta).** `ToolContext` was deliberately slimmed to the fields above. It previously also carried routing, permission, trust, requester-identity, and proxy metadata (`trustClass`, `requestSecret`, `sendToClient`, `allowedToolNames`, `executionChannel`, `transportInterface`, and similar). Those fields are legacy host internals — they now live on a separate `CoreToolContext` that only built-in core, skill, and MCP tools receive, and are **no longer available to plugin or workspace tools**. We are removing them from the host surface over time, so plugin and workspace tools should not depend on them.
 
 The result is what the model sees back:
 

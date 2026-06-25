@@ -14,7 +14,7 @@ import {
   updateMediaAssetStatus,
 } from "../../../../memory/media-store.js";
 import type {
-  ToolContext,
+  CoreToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import {
@@ -107,7 +107,7 @@ async function extractDuration(filePath: string): Promise<number | null> {
 
 export async function run(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const filePath = input.file_path as string | undefined;
   if (!filePath) {

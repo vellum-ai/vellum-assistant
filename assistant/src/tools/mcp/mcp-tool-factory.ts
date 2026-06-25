@@ -3,7 +3,7 @@ import type { McpServerManager } from "../../mcp/manager.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { toProviderSafeToolName } from "../provider-tool-name.js";
 import { schemaDefinesProperty } from "../schema-transforms.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type { CoreToolContext, Tool, ToolExecutionResult } from "../types.js";
 
 const riskMap: Record<string, RiskLevel> = {
   low: RiskLevel.Low,
@@ -54,7 +54,7 @@ export function createMcpTool(
 
     async execute(
       input: Record<string, unknown>,
-      context: ToolContext,
+      context: CoreToolContext,
     ): Promise<ToolExecutionResult> {
       try {
         // Strip injected activity before sending to MCP server

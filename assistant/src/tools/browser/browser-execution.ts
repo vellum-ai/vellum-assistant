@@ -14,7 +14,7 @@ import {
   resolveRequestAddress,
   sanitizeUrlForOutput,
 } from "../network/url-safety.js";
-import type { ToolContext, ToolExecutionResult } from "../types.js";
+import type { CoreToolContext, ToolExecutionResult } from "../types.js";
 import {
   detectAuthChallenge,
   detectCaptchaChallenge,
@@ -389,7 +389,7 @@ function isRestrictedChromePageProbeError(error: CdpError): boolean {
  */
 async function acquireCdpClientWithMode(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<
   | {
       cdp: ReturnType<typeof getCdpClient>;
@@ -631,7 +631,7 @@ function resolveElement(
 
 export async function executeBrowserNavigate(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   if (context.signal?.aborted) {
     return { content: "Error: operation was cancelled", isError: true };
@@ -1178,7 +1178,7 @@ export async function executeBrowserNavigate(
 
 export async function executeBrowserSnapshot(
   _input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const acquired = await acquireCdpClientWithMode(_input, context);
   if (acquired.errorResult) return acquired.errorResult;
@@ -1230,7 +1230,7 @@ export async function executeBrowserSnapshot(
 
 export async function executeBrowserScreenshot(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
@@ -1287,7 +1287,7 @@ export async function executeBrowserScreenshot(
 
 export async function executeBrowserAttach(
   _input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const acquired = await acquireCdpClientWithMode(_input, context);
   if (acquired.errorResult) return acquired.errorResult;
@@ -1340,7 +1340,7 @@ export async function executeBrowserAttach(
 
 export async function executeBrowserDetach(
   _input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const acquired = await acquireCdpClientWithMode(_input, context);
   if (acquired.errorResult) return acquired.errorResult;
@@ -1390,7 +1390,7 @@ export async function executeBrowserDetach(
 
 export async function executeBrowserClose(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const acquired = await acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
@@ -1458,7 +1458,7 @@ export async function executeBrowserClose(
 
 export async function executeBrowserClick(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const { resolved, error } = resolveElement(context.conversationId, input);
   if (error) return { content: error, isError: true };
@@ -1566,7 +1566,7 @@ async function clearAndInsertText(
 
 export async function executeBrowserType(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const { resolved, error } = resolveElement(context.conversationId, input);
   if (error) return { content: error, isError: true };
@@ -1634,7 +1634,7 @@ export async function executeBrowserType(
 
 export async function executeBrowserPressKey(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const key = typeof input.key === "string" ? input.key : "";
   if (!key) {
@@ -1707,7 +1707,7 @@ export async function executeBrowserPressKey(
 
 export async function executeBrowserScroll(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const direction = typeof input.direction === "string" ? input.direction : "";
   if (!direction || !["up", "down", "left", "right"].includes(direction)) {
@@ -1780,7 +1780,7 @@ export async function executeBrowserScroll(
 
 export async function executeBrowserSelectOption(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const { resolved, error } = resolveElement(context.conversationId, input);
   if (error) return { content: error, isError: true };
@@ -1912,7 +1912,7 @@ export async function executeBrowserSelectOption(
 
 export async function executeBrowserHover(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const { resolved, error } = resolveElement(context.conversationId, input);
   if (error) return { content: error, isError: true };
@@ -1963,7 +1963,7 @@ export async function executeBrowserHover(
 
 export async function executeBrowserWaitFor(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   if (context.signal?.aborted) {
     return { content: "Error: operation was cancelled", isError: true };
@@ -2056,7 +2056,7 @@ export async function executeBrowserWaitFor(
 
 export async function executeBrowserExtract(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const includeLinks = input.include_links === true;
 
@@ -2122,7 +2122,7 @@ export async function executeBrowserExtract(
 
 export async function executeBrowserFillCredential(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const service = typeof input.service === "string" ? input.service : "";
   const field = typeof input.field === "string" ? input.field : "";
@@ -2368,7 +2368,7 @@ function probeFailureActions(mode: StatusCheckMode, error: CdpError): string[] {
 
 async function probePinnedBrowserMode(
   mode: StatusCheckMode,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<
   | {
       ok: true;
@@ -2416,7 +2416,7 @@ async function probePinnedBrowserMode(
 }
 
 async function checkExtensionModeStatus(
-  context: ToolContext,
+  context: CoreToolContext,
   autoCandidate: boolean,
 ): Promise<BrowserStatusModeResult> {
   const proxy = HostBrowserProxy.instance;
@@ -2498,7 +2498,7 @@ async function checkExtensionModeStatus(
 }
 
 async function checkCdpInspectModeStatus(
-  context: ToolContext,
+  context: CoreToolContext,
   autoCandidate: boolean,
 ): Promise<BrowserStatusModeResult> {
   const cdpInspectConfig = getConfig().hostBrowser.cdpInspect;
@@ -2560,7 +2560,7 @@ async function checkCdpInspectModeStatus(
 }
 
 async function checkLocalModeStatus(
-  context: ToolContext,
+  context: CoreToolContext,
   autoCandidate: boolean,
   checkLocalLaunch: boolean,
 ): Promise<BrowserStatusModeResult> {
@@ -2643,7 +2643,7 @@ async function checkLocalModeStatus(
 
 export async function executeBrowserStatus(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const parsedMode = parseBrowserMode(input);
   if (!parsedMode.ok) {

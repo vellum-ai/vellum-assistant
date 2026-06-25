@@ -3,7 +3,7 @@
  * conversation-tool-setup.ts: `resolveConversationAttribution` must mirror
  * the agent-loop usage path (the current turn's call site — defaulting to
  * mainAgent — plus the per-turn override profile), `createToolExecutor`
- * must stamp the snapshot onto the ToolContext handed to the executor, and
+ * must stamp the snapshot onto the CoreToolContext handed to the executor, and
  * attribution resolution failures must never break tool execution.
  */
 
@@ -14,7 +14,7 @@ import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { ToolExecutor } from "../tools/executor.js";
-import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
+import type { CoreToolContext, ToolExecutionResult } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------
 // Module mocks (must precede the import of the module under test)
@@ -128,12 +128,12 @@ function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
 
 /** Fake ToolExecutor that captures the context of each execute() call. */
 function makeCapturingExecutor() {
-  const calls: Array<{ name: string; context: ToolContext }> = [];
+  const calls: Array<{ name: string; context: CoreToolContext }> = [];
   const executor = {
     execute: async (
       name: string,
       _input: Record<string, unknown>,
-      context: ToolContext,
+      context: CoreToolContext,
     ): Promise<ToolExecutionResult> => {
       calls.push({ name, context });
       return { content: "ok", isError: false };
@@ -240,7 +240,7 @@ describe("resolveConversationAttribution", () => {
 });
 
 describe("createToolExecutor attribution threading", () => {
-  test("stamps the attribution snapshot onto the ToolContext for direct tool calls", async () => {
+  test("stamps the attribution snapshot onto the CoreToolContext for direct tool calls", async () => {
     const { executor, calls } = makeCapturingExecutor();
     const toolFn = makeToolFn(
       executor,

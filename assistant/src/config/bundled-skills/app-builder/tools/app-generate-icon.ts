@@ -7,13 +7,13 @@ import {
   resolveAppId,
 } from "../../../../tools/apps/resolve-app-id.js";
 import type {
-  ToolContext,
+  CoreToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
 export async function run(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   if (typeof input.change_summary === "string" && input.change_summary.trim()) {
     setAppCommitMessage(context.conversationId, input.change_summary.trim());

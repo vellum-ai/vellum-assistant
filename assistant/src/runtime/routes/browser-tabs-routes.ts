@@ -15,7 +15,7 @@ import {
   clearPinnedTabByTabId,
   setPinnedTab,
 } from "../../tools/browser/pinned-tabs.js";
-import type { ToolContext } from "../../tools/types.js";
+import type { CoreToolContext } from "../../tools/types.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { browserCliConversationKey } from "./browser-routes.js";
 import { BadRequestError } from "./errors.js";
@@ -48,7 +48,7 @@ async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
     conversationId: resolvedConversationId,
     trustClass: conversation?.trustContext?.trustClass ?? "unknown",
     transportInterface: conversation?.transportInterface,
-  } as unknown as ToolContext;
+  } as unknown as CoreToolContext;
 
   const cdpOptions = { mode: "extension" as const, targetClientId };
 

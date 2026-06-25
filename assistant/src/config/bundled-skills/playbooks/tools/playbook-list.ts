@@ -4,13 +4,13 @@ import { getDb } from "../../../../memory/db-connection.js";
 import { memoryGraphNodes } from "../../../../memory/schema.js";
 import { parsePlaybookStatement } from "../../../../playbooks/types.js";
 import type {
-  ToolContext,
+  CoreToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
 export async function executePlaybookList(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  _context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const scopeId = "default";
   const channelFilter =

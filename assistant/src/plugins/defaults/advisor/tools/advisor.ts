@@ -9,19 +9,23 @@
  * registers into the model-visible tool catalog.
  */
 
-import type {
-  ToolContext,
-  ToolDefinition,
-  ToolExecutionResult,
-} from "@vellumai/plugin-api";
 import { RiskLevel } from "@vellumai/plugin-api";
 
+// The advisor is a built-in default plugin that runs inside the daemon's trust
+// boundary, so it authors against the internal CoreToolContext (trust class,
+// allowed tools, execution channel, profile) rather than the slim public
+// ToolContext that third-party plugin tools receive.
+import type {
+  CoreToolContext,
+  CoreToolDefinition,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
 import { advisorEnabledForProfile } from "../advisor-gate.js";
 import { getCapture } from "../advisor-state-store.js";
 import { consultAdvisor } from "../consult.js";
 import { buildAdvisorContext } from "../context-pack.js";
 
-const advisorTool: ToolDefinition = {
+const advisorTool: CoreToolDefinition = {
   name: "advisor",
   description:
     "Consult a stronger advisor model to shape your plan and get strategic guidance. " +
@@ -41,7 +45,7 @@ const advisorTool: ToolDefinition = {
   exclusive: true,
   async execute(
     _input: Record<string, unknown>,
-    ctx: ToolContext,
+    ctx: CoreToolContext,
   ): Promise<ToolExecutionResult> {
     // Defense-in-depth: the steering is already gated per profile, but a model
     // could still call the tool. Honor the chat profile this turn runs under —

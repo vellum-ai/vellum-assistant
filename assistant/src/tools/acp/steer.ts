@@ -1,10 +1,10 @@
 import { getAcpSessionManager } from "../../acp/index.js";
-import type { ToolContext, ToolExecutionResult } from "../types.js";
+import type { CoreToolContext, ToolExecutionResult } from "../types.js";
 import { getSendToClient } from "./context.js";
 
 export async function executeAcpSteer(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const acpSessionId = input.acp_session_id as string;
   if (!acpSessionId) {

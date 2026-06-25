@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import { safeStringSlice } from "../../util/unicode.js";
 import { buildSanitizedEnv } from "../terminal/safe-env.js";
-import type { ToolContext, ToolExecutionResult } from "../types.js";
+import type { CoreToolContext, ToolExecutionResult } from "../types.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_OUTPUT_CHARS = 50_000;
@@ -61,7 +61,7 @@ export async function runSkillToolScriptSandbox(
   skillDir: string,
   executorPath: string,
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
   options?: {
     timeoutMs?: number;
     expectedSkillVersionHash?: string;
@@ -128,7 +128,7 @@ export async function runSkillToolScriptSandbox(
 function spawnRunner(
   runDir: string,
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
   timeoutMs: number,
   executorPath: string,
 ): Promise<ToolExecutionResult> {

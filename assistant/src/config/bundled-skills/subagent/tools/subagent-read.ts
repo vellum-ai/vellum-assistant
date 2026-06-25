@@ -1,12 +1,12 @@
 import { executeSubagentRead } from "../../../../tools/subagent/read.js";
 import type {
-  ToolContext,
+  CoreToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
 export async function run(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   return executeSubagentRead(input, context);
 }

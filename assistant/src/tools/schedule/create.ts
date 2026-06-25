@@ -18,7 +18,7 @@ import {
   CapabilityManifestSchema,
   resolveCapabilities as resolveWorkflowCapabilities,
 } from "../../workflows/capabilities.js";
-import type { ToolContext, ToolExecutionResult } from "../types.js";
+import type { CoreToolContext, ToolExecutionResult } from "../types.js";
 
 const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script", "workflow"];
 const VALID_ROUTING_INTENTS: RoutingIntent[] = [
@@ -29,7 +29,7 @@ const VALID_ROUTING_INTENTS: RoutingIntent[] = [
 
 export async function executeScheduleCreate(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   if (!resolveCapabilities(context.trustClass).canManageSchedules) {
     return {

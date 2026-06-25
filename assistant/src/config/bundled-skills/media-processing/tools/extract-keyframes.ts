@@ -5,7 +5,7 @@ import {
   getMediaAssetById,
 } from "../../../../memory/media-store.js";
 import type {
-  ToolContext,
+  CoreToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import {
@@ -17,7 +17,7 @@ export { preprocessForAsset } from "../services/preprocess.js";
 
 export async function run(
   input: Record<string, unknown>,
-  context: ToolContext,
+  context: CoreToolContext,
 ): Promise<ToolExecutionResult> {
   const assetId = input.asset_id as string | undefined;
   if (!assetId) {

@@ -1,7 +1,7 @@
 import type { ExecutionContext } from "../permissions/approval-policy.js";
 import type { PolicyContext } from "../permissions/types.js";
 import { getToolOwner } from "./registry.js";
-import type { Tool, ToolContext } from "./types.js";
+import type { CoreToolContext, Tool } from "./types.js";
 
 /**
  * Derive the execution context from the tool context fields.
@@ -9,7 +9,7 @@ import type { Tool, ToolContext } from "./types.js";
  * - Non-interactive (non-guardian) → "headless"
  * - Otherwise → "conversation"
  */
-function deriveExecutionContext(context?: ToolContext): ExecutionContext {
+function deriveExecutionContext(context?: CoreToolContext): ExecutionContext {
   if (context?.isInteractive === false && context.trustClass === "guardian") {
     return "background";
   }
@@ -26,7 +26,7 @@ function deriveExecutionContext(context?: ToolContext): ExecutionContext {
  */
 export function buildPolicyContext(
   tool: Tool,
-  context?: ToolContext,
+  context?: CoreToolContext,
 ): PolicyContext {
   const executionContext = deriveExecutionContext(context);
 

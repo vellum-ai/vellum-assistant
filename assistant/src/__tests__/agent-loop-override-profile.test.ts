@@ -376,7 +376,7 @@ describe("SubagentManager.spawn — overrideProfile inheritance", () => {
 
 // Verify the third-level inheritance contract: when a subagent's agent loop
 // is running with `currentTurnOverrideProfile`, the executor closure plumbs
-// that value into `ToolContext.overrideProfile`. `executeSubagentSpawn` must
+// that value into `CoreToolContext.overrideProfile`. `executeSubagentSpawn` must
 // then prefer `context.overrideProfile` over a row read against the in-flight
 // subagent's own conversationId — that row never has `inferenceProfile` set,
 // and `getConversationOverrideProfile` short-circuits for background
@@ -418,7 +418,7 @@ describe("executeSubagentSpawn — nested inheritance via context.overrideProfil
           trustClass: "guardian",
           sendToClient: () => {},
           overrideProfile: "fast",
-        } as import("../tools/types.js").ToolContext,
+        } as import("../tools/types.js").CoreToolContext,
       );
 
       expect(result.isError).toBe(false);
@@ -450,7 +450,7 @@ describe("executeSubagentSpawn — nested inheritance via context.overrideProfil
           trustClass: "guardian",
           sendToClient: () => {},
           // no overrideProfile
-        } as import("../tools/types.js").ToolContext,
+        } as import("../tools/types.js").CoreToolContext,
       );
 
       expect(capturedConfig).toBeDefined();

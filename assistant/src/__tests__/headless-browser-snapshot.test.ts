@@ -106,9 +106,9 @@ import {
   executeBrowserClose,
   executeBrowserSnapshot,
 } from "../tools/browser/browser-execution.js";
-import type { ToolContext } from "../tools/types.js";
+import type { CoreToolContext } from "../tools/types.js";
 
-const ctx: ToolContext = {
+const ctx: CoreToolContext = {
   conversationId: "test-conversation",
   workingDir: "/tmp",
   trustClass: "guardian",

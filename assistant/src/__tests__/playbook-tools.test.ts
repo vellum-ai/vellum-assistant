@@ -27,7 +27,7 @@ import { executePlaybookList } from "../config/bundled-skills/playbooks/tools/pl
 import { executePlaybookUpdate } from "../config/bundled-skills/playbooks/tools/playbook-update.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import type { ToolContext } from "../tools/types.js";
+import type { CoreToolContext } from "../tools/types.js";
 
 await initializeDb();
 
@@ -35,7 +35,7 @@ function getRawDb(): Database {
   return (getDb() as unknown as { $client: Database }).$client;
 }
 
-const ctx: ToolContext = {
+const ctx: CoreToolContext = {
   workingDir: "/tmp",
   conversationId: "test-conversation",
   trustClass: "guardian",

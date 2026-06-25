@@ -51,7 +51,7 @@ function setWorkspaceDir(dir: string): void {
 
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import { getTool } from "../tools/registry.js";
-import type { Tool, ToolContext } from "../tools/types.js";
+import type { CoreToolContext, Tool } from "../tools/types.js";
 
 let fileWriteTool: Tool;
 const testDirs: string[] = [];
@@ -61,7 +61,7 @@ beforeAll(async () => {
   fileWriteTool = getTool("file_write")!;
 });
 
-function makeContext(workingDir: string): ToolContext {
+function makeContext(workingDir: string): CoreToolContext {
   return {
     workingDir,
     conversationId: "test-conversation",
@@ -267,7 +267,7 @@ describe("file_write artifact-HTML guard", () => {
     const html =
       "<!doctype html><html><head><title>Food Market</title></head>" +
       "<body><canvas id='c'></canvas><script>" +
-      ("const data=[{x:1,y:2}];").padEnd(4000, "/") +
+      "const data=[{x:1,y:2}];".padEnd(4000, "/") +
       "new Chart(document.getElementById('c'), {data});</script></body></html>";
 
     const result = await fileWriteTool.execute(

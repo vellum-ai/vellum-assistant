@@ -31,7 +31,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { getNode } from "../memory/graph/store.js";
 import { compilePlaybooks } from "../playbooks/playbook-compiler.js";
 import { parsePlaybookStatement } from "../playbooks/types.js";
-import type { ToolContext } from "../tools/types.js";
+import type { CoreToolContext } from "../tools/types.js";
 
 await initializeDb();
 
@@ -45,7 +45,7 @@ function clearPlaybooks(): void {
   );
 }
 
-const ctx: ToolContext = {
+const ctx: CoreToolContext = {
   workingDir: "/tmp",
   conversationId: "test-conversation",
   trustClass: "guardian",

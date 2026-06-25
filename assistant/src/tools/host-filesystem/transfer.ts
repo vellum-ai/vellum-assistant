@@ -8,8 +8,8 @@ import { RiskLevel } from "../../permissions/types.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
 import type {
-  ToolContext,
-  ToolDefinition,
+  CoreToolContext,
+  CoreToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 
@@ -65,7 +65,7 @@ export const hostFileTransferTool = {
 
   async execute(
     input: Record<string, unknown>,
-    context: ToolContext,
+    context: CoreToolContext,
   ): Promise<ToolExecutionResult> {
     const sourcePath = input.source_path;
     if (!sourcePath || typeof sourcePath !== "string") {
@@ -229,11 +229,11 @@ export const hostFileTransferTool = {
     // here, matching the read/write/edit pattern.
     return executeLocal(resolvedSourcePath, resolvedDestPath, overwrite);
   },
-} satisfies ToolDefinition;
+} satisfies CoreToolDefinition;
 
 /**
  * Local-mode filesystem copy. Module-level so the `host_file_transfer`
- * tool can be authored as a plain {@link ToolDefinition} literal without
+ * tool can be authored as a plain {@link CoreToolDefinition} literal without
  * losing access to this helper — the registry stores finalized literal
  * references, so `this`-based method dispatch is no longer available
  * on registered tools.

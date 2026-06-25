@@ -19,8 +19,8 @@ import { RiskLevel } from "../../permissions/types.js";
 import { getCesClient } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import type {
-  ToolContext,
-  ToolDefinition,
+  CoreToolContext,
+  CoreToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 
@@ -105,7 +105,7 @@ export const runAuthenticatedCommandTool = {
 
   async execute(
     input: Record<string, unknown>,
-    context: ToolContext,
+    context: CoreToolContext,
   ): Promise<ToolExecutionResult> {
     const cesClient = getCesClient();
     if (!cesClient) {
@@ -258,4 +258,4 @@ export const runAuthenticatedCommandTool = {
       };
     }
   },
-} satisfies ToolDefinition;
+} satisfies CoreToolDefinition;
