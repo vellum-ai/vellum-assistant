@@ -42,4 +42,8 @@ export interface AcpUsageSnapshot {
   contextSize: number;
   costAmount?: number;
   costCurrency?: string;
+  /** Cumulative input tokens across all turns, from `PromptResponse.usage`. */
+  inputTokens?: number;
+  /** Cumulative output tokens across all turns, from `PromptResponse.usage`. */
+  outputTokens?: number;
 }

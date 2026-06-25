@@ -50,6 +50,14 @@ interface FakeSessionState {
   completedAt?: number;
   error?: string;
   stopReason?: string;
+  latestUsage?: {
+    usedTokens: number;
+    contextSize: number;
+    costAmount?: number;
+    costCurrency?: string;
+    inputTokens?: number;
+    outputTokens?: number;
+  };
 }
 
 let fakeInMemorySessions: FakeSessionState[] = [];
@@ -159,6 +167,10 @@ interface ResponseShape {
     completedAt?: number | null;
     stopReason?: string | null;
     error?: string | null;
+    usedTokens?: number;
+    contextSize?: number;
+    inputTokens?: number;
+    outputTokens?: number;
     eventLog?: unknown[];
   }>;
 }
@@ -250,6 +262,59 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
         content: "hello",
       },
     ]);
+  });
+
+  test("returns input/output tokens for live and history sessions", async () => {
+    fakeInMemorySessions = [
+      {
+        id: "live-tokens",
+        agentId: "agent-live",
+        acpSessionId: "proto-live",
+        parentConversationId: "conv-live",
+        status: "running",
+        startedAt: 9000,
+        latestUsage: {
+          usedTokens: 1200,
+          contextSize: 200_000,
+          inputTokens: 5000,
+          outputTokens: 800,
+        },
+      },
+    ];
+    insertHistoryRow({
+      id: "hist-tokens",
+      agentId: "agent-hist",
+      acpSessionId: "proto-hist",
+      parentConversationId: "conv-hist",
+      startedAt: 1000,
+      status: "completed",
+      usedTokens: 4200,
+      contextSize: 200_000,
+      inputTokens: 3300,
+      outputTokens: 450,
+    });
+
+    const handler = getSessionsHandler();
+    const body = (await handler({})) as ResponseShape;
+    const live = body.sessions.find((s) => s.id === "live-tokens");
+    const hist = body.sessions.find((s) => s.id === "hist-tokens");
+    expect(live).toMatchObject({ inputTokens: 5000, outputTokens: 800 });
+    expect(hist).toMatchObject({ inputTokens: 3300, outputTokens: 450 });
+  });
+
+  test("omits input/output tokens for history rows without them", async () => {
+    insertHistoryRow({
+      id: "hist-no-tokens",
+      status: "completed",
+      startedAt: 1000,
+    });
+
+    const handler = getSessionsHandler();
+    const body = (await handler({})) as ResponseShape;
+    const s = body.sessions.find((row) => row.id === "hist-no-tokens");
+    expect(s).toBeDefined();
+    expect(s!.inputTokens).toBeUndefined();
+    expect(s!.outputTokens).toBeUndefined();
   });
 
   test("dedupes by id with in-memory winning on collision", async () => {

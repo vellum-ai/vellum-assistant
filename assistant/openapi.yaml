@@ -245,6 +245,10 @@ paths:
                           type: number
                         costCurrency:
                           type: string
+                        inputTokens:
+                          type: number
+                        outputTokens:
+                          type: number
                         eventLog:
                           type: array
                           items: {}

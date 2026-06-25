@@ -56,6 +56,8 @@ const sessionEntrySchema = z.object({
   contextSize: z.number().optional(),
   costAmount: z.number().optional(),
   costCurrency: z.string().optional(),
+  inputTokens: z.number().optional(),
+  outputTokens: z.number().optional(),
   eventLog: z.array(z.unknown()).optional(),
 });
 
@@ -701,6 +703,8 @@ function listMergedSessions(opts: {
       contextSize: s.latestUsage?.contextSize,
       costAmount: s.latestUsage?.costAmount,
       costCurrency: s.latestUsage?.costCurrency,
+      inputTokens: s.latestUsage?.inputTokens,
+      outputTokens: s.latestUsage?.outputTokens,
       eventLog: manager.getBufferedUpdates(s.id),
     });
   }
@@ -753,6 +757,8 @@ function listMergedSessions(opts: {
       contextSize: row.contextSize ?? undefined,
       costAmount: row.costAmount ?? undefined,
       costCurrency: row.costCurrency ?? undefined,
+      inputTokens: row.inputTokens ?? undefined,
+      outputTokens: row.outputTokens ?? undefined,
       eventLog,
     });
   }

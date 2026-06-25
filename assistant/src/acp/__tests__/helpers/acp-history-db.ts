@@ -28,6 +28,8 @@ export interface HistoryRow {
   context_size: number | null;
   cost_amount: number | null;
   cost_currency: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
 }
 
 export function clearHistory(): void {
@@ -58,6 +60,8 @@ export function insertHistoryRow(row: {
   contextSize?: number | null;
   costAmount?: number | null;
   costCurrency?: string | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
 }): void {
   getSqlite()
     .query(
@@ -65,8 +69,9 @@ export function insertHistoryRow(row: {
          id, agent_id, acp_session_id, parent_conversation_id,
          started_at, completed_at, status, stop_reason, error,
          event_log_json, cwd, task, parent_tool_use_id,
-         used_tokens, context_size, cost_amount, cost_currency
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         used_tokens, context_size, cost_amount, cost_currency,
+         input_tokens, output_tokens
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       row.id,
@@ -86,6 +91,8 @@ export function insertHistoryRow(row: {
       row.contextSize ?? null,
       row.costAmount ?? null,
       row.costCurrency ?? null,
+      row.inputTokens ?? null,
+      row.outputTokens ?? null,
     );
 }
 
@@ -95,7 +102,8 @@ export function readHistoryRow(id: string): HistoryRow | null {
       `SELECT id, agent_id, acp_session_id, parent_conversation_id,
               started_at, completed_at, status, stop_reason, error,
               event_log_json, cwd, task, parent_tool_use_id,
-              used_tokens, context_size, cost_amount, cost_currency
+              used_tokens, context_size, cost_amount, cost_currency,
+              input_tokens, output_tokens
        FROM acp_session_history WHERE id = ?`,
     )
     .get(id) as HistoryRow | null;
