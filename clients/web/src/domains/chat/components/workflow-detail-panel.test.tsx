@@ -9,20 +9,7 @@
  */
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
-import {
-  cleanup,
-  configure,
-  fireEvent,
-  render,
-  screen,
-} from "@testing-library/react";
-
-// The panel body crossfades with AnimatePresence `mode="wait"`: the outgoing
-// view's exit animation plays fully before the incoming view mounts, which takes
-// ~1.8s in happy-dom — longer than testing-library's default 1000ms async-utility
-// timeout. Raise it so post-transition `findBy*` queries don't time out before
-// the incoming view appears.
-configure({ asyncUtilTimeout: 4000 });
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 mock.module("@/domains/chat/components/workflow-status-badge", () => ({
   WorkflowStatusBadge: ({ status }: { status: string }) => (
@@ -161,7 +148,7 @@ describe("WorkflowDetailPanel", () => {
     expect(screen.getByText("No subagents yet")).toBeDefined();
   });
 
-  test("clicking a subagent row opens its detail with separate Prompt and Result sections", async () => {
+  test("clicking a subagent row opens its detail with separate Prompt and Result sections", () => {
     render(
       <WorkflowDetailPanel
         entry={makeEntry({
@@ -189,9 +176,7 @@ describe("WorkflowDetailPanel", () => {
     );
 
     // Detail view: prompt and result render as two separate, labeled sections.
-    // The body crossfades (AnimatePresence mode="wait"), so the leaf detail
-    // mounts only after the list exits — await the swapped-in content.
-    expect(await screen.findByText("Prompt")).toBeDefined();
+    expect(screen.getByText("Prompt")).toBeDefined();
     expect(screen.getByText("Search the web for X")).toBeDefined();
     expect(screen.getByText("Result")).toBeDefined();
     expect(screen.getByText("Found three sources")).toBeDefined();
@@ -200,7 +185,7 @@ describe("WorkflowDetailPanel", () => {
     expect(screen.queryByText("Subagents")).toBeNull();
   });
 
-  test("the drilled-in leaf header shows the leaf's status, not the parent workflow's", async () => {
+  test("the drilled-in leaf header shows the leaf's status, not the parent workflow's", () => {
     render(
       <WorkflowDetailPanel
         entry={makeEntry({
@@ -224,17 +209,14 @@ describe("WorkflowDetailPanel", () => {
     );
 
     // Leaf view: the badge reflects the selected leaf (failed), and the parent
-    // workflow badge is gone. The body crossfades (AnimatePresence mode="wait"),
-    // so the leaf detail mounts only after the list exits — await it.
+    // workflow badge is gone.
     expect(
-      (await screen.findByTestId("leaf-status-badge")).getAttribute(
-        "data-status",
-      ),
+      screen.getByTestId("leaf-status-badge").getAttribute("data-status"),
     ).toBe("failed");
     expect(screen.queryByTestId("status-badge")).toBeNull();
   });
 
-  test("Back returns from a leaf detail to the subagents list", async () => {
+  test("Back returns from a leaf detail to the subagents list", () => {
     render(
       <WorkflowDetailPanel
         entry={makeEntry({
@@ -254,14 +236,14 @@ describe("WorkflowDetailPanel", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Open Research leaf details" }),
     );
-    expect(await screen.findByText("Prompt")).toBeDefined();
+    expect(screen.getByText("Prompt")).toBeDefined();
 
     fireEvent.click(screen.getByLabelText("Back to subagents"));
-    expect(await screen.findByText("Subagents")).toBeDefined();
+    expect(screen.getByText("Subagents")).toBeDefined();
     expect(screen.queryByText("Prompt")).toBeNull();
   });
 
-  test("a running leaf with no result shows a running state in the Result section", async () => {
+  test("a running leaf with no result shows a running state in the Result section", () => {
     render(
       <WorkflowDetailPanel
         entry={makeEntry({
@@ -281,10 +263,8 @@ describe("WorkflowDetailPanel", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Open Busy leaf details" }),
     );
-    expect(await screen.findByText("Working on it")).toBeDefined();
-    // The Result section's running placeholder crossfades in with the leaf
-    // detail; await it directly rather than asserting synchronously.
-    expect(await screen.findByText("Running…")).toBeDefined();
+    expect(screen.getByText("Working on it")).toBeDefined();
+    expect(screen.getByText("Running…")).toBeDefined();
   });
 
   test("requests the journal on open even when leaves are already present", () => {
