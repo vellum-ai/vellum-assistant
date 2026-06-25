@@ -744,32 +744,6 @@ export async function updateContactChannelCore(params: {
     );
   }
 
-  // Best-effort dual-write to assistant DB.
-  const dualWriteParams: {
-    status?: string;
-    policy?: string;
-    revokedReason?: string | null;
-    blockedReason?: string | null;
-  } = {};
-  if (status !== undefined) {
-    dualWriteParams.status = status;
-    dualWriteParams.revokedReason = status === "revoked" ? reason : null;
-    dualWriteParams.blockedReason = status === "blocked" ? reason : null;
-  }
-  if (policy !== undefined) dualWriteParams.policy = policy;
-
-  try {
-    await store.dualWriteChannelStatusToAssistantDb(
-      contactChannelId,
-      dualWriteParams,
-    );
-  } catch (err) {
-    log.warn(
-      { contactChannelId, err },
-      "update_channel: assistant DB dual-write failed (best-effort)",
-    );
-  }
-
   // Emit contacts_changed so connected clients refresh.
   void ipcCallAssistant("emit_event", {
     body: { kind: "contacts_changed" },

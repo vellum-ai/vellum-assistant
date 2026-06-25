@@ -529,84 +529,6 @@ export class ContactStore {
   }
 
   /**
-   * Best-effort dual-write of a channel status/policy update to the
-   * assistant DB. The gateway DB is the source of truth; the assistant
-   * copy is a best-effort mirror. Failures are logged, not thrown.
-   */
-  async dualWriteChannelStatusToAssistantDb(
-    channelId: string,
-    params: {
-      status?: string;
-      policy?: string;
-      revokedReason?: string | null;
-      blockedReason?: string | null;
-      verifiedAt?: number | null;
-      verifiedVia?: string | null;
-    },
-  ): Promise<boolean> {
-    const setClauses: string[] = [];
-    const bind: (string | number | null)[] = [];
-
-    if (params.status !== undefined) {
-      setClauses.push("status = ?");
-      bind.push(params.status);
-    }
-    if (params.policy !== undefined) {
-      setClauses.push("policy = ?");
-      bind.push(params.policy);
-    }
-    if (params.revokedReason !== undefined) {
-      setClauses.push("revoked_reason = ?");
-      bind.push(params.revokedReason);
-    }
-    if (params.blockedReason !== undefined) {
-      setClauses.push("blocked_reason = ?");
-      bind.push(params.blockedReason);
-    }
-    if (params.verifiedAt !== undefined) {
-      setClauses.push("verified_at = ?");
-      bind.push(params.verifiedAt);
-    }
-    if (params.verifiedVia !== undefined) {
-      setClauses.push("verified_via = ?");
-      bind.push(params.verifiedVia);
-    }
-
-    if (setClauses.length === 0) return false;
-
-    setClauses.push("updated_at = ?");
-    bind.push(String(Date.now()));
-    bind.push(channelId);
-
-    const result = await assistantDbRun(
-      `UPDATE contact_channels SET ${setClauses.join(", ")} WHERE id = ?`,
-      bind,
-    );
-    if (result.changes > 0) return true;
-
-    // Legacy channels may have a different assistant-side ID. If the ID-keyed
-    // update touched zero rows, resolve by the unique (type, address) key and
-    // retry so the assistant mirror stays consistent. The assistant row may sit
-    // under a different contact than the gateway row (m0006 reconcile), so
-    // contactId is excluded.
-    const gwChannel = this.db
-      .select()
-      .from(contactChannels)
-      .where(eq(contactChannels.id, channelId))
-      .get();
-    if (!gwChannel) return false;
-
-    const logicalBind = bind.slice(0, -1); // drop the channelId
-    logicalBind.push(gwChannel.type, gwChannel.address);
-    const retry = await assistantDbRun(
-      `UPDATE contact_channels SET ${setClauses.join(", ")}
-         WHERE type = ? AND address = ? COLLATE NOCASE`,
-      logicalBind,
-    );
-    return retry.changes > 0;
-  }
-
-  /**
    * Increment interaction count and set lastInteraction timestamp
    * (gateway DB only).
    */
@@ -809,9 +731,9 @@ export class ContactStore {
    * Returns the channel after the write, or `null` if neither the gateway
    * DB nor the assistant DB has a channel with that id.
    *
-   * Gateway DB (source of truth) + best-effort assistant DB dual-write.
-   * When the channel is missing on the gateway but present on the assistant,
-   * it (plus its parent contact) is mirrored into the gateway first.
+   * Gateway DB is the source of truth. When the channel is missing on the
+   * gateway but present on the assistant, it (plus its parent contact) is
+   * mirrored into the gateway first.
    */
   async markChannelVerified(
     channelId: string,
@@ -855,37 +777,12 @@ export class ContactStore {
     if (!after) return null;
     const didWrite = result.changes > 0;
 
-    // Mirror the write to the assistant DB only when the gateway actually
-    // wrote (best-effort dual-write). Skipping the no-op case prevents
-    // spurious verified_at/updated_at drift in the assistant DB on idempotent
-    // calls. The gateway DB remains source of truth.
-    //
-    // Key the mirror by the ORIGINAL assistant channel id, not the resolved
-    // gateway `gwChannelId`: on the split-id path they differ and the assistant
-    // row is keyed by the original id, so mirroring by the gateway id would
-    // no-op. The dual-write's logical (type, address) fallback covers rows
-    // keyed differently from the id.
-    if (didWrite) {
-      try {
-        await this.dualWriteChannelStatusToAssistantDb(channelId, {
-          status: "active",
-          verifiedAt: now,
-          verifiedVia,
-        });
-      } catch (err) {
-        log.warn(
-          { channelId, gwChannelId, err },
-          "markChannelVerified: assistant DB dual-write failed (best-effort)",
-        );
-      }
-    }
-
     return { channel: after, didWrite };
   }
 
   /**
-   * Downgrade a channel to `revoked` (verification-revoke outcome), then
-   * best-effort dual-write to the assistant DB. Gateway DB is source of truth.
+   * Downgrade a channel to `revoked` (verification-revoke outcome).
+   * Gateway DB is source of truth.
    *
    * Guardian guard (invariant 4): a guardian contact's channel may only be
    * downgraded via the sanctioned guardian-binding teardown
@@ -957,19 +854,6 @@ export class ContactStore {
       .where(eq(contactChannels.id, gwChannelId))
       .get();
     if (!after) return null;
-
-    try {
-      await this.dualWriteChannelStatusToAssistantDb(gwChannelId, {
-        status: "revoked",
-        revokedReason: reason ?? null,
-        blockedReason: null,
-      });
-    } catch (err) {
-      log.warn(
-        { channelId, err },
-        "markChannelRevoked: assistant DB dual-write failed (best-effort)",
-      );
-    }
 
     return { channel: after, didWrite: true };
   }
@@ -1433,7 +1317,6 @@ export class ContactStore {
         keepId,
         mergeId,
         keep.displayName,
-        keep.role,
         keep.principalId,
       );
     } catch (err) {
@@ -1491,7 +1374,6 @@ export class ContactStore {
     keepId: string,
     mergeId: string,
     keepDisplayName: string,
-    keepRole: string,
     keepPrincipalId: string | null,
   ): Promise<void> {
     const now = Date.now();
@@ -1514,21 +1396,17 @@ export class ContactStore {
 
     if (updateResult.changes === 0) {
       // Survivor row missing from assistant DB — create it with combined notes.
-      // Use the gateway survivor's role/principalId so a guardian survivor
-      // isn't downgraded to role=contact in the assistant mirror.
       const userFile = await this.resolveAssistantUserFileSlug(
         keepDisplayName,
         keepPrincipalId,
       );
       await assistantDbRun(
-        `INSERT INTO contacts (id, display_name, notes, role, contact_type, principal_id, user_file, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'human', ?, ?, ?, ?)`,
+        `INSERT INTO contacts (id, display_name, notes, contact_type, user_file, created_at, updated_at)
+         VALUES (?, ?, ?, 'human', ?, ?, ?)`,
         [
           keepId,
           keepDisplayName,
           combined,
-          keepRole,
-          keepPrincipalId,
           userFile,
           String(now),
           String(now),
@@ -1737,16 +1615,14 @@ export class ContactStore {
       );
       await assistantDbRun(
         `INSERT INTO contacts
-           (id, display_name, notes, role, contact_type, principal_id,
+           (id, display_name, notes, contact_type,
             user_file, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
           contactId,
           displayName,
           params.notes ?? null,
-          "contact",
           params.contactType ?? "human",
-          null,
           userFile,
           now,
           now,
@@ -1774,13 +1650,12 @@ export class ContactStore {
 
     // Sync channels to the assistant DB.
     for (const ch of params.channels ?? []) {
-      const existingCh = await assistantDbQuery<{ id: string; status: string }>(
-        "SELECT id, status FROM contact_channels WHERE contact_id = ? AND type = ? AND address = ? COLLATE NOCASE",
+      const existingCh = await assistantDbQuery<{ id: string }>(
+        "SELECT id FROM contact_channels WHERE contact_id = ? AND type = ? AND address = ? COLLATE NOCASE",
         [contactId, ch.type, ch.address],
       );
 
       if (existingCh.length) {
-        const isBlocked = existingCh[0].status === "blocked";
         // Omit-to-preserve: only overwrite external_chat_id when the caller
         // supplied one, mirroring syncChannels (gateway DB). A sparse upsert
         // (no externalChatId) must not clear an existing delivery chat id.
@@ -1789,16 +1664,6 @@ export class ContactStore {
         if (ch.externalChatId !== undefined) {
           setParts.push("external_chat_id = ?");
           setParams.push(ch.externalChatId);
-        }
-        if (!isBlocked) {
-          if (ch.status !== undefined) {
-            setParts.push("status = ?");
-            setParams.push(ch.status);
-          }
-          if (ch.policy !== undefined) {
-            setParts.push("policy = ?");
-            setParams.push(ch.policy);
-          }
         }
         setParams.push(existingCh[0].id);
         await assistantDbRun(
@@ -1832,8 +1697,8 @@ export class ContactStore {
           `INSERT INTO contact_channels
              (id, contact_id, type, address, is_primary,
               external_chat_id,
-              status, policy, interaction_count, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+              interaction_count, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
           [
             channelId,
             contactId,
@@ -1841,8 +1706,6 @@ export class ContactStore {
             ch.address,
             ch.isPrimary ? 1 : 0,
             ch.externalChatId ?? null,
-            ch.status ?? "unverified",
-            ch.policy ?? "allow",
             now,
             now,
           ],
