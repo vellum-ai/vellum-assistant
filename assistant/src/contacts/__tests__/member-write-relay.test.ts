@@ -48,7 +48,7 @@ mock.module("../../ipc/gateway-client.js", () => ({
 // Local-mirror primitive.
 const localResult: ContactWriteResult = {
   contact: { id: "c1" } as ContactWriteResult["contact"],
-  channel: { id: "ch1", status: "active" } as ContactWriteResult["channel"],
+  channel: { id: "ch1" } as ContactWriteResult["channel"],
 };
 let mirrorCallOrder = -1;
 const upsertContactChannelMock = mock(

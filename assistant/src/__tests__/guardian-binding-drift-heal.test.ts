@@ -139,9 +139,10 @@ describe("healGuardianBindingDrift", () => {
     const healed = await healGuardianBindingDrift("platform-user-12345");
     expect(healed).toBe(false);
 
-    // Guardian unchanged
+    // Guardian unchanged: the local channel identity address still resolves to
+    // the original binding (principalId is gateway-owned, no longer local).
     const guardian = localVellumGuardian("vellum-principal-aaa");
-    expect(guardian!.contact.principalId).toBe("vellum-principal-aaa");
+    expect(guardian!.channel.address).toBe("vellum-principal-aaa");
   });
 
   test("refuses to heal when the gateway principal lacks vellum-principal- prefix", async () => {
@@ -158,8 +159,10 @@ describe("healGuardianBindingDrift", () => {
     const healed = await healGuardianBindingDrift("vellum-principal-attacker");
     expect(healed).toBe(false);
 
+    // Guardian unchanged: the local channel identity address still resolves to
+    // the original binding (principalId is gateway-owned, no longer local).
     const guardian = localVellumGuardian("verified-phone-guardian");
-    expect(guardian!.contact.principalId).toBe("verified-phone-guardian");
+    expect(guardian!.channel.address).toBe("verified-phone-guardian");
   });
 
   test("returns false when gateway reports no guardian binding", async () => {

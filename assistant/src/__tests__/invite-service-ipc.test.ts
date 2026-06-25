@@ -58,12 +58,14 @@ function richContactForId(contactId: string | undefined) {
   if (!contactId) return undefined;
   const contact = getContact(contactId);
   if (!contact) return undefined;
+  // ACL columns are gateway-owned; the projection reports "active" and no longer
+  // mirrors the drained local ACL fields off the typed contact/channel.
   return {
     ok: true,
     contact: {
       id: contact.id,
       displayName: contact.displayName,
-      role: contact.role,
+      role: "contact",
       interactionCount: contact.interactionCount,
       createdAt: contact.createdAt,
       updatedAt: contact.updatedAt,
@@ -75,14 +77,14 @@ function richContactForId(contactId: string | undefined) {
         isPrimary: c.isPrimary,
         externalUserId: c.externalChatId,
         status: "active",
-        policy: c.policy,
-        verifiedAt: c.verifiedAt,
-        verifiedVia: c.verifiedVia,
-        lastSeenAt: c.lastSeenAt,
-        interactionCount: c.interactionCount,
-        lastInteraction: c.lastInteraction,
-        revokedReason: c.revokedReason,
-        blockedReason: c.blockedReason,
+        policy: "allow",
+        verifiedAt: null,
+        verifiedVia: null,
+        lastSeenAt: null,
+        interactionCount: 0,
+        lastInteraction: null,
+        revokedReason: null,
+        blockedReason: null,
       })),
     },
   };

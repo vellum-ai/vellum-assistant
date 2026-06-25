@@ -25,8 +25,11 @@ mock.module("../../contacts/guardian-delivery-reader.js", () => ({
   ) => list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
+// Member ACL rides on memberRecord, sourced from getLocalMemberAcl; this suite
+// only exercises the gateway-guardian path, so no local member ACL.
 mock.module("../../contacts/contact-store.js", () => ({
   findContactByAddress: (_channelType: string, _address: string) => null,
+  getLocalMemberAcl: (_channelId: string) => null,
 }));
 
 const { resolveLocalPrincipalTrustContext } = await import(

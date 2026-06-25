@@ -100,9 +100,7 @@ function parseContact(row: typeof contacts.$inferSelect): Contact {
     interactionCount: 0,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-    role: row.role as Contact["role"],
     contactType: (row.contactType as Contact["contactType"]) ?? "human",
-    principalId: row.principalId,
     userFile: row.userFile ?? null,
   };
 }
@@ -117,13 +115,7 @@ function parseChannel(
     address: row.address,
     isPrimary: row.isPrimary,
     externalChatId: row.externalChatId,
-    status: row.status as ContactChannel["status"],
-    policy: row.policy as ContactChannel["policy"],
-    verifiedAt: row.verifiedAt,
-    verifiedVia: row.verifiedVia,
     inviteId: row.inviteId,
-    revokedReason: row.revokedReason,
-    blockedReason: row.blockedReason,
     lastSeenAt: row.lastSeenAt,
     interactionCount: row.interactionCount,
     lastInteraction: row.lastInteraction,
@@ -145,6 +137,8 @@ function getChannelsForContact(contactId: string): ContactChannel[] {
 
 function withChannels(contact: Contact): ContactWithChannels {
   const channels = getChannelsForContact(contact.id);
+  // INFO telemetry aggregated from channel rows (not ACL): sum interaction
+  // counts, take the most recent interaction across channels.
   const interactionCount = channels.reduce(
     (sum, ch) => sum + ch.interactionCount,
     0,
@@ -753,6 +747,41 @@ export function findContactChannel(params: {
     }
   }
   return null;
+}
+
+/** Member ACL view: status/policy off the channel row, role off the contact. */
+export interface LocalMemberAcl {
+  status: ChannelStatus;
+  policy: ChannelPolicy;
+  role: ContactRole;
+}
+
+/**
+ * Read a channel's local ACL columns (status/policy/role) by row id.
+ *
+ * DRAIN-MISS (PR 6 member ACL): the member status/policy/role is still read
+ * locally here — only the GUARDIAN read was drained to the gateway. The voice
+ * trust resolver is sync, so it cannot await the gateway ACL read; this keeps
+ * the pre-existing local-fallback behavior off the dropped interface fields
+ * until the member-ACL drain lands. Returns null when the channel is missing.
+ */
+export function getLocalMemberAcl(channelId: string): LocalMemberAcl | null {
+  const row = getDb()
+    .select({
+      status: contactChannels.status,
+      policy: contactChannels.policy,
+      role: contacts.role,
+    })
+    .from(contactChannels)
+    .innerJoin(contacts, eq(contacts.id, contactChannels.contactId))
+    .where(eq(contactChannels.id, channelId))
+    .get();
+  if (!row) return null;
+  return {
+    status: row.status as ChannelStatus,
+    policy: row.policy as ChannelPolicy,
+    role: row.role as ContactRole,
+  };
 }
 
 /**

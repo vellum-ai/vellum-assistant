@@ -92,13 +92,7 @@ function makeChannel(overrides: Partial<ContactChannel> = {}): ContactChannel {
     address: "+12025550142",
     isPrimary: true,
     externalChatId: null,
-    status: "active",
-    policy: "allow",
-    verifiedAt: null,
-    verifiedVia: null,
     inviteId: null,
-    revokedReason: null,
-    blockedReason: null,
     lastSeenAt: null,
     interactionCount: 0,
     lastInteraction: null,
@@ -119,9 +113,7 @@ function makeContact(
     interactionCount: 0,
     createdAt: 0,
     updatedAt: 0,
-    role: "contact",
     contactType: "human",
-    principalId: null,
     userFile: null,
     channels: [],
     ...overrides,
@@ -138,11 +130,11 @@ function makeTrust(
 ): ActorTrustContext {
   const memberRecord = channel
     ? {
-        contact: makeContact({ role: channel.role ?? "contact" }),
-        channel: makeChannel({
-          status: channel.status,
-          policy: channel.policy ?? "allow",
-        }),
+        contact: makeContact(),
+        channel: makeChannel(),
+        status: channel.status,
+        policy: channel.policy ?? "allow",
+        role: channel.role ?? "contact",
       }
     : null;
   return {

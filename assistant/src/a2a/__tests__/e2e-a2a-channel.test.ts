@@ -51,6 +51,7 @@ import {
 } from "../../config/loader.js";
 import {
   findContactByAddress,
+  getLocalMemberAcl,
   upsertContact,
 } from "../../contacts/contact-store.js";
 import {
@@ -370,8 +371,9 @@ describe("e2e: unknown sender blocked (ACL enforcement)", () => {
 
     const a2aChannel = contact!.channels.find((ch) => ch.type === "a2a");
     expect(a2aChannel).toBeTruthy();
-    expect(a2aChannel!.status).toBe("active");
-    expect(a2aChannel!.policy).toBe("allow");
+    const acl = getLocalMemberAcl(a2aChannel!.id);
+    expect(acl!.status).toBe("active");
+    expect(acl!.policy).toBe("allow");
 
     // A task from this sender would pass the ACL check
     const msg = makeRequestMessage();
@@ -395,8 +397,9 @@ describe("e2e: unknown sender blocked (ACL enforcement)", () => {
     expect(contact).not.toBeNull();
 
     const a2aChannel = contact!.channels.find((ch) => ch.type === "a2a");
-    expect(a2aChannel!.status).toBe("blocked");
-    expect(a2aChannel!.policy).toBe("deny");
+    const acl = getLocalMemberAcl(a2aChannel!.id);
+    expect(acl!.status).toBe("blocked");
+    expect(acl!.policy).toBe("deny");
   });
 });
 
@@ -502,9 +505,8 @@ describe("e2e: full A2A round-trip", () => {
     // Step 2: Verify trusted contact was created
     const contact = findContactByAddress("a2a", "assistant-b");
     expect(contact).not.toBeNull();
-    expect(contact!.channels.find((ch) => ch.type === "a2a")!.status).toBe(
-      "active",
-    );
+    const a2aChannel = contact!.channels.find((ch) => ch.type === "a2a")!;
+    expect(getLocalMemberAcl(a2aChannel.id)!.status).toBe("active");
 
     // Step 3: Simulate inbound A2A message from B (as if B sent us a request)
     const inboundMsg = makeRequestMessage({

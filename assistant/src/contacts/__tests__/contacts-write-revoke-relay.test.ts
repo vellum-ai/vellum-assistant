@@ -44,7 +44,7 @@ mock.module("../../ipc/gateway-client.js", () => ({
 // gateway owns the ACL downgrade, so it takes no reason and mutates nothing.
 const revokeMemberResult: ContactWriteResult = {
   contact: { id: "c1" } as ContactWriteResult["contact"],
-  channel: { id: "ch1", status: "revoked" } as ContactWriteResult["channel"],
+  channel: { id: "ch1" } as ContactWriteResult["channel"],
 };
 const revokeMemberMock = mock((_memberId: string) => revokeMemberResult);
 const actualContactsWrite = await import("../contacts-write.js");

@@ -126,15 +126,7 @@ function channel(overrides: Partial<ContactChannel> = {}): ContactChannel {
     address: "user-123",
     isPrimary: true,
     externalChatId: "chat-123",
-    // DB columns are intentionally a terminal state to prove the gates ignore
-    // them and read from the gateway delivery instead.
-    status: "revoked",
-    policy: {} as ContactChannel["policy"],
-    verifiedAt: null,
-    verifiedVia: null,
     inviteId: null,
-    revokedReason: null,
-    blockedReason: null,
     lastSeenAt: null,
     interactionCount: 0,
     lastInteraction: null,
@@ -171,9 +163,9 @@ describe("revokeVerificationForChannel", () => {
   });
 
   test("skips a redundant revoke when the gateway delivery is already revoked", async () => {
-    // Local DB status is the live "active" here, but the gateway (SoT) says
-    // revoked — the gate must follow the gateway and not relay.
-    mockContactChannel = { channel: channel({ status: "active" }) };
+    // The gateway (SoT) says revoked — the gate must follow the gateway and
+    // not relay regardless of local state.
+    mockContactChannel = { channel: channel() };
     mockGuardians = [delivery({ status: "revoked" })];
     await revokeVerificationForChannel("telegram");
     expect(ipcCalls.map((c) => c.method)).not.toContain("mark_channel_revoked");
@@ -211,8 +203,8 @@ describe("verifyTrustedContact already-verified gate", () => {
   });
 
   test("does not short-circuit when the gateway channel has no verifiedAt", async () => {
-    // DB column says verified, but the gateway channel is unverified — proceed.
-    mockChannel = channel({ status: "active", verifiedAt: 1700000000 });
+    // The gateway channel is unverified — proceed regardless of local state.
+    mockChannel = channel();
     mockGwContactChannels = [
       { id: "ch-1", status: "pending", verifiedAt: null },
     ];
