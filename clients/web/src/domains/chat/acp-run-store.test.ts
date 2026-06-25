@@ -55,7 +55,7 @@ describe("initial state", () => {
 // ---------------------------------------------------------------------------
 
 describe("spawnRun", () => {
-  it("adds an entry with initializing status and zeroed usage", () => {
+  it("adds an entry with running status and zeroed usage", () => {
     spawn({ task: "research the thing" });
 
     const entry = getState().byId["acp-1"]!;
@@ -63,7 +63,8 @@ describe("spawnRun", () => {
     expect(entry.agent).toBe("claude");
     expect(entry.parentConversationId).toBe("conv-1");
     expect(entry.task).toBe("research the thing");
-    expect(entry.status).toBe("initializing");
+    // Daemon emits `acp_session_spawned` only after the session is running.
+    expect(entry.status).toBe("running");
     expect(entry.startedAt).toBe(NOW);
     expect(entry.inputTokens).toBe(0);
     expect(entry.outputTokens).toBe(0);
@@ -383,6 +384,83 @@ describe("seedFromHistory", () => {
     ]);
 
     expect(getState().byId["acp-1"]!.events).toHaveLength(2);
+  });
+
+  it("merges terminal status/usage onto a live entry while keeping the longer buffer", () => {
+    spawn({ acpSessionId: "acp-1" });
+    const store = getState();
+    store.receiveEvent({ acpSessionId: "acp-1", event: event({ seq: 1, content: "a" }) });
+    store.receiveEvent({ acpSessionId: "acp-1", event: event({ seq: 2, updateType: "tool_call" }) });
+    expect(getState().byId["acp-1"]!.status).toBe("running");
+
+    // Equal-length terminal history snapshot must still fold in metadata.
+    getState().seedFromHistory([
+      historyEntry({
+        acpSessionId: "acp-1",
+        status: "completed",
+        completedAt: NOW + 5000,
+        stopReason: "end_turn",
+        inputTokens: 1200,
+        outputTokens: 340,
+        totalCost: 0.012,
+        events: [event({ seq: 1, content: "stale" }), event({ seq: 2 })],
+      }),
+    ]);
+
+    const entry = getState().byId["acp-1"]!;
+    // Longer live buffer is kept (live content, not history's "stale").
+    expect(entry.events).toHaveLength(2);
+    expect(entry.events[0]!.content).toBe("a");
+    // Terminal metadata is merged.
+    expect(entry.status).toBe("completed");
+    expect(entry.completedAt).toBe(NOW + 5000);
+    expect(entry.stopReason).toBe("end_turn");
+    expect(entry.inputTokens).toBe(1200);
+    expect(entry.outputTokens).toBe(340);
+    expect(entry.totalCost).toBe(0.012);
+  });
+
+  it("does not regress a live terminal entry with empty/non-terminal history metadata", () => {
+    spawn({ acpSessionId: "acp-1" });
+    getState().setTerminal({
+      acpSessionId: "acp-1",
+      status: "completed",
+      stopReason: "end_turn",
+      completedAt: NOW + 1000,
+    });
+    getState().updateUsage({
+      acpSessionId: "acp-1",
+      inputTokens: 900,
+      outputTokens: 100,
+      totalCost: 0.005,
+    });
+
+    getState().seedFromHistory([
+      historyEntry({
+        acpSessionId: "acp-1",
+        status: "running",
+        inputTokens: 0,
+        outputTokens: 0,
+        totalCost: 0,
+        events: [],
+      }),
+    ]);
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.status).toBe("completed");
+    expect(entry.completedAt).toBe(NOW + 1000);
+    expect(entry.inputTokens).toBe(900);
+    expect(entry.outputTokens).toBe(100);
+    expect(entry.totalCost).toBe(0.005);
+  });
+
+  it("backfills a missing task from history", () => {
+    spawn({ acpSessionId: "acp-1", task: undefined });
+    getState().seedFromHistory([
+      historyEntry({ acpSessionId: "acp-1", task: "recovered task" }),
+    ]);
+
+    expect(getState().byId["acp-1"]!.task).toBe("recovered task");
   });
 });
 

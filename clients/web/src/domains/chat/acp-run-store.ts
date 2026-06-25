@@ -13,7 +13,7 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
-import type { AcpRunStatus } from "@/utils/acp-run-status";
+import { isActiveAcpStatus, type AcpRunStatus } from "@/utils/acp-run-status";
 
 // ---------------------------------------------------------------------------
 // State
@@ -109,10 +109,11 @@ export interface AcpRunActions {
   }) => void;
 
   /**
-   * Idempotent merge of history entries keyed by acpSessionId. Never clobbers
-   * a live entry's longer event buffer with a shorter historical one — the
-   * entry with more events wins. Sets `highWaterMark` to the max seq seen and
-   * indexes `byToolUseId`.
+   * Idempotent merge of history entries keyed by acpSessionId. Keeps the
+   * longer `events` buffer (live vs incoming) so a live stream is never
+   * clobbered, while always merging terminal/status/usage metadata from the
+   * history entry. Sets `highWaterMark` to the max seq over the kept buffer
+   * and indexes `byToolUseId`.
    */
   seedFromHistory: (entries: AcpRunEntry[]) => void;
 
@@ -169,6 +170,41 @@ function appendEvent(
   return [...events, event];
 }
 
+/**
+ * Merge a history entry into an existing live entry. Keeps the longer `events`
+ * buffer but always folds in the history entry's terminal/status/usage
+ * metadata. A terminal history status wins over a live non-terminal one; a live
+ * terminal status is not regressed by a non-terminal history status.
+ */
+function mergeHistoryEntry(
+  existing: AcpRunEntry,
+  incoming: AcpRunEntry,
+): AcpRunEntry {
+  const events =
+    existing.events.length >= incoming.events.length
+      ? existing.events
+      : incoming.events;
+
+  const status =
+    isActiveAcpStatus(existing.status) || !isActiveAcpStatus(incoming.status)
+      ? incoming.status
+      : existing.status;
+
+  return {
+    ...existing,
+    events,
+    status,
+    stopReason: incoming.stopReason ?? existing.stopReason,
+    error: incoming.error ?? existing.error,
+    completedAt: incoming.completedAt ?? existing.completedAt,
+    inputTokens: incoming.inputTokens || existing.inputTokens,
+    outputTokens: incoming.outputTokens || existing.outputTokens,
+    totalCost: incoming.totalCost || existing.totalCost,
+    task: existing.task ?? incoming.task,
+    parentToolUseId: existing.parentToolUseId ?? incoming.parentToolUseId,
+  };
+}
+
 /** Raise a session's high-water mark to the given seq if higher. */
 function bumpHighWaterMark(
   highWaterMark: Map<string, number>,
@@ -196,7 +232,9 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
       agent: params.agent,
       parentConversationId: params.parentConversationId,
       task: params.task,
-      status: "initializing",
+      // Daemon emits `acp_session_spawned` only after the session is already
+      // running, so a spawned run starts as "running", not "initializing".
+      status: "running",
       startedAt: params.startedAt,
       parentToolUseId: params.parentToolUseId,
       inputTokens: 0,
@@ -286,12 +324,10 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
 
     for (const entry of entries) {
       const existing = nextById[entry.acpSessionId];
-      // Prefer the entry with more events so a live buffer is never clobbered
-      // by a shorter historical snapshot.
-      nextById[entry.acpSessionId] =
-        existing && existing.events.length >= entry.events.length
-          ? existing
-          : entry;
+      // Keep the longer event buffer but always merge terminal/status/usage
+      // metadata from history so a live entry can't stay stale.
+      const merged = existing ? mergeHistoryEntry(existing, entry) : entry;
+      nextById[entry.acpSessionId] = merged;
 
       if (!nextOrderedIds.includes(entry.acpSessionId)) {
         nextOrderedIds.push(entry.acpSessionId);
@@ -304,7 +340,7 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
         );
       }
 
-      for (const event of entry.events) {
+      for (const event of merged.events) {
         nextHighWaterMark = bumpHighWaterMark(
           nextHighWaterMark,
           entry.acpSessionId,
