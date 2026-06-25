@@ -36,13 +36,13 @@ import { initializeDb } from "../memory/db-init.js";
 import { contactChannels, contacts } from "../memory/schema.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 import {
-  __resetMemberVerdictCacheForTest,
-  setMemberVerdict,
-} from "../runtime/member-verdict-cache.js";
-import {
   createOutboundSession,
   validateAndConsumeVerification,
 } from "../runtime/channel-verification-service.js";
+import {
+  __resetMemberVerdictCacheForTest,
+  setMemberVerdict,
+} from "../runtime/member-verdict-cache.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 await initializeDb();
