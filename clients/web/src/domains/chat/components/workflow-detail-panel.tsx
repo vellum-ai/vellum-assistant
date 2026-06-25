@@ -2,141 +2,24 @@
 import {
     ArrowDownToLine,
     ArrowUpFromLine,
-    Ban,
-    CircleCheck,
-    Loader2,
-    TriangleAlert,
     Users,
     Workflow,
     X,
 } from "lucide-react";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 import {
     AnimatedMetricCard,
     formatNumber,
 } from "@/domains/chat/components/metric-card";
+import { StopButton } from "@/domains/chat/components/stop-button";
 import { WorkflowStatusBadge } from "@/domains/chat/components/workflow-status-badge";
-import type { WorkflowEntry, WorkflowLeaf } from "@/domains/chat/workflow-store";
+import { WorkflowSubagentRow } from "@/domains/chat/components/workflow-subagent-row";
+import type { WorkflowEntry } from "@/domains/chat/workflow-store";
 import { isActiveStatus } from "@/utils/workflow-status";
-import { Button, cn, Typography } from "@vellumai/design-library";
-
-// ---------------------------------------------------------------------------
-// Leaf tree
-// ---------------------------------------------------------------------------
-
-function LeafStatusIcon({ status }: { status: WorkflowLeaf["status"] }) {
-  const baseClass = "h-3.5 w-3.5 shrink-0";
-  switch (status) {
-    case "completed":
-      return (
-        <CircleCheck
-          className={baseClass}
-          style={{ color: "var(--system-positive-strong)" }}
-        />
-      );
-    case "failed":
-      return (
-        <TriangleAlert
-          className={baseClass}
-          style={{ color: "var(--system-negative-strong)" }}
-        />
-      );
-    case "cancelled":
-      return (
-        <Ban
-          className={baseClass}
-          style={{ color: "var(--content-secondary)" }}
-          role="img"
-          aria-label="Cancelled"
-        />
-      );
-    default:
-      return (
-        <Loader2
-          className={`${baseClass} animate-spin`}
-          style={{ color: "var(--primary-base)" }}
-        />
-      );
-  }
-}
-
-function LeafRow({ leaf }: { leaf: WorkflowLeaf }) {
-  const [expanded, setExpanded] = useState(false);
-  const hasDetail = Boolean(leaf.resultSummary);
-  const title = leaf.label ?? `Leaf ${leaf.seq}`;
-
-  return (
-    <div className="rounded-lg bg-[var(--surface-overlay)] px-4 py-3">
-      <button
-        type="button"
-        disabled={!hasDetail}
-        onClick={() => setExpanded((prev) => !prev)}
-        className="flex w-full items-center gap-2 text-left disabled:cursor-default"
-      >
-        <LeafStatusIcon status={leaf.status} />
-        <Typography
-          variant="body-medium-default"
-          className="min-w-0 flex-1 truncate text-[var(--content-default)]"
-        >
-          {title}
-        </Typography>
-        {hasDetail && (
-          <Typography
-            variant="body-small-default"
-            className="shrink-0 text-[var(--content-tertiary)]"
-          >
-            {expanded ? "Hide" : "Details"}
-          </Typography>
-        )}
-      </button>
-
-      {leaf.promptSummary && (
-        <Typography
-          variant="body-medium-lighter"
-          as="p"
-          className="mt-1 whitespace-pre-wrap break-words text-[var(--content-secondary)]"
-        >
-          {leaf.promptSummary}
-        </Typography>
-      )}
-
-      {hasDetail && expanded && (
-        <Typography
-          variant="body-medium-lighter"
-          as="p"
-          className="mt-2 whitespace-pre-wrap break-words text-[var(--content-secondary)]"
-        >
-          {leaf.resultSummary}
-        </Typography>
-      )}
-    </div>
-  );
-}
-
-function LeafTree({ leaves }: { leaves: Map<number, WorkflowLeaf> }) {
-  const sorted = [...leaves.values()].sort((a, b) => a.seq - b.seq);
-
-  if (sorted.length === 0) {
-    return (
-      <Typography
-        variant="body-small-default"
-        className="py-4 text-center text-[var(--content-tertiary)]"
-      >
-        No agents yet
-      </Typography>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-2">
-      {sorted.map((leaf) => (
-        <LeafRow key={leaf.seq} leaf={leaf} />
-      ))}
-    </div>
-  );
-}
+import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
+import { Button, Typography } from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -162,6 +45,8 @@ export function WorkflowDetailPanel({
   const isRunning = isActiveStatus(entry.status);
   const title = entry.label ?? entry.runId;
   const agentCount = entry.agentsSpawned || entry.leaves.size;
+  const components = useBundledAvatarComponents();
+  const sortedLeaves = [...entry.leaves.values()].sort((a, b) => a.seq - b.seq);
 
   // Reconcile leaves against the journal once on open (while live) and
   // again when the run reaches a terminal state — a `final` fetch flips
@@ -174,10 +59,15 @@ export function WorkflowDetailPanel({
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
-      {/* Header */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-base)] px-5 py-4">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--surface-overlay)]">
-          <Workflow className="h-4 w-4" style={{ color: "var(--content-secondary)" }} />
+      {/* Header. No breadcrumb at the top level — like the subagent timeline,
+          the breadcrumb only appears once a deeper view is drilled into, which
+          the workflow panel never does. */}
+      <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-hover)] px-5 py-4">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] bg-[var(--surface-overlay)]">
+          <Workflow
+            className="h-4 w-4"
+            style={{ color: "var(--content-secondary)" }}
+          />
         </div>
         <Typography
           variant="title-medium"
@@ -189,24 +79,18 @@ export function WorkflowDetailPanel({
         <WorkflowStatusBadge status={entry.status} />
         <span className="flex-1" />
         {isRunning && onStop && (
-          <button
-            type="button"
-            aria-label="Stop workflow"
+          <StopButton
             onClick={() => onStop(entry.runId)}
-            className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-[var(--system-negative-strong)] px-3 py-1.5 text-white transition-colors hover:bg-[color-mix(in_srgb,var(--system-negative-strong)_85%,black)]"
-          >
-            <Typography variant="label-small-default" className="text-white">
-              Stop
-            </Typography>
-          </button>
+            ariaLabel="Stop workflow"
+          />
         )}
         <Button
-          variant="ghost"
+          variant="outlined"
           iconOnly={<X />}
           onClick={onClose}
           aria-label="Close workflow detail"
           tooltip="Close"
-          className="shrink-0"
+          className="shrink-0 rounded-lg"
         />
       </div>
 
@@ -215,81 +99,68 @@ export function WorkflowDetailPanel({
         {/* Metrics row */}
         <div className="mb-5 grid grid-cols-3 gap-3">
           <AnimatedMetricCard
-            icon={<ArrowDownToLine className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
+            icon={
+              <ArrowDownToLine
+                className="h-4 w-4 shrink-0"
+                style={{ color: "var(--content-secondary)" }}
+              />
+            }
             target={entry.inputTokens}
             format={(n) => formatNumber(Math.round(n))}
             label="Input"
           />
           <AnimatedMetricCard
-            icon={<ArrowUpFromLine className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
+            icon={
+              <ArrowUpFromLine
+                className="h-4 w-4 shrink-0"
+                style={{ color: "var(--content-secondary)" }}
+              />
+            }
             target={entry.outputTokens}
             format={(n) => formatNumber(Math.round(n))}
             label="Output"
           />
           <AnimatedMetricCard
-            icon={<Users className="h-4 w-4 shrink-0" style={{ color: "var(--content-secondary)" }} />}
+            icon={
+              <Users
+                className="h-4 w-4 shrink-0"
+                style={{ color: "var(--content-secondary)" }}
+              />
+            }
             target={agentCount}
             format={(n) => formatNumber(Math.round(n))}
             label="Agents"
           />
         </div>
 
-        {/* Phase banner, with the latest log line as a muted secondary row */}
-        {(entry.phase || entry.message) && (
-          <div className="mb-5 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] px-4 py-3">
-            {entry.phase && (
-              <Typography
-                variant="body-medium-default"
-                className="text-[var(--content-default)]"
-              >
-                {entry.phase}
-              </Typography>
-            )}
-            {entry.message && (
-              <Typography
-                variant="body-small-default"
-                as="p"
-                className={cn(
-                  "whitespace-pre-wrap break-words text-[var(--content-secondary)]",
-                  entry.phase && "mt-1",
-                )}
-              >
-                {entry.message}
-              </Typography>
-            )}
-          </div>
-        )}
-
-        {/* Summary section */}
-        {entry.summary && (
-          <div className="mb-5 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] px-4 py-3">
-            <Typography
-              variant="body-medium-default"
-              as="h3"
-              className="mb-2 text-[var(--content-emphasised)]"
-            >
-              Summary
-            </Typography>
-            <Typography
-              variant="body-medium-lighter"
-              as="p"
-              className="whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)]"
-            >
-              {entry.summary}
-            </Typography>
-          </div>
-        )}
-
-        {/* Leaf tree section */}
+        {/* Subagents section */}
         <div>
           <Typography
-            variant="title-medium"
+            variant="body-medium-default"
             as="h3"
             className="mb-4 text-[var(--content-emphasised)]"
           >
-            Agents
+            Subagents
           </Typography>
-          <LeafTree leaves={entry.leaves} />
+          {sortedLeaves.length === 0 ? (
+            <Typography
+              variant="body-small-default"
+              className="py-4 text-center text-[var(--content-tertiary)]"
+            >
+              No subagents yet
+            </Typography>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {sortedLeaves.map((leaf) => (
+                <WorkflowSubagentRow
+                  key={leaf.seq}
+                  runId={entry.runId}
+                  leaf={leaf}
+                  components={components}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
