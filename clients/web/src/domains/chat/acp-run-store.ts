@@ -225,7 +225,35 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
 
   spawnRun: (params) => {
     const { byId, orderedIds, byToolUseId } = get();
-    if (byId[params.acpSessionId]) return;
+    const existing = byId[params.acpSessionId];
+
+    if (existing) {
+      // A respawn for an active run is a no-op. A respawn for a terminal run
+      // is a resume (steer/resume-from-history): clear terminal fields and
+      // mark it running while preserving events, usage, and spawn context.
+      if (isActiveAcpStatus(existing.status)) return;
+
+      const resumed: AcpRunEntry = {
+        ...existing,
+        status: "running",
+        stopReason: undefined,
+        error: undefined,
+        completedAt: undefined,
+        task: existing.task ?? params.task,
+        parentToolUseId: existing.parentToolUseId ?? params.parentToolUseId,
+      };
+
+      const nextByToolUseId =
+        params.parentToolUseId && !existing.parentToolUseId
+          ? new Map(byToolUseId).set(params.parentToolUseId, params.acpSessionId)
+          : byToolUseId;
+
+      set({
+        byId: { ...byId, [params.acpSessionId]: resumed },
+        byToolUseId: nextByToolUseId,
+      });
+      return;
+    }
 
     const entry: AcpRunEntry = {
       acpSessionId: params.acpSessionId,

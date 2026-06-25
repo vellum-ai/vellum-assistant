@@ -86,6 +86,33 @@ describe("handleAcpSessionCompleted", () => {
     expect(entry?.stopReason).toBe("end_turn");
     expect(entry?.completedAt).toBeGreaterThan(0);
   });
+
+  it("resumes a completed run when respawned for the same id", () => {
+    spawn();
+    handleAcpSessionUpdate({
+      type: "acp_session_update",
+      acpSessionId: "acp-1",
+      updateType: "agent_message_chunk",
+      content: "hello",
+      messageId: "m-1",
+      seq: 1,
+    });
+    handleAcpSessionCompleted({
+      type: "acp_session_completed",
+      acpSessionId: "acp-1",
+      stopReason: "end_turn",
+    });
+    expect(getState().byId["acp-1"]?.status).toBe("completed");
+
+    // resumeFromHistory re-emits acp_session_spawned for the same id.
+    spawn();
+
+    const entry = getState().byId["acp-1"];
+    expect(entry?.status).toBe("running");
+    expect(entry?.stopReason).toBeUndefined();
+    expect(entry?.completedAt).toBeUndefined();
+    expect(entry?.events).toHaveLength(1);
+  });
 });
 
 describe("handleAcpSessionError", () => {
