@@ -20,6 +20,7 @@
 import { type Dispatch, type MutableRefObject, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
 import { useActiveSubagentIds } from "@/domains/chat/hooks/use-active-subagent-ids";
+import { useActiveAcpRunIds } from "@/domains/chat/hooks/use-active-acp-run-ids";
 import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
 import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
@@ -37,6 +38,7 @@ import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attach
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { ActiveSubagentsOverlay } from "@/domains/chat/components/active-subagents-overlay/active-subagents-overlay";
+import { ActiveAcpRunsOverlay } from "@/domains/chat/components/active-acp-runs-overlay/active-acp-runs-overlay";
 import { ChatBody } from "@/domains/chat/components/chat-body";
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
 import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-modal";
@@ -263,9 +265,14 @@ export function ChatMainPanel({
   }, [assistantId]);
 
   const activeSubagentIds = useActiveSubagentIds();
+  const activeAcpRunIds = useActiveAcpRunIds();
 
   const onSubagentClick = useCallback((id: string) => {
     useViewerStore.getState().openSubagentDetail(id);
+  }, []);
+
+  const onAcpRunClick = useCallback((acpSessionId: string) => {
+    useViewerStore.getState().openAcpRunDetail(acpSessionId);
   }, []);
 
   const onStopSubagent = useCallback(
@@ -841,6 +848,15 @@ export function ChatMainPanel({
       />
     ) : undefined;
 
+  // No stop handler is passed, so the inline card's stop button stays hidden.
+  const activeAcpRunsSlot =
+    activeAcpRunIds.length > 0 ? (
+      <ActiveAcpRunsOverlay
+        acpRunIds={activeAcpRunIds}
+        onAcpRunClick={onAcpRunClick}
+      />
+    ) : undefined;
+
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
@@ -877,6 +893,7 @@ export function ChatMainPanel({
         readonlyBannerSlot={channelReadonlyBannerSlot}
         startersSlot={startersSlot}
         activeSubagentsSlot={activeSubagentsSlot}
+        activeAcpRunsSlot={activeAcpRunsSlot}
       />
       <MicPermissionPrimer
         open={showPrimer}

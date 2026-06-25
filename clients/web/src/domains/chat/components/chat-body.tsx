@@ -155,6 +155,12 @@ export interface ChatBodyProps {
    * only when there is ≥1 active subagent.
    */
   activeSubagentsSlot?: ReactNode;
+
+  /**
+   * Top-center floating overlay for active ACP runs; gated identically to
+   * {@link activeSubagentsSlot} and stacked directly below it.
+   */
+  activeAcpRunsSlot?: ReactNode;
 }
 
 /**
@@ -211,6 +217,7 @@ export function ChatBody({
   readonlyBannerSlot,
   startersSlot,
   activeSubagentsSlot,
+  activeAcpRunsSlot,
 }: ChatBodyProps) {
   const isEmptyState = scrollAreaProps.showEmptyState;
 
@@ -247,11 +254,14 @@ export function ChatBody({
     >
       <ChatScrollArea {...scrollAreaProps} />
 
-      {!isEmptyState && showScrollToLatest && activeSubagentsSlot && (
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center px-3 pt-2">
-          {activeSubagentsSlot}
-        </div>
-      )}
+      {!isEmptyState &&
+        showScrollToLatest &&
+        (activeSubagentsSlot || activeAcpRunsSlot) && (
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-col items-center gap-2 px-3 pt-2">
+            {activeSubagentsSlot}
+            {activeAcpRunsSlot}
+          </div>
+        )}
 
       {/* Composer stack — stays at the same tree position across the
           empty→active transition so React preserves its state (focus,
