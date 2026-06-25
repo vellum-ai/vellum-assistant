@@ -247,7 +247,14 @@ export async function bootstrapPlugins(): Promise<void> {
     // out-of-band kill switch — the operator creates a directory named
     // after the plugin's manifest name (e.g. `plugins/default-advisor/`)
     // and drops a `.disabled` file inside it. Runs before init so no
-    // hooks, tools, or routes from the disabled plugin are ever wired.
+    // tools or routes from the disabled plugin are ever wired.
+    //
+    // Unlike the feature-flag path above, we do NOT call
+    // `unregisterPlugin(name)` here. The plugin's hooks stay in the hook
+    // registry and are filtered at read time by `isPluginDisabled` in
+    // `getHooksFor`. This means `assistant plugins enable <name>` takes
+    // effect on the next turn without a restart — the hooks are already
+    // registered, they just need the sentinel removed to be included.
     const disabledSentinelPath = join(
       getWorkspacePluginsDir(),
       name,
@@ -258,7 +265,6 @@ export async function bootstrapPlugins(): Promise<void> {
         { plugin: name, sentinel: disabledSentinelPath },
         `skipping plugin ${name}: disabled via .disabled sentinel`,
       );
-      unregisterPlugin(name);
       continue;
     }
 

@@ -1,0 +1,183 @@
+/**
+ * Tests for per-surface plugin disabled-state filtering.
+ *
+ * Verifies that `assistant plugins disable default-*` takes effect on the
+ * next turn without a daemon restart. The `.disabled` sentinel is checked at
+ * read time by each surface (`getHooksFor` for hooks,
+ * `getPluginToolDefinitions` for tools) rather than at boot, so toggling the
+ * sentinel file at runtime is immediately reflected.
+ */
+
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+
+import { getPluginToolDefinitions } from "../tools/registry.js";
+import {
+  getHooksFor,
+  registerPlugin,
+  resetPluginRegistryForTests,
+  unregisterPlugin,
+} from "../plugins/registry.js";
+import { registerPluginTools } from "../tools/registry.js";
+import { type HookFunction, type Plugin } from "../plugins/types.js";
+
+const TEST_WORKSPACE_DIR = join(
+  tmpdir(),
+  `vellum-plugin-disabled-state-test-${process.pid}-${Date.now()}`,
+);
+process.env.VELLUM_WORKSPACE_DIR = TEST_WORKSPACE_DIR;
+
+function sentinelPath(name: string): string {
+  return join(TEST_WORKSPACE_DIR, "plugins", name, ".disabled");
+}
+
+async function createSentinel(name: string): Promise<void> {
+  const dir = join(TEST_WORKSPACE_DIR, "plugins", name);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, ".disabled"), "");
+}
+
+async function removeSentinel(name: string): Promise<void> {
+  const dir = join(TEST_WORKSPACE_DIR, "plugins", name);
+  await rm(dir, { recursive: true, force: true });
+}
+
+function buildPlugin(
+  name: string,
+  hooks: Record<string, HookFunction> = {},
+): Plugin {
+  return {
+    manifest: { name, version: "1.0.0" },
+    hooks,
+  };
+}
+
+beforeEach(() => {
+  resetPluginRegistryForTests();
+});
+
+afterEach(async () => {
+  // Clean up any sentinel files created during the test.
+  const pluginsDir = join(TEST_WORKSPACE_DIR, "plugins");
+  if (existsSync(pluginsDir)) {
+    await rm(pluginsDir, { recursive: true, force: true });
+  }
+});
+
+describe("per-surface disabled-state filtering", () => {
+  test("getHooksFor filters out hooks from a disabled plugin", async () => {
+    let hookFired = false;
+    const plugin = buildPlugin("default-test-hook", {
+      "user-prompt-submit": () => {
+        hookFired = true;
+      },
+    });
+    registerPlugin(plugin);
+
+    // Before disabling: hook is included.
+    const hooksBefore = await getHooksFor("user-prompt-submit");
+    expect(hooksBefore).toHaveLength(1);
+
+    // Disable via sentinel.
+    await createSentinel("default-test-hook");
+
+    // After disabling: hook is filtered out at read time.
+    const hooksAfter = await getHooksFor("user-prompt-submit");
+    expect(hooksAfter).toHaveLength(0);
+
+    // Clean up.
+    await removeSentinel("default-test-hook");
+  });
+
+  test("getHooksFor re-includes hooks when a disabled plugin is re-enabled", async () => {
+    const plugin = buildPlugin("default-test-reenable", {
+      "user-prompt-submit": () => {},
+    });
+    registerPlugin(plugin);
+
+    // Disable.
+    await createSentinel("default-test-reenable");
+    let hooks = await getHooksFor("user-prompt-submit");
+    expect(hooks).toHaveLength(0);
+
+    // Re-enable by removing the sentinel.
+    await removeSentinel("default-test-reenable");
+    hooks = await getHooksFor("user-prompt-submit");
+    expect(hooks).toHaveLength(1);
+  });
+
+  test("getPluginToolDefinitions filters out tools from a disabled plugin", async () => {
+    const plugin: Plugin = {
+      manifest: { name: "default-test-tools", version: "1.0.0" },
+      tools: [
+        {
+          name: "test_tool",
+          description: "A test tool",
+          parameters: { type: "object", properties: {} },
+          category: "plugin",
+        },
+      ],
+    };
+    registerPlugin(plugin);
+    registerPluginTools("default-test-tools", plugin.tools!);
+
+    // Before disabling: tool is visible.
+    let defs = getPluginToolDefinitions();
+    expect(defs.some((d) => d.name === "test_tool")).toBe(true);
+
+    // Disable via sentinel.
+    await createSentinel("default-test-tools");
+
+    // After disabling: tool is filtered out.
+    defs = getPluginToolDefinitions();
+    expect(defs.some((d) => d.name === "test_tool")).toBe(false);
+
+    // Re-enable.
+    await removeSentinel("default-test-tools");
+    defs = getPluginToolDefinitions();
+    expect(defs.some((d) => d.name === "test_tool")).toBe(true);
+  });
+
+  test("disabling one plugin does not affect others", async () => {
+    const pluginA = buildPlugin("default-test-alpha", {
+      "user-prompt-submit": () => {},
+    });
+    const pluginB = buildPlugin("default-test-beta", {
+      "user-prompt-submit": () => {},
+    });
+    registerPlugin(pluginA);
+    registerPlugin(pluginB);
+
+    // Both visible.
+    let hooks = await getHooksFor("user-prompt-submit");
+    expect(hooks).toHaveLength(2);
+
+    // Disable only alpha.
+    await createSentinel("default-test-alpha");
+    hooks = await getHooksFor("user-prompt-submit");
+    expect(hooks).toHaveLength(1);
+
+    // Re-enable alpha.
+    await removeSentinel("default-test-alpha");
+    hooks = await getHooksFor("user-prompt-submit");
+    expect(hooks).toHaveLength(2);
+  });
+
+  test("unregisterPlugin removes hooks from the hook registry", async () => {
+    const plugin = buildPlugin("default-test-unreg", {
+      "user-prompt-submit": () => {},
+    });
+    registerPlugin(plugin);
+
+    let hooks = await getHooksFor("user-prompt-submit");
+    expect(hooks).toHaveLength(1);
+
+    unregisterPlugin("default-test-unreg");
+
+    hooks = await getHooksFor("user-prompt-submit");
+    expect(hooks).toHaveLength(0);
+  });
+});
