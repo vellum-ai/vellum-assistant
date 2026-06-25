@@ -13,6 +13,7 @@ import {
   DOCKER_READY_TIMEOUT_MS,
   dockerResourceNames,
   GATEWAY_INTERNAL_PORT,
+  ASSISTANT_INTERNAL_PORT,
   startContainers,
   stopContainers,
 } from "./docker.js";
@@ -685,6 +686,9 @@ export async function performDockerRollback(
     // use default
   }
 
+  // Recover the assistant host port from the entry, fall back to default.
+  const assistantPort = entry.containerInfo?.assistantPort ?? ASSISTANT_INTERNAL_PORT;
+
   // Broadcast SSE "starting" event
   console.log("📢 Notifying connected clients...");
   await broadcastUpgradeEvent(
@@ -746,6 +750,7 @@ export async function performDockerRollback(
       extraAssistantEnv,
       extraGatewayEnv,
       gatewayPort,
+      assistantPort,
       imageTags: targetImageTags,
       instanceName,
       res,
@@ -785,6 +790,7 @@ export async function performDockerRollback(
         gatewayDigest: newDigests?.gateway,
         cesDigest: newDigests?.["credential-executor"],
         networkName: res.network,
+        assistantPort,
       },
       previousContainerInfo: entry.containerInfo,
       previousDbMigrationVersion: preMigrationState.dbVersion,
@@ -867,6 +873,7 @@ export async function performDockerRollback(
             extraAssistantEnv,
             extraGatewayEnv,
             gatewayPort,
+            assistantPort,
             imageTags: currentImageRefs,
             instanceName,
             res,
@@ -919,6 +926,7 @@ export async function performDockerRollback(
                 revertDigests?.["credential-executor"] ??
                 currentImageRefs["credential-executor"],
               networkName: res.network,
+              assistantPort,
             },
             previousContainerInfo: undefined,
             previousDbMigrationVersion: undefined,

@@ -74,6 +74,14 @@ export interface ContainerInfo {
   cesDigest?: string;
   /** Docker network name for the service group */
   networkName?: string;
+  /**
+   * Host-side port the assistant HTTP API is published on. Dynamically
+   * allocated at hatch time so concurrent instances don't collide on the
+   * default (7821). Stored so rollback/upgrade can rebind the same port
+   * instead of re-allocating (which could grab a different port if another
+   * process took it in the interim).
+   */
+  assistantPort?: number;
 }
 
 /**
