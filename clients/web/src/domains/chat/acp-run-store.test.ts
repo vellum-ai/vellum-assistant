@@ -420,7 +420,7 @@ describe("seedFromHistory", () => {
     expect(getState().orderedIds).toEqual(["acp-h1"]);
   });
 
-  it("does not clobber a live entry's longer event buffer with a shorter snapshot", () => {
+  it("does not clobber a live entry's events with a shorter snapshot", () => {
     spawn({ acpSessionId: "acp-1" });
     const store = getState();
     store.receiveEvent({ acpSessionId: "acp-1", event: event({ seq: 1, content: "a" }) });
@@ -430,12 +430,12 @@ describe("seedFromHistory", () => {
       historyEntry({ acpSessionId: "acp-1", events: [event({ seq: 1, content: "stale" })] }),
     ]);
 
-    // The live (longer) buffer wins.
+    // Seq union keeps both live events; the live seq=1 wins over history's.
     expect(getState().byId["acp-1"]!.events).toHaveLength(2);
     expect(getState().byId["acp-1"]!.events[0]!.content).toBe("a");
   });
 
-  it("prefers the newer/longer historical entry over a shorter existing one", () => {
+  it("unions seqs from a longer historical entry into a shorter existing one", () => {
     getState().seedFromHistory([
       historyEntry({ acpSessionId: "acp-1", events: [event({ seq: 1 })] }),
     ]);
@@ -443,10 +443,57 @@ describe("seedFromHistory", () => {
       historyEntry({ acpSessionId: "acp-1", events: [event({ seq: 1 }), event({ seq: 2 })] }),
     ]);
 
-    expect(getState().byId["acp-1"]!.events).toHaveLength(2);
+    expect(getState().byId["acp-1"]!.events.map((e) => e.seq)).toEqual([1, 2]);
   });
 
-  it("merges terminal status/usage onto a live entry while keeping the longer buffer", () => {
+  it("keeps the newest live event when history is longer but has a lower max seq", () => {
+    spawn({ acpSessionId: "acp-1" });
+    const store = getState();
+    // Live store received only the newest events (high seqs) before the HTTP
+    // snapshot resolved.
+    store.receiveEvent({ acpSessionId: "acp-1", event: event({ seq: 9, content: "live-9" }) });
+    store.receiveEvent({ acpSessionId: "acp-1", event: event({ seq: 10, updateType: "tool_call", toolCallId: "live-10" }) });
+    expect(getState().highWaterMark.get("acp-1")).toBe(10);
+
+    // A stale-but-longer history snapshot: more events, but max seq 4 < 10.
+    getState().seedFromHistory([
+      historyEntry({
+        acpSessionId: "acp-1",
+        events: [event({ seq: 1 }), event({ seq: 2 }), event({ seq: 3 }), event({ seq: 4 })],
+      }),
+    ]);
+
+    const entry = getState().byId["acp-1"]!;
+    const seqs = entry.events.map((e) => e.seq);
+    // The newest live event survives, older history events fill in, all unioned.
+    expect(seqs).toEqual([1, 2, 3, 4, 9, 10]);
+    expect(entry.events.find((e) => e.seq === 9)!.content).toBe("live-9");
+    expect(entry.events.find((e) => e.seq === 10)!.toolCallId).toBe("live-10");
+    // highWaterMark reflects the true newest seq, not the incoming-only max.
+    expect(getState().highWaterMark.get("acp-1")).toBe(10);
+  });
+
+  it("appends events lacking a seq without deduping them", () => {
+    spawn({ acpSessionId: "acp-1" });
+    getState().receiveEvent({ acpSessionId: "acp-1", event: event({ seq: 5, content: "live" }) });
+
+    const seqless = { updateType: "tool_call", toolCallId: "no-seq" } as AcpRunRawEvent;
+    getState().seedFromHistory([
+      historyEntry({
+        acpSessionId: "acp-1",
+        events: [event({ seq: 1 }), seqless, seqless],
+      }),
+    ]);
+
+    const events = getState().byId["acp-1"]!.events;
+    // seq 1 + seq 5, then both seqless events appended (not collapsed).
+    expect(events.filter((e) => typeof e.seq === "number").map((e) => e.seq)).toEqual([1, 5]);
+    expect(events.filter((e) => e.toolCallId === "no-seq")).toHaveLength(2);
+    // highWaterMark ignores seqless events.
+    expect(getState().highWaterMark.get("acp-1")).toBe(5);
+  });
+
+  it("merges terminal status/usage onto a live entry while unioning events", () => {
     spawn({ acpSessionId: "acp-1" });
     const store = getState();
     store.receiveEvent({ acpSessionId: "acp-1", event: event({ seq: 1, content: "a" }) });
@@ -468,7 +515,7 @@ describe("seedFromHistory", () => {
     ]);
 
     const entry = getState().byId["acp-1"]!;
-    // Longer live buffer is kept (live content, not history's "stale").
+    // Seq union: live seq=1 wins over history's "stale", seq=2 unioned.
     expect(entry.events).toHaveLength(2);
     expect(entry.events[0]!.content).toBe("a");
     // Terminal metadata is merged.
