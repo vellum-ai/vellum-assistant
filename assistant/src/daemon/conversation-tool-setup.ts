@@ -24,6 +24,7 @@ import { registerConversationSender } from "../tools/browser/browser-screencast.
 import type { ToolExecutor } from "../tools/executor.js";
 import {
   getMcpToolDefinitions,
+  getPluginToolDefinitions,
   getTool,
   getWorkspaceToolDefinitions,
   getWorkspaceToolNames,
@@ -674,14 +675,21 @@ export function createResolveToolsCallback(
 ): ((history: Message[]) => ToolDefinition[]) | undefined {
   if (toolDefs.length === 0) return undefined;
 
-  // Separate the initial tool defs into core (stable) and the two dynamic
-  // categories (MCP, workspace). We keep core tools from the snapshot and
-  // re-read MCP + workspace tools from the registry each turn.
+  // Separate the initial tool defs into core (stable) and the dynamic
+  // categories (MCP, workspace, plugin). We keep core tools from the snapshot
+  // and re-read the dynamic categories from the registry each turn. They differ
+  // downstream: plugin tools flow through the same context filter + subagent
+  // allowlist as core, while MCP and workspace tools are added raw.
   const initialMcpDefs = getMcpToolDefinitions();
+  const initialPluginDefs = getPluginToolDefinitions();
   const initialMcpNames = new Set(initialMcpDefs.map((d) => d.name));
   const initialWorkspaceNames = new Set(getWorkspaceToolNames());
+  const initialPluginNames = new Set(initialPluginDefs.map((d) => d.name));
   const coreToolDefs = toolDefs.filter(
-    (d) => !initialMcpNames.has(d.name) && !initialWorkspaceNames.has(d.name),
+    (d) =>
+      !initialMcpNames.has(d.name) &&
+      !initialWorkspaceNames.has(d.name) &&
+      !initialPluginNames.has(d.name),
   );
   log.debug(
     {
@@ -689,6 +697,8 @@ export function createResolveToolsCallback(
       mcpCount: initialMcpDefs.length,
       mcpTools: initialMcpDefs.map((d) => d.name),
       workspaceCount: initialWorkspaceNames.size,
+      pluginCount: initialPluginDefs.length,
+      pluginTools: initialPluginDefs.map((d) => d.name),
     },
     "Conversation tool resolver initialized",
   );
@@ -709,11 +719,18 @@ export function createResolveToolsCallback(
     // serialized, so the registry settles for a subsequent turn to read.
     void loadWorkspaceTools();
 
-    // Filter core tools based on current conversation context so that tools
-    // irrelevant to this turn (e.g. UI tools when no client is connected)
+    // Re-read plugin tool definitions from the registry each turn so a plugin
+    // installed/removed at runtime (activated by the per-turn scan in
+    // `plugins/mtime-cache.ts`) is picked up without recreating the
+    // conversation. Plugin tools share core's context filter + allowlist path,
+    // so combine them with the core snapshot before filtering.
+    const currentPluginDefs = getPluginToolDefinitions();
+
+    // Filter core + plugin tools based on current conversation context so that
+    // tools irrelevant to this turn (e.g. UI tools when no client is connected)
     // are omitted from the definitions sent to the provider.
-    const filteredCoreDefs = coreToolDefs.filter((d) =>
-      isToolActiveForContext(d.name, ctx),
+    const filteredCoreDefs = [...coreToolDefs, ...currentPluginDefs].filter(
+      (d) => isToolActiveForContext(d.name, ctx),
     );
 
     // When the conversation is acting as a subagent, restrict core tools to
