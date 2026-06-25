@@ -323,6 +323,34 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     ]);
   });
 
+  test("live updates after resume continue seq past the persisted max", async () => {
+    fakeCaps.resume = true;
+    // Persisted log whose updates carry seq up to 4.
+    const persisted: AcpSessionUpdate[] = [
+      { ...PERSISTED_EVENT, seq: 2 },
+      { ...PERSISTED_EVENT, seq: 4 },
+    ];
+    insertHistoryRow({
+      id: "resume-seq-1",
+      eventLogJson: JSON.stringify(persisted),
+    });
+
+    const manager = new AcpSessionManager(4);
+    const sent: ServerMessage[] = [];
+    await manager.resumeFromHistory("resume-seq-1", (msg) => sent.push(msg));
+
+    const fake = fakeInstances[0]!;
+    await fake.emitChunk("live-after-resume");
+
+    // The first live update continues at 5 (max persisted seq + 1), not 1, so
+    // the web client's highWaterMark de-dupe doesn't drop it.
+    const liveUpdates = sent.filter(
+      (m): m is AcpSessionUpdate => m.type === "acp_session_update",
+    );
+    expect(liveUpdates).toHaveLength(1);
+    expect(liveUpdates[0]!.seq).toBe(5);
+  });
+
   test("prefers session/resume when advertised and never calls loadSession", async () => {
     fakeCaps.loadSession = true;
     fakeCaps.resume = true;

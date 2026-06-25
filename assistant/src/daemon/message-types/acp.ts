@@ -7,6 +7,10 @@ export interface AcpSessionSpawned {
   acpSessionId: string;
   agent: string;
   parentConversationId: string;
+  /** Tool-use id of the `acp_spawn` call that spawned this session. */
+  parentToolUseId?: string;
+  /** Objective text for the spawned session. */
+  task?: string;
 }
 
 export interface AcpSessionUpdate {
@@ -24,6 +28,10 @@ export interface AcpSessionUpdate {
   toolTitle?: string;
   toolKind?: string;
   toolStatus?: string;
+  /** Stable id for the message this chunk belongs to. */
+  messageId?: string;
+  /** Monotonic ordering hint within the session. */
+  seq?: number;
 }
 
 export interface AcpSessionCompleted {
