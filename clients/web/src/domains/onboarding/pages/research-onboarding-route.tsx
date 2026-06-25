@@ -17,7 +17,7 @@
  * then clicks "Continue" to drop into the full workspace on the same conversation.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
@@ -30,9 +30,19 @@ import {
   setPendingPreChatContext,
   type PreChatOnboardingContext,
 } from "@/domains/onboarding/prechat";
-import { buildResearchPrompt } from "@/domains/onboarding/research-prompt";
+import {
+  buildResearchPrompt,
+  type ResearchSubject,
+} from "@/domains/onboarding/research-prompt";
 import { useBackgroundHatch } from "@/domains/onboarding/use-background-hatch";
 import { useResearchRunner } from "@/domains/onboarding/research-runner";
+import {
+  clearResearchSnapshot,
+  readResearchSnapshot,
+  resolveResumeStep,
+  writeResearchSnapshot,
+  type ResearchStep,
+} from "@/domains/onboarding/research-onboarding-persistence";
 import { scheduleCheckin } from "@/domains/onboarding/checkin-scheduler";
 import { GOOGLE_CALENDAR_EVENTS_SCOPE } from "@/domains/onboarding/hooks/use-google-calendar-connect";
 import { formatCheckinTime } from "@/domains/onboarding/format-checkin-time";
@@ -57,21 +67,26 @@ import {
 } from "@/domains/onboarding/screens/research-result-steps";
 import { OnboardingTonedBackdrop } from "@/domains/onboarding/components/onboarding-toned-backdrop";
 
-type ResearchStep =
-  | "form"
-  | "face"
-  | "intro"
-  | "different"
-  | "integration"
-  | "letschat"
-  | "meeting"
-  | "looking"
-  | "results"
-  | "suggestions";
+/** Build the research subject from the collected form values. */
+function researchSubjectFrom(values: ResearchOnboardingValues): ResearchSubject {
+  return {
+    firstName: values.firstName,
+    lastName: values.lastName,
+    occupation: values.role,
+    hobby: values.hobbies.join(", "),
+  };
+}
+
+/** Friendly title for the behind-the-scenes research conversation. */
+function researchTitleFor(values: ResearchOnboardingValues): string {
+  const first = values.firstName.trim();
+  return first ? `Getting to know ${first}` : "Getting to know you";
+}
 
 export function ResearchOnboardingRoute() {
   const navigate = useNavigate();
   const user = useAuthStore.use.user();
+  const userId = user?.id ?? null;
   const enterFocus = useOnboardingFocusStore.use.enterFocus();
   const exitFocus = useOnboardingFocusStore.use.exitFocus();
   const setPendingAvatarTraits =
@@ -94,6 +109,11 @@ export function ResearchOnboardingRoute() {
   // while this is non-empty — i.e. only after a back. A deliberate forward move
   // (any Continue/Skip) clears it, browser-style.
   const [forwardStack, setForwardStack] = useState<ResearchStep[]>([]);
+  // Gates the persistence write + mid-flow research re-fire on the one-shot
+  // restore pass below, so we never clobber a saved snapshot before reading it
+  // (or re-fire research before adopting saved results). Flips true once the
+  // restore has run — whether it found a snapshot or not.
+  const [restored, setRestored] = useState(false);
 
   function navTo(next: ResearchStep) {
     setStep(next);
@@ -127,6 +147,11 @@ export function ResearchOnboardingRoute() {
   // True while the booking request is in flight, so the confirmation step can
   // hold (capped) until the booked time is known instead of advancing early.
   const [checkinPending, setCheckinPending] = useState(false);
+  // True only once the daemon confirms the check-in was booked. Persisted so a
+  // refresh that interrupts the in-flight booking POST doesn't resume past the
+  // calendar step as if it succeeded (the endpoint is non-idempotent — a blind
+  // retry would double-book), and resumes back to the calendar step instead.
+  const [checkinBooked, setCheckinBooked] = useState(false);
   // Set when the Google grant landed WITHOUT the calendar.events scope (the user
   // didn't tick the calendar box on Google's granular-consent screen). The
   // connection succeeds but no event can be booked, so we keep the user on the
@@ -152,6 +177,8 @@ export function ResearchOnboardingRoute() {
     awaitReady: awaitHatchReady,
   } = useBackgroundHatch();
   const research = useResearchRunner();
+  // Stable across renders (useCallback in the runner); safe as effect deps.
+  const { start: startResearch, hydrate: hydrateResearch } = research;
   const researchLoading =
     research.status === "idle" || research.status === "running";
   // The research turn settled with nothing to show — skip the "this is what I
@@ -173,6 +200,96 @@ export function ResearchOnboardingRoute() {
     if (enabled && flagsHydrated) startHatch();
   }, [exitFocus, setPendingAvatarTraits, startHatch, enabled, flagsHydrated]);
 
+  // Resume a journey saved by a previous session (a page refresh). Runs once,
+  // as soon as the user id is known, BEFORE the persistence write / research
+  // re-fire effects below (which gate on `restored`). useLayoutEffect so we
+  // never paint the form for a journey that should resume deeper in. Restores
+  // the collected details + any completed research output and jumps to the
+  // right step (the suggestions once research finished — see resolveResumeStep).
+  useLayoutEffect(() => {
+    if (restored) return;
+    // Wait for auth to resolve the user so the snapshot key is correct; the
+    // effect re-runs when `userId` lands.
+    if (!userId) return;
+    const snapshot = readResearchSnapshot(userId);
+    // Only resume a journey that got past the form; anything else is a fresh
+    // start (the form collects the details the rest of the flow needs).
+    if (snapshot?.formValues) {
+      setFormValues(snapshot.formValues);
+      setFaceValues(snapshot.faceValues);
+      setCheckinTime(snapshot.checkinTime);
+      setCheckinBooked(snapshot.checkinBooked);
+      // Re-enqueue the named plugin installs against the re-hatched assistant so
+      // a suggestion click awaits real (idempotent) installs, not an empty map.
+      if (snapshot.research) hydrateResearch(snapshot.research, awaitHatchReady);
+      setStep(resolveResumeStep(snapshot));
+      setForwardStack([]);
+    }
+    setRestored(true);
+  }, [restored, userId, hydrateResearch, awaitHatchReady]);
+
+  // Persist the journey as it advances so a refresh can resume it. Gated on
+  // `restored` so we don't overwrite the snapshot before reading it, and only
+  // once the form is submitted (nothing meaningful to save before then). The
+  // research output is saved only once it settles "done" — a half-finished turn
+  // is re-fired on resume rather than restored.
+  useEffect(() => {
+    if (!restored || !formValues) return;
+    writeResearchSnapshot(userId, {
+      step,
+      formValues,
+      faceValues,
+      checkinTime,
+      checkinBooked,
+      research:
+        research.status === "done"
+          ? {
+              status: "done",
+              claims: research.claims,
+              suggestions: research.suggestions,
+              installedPlugins: research.installedPlugins,
+            }
+          : null,
+    });
+  }, [
+    restored,
+    userId,
+    step,
+    formValues,
+    faceValues,
+    checkinTime,
+    checkinBooked,
+    research.status,
+    research.claims,
+    research.suggestions,
+    research.installedPlugins,
+  ]);
+
+  // Mid-flow resume: we restored a journey whose research turn hadn't settled.
+  // The in-flight client turn is gone, so re-fire it once from the restored
+  // subject. Only fires when results are absent (status "idle") — a fresh visit
+  // has no `formValues` until the form is submitted (which fires the search
+  // itself), and a completed resume hydrates the status to "done". The meeting
+  // is never re-booked here: that only fires from the calendar step, which a
+  // resume skips past.
+  useEffect(() => {
+    if (!restored || !enabled || !flagsHydrated) return;
+    if (!formValues || research.status !== "idle") return;
+    startResearch({
+      awaitAssistantId: awaitHatchReady,
+      subject: researchSubjectFrom(formValues),
+      conversationTitle: researchTitleFor(formValues),
+    });
+  }, [
+    restored,
+    enabled,
+    flagsHydrated,
+    formValues,
+    research.status,
+    startResearch,
+    awaitHatchReady,
+  ]);
+
   // If we're sitting on the results step when the research turn resolves empty
   // (it was still streaming when we arrived), skip ahead to the suggestions.
   useEffect(() => {
@@ -192,6 +309,10 @@ export function ResearchOnboardingRoute() {
     entryPrompt?: string,
     { skip = false }: { skip?: boolean } = {},
   ) {
+    // Handing off to the chat ends the research-onboarding journey — drop the
+    // resume snapshot so a later visit starts clean instead of resuming this one.
+    clearResearchSnapshot(userId);
+
     const { firstName, lastName, role, hobbies } = values;
     const fullName = [firstName.trim(), lastName.trim()]
       .filter(Boolean)
@@ -265,18 +386,10 @@ export function ResearchOnboardingRoute() {
     setFormValues(values);
     // Fire the research turn now; the runner awaits hatch readiness internally,
     // so it starts at the later of this submit and the background hatch.
-    const trimmedFirst = values.firstName.trim();
     research.start({
       awaitAssistantId: awaitHatchReady,
-      subject: {
-        firstName: values.firstName,
-        lastName: values.lastName,
-        occupation: values.role,
-        hobby: values.hobbies.join(", "),
-      },
-      conversationTitle: trimmedFirst
-        ? `Getting to know ${trimmedFirst}`
-        : "Getting to know you",
+      subject: researchSubjectFrom(values),
+      conversationTitle: researchTitleFor(values),
     });
     goForwardTo("face");
   }
@@ -311,6 +424,7 @@ export function ResearchOnboardingRoute() {
         .filter(Boolean)
         .join(" ");
       setCheckinTime(null);
+      setCheckinBooked(false);
       setCheckinPending(true);
       void scheduleCheckin({
         assistantId: hatchedAssistantId,
@@ -319,6 +433,7 @@ export function ResearchOnboardingRoute() {
       })
         .then((result) => {
           if (result.scheduled) {
+            setCheckinBooked(true);
             setCheckinTime(formatCheckinTime(result.start, result.timeZone));
           }
         })

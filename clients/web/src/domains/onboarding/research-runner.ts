@@ -223,6 +223,22 @@ export interface UseResearchRunner extends ResearchRunnerState {
    * disabled, none picked, or already installed), so ordinary clicks don't hang.
    */
   awaitPluginInstalls: () => Promise<void>;
+  /**
+   * Adopt research output persisted by a prior session (a page refresh) as the
+   * settled state, WITHOUT re-running the turn — so a refresh that resumes past
+   * a completed search never fires a second "research me" background turn.
+   *
+   * The plugin installs are best-effort and fire-and-forget, so a refresh can
+   * cancel ones that hadn't settled, leaving capabilities the UI claims were set
+   * up not actually installed. So when `awaitAssistantId` is supplied, re-enqueue
+   * an install for each named plugin (idempotent — an already-installed plugin
+   * 409s and is ignored) and track its promise, so `awaitPluginInstalls` blocks a
+   * suggestion click until the capabilities are genuinely present again.
+   */
+  hydrate: (
+    results: ResearchRunnerState,
+    awaitAssistantId?: () => Promise<string>,
+  ) => void;
 }
 
 type GetMessage = MessagesGetResponses[200]["messages"][number];
@@ -512,5 +528,41 @@ export function useResearchRunner(): UseResearchRunner {
     await Promise.all([...installPromisesRef.current.values()]);
   }, []);
 
-  return { ...state, start, awaitPluginInstalls };
+  const hydrate = useCallback(
+    (
+      results: ResearchRunnerState,
+      awaitAssistantId?: () => Promise<string>,
+    ) => {
+      // Claim a fresh run id so any (improbable) in-flight loop bails, then adopt
+      // the restored results as the settled state. We don't set a subject key:
+      // the route only re-fires `start` while results are absent, so a re-run
+      // can't race this — and an edited subject should still supersede normally.
+      runIdRef.current += 1;
+      setState(results);
+
+      // Re-enqueue the named installs against the (re-)hatched assistant so a
+      // suggestion click awaits real promises rather than an empty map. Idempotent
+      // and best-effort: a failed hatch / install never blocks the click.
+      if (awaitAssistantId && results.installedPlugins.length > 0) {
+        const installs = installPromisesRef.current;
+        installs.clear();
+        for (const name of results.installedPlugins) {
+          installs.set(
+            name,
+            (async () => {
+              try {
+                const assistantId = await awaitAssistantId();
+                await installCapabilityBestEffort(assistantId, name);
+              } catch {
+                // Hatch never readied / install failed — don't block the click.
+              }
+            })(),
+          );
+        }
+      }
+    },
+    [],
+  );
+
+  return { ...state, start, awaitPluginInstalls, hydrate };
 }
