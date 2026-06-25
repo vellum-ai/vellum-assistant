@@ -1021,16 +1021,12 @@ export async function runAgentLoopImpl(
       );
     }
 
-    if (
+    const shouldEmitQueuedConversationNotices =
       !overflowTerminalReason &&
       !yieldedForHandoff &&
       !state.providerErrorUserMessage &&
-      !abortController.signal.aborted
-    ) {
-      for (const notice of drainConversationNotices(ctx.conversationId)) {
-        onEvent(notice);
-      }
-    } else {
+      !abortController.signal.aborted;
+    if (!shouldEmitQueuedConversationNotices) {
       clearConversationNotices(ctx.conversationId);
     }
 
@@ -1426,6 +1422,11 @@ export async function runAgentLoopImpl(
             ? { messageId: state.lastAssistantMessageId }
             : {}),
         });
+        if (shouldEmitQueuedConversationNotices) {
+          for (const notice of drainConversationNotices(ctx.conversationId)) {
+            onEvent(notice);
+          }
+        }
         publishLoopMessagesChanged();
       }
     }
