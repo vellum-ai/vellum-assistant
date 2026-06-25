@@ -1,6 +1,7 @@
 import type {
   AcpSessionSpawnedEvent,
   AcpSessionUpdateEvent,
+  AcpSessionUsageEvent,
   AcpSessionCompletedEvent,
   AcpSessionErrorEvent,
 } from "@vellumai/assistant-api";
@@ -37,6 +38,16 @@ export function handleAcpSessionUpdate(event: AcpSessionUpdateEvent): void {
       toolStatus: event.toolStatus,
       messageId: event.messageId,
     },
+  });
+}
+
+export function handleAcpSessionUsage(event: AcpSessionUsageEvent): void {
+  useAcpRunStore.getState().updateUsage({
+    acpSessionId: event.acpSessionId,
+    usedTokens: event.usedTokens,
+    contextSize: event.contextSize,
+    costAmount: event.costAmount,
+    costCurrency: event.costCurrency,
   });
 }
 

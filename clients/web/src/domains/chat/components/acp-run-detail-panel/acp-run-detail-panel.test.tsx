@@ -60,9 +60,8 @@ function makeEntry(overrides: Partial<AcpRunEntry> = {}): AcpRunEntry {
     task: "Research the thing",
     status: "running",
     startedAt: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    totalCost: 0,
+    usedTokens: 0,
+    contextSize: 0,
     events: [],
     ...overrides,
   };
@@ -102,30 +101,78 @@ describe("AcpRunDetailPanel — header + metrics + objective", () => {
   test("renders agent title, status, metrics, and objective", () => {
     render(
       <AcpRunDetailPanel
-        entry={makeEntry({ inputTokens: 1200, outputTokens: 340 })}
+        entry={makeEntry({
+          usedTokens: 1200,
+          contextSize: 200000,
+          costAmount: 0.012,
+          costCurrency: "USD",
+        })}
         onClose={noop}
       />,
     );
 
     expect(screen.getByText("claude")).toBeDefined();
     expect(screen.getByText("Running")).toBeDefined();
-    expect(screen.getByText("Input")).toBeDefined();
-    expect(screen.getByText("Output")).toBeDefined();
-    expect(screen.getByText("1.2K")).toBeDefined();
-    expect(screen.getByText("340")).toBeDefined();
+    expect(screen.getByText("Context")).toBeDefined();
+    expect(screen.getByText("1,200 / 200,000")).toBeDefined();
+    expect(screen.getByText("Cost")).toBeDefined();
+    expect(screen.getByText("$0.01")).toBeDefined();
     expect(screen.getByText("Objective")).toBeDefined();
     expect(screen.getByText("Research the thing")).toBeDefined();
+  });
+
+  test("a sub-cent nonzero cost renders '<$0.01', not '$0.00'", () => {
+    render(
+      <AcpRunDetailPanel
+        entry={makeEntry({
+          usedTokens: 1200,
+          contextSize: 200000,
+          costAmount: 0.003,
+          costCurrency: "USD",
+        })}
+        onClose={noop}
+      />,
+    );
+    expect(screen.getByText("Cost")).toBeDefined();
+    expect(screen.getByText("<$0.01")).toBeDefined();
+    expect(screen.queryByText("$0.00")).toBeNull();
+  });
+
+  test("a cost at or above one cent uses standard currency formatting", () => {
+    render(
+      <AcpRunDetailPanel
+        entry={makeEntry({
+          usedTokens: 1200,
+          contextSize: 200000,
+          costAmount: 1.23,
+          costCurrency: "USD",
+        })}
+        onClose={noop}
+      />,
+    );
+    expect(screen.getByText("$1.23")).toBeDefined();
+  });
+
+  test("shows the context metric but no cost when cost is absent", () => {
+    render(
+      <AcpRunDetailPanel
+        entry={makeEntry({ usedTokens: 1200, contextSize: 200000 })}
+        onClose={noop}
+      />,
+    );
+    expect(screen.getByText("Context")).toBeDefined();
+    expect(screen.queryByText("Cost")).toBeNull();
   });
 
   test("hides the metric row when there is no usage data", () => {
     render(
       <AcpRunDetailPanel
-        entry={makeEntry({ inputTokens: 0, outputTokens: 0, totalCost: 0 })}
+        entry={makeEntry({ usedTokens: 0, contextSize: 0 })}
         onClose={noop}
       />,
     );
-    expect(screen.queryByText("Input")).toBeNull();
-    expect(screen.queryByText("Output")).toBeNull();
+    expect(screen.queryByText("Context")).toBeNull();
+    expect(screen.queryByText("Cost")).toBeNull();
   });
 
   test("empty events renders 'No events yet'", () => {
