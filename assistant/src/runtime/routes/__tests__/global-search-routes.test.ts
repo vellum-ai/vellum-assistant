@@ -33,6 +33,7 @@ function makeContact(
     id: "ct_1",
     displayName: "Alice",
     notes: null,
+    role: "contact",
     lastInteraction: null,
     interactionCount: 0,
     createdAt: 1,

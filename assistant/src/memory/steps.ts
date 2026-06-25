@@ -410,7 +410,8 @@ import { migrateCanonicalGuardianDeliveriesConversationIndex } from "./migration
 import { migrateAddProcessingStartedAt } from "./migrations/300-add-processing-started-at.js";
 import { createWatchdogEventsTable } from "./migrations/301-create-watchdog-events.js";
 import { migrateCreateCompactionEvents } from "./migrations/302-create-compaction-events.js";
-import { migrateAcpSessionHistoryUsageColumns } from "./migrations/303-acp-session-history-usage-columns.js";
+import { migrateAddConversationCreationSeq } from "./migrations/303-add-conversation-creation-seq.js";
+import { migrateAcpSessionHistoryUsageColumns } from "./migrations/304-acp-session-history-usage-columns.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1292,5 +1293,6 @@ export const migrationSteps: MigrationStep[] = [
   migrateAddProcessingStartedAt,
   createWatchdogEventsTable,
   migrateCreateCompactionEvents,
+  migrateAddConversationCreationSeq,
   migrateAcpSessionHistoryUsageColumns,
 ];

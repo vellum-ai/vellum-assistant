@@ -4853,14 +4853,18 @@ paths:
                         type: string
                       role:
                         type: string
+                        enum:
+                          - guardian
+                          - contact
                       notes:
                         anyOf:
                           - type: string
                           - type: "null"
                       contactType:
-                        anyOf:
-                          - type: string
-                          - type: "null"
+                        type: string
+                        enum:
+                          - human
+                          - assistant
                       lastInteraction:
                         anyOf:
                           - type: number
@@ -4934,6 +4938,8 @@ paths:
                     required:
                       - id
                       - displayName
+                      - role
+                      - contactType
                       - interactionCount
                       - createdAt
                       - updatedAt
@@ -5007,14 +5013,18 @@ paths:
                           type: string
                         role:
                           type: string
+                          enum:
+                            - guardian
+                            - contact
                         notes:
                           anyOf:
                             - type: string
                             - type: "null"
                         contactType:
-                          anyOf:
-                            - type: string
-                            - type: "null"
+                          type: string
+                          enum:
+                            - human
+                            - assistant
                         lastInteraction:
                           anyOf:
                             - type: number
@@ -5088,6 +5098,8 @@ paths:
                       required:
                         - id
                         - displayName
+                        - role
+                        - contactType
                         - interactionCount
                         - createdAt
                         - updatedAt
@@ -5130,14 +5142,18 @@ paths:
                         type: string
                       role:
                         type: string
+                        enum:
+                          - guardian
+                          - contact
                       notes:
                         anyOf:
                           - type: string
                           - type: "null"
                       contactType:
-                        anyOf:
-                          - type: string
-                          - type: "null"
+                        type: string
+                        enum:
+                          - human
+                          - assistant
                       lastInteraction:
                         anyOf:
                           - type: number
@@ -5211,6 +5227,8 @@ paths:
                     required:
                       - id
                       - displayName
+                      - role
+                      - contactType
                       - interactionCount
                       - createdAt
                       - updatedAt
@@ -5498,14 +5516,18 @@ paths:
                         type: string
                       role:
                         type: string
+                        enum:
+                          - guardian
+                          - contact
                       notes:
                         anyOf:
                           - type: string
                           - type: "null"
                       contactType:
-                        anyOf:
-                          - type: string
-                          - type: "null"
+                        type: string
+                        enum:
+                          - human
+                          - assistant
                       lastInteraction:
                         anyOf:
                           - type: number
@@ -5579,6 +5601,8 @@ paths:
                     required:
                       - id
                       - displayName
+                      - role
+                      - contactType
                       - interactionCount
                       - createdAt
                       - updatedAt
@@ -5686,14 +5710,18 @@ paths:
                       type: string
                     role:
                       type: string
+                      enum:
+                        - guardian
+                        - contact
                     notes:
                       anyOf:
                         - type: string
                         - type: "null"
                     contactType:
-                      anyOf:
-                        - type: string
-                        - type: "null"
+                      type: string
+                      enum:
+                        - human
+                        - assistant
                     lastInteraction:
                       anyOf:
                         - type: number
@@ -5767,6 +5795,8 @@ paths:
                   required:
                     - id
                     - displayName
+                    - role
+                    - contactType
                     - interactionCount
                     - createdAt
                     - updatedAt
@@ -17444,6 +17474,14 @@ paths:
                     anyOf:
                       - type: number
                       - type: "null"
+                  processing:
+                    description:
+                      "Whether the agent is currently mid-turn for this conversation, sourced authoritatively from the persisted
+                      `processing_started_at` column. `true` means a turn is in flight; `false` means the conversation
+                      is idle. Clients use this to recover from a dropped SSE stream: if a turn appears to be running
+                      locally but the server reports `processing: false`, the turn has ended (or died) and the UI should
+                      stop waiting rather than spin indefinitely. Absent on older daemons that predate this field."
+                    type: boolean
                 required:
                   - messages
                 additionalProperties: false
