@@ -424,4 +424,17 @@ describe("useWorkflowAgentAvatarSeeds", () => {
     );
     expect(result.current).toEqual([]);
   });
+
+  test("returns a referentially stable array across renders when the entry is unchanged", () => {
+    useWorkflowStore.getState().startRun({ runId: "wf-stable", timestamp: NOW });
+    useWorkflowStore.getState().leafStarted({ runId: "wf-stable", seq: 0 });
+
+    const { result, rerender } = renderHook(() =>
+      useWorkflowAgentAvatarSeeds("wf-stable"),
+    );
+    const first = result.current;
+    rerender();
+    // Same store entry ref → useMemo returns the same array (no churn).
+    expect(result.current).toBe(first);
+  });
 });

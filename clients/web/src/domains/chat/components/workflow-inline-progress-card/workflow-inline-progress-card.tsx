@@ -143,7 +143,9 @@ export function WorkflowInlineProgressCard({
           bypassDwell={data.state !== "loading"}
         />
       </span>
-      <span className="flex shrink-0 items-center gap-2">
+      {/* div (not span) so the chip's div root nests validly; the count text
+          and Stop button stay inline via flex. Stop remains rightmost. */}
+      <div className="flex shrink-0 items-center gap-2">
         {showStepCount ? (
           <WorkflowAgentsChip countLabel={stepCount} seeds={agentSeeds} />
         ) : null}
@@ -157,7 +159,7 @@ export function WorkflowInlineProgressCard({
             onClick={handleStop}
           />
         ) : null}
-      </span>
+      </div>
     </div>
   );
 }

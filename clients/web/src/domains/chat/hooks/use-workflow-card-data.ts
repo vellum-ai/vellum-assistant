@@ -109,6 +109,15 @@ function sortedLeaves(entry: WorkflowEntry): WorkflowLeaf[] {
 }
 
 /**
+ * Spawned-agent count: prefer the live leaf count, fall back to the run's
+ * reported `agentsSpawned`. Shared by the count text and the avatar seeds so
+ * the two stay consistent.
+ */
+function workflowAgentCount(entry: WorkflowEntry): number {
+  return entry.leaves.size || entry.agentsSpawned;
+}
+
+/**
  * Derive the header `(title, info)` tuple.
  *
  * The bold title is the workflow's *name* (`label`) — stable and
@@ -180,9 +189,8 @@ export function computeWorkflowCardData(
     leaves,
   );
 
-  // Step count reflects spawned agents, not generic "steps". Prefer the
-  // live leaf count, falling back to the run's reported `agentsSpawned`.
-  const count = entry.leaves.size || entry.agentsSpawned;
+  // Step count reflects spawned agents, not generic "steps".
+  const count = workflowAgentCount(entry);
   const stepCount = `${count} agent${count === 1 ? "" : "s"}`;
 
   return {
@@ -200,21 +208,24 @@ export function computeWorkflowCardData(
  * Max avatars rendered in the workflow card's spawned-agent stack. Matches
  * the Figma 3-avatar sample; the count text carries the total.
  */
-export const MAX_VISIBLE_WORKFLOW_AGENT_AVATARS = 3;
+const MAX_VISIBLE_WORKFLOW_AGENT_AVATARS = 3;
 
 /** Stable empty seed array so the hook returns a constant ref for unknown runs. */
 const EMPTY_SEEDS: string[] = [];
 
 /**
- * Derive stable avatar seeds for a run's spawned agents. The count mirrors
- * the card's agent count (`computeWorkflowCardData`) so avatars and the count
- * text stay consistent. Live runs seed from the sorted leaves' `seq`; a
+ * Derive stable avatar seeds for a run's spawned agents. The count comes from
+ * the shared `workflowAgentCount` helper (same as the card's count text) so
+ * avatars and the count stay consistent. Live runs seed from the sorted
+ * leaves' `seq`; a
  * hydrated count-only run (no per-leaf events) synthesizes index seeds. Each
  * seed is a stable `${runId}:${seq}` string.
  */
 export function selectWorkflowAgentAvatarSeeds(entry: WorkflowEntry): string[] {
-  const count = entry.leaves.size || entry.agentsSpawned;
-  const visible = Math.min(count, MAX_VISIBLE_WORKFLOW_AGENT_AVATARS);
+  const visible = Math.min(
+    workflowAgentCount(entry),
+    MAX_VISIBLE_WORKFLOW_AGENT_AVATARS,
+  );
 
   const seqs =
     entry.leaves.size > 0
