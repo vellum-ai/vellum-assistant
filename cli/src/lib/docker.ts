@@ -23,7 +23,7 @@ import { buildHatchConfigValues, writeInitialConfig } from "./config-utils";
 import { buildServiceRunArgs } from "./statefulset.js";
 import type { Species } from "./constants";
 import { getOrCreateHostDeviceId } from "./device-id.js";
-import { getDefaultPorts } from "./environments/paths.js";
+import { ASSISTANT_INTERNAL_PORT, getDefaultPorts } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
 import { leaseGuardianToken } from "./guardian-token";
 import { logHatchNextSteps } from "./hatch-next-steps.js";
