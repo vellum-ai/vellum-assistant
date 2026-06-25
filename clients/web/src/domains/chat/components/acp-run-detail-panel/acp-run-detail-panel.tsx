@@ -206,7 +206,6 @@ function AcpToolDetailBody({
 export interface AcpRunDetailPanelProps {
   entry: AcpRunEntry;
   onClose: () => void;
-  onStop?: (acpSessionId: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -216,7 +215,6 @@ export interface AcpRunDetailPanelProps {
 export function AcpRunDetailPanel({
   entry,
   onClose,
-  onStop,
 }: AcpRunDetailPanelProps) {
   const isRunning = isActiveAcpStatus(entry.status);
   const steps = useAcpRunSteps(entry.events);
@@ -263,15 +261,11 @@ export function AcpRunDetailPanel({
 
   const handleStop = useCallback(() => {
     setStopping(true);
-    if (onStop) {
-      onStop(entry.acpSessionId);
-      return;
-    }
     void stopAcpRun(entry.acpSessionId).catch((err) => {
       setStopping(false);
       captureError(err, { context: "AcpRunDetailPanel.stop" });
     });
-  }, [onStop, entry.acpSessionId]);
+  }, [entry.acpSessionId]);
 
   const handleSteerSubmit = useCallback(
     (e: FormEvent) => {
@@ -280,6 +274,22 @@ export function AcpRunDetailPanel({
       if (!instruction || steerPending) return;
       setSteerPending(true);
       setApprovalPending(false);
+
+      // Optimistic timeline marker so the steer is visible immediately, ahead
+      // of the daemon's echoed events. Seq sits above the run's high-water mark
+      // so it sorts last and never collides with a replayed event.
+      const store = useAcpRunStore.getState();
+      const seq = (store.highWaterMark.get(entry.acpSessionId) ?? 0) + 1;
+      store.receiveEvent({
+        acpSessionId: entry.acpSessionId,
+        event: {
+          seq,
+          updateType: "agent_message_chunk",
+          messageId: `steer-${seq}`,
+          content: `↻ Steering: ${instruction}`,
+        },
+      });
+
       void steerAcpRun(entry.acpSessionId, instruction)
         .then((res) => {
           setSteerInput("");
@@ -415,31 +425,36 @@ export function AcpRunDetailPanel({
               </div>
             )}
 
-            {/* Metrics row */}
-            <div className="mb-5 grid grid-cols-2 gap-3">
-              <AnimatedMetricCard
-                icon={
-                  <ArrowDownToLine
-                    className="h-4 w-4 shrink-0"
-                    style={{ color: "var(--content-secondary)" }}
-                  />
-                }
-                target={entry.inputTokens}
-                format={(n) => formatNumber(Math.round(n))}
-                label="Input"
-              />
-              <AnimatedMetricCard
-                icon={
-                  <ArrowUpFromLine
-                    className="h-4 w-4 shrink-0"
-                    style={{ color: "var(--content-secondary)" }}
-                  />
-                }
-                target={entry.outputTokens}
-                format={(n) => formatNumber(Math.round(n))}
-                label="Output"
-              />
-            </div>
+            {/* Metrics row — gated on real usage so a run with no token/cost
+                data doesn't show a misleading all-zero meter. */}
+            {(entry.inputTokens > 0 ||
+              entry.outputTokens > 0 ||
+              entry.totalCost > 0) && (
+              <div className="mb-5 grid grid-cols-2 gap-3">
+                <AnimatedMetricCard
+                  icon={
+                    <ArrowDownToLine
+                      className="h-4 w-4 shrink-0"
+                      style={{ color: "var(--content-secondary)" }}
+                    />
+                  }
+                  target={entry.inputTokens}
+                  format={(n) => formatNumber(Math.round(n))}
+                  label="Input"
+                />
+                <AnimatedMetricCard
+                  icon={
+                    <ArrowUpFromLine
+                      className="h-4 w-4 shrink-0"
+                      style={{ color: "var(--content-secondary)" }}
+                    />
+                  }
+                  target={entry.outputTokens}
+                  format={(n) => formatNumber(Math.round(n))}
+                  label="Output"
+                />
+              </div>
+            )}
 
             {/* Objective section */}
             {entry.task && (

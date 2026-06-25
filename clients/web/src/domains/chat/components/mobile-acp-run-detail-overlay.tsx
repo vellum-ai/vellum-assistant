@@ -21,9 +21,6 @@ interface MobileAcpRunDetailOverlayProps {
  *
  * **Mounting constraint**: must render inside `RootLayout`'s
  * `#viewport-overlays` portal, outside the main content wrapper.
- *
- * Stop/abort is intentionally not wired yet — the panel's Stop button stays
- * hidden without `onStop`.
  */
 export function MobileAcpRunDetailOverlay({
   entry,

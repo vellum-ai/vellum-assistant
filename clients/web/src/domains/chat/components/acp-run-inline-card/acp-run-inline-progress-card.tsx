@@ -12,9 +12,8 @@
  * Interaction model mirrors the subagent / workflow inline cards:
  *   - Clicking anywhere on the header row opens the run's detail panel via
  *     `onAcpRunClick`. There is no inline expand — the panel is the detail view.
- *   - Stop cancels the run via `stopAcpRun` while it is in-flight. A parent may
- *     override the action with `onStopAcpRun`; otherwise the card cancels the
- *     run itself. The button disables after a click to avoid a double-cancel.
+ *   - Stop cancels the run via `stopAcpRun` while it is in-flight. The button
+ *     disables after a click to avoid a double-cancel.
  */
 
 import { Code, Square } from "lucide-react";
@@ -31,14 +30,11 @@ export interface AcpRunInlineProgressCardProps {
   acpSessionId: string;
   /** Open the run's detail panel (header-row activation, not the stop button). */
   onAcpRunClick?: (acpSessionId: string) => void;
-  /** Override the stop action; defaults to cancelling the run directly. */
-  onStopAcpRun?: (acpSessionId: string) => void;
 }
 
 export function AcpRunInlineProgressCard({
   acpSessionId,
   onAcpRunClick,
-  onStopAcpRun,
 }: AcpRunInlineProgressCardProps) {
   const data = useAcpRunCardData(acpSessionId);
   // The shell's `loading` state is the live window where stopping the run is a
@@ -54,16 +50,12 @@ export function AcpRunInlineProgressCard({
     (e: MouseEvent) => {
       e.stopPropagation();
       setStopping(true);
-      if (onStopAcpRun) {
-        onStopAcpRun(acpSessionId);
-        return;
-      }
       void stopAcpRun(acpSessionId).catch((err) => {
         setStopping(false);
         captureError(err, { context: "AcpRunInlineProgressCard.stop" });
       });
     },
-    [onStopAcpRun, acpSessionId],
+    [acpSessionId],
   );
 
   // Spawn race: assistant message references a run before its spawn event
@@ -73,8 +65,7 @@ export function AcpRunInlineProgressCard({
 
   const leadingIcon = <Code size={20} aria-hidden />;
 
-  // Stop is a real action whenever the run is in-flight (it cancels the run
-  // directly), so render it regardless of whether a parent passed a handler.
+  // Stop cancels the run directly whenever it is in-flight.
   const actionSlot = isRunning ? (
     <Button
       variant="dangerGhost"

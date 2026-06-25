@@ -853,7 +853,6 @@ export function ChatMainPanel({
       />
     ) : undefined;
 
-  // No stop handler is passed, so the inline card's stop button stays hidden.
   const activeAcpRunsSlot =
     activeAcpRunIds.length > 0 ? (
       <ActiveAcpRunsOverlay

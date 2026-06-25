@@ -1,5 +1,5 @@
 /**
- * Imperative actions for ACP runs: stop (cancel), steer, and close.
+ * Imperative actions for ACP runs: stop (cancel) and steer.
  *
  * The daemon's `/v1/acp/*` routes are excluded from the generated web SDK
  * (see `scripts/transform-daemon-spec.ts`), so these call the daemon client
@@ -55,16 +55,4 @@ export async function steerAcpRun(
     throw new Error(`Failed to steer ACP run: ${response?.status}`);
   }
   return data as unknown as SteerAcpRunResponse;
-}
-
-/** Close a completed ACP run, releasing its subprocess. */
-export async function closeAcpRun(acpSessionId: string): Promise<void> {
-  const { response } = await client.post({
-    url: "/v1/assistants/{assistant_id}/acp/{id}/close" as KnownDaemonUrl,
-    path: { assistant_id: activeAssistantId(), id: acpSessionId },
-    body: {} as Record<string, unknown>,
-  });
-  if (!response?.ok) {
-    throw new Error(`Failed to close ACP run: ${response?.status}`);
-  }
 }

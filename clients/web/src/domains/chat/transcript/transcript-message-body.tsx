@@ -338,9 +338,6 @@ export function TranscriptMessageBody({
             key={acpSessionId}
             acpSessionId={acpSessionId}
             onAcpRunClick={handleAcpRunClick}
-            // Stop wiring lands in PR 13. Until a real cancel handler exists, omit
-            // onStopAcpRun so the card hides the stop button instead of showing a
-            // misleading no-op affordance.
           />
         ))}
       </div>

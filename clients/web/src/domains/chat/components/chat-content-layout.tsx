@@ -359,8 +359,6 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
       activeAcpRunId &&
       activeAcpRunEntry
     ) {
-      // `onStop` intentionally omitted — PR 13 wires stop/abort; until then the
-      // panel's Stop button stays hidden.
       rightPanel = (
         <LazyBoundary>
           <AcpRunDetailPanel
