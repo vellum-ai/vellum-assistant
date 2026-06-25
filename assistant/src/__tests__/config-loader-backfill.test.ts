@@ -1482,6 +1482,49 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     expect(config.llm.advisorProfile).toBe("custom-quality-optimized");
   });
 
+  test("off-platform boot clears a disabled managed advisor when no active replacement exists", () => {
+    writeConfig({
+      llm: {
+        advisorProfile: "frontier",
+        profiles: {
+          frontier: {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-opus-4-8",
+            status: "disabled",
+          },
+          balanced: {
+            source: "managed",
+            provider: "together",
+            provider_connection: "together-managed",
+            model: "open-model",
+            status: "disabled",
+          },
+          "quality-optimized": {
+            source: "managed",
+            provider: "fireworks",
+            provider_connection: "fireworks-managed",
+            model: "accounts/fireworks/models/glm-5p2",
+            status: "disabled",
+          },
+          "cost-optimized": {
+            source: "managed",
+            provider: "fireworks",
+            provider_connection: "fireworks-managed",
+            model: "accounts/fireworks/models/deepseek-v4-flash",
+            status: "disabled",
+          },
+        },
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+
+    expect(config.llm.advisorProfile).toBeUndefined();
+  });
+
   test("off-platform managed-inference hatch keeps selected managed connection active", () => {
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
     writeFileSync(

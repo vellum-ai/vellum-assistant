@@ -451,6 +451,8 @@ export function seedInferenceProfiles(
     );
     if (defaultAdvisorProfile) {
       llm.advisorProfile = defaultAdvisorProfile;
+    } else if (requestedAdvisorIsDisabledManaged) {
+      delete llm.advisorProfile;
     }
   }
 
