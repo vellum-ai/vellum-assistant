@@ -197,6 +197,51 @@ export function computeWorkflowCardData(
 }
 
 /**
+ * Max avatars rendered in the workflow card's spawned-agent stack. Matches
+ * the Figma 3-avatar sample; the count text carries the total.
+ */
+export const MAX_VISIBLE_WORKFLOW_AGENT_AVATARS = 3;
+
+/** Stable empty seed array so the hook returns a constant ref for unknown runs. */
+const EMPTY_SEEDS: string[] = [];
+
+/**
+ * Derive stable avatar seeds for a run's spawned agents. The count mirrors
+ * the card's agent count (`computeWorkflowCardData`) so avatars and the count
+ * text stay consistent. Live runs seed from the sorted leaves' `seq`; a
+ * hydrated count-only run (no per-leaf events) synthesizes index seeds. Each
+ * seed is a stable `${runId}:${seq}` string.
+ */
+export function selectWorkflowAgentAvatarSeeds(entry: WorkflowEntry): string[] {
+  const count = entry.leaves.size || entry.agentsSpawned;
+  const visible = Math.min(count, MAX_VISIBLE_WORKFLOW_AGENT_AVATARS);
+
+  const seqs =
+    entry.leaves.size > 0
+      ? sortedLeaves(entry)
+          .slice(0, visible)
+          .map((l) => l.seq)
+      : Array.from({ length: visible }, (_, i) => i);
+
+  return seqs.map((seq) => `${entry.runId}:${seq}`);
+}
+
+/**
+ * React hook: subscribe to the workflow store entry for `runId` and derive
+ * its spawned-agent avatar seeds. Selecting the stable `entry` ref then
+ * deriving in `useMemo` avoids returning a fresh array every render (which
+ * would loop a consumer's effects). Returns a constant empty array when no
+ * entry exists yet.
+ */
+export function useWorkflowAgentAvatarSeeds(runId: string): string[] {
+  const entry = useWorkflowStore((state) => state.byId[runId]);
+  return useMemo(
+    () => (entry ? selectWorkflowAgentAvatarSeeds(entry) : EMPTY_SEEDS),
+    [entry],
+  );
+}
+
+/**
  * React hook: subscribe to the workflow store entry for `runId` and
  * project it into `ToolCallCardData`. Returns `null` when no entry exists
  * yet (spawn race, or a history / post-reload card before hydration), so

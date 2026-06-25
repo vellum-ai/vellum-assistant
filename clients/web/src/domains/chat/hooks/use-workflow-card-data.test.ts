@@ -10,6 +10,8 @@ import { cleanup, renderHook } from "@testing-library/react";
 
 import {
   computeWorkflowCardData,
+  selectWorkflowAgentAvatarSeeds,
+  useWorkflowAgentAvatarSeeds,
   useWorkflowCardData,
 } from "@/domains/chat/hooks/use-workflow-card-data";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
@@ -349,5 +351,77 @@ describe("useWorkflowCardData — hydration wiring", () => {
     expect(spy).not.toHaveBeenCalled();
 
     useWorkflowStore.setState({ hydrateRunIfNeeded: realHydrate });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// selectWorkflowAgentAvatarSeeds — stable seed derivation
+// ---------------------------------------------------------------------------
+
+describe("selectWorkflowAgentAvatarSeeds", () => {
+  test("returns [] when the run has no leaves and no spawned agents", () => {
+    const seeds = selectWorkflowAgentAvatarSeeds(makeEntry({ runId: "wf" }));
+    expect(seeds).toEqual([]);
+  });
+
+  test("seeds a single leaf", () => {
+    const seeds = selectWorkflowAgentAvatarSeeds(
+      makeEntry({ runId: "wf", leaves: [{ seq: 0, status: "running" }] }),
+    );
+    expect(seeds).toEqual(["wf:0"]);
+  });
+
+  test("seeds two leaves in ascending seq order", () => {
+    const seeds = selectWorkflowAgentAvatarSeeds(
+      makeEntry({
+        runId: "wf",
+        leaves: [
+          { seq: 1, status: "completed" },
+          { seq: 0, status: "running" },
+        ],
+      }),
+    );
+    expect(seeds).toEqual(["wf:0", "wf:1"]);
+  });
+
+  test("caps at three seeds when more than three leaves exist", () => {
+    const seeds = selectWorkflowAgentAvatarSeeds(
+      makeEntry({
+        runId: "wf",
+        leaves: [
+          { seq: 0, status: "running" },
+          { seq: 1, status: "running" },
+          { seq: 2, status: "running" },
+          { seq: 3, status: "running" },
+          { seq: 4, status: "running" },
+        ],
+      }),
+    );
+    expect(seeds).toEqual(["wf:0", "wf:1", "wf:2"]);
+  });
+
+  test("synthesizes index seeds when leaves are empty but agentsSpawned > 0", () => {
+    const seeds = selectWorkflowAgentAvatarSeeds(
+      makeEntry({ runId: "wf", agentsSpawned: 5 }),
+    );
+    expect(seeds).toEqual(["wf:0", "wf:1", "wf:2"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// useWorkflowAgentAvatarSeeds — store wiring
+// ---------------------------------------------------------------------------
+
+describe("useWorkflowAgentAvatarSeeds", () => {
+  afterEach(() => {
+    cleanup();
+    useWorkflowStore.getState().reset();
+  });
+
+  test("returns [] for an unknown runId", () => {
+    const { result } = renderHook(() =>
+      useWorkflowAgentAvatarSeeds("wf-unknown"),
+    );
+    expect(result.current).toEqual([]);
   });
 });
