@@ -31,13 +31,6 @@ interface AcpSessionEventLogItem {
   seq?: number;
 }
 
-interface AcpSessionUsage {
-  usedTokens?: number;
-  contextSize?: number;
-  costAmount?: number;
-  costCurrency?: string;
-}
-
 interface AcpSessionRow {
   acpSessionId: string;
   agentId?: string;
@@ -50,7 +43,10 @@ interface AcpSessionRow {
   error?: string | null;
   startedAt?: number;
   completedAt?: number | null;
-  usage?: AcpSessionUsage;
+  usedTokens?: number;
+  contextSize?: number;
+  costAmount?: number;
+  costCurrency?: string;
   eventLog?: AcpSessionEventLogItem[];
 }
 
@@ -107,10 +103,10 @@ function toRunEntry(row: AcpSessionRow): AcpRunEntry {
     startedAt: row.startedAt ?? Date.now(),
     completedAt: isTerminal ? row.completedAt ?? undefined : undefined,
     parentToolUseId: row.parentToolUseId,
-    usedTokens: row.usage?.usedTokens ?? 0,
-    contextSize: row.usage?.contextSize ?? 0,
-    costAmount: row.usage?.costAmount,
-    costCurrency: row.usage?.costCurrency,
+    usedTokens: row.usedTokens ?? 0,
+    contextSize: row.contextSize ?? 0,
+    costAmount: row.costAmount,
+    costCurrency: row.costCurrency,
     events,
   };
 }

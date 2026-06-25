@@ -104,12 +104,10 @@ describe("rehydration — terminal session", () => {
         stopReason: "end_turn",
         startedAt: 1000,
         completedAt: 5000,
-        usage: {
-          usedTokens: 1200,
-          contextSize: 200000,
-          costAmount: 0.012,
-          costCurrency: "USD",
-        },
+        usedTokens: 4200,
+        contextSize: 200000,
+        costAmount: 0.0123,
+        costCurrency: "USD",
         eventLog: [
           {
             type: "acp_session_update",
@@ -135,15 +133,39 @@ describe("rehydration — terminal session", () => {
     expect(entry.completedAt).toBe(5000);
     expect(entry.startedAt).toBe(1000);
     expect(entry.agent).toBe("claude");
+    expect(entry.task).toBe("research");
     expect(entry.parentToolUseId).toBe("tool-1");
-    expect(entry.usedTokens).toBe(1200);
+    expect(entry.usedTokens).toBe(4200);
     expect(entry.contextSize).toBe(200000);
-    expect(entry.costAmount).toBe(0.012);
+    expect(entry.costAmount).toBe(0.0123);
     expect(entry.costCurrency).toBe("USD");
     expect(entry.events).toHaveLength(2);
     expect(entry.events[1]!.toolCallId).toBe("t-1");
     expect(getState().highWaterMark.get("acp-1")).toBe(7);
+    // The transcript anchors the inline card off `parentToolUseId`.
     expect(getState().byToolUseId.get("tool-1")).toBe("acp-1");
+  });
+
+  test("a pre-migration row without usage hides the meter and degrades gracefully", async () => {
+    await seed([
+      {
+        acpSessionId: "acp-1",
+        agentId: "claude",
+        parentConversationId: "conv-1",
+        status: "completed",
+        stopReason: "end_turn",
+        startedAt: 1000,
+        completedAt: 5000,
+        eventLog: [],
+      },
+    ]);
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.status).toBe("completed");
+    expect(entry.usedTokens).toBe(0);
+    expect(entry.contextSize).toBe(0);
+    expect(entry.costAmount).toBeUndefined();
+    expect(entry.costCurrency).toBeUndefined();
   });
 
   test("falls back to the array index when seq is absent", async () => {
