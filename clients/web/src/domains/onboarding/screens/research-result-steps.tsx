@@ -226,6 +226,9 @@ const LOOKING_MESSAGES = [
   "Almost there…",
 ];
 
+/** How long each rotating message lingers before advancing to the next. */
+const LOOKING_MESSAGE_INTERVAL_MS = 2800;
+
 export function LookingYouUpStep({
   onDone,
   onBack,
@@ -255,12 +258,12 @@ export function LookingYouUpStep({
     // Finish on the last message once research is ready; otherwise keep cycling
     // (looping back to the start) until it lands.
     if (ready && isLast) {
-      const done = setTimeout(onDone, 1500);
+      const done = setTimeout(onDone, LOOKING_MESSAGE_INTERVAL_MS);
       return () => clearTimeout(done);
     }
     const next = setTimeout(
       () => setIndex((i) => (i + 1) % LOOKING_MESSAGES.length),
-      1500,
+      LOOKING_MESSAGE_INTERVAL_MS,
     );
     return () => clearTimeout(next);
   }, [index, ready, onDone, onAdvance]);
