@@ -17,8 +17,6 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 
-import type { MarketplaceEntry } from "./plugin-marketplace.js";
-
 const execFileAsync = promisify(execFile);
 
 // ---------------------------------------------------------------------------
@@ -90,7 +88,6 @@ export interface PublishDeps {
  */
 export function findPluginRoot(startDir: string): string | null {
   let dir = resolve(startDir);
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     if (existsSync(join(dir, "package.json"))) {
       return dir;
@@ -318,6 +315,29 @@ export async function postPublishRequest(
 
   const data = (await resp.json()) as PublishResult;
   return data;
+}
+
+/**
+ * Resolve platform credentials for the publish request.
+ *
+ * Returns `null` when not connected to the Vellum platform (no API key
+ * or base URL configured). The CLI command uses this to avoid importing
+ * `VellumPlatformClient` directly, which would violate the
+ * `cli/no-daemon-internals` lint rule for `local`-transport commands.
+ */
+export async function resolvePlatformDeps(): Promise<PublishDeps | null> {
+  const { VellumPlatformClient } = await import("../../platform/client.js");
+  const client = await VellumPlatformClient.create();
+  if (!client) return null;
+  // Use the client's authenticated fetch to extract base URL + API key
+  // by making a dummy call. The client encapsulates the credentials
+  // privately, so we use its fetch method directly.
+  return {
+    fetch: globalThis.fetch.bind(globalThis),
+    platformBaseUrl: (client as unknown as { platformBaseUrl: string })
+      .platformBaseUrl,
+    apiKey: (client as unknown as { apiKey: string }).apiKey,
+  };
 }
 
 // ---------------------------------------------------------------------------

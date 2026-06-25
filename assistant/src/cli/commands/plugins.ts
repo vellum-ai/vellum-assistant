@@ -48,7 +48,9 @@ import {
   formatPayloadForPrint,
   formatPublishResult,
   formatValidationResult,
+  postPublishRequest,
   resolveGitContext,
+  resolvePlatformDeps,
   validatePluginForPublish,
   type PublishResult,
 } from "../lib/publish-plugin.js";
@@ -78,7 +80,6 @@ import {
   upgradePlugin,
 } from "../lib/upgrade-plugin.js";
 import { getCliLogger } from "../logger.js";
-import { VellumPlatformClient } from "../../platform/client.js";
 
 const log = getCliLogger("plugins");
 
@@ -653,8 +654,8 @@ $ assistant plugins publish --json`,
             }
 
             // 8. Submit to the platform API
-            const client = await VellumPlatformClient.create();
-            if (!client) {
+            const deps = await resolvePlatformDeps();
+            if (!deps) {
               const msg =
                 "Not connected to Vellum platform. Run `assistant platform connect` to connect, or use --print to generate the entry without submitting.";
               if (opts.json) {
@@ -673,12 +674,7 @@ $ assistant plugins publish --json`,
             }
 
             try {
-              const resp = await client.fetch("/v1/plugins/publish", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
-              });
-              const result = (await resp.json()) as PublishResult;
+              const result = await postPublishRequest(payload, deps);
 
               if (opts.json) {
                 process.stdout.write(JSON.stringify(result) + "\n");

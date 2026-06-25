@@ -2,6 +2,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
+import { describe, expect, it } from "bun:test";
+
 import {
   buildPublishPayload,
   findPluginRoot,
@@ -148,9 +150,9 @@ describe("validatePluginForPublish", () => {
     });
     const result = validatePluginForPublish(dir);
     expect(result.valid).toBe(false);
-    expect(
-      result.issues.some((i) => i.includes("@vellumai/plugin-api")),
-    ).toBe(true);
+    expect(result.issues.some((i) => i.includes("@vellumai/plugin-api"))).toBe(
+      true,
+    );
     rmSync(dir, { recursive: true });
   });
 
@@ -159,9 +161,7 @@ describe("validatePluginForPublish", () => {
     const result = validatePluginForPublish(dir);
     expect(result.valid).toBe(true);
     expect(result.warnings.length).toBeGreaterThan(0);
-    expect(
-      result.warnings.some((w) => w.includes("No hooks/")),
-    ).toBe(true);
+    expect(result.warnings.some((w) => w.includes("No hooks/"))).toBe(true);
     rmSync(dir, { recursive: true });
   });
 
@@ -171,9 +171,7 @@ describe("validatePluginForPublish", () => {
     writeFileSync(join(dir, "hooks", "orphan.js"), "// stale");
     const result = validatePluginForPublish(dir);
     expect(result.valid).toBe(true);
-    expect(
-      result.warnings.some((w) => w.includes("orphan.js")),
-    ).toBe(true);
+    expect(result.warnings.some((w) => w.includes("orphan.js"))).toBe(true);
     rmSync(dir, { recursive: true });
   });
 });
@@ -210,9 +208,7 @@ describe("buildPublishPayload", () => {
     expect(payload.name).toBe("my-plugin");
     expect(payload.source.source).toBe("github");
     expect(payload.source.repo).toBe("me/my-plugin");
-    expect(payload.source.ref).toBe(
-      "e83c5163316f89bfbde7d9ab23ca2e25604af290",
-    );
+    expect(payload.source.ref).toBe("e83c5163316f89bfbde7d9ab23ca2e25604af290");
     expect(payload.category).toBe("productivity");
     expect(payload.description).toBe("Does cool stuff");
     expect(payload.license).toBe("MIT");
