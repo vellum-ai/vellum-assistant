@@ -12,8 +12,11 @@ import { describe, expect, test } from "bun:test";
 
 const { getDb, getSqlite } = await import("../../db-connection.js");
 const { initializeDb } = await import("../../db-init.js");
-const { migrateStripThinkingFromConsolidated } =
-  await import("../209-strip-thinking-from-consolidated.js");
+const {
+  migrateStripThinkingFromConsolidated,
+  ROWID_WINDOW,
+  WINDOW_TIMEOUT_MS,
+} = await import("../209-strip-thinking-from-consolidated.js");
 
 await initializeDb();
 
@@ -40,6 +43,22 @@ function insert(role: string, content: string): { id: string; rowid: number } {
   return { id, rowid };
 }
 
+/** Insert at an explicit rowid so a test can place rows on either side of a
+ *  window boundary without materializing every intervening row. */
+function insertAt(
+  rowid: number,
+  role: string,
+  content: string,
+): { id: string; rowid: number } {
+  const id = `m209-at-${rowid}`;
+  getSqlite()
+    .query(
+      `INSERT INTO messages (rowid, id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run(rowid, id, CONV, role, content, Date.now());
+  return { id, rowid };
+}
+
 function content(id: string): string {
   return (
     getSqlite().query(`SELECT content FROM messages WHERE id = ?`).get(id) as {
@@ -50,6 +69,13 @@ function content(id: string): string {
 
 function blocks(id: string): Array<Record<string, unknown>> {
   return JSON.parse(content(id));
+}
+
+/** The persisted resume watermark, or null once the sweep has cleared it. */
+function watermark(): unknown {
+  return getSqlite()
+    .query(`SELECT value FROM memory_checkpoints WHERE key = ?`)
+    .get("migration_209_strip_thinking_watermark");
 }
 
 describe("migration 209 — strip thinking from consolidated assistant messages", () => {
@@ -216,9 +242,56 @@ describe("migration 209 — strip thinking from consolidated assistant messages"
     expect(blocks(above.id)).toEqual([{ type: "text", text: "above" }]);
 
     // The watermark is cleared once the sweep reaches the end of the table.
-    const wm = getSqlite()
-      .query(`SELECT value FROM memory_checkpoints WHERE key = ?`)
-      .get("migration_209_strip_thinking_watermark");
-    expect(wm).toBeNull();
+    expect(watermark()).toBeNull();
+  });
+
+  test("sweeps a rowid span wider than one window across multiple windows", async () => {
+    // Place rows on either side of a window boundary so the sweep must iterate
+    // the window loop more than once to reach them. The original 100k window
+    // collapsed any table smaller than itself into a single subprocess sweep —
+    // this exercises the bounded-window loop that replaces it.
+    const base =
+      (
+        getSqlite().query(`SELECT MAX(rowid) AS m FROM messages`).get() as {
+          m: number | null;
+        }
+      ).m ?? 0;
+    const first = insertAt(
+      base + ROWID_WINDOW,
+      "assistant",
+      JSON.stringify([
+        { type: "thinking", thinking: "a", signature: "s" },
+        { type: "text", text: "first" },
+      ]),
+    );
+    const second = insertAt(
+      base + 2 * ROWID_WINDOW + 1,
+      "assistant",
+      JSON.stringify([
+        { type: "thinking", thinking: "b", signature: "s" },
+        { type: "text", text: "second" },
+      ]),
+    );
+
+    await migrateStripThinkingFromConsolidated(getDb());
+
+    // Both rows are cleaned even though they sit in different windows, and the
+    // sweep runs to completion (watermark cleared) rather than stalling on the
+    // first window.
+    expect(blocks(first.id)).toEqual([{ type: "text", text: "first" }]);
+    expect(blocks(second.id)).toEqual([{ type: "text", text: "second" }]);
+    expect(watermark()).toBeNull();
+  });
+
+  test("keeps the sweep window and timeout bounded so it cannot overrun a whole table", () => {
+    // Regression guard: ROWID_WINDOW was 100_000, larger than a typical
+    // messages table, so the entire table swept in one subprocess that overran
+    // runAsyncSqlite's 1h cap, never advanced the watermark, and re-ran the
+    // identical doomed window every boot. The window must stay small enough that
+    // a single window finishes well within its timeout, and the per-window cap
+    // must stay below the 1h whole-process default so a stuck window surfaces in
+    // minutes instead of blocking startup for an hour.
+    expect(ROWID_WINDOW).toBeLessThanOrEqual(10_000);
+    expect(WINDOW_TIMEOUT_MS).toBeLessThan(60 * 60 * 1000);
   });
 });
