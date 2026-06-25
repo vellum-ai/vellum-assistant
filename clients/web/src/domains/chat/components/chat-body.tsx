@@ -148,6 +148,13 @@ export interface ChatBodyProps {
    * starter data model.
    */
   startersSlot?: ReactNode;
+
+  /**
+   * Top-center floating overlay; shown only when scrolled up. Visibility on
+   * scroll is gated here on `showScrollToLatest`; the caller passes the slot
+   * only when there is ≥1 active subagent.
+   */
+  activeSubagentsSlot?: ReactNode;
 }
 
 /**
@@ -203,6 +210,7 @@ export function ChatBody({
   channelFooterSlot,
   readonlyBannerSlot,
   startersSlot,
+  activeSubagentsSlot,
 }: ChatBodyProps) {
   const isEmptyState = scrollAreaProps.showEmptyState;
 
@@ -238,6 +246,12 @@ export function ChatBody({
       onDrop={dragHandlers.onDrop}
     >
       <ChatScrollArea {...scrollAreaProps} />
+
+      {!isEmptyState && showScrollToLatest && activeSubagentsSlot && (
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center px-3 pt-2">
+          {activeSubagentsSlot}
+        </div>
+      )}
 
       {/* Composer stack — stays at the same tree position across the
           empty→active transition so React preserves its state (focus,

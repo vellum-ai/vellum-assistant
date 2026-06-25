@@ -254,6 +254,61 @@ describe("ChatBody — startersSlot rendering", () => {
 
 });
 
+describe("ChatBody — active subagents overlay slot", () => {
+  const activeSubagentsSlot = (
+    <div data-testid="active-subagents-slot">ACTIVE_SUBAGENTS</div>
+  );
+
+  test("renders the slot top-center when scrolled up and slot is provided", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          showScrollToLatest: true,
+          activeSubagentsSlot,
+        })}
+      />,
+    );
+    expect(html).toContain("ACTIVE_SUBAGENTS");
+  });
+
+  test("does NOT render the slot when pinned (showScrollToLatest false)", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          showScrollToLatest: false,
+          activeSubagentsSlot,
+        })}
+      />,
+    );
+    expect(html).not.toContain("ACTIVE_SUBAGENTS");
+  });
+
+  test("does NOT render the slot on the empty state", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...withEmptyState({
+          showScrollToLatest: true,
+          activeSubagentsSlot,
+        })}
+      />,
+    );
+    expect(html).not.toContain("ACTIVE_SUBAGENTS");
+  });
+
+  test("Go-to-Newest bottom overlay still renders alongside the slot (no regression)", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          showScrollToLatest: true,
+          activeSubagentsSlot,
+        })}
+      />,
+    );
+    expect(html).toContain("SCROLL_TO_LATEST");
+    expect(html).toContain("ACTIVE_SUBAGENTS");
+  });
+});
+
 describe("ChatBody — read-only cancellation", () => {
   test("renders the read-only banner without a stop control while idle", () => {
     const html = renderToStaticMarkup(
