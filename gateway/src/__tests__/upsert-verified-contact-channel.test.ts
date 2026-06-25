@@ -347,7 +347,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     expect(runCalls.filter((c) => c.sql.includes("INSERT"))).toHaveLength(2);
   });
 
-  test("update path stamps verified_at + verified_via='challenge'", async () => {
+  test("update path stamps verified state on the gateway, not the assistant mirror", async () => {
     queryRows = [
       { channelId: "ch-6", contactId: "co-6", channelStatus: "active" },
     ];
@@ -358,20 +358,31 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
       externalChatId: "+15550001111",
     });
 
+    // Gateway DB owns the verified ACL state.
+    const gwActivate = gwUpdates.find(
+      (u) => (u.set as { status?: string }).status === "active",
+    );
+    expect(gwActivate).toBeTruthy();
+    expect(gwActivate!.set).toMatchObject({ verifiedVia: "challenge" });
+    expect(gwActivate!.set.verifiedAt).toEqual(expect.any(Number));
+
+    // The assistant mirror UPDATE carries identity/info only — no ACL columns.
     const update = runCalls.find((c) =>
       c.sql.includes("UPDATE contact_channels"),
     );
     expect(update).toBeTruthy();
-    expect(update!.sql).toContain("status = 'active'");
-    expect(update!.sql).toContain("verified_at = ?");
-    expect(update!.sql).toContain("verified_via = ?");
-    expect(update!.params).toContain("challenge");
-    // verified_at uses a numeric timestamp
-    expect(update!.params.some((p) => typeof p === "number")).toBe(true);
+    expect(update!.sql).not.toContain("status =");
+    expect(update!.sql).not.toContain("policy =");
+    expect(update!.sql).not.toContain("verified_at");
+    expect(update!.sql).not.toContain("verified_via");
+    expect(update!.sql).not.toContain("revoked_reason");
+    expect(update!.sql).not.toContain("blocked_reason");
   });
 
-  test("insert path stamps verified_at + verified_via='challenge'", async () => {
+  test("insert path stamps verified state on the gateway, not the assistant mirror", async () => {
     queryRows = [];
+    // Force the insert-mirror path so the gateway channel row is created here.
+    gwUpdateChanges = [0, 0];
 
     await upsertVerifiedContactChannel({
       sourceChannel: "phone",
@@ -379,14 +390,23 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
       externalChatId: "+15550009999",
     });
 
+    // Gateway DB owns the verified ACL state.
+    const gwChannelInsert = gwInserts.find(
+      (i) => i.values.type === "phone" && i.values.status === "active",
+    );
+    expect(gwChannelInsert).toBeTruthy();
+    expect(gwChannelInsert!.values).toMatchObject({ verifiedVia: "challenge" });
+
+    // The assistant mirror INSERT carries identity/info only — no ACL columns.
     const channelInsert = runCalls.find((c) =>
       c.sql.includes("INSERT OR IGNORE INTO contact_channels"),
     );
     expect(channelInsert).toBeTruthy();
-    expect(channelInsert!.sql).toContain("'active'");
-    expect(channelInsert!.sql).toContain("verified_at");
-    expect(channelInsert!.sql).toContain("verified_via");
-    expect(channelInsert!.params).toContain("challenge");
+    expect(channelInsert!.sql).not.toContain("status");
+    expect(channelInsert!.sql).not.toContain("policy");
+    expect(channelInsert!.sql).not.toContain("verified_at");
+    expect(channelInsert!.sql).not.toContain("verified_via");
+    expect(channelInsert!.sql).not.toContain("'active'");
   });
 
   test("resolves the gateway row by (type,address) when the id-keyed update misses", async () => {
@@ -497,7 +517,9 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     expect(result).toEqual({ verified: false });
     expect(
       runCalls.filter(
-        (c) => c.sql.includes("UPDATE") && c.sql.includes("status = 'active'"),
+        (c) =>
+          c.sql.includes("UPDATE contact_channels") &&
+          c.sql.includes("external_chat_id = ?"),
       ),
     ).toHaveLength(0);
     // Gateway write never attempted (returned before the dual-write).
@@ -520,7 +542,9 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     expect(result).toEqual({ verified: false });
     expect(
       runCalls.filter(
-        (c) => c.sql.includes("UPDATE") && c.sql.includes("status = 'active'"),
+        (c) =>
+          c.sql.includes("UPDATE contact_channels") &&
+          c.sql.includes("external_chat_id = ?"),
       ),
     ).toHaveLength(0);
     expect(gwUpdates).toHaveLength(0);
@@ -586,7 +610,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     const assistantActivate = runCalls.find(
       (c) =>
         /UPDATE contact_channels/i.test(c.sql) &&
-        c.sql.includes("status = 'active'"),
+        c.sql.includes("external_chat_id = ?"),
     );
     expect(assistantActivate).toBeUndefined();
   });
@@ -612,7 +636,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     const activate = runCalls.find(
       (c) =>
         c.sql.includes("UPDATE contact_channels") &&
-        c.sql.includes("status = 'active'"),
+        c.sql.includes("external_chat_id = ?"),
     );
     expect(activate).toBeTruthy();
     // The gateway reactivation guard excludes only 'blocked', allowing the
@@ -637,7 +661,9 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     expect(result).toEqual({ verified: false });
     expect(
       runCalls.filter(
-        (c) => c.sql.includes("UPDATE") && c.sql.includes("status = 'active'"),
+        (c) =>
+          c.sql.includes("UPDATE contact_channels") &&
+          c.sql.includes("external_chat_id = ?"),
       ),
     ).toHaveLength(0);
     expect(gwUpdates).toHaveLength(0);
@@ -664,7 +690,7 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     const activate = runCalls.find(
       (c) =>
         c.sql.includes("UPDATE contact_channels") &&
-        c.sql.includes("status = 'active'"),
+        c.sql.includes("external_chat_id = ?"),
     );
     expect(activate).toBeTruthy();
     expect(activate!.params).toContain("+15550001515");
@@ -699,10 +725,11 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
       verifiedVia: "manual",
     });
 
-    const update = runCalls.find((c) =>
-      c.sql.includes("UPDATE contact_channels"),
+    // verifiedVia is gateway-owned; the assistant mirror no longer carries it.
+    const gwActivate = gwUpdates.find(
+      (u) => (u.set as { status?: string }).status === "active",
     );
-    expect(update!.params).toContain("manual");
+    expect(gwActivate!.set).toMatchObject({ verifiedVia: "manual" });
   });
 });
 

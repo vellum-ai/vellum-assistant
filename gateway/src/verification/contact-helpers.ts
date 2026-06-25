@@ -450,17 +450,15 @@ export async function upsertVerifiedContactChannel(params: {
       return { verified: false };
     }
 
-    // Activate the assistant mirror.
+    // Activate the assistant mirror. ACL columns are gateway-owned and no
+    // longer mirrored; only identity/info columns are written here.
     await assistantDbRun(
       `UPDATE contact_channels
        SET address = ?,
-           status = 'active', policy = 'allow',
            external_chat_id = ?,
-           verified_at = ?, verified_via = ?,
-           revoked_reason = NULL, blocked_reason = NULL,
            updated_at = ?
        WHERE id = ?`,
-      [address, externalChatId, now, verifiedVia, now, row.channelId],
+      [address, externalChatId, now, row.channelId],
     );
 
     return { verified: true };
@@ -539,28 +537,19 @@ export async function upsertVerifiedContactChannel(params: {
   // Create the assistant mirror. OR IGNORE for idempotency under retries; if the
   // channel insert fails mid-flight, the orphan contact row is harmless.
   await assistantDbRun(
-    `INSERT OR IGNORE INTO contacts (id, display_name, role, created_at, updated_at)
-     VALUES (?, ?, 'contact', ?, ?)`,
+    `INSERT OR IGNORE INTO contacts (id, display_name, created_at, updated_at)
+     VALUES (?, ?, ?, ?)`,
     [contactId, contactDisplayName, now, now],
   );
 
+  // ACL columns are gateway-owned; the mirror carries identity/info only and
+  // relies on the schema defaults (status='unverified', policy='allow').
   await assistantDbRun(
     `INSERT OR IGNORE INTO contact_channels
        (id, contact_id, type, address, is_primary, external_chat_id,
-        status, policy, verified_at, verified_via, interaction_count,
-        created_at, updated_at)
-     VALUES (?, ?, ?, ?, 0, ?, 'active', 'allow', ?, ?, 0, ?, ?)`,
-    [
-      channelId,
-      contactId,
-      sourceChannel,
-      address,
-      externalChatId,
-      now,
-      verifiedVia,
-      now,
-      now,
-    ],
+        interaction_count, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 0, ?, 0, ?, ?)`,
+    [channelId, contactId, sourceChannel, address, externalChatId, now, now],
   );
 
   return { verified: true };
@@ -576,11 +565,14 @@ export async function upsertVerifiedContactChannel(params: {
  * first seen on a channel.
  *
  * - Existing channel: updates display name, external_chat_id.
- *   Status and policy are left unchanged so blocked/revoked channels stay that way.
- * - New channel: inserts contact + channel with status='unverified', policy='allow'.
+ *   Status and policy live in the gateway DB and are left unchanged so
+ *   blocked/revoked channels stay that way.
+ * - New channel: inserts contact + channel. ACL columns (status, policy) are
+ *   gateway-owned; the gateway DB seeds status='unverified', policy='allow'.
  *
- * Dual-writes to both the assistant DB (source of truth) and the gateway DB.
- * Skips silently when the assistant IPC socket is unavailable (test environments).
+ * Dual-writes to both the assistant DB (identity/info mirror) and the gateway
+ * DB (ACL source of truth). Skips silently when the assistant IPC socket is
+ * unavailable (test environments).
  */
 export async function upsertContactChannel(params: {
   sourceChannel: string;
@@ -661,15 +653,17 @@ export async function upsertContactChannel(params: {
   const channelId = crypto.randomUUID();
 
   await assistantDbRun(
-    `INSERT OR IGNORE INTO contacts (id, display_name, role, created_at, updated_at)
-     VALUES (?, ?, 'contact', ?, ?)`,
+    `INSERT OR IGNORE INTO contacts (id, display_name, created_at, updated_at)
+     VALUES (?, ?, ?, ?)`,
     [contactId, contactDisplayName, now, now],
   );
+  // ACL columns are gateway-owned; the mirror carries identity/info only and
+  // relies on the schema defaults (status='unverified', policy='allow').
   await assistantDbRun(
     `INSERT OR IGNORE INTO contact_channels
        (id, contact_id, type, address, is_primary, external_chat_id,
-        status, policy, interaction_count, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 0, ?, 'unverified', 'allow', 0, ?, ?)`,
+        interaction_count, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 0, ?, 0, ?, ?)`,
     [
       channelId,
       contactId,
