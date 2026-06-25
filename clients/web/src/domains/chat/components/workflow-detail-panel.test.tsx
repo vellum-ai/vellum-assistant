@@ -9,7 +9,20 @@
  */
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  configure,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
+
+// The panel body crossfades with AnimatePresence `mode="wait"`: the outgoing
+// view's exit animation plays fully before the incoming view mounts, which takes
+// ~1.8s in happy-dom — longer than testing-library's default 1000ms async-utility
+// timeout. Raise it so post-transition `findBy*` queries don't time out before
+// the incoming view appears.
+configure({ asyncUtilTimeout: 4000 });
 
 mock.module("@/domains/chat/components/workflow-status-badge", () => ({
   WorkflowStatusBadge: ({ status }: { status: string }) => (
