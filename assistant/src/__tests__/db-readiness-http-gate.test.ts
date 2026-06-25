@@ -70,7 +70,11 @@ describe("DB migration readiness HTTP gate", () => {
     expect(response.status).toBe(200);
 
     const body = (await response.json()) as Record<string, unknown>;
-    expect(body.status).toBe("healthy");
+    expect(body.status).toBe("MIGRATING");
+    expect(body.reason).toBe("db_migrations_running");
+    expect((body.dbMigrations as Record<string, unknown>).state).toBe(
+      "running",
+    );
   });
 
   test("continues serving healthz while migrations are running", async () => {
@@ -81,10 +85,7 @@ describe("DB migration readiness HTTP gate", () => {
     expect(response.status).toBe(200);
 
     const body = (await response.json()) as Record<string, unknown>;
-    expect(body.status).toBe("INITIALIZING");
-    expect((body.dbMigrations as Record<string, unknown>).reason).toBe(
-      "db_migrations_running",
-    );
+    expect(body).toEqual({ status: "ok" });
   });
 
   test("blocks readyz while migrations are running", async () => {

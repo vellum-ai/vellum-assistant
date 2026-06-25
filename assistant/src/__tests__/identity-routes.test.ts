@@ -197,17 +197,26 @@ describe("identity routes — health endpoint", () => {
       expect((body.ces as Record<string, unknown>).connected).toBe(false);
     });
 
-    test("healthz reports INITIALIZING while DB migrations are running", async () => {
+    test("detailed health reports MIGRATING while DB migrations are running", async () => {
+      markDbMigrationsRunning();
+      const res = handleDetailedHealth();
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.status).toBe("MIGRATING");
+      expect(body.reason).toBe("db_migrations_running");
+      expect((body.dbMigrations as Record<string, unknown>).state).toBe(
+        "running",
+      );
+    });
+
+    test("simple healthz remains ok while DB migrations are running", async () => {
       markDbMigrationsRunning();
       const res = handleHealth();
       expect(res.status).toBe(200);
 
       const body = (await res.json()) as Record<string, unknown>;
-      expect(body.status).toBe("INITIALIZING");
-      expect(body.reason).toBe("db_migrations_running");
-      expect((body.dbMigrations as Record<string, unknown>).state).toBe(
-        "running",
-      );
+      expect(body).toEqual({ status: "ok" });
     });
   });
 

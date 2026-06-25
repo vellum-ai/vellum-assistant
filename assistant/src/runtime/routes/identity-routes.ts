@@ -316,26 +316,6 @@ function getCpuInfo(): CpuInfo {
 }
 
 export function handleHealth(): Response {
-  const dbMigrations = getDbMigrationReadiness();
-  if (
-    dbMigrations.state === "running" ||
-    dbMigrations.state === "not_started"
-  ) {
-    return Response.json({
-      status: "INITIALIZING",
-      reason: dbMigrations.reason,
-      dbMigrations,
-    });
-  }
-
-  if (dbMigrations.state === "failed") {
-    return Response.json({
-      status: "ERROR",
-      reason: dbMigrations.reason,
-      dbMigrations,
-    });
-  }
-
   return Response.json({ status: "ok" });
 }
 
@@ -348,6 +328,14 @@ function getDetailedHealth() {
   }
 
   const cesClient = getCesClient();
+  const dbMigrations = getDbMigrationReadiness();
+  const migrationHealthFields = dbMigrations.ready
+    ? {}
+    : {
+        status: dbMigrations.state === "failed" ? "ERROR" : "MIGRATING",
+        reason: dbMigrations.reason,
+        dbMigrations,
+      };
 
   return {
     status: "healthy",
@@ -368,6 +356,7 @@ function getDetailedHealth() {
       memoryOptOut: true,
     },
     ...(profiler ? { profiler } : {}),
+    ...migrationHealthFields,
   };
 }
 
@@ -495,8 +484,23 @@ const healthMigrationsSchema = z.object({
   lastWorkspaceMigrationId: z.string().nullable(),
 });
 
+const dbMigrationReadinessSchema = z.object({
+  ready: z.boolean(),
+  state: z.enum(["ready", "not_started", "running", "failed"]),
+  reason: z
+    .enum([
+      "db_migrations_not_started",
+      "db_migrations_running",
+      "db_migrations_failed",
+    ])
+    .optional(),
+  error: z.string().optional(),
+});
+
 const detailedHealthSchema = z.object({
   status: z.string(),
+  reason: z.string().optional(),
+  dbMigrations: dbMigrationReadinessSchema.optional(),
   timestamp: z.string(),
   version: z.string(),
   // `getDiskUsageInfo()` returns null when usage can't be measured.
