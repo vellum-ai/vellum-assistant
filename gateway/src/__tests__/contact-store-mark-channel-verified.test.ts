@@ -65,17 +65,9 @@ const fakeAssistantDb = {
 // Mock the assistant DB proxy before importing ContactStore. The fake
 // honors `SELECT ... FROM contact_channels WHERE id = ?` and
 // `SELECT ... FROM contacts WHERE id = ?`; all other SELECTs return [].
-// When set, the next id-keyed `UPDATE ... WHERE id = ?` reports 0 changes so
-// the logical-key fallback path is exercised. Cleared after one such update.
-let nextIdUpdateMisses = false;
-
 mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbRun: mock(async (sql: string, bind?: unknown[]) => {
     fakeAssistantDb.runCalls.push({ sql, bind });
-    if (nextIdUpdateMisses && /where id = \?/i.test(sql)) {
-      nextIdUpdateMisses = false;
-      return { changes: 0, lastInsertRowid: 0 };
-    }
     return { changes: 1, lastInsertRowid: 0 };
   }),
   assistantDbQuery: mock(async (sql: string, bind?: unknown[]) => {
@@ -114,7 +106,6 @@ beforeEach(() => {
   db.delete(contactChannels).run();
   db.delete(contacts).run();
   fakeAssistantDb.reset();
-  nextIdUpdateMisses = false;
 });
 
 function seedAssistantContact(id: string, role: string = "guardian"): void {
@@ -290,7 +281,7 @@ describe("ContactStore.markChannelVerified", () => {
     expect(b!.channel.verifiedAt).toBe(a!.channel.verifiedAt);
   });
 
-  test("writes verifiedVia=challenge to gateway + assistant when passed", async () => {
+  test("writes verifiedVia=challenge to gateway; no assistant ACL write", async () => {
     seedContact("c1");
     seedChannel({ id: "ch1", contactId: "c1", status: "unverified" });
 
@@ -303,13 +294,13 @@ describe("ContactStore.markChannelVerified", () => {
     expect(result!.channel.status).toBe("active");
     expect(result!.channel.verifiedVia).toBe("challenge");
 
-    // The assistant DB dual-write bound the same verifiedVia.
-    const dualWrite = fakeAssistantDb.runCalls.find((c) =>
-      c.sql.includes("UPDATE contact_channels"),
-    );
-    expect(dualWrite).toBeTruthy();
-    expect(dualWrite!.bind).toContain("challenge");
-    expect(dualWrite!.bind).not.toContain("manual");
+    // The gateway DB is the source of truth; the assistant DB receives no
+    // ACL mirror write.
+    expect(
+      fakeAssistantDb.runCalls.some((c) =>
+        c.sql.includes("UPDATE contact_channels"),
+      ),
+    ).toBe(false);
   });
 
   test("is idempotent per-verifiedVia: a repeated challenge call is a no-op", async () => {
@@ -330,7 +321,7 @@ describe("ContactStore.markChannelVerified", () => {
     expect(result!.didWrite).toBe(false);
     expect(result!.channel.verifiedAt).toBe(1000);
     expect(result!.channel.verifiedVia).toBe("challenge");
-    // No-op skips the assistant dual-write.
+    // No assistant-DB ACL mirror write.
     expect(
       fakeAssistantDb.runCalls.some((c) =>
         c.sql.includes("UPDATE contact_channels"),
@@ -346,10 +337,12 @@ describe("ContactStore.markChannelVerified", () => {
     expect(result!.didWrite).toBe(true);
     expect(result!.channel.verifiedVia).toBe("manual");
 
-    const dualWrite = fakeAssistantDb.runCalls.find((c) =>
-      c.sql.includes("UPDATE contact_channels"),
-    );
-    expect(dualWrite!.bind).toContain("manual");
+    // The verifiedVia is persisted to the gateway DB only.
+    expect(
+      fakeAssistantDb.runCalls.some((c) =>
+        c.sql.includes("UPDATE contact_channels"),
+      ),
+    ).toBe(false);
   });
 
   test("mirrors channel + contact from assistant DB when gateway is empty, then verifies", async () => {
@@ -416,16 +409,12 @@ describe("ContactStore.markChannelVerified", () => {
         .get(),
     ).toBeUndefined();
 
-    // The assistant-side mirror targets the ORIGINAL assistant id, not the
-    // resolved gateway id — otherwise the UPDATE no-ops on the split-id path.
-    const mirror = fakeAssistantDb.runCalls.find(
-      (c) =>
-        c.sql.includes("UPDATE contact_channels") &&
-        c.sql.includes("WHERE id = ?"),
-    );
-    expect(mirror).toBeTruthy();
-    expect(mirror!.bind?.[mirror!.bind!.length - 1]).toBe("asst-ch");
-    expect(mirror!.bind).not.toContain("gw-ch");
+    // The gateway DB holds the verified ACL state; no assistant-DB ACL mirror.
+    expect(
+      fakeAssistantDb.runCalls.some((c) =>
+        c.sql.includes("UPDATE contact_channels"),
+      ),
+    ).toBe(false);
   });
 
   test("refuses to mirror when assistant channel references a missing contact", async () => {
@@ -536,37 +525,6 @@ describe("ContactStore.markChannelVerified", () => {
     expect(
       getGatewayDb().select().from(contactChannels).all().length,
     ).toBe(1);
-  });
-
-  test("assistant dual-write falls back to the logical key when the id-keyed update misses", async () => {
-    // Legacy mismatch: the caller's id resolves the gateway row, but the
-    // id-keyed assistant UPDATE affects 0 rows (the assistant mirror lives
-    // under a different UUID). The dual-write must then resolve by logical key.
-    seedContact("c1");
-    seedChannel({
-      id: "gw-uuid",
-      contactId: "c1",
-      status: "unverified",
-      address: "shared-addr",
-    });
-    nextIdUpdateMisses = true;
-
-    const result = await new ContactStore().markChannelVerified("gw-uuid");
-    expect(result!.didWrite).toBe(true);
-
-    const idUpdate = fakeAssistantDb.runCalls.find((c) =>
-      /UPDATE contact_channels[\s\S]*WHERE id = \?/i.test(c.sql),
-    );
-    expect(idUpdate).toBeTruthy();
-
-    const keyUpdate = fakeAssistantDb.runCalls.find((c) =>
-      /WHERE type = \? AND address = \? COLLATE NOCASE/i.test(c.sql),
-    );
-    expect(keyUpdate).toBeTruthy();
-    // Logical-key update binds the gateway unique key (type, address) — not
-    // contactId, since the assistant row may sit under a different contact.
-    expect(keyUpdate!.bind).toContain("vellum");
-    expect(keyUpdate!.bind).toContain("shared-addr");
   });
 
   test("legacy cross-contact: resolves the gateway row by (type,address) even under a different contact", async () => {
