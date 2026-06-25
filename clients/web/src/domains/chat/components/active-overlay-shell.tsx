@@ -210,8 +210,8 @@ export function ActiveOverlayShell({
 
       <AnimatePresence>
         {expanded && (
-          // Absolute dropdown anchored under the pill so its width no longer
-          // dictates the row's width (Figma 6063:149685). Width is fitted to the
+          // Absolute dropdown anchored under the pill so its width is decoupled
+          // from the row's width (Figma 6063:149685). Width is fitted to the
           // chat column (see `fittedWidth`) rather than the viewport.
           <motion.div
             // Horizontal centering lives in motion's `x: "-50%"` (not a
