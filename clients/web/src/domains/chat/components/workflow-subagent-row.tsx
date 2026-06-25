@@ -101,7 +101,11 @@ export function WorkflowSubagentRow({
         <Typography
           variant="body-medium-default"
           title={title}
-          className="shrink-0 whitespace-nowrap text-[var(--content-default)]"
+          // Keep the task name at its natural width so short labels stay whole
+          // (the muted activity to its right is what truncates), but cap it so a
+          // pathologically long generated label ellipsizes within the 400px panel
+          // instead of overflowing the row.
+          className="max-w-[60%] shrink-0 truncate text-[var(--content-default)]"
         >
           {title}
         </Typography>
