@@ -54,6 +54,26 @@ describe("computeLineDiff", () => {
     expect(computeLineDiff("", "")).toEqual([]);
   });
 
+  test("identical text with trailing newline → all context, no phantom row", () => {
+    const rows = computeLineDiff("a\nb\n", "a\nb\n");
+    expect(types(rows)).toEqual(["ctx", "ctx"]);
+    expect(rows[0]).toEqual({ type: "ctx", text: "a", oldNo: 1, newNo: 1 });
+    expect(rows[1]).toEqual({ type: "ctx", text: "b", oldNo: 2, newNo: 2 });
+  });
+
+  test("trailing-newline addition → single add, no phantom rows", () => {
+    const rows = computeLineDiff("a\n", "a\nb\n");
+    expect(types(rows)).toEqual(["ctx", "add"]);
+    expect(rows[0]).toEqual({ type: "ctx", text: "a", oldNo: 1, newNo: 1 });
+    expect(rows[1]).toMatchObject({ type: "add", text: "b", newNo: 2 });
+  });
+
+  test("genuine trailing blank line is preserved as a real line", () => {
+    const rows = computeLineDiff("a\n\n", "a\n\n");
+    expect(types(rows)).toEqual(["ctx", "ctx"]);
+    expect(rows[1]).toEqual({ type: "ctx", text: "", oldNo: 2, newNo: 2 });
+  });
+
   test("oversized input → single too-large sentinel row", () => {
     const huge = Array.from({ length: 2001 }, (_, i) => `line ${i}`).join("\n");
     const rows = computeLineDiff(huge, "a");

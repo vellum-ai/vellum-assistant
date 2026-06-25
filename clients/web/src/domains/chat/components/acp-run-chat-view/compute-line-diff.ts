@@ -24,7 +24,12 @@ const MAX_DIFF_LINES = 2000;
 
 function splitLines(text: string): string[] {
   if (text === "") return [];
-  return text.split("\n");
+  const lines = text.split("\n");
+  // Drop only the empty segment the trailing newline terminator produces, so a
+  // normal `"a\n"` file is one line, not two. Real blank lines (e.g. `"a\n\n"`)
+  // are preserved because the split yields a non-terminator empty line too.
+  if (text.endsWith("\n")) lines.pop();
+  return lines;
 }
 
 /**
