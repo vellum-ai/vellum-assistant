@@ -506,6 +506,7 @@ export const LLMSchema = z
         maxTtlSeconds: z.number().int().min(1).default(43200),
       })
       .default({ defaultTtlSeconds: 1800, maxTtlSeconds: 43200 }),
+    managedProfileBootstrapCompleted: z.boolean().optional(),
     pricingOverrides: z.array(PricingOverrideSchema).default([]),
   })
   .superRefine((config, ctx) => {

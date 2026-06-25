@@ -21,6 +21,7 @@ import {
   getConfig,
   invalidateConfigCache,
 } from "../../config/loader.js";
+import { activateManagedProfilesWhenProxyAvailable } from "../../config/managed-profile-activation.js";
 import type { CesClient } from "../../credential-execution/client.js";
 import { maybeReseedCapabilitiesAfterManagedCredential } from "../../daemon/memory-v2-startup.js";
 import { setSentryOrganizationId, setSentryUserId } from "../../instrument.js";
@@ -31,6 +32,7 @@ import { validateAtlasCloudApiKey } from "../../providers/atlascloud/client.js";
 import { validateGeminiApiKey } from "../../providers/gemini/client.js";
 import { validateMinimaxApiKey } from "../../providers/minimax/client.js";
 import { validateOpenAIApiKey } from "../../providers/openai/client.js";
+import { resolveManagedProxyContext } from "../../providers/platform-proxy/context.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
@@ -48,6 +50,7 @@ import {
 } from "../../tools/credentials/metadata-store.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { publishConfigChanged } from "../sync/resource-sync-events.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import { getSecretsDeps } from "./secrets-deps.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -244,6 +247,10 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
       const service = name.slice(0, colonIdx);
       const field = name.slice(colonIdx + 1);
       const key = credentialKey(service, field);
+      const managedProxyCredential = isManagedProxyCredential(service, field);
+      const hadManagedProxyBefore = managedProxyCredential
+        ? (await resolveManagedProxyContext()).enabled
+        : false;
 
       const TRIMMED_IDENTITY_FIELDS = new Set([
         "platform_assistant_id",
@@ -295,7 +302,13 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           setSentryUserId(effectiveValue || undefined);
         }
       }
-      if (isManagedProxyCredential(service, field)) {
+      if (managedProxyCredential) {
+        const profilesChanged = await activateManagedProfilesWhenProxyAvailable(
+          { hadManagedProxyBefore },
+        );
+        if (profilesChanged) {
+          publishConfigChanged();
+        }
         await refreshProvidersAfterSecretChange();
         // Close the first-boot race where the startup capability seed ran before
         // the managed embedding credential was provisioned, leaving skill/CLI

@@ -5,9 +5,11 @@ import { credentialKey } from "../security/credential-key.js";
 
 let lastGeminiConstructorOpts: Record<string, unknown> | null = null;
 let secureKeyStore: Record<string, string | undefined> = {};
+let rawConfigStore: Record<string, unknown> = {};
 const metadataUpserts: Array<{ service: string; field: string }> = [];
 const metadataDeletes: Array<{ service: string; field: string }> = [];
 let providerRefreshCalls = 0;
+let configChangedCalls = 0;
 
 const PLATFORM_BASE_URL = "https://platform.example.com";
 const ASSISTANT_API_KEY_PATH = credentialKey("vellum", "assistant_api_key");
@@ -87,9 +89,15 @@ mock.module("../config/loader.js", () => ({
   ],
   getConfig: () => mockConfig,
   invalidateConfigCache: () => {},
+  loadRawConfig: () => structuredClone(rawConfigStore),
+  saveRawConfig: (config: Record<string, unknown>) => {
+    rawConfigStore = structuredClone(config);
+  },
 }));
 
 mock.module("../security/secure-keys.js", () => ({
+  getProviderKeyAsync: async (provider: string) =>
+    secureKeyStore[credentialKey(provider, "api_key")],
   getSecureKeyAsync: async (key: string) => secureKeyStore[key],
   getSecureKeyResultAsync: async (key: string) => ({
     value: secureKeyStore[key],
@@ -127,6 +135,12 @@ mock.module("../util/logger.js", () => ({
 // to a no-op; its behavior is covered by memory-v2-startup.test.ts.
 mock.module("../daemon/memory-v2-startup.js", () => ({
   maybeReseedCapabilitiesAfterManagedCredential: async () => {},
+}));
+
+mock.module("../runtime/sync/resource-sync-events.js", () => ({
+  publishConfigChanged: () => {
+    configChangedCalls++;
+  },
 }));
 
 import {
@@ -177,6 +191,8 @@ describe("secret routes managed proxy registry sync", () => {
     lastGeminiConstructorOpts = null;
     platformBaseUrlOverride = undefined;
     providerRefreshCalls = 0;
+    configChangedCalls = 0;
+    rawConfigStore = {};
     registerSecretsDeps({
       getCesClient: () => undefined,
       onProviderCredentialsChanged: () => {
@@ -207,6 +223,79 @@ describe("secret routes managed proxy registry sync", () => {
       expect(getProviderRoutingSource(provider)).toBe("managed-proxy");
     }
     expect(lastGeminiConstructorOpts).toBeDefined();
+  });
+
+  test("late managed bootstrap reactivates hatch-disabled managed profiles", async () => {
+    rawConfigStore = {
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "together",
+            provider_connection: "together-managed",
+            model: "MiniMaxAI/MiniMax-M3",
+            status: "disabled",
+          },
+          "quality-optimized": {
+            source: "managed",
+            provider: "fireworks",
+            provider_connection: "fireworks-managed",
+            model: "accounts/fireworks/models/glm-5p2",
+            status: "disabled",
+          },
+          "custom-balanced": {
+            source: "user",
+            provider: "openai",
+            provider_connection: "openai-personal",
+            model: "gpt-5.5",
+            status: "disabled",
+          },
+        },
+      },
+    };
+
+    await addCredential("vellum:assistant_api_key", "ast-managed-key");
+
+    const profiles = (
+      rawConfigStore.llm as { profiles: Record<string, unknown> }
+    ).profiles as Record<string, Record<string, unknown>>;
+    expect("status" in profiles.balanced!).toBe(false);
+    expect("status" in profiles["quality-optimized"]!).toBe(false);
+    expect(profiles["custom-balanced"]!.status).toBe("disabled");
+    expect(
+      (rawConfigStore.llm as Record<string, unknown>)
+        .managedProfileBootstrapCompleted,
+    ).toBe(true);
+    expect(configChangedCalls).toBe(1);
+  });
+
+  test("managed key rotation does not reactivate user-disabled managed profiles", async () => {
+    secureKeyStore[ASSISTANT_API_KEY_PATH] = "old-managed-key";
+    rawConfigStore = {
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "together",
+            provider_connection: "together-managed",
+            model: "MiniMaxAI/MiniMax-M3",
+            status: "disabled",
+          },
+        },
+      },
+    };
+
+    await addCredential("vellum:assistant_api_key", "new-managed-key");
+
+    const profiles = (
+      rawConfigStore.llm as { profiles: Record<string, unknown> }
+    ).profiles as Record<string, Record<string, unknown>>;
+    expect(profiles.balanced!.status).toBe("disabled");
+    expect(
+      (rawConfigStore.llm as Record<string, unknown>)
+        .managedProfileBootstrapCompleted,
+    ).toBe(true);
+    expect(configChangedCalls).toBe(0);
   });
 
   test("provider API key writes notify live-conversation refresh listeners", async () => {
