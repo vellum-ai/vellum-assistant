@@ -85,6 +85,19 @@ describe("ActiveSubagentsOverlay — expanded", () => {
     expect(getAllByTestId("subagent-inline-progress-card").length).toBe(3);
   });
 
+  test("clicking a collapsed avatar expands the panel", () => {
+    const ids = seedMany(3);
+    render(<ActiveSubagentsOverlay subagentIds={ids} />);
+
+    const pill = screen.getByRole("button", { name: /active subagents/i });
+    expect(pill.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(screen.getAllByLabelText(/^Subagent /)[0]);
+
+    expect(pill.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("3 Active Subagents")).toBeTruthy();
+  });
+
   test("uses the singular noun when exactly one subagent is active", () => {
     const ids = seedMany(1);
     render(<ActiveSubagentsOverlay subagentIds={ids} />);

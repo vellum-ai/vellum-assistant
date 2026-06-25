@@ -27,7 +27,8 @@ export function ActiveSubagentsPill({
       ariaExpanded={expanded}
       size="compact"
     >
-      <span className="inline-flex items-center gap-2">
+      {/* pointer-events-none so the ChatPill button owns clicks + cursor — clicking any avatar toggles. */}
+      <span className="pointer-events-none inline-flex items-center gap-2">
         <span className="flex items-center">
           {visibleIds.map((id, index) => (
             <SubagentAvatarChip
