@@ -23,6 +23,9 @@ export interface FlagDefinition {
 const flags = registry.flags as FlagDefinition[];
 
 const STORE_KEY_OVERRIDES: Record<string, string> = {};
+const LEGACY_FLAG_KEY_ALIASES: Record<string, string> = {
+  "mcp-settings": "mcp-add-server",
+};
 
 function kebabToStoreKey(kebabKey: string): string {
   const override = STORE_KEY_OVERRIDES[kebabKey];
@@ -59,6 +62,10 @@ function buildStringScopeDefaults(scope: SingleScope): Record<string, string> {
   return defaults;
 }
 
+export function canonicalFlagKey(flagKey: string): string {
+  return LEGACY_FLAG_KEY_ALIASES[flagKey] ?? flagKey;
+}
+
 export const CLIENT_FLAG_DEFAULTS = buildScopeDefaults("client");
 export const ASSISTANT_FLAG_DEFAULTS = buildScopeDefaults("assistant");
 export const CLIENT_STRING_FLAG_DEFAULTS = buildStringScopeDefaults("client");
@@ -78,7 +85,7 @@ for (const flag of flags) {
 }
 
 export function flagKeyToStoreKey(flagKey: string): string {
-  return kebabToStoreKey(flagKey);
+  return kebabToStoreKey(canonicalFlagKey(flagKey));
 }
 
 export function storeKeyToFlagKey(storeKey: string): string | undefined {
@@ -157,10 +164,18 @@ export function getEnvFlagOverridesForScope(
   const str: Record<string, string> = {};
 
   for (const [key, value] of Object.entries(overrides)) {
-    const def = FLAG_KEY_TO_DEF.get(key);
+    const canonicalKey = canonicalFlagKey(key);
+    if (
+      canonicalKey !== key &&
+      Object.prototype.hasOwnProperty.call(overrides, canonicalKey)
+    ) {
+      continue;
+    }
+
+    const def = FLAG_KEY_TO_DEF.get(canonicalKey);
     if (!def || !scopeIncludes(def.scope, scope)) continue;
 
-    const storeKey = flagKeyToStoreKey(key);
+    const storeKey = flagKeyToStoreKey(canonicalKey);
     if (typeof value === "boolean") {
       bool[storeKey] = value;
     } else {

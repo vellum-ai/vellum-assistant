@@ -5,6 +5,7 @@ import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-st
 import {
   ASSISTANT_FLAG_DEFAULTS,
   ASSISTANT_STRING_FLAG_DEFAULTS,
+  canonicalFlagKey,
   flagKeyToStoreKey,
 } from "@/lib/feature-flags/feature-flag-catalog";
 import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
@@ -16,16 +17,26 @@ const VALID_STRING_KEYS = new Set(Object.keys(ASSISTANT_STRING_FLAG_DEFAULTS));
 
 type FeatureFlagEntry = AssistantFeatureFlagsGetResponse["flags"][number];
 
-function mapFlags(
+export function mapAssistantFeatureFlagEntriesForStore(
   entries: FeatureFlagEntry[],
 ): { boolFlags: Record<string, boolean>; stringFlags: Record<string, string> } {
   const boolFlags: Record<string, boolean> = {};
   const stringFlags: Record<string, string> = {};
+  const entryKeys = new Set(entries.map((entry) => entry.key));
+
   for (const entry of entries) {
-    const storeKey = flagKeyToStoreKey(entry.key);
+    const canonicalKey = canonicalFlagKey(entry.key);
+    if (canonicalKey !== entry.key && entryKeys.has(canonicalKey)) {
+      continue;
+    }
+
+    const storeKey = flagKeyToStoreKey(canonicalKey);
     if (typeof entry.enabled === "boolean" && VALID_BOOL_KEYS.has(storeKey)) {
       boolFlags[storeKey] = entry.enabled;
-    } else if (typeof entry.enabled === "string" && VALID_STRING_KEYS.has(storeKey)) {
+    } else if (
+      typeof entry.enabled === "string" &&
+      VALID_STRING_KEYS.has(storeKey)
+    ) {
       stringFlags[storeKey] = entry.enabled;
     }
   }
@@ -63,7 +74,8 @@ export function useAssistantFeatureFlagSync(assistantId: string | null) {
   useEffect(() => {
     if (data?.flags) {
       const store = useAssistantFeatureFlagStore.getState();
-      const { boolFlags, stringFlags } = mapFlags(data.flags);
+      const { boolFlags, stringFlags } =
+        mapAssistantFeatureFlagEntriesForStore(data.flags);
       store.setFlags(boolFlags);
       if (Object.keys(stringFlags).length > 0) {
         store.setStringFlags(stringFlags);
@@ -75,5 +87,4 @@ export function useAssistantFeatureFlagSync(assistantId: string | null) {
     }
   }, [data]);
 }
-
 

@@ -4,6 +4,7 @@ import {
   ASSISTANT_FLAG_DEFAULTS,
   CLIENT_FLAG_DEFAULTS,
   CLIENT_STRING_FLAG_DEFAULTS,
+  flagKeyToStoreKey,
   getEnvFlagOverridesForScope,
   readEnvFlagOverrides,
   resetEnvOverridesCache,
@@ -53,6 +54,11 @@ describe("feature flag catalog", () => {
   test("exposes the MCP add-server gate without a page-level MCP gate", () => {
     expect("mcpSettings" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
     expect(ASSISTANT_FLAG_DEFAULTS.mcpAddServer).toBe(false);
+  });
+
+  test("maps the legacy MCP settings key to the add-server store key", () => {
+    expect(flagKeyToStoreKey("mcp-settings")).toBe("mcpAddServer");
+    expect(flagKeyToStoreKey("mcp-add-server")).toBe("mcpAddServer");
   });
 });
 
@@ -119,6 +125,33 @@ describe("getEnvFlagOverridesForScope", () => {
 
     expect(clientResult.bool).toEqual({ selfIntroGreeting: true });
     expect(assistantResult.bool).toEqual({ selfIntroGreeting: true });
+  });
+
+  test("maps legacy MCP settings overrides to the add-server gate", () => {
+    (globalThis as Record<string, unknown>).window = {
+      __VELLUM_FLAG_OVERRIDES__: {
+        "mcp-settings": true,
+      },
+    };
+    resetEnvOverridesCache();
+
+    const result = getEnvFlagOverridesForScope("assistant");
+    expect(result.bool).toEqual({ mcpAddServer: true });
+    expect(result.bool).not.toHaveProperty("mcpSettings");
+  });
+
+  test("prefers canonical MCP add-server overrides over legacy MCP settings overrides", () => {
+    (globalThis as Record<string, unknown>).window = {
+      __VELLUM_FLAG_OVERRIDES__: {
+        "mcp-settings": true,
+        "mcp-add-server": false,
+      },
+    };
+    resetEnvOverridesCache();
+
+    const result = getEnvFlagOverridesForScope("assistant");
+    expect(result.bool).toEqual({ mcpAddServer: false });
+    expect(result.bool).not.toHaveProperty("mcpSettings");
   });
 });
 
