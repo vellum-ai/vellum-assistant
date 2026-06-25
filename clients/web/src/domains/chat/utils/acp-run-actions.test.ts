@@ -1,5 +1,5 @@
 /**
- * Tests for the ACP run actions (stop / steer / close).
+ * Tests for the ACP run actions (stop / steer).
  *
  * The ACP routes are excluded from the generated daemon SDK, so the actions
  * call `client.post` directly. Mock the daemon client to assert the request
@@ -34,7 +34,7 @@ mock.module("@/generated/daemon/client.gen", () => ({
 const { useResolvedAssistantsStore } = await import(
   "@/stores/resolved-assistants-store"
 );
-const { stopAcpRun, steerAcpRun, closeAcpRun } = await import(
+const { stopAcpRun, steerAcpRun } = await import(
   "@/domains/chat/utils/acp-run-actions"
 );
 
@@ -85,14 +85,6 @@ describe("steerAcpRun", () => {
     nextData = { acpSessionId: "acp-1", steered: false, approvalPending: true };
     const res = await steerAcpRun("acp-1", "resume");
     expect(res.approvalPending).toBe(true);
-  });
-});
-
-describe("closeAcpRun", () => {
-  test("POSTs the close route with the assistant + session ids", async () => {
-    await closeAcpRun("acp-1");
-    expect(calls[0]!.url).toBe("/v1/assistants/{assistant_id}/acp/{id}/close");
-    expect(calls[0]!.path).toEqual({ assistant_id: "asst-1", id: "acp-1" });
   });
 });
 

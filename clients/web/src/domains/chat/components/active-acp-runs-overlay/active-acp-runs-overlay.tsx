@@ -8,13 +8,11 @@ import { AcpRunInlineProgressCard } from "@/domains/chat/components/acp-run-inli
 export interface ActiveAcpRunsOverlayProps {
   acpRunIds: string[];
   onAcpRunClick?: (acpSessionId: string) => void;
-  onStopAcpRun?: (acpSessionId: string) => void;
 }
 
 export function ActiveAcpRunsOverlay({
   acpRunIds,
   onAcpRunClick,
-  onStopAcpRun,
 }: ActiveAcpRunsOverlayProps) {
   const [expanded, setExpanded] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -78,7 +76,6 @@ export function ActiveAcpRunsOverlay({
                 key={id}
                 acpSessionId={id}
                 onAcpRunClick={onAcpRunClick}
-                onStopAcpRun={onStopAcpRun}
               />
             ))}
           </div>

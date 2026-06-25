@@ -208,18 +208,13 @@ describe("AcpRunInlineProgressCard — interaction", () => {
     expect(button.hasAttribute("disabled")).toBe(true);
   });
 
-  test("onStopAcpRun overrides the direct cancel; stop hides on terminal", () => {
+  test("stop cancels the run directly and hides on terminal", () => {
     act(() => spawn("acp-stop"));
-    const seen: string[] = [];
     const { getByTestId, queryByTestId } = render(
-      <AcpRunInlineProgressCard
-        acpSessionId="acp-stop"
-        onStopAcpRun={(id) => seen.push(id)}
-      />,
+      <AcpRunInlineProgressCard acpSessionId="acp-stop" />,
     );
     fireEvent.click(getByTestId("acp-run-inline-card-stop"));
-    expect(seen).toEqual(["acp-stop"]);
-    expect(stopAcpRunCalls).toEqual([]);
+    expect(stopAcpRunCalls).toEqual(["acp-stop"]);
 
     act(() => terminal("acp-stop", "completed"));
     expect(queryByTestId("acp-run-inline-card-stop")).toBeNull();

@@ -117,22 +117,31 @@ describe("AcpRunDetailPanel — header + metrics + objective", () => {
     expect(screen.getByText("Research the thing")).toBeDefined();
   });
 
+  test("hides the metric row when there is no usage data", () => {
+    render(
+      <AcpRunDetailPanel
+        entry={makeEntry({ inputTokens: 0, outputTokens: 0, totalCost: 0 })}
+        onClose={noop}
+      />,
+    );
+    expect(screen.queryByText("Input")).toBeNull();
+    expect(screen.queryByText("Output")).toBeNull();
+  });
+
   test("empty events renders 'No events yet'", () => {
     render(<AcpRunDetailPanel entry={makeEntry({ events: [] })} onClose={noop} />);
     expect(screen.getByText("No events yet")).toBeDefined();
   });
 
-  test("Stop button renders only while running and calls onStop", () => {
-    const stopped: string[] = [];
+  test("Stop button renders only while running and cancels the run directly", () => {
     render(
       <AcpRunDetailPanel
         entry={makeEntry({ status: "running" })}
         onClose={noop}
-        onStop={(id) => stopped.push(id)}
       />,
     );
     fireEvent.click(screen.getByLabelText("Stop run"));
-    expect(stopped).toEqual(["acp-1"]);
+    expect(stopCalls).toEqual(["acp-1"]);
   });
 
   test("Stop button is hidden for a terminal run", () => {
@@ -140,7 +149,6 @@ describe("AcpRunDetailPanel — header + metrics + objective", () => {
       <AcpRunDetailPanel
         entry={makeEntry({ status: "completed" })}
         onClose={noop}
-        onStop={noop}
       />,
     );
     expect(screen.queryByLabelText("Stop run")).toBeNull();
@@ -382,7 +390,7 @@ describe("AcpRunDetailPanel — timeline + nested detail", () => {
 });
 
 describe("AcpRunDetailPanel — stop / steer / error", () => {
-  test("Stop cancels the run directly when no onStop override is passed", () => {
+  test("Stop cancels the run directly via stopAcpRun", () => {
     render(
       <AcpRunDetailPanel entry={makeEntry({ status: "running" })} onClose={noop} />,
     );
@@ -403,6 +411,27 @@ describe("AcpRunDetailPanel — stop / steer / error", () => {
       <AcpRunDetailPanel entry={makeEntry({ status: "completed" })} onClose={noop} />,
     );
     expect(screen.queryByLabelText("Steering instruction")).toBeNull();
+  });
+
+  test("steering writes an optimistic marker to the timeline on submit", () => {
+    const entry = makeEntry({ status: "running", events: [] });
+    seedStore(entry);
+    const { rerender } = render(
+      <AcpRunDetailPanel entry={entry} onClose={noop} />,
+    );
+
+    const input = screen.getByLabelText("Steering instruction");
+    fireEvent.change(input, { target: { value: "focus on tests" } });
+    act(() => {
+      fireEvent.submit(input.closest("form")!);
+    });
+
+    // The marker lands in the store as a message event; re-render with the
+    // grown entry the way the live store subscription would in production.
+    const grown = useAcpRunStore.getState().byId["acp-1"]!;
+    rerender(<AcpRunDetailPanel entry={grown} onClose={noop} />);
+
+    expect(screen.getByText("↻ Steering: focus on tests")).toBeDefined();
   });
 
   test("approvalPending steer surfaces the awaiting-approval affordance", async () => {

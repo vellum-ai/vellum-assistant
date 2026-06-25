@@ -75,8 +75,24 @@ describe("MobileAcpRunDetailOverlay", () => {
     expect(closed).toBe(1);
   });
 
-  test("Stop button stays hidden (onStop intentionally unwired)", async () => {
-    render(<MobileAcpRunDetailOverlay entry={makeEntry()} onClose={noop} />);
+  test("active run shows the self-wired Stop button", async () => {
+    render(
+      <MobileAcpRunDetailOverlay
+        entry={makeEntry({ status: "running" })}
+        onClose={noop}
+      />,
+    );
+    await screen.findByText("claude");
+    expect(screen.getByLabelText("Stop run")).toBeDefined();
+  });
+
+  test("terminal run hides the Stop button", async () => {
+    render(
+      <MobileAcpRunDetailOverlay
+        entry={makeEntry({ status: "completed" })}
+        onClose={noop}
+      />,
+    );
     await screen.findByText("claude");
     expect(screen.queryByLabelText("Stop run")).toBeNull();
   });
