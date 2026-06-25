@@ -14,7 +14,6 @@ const log = getLogger("slack-transport");
 
 export const slackTransport: ChannelTransport = {
   channel: "slack",
-  callbackPath: "/deliver/slack",
 
   async deliver(ctx, payload) {
     const { chatId, text, attachments, blocks } = payload;

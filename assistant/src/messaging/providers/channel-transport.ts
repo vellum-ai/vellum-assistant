@@ -18,7 +18,8 @@ export interface CallbackContext {
 /**
  * Direct outbound delivery for one channel, wrapping the channel's provider-API
  * send functions behind a uniform surface. Transports are registered statically
- * (delivery runs in non-daemon contexts) and dispatched by callback path.
+ * (delivery runs in non-daemon contexts) and dispatched by channel, resolved
+ * from the gateway callback URL via `callback-routing.ts`.
  *
  * The dispatcher routes a payload to the optional sub-operation methods when the
  * matching payload field is set and the method exists; otherwise it calls
@@ -27,8 +28,6 @@ export interface CallbackContext {
 export interface ChannelTransport {
   /** Canonical source channel id, e.g. `"slack"`. */
   readonly channel: ChannelId;
-  /** Gateway callback pathname this transport owns, e.g. `"/deliver/slack"`. */
-  readonly callbackPath: string;
 
   /** Deliver a rendered reply (text / approval / attachments). */
   deliver(

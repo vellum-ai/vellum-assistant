@@ -12,7 +12,6 @@ const log = getLogger("telegram-transport");
 
 export const telegramTransport: ChannelTransport = {
   channel: "telegram",
-  callbackPath: "/deliver/telegram",
 
   async deliver(_ctx, payload) {
     const { chatId, text, attachments, approval } = payload;

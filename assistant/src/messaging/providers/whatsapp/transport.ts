@@ -8,7 +8,6 @@ const log = getLogger("whatsapp-transport");
 
 export const whatsappTransport: ChannelTransport = {
   channel: "whatsapp",
-  callbackPath: "/deliver/whatsapp",
 
   async deliver(_ctx, payload) {
     const { chatId, text, attachments, approval } = payload;

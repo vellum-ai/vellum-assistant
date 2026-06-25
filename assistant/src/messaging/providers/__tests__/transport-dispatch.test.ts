@@ -82,6 +82,11 @@ describe("routing", () => {
     expect(isDirectDelivery(`${BASE}/deliver/a2a?taskId=t1`)).toBe(true);
     expect(isDirectDelivery(`${BASE}/deliver/discord`)).toBe(false);
     expect(isDirectDelivery(`${BASE}/v1/messages`)).toBe(false);
+    expect(
+      isDirectDelivery(
+        `${BASE}/v1/internal/managed-gateway/outbound-send/?route_id=r1`,
+      ),
+    ).toBe(false);
     expect(getTransportForCallback(`${BASE}/deliver/discord`)).toBeUndefined();
   });
 });

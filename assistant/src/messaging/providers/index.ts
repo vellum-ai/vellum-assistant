@@ -1,9 +1,9 @@
 /**
  * Direct channel delivery — bypasses the gateway HTTP proxy.
  *
- * Each channel registers a `ChannelTransport` keyed by its gateway callback
- * path. The gateway-client consults `isDirectDelivery()` before falling back to
- * the HTTP proxy path.
+ * Each channel exposes a `ChannelTransport`; the callback-URL → channel mapping
+ * lives in `callback-routing.ts`. The gateway-client consults
+ * `isDirectDelivery()` before falling back to the HTTP proxy path.
  *
  * Supported: Slack, Telegram, WhatsApp, A2A.
  */
@@ -14,33 +14,27 @@ import type {
 } from "@vellumai/gateway-client";
 
 import { a2aTransport } from "./a2a/transport.js";
+import { channelForCallback } from "./callback-routing.js";
 import type { CallbackContext, ChannelTransport } from "./channel-transport.js";
 import { slackTransport } from "./slack/transport.js";
 import { telegramTransport } from "./telegram-bot/transport.js";
 import { whatsappTransport } from "./whatsapp/transport.js";
 
-const TRANSPORTS: ReadonlyMap<string, ChannelTransport> = new Map(
+const TRANSPORTS_BY_CHANNEL: ReadonlyMap<string, ChannelTransport> = new Map(
   [slackTransport, telegramTransport, whatsappTransport, a2aTransport].map(
-    (transport) => [transport.callbackPath, transport],
+    (transport) => [transport.channel, transport],
   ),
 );
 
 /**
  * Resolve the transport that owns a gateway callback URL, or `undefined` when
- * no channel delivers it directly. Matches on URL pathname, with a path-suffix
- * fallback for callback strings that lack a parseable base.
+ * no channel delivers it directly.
  */
 export function getTransportForCallback(
   callbackUrl: string,
 ): ChannelTransport | undefined {
-  try {
-    return TRANSPORTS.get(new URL(callbackUrl).pathname);
-  } catch {
-    for (const transport of TRANSPORTS.values()) {
-      if (callbackUrl.endsWith(transport.callbackPath)) return transport;
-    }
-    return undefined;
-  }
+  const channel = channelForCallback(callbackUrl);
+  return channel ? TRANSPORTS_BY_CHANNEL.get(channel) : undefined;
 }
 
 function callbackContext(callbackUrl: string): CallbackContext {
