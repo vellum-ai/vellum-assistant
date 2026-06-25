@@ -98,11 +98,8 @@ const log = getLogger("runtime-http");
 const DEFAULT_PORT = 7821;
 const DEFAULT_HOSTNAME = "127.0.0.1";
 const DB_MIGRATION_READINESS_EXEMPT_ENDPOINTS = new Set([
-  "diagnostics/env-vars",
-  "gateway/logs/tail",
   "health",
   "healthz",
-  "identity",
   "ps",
 ]);
 
@@ -110,11 +107,7 @@ const DB_MIGRATION_READINESS_EXEMPT_ENDPOINTS = new Set([
 const MAX_REQUEST_BODY_BYTES = 512 * 1024 * 1024;
 
 function shouldBypassDbMigrationReadiness(endpoint: string): boolean {
-  return (
-    DB_MIGRATION_READINESS_EXEMPT_ENDPOINTS.has(endpoint) ||
-    endpoint === "config" ||
-    endpoint.startsWith("config/")
-  );
+  return DB_MIGRATION_READINESS_EXEMPT_ENDPOINTS.has(endpoint);
 }
 
 function dbMigrationUnavailableForEndpoint(endpoint: string): Response | null {

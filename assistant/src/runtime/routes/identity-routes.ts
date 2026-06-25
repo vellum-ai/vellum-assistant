@@ -316,6 +316,26 @@ function getCpuInfo(): CpuInfo {
 }
 
 export function handleHealth(): Response {
+  const dbMigrations = getDbMigrationReadiness();
+  if (
+    dbMigrations.state === "running" ||
+    dbMigrations.state === "not_started"
+  ) {
+    return Response.json({
+      status: "INITIALIZING",
+      reason: dbMigrations.reason,
+      dbMigrations,
+    });
+  }
+
+  if (dbMigrations.state === "failed") {
+    return Response.json({
+      status: "ERROR",
+      reason: dbMigrations.reason,
+      dbMigrations,
+    });
+  }
+
   return Response.json({ status: "ok" });
 }
 
@@ -371,10 +391,8 @@ export function dbMigrationUnavailableResponse(): Response | null {
 }
 
 export function handleReadyz(): Response {
-  const dbMigrations = getDbMigrationReadiness();
-  if (dbMigrations.state === "failed") {
-    return dbMigrationUnavailableResponse()!;
-  }
+  const dbMigrationResponse = dbMigrationUnavailableResponse();
+  if (dbMigrationResponse) return dbMigrationResponse;
 
   const cesClient = getCesClient();
   if (!cesClient?.isReady()) {
@@ -385,11 +403,7 @@ export function handleReadyz(): Response {
       "CES not ready — pod would be unready if 503 were enabled",
     );
   }
-  return Response.json({
-    status: "ok",
-    ready: true,
-    ...(!dbMigrations.ready ? { dbMigrations } : {}),
-  });
+  return Response.json({ status: "ok", ready: true });
 }
 
 function getIdentity() {

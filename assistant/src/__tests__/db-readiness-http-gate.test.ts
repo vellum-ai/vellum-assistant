@@ -73,29 +73,42 @@ describe("DB migration readiness HTTP gate", () => {
     expect(body.status).toBe("healthy");
   });
 
-  test("continues serving readiness while migrations are running", async () => {
+  test("continues serving healthz while migrations are running", async () => {
     markDbMigrationsRunning();
     await startServer();
 
-    const response = await fetch(`http://127.0.0.1:${port}/readyz`);
+    const response = await fetch(`http://127.0.0.1:${port}/healthz`);
     expect(response.status).toBe(200);
 
     const body = (await response.json()) as Record<string, unknown>;
-    expect(body.ready).toBe(true);
+    expect(body.status).toBe("INITIALIZING");
     expect((body.dbMigrations as Record<string, unknown>).reason).toBe(
       "db_migrations_running",
     );
   });
 
-  test("continues serving config schema while migrations are running", async () => {
+  test("blocks readyz while migrations are running", async () => {
+    markDbMigrationsRunning();
+    await startServer();
+
+    const response = await fetch(`http://127.0.0.1:${port}/readyz`);
+    expect(response.status).toBe(503);
+
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body.ready).toBe(false);
+    expect(body.reason).toBe("db_migrations_running");
+  });
+
+  test("blocks config schema while migrations are running", async () => {
     markDbMigrationsRunning();
     await startServer();
 
     const response = await fetch(url("/config/schema"));
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(503);
 
     const body = (await response.json()) as Record<string, unknown>;
-    expect(body.schema).toBeDefined();
+    expect(body.ready).toBe(false);
+    expect(body.reason).toBe("db_migrations_running");
   });
 
   test("returns 503 for Twilio webhooks before validation while migrations are running", async () => {
