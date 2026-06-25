@@ -24,6 +24,7 @@ import { resolveHatchedAtReadOnly } from "../../workspace/hatched-date.js";
 import { WORKSPACE_MIGRATIONS } from "../../workspace/migrations/registry.js";
 import { getLastWorkspaceMigrationId } from "../../workspace/migrations/runner.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { isRuntimeReady } from "../ready-state.js";
 import { NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -354,16 +355,40 @@ export function handleDetailedHealth(): Response {
   return Response.json(getDetailedHealth());
 }
 
+// Tracks the last observed CES-ready state across `/readyz` polls so the
+// soft-dependency warning fires only on a transition into "not ready" rather
+// than on every poll. Once the K8s readinessProbe points at `/readyz` this
+// handler runs ~6x/min indefinitely; for setups where CES never connects
+// (e.g. BYOK) a per-poll warn would flood the logs. `undefined` means we have
+// not observed CES yet, so the first not-ready observation always logs once.
+let lastCesReady: boolean | undefined = undefined;
+
+/**
+ * Test-only: reset the transition-tracking state so each case starts from a
+ * clean slate (first not-ready observation logs once). Not used in production.
+ */
+export function __resetReadyzCesStateForTest(): void {
+  lastCesReady = undefined;
+}
+
 export function handleReadyz(): Response {
+  // Ready = critical startup complete (HTTP bound + DB initialized + daemon
+  // started). CES is a soft dependency with a direct-credential-store fallback,
+  // so it is logged/warned but does NOT gate readiness.
+  if (!isRuntimeReady()) {
+    return Response.json({ status: "starting" }, { status: 503 });
+  }
+
   const cesClient = getCesClient();
-  if (!cesClient?.isReady()) {
-    // TODO: Return 503 once we confirm via logs that this won't cause
-    // regressions in the K8s readinessProbe.
+  const cesReady = cesClient?.isReady() ?? false;
+  // Only warn on a transition into not-ready so steady-state polling stays quiet.
+  if (!cesReady && cesReady !== lastCesReady) {
     getLogger("health").warn(
       { reason: cesClient ? "ces_not_ready" : "ces_unavailable" },
-      "CES not ready — pod would be unready if 503 were enabled",
+      "CES not ready — readiness unaffected (soft dependency with fallback)",
     );
   }
+  lastCesReady = cesReady;
   return Response.json({ status: "ok" });
 }
 

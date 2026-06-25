@@ -76,6 +76,7 @@ import {
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { warmLocalGuardianPrincipalCache } from "../runtime/local-actor-identity.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
+import { setRuntimeReady } from "../runtime/ready-state.js";
 import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
 import {
   publishConfigChanged,
@@ -825,6 +826,26 @@ export async function runDaemon(): Promise<void> {
 
     await server.start();
     log.info("Daemon startup: DaemonServer started");
+
+    // Critical startup is complete: the runtime HTTP server is bound and the
+    // daemon server is accepting requests. Mark the runtime ready so `/readyz`
+    // returns 200 — but only when the DB initialized. CES is intentionally NOT
+    // gated here: it is a soft dependency with a direct-credential-store
+    // fallback, so readiness must not depend on the CES handshake.
+    //
+    // Readiness is gated on `dbReady` because the contract for `/readyz` is
+    // "HTTP bound + DB initialized + daemon started". If `initializeDb()` failed
+    // we are in degraded mode: DB-backed endpoints would be degraded, so the pod
+    // must report not-ready (`/readyz` → 503) and be kept out of the Service's
+    // endpoint set. The process still stays alive and reachable for `/healthz`
+    // (liveness) so it is not killed/restart-looped while it serves diagnostics.
+    if (dbReady) {
+      setRuntimeReady();
+    } else {
+      log.warn(
+        "Daemon startup: DB not initialized — leaving runtime not-ready (/readyz will report 503)",
+      );
+    }
 
     // Warm the gateway guardian-delivery cache so the SSE eager-subscribe path
     // (sync, IO-free) resolves the local actor principal on the FIRST client
