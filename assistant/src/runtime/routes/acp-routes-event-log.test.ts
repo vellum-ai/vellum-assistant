@@ -25,30 +25,20 @@ mock.module("../../acp/index.js", () => ({
   }),
 }));
 
-// DB stub returning a fixed set of terminal history rows.
-let historyRows: Array<Record<string, unknown>> = [];
-
-mock.module("../../memory/db-connection.js", () => {
-  const builder: any = {};
-  builder.select = () => builder;
-  builder.from = () => builder;
-  builder.where = () => builder;
-  builder.orderBy = () => builder;
-  builder.limit = () => builder;
-  builder.all = () => historyRows;
-  return {
-    getDb: () => builder,
-    getSqlite: () => ({ __stub: true }),
-    getSqliteFrom: () => ({ __stub: true }),
-    getMemoryDb: () => builder,
-    getMemorySqlite: () => ({ __stub: true }),
-    getLogsDb: () => builder,
-    getLogsSqlite: () => ({ __stub: true }),
-    resetDb: () => {},
-  };
-});
+// Terminal history rows go through the real DB (like the sibling acp-routes
+// suite), not a `db-connection` module stub. A process-global `db-connection`
+// mock would omit named exports (`getTelemetrySqlite`, …) and poison `getDb`
+// for adjacent route tests that call `initializeDb()` in the same Bun
+// invocation, so we seed real rows via the shared history helper instead.
+import {
+  clearHistory,
+  insertHistoryRow,
+} from "../../acp/__tests__/helpers/acp-history-db.js";
+import { initializeDb } from "../../memory/db-init.js";
 
 const { ROUTES } = await import("./acp-routes.js");
+
+await initializeDb();
 
 function getListHandler() {
   const route = ROUTES.find(
@@ -86,13 +76,13 @@ function makeUpdate(seq: number, content: string): AcpSessionUpdate {
 beforeEach(() => {
   inMemoryStates.clear();
   bufferedUpdates.clear();
-  historyRows = [];
+  clearHistory();
 });
 
 afterAll(() => {
   inMemoryStates.clear();
   bufferedUpdates.clear();
-  historyRows = [];
+  clearHistory();
 });
 
 describe("GET /v1/acp/sessions — eventLog", () => {
@@ -117,20 +107,18 @@ describe("GET /v1/acp/sessions — eventLog", () => {
   });
 
   test("terminal DB row returns its persisted eventLog", async () => {
-    historyRows = [
-      {
-        id: "terminal",
-        agentId: "claude",
-        acpSessionId: "proto-terminal",
-        parentConversationId: "conv-1",
-        status: "completed",
-        startedAt: 1_699_000_000_000,
-        completedAt: 1_699_000_001_000,
-        error: null,
-        stopReason: "end_turn",
-        eventLogJson: JSON.stringify([makeUpdate(7, "persisted")]),
-      },
-    ];
+    insertHistoryRow({
+      id: "terminal",
+      agentId: "claude",
+      acpSessionId: "proto-terminal",
+      parentConversationId: "conv-1",
+      status: "completed",
+      startedAt: 1_699_000_000_000,
+      completedAt: 1_699_000_001_000,
+      error: null,
+      stopReason: "end_turn",
+      eventLogJson: JSON.stringify([makeUpdate(7, "persisted")]),
+    });
 
     const handler = getListHandler();
     const result = (await handler({
