@@ -328,6 +328,34 @@ describe("AcpRunDetailPanel — timeline + nested detail", () => {
     expect(screen.getByTestId("acp-step-running")).toBeDefined();
   });
 
+  test("trailing thought renders running while active, complete when terminal", () => {
+    // A thought has no `isComplete` field; its liveness is inferred from being
+    // the tail step, so an active run's trailing thought shows the indicator.
+    const events: AcpRunRawEvent[] = [
+      {
+        seq: 1,
+        updateType: "agent_thought_chunk",
+        messageId: "th-1",
+        content: "Considering options",
+      },
+    ];
+    const active = makeEntry({ status: "running", events });
+    seedStore(active);
+    const { rerender } = render(
+      <AcpRunDetailPanel entry={active} onClose={noop} />,
+    );
+
+    expect(screen.getByTestId("acp-step-running")).toBeDefined();
+    expect(screen.queryByTestId("acp-step-complete")).toBeNull();
+
+    const terminal = makeEntry({ status: "completed", events });
+    seedStore(terminal);
+    rerender(<AcpRunDetailPanel entry={terminal} onClose={noop} />);
+
+    expect(screen.queryByTestId("acp-step-running")).toBeNull();
+    expect(screen.getByTestId("acp-step-complete")).toBeDefined();
+  });
+
   test("nested state resets when switching to a different run", () => {
     const entry = makeEntry({ events: [TOOL_CALL_EVENT] });
     seedStore(entry);

@@ -249,8 +249,10 @@ function parsePlanEntries(
   if (raw === null) return null;
   return raw.map((item) => {
     const obj = (item ?? {}) as Record<string, unknown>;
+    // ACP `PlanEntry` carries its text in `content`; older shapes used `label`.
+    const text = obj.content ?? obj.label ?? "";
     return {
-      label: typeof obj.label === "string" ? obj.label : String(obj.label ?? ""),
+      label: typeof text === "string" ? text : String(text),
       checked: obj.checked === true || obj.status === "completed",
     };
   });

@@ -228,6 +228,18 @@ describe("computeAcpRunSteps — folding rules", () => {
     expect(messageStep(steps[0]!).isComplete).toBe(true);
   });
 
+  test("plan reads entry labels from `content` (ACP PlanEntry shape)", () => {
+    const content = JSON.stringify([
+      { content: "Do X", status: "completed" },
+      { content: "Do Y", status: "pending" },
+    ]);
+    const steps = computeAcpRunSteps([event({ updateType: "plan", content })]);
+    expect(planStep(steps[0]!).entries).toEqual([
+      { label: "Do X", checked: true },
+      { label: "Do Y", checked: false },
+    ]);
+  });
+
   test("plan tolerates entries wrapped in an object", () => {
     const content = JSON.stringify({ entries: [{ label: "A", status: "completed" }] });
     const steps = computeAcpRunSteps([event({ updateType: "plan", content })]);

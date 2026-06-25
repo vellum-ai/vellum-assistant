@@ -128,6 +128,19 @@ describe("AcpRunInlineProgressCard — states", () => {
     expect(indicator.getAttribute("data-state")).toBeNull();
   });
 
+  test("a tool step's title isn't duplicated as the step info", () => {
+    act(() => {
+      spawn("acp-tool");
+      toolEvent("acp-tool", { toolCallId: "t1", toolTitle: "Read file" });
+    });
+
+    const { getAllByText } = render(
+      <AcpRunInlineProgressCard acpSessionId="acp-tool" />,
+    );
+    // The title drives `currentStepTitle`; the info must not repeat it.
+    expect(getAllByText("Read file")).toHaveLength(1);
+  });
+
   test("completed run renders the complete status icon", () => {
     act(() => {
       spawn("acp-done");
