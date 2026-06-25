@@ -94,6 +94,10 @@ const upsertVerifiedChannelHandler = contactRoutes.find(
   (r) => r.method === "upsert_verified_channel",
 )!.handler;
 
+const getGuardianContactHandler = contactRoutes.find(
+  (r) => r.method === "get_guardian_contact",
+)!.handler;
+
 beforeAll(async () => {
   await initGatewayDb();
 });
@@ -346,6 +350,34 @@ describe("mark_channel_revoked IPC handler", () => {
     await expect(
       markChannelRevokedHandler({ contactChannelId: "nonexistent" }),
     ).rejects.toThrow(/not found/);
+  });
+});
+
+describe("get_guardian_contact IPC handler", () => {
+  test("returns the guardian contact id(s) from the gateway DB", async () => {
+    seedContact("g1", "guardian");
+    seedContact("c1", "contact");
+
+    const res = (await getGuardianContactHandler({})) as {
+      ok: boolean;
+      guardians: { id: string; displayName: string }[];
+    };
+
+    expect(res.ok).toBe(true);
+    expect(res.guardians).toEqual([{ id: "g1", displayName: "name-g1" }]);
+  });
+
+  test("excludes non-guardian contacts", async () => {
+    seedContact("c1", "contact");
+    seedContact("c2", "contact");
+
+    const res = (await getGuardianContactHandler({})) as {
+      ok: boolean;
+      guardians: { id: string }[];
+    };
+
+    expect(res.ok).toBe(true);
+    expect(res.guardians).toEqual([]);
   });
 });
 

@@ -9,6 +9,8 @@
 
 import {
   GetContactIpcParamsSchema,
+  GetGuardianContactIpcParamsSchema,
+  GetGuardianContactIpcResponseSchema,
   ListContactsIpcParamsSchema,
   MarkChannelRevokedIpcParamsSchema,
   MarkChannelRevokedIpcResponseSchema,
@@ -102,6 +104,17 @@ export const contactRoutes: IpcRoute[] = [
           ? { assistantMetadata: result.assistantMetadata }
           : {}),
       };
+    },
+  },
+  {
+    // Exposes the guardian contact id(s) from the gateway DB (source of truth)
+    // so the daemon can determine the guardian without reading the local
+    // contacts.role column.
+    method: "get_guardian_contact",
+    schema: GetGuardianContactIpcParamsSchema,
+    handler: () => {
+      const guardians = getStore().listGuardianContactIds();
+      return GetGuardianContactIpcResponseSchema.parse({ ok: true, guardians });
     },
   },
   {
