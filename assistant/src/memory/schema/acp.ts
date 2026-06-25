@@ -1,4 +1,10 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  real,
+  sqliteTable,
+  text,
+} from "drizzle-orm/sqlite-core";
 
 /**
  * ACP (Agent Client Protocol) session history. Persists completed ACP
@@ -24,6 +30,13 @@ export const acpSessionHistory = sqliteTable(
     // resume a persisted session; null for rows written before migration
     // 272 (those sessions are not resumable).
     cwd: text("cwd"),
+    // Usage metadata. Null for rows written before migration 302.
+    task: text("task"),
+    parentToolUseId: text("parent_tool_use_id"),
+    usedTokens: integer("used_tokens"),
+    contextSize: integer("context_size"),
+    costAmount: real("cost_amount"),
+    costCurrency: text("cost_currency"),
   },
   (table) => [
     index("idx_acp_session_history_started_at").on(table.startedAt),
