@@ -31,6 +31,7 @@ import type {
 } from "@agentclientprotocol/sdk";
 
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AcpSessionUpdate } from "../daemon/message-types/acp.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("acp:client-handler");
@@ -52,6 +53,8 @@ export class VellumAcpClientHandler implements Client {
   private terminals = new Map<string, TerminalState>();
   private accumulatedText = "";
   private suppressForwarding = false;
+  /** Monotonic ordering counter; advanced only on forwarded updates. */
+  private lastSeq = 0;
   /** Tracks pending ACP permission requestIds for cleanup on session close. */
   readonly pendingRequestIds = new Set<string>();
 
@@ -65,6 +68,18 @@ export class VellumAcpClientHandler implements Client {
     private readonly sendToVellum: (msg: ServerMessage) => void,
     private readonly parentConversationId: string,
   ) {}
+
+  /** Forwards an update to Vellum, stamping a contiguous per-session `seq`. */
+  private forwardUpdate(
+    update: Omit<AcpSessionUpdate, "type" | "acpSessionId" | "seq">,
+  ): void {
+    this.sendToVellum({
+      type: "acp_session_update",
+      acpSessionId: this.acpSessionId,
+      seq: ++this.lastSeq,
+      ...update,
+    });
+  }
 
   /**
    * Begins suppressing session updates from being forwarded to Vellum.
@@ -107,41 +122,36 @@ export class VellumAcpClientHandler implements Client {
       case "agent_message_chunk": {
         const text = extractText(update.content);
         this.accumulatedText += text;
-        this.sendToVellum({
-          type: "acp_session_update",
-          acpSessionId: this.acpSessionId,
+        this.forwardUpdate({
           updateType: "agent_message_chunk",
           content: text,
+          messageId: update.messageId ?? undefined,
         });
         break;
       }
 
       case "agent_thought_chunk": {
         const text = extractText(update.content);
-        this.sendToVellum({
-          type: "acp_session_update",
-          acpSessionId: this.acpSessionId,
+        this.forwardUpdate({
           updateType: "agent_thought_chunk",
           content: text,
+          messageId: update.messageId ?? undefined,
         });
         break;
       }
 
       case "user_message_chunk": {
         const text = extractText(update.content);
-        this.sendToVellum({
-          type: "acp_session_update",
-          acpSessionId: this.acpSessionId,
+        this.forwardUpdate({
           updateType: "user_message_chunk",
           content: text,
+          messageId: update.messageId ?? undefined,
         });
         break;
       }
 
       case "tool_call": {
-        this.sendToVellum({
-          type: "acp_session_update",
-          acpSessionId: this.acpSessionId,
+        this.forwardUpdate({
           updateType: "tool_call",
           toolCallId: update.toolCallId,
           toolTitle: update.title,
@@ -152,11 +162,11 @@ export class VellumAcpClientHandler implements Client {
       }
 
       case "tool_call_update": {
-        this.sendToVellum({
-          type: "acp_session_update",
-          acpSessionId: this.acpSessionId,
+        this.forwardUpdate({
           updateType: "tool_call_update",
           toolCallId: update.toolCallId,
+          toolTitle: update.title ?? undefined,
+          toolKind: update.kind ?? undefined,
           toolStatus: update.status ?? undefined,
           content: update.content ? JSON.stringify(update.content) : undefined,
         });
@@ -164,9 +174,7 @@ export class VellumAcpClientHandler implements Client {
       }
 
       case "plan": {
-        this.sendToVellum({
-          type: "acp_session_update",
-          acpSessionId: this.acpSessionId,
+        this.forwardUpdate({
           updateType: "plan",
           content: JSON.stringify(update.entries),
         });
