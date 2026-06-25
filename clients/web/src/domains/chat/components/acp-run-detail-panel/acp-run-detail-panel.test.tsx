@@ -121,6 +121,38 @@ describe("AcpRunDetailPanel — header + metrics + objective", () => {
     expect(screen.getByText("Research the thing")).toBeDefined();
   });
 
+  test("a sub-cent nonzero cost renders '<$0.01', not '$0.00'", () => {
+    render(
+      <AcpRunDetailPanel
+        entry={makeEntry({
+          usedTokens: 1200,
+          contextSize: 200000,
+          costAmount: 0.003,
+          costCurrency: "USD",
+        })}
+        onClose={noop}
+      />,
+    );
+    expect(screen.getByText("Cost")).toBeDefined();
+    expect(screen.getByText("<$0.01")).toBeDefined();
+    expect(screen.queryByText("$0.00")).toBeNull();
+  });
+
+  test("a cost at or above one cent uses standard currency formatting", () => {
+    render(
+      <AcpRunDetailPanel
+        entry={makeEntry({
+          usedTokens: 1200,
+          contextSize: 200000,
+          costAmount: 1.23,
+          costCurrency: "USD",
+        })}
+        onClose={noop}
+      />,
+    );
+    expect(screen.getByText("$1.23")).toBeDefined();
+  });
+
   test("shows the context metric but no cost when cost is absent", () => {
     render(
       <AcpRunDetailPanel

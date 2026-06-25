@@ -61,6 +61,20 @@ import { captureError } from "@/lib/sentry/capture-error";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 /**
+ * Currency-aware cost label. A nonzero amount under one cent rounds to `$0.00`
+ * under standard 2-fraction-digit currency formatting, under-reporting real
+ * spend for short runs — render those as a "less than one cent" form instead.
+ */
+export function formatAcpCost(amount: number, currency: string): string {
+  const format = (value: number) =>
+    new Intl.NumberFormat(undefined, { style: "currency", currency }).format(
+      value,
+    );
+  if (amount > 0 && amount < 0.01) return `<${format(0.01)}`;
+  return format(amount);
+}
+
+/**
  * Live joined output for a running ACP tool, re-derived from the store so an
  * open detail streams as `tool_call_update` events land. Re-projects the run's
  * events to find the matching tool step and joins its `outputChunks`. Returns
@@ -437,10 +451,10 @@ export function AcpRunDetailPanel({
                         style={{ color: "var(--content-secondary)" }}
                       />
                     }
-                    value={new Intl.NumberFormat(undefined, {
-                      style: "currency",
-                      currency: entry.costCurrency,
-                    }).format(entry.costAmount)}
+                    value={formatAcpCost(
+                      entry.costAmount,
+                      entry.costCurrency,
+                    )}
                     label="Cost"
                   />
                 )}
