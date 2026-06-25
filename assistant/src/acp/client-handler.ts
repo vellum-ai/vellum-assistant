@@ -192,10 +192,24 @@ export class VellumAcpClientHandler implements Client {
         break;
       }
 
+      case "usage_update": {
+        // Side gauge of context-window usage; no seq (not part of the
+        // ordered timeline). UNSTABLE: cost may be absent.
+        this.sendToVellum({
+          type: "acp_session_usage",
+          acpSessionId: this.acpSessionId,
+          usedTokens: update.used,
+          contextSize: update.size,
+          costAmount: update.cost?.amount,
+          costCurrency: update.cost?.currency,
+        });
+        break;
+      }
+
       default: {
         // Other update types (available_commands_update, current_mode_update,
-        // config_option_update, session_info_update, usage_update) are not
-        // forwarded to Vellum.
+        // config_option_update, session_info_update) are not forwarded to
+        // Vellum.
         log.debug(
           {
             acpSessionId: this.acpSessionId,

@@ -51,10 +51,20 @@ export interface AcpSessionError {
   error: string;
 }
 
+export interface AcpSessionUsage {
+  type: "acp_session_usage";
+  acpSessionId: string;
+  usedTokens: number;
+  contextSize: number;
+  costAmount?: number;
+  costCurrency?: string;
+}
+
 // --- Domain-level union alias (consumed by message-protocol.ts) ---
 
 export type _AcpServerMessages =
   | AcpSessionSpawned
   | AcpSessionUpdate
   | AcpSessionCompleted
-  | AcpSessionError;
+  | AcpSessionError
+  | AcpSessionUsage;

@@ -218,6 +218,94 @@ describe("VellumAcpClientHandler seq + enriched fields", () => {
     });
   });
 
+  test("usage_update is forwarded as acp_session_usage with mapped fields and no seq", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "usage_update",
+        used: 1200,
+        size: 200000,
+        cost: { amount: 0.42, currency: "USD" },
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toEqual({
+      type: "acp_session_usage",
+      acpSessionId: ACP_SESSION_ID,
+      usedTokens: 1200,
+      contextSize: 200000,
+      costAmount: 0.42,
+      costCurrency: "USD",
+    });
+    // Usage is a side gauge, not part of the ordered timeline — no seq.
+    expect(sent[0]).not.toHaveProperty("seq");
+  });
+
+  test("usage_update without cost yields undefined costAmount/costCurrency", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "usage_update",
+        used: 50,
+        size: 100,
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      type: "acp_session_usage",
+      usedTokens: 50,
+      contextSize: 100,
+      costAmount: undefined,
+      costCurrency: undefined,
+    });
+  });
+
+  test("usage_update does not advance the seq counter", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "usage_update",
+        used: 1,
+        size: 2,
+      },
+    });
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "after usage" },
+      },
+    });
+
+    // The first real update must still start at seq 1.
+    expect((sent[1] as { seq: number }).seq).toBe(1);
+  });
+
+  test("usage_update is dropped during replay suppression", async () => {
+    const { handler, sent } = makeHandler();
+
+    handler.beginReplaySuppression();
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "usage_update",
+        used: 10,
+        size: 20,
+        cost: { amount: 1, currency: "USD" },
+      },
+    });
+
+    expect(sent).toHaveLength(0);
+  });
+
   test("tool_call_update carries toolTitle and toolKind", async () => {
     const { handler, sent } = makeHandler();
 
