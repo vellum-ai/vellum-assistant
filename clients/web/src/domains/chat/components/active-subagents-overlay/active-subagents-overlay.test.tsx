@@ -96,6 +96,12 @@ describe("ActiveSubagentsOverlay — expanded", () => {
     const panel = title.parentElement;
     expect(panel?.className).toContain("absolute");
     expect(panel?.className).toContain("pointer-events-auto");
+
+    // Width is driven by the measured-column fallback (happy-dom has no layout),
+    // so it must resolve to a finite, positive px value — not 0 or NaN.
+    const fittedWidth = Number.parseFloat(panel?.style.width ?? "");
+    expect(Number.isFinite(fittedWidth)).toBe(true);
+    expect(fittedWidth).toBeGreaterThan(0);
   });
 
   test("clicking a collapsed avatar expands the panel", () => {
