@@ -17,10 +17,7 @@
  */
 
 import type { ChannelId } from "../channels/types.js";
-import {
-  findContactByAddress,
-  getLocalMemberAcl,
-} from "../contacts/contact-store.js";
+import { findContactByAddress } from "../contacts/contact-store.js";
 import {
   guardianForChannel,
   peekCachedGuardianDelivery,
@@ -36,6 +33,7 @@ import type {
 import type { TrustContext } from "../daemon/trust-context.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
+import { getCachedMemberAcl } from "./member-verdict-cache.js";
 
 const log = getLogger("actor-trust-resolver");
 
@@ -91,8 +89,8 @@ export interface ActorTrustContext {
   /**
    * Resolved contact + channel for this sender, if any. The ACL view
    * (status/policy/role) is carried here rather than on the contact/channel
-   * objects: the verdict path sources it from the gateway verdict, the local
-   * fallback from the local ACL columns (the residual PR 6 member-ACL drain).
+   * objects, sourced from the gateway verdict — the verdict path reads it
+   * inline, the sync fallback from the in-memory member-verdict cache.
    */
   memberRecord: {
     contact: ContactWithChannels;
@@ -237,12 +235,12 @@ export function resolveActorTrust(
       ch.address.toLowerCase() === canonicalSenderId.toLowerCase(),
   );
   if (byAddress && byAddressChannel) {
-    const acl = getLocalMemberAcl(byAddressChannel.id) ?? {
-      status: "unverified" as ChannelStatus,
-      policy: "allow" as ChannelPolicy,
-      role: "contact" as ContactRole,
-    };
-    memberRecord = { contact: byAddress, channel: byAddressChannel, ...acl };
+    const acl = getCachedMemberAcl(input.sourceChannel, canonicalSenderId);
+    if (acl) {
+      memberRecord = { contact: byAddress, channel: byAddressChannel, ...acl };
+    }
+    // Fail-closed: already in the sync fallback (no live verdict) and no cached
+    // verdict → leave memberRecord null so trustClass resolves to unknown.
   }
 
   log.debug(

@@ -3,16 +3,22 @@
  *
  * Production identity upserts no longer write ACL columns (gateway-owned).
  * Tests that simulate gateway-resolved members stamp the ACL columns directly
- * so local verdict synthesis and the redemption service's local fallback
- * resolve the intended trust.
+ * and warm the member-verdict cache so verdict synthesis and the sync trust
+ * fallback resolve the intended trust.
  */
 
 import { eq } from "drizzle-orm";
 
+import { isChannelId } from "../../channels/types.js";
 import { upsertContact } from "../../contacts/contact-store.js";
-import type { ChannelStatus, ContactRole } from "../../contacts/types.js";
+import type {
+  ChannelPolicy,
+  ChannelStatus,
+  ContactRole,
+} from "../../contacts/types.js";
 import { getDb } from "../../memory/db-connection.js";
 import { contactChannels, contacts } from "../../memory/schema.js";
+import { setMemberVerdict } from "../../runtime/member-verdict-cache.js";
 
 export function seedContactChannel(params: {
   sourceChannel: string;
@@ -72,6 +78,19 @@ export function seedContactChannel(params: {
     .set(aclSet)
     .where(eq(contactChannels.id, channel.id))
     .run();
+
+  // Warm the verdict cache so the sync trust fallback resolves this member, as
+  // a gateway verdict fetch would in production.
+  if (isChannelId(params.sourceChannel)) {
+    setMemberVerdict(params.sourceChannel, address, {
+      trustClass: params.role === "guardian" ? "guardian" : "unknown",
+      canonicalSenderId: address,
+      contactId: contact.id,
+      channelId: channel.id,
+      status: (params.status ?? "active") as ChannelStatus,
+      policy: (params.policy ?? "allow") as ChannelPolicy,
+    });
+  }
 
   return { contactId: contact.id, channelId: channel.id };
 }

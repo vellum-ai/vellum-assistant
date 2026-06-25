@@ -51,7 +51,6 @@ import {
 } from "../../config/loader.js";
 import {
   findContactByAddress,
-  getLocalMemberAcl,
   upsertContact,
 } from "../../contacts/contact-store.js";
 import {
@@ -81,6 +80,15 @@ const originalFetch = globalThis.fetch;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** Read a channel's local ACL columns directly to assert the gateway dual-write. */
+function aclColumns(
+  channelId: string,
+): { status: string; policy: string } | null {
+  return getSqlite()
+    .query("SELECT status, policy FROM contact_channels WHERE id = ?")
+    .get(channelId) as { status: string; policy: string } | null;
+}
 
 function resetTables(): void {
   const sqlite = getSqlite();
@@ -371,7 +379,7 @@ describe("e2e: unknown sender blocked (ACL enforcement)", () => {
 
     const a2aChannel = contact!.channels.find((ch) => ch.type === "a2a");
     expect(a2aChannel).toBeTruthy();
-    const acl = getLocalMemberAcl(a2aChannel!.id);
+    const acl = aclColumns(a2aChannel!.id);
     expect(acl!.status).toBe("active");
     expect(acl!.policy).toBe("allow");
 
@@ -397,7 +405,7 @@ describe("e2e: unknown sender blocked (ACL enforcement)", () => {
     expect(contact).not.toBeNull();
 
     const a2aChannel = contact!.channels.find((ch) => ch.type === "a2a");
-    const acl = getLocalMemberAcl(a2aChannel!.id);
+    const acl = aclColumns(a2aChannel!.id);
     expect(acl!.status).toBe("blocked");
     expect(acl!.policy).toBe("deny");
   });
@@ -506,7 +514,7 @@ describe("e2e: full A2A round-trip", () => {
     const contact = findContactByAddress("a2a", "assistant-b");
     expect(contact).not.toBeNull();
     const a2aChannel = contact!.channels.find((ch) => ch.type === "a2a")!;
-    expect(getLocalMemberAcl(a2aChannel.id)!.status).toBe("active");
+    expect(aclColumns(a2aChannel.id)!.status).toBe("active");
 
     // Step 3: Simulate inbound A2A message from B (as if B sent us a request)
     const inboundMsg = makeRequestMessage({
