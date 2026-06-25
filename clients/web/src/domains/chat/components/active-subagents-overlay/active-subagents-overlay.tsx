@@ -54,8 +54,7 @@ export function ActiveSubagentsOverlay({
     <div
       ref={containerRef}
       data-testid="active-subagents-overlay"
-      // Panel max width per Figma node 6063:149685 (narrower than the chat column).
-      // pointer-events-none so the blank gutter around the centered pill doesn't block the transcript; pill (ChatPill) + panel re-enable pointer events.
+      // none here so gutter clicks reach the transcript; pill + panel re-enable. 589px per Figma 6063:149685.
       className="pointer-events-none flex w-full max-w-[589px] flex-col items-center gap-2"
     >
       <ActiveSubagentsPill
@@ -72,9 +71,7 @@ export function ActiveSubagentsOverlay({
           >
             {subagentIds.length} Active Subagents
           </Typography>
-          {/* -mx-2 cancels each row's own p-2 so row content aligns with the
-              title at the panel's 12px edge, while the hover highlight keeps a
-              small gutter. */}
+          {/* -mx-2 aligns row content with the title (rows add their own p-2). */}
           <div className="-mx-2 flex max-h-[320px] flex-col gap-2 overflow-y-auto">
             {subagentIds.map((id) => (
               <SubagentInlineProgressCard
