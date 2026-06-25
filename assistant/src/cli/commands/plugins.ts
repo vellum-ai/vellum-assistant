@@ -42,17 +42,7 @@ import {
   PluginPinHistoryError,
   resolvePinToMarketplaceCommit,
 } from "../lib/plugin-pin-history.js";
-import {
-  buildPublishPayload,
-  findPluginRoot,
-  formatPayloadForPrint,
-  formatPublishResult,
-  formatValidationResult,
-  postPublishRequest,
-  resolveGitContext,
-  resolvePlatformDeps,
-  validatePluginForPublish,
-} from "../lib/publish-plugin.js";
+import { runPublish } from "../lib/publish-plugin.js";
 import { registerCommand } from "../lib/register-command.js";
 import {
   InvalidSearchPatternError,
@@ -561,141 +551,8 @@ $ assistant plugins publish --json`,
             json?: boolean;
             category?: string;
           }) => {
-            // 1. Find the plugin root
-            const searchDir = opts.path ?? process.cwd();
-            const pluginDir = findPluginRoot(searchDir);
-            if (!pluginDir) {
-              console.error(
-                `No package.json found in ${searchDir} or any parent directory.`,
-              );
-              process.exitCode = 1;
-              return;
-            }
-
-            // 2. Validate the plugin
-            const validation = validatePluginForPublish(pluginDir);
-            if (!validation.valid) {
-              if (opts.json) {
-                process.stdout.write(
-                  JSON.stringify({ ok: false, errors: validation.issues }) +
-                    "\n",
-                );
-              } else {
-                console.error(formatValidationResult(validation));
-              }
-              process.exitCode = 1;
-              return;
-            }
-
-            if (!opts.json && validation.warnings.length > 0) {
-              console.warn(formatValidationResult(validation));
-            }
-
-            // 3. Resolve git context
-            let git;
-            try {
-              git = await resolveGitContext(pluginDir);
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              console.error(`Git context resolution failed: ${message}`);
-              process.exitCode = 1;
-              return;
-            }
-
-            if (git.dirty) {
-              console.warn(
-                "Warning: working tree is dirty. The pinned commit SHA should match a clean, pushed commit.",
-              );
-            }
-
-            if (!git.pushed) {
-              console.error(
-                `Commit ${git.sha.slice(0, 7)} has not been pushed to the remote. Push your changes first.`,
-              );
-              process.exitCode = 1;
-              return;
-            }
-
-            // 4. Determine category
-            const category = opts.category ?? "other";
-
-            // 5. Build the payload
-            const payload = buildPublishPayload(validation, git, category);
-
-            // 6. Handle --print mode
-            if (opts.print) {
-              if (opts.json) {
-                process.stdout.write(
-                  JSON.stringify({ ok: true, payload }) + "\n",
-                );
-              } else {
-                console.log(formatPayloadForPrint(payload));
-              }
-              return;
-            }
-
-            // 7. Confirm before submitting (unless --force or --json)
-            if (!opts.force && !opts.json) {
-              console.log("\nPlugin entry to submit:");
-              console.log(formatPayloadForPrint(payload));
-              console.log("");
-              const result = await confirmPrompt({
-                question: "Submit this entry to the Vellum marketplace? [y/N] ",
-                isTTY: Boolean(process.stdin.isTTY),
-                refuseNonInteractiveMessage:
-                  "Refusing to publish non-interactively. Pass --force to confirm.",
-              });
-              if (result === "non-interactive") {
-                process.exitCode = 1;
-                return;
-              }
-            }
-
-            // 8. Submit to the platform API
-            const deps = await resolvePlatformDeps();
-            if (!deps) {
-              const msg =
-                "Not connected to Vellum platform. Run `assistant platform connect` to connect, or use --print to generate the entry without submitting.";
-              if (opts.json) {
-                process.stdout.write(
-                  JSON.stringify({
-                    ok: false,
-                    error: "not_connected",
-                    message: msg,
-                  }) + "\n",
-                );
-              } else {
-                console.error(msg);
-              }
-              process.exitCode = 1;
-              return;
-            }
-
-            try {
-              const result = await postPublishRequest(payload, deps);
-
-              if (opts.json) {
-                process.stdout.write(JSON.stringify(result) + "\n");
-              } else {
-                console.log(formatPublishResult(result));
-              }
-
-              if (!result.ok) process.exitCode = 1;
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              if (opts.json) {
-                process.stdout.write(
-                  JSON.stringify({
-                    ok: false,
-                    error: "request_failed",
-                    message,
-                  }) + "\n",
-                );
-              } else {
-                console.error(`Publish request failed: ${message}`);
-              }
-              process.exitCode = 1;
-            }
+            const ok = await runPublish(opts, { confirmPrompt });
+            if (!ok) process.exitCode = 1;
           },
         );
 

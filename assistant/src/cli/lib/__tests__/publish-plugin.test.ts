@@ -11,6 +11,7 @@ import {
   formatValidationResult,
   type ParsedPackageJson,
   type PublishValidation,
+  runPublish,
   validatePluginForPublish,
 } from "../publish-plugin.js";
 
@@ -200,6 +201,7 @@ describe("buildPublishPayload", () => {
       repo: "me/my-plugin",
       dirty: false,
       pushed: true,
+      pluginPath: "",
     };
 
     const payload = buildPublishPayload(validation, git, "productivity");
@@ -208,10 +210,35 @@ describe("buildPublishPayload", () => {
     expect(payload.source.source).toBe("github");
     expect(payload.source.repo).toBe("me/my-plugin");
     expect(payload.source.ref).toBe("e83c5163316f89bfbde7d9ab23ca2e25604af290");
+    expect(payload.source.path).toBeUndefined();
     expect(payload.category).toBe("productivity");
     expect(payload.description).toBe("Does cool stuff");
     expect(payload.license).toBe("MIT");
     expect(payload.homepage).toBe("https://github.com/me/my-plugin");
+  });
+
+  it("sets source.path for nested plugin roots", () => {
+    const validation: PublishValidation = {
+      valid: true,
+      issues: [],
+      warnings: [],
+      packageJson: {
+        name: "my-plugin",
+        version: "1.0.0",
+        peerDependencies: { "@vellumai/plugin-api": "^1.0.0" },
+      },
+      pluginDir: "/tmp/monorepo/packages/plugin",
+    };
+    const git = {
+      sha: "e83c5163316f89bfbde7d9ab23ca2e25604af290",
+      repo: "me/monorepo",
+      dirty: false,
+      pushed: true,
+      pluginPath: "packages/plugin",
+    };
+
+    const payload = buildPublishPayload(validation, git, "other");
+    expect(payload.source.path).toBe("packages/plugin");
   });
 
   it("extracts homepage from repository.url when homepage is absent", () => {
@@ -232,6 +259,7 @@ describe("buildPublishPayload", () => {
       repo: "me/my-plugin",
       dirty: false,
       pushed: true,
+      pluginPath: "",
     };
 
     const payload = buildPublishPayload(validation, git, "other");
@@ -302,5 +330,75 @@ describe("formatValidationResult", () => {
       pluginDir: "/tmp",
     });
     expect(result).toContain("passed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runPublish (CLI entrypoint)
+// ---------------------------------------------------------------------------
+
+describe("runPublish", () => {
+  it("returns false on denied confirmation without submitting", async () => {
+    const dir = makePluginDir(tmpdir(), validPkg, { hooks: true });
+    // Initialize a git repo so resolveGitContext doesn't fail
+    const { execSync } = await import("node:child_process");
+    const gitEnv = {
+      ...process.env,
+      GIT_AUTHOR_NAME: "Test",
+      GIT_AUTHOR_EMAIL: "test@test.com",
+      GIT_COMMITTER_NAME: "Test",
+      GIT_COMMITTER_EMAIL: "test@test.com",
+    };
+    execSync("git init && git add -A && git commit -m init", {
+      cwd: dir,
+      stdio: "ignore",
+      env: gitEnv,
+    });
+    execSync("git remote add origin https://github.com/test/test-plugin.git", {
+      cwd: dir,
+      stdio: "ignore",
+      env: gitEnv,
+    });
+
+    const ok = await runPublish(
+      { path: dir, force: false, json: false },
+      {
+        confirmPrompt: async () => "denied",
+      },
+    );
+
+    expect(ok).toBe(false);
+    rmSync(dir, { recursive: true });
+  });
+
+  it("returns true on --print without submitting", async () => {
+    const dir = makePluginDir(tmpdir(), validPkg, { hooks: true });
+
+    const ok = await runPublish(
+      { path: dir, print: true, json: true },
+      {
+        confirmPrompt: async () => {
+          throw new Error("should not be called");
+        },
+      },
+    );
+
+    expect(ok).toBe(true);
+    rmSync(dir, { recursive: true });
+  });
+
+  it("returns false when no package.json found", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "no-pkg-"));
+    const ok = await runPublish(
+      { path: dir, force: true, json: true },
+      {
+        confirmPrompt: async () => {
+          throw new Error("should not be called");
+        },
+      },
+    );
+
+    expect(ok).toBe(false);
+    rmSync(dir, { recursive: true });
   });
 });
