@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { makeMockLogger } from "./helpers/mock-logger.js";
 
 mock.module("../util/logger.js", () => ({
+  LOG_FILE_PATTERN: /^assistant-(\d{4}-\d{2}-\d{2})\.log$/,
+  getCliLogger: () => makeMockLogger(),
   getLogger: () => makeMockLogger(),
+  initLogger: () => {},
+  pruneOldLogFiles: () => 0,
+  truncateForLog: (value: string, maxLen = 500) => value.slice(0, maxLen),
 }));
 
 let rawConfig: Record<string, unknown> = {};
@@ -53,18 +58,38 @@ function setNestedValue(
 }
 
 mock.module("../config/loader.js", () => ({
+  API_KEY_PROVIDERS: [],
+  applyNestedDefaults: (config: unknown) => config,
   loadRawConfig: () => structuredClone(savedRawConfig ?? rawConfig),
   saveRawConfig: (raw: Record<string, unknown>) => {
     savedRawConfig = structuredClone(raw);
   },
   deepMergeOverwrite: deepMerge,
   fillContextDefaultsForMissingKeys: () => {},
+  loadConfig: () => structuredClone(savedRawConfig ?? rawConfig),
   getConfig: () => structuredClone(savedRawConfig ?? rawConfig),
+  getConfigReadOnly: () => structuredClone(savedRawConfig ?? rawConfig),
   getDeploymentContextDefaults: () => ({}),
+  getNestedValue: (obj: Record<string, unknown>, path: string) =>
+    path.split(".").reduce<unknown>((current, key) => {
+      if (
+        current === null ||
+        typeof current !== "object" ||
+        Array.isArray(current)
+      ) {
+        return undefined;
+      }
+      return (current as Record<string, unknown>)[key];
+    }, obj),
   invalidateConfigCache: () => {},
+  mergeDefaultWorkspaceConfig: () => ({
+    merged: false,
+    config: structuredClone(savedRawConfig ?? rawConfig),
+  }),
   setNestedValue,
   withSuppressedConfigDiskWrites: async (fn: () => unknown) => fn(),
   withSuppressedConfigDiskWritesSync: (fn: () => unknown) => fn(),
+  _writeQuarantineNotice: () => {},
 }));
 
 mock.module("../daemon/config-watcher.js", () => ({
@@ -76,19 +101,47 @@ mock.module("../daemon/config-watcher.js", () => ({
 }));
 
 mock.module("../providers/registry.js", () => ({
+  clearConnectionProviderCache: () => {},
+  getProvider: () => {
+    throw new Error("provider registry mock not implemented");
+  },
+  getProviderRoutingSource: () => null,
   initializeProviders: async () => {},
+  isNativeWebSearchCapableProvider: () => false,
+  listProviders: () => [],
+  resolveProviderFromConnection: async () => null,
 }));
 
 mock.module("../memory/embedding-backend.js", () => ({
+  EmbeddingBackendUnavailableError: class EmbeddingBackendUnavailableError extends Error {},
+  SPARSE_EMBEDDING_VERSION: 4,
   clearEmbeddingBackendCache: () => {},
+  embedWithBackend: async () => ({
+    provider: "local",
+    model: "test",
+    vectors: [],
+  }),
+  generateSparseEmbedding: () => ({ indices: [], values: [] }),
+  getMemoryBackendStatus: async () => ({
+    enabled: false,
+    provider: null,
+    model: null,
+  }),
+  resetLocalEmbeddingFailureState: () => {},
+  selectEmbeddingBackend: async () => null,
+  selectedBackendSupportsMultimodal: async () => false,
 }));
 
 mock.module("../security/secret-allowlist.js", () => ({
+  isAllowlisted: () => false,
+  loadAllowlist: () => {},
+  resetAllowlist: () => {},
   validateAllowlistFile: () => null,
 }));
 
-import { ROUTES } from "../runtime/routes/conversation-query-routes.js";
-import { BadRequestError } from "../runtime/routes/errors.js";
+const { ROUTES } =
+  await import("../runtime/routes/conversation-query-routes.js");
+const { BadRequestError } = await import("../runtime/routes/errors.js");
 
 function findRoute(operationId: string) {
   const route = ROUTES.find((r) => r.operationId === operationId);
