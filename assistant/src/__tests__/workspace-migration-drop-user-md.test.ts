@@ -155,12 +155,24 @@ describe("workspace migration 031-drop-user-md", () => {
     expect(existsSync(join(workspaceDir(), "users"))).toBe(false);
   });
 
-  test("no guardian with stale USER.md — deletes it", () => {
-    writeFileSync(userMdPath(), customizedContent(), "utf-8");
+  test("no guardian with unmodified-template USER.md — deletes it", () => {
+    writeFileSync(userMdPath(), templateContent(), "utf-8");
 
     dropUserMdMigration.run(workspaceDir());
 
     expect(existsSync(userMdPath())).toBe(false);
+  });
+
+  test("no guardian with customized USER.md — preserves it (mirror may be stale)", () => {
+    const content = customizedContent();
+    writeFileSync(userMdPath(), content, "utf-8");
+
+    dropUserMdMigration.run(workspaceDir());
+
+    // The local guardian mirror can be stale, so a customized profile must
+    // not be destroyed when no guardian row resolves.
+    expect(existsSync(userMdPath())).toBe(true);
+    expect(readFileSync(userMdPath(), "utf-8")).toBe(content);
   });
 
   test("pre-017 customized USER.md with guardian missing userFile backfills slug and migrates content", () => {
