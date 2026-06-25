@@ -35,6 +35,10 @@ export const AcpSessionUpdateEventSchema = z
     toolTitle: z.string().optional(),
     toolKind: z.string().optional(),
     toolStatus: z.string().optional(),
+    /** Files touched by this tool call (for the file-diff affordance). */
+    locations: z
+      .array(z.object({ path: z.string(), line: z.number().optional() }))
+      .optional(),
     /** Stable id for the message this chunk belongs to. */
     messageId: z.string().optional(),
     /** Monotonic ordering hint within the session. */
