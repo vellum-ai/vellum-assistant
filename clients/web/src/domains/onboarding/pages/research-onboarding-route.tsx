@@ -327,6 +327,11 @@ export function ResearchOnboardingRoute() {
   // research turn settles. installedPlugins is final by the time status flips
   // to "done". Fires once, and only for a live run — a refresh that resumes a
   // finished journey (hydrate) leaves liveRunRef false, so it stays silent.
+  // Gating on "done" is deliberate: the marker reports only genuine live
+  // completions, so an errored or abandoned run never emits. Emission also stays
+  // in THIS effect rather than the terminal suggestion/skip handlers so it always
+  // reads the final installedPlugins (from the effect deps) instead of a set
+  // captured mid-stream off a still-running turn.
   useEffect(() => {
     if (research.status !== "done") return;
     if (!liveRunRef.current || pluginsReportedRef.current) return;

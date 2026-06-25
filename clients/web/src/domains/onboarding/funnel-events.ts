@@ -77,7 +77,7 @@ export type ResearchOnboardingFunnelStep =
  * Kept OUT of RESEARCH_ONBOARDING_FUNNEL_STEPS (its `satisfies Record<ResearchStep,…>`
  * would break) because this is not a navigational step.
  */
-export const RESEARCH_ONBOARDING_PLUGINS_INSTALLED_STEP = {
+const RESEARCH_ONBOARDING_PLUGINS_INSTALLED_STEP = {
   stepName: "research_plugins_installed",
   stepIndex: 10,
 } as const satisfies OnboardingFunnelStepDescriptor;
