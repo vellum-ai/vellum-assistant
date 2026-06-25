@@ -23,11 +23,18 @@ import {
   Code,
   ListChecks,
   MessageSquare,
+  RotateCw,
+  Send,
   Square,
   X,
 } from "lucide-react";
 
-import { useCallback, useMemo, useState } from "react";
+import {
+  useCallback,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
 
 import { Button, Typography } from "@vellumai/design-library";
 
@@ -45,10 +52,15 @@ import {
 } from "@/domains/chat/acp-run-step-projection";
 import { useAcpRunStore, type AcpRunEntry } from "@/domains/chat/acp-run-store";
 import {
+  steerAcpRun,
+  stopAcpRun,
+} from "@/domains/chat/utils/acp-run-actions";
+import {
   acpRunStatusColor,
   acpRunStatusLabel,
   isActiveAcpStatus,
 } from "@/utils/acp-run-status";
+import { captureError } from "@/lib/sentry/capture-error";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 /**
@@ -223,12 +235,24 @@ export function AcpRunDetailPanel({
   // for a multi-line task.
   const [objectiveExpanded, setObjectiveExpanded] = useState(false);
 
-  // Reset nested state on run switch — render-phase guard tracking the prev id.
+  // Stop disables after a click to avoid a double-cancel; steering tracks the
+  // input value and a transient "awaiting approval" affordance.
+  const [stopping, setStopping] = useState(false);
+  const [steerInput, setSteerInput] = useState("");
+  const [steerPending, setSteerPending] = useState(false);
+  const [approvalPending, setApprovalPending] = useState(false);
+
+  // Reset nested + action state on run switch — render-phase guard tracking the
+  // prev id.
   const [prevSessionId, setPrevSessionId] = useState(entry.acpSessionId);
   if (prevSessionId !== entry.acpSessionId) {
     setPrevSessionId(entry.acpSessionId);
     setSelectedStepIndex(null);
     setObjectiveExpanded(false);
+    setStopping(false);
+    setSteerInput("");
+    setSteerPending(false);
+    setApprovalPending(false);
   }
 
   const handleStepDetailClick = useCallback(
@@ -236,6 +260,38 @@ export function AcpRunDetailPanel({
     [],
   );
   const handleBack = useCallback(() => setSelectedStepIndex(null), []);
+
+  const handleStop = useCallback(() => {
+    setStopping(true);
+    if (onStop) {
+      onStop(entry.acpSessionId);
+      return;
+    }
+    void stopAcpRun(entry.acpSessionId).catch((err) => {
+      setStopping(false);
+      captureError(err, { context: "AcpRunDetailPanel.stop" });
+    });
+  }, [onStop, entry.acpSessionId]);
+
+  const handleSteerSubmit = useCallback(
+    (e: FormEvent) => {
+      e.preventDefault();
+      const instruction = steerInput.trim();
+      if (!instruction || steerPending) return;
+      setSteerPending(true);
+      setApprovalPending(false);
+      void steerAcpRun(entry.acpSessionId, instruction)
+        .then((res) => {
+          setSteerInput("");
+          setApprovalPending(res.approvalPending === true);
+        })
+        .catch((err) => {
+          captureError(err, { context: "AcpRunDetailPanel.steer" });
+        })
+        .finally(() => setSteerPending(false));
+    },
+    [steerInput, steerPending, entry.acpSessionId],
+  );
 
   // Resolve by index; fall back to the timeline if the steps array shrank past
   // the selected index (e.g. history hydration replaced the buffer).
@@ -309,12 +365,13 @@ export function AcpRunDetailPanel({
           />
         )}
         <span className="flex-1" />
-        {isRunning && onStop && (
+        {isRunning && !activeStep && (
           <button
             type="button"
             aria-label="Stop run"
-            onClick={() => onStop(entry.acpSessionId)}
-            className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--system-negative-strong)] bg-transparent px-2.5 py-1.5 text-[var(--system-negative-strong)] transition-colors hover:bg-[var(--system-negative-weak)]"
+            onClick={handleStop}
+            disabled={stopping}
+            className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--system-negative-strong)] bg-transparent px-2.5 py-1.5 text-[var(--system-negative-strong)] transition-colors hover:bg-[var(--system-negative-weak)] disabled:cursor-default disabled:opacity-50"
           >
             <Square className="h-3 w-3" fill="currentColor" />
             <Typography variant="label-small-default">Stop</Typography>
@@ -345,6 +402,19 @@ export function AcpRunDetailPanel({
           )
         ) : (
           <>
+            {/* Error — a failed run surfaces its message under the status badge. */}
+            {entry.status === "failed" && entry.error && (
+              <div className="mb-5 rounded-lg border border-[var(--system-negative-strong)] bg-[var(--system-negative-weak)] px-3 py-2.5">
+                <Typography
+                  variant="body-small-default"
+                  as="p"
+                  className="whitespace-pre-wrap break-words text-[var(--system-negative-strong)]"
+                >
+                  {entry.error}
+                </Typography>
+              </div>
+            )}
+
             {/* Metrics row */}
             <div className="mb-5 grid grid-cols-2 gap-3">
               <AnimatedMetricCard
@@ -438,6 +508,45 @@ export function AcpRunDetailPanel({
           </>
         )}
       </div>
+
+      {/* Steering — send a follow-up instruction while the run is live. */}
+      {entry.status === "running" && !activeStep && (
+        <form
+          onSubmit={handleSteerSubmit}
+          className="shrink-0 border-t border-[var(--border-hover)] px-5 py-3"
+        >
+          {approvalPending && (
+            <Typography
+              variant="body-small-default"
+              as="p"
+              className="mb-2 flex items-center gap-1.5 text-[var(--content-secondary)]"
+            >
+              <RotateCw className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              Awaiting approval to resume…
+            </Typography>
+          )}
+          <div className="flex items-center gap-2 rounded-md bg-[var(--surface-base)] px-3 py-2">
+            <input
+              type="text"
+              value={steerInput}
+              onChange={(e) => setSteerInput(e.target.value)}
+              placeholder="Steer the run…"
+              disabled={steerPending}
+              aria-label="Steering instruction"
+              className="text-body-medium-default min-w-0 flex-1 bg-transparent text-[color:var(--content-default)] placeholder:text-[color:var(--content-tertiary)] focus:outline-none disabled:opacity-50"
+            />
+            <Button
+              type="submit"
+              variant="primary"
+              size="compact"
+              iconOnly={<Send />}
+              disabled={steerPending || steerInput.trim() === ""}
+              aria-label="Send steering instruction"
+              className="shrink-0"
+            />
+          </div>
+        </form>
+      )}
     </div>
   );
 }

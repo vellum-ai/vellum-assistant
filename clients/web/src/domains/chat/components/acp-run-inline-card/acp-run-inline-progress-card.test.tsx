@@ -13,9 +13,19 @@
  *    absent or failed run resolves to none, so its chip stays.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act } from "react";
 import { cleanup, fireEvent, render } from "@testing-library/react";
+
+// The card cancels the run directly via `stopAcpRun` when no override handler is
+// passed. Mock the action so the self-contained path is observable without
+// hitting the daemon client.
+const stopAcpRunCalls: string[] = [];
+mock.module("@/domains/chat/utils/acp-run-actions", () => ({
+  stopAcpRun: async (id: string) => {
+    stopAcpRunCalls.push(id);
+  },
+}));
 
 import { AcpRunInlineProgressCard } from "@/domains/chat/components/acp-run-inline-card/acp-run-inline-progress-card";
 import {
@@ -34,6 +44,7 @@ const STATUS_TESTID = "acp-run-inline-card-status-indicator";
 
 beforeEach(() => {
   useAcpRunStore.getState().reset();
+  stopAcpRunCalls.length = 0;
 });
 
 afterEach(() => {
@@ -173,15 +184,18 @@ describe("AcpRunInlineProgressCard — interaction", () => {
     expect(seen).toEqual(["acp-open"]);
   });
 
-  test("stop button is absent while running when no onStopAcpRun handler is provided", () => {
+  test("stop button cancels the run directly while running with no handler, and disables after click", () => {
     act(() => spawn("acp-no-stop"));
-    const { queryByTestId } = render(
+    const { getByTestId } = render(
       <AcpRunInlineProgressCard acpSessionId="acp-no-stop" />,
     );
-    expect(queryByTestId("acp-run-inline-card-stop")).toBeNull();
+    const button = getByTestId("acp-run-inline-card-stop");
+    fireEvent.click(button);
+    expect(stopAcpRunCalls).toEqual(["acp-no-stop"]);
+    expect(button.hasAttribute("disabled")).toBe(true);
   });
 
-  test("stop button renders and invokes the handler while in-flight, then hides on terminal", () => {
+  test("onStopAcpRun overrides the direct cancel; stop hides on terminal", () => {
     act(() => spawn("acp-stop"));
     const seen: string[] = [];
     const { getByTestId, queryByTestId } = render(
@@ -192,6 +206,7 @@ describe("AcpRunInlineProgressCard — interaction", () => {
     );
     fireEvent.click(getByTestId("acp-run-inline-card-stop"));
     expect(seen).toEqual(["acp-stop"]);
+    expect(stopAcpRunCalls).toEqual([]);
 
     act(() => terminal("acp-stop", "completed"));
     expect(queryByTestId("acp-run-inline-card-stop")).toBeNull();

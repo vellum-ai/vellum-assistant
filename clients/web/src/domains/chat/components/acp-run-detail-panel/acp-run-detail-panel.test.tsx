@@ -22,6 +22,25 @@ const exportNames = [...sdkSource.matchAll(/^export const (\w+)/gm)].map(
 const sdkMock = Object.fromEntries(exportNames.map((n) => [n, sdkStub]));
 mock.module("@/generated/daemon/sdk.gen", () => sdkMock);
 
+// Capture the self-contained stop/steer paths (no override props passed).
+const stopCalls: string[] = [];
+const steerCalls: Array<{ id: string; instruction: string }> = [];
+let nextSteerResponse: {
+  acpSessionId: string;
+  steered: boolean;
+  resumed?: boolean;
+  approvalPending?: boolean;
+} = { acpSessionId: "acp-1", steered: true };
+mock.module("@/domains/chat/utils/acp-run-actions", () => ({
+  stopAcpRun: async (id: string) => {
+    stopCalls.push(id);
+  },
+  steerAcpRun: async (id: string, instruction: string) => {
+    steerCalls.push({ id, instruction });
+    return nextSteerResponse;
+  },
+}));
+
 const { AcpRunDetailPanel } = await import(
   "@/domains/chat/components/acp-run-detail-panel/acp-run-detail-panel"
 );
@@ -71,6 +90,9 @@ const TOOL_CALL_EVENT: AcpRunRawEvent = {
 afterEach(() => {
   cleanup();
   useAcpRunStore.getState().reset();
+  stopCalls.length = 0;
+  steerCalls.length = 0;
+  nextSteerResponse = { acpSessionId: "acp-1", steered: true };
 });
 afterAll(() => {
   mock.restore();
@@ -328,5 +350,57 @@ describe("AcpRunDetailPanel — timeline + nested detail", () => {
     expect(screen.queryByLabelText("Back to timeline")).toBeNull();
     expect(screen.getByText("Timeline")).toBeDefined();
     expect(screen.getByText("gemini")).toBeDefined();
+  });
+});
+
+describe("AcpRunDetailPanel — stop / steer / error", () => {
+  test("Stop cancels the run directly when no onStop override is passed", () => {
+    render(
+      <AcpRunDetailPanel entry={makeEntry({ status: "running" })} onClose={noop} />,
+    );
+    fireEvent.click(screen.getByLabelText("Stop run"));
+    expect(stopCalls).toEqual(["acp-1"]);
+  });
+
+  test("steering input shows only while running and submits the instruction", () => {
+    const { rerender } = render(
+      <AcpRunDetailPanel entry={makeEntry({ status: "running" })} onClose={noop} />,
+    );
+    const input = screen.getByLabelText("Steering instruction");
+    fireEvent.change(input, { target: { value: "focus on tests" } });
+    fireEvent.submit(input.closest("form")!);
+    expect(steerCalls).toEqual([{ id: "acp-1", instruction: "focus on tests" }]);
+
+    rerender(
+      <AcpRunDetailPanel entry={makeEntry({ status: "completed" })} onClose={noop} />,
+    );
+    expect(screen.queryByLabelText("Steering instruction")).toBeNull();
+  });
+
+  test("approvalPending steer surfaces the awaiting-approval affordance", async () => {
+    nextSteerResponse = {
+      acpSessionId: "acp-1",
+      steered: false,
+      approvalPending: true,
+    };
+    render(
+      <AcpRunDetailPanel entry={makeEntry({ status: "running" })} onClose={noop} />,
+    );
+    const input = screen.getByLabelText("Steering instruction");
+    fireEvent.change(input, { target: { value: "resume" } });
+    await act(async () => {
+      fireEvent.submit(input.closest("form")!);
+    });
+    expect(screen.getByText(/awaiting approval/i)).toBeDefined();
+  });
+
+  test("failed run renders its error message", () => {
+    render(
+      <AcpRunDetailPanel
+        entry={makeEntry({ status: "failed", error: "agent crashed" })}
+        onClose={noop}
+      />,
+    );
+    expect(screen.getByText("agent crashed")).toBeDefined();
   });
 });

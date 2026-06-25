@@ -12,25 +12,26 @@
  * Interaction model mirrors the subagent / workflow inline cards:
  *   - Clicking anywhere on the header row opens the run's detail panel via
  *     `onAcpRunClick`. There is no inline expand — the panel is the detail view.
- *   - Stop is exposed via `onStopAcpRun`; the shell renders a small stop chip in
- *     the right rail while the run is in-flight ONLY when a real handler is
- *     wired. With `onStopAcpRun` omitted, no stop affordance renders — avoiding a
- *     misleading button that does nothing.
+ *   - Stop cancels the run via `stopAcpRun` while it is in-flight. A parent may
+ *     override the action with `onStopAcpRun`; otherwise the card cancels the
+ *     run itself. The button disables after a click to avoid a double-cancel.
  */
 
 import { Code, Square } from "lucide-react";
-import { useCallback, type MouseEvent } from "react";
+import { useCallback, useState, type MouseEvent } from "react";
 
 import { Button } from "@vellumai/design-library";
 
 import { ToolProgressCardShell } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
 import { useAcpRunCardData } from "@/domains/chat/components/acp-run-inline-card/use-acp-run-card-data";
+import { stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
+import { captureError } from "@/lib/sentry/capture-error";
 
 export interface AcpRunInlineProgressCardProps {
   acpSessionId: string;
   /** Open the run's detail panel (header-row activation, not the stop button). */
   onAcpRunClick?: (acpSessionId: string) => void;
-  /** Stop an in-flight run; omit to hide the stop button. */
+  /** Override the stop action; defaults to cancelling the run directly. */
   onStopAcpRun?: (acpSessionId: string) => void;
 }
 
@@ -43,6 +44,7 @@ export function AcpRunInlineProgressCard({
   // The shell's `loading` state is the live window where stopping the run is a
   // meaningful action (see `deriveCardState`).
   const isRunning = data?.state === "loading";
+  const [stopping, setStopping] = useState(false);
 
   const handleHeaderClick = useCallback(() => {
     onAcpRunClick?.(acpSessionId);
@@ -51,7 +53,15 @@ export function AcpRunInlineProgressCard({
   const handleStop = useCallback(
     (e: MouseEvent) => {
       e.stopPropagation();
-      onStopAcpRun?.(acpSessionId);
+      setStopping(true);
+      if (onStopAcpRun) {
+        onStopAcpRun(acpSessionId);
+        return;
+      }
+      void stopAcpRun(acpSessionId).catch((err) => {
+        setStopping(false);
+        captureError(err, { context: "AcpRunInlineProgressCard.stop" });
+      });
     },
     [onStopAcpRun, acpSessionId],
   );
@@ -63,19 +73,19 @@ export function AcpRunInlineProgressCard({
 
   const leadingIcon = <Code size={20} aria-hidden />;
 
-  // Render the stop affordance only when a real cancel handler is wired AND the
-  // run is in-flight — never a placeholder that no-ops on click.
-  const actionSlot =
-    onStopAcpRun != null && isRunning ? (
-      <Button
-        variant="dangerGhost"
-        size="compact"
-        iconOnly={<Square fill="currentColor" />}
-        aria-label="Stop run"
-        data-testid="acp-run-inline-card-stop"
-        onClick={handleStop}
-      />
-    ) : undefined;
+  // Stop is a real action whenever the run is in-flight (it cancels the run
+  // directly), so render it regardless of whether a parent passed a handler.
+  const actionSlot = isRunning ? (
+    <Button
+      variant="dangerGhost"
+      size="compact"
+      iconOnly={<Square fill="currentColor" />}
+      aria-label="Stop run"
+      data-testid="acp-run-inline-card-stop"
+      disabled={stopping}
+      onClick={handleStop}
+    />
+  ) : undefined;
 
   return (
     <div className="w-full" data-testid="acp-run-inline-progress-card">
