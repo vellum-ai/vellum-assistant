@@ -145,6 +145,9 @@ export const dropUserMdMigration: WorkspaceMigration = {
   id: "031-drop-user-md",
   description:
     "Delete legacy workspace-root USER.md after migrating content to users/<slug>.md",
+  // A null gateway read throws (below) so the checkpoint records `failed`; this
+  // flag lets the runner retry the cleanup on the next startup.
+  retryFailedCheckpoint: true,
 
   async run(workspaceDir: string): Promise<void> {
     const userMdPath = join(workspaceDir, "USER.md");
@@ -154,22 +157,28 @@ export const dropUserMdMigration: WorkspaceMigration = {
     // guardian has the most recently verified active channel. Guardian
     // identity comes from the gateway delivery; local INFO (id/displayName/
     // userFile) is joined from the local contact by the guardian's address.
+    // `null` means the gateway read FAILED (timeout / unreachable / malformed).
+    // Treat that as DATA-PRESERVING: leave USER.md in place and throw so the
+    // checkpoint records `failed`. A clean return would record `completed` and
+    // skip this migration forever, permanently stranding the USER.md cleanup +
+    // guardian-persona seed on a transient gateway miss; `retryFailedCheckpoint`
+    // re-runs it on the next startup. Deleting on a failed read could destroy
+    // the only copy of a customized root USER.md. `[]` means the gateway
+    // DEFINITIVELY reported no guardian, which proceeds normally. Read outside
+    // the try below so the throw isn't swallowed by the DB-error guard.
+    const guardians = await getGuardianDelivery();
+    if (guardians === null) {
+      log.warn(
+        {},
+        "Gateway guardian read failed; deferring USER.md cleanup for retry",
+      );
+      throw new Error(
+        "Gateway guardian read failed; deferring USER.md cleanup for retry",
+      );
+    }
+
     let guardian: { id: string; displayName: string; userFile: string | null };
     try {
-      const guardians = await getGuardianDelivery();
-      // `null` means the gateway read FAILED (timeout / unreachable /
-      // malformed). Treat that as DATA-PRESERVING: leave USER.md in place and
-      // defer. The migration is idempotent and re-runs on the next startup, so
-      // deferring is safe; deleting on a failed read could destroy the only
-      // copy of a customized root USER.md. `[]` means the gateway DEFINITIVELY
-      // reported no guardian, which proceeds normally.
-      if (guardians === null) {
-        log.warn(
-          {},
-          "Gateway guardian read failed; deferring USER.md cleanup",
-        );
-        return;
-      }
       const delivery =
         guardianForChannel(guardians, "vellum") ?? anyGuardian(guardians);
       const localContact = delivery

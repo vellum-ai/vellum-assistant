@@ -601,7 +601,17 @@ export class RelayConnection {
     const session = getCallSession(this.callSessionId);
     this.recordSetupBookkeeping(session, msg);
 
-    await this.primeGuardianDisplayName();
+    // Prime the guardian displayName and warm the phone-channel guardian-
+    // delivery cache before routeSetup's SYNC resolveActorTrust fallback. That
+    // fallback reads the IO-free cache snapshot keyed per channel-filter; daemon
+    // startup warms only `vellum`, so a cold-process phone call would otherwise
+    // misclassify a guardian during a gateway verdict blip. Both are independent
+    // IPC reads on different cache keys, so run them concurrently off the sync
+    // resolver's hot path.
+    await Promise.all([
+      this.primeGuardianDisplayName(),
+      getGuardianDelivery({ channelTypes: ["phone"] }),
+    ]);
 
     // Resolve the phone channel's inbound admission floor. The reader fails
     // open to `null` by contract, so a transport hiccup admits the caller.
@@ -939,6 +949,11 @@ export class RelayConnection {
         conversationExternalId: fromNumber,
       });
     }
+
+    // Warm the phone-channel guardian-delivery cache before the SYNC
+    // resolveActorTrust fallback, which reads the IO-free per-channel snapshot
+    // that daemon startup leaves cold for `phone`.
+    await getGuardianDelivery({ channelTypes: ["phone"] });
 
     return toTrustContext(
       resolveActorTrust({
