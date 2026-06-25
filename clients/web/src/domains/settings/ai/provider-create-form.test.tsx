@@ -341,6 +341,9 @@ describe("ProviderCreateForm submit sequence", () => {
     // confirms the form initialized on the "bring your own credential" path
     // (instead of the managed-capable provider's default `platform`).
     expect(getInputByPlaceholder("Enter your API key")).toBeDefined();
+    expect(getInputByPlaceholder("e.g. anthropic-personal").value).toBe(
+      "anthropic-personal",
+    );
   });
 
   test("a provider without platform auth (e.g. openrouter) seeds api_key, not platform", () => {
@@ -462,6 +465,30 @@ describe("ProviderCreateForm submit sequence", () => {
     );
     expect(getInputByPlaceholder("e.g. anthropic-personal").value).toBe(
       "anthropic-2",
+    );
+  });
+
+  test("switching to API Key auth reseeds a clean Key to the personal alias", () => {
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={[]}
+          defaultProviderType="anthropic"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    expect(getInputByPlaceholder("e.g. anthropic-personal").value).toBe(
+      "anthropic",
+    );
+
+    selectDropdownOption("Auth type", "API Key");
+
+    expect(getInputByPlaceholder("e.g. anthropic-personal").value).toBe(
+      "anthropic-personal",
     );
   });
 

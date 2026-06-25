@@ -1,4 +1,5 @@
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
+import type { AuthType } from "@/domains/settings/ai/provider-editor-constants";
 import { toKebabCase } from "@/domains/settings/ai/slugify";
 
 /**
@@ -37,10 +38,17 @@ function dedupeKey(base: string, existing: string[]): string {
 export function deriveProviderDefaults(
   providerType: string,
   existingConnectionNames: string[],
+  options: { authType?: AuthType } = {},
 ): { name: string; key: string } {
+  const keyBase =
+    options.authType === "api_key" &&
+    providerType !== "ollama" &&
+    providerType !== "openai-compatible"
+      ? `${providerType}-personal`
+      : providerType;
   return {
     name: PROVIDER_DISPLAY_NAMES[providerType] ?? providerType,
-    key: dedupeKey(slugify(providerType), existingConnectionNames),
+    key: dedupeKey(slugify(keyBase), existingConnectionNames),
   };
 }
 

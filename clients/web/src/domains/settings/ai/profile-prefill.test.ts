@@ -76,6 +76,26 @@ describe("deriveProviderDefaults", () => {
     });
   });
 
+  test("uses the personal alias for API-key provider connections", () => {
+    expect(
+      deriveProviderDefaults("anthropic", [], { authType: "api_key" }),
+    ).toEqual({
+      name: "Anthropic",
+      key: "anthropic-personal",
+    });
+  });
+
+  test("dedupes API-key personal aliases against existing connection names", () => {
+    expect(
+      deriveProviderDefaults("anthropic", ["anthropic-personal"], {
+        authType: "api_key",
+      }),
+    ).toEqual({
+      name: "Anthropic",
+      key: "anthropic-personal-2",
+    });
+  });
+
   test("falls back to the provider type when no display name exists", () => {
     expect(deriveProviderDefaults("custom-provider", [])).toEqual({
       name: "custom-provider",

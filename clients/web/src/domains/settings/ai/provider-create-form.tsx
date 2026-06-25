@@ -31,6 +31,30 @@ import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-credentials-list";
 
+function defaultAuthTypeForProvider(
+  provider: ConnectionProvider,
+  requested?: AuthType,
+): AuthType {
+  if (requested) return requested;
+  if (provider === "ollama") return "none";
+  return providerSupportsPlatformAuth(provider) ? "platform" : "api_key";
+}
+
+function nextAuthTypeForProvider(
+  provider: ConnectionProvider,
+  current: AuthType,
+): AuthType {
+  if (provider === "ollama") return "none";
+  if (current === "none") return "api_key";
+  if (current === "oauth_subscription" && provider !== "openai") {
+    return "api_key";
+  }
+  if (current === "platform" && !providerSupportsPlatformAuth(provider)) {
+    return "api_key";
+  }
+  return current;
+}
+
 // ---------------------------------------------------------------------------
 // ProviderCreateForm
 // ---------------------------------------------------------------------------
@@ -73,26 +97,23 @@ export function ProviderCreateForm({
   variant = "modal",
 }: ProviderCreateFormProps) {
   const initialProvider: ConnectionProvider = defaultProviderType ?? "anthropic";
+  const initialAuthType = defaultAuthTypeForProvider(
+    initialProvider,
+    defaultAuthType,
+  );
 
-  // Seed Display Name (label) + Key (name) from the initial provider type so
-  // the form opens pre-filled (e.g. Anthropic → "Anthropic" / "anthropic"),
-  // deduped against existing connection names. The user can override both, and
-  // a provider-type change re-seeds only while they haven't edited the fields
-  // (see the dirty guard in the Provider dropdown's onChange below).
-  const initialDefaults = deriveProviderDefaults(initialProvider, existingNames);
+  // Seed Display Name (label) + Key (name) from the initial provider and auth
+  // type, deduped against existing connection names. The user can override
+  // both, and a provider-type change re-seeds only while they haven't edited
+  // the fields (see the dirty guard in the Provider dropdown's onChange below).
+  const initialDefaults = deriveProviderDefaults(initialProvider, existingNames, {
+    authType: initialAuthType,
+  });
 
   const [label, setLabel] = useState(initialDefaults.name);
   const [name, setName] = useState(initialDefaults.key);
   const [provider, setProvider] = useState<ConnectionProvider>(initialProvider);
-  const [authType, setAuthType] = useState<AuthType>(
-    () =>
-      defaultAuthType ??
-      (initialProvider === "ollama"
-        ? "none"
-        : providerSupportsPlatformAuth(initialProvider)
-          ? "platform"
-          : "api_key"),
-  );
+  const [authType, setAuthType] = useState<AuthType>(initialAuthType);
   const [credential, setCredential] = useState(() =>
     initialProvider === "ollama" ? "" : `credential/${initialProvider}/api_key`,
   );
@@ -322,6 +343,7 @@ export function ProviderCreateForm({
           aria-label="Provider"
           value={provider}
           onChange={(newProvider) => {
+            const nextAuthType = nextAuthTypeForProvider(newProvider, authType);
             setProvider(newProvider);
             // Re-seed Name + Key from the newly selected provider type, but
             // only while the user hasn't manually edited either field (dirty
@@ -331,34 +353,17 @@ export function ProviderCreateForm({
               const { name: seedName, key: seedKey } = deriveProviderDefaults(
                 newProvider,
                 existingNames,
+                { authType: nextAuthType },
               );
               setLabel(seedName);
               setName(seedKey);
             }
             if (newProvider === "ollama") {
-              setAuthType("none");
               setCredential("");
             } else {
-              setAuthType((prev) => {
-                if (prev === "none") {
-                  return "api_key";
-                }
-                if (
-                  prev === "oauth_subscription" &&
-                  newProvider !== "openai"
-                ) {
-                  return "api_key";
-                }
-                if (
-                  prev === "platform" &&
-                  !providerSupportsPlatformAuth(newProvider)
-                ) {
-                  return "api_key";
-                }
-                return prev;
-              });
               setCredential(`credential/${newProvider}/api_key`);
             }
+            setAuthType(nextAuthType);
             // Credential ref changes above trigger a new TQ query key,
             // so the presence check auto-refetches for the new provider.
           }}
@@ -413,6 +418,14 @@ export function ProviderCreateForm({
           aria-label="Auth type"
           value={authType}
           onChange={(v) => {
+            if (!getDirty()) {
+              const { key: seedKey } = deriveProviderDefaults(
+                provider,
+                existingNames,
+                { authType: v },
+              );
+              setName(seedKey);
+            }
             setAuthType(v);
             setError(null);
           }}
