@@ -2,7 +2,6 @@ import MarkdownIt from "markdown-it";
 import katex from "katex";
 import katexCssText from "katex/dist/katex.min.css?text";
 import { renderToStaticMarkup } from "react-dom/server";
-import React from "react";
 
 import type {
   CostDiagnostic,
@@ -1579,23 +1578,16 @@ function Transcript({
       <div className="conversation-switcher">
         <div className="transcript-header">
           <h2>{headerText}</h2>
-          {/* renderToStaticMarkup passes string onChange through to the
-              HTML attribute, but React's TS types expect a function.
-              Cast to Record to bridge the static-HTML rendering model. */}
-          {React.createElement(
-            "select",
-            {
-              className: "conversation-select",
-              "data-conv-count": groups.length,
-              onChange:
-                "document.querySelectorAll('.conversation-panel').forEach((p,i)=>{p.style.display=i===this.selectedIndex?'flex':'none'});const u=new URL(location.href);u.searchParams.set('conv',this.selectedIndex);history.replaceState(null,'',u)",
-            } as Record<string, unknown>,
-            groups.map((group, index) => (
+          <select
+            className="conversation-select"
+            data-conv-count={groups.length}
+          >
+            {groups.map((group, index) => (
               <option key={group.key} value={index}>
                 {group.label}
               </option>
-            )),
-          )}
+            ))}
+          </select>
         </div>
         <p className="section-subtle">{subText}</p>
         <div className="transcript-wrap">
@@ -2259,11 +2251,25 @@ function ExecutionPage({
             if (radio) radio.checked = true;
           }
           var sel = document.querySelector('.conversation-select');
-          if (sel && conv !== null) {
-            var idx = parseInt(conv, 10);
-            if (!isNaN(idx) && idx >= 0 && idx < sel.options.length) {
-              sel.selectedIndex = idx;
-              sel.dispatchEvent(new Event('change'));
+          function syncConvPanels(idx) {
+            document.querySelectorAll('.conversation-panel').forEach(function(p) {
+              var i = parseInt(p.getAttribute('data-conv-index'), 10);
+              p.style.display = i === idx ? 'flex' : 'none';
+            });
+            var u = new URL(location.href);
+            u.searchParams.set('conv', idx);
+            history.replaceState(null, '', u);
+          }
+          if (sel) {
+            sel.addEventListener('change', function() {
+              syncConvPanels(this.selectedIndex);
+            });
+            if (conv !== null) {
+              var idx = parseInt(conv, 10);
+              if (!isNaN(idx) && idx >= 0 && idx < sel.options.length) {
+                sel.selectedIndex = idx;
+                syncConvPanels(idx);
+              }
             }
           }
           tabIds.forEach(function(name) {
