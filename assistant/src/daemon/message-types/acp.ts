@@ -28,6 +28,8 @@ export interface AcpSessionUpdate {
   toolTitle?: string;
   toolKind?: string;
   toolStatus?: string;
+  /** Files touched by this tool call (for the file-diff affordance). */
+  locations?: { path: string; line?: number }[];
   /** Stable id for the message this chunk belongs to. */
   messageId?: string;
   /** Monotonic ordering hint within the session. */

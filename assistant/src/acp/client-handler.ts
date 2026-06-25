@@ -168,6 +168,11 @@ export class VellumAcpClientHandler implements Client {
           toolTitle: update.title,
           toolKind: update.kind,
           toolStatus: update.status,
+          locations:
+            update.locations?.map((l) => ({
+              path: l.path,
+              line: l.line ?? undefined,
+            })) ?? undefined,
         });
         break;
       }
@@ -180,6 +185,11 @@ export class VellumAcpClientHandler implements Client {
           toolKind: update.kind ?? undefined,
           toolStatus: update.status ?? undefined,
           content: update.content ? JSON.stringify(update.content) : undefined,
+          locations:
+            update.locations?.map((l) => ({
+              path: l.path,
+              line: l.line ?? undefined,
+            })) ?? undefined,
         });
         break;
       }

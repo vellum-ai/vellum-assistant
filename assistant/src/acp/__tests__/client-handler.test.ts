@@ -330,4 +330,72 @@ describe("VellumAcpClientHandler seq + enriched fields", () => {
       seq: 1,
     });
   });
+
+  test("tool_call_update forwards locations[] when present", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tc-2",
+        status: "completed",
+        locations: [
+          { path: "/repo/src/main.ts", line: 42 },
+          { path: "/repo/src/util.ts" },
+        ],
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      updateType: "tool_call_update",
+      toolCallId: "tc-2",
+      locations: [
+        { path: "/repo/src/main.ts", line: 42 },
+        { path: "/repo/src/util.ts", line: undefined },
+      ],
+    });
+  });
+
+  test("tool_call forwards locations[] when present", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc-3",
+        title: "Edit main.ts",
+        kind: "edit",
+        status: "pending",
+        locations: [{ path: "/repo/src/main.ts", line: 7 }],
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      updateType: "tool_call",
+      toolCallId: "tc-3",
+      locations: [{ path: "/repo/src/main.ts", line: 7 }],
+    });
+  });
+
+  test("tool_call_update omits locations key when absent", async () => {
+    const { handler, sent } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tc-4",
+        status: "in_progress",
+      },
+    });
+
+    expect(sent).toHaveLength(1);
+    const msg = sent[0] as { locations?: unknown };
+    expect(msg.locations).toBeUndefined();
+    expect("locations" in msg && msg.locations !== undefined).toBe(false);
+  });
 });
