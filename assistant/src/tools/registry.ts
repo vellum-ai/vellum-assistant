@@ -1,3 +1,4 @@
+import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { getLogger } from "../util/logger.js";
 import { coreAppProxyTools } from "./apps/definitions.js";
 import { registerAppTools } from "./apps/registry.js";
@@ -556,9 +557,15 @@ export function getMcpToolDefinitions(): Tool[] {
  * {@link getMcpToolDefinitions} so a plugin install behaves like `mcp reload`.
  */
 export function getPluginToolDefinitions(): Tool[] {
-  return Array.from(tools.values()).filter(
-    (t) => ownersByName.get(t.name)?.kind === "plugin",
-  );
+  return Array.from(tools.values()).filter((t) => {
+    const owner = ownersByName.get(t.name);
+    if (owner?.kind !== "plugin") return false;
+    // Filter out tools contributed by disabled plugins at read time so
+    // `assistant plugins disable <name>` takes effect on the next turn
+    // without a daemon restart. Mirrors the `.disabled` sentinel filtering
+    // in `getHooksFor` (plugins/registry.ts).
+    return !isPluginDisabled(owner.id);
+  });
 }
 
 /**

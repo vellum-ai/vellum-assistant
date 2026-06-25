@@ -450,6 +450,7 @@ describe("toTrustContext member grounding", () => {
       id: "contact-1",
       displayName: "Frank",
       notes: null,
+      role: "contact",
       lastInteraction: null,
       interactionCount: 0,
       createdAt: 0,

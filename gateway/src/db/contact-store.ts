@@ -35,31 +35,6 @@ export type Contact = typeof contacts.$inferSelect;
 export type ContactChannel = typeof contactChannels.$inferSelect;
 export type IngressInviteRow = typeof ingressInvites.$inferSelect;
 
-/** ACL fields of an adopted assistant channel, carried through the create-heal
- * path so syncChannels' INSERT preserves them instead of defaulting. `id` is the
- * assistant channel's own id, adopted so the gateway row shares one canonical
- * channel id (verify-by-id can't split). */
-type AdoptedChannelAcl = {
-  id: string;
-  type: string;
-  address: string;
-  isPrimary: boolean;
-  externalChatId: string | null;
-  status: string;
-  policy: string;
-  verifiedAt: number | null;
-  verifiedVia: string | null;
-  inviteId: string | null;
-  revokedReason: string | null;
-  blockedReason: string | null;
-};
-
-/** Canonical (type,address) key for matching adopted channels, COLLATE
- * NOCASE-equivalent — same logical key the gateway uses to dedupe channels. */
-function adoptedChannelKey(type: string, address: string): string {
-  return `${type}\n${address.toLowerCase()}`;
-}
-
 export class ContactStore {
   private injectedDb?: GatewayDb;
 
@@ -1287,80 +1262,26 @@ export class ContactStore {
     }
 
     // ── 3. Create new ─────────────────────────────────────────────────
-    // Create-only canonical-id adoption: before minting a fresh id, check the
-    // assistant DB for an existing contact owning one of these channels (by
-    // (type, address)). Adopting that id keeps both DBs keyed by ONE canonical
-    // id — the gateway INSERT, syncChannels, and the assistant mirror all use
-    // it, so a "healed" assistant-only contact's info reads back via the
-    // join-by-id read path. Soft-fails to a minted id if the lookup throws
-    // (daemon down / tests) — the assistant-mirror best-effort invariant.
-    let adoptedChannelAcls: Map<string, AdoptedChannelAcl> | undefined;
-    let crossOwnedKeys: Set<string> | undefined;
     if (!contactId) {
-      const adopted = await this.adoptAssistantContactId(canonicalChannels);
-      contactId = adopted?.contactId ?? crypto.randomUUID();
-      adoptedChannelAcls = adopted?.channelAcls;
-      crossOwnedKeys = adopted?.crossOwnedKeys;
-      // An adopted id may already exist as a gateway row (different channels);
-      // preserve it (name omit-to-preserve) instead of a conflicting INSERT.
-      const existing = adopted
-        ? this.db
-            .select({ id: contacts.id })
-            .from(contacts)
-            .where(eq(contacts.id, contactId))
-            .get()
-        : undefined;
-      if (existing) {
-        updateContactName(contactId);
-      } else {
-        // No displayName supplied → preserve the adopted assistant contact's
-        // existing name (a migrated custom name) so the gateway row doesn't
-        // get renamed to the bare channel address on the next refetch.
-        this.db
-          .insert(contacts)
-          .values({
-            id: contactId,
-            displayName:
-              params.displayName ??
-              adopted?.displayName ??
-              canonicalChannels?.[0]?.address ??
-              "Unknown",
-            role: "contact",
-            principalId: null,
-            createdAt: now,
-            updatedAt: now,
-          })
-          .run();
-        created = true;
-      }
+      contactId = crypto.randomUUID();
+      this.db
+        .insert(contacts)
+        .values({
+          id: contactId,
+          displayName:
+            params.displayName ?? canonicalChannels?.[0]?.address ?? "Unknown",
+          role: "contact",
+          principalId: null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      created = true;
     }
 
     // ── 4. Sync channels (gateway DB) ─────────────────────────────────
-    // Drop any requested channel owned by a DIFFERENT assistant contact: the
-    // gateway must not insert it under the adopted contact, because the
-    // assistant mirror skips it as a cross-contact conflict — claiming it
-    // gateway-side would diverge ACL ownership and risk routing the wrong
-    // contact. Genuinely-unowned channels stay and insert as new.
-    const healChannels = crossOwnedKeys?.size
-      ? canonicalChannels?.filter((ch) => {
-          const owned = crossOwnedKeys!.has(adoptedChannelKey(ch.type, ch.address));
-          if (owned) {
-            log.warn(
-              { contactId, type: ch.type, address: ch.address },
-              "upsertContact: skipping create-heal channel owned by another assistant contact (keeping gateway/assistant ownership in sync)",
-            );
-          }
-          return !owned;
-        })
-      : canonicalChannels;
-
-    // Carry the adopted assistant channel's ACL state into the heal INSERT so
-    // an active/verified contact isn't downgraded to unverified/allow.
-    const channelsToSync = adoptedChannelAcls?.size
-      ? this.mergeAdoptedChannelAcl(healChannels, adoptedChannelAcls)
-      : healChannels;
-    if (channelsToSync?.length) {
-      this.syncChannels(contactId, channelsToSync, now);
+    if (canonicalChannels?.length) {
+      this.syncChannels(contactId, canonicalChannels, now);
     }
 
     // ── 5. Dual-write to assistant DB (best-effort) ───────────────────
@@ -1746,39 +1667,6 @@ export class ContactStore {
     }
   }
 
-  /**
-   * Merge adopted assistant channels' ACL fields into the matching
-   * (type,address) channels of a create-heal upsert, omit-to-preserve so any
-   * field the caller explicitly supplied still wins. Each enriched channel
-   * carries the assistant row's real status/policy/verification into
-   * syncChannels' INSERT — without this, the heal would default an active
-   * channel to unverified/allow and downgrade a trusted contact. Requested
-   * channels with no assistant match stay genuinely-new (fresh id later).
-   */
-  private mergeAdoptedChannelAcl(
-    channels: Parameters<ContactStore["upsertContact"]>[0]["channels"],
-    acls: Map<string, AdoptedChannelAcl>,
-  ): Parameters<ContactStore["upsertContact"]>[0]["channels"] {
-    return channels?.map((ch) => {
-      const acl = acls.get(adoptedChannelKey(ch.type, ch.address));
-      if (!acl) return ch;
-      return {
-        ...ch,
-        // Adopt the assistant channel id so syncChannels' INSERT shares it.
-        id: ch.id ?? acl.id,
-        isPrimary: ch.isPrimary ?? acl.isPrimary,
-        externalChatId: ch.externalChatId ?? acl.externalChatId,
-        status: ch.status ?? acl.status,
-        policy: ch.policy ?? acl.policy,
-        verifiedAt: ch.verifiedAt ?? acl.verifiedAt,
-        verifiedVia: ch.verifiedVia ?? acl.verifiedVia,
-        inviteId: ch.inviteId ?? acl.inviteId,
-        revokedReason: ch.revokedReason ?? acl.revokedReason,
-        blockedReason: ch.blockedReason ?? acl.blockedReason,
-      };
-    });
-  }
-
   // ---------------------------------------------------------------------------
   // Assistant DB dual-write
   // ---------------------------------------------------------------------------
@@ -1961,139 +1849,6 @@ export class ContactStore {
         );
       }
     }
-  }
-
-  /**
-   * Create-only canonical-id adoption.
-   *
-   * When creating a contact (no explicit id, no gateway (type, address) match),
-   * look up an existing contact in the ASSISTANT DB owning one of the provided
-   * channels (by the same logical key the gateway uses). If found, return its
-   * id + existing display_name so the gateway INSERT + channels + mirror all
-   * share ONE canonical id — healing a legacy assistant-only contact instead of
-   * forking the two DBs onto different ids. The display_name lets the create
-   * path preserve a migrated custom name when the caller omits displayName.
-   * Returns null when there's no match or the lookup soft-fails (daemon down /
-   * tests), so the caller falls back to a freshly minted id.
-   *
-   * Every adopted channel's ACL fields (status/policy/verification) ride along
-   * keyed by canonical (type,address) so the create path can carry them into
-   * syncChannels' INSERT — without them the new gateway rows would default to
-   * unverified/allow, DOWNGRADING already active/trusted assistant channels
-   * below the trusted_contacts admission floor. Multi-channel heals must adopt
-   * EVERY matched channel, not just the first one the contact id resolved on.
-   *
-   * Never called on the explicit-id update path — an edit must not retarget
-   * another contact (the gateway syncChannels skips cross-contact channels).
-   */
-  private async adoptAssistantContactId(
-    channels: Parameters<ContactStore["upsertContact"]>[0]["channels"],
-  ): Promise<{
-    contactId: string;
-    displayName: string | null;
-    channelAcls: Map<string, AdoptedChannelAcl>;
-    // (type,address) keys of requested channels owned by a DIFFERENT assistant
-    // contact than the adopted one. The gateway must not insert these under the
-    // adopted contact — the assistant mirror skips them as cross-contact
-    // conflicts, so claiming them gateway-side diverges ownership.
-    crossOwnedKeys: Set<string>;
-  } | null> {
-    try {
-      for (const ch of channels ?? []) {
-        const rows = await assistantDbQuery<{
-          contactId: string;
-          displayName: string | null;
-        }>(
-          `SELECT cc.contact_id  AS contactId,
-                  c.display_name AS displayName
-             FROM contact_channels cc
-             JOIN contacts c ON c.id = cc.contact_id
-            WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
-            LIMIT 1`,
-          [ch.type, ch.address],
-        );
-        if (!rows.length) continue;
-
-        // Contact id resolved on the first match. Now fetch ALL of that
-        // contact's channels in one query so a multi-channel heal adopts each
-        // requested channel's id + ACL, not just the one that matched first.
-        const { contactId, displayName } = rows[0];
-        const aclRows = await assistantDbQuery<{
-          id: string;
-          type: string;
-          address: string;
-          isPrimary: number;
-          externalChatId: string | null;
-          status: string;
-          policy: string;
-          verifiedAt: number | null;
-          verifiedVia: string | null;
-          inviteId: string | null;
-          revokedReason: string | null;
-          blockedReason: string | null;
-        }>(
-          `SELECT cc.id,
-                  cc.type,
-                  cc.address,
-                  cc.is_primary      AS isPrimary,
-                  cc.external_chat_id AS externalChatId,
-                  cc.status,
-                  cc.policy,
-                  cc.verified_at     AS verifiedAt,
-                  cc.verified_via    AS verifiedVia,
-                  cc.invite_id       AS inviteId,
-                  cc.revoked_reason  AS revokedReason,
-                  cc.blocked_reason  AS blockedReason
-             FROM contact_channels cc
-            WHERE cc.contact_id = ?`,
-          [contactId],
-        );
-
-        const channelAcls = new Map<string, AdoptedChannelAcl>();
-        for (const r of aclRows) {
-          channelAcls.set(adoptedChannelKey(r.type, r.address), {
-            id: r.id,
-            type: r.type,
-            address: r.address,
-            isPrimary: Boolean(r.isPrimary),
-            externalChatId: r.externalChatId,
-            status: r.status,
-            policy: r.policy,
-            verifiedAt: r.verifiedAt,
-            verifiedVia: r.verifiedVia,
-            inviteId: r.inviteId,
-            revokedReason: r.revokedReason,
-            blockedReason: r.blockedReason,
-          });
-        }
-
-        // For requested channels NOT owned by the adopted contact, flag any
-        // already owned by a DIFFERENT assistant contact so the create-heal
-        // path skips inserting them under the adopted gateway contact (the
-        // assistant mirror skips them too — keep ownership symmetric).
-        const crossOwnedKeys = new Set<string>();
-        for (const reqCh of channels ?? []) {
-          const key = adoptedChannelKey(reqCh.type, reqCh.address);
-          if (channelAcls.has(key)) continue;
-          const owner = await assistantDbQuery<{ contactId: string }>(
-            `SELECT contact_id AS contactId FROM contact_channels
-              WHERE type = ? AND address = ? COLLATE NOCASE LIMIT 1`,
-            [reqCh.type, reqCh.address],
-          );
-          if (owner.length && owner[0].contactId !== contactId) {
-            crossOwnedKeys.add(key);
-          }
-        }
-
-        return { contactId, displayName, channelAcls, crossOwnedKeys };
-      }
-    } catch (err) {
-      log.warn(
-        { err },
-        "adoptAssistantContactId: assistant DB lookup failed; minting a new id",
-      );
-    }
-    return null;
   }
 
   /**

@@ -37,14 +37,14 @@ const importSubagentDetailPanel = () =>
   import("@/domains/chat/components/subagent-detail-panel");
 const importToolDetailPanel = () =>
   import("@/domains/chat/components/tool-detail-panel");
+const importWorkflowDetailPanel = () =>
+  import("@/domains/chat/components/workflow-detail-panel");
 
 const SubagentDetailPanel = lazy(() =>
   importSubagentDetailPanel().then((m) => ({ default: m.SubagentDetailPanel })),
 );
 const WorkflowDetailPanel = lazy(() =>
-  import("@/domains/chat/components/workflow-detail-panel").then((m) => ({
-    default: m.WorkflowDetailPanel,
-  })),
+  importWorkflowDetailPanel().then((m) => ({ default: m.WorkflowDetailPanel })),
 );
 const ToolDetailPanel = lazy(() =>
   importToolDetailPanel().then((m) => ({ default: m.ToolDetailPanel })),
@@ -203,6 +203,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     const run = () => {
       importSubagentDetailPanel().catch(() => {});
       importToolDetailPanel().catch(() => {});
+      importWorkflowDetailPanel().catch(() => {});
     };
     if (typeof window.requestIdleCallback === "function") {
       const id = window.requestIdleCallback(run);
@@ -275,12 +276,12 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   const chatContent = <ChatMainPanel {...props} />;
 
-  // Right-hand detail panels — document viewer, subagent detail, and tool
-  // detail — all share ONE AnimatedRightDrawer so the chat (`left`) keeps a
-  // stable position in the React tree and is NEVER unmounted when a panel
-  // opens, closes, or switches between them. Only the (lazy, lightweight)
-  // right-pane subtree changes; the transcript keeps its DOM and scroll
-  // position. The drawer eases its width 0 ⇄ target, so opening/closing
+  // Right-hand detail panels — document viewer, subagent detail, tool detail,
+  // and workflow detail — all share ONE AnimatedRightDrawer so the chat
+  // (`left`) keeps a stable position in the React tree and is NEVER unmounted
+  // when a panel opens, closes, or switches between them. Only the (lazy,
+  // lightweight) right-pane subtree changes; the transcript keeps its DOM and
+  // scroll position. The drawer eases its width 0 ⇄ target, so opening/closing
   // reflows the chat in lockstep; drag-to-resize + width persistence are
   // built in. On mobile these panels render via portal overlays, so the
   // drawer stays closed (`open=false`) and the chat fills the width.
@@ -335,36 +336,20 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           />
         </LazyBoundary>
       );
-    }
-  }
-
-  // Workflow detail side panel — its own ResizablePanel split, not the unified
-  // AnimatedRightDrawer below. Living in a separate return branch, the chat
-  // (`left`) remounts when switching between this panel and the other right-hand
-  // panels, whereas document/subagent/tool-detail share the drawer and keep the
-  // chat mounted across switches.
-  if (mainView === "workflow-detail" && activeWorkflowRunId && !isMobile) {
-    const activeEntry = workflowById[activeWorkflowRunId];
-    if (activeEntry) {
-      return (
-        <ResizablePanel
-          storageKey="workflowDetailPanelWidth"
-          hideDivider
-          defaultRightWidth={400}
-          minLeftWidth={300}
-          minRightWidth={400}
-          left={chatContent}
-          right={
-            <LazyBoundary>
-              <WorkflowDetailPanel
-                entry={activeEntry}
-                onClose={onCloseWorkflowDetail}
-                onStop={onStopWorkflow}
-                onRequestJournal={onRequestWorkflowJournal}
-              />
-            </LazyBoundary>
-          }
-        />
+    } else if (
+      mainView === "workflow-detail" &&
+      activeWorkflowRunId &&
+      workflowById[activeWorkflowRunId]
+    ) {
+      rightPanel = (
+        <LazyBoundary>
+          <WorkflowDetailPanel
+            entry={workflowById[activeWorkflowRunId]}
+            onClose={onCloseWorkflowDetail}
+            onStop={onStopWorkflow}
+            onRequestJournal={onRequestWorkflowJournal}
+          />
+        </LazyBoundary>
       );
     }
   }

@@ -95,6 +95,74 @@ export interface AgentLoopConfig {
   minTurnIntervalMs?: number;
   /** Override the default prompt cache TTL sent to the provider (e.g. "5m" for short-lived subagents). */
   cacheTtl?: "5m" | "1h";
+  /**
+   * Give every LLM call provider-native (server-side) web search, gated on the
+   * native-search capability of the (provider, model) the call routes to —
+   * {@link Provider.supportsNativeWebSearchFor} when the provider exposes it,
+   * else the static {@link Provider.supportsNativeWebSearch} flag.
+   * When both are true, the loop appends a `web_search`-named tool to the
+   * outbound request — which Anthropic/OpenAI substitute for their server-side
+   * search tool, running the search inline and returning results without a
+   * client tool round-trip — and forces `tool_choice: auto` so the model may
+   * call it. Non-native providers get nothing.
+   *
+   * This is a SERVER tool the provider runs itself, distinct from the client
+   * tool list (`tools` / `resolveTools`): it is never executed by
+   * {@link AgentLoopConstructorOptions.toolExecutor} and does not require any
+   * client-tool allowlist entry. Used by the tool-less advisor consult to
+   * ground its guidance with live web access while staying one-shot for client
+   * tools. Defaults to false — existing behavior.
+   */
+  enableNativeWebSearch?: boolean;
+}
+
+/**
+ * The `web_search`-named tool the loop appends when
+ * {@link AgentLoopConfig.enableNativeWebSearch} is set on a native provider.
+ * Anthropic/OpenAI intercept a tool with this name and substitute their own
+ * server-side web search (run inline, no client execution), so the exact
+ * `input_schema` is informational — the provider supplies the real schema.
+ */
+const NATIVE_WEB_SEARCH_TOOL: ToolDefinition = {
+  name: "web_search",
+  description:
+    "Search the web for current information to ground your response.",
+  input_schema: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "The search query." },
+    },
+    required: ["query"],
+  },
+};
+
+/**
+ * Build the minimal `SendMessageOptions` a routing-aware provider needs to
+ * report the native web-search capability of the (provider, model) THIS turn
+ * routes to. Mirrors the call-site fields the loop plumbs onto the actual send
+ * (`callSite` + `overrideProfile`/`forceOverrideProfile` + per-conversation
+ * `selectionSeed`) so the capability probe and the dispatch resolve the same
+ * arm. Returns `undefined` when there is no `callSite` (the legacy
+ * default-provider path); `selectionSeed` is omitted for standalone loops with
+ * no conversation id, matching the dispatch path's own guard.
+ */
+function buildNativeWebSearchProbeOptions(
+  callSite: LLMCallSite | undefined,
+  overrideProfile: string | undefined,
+  forceOverrideProfile: boolean,
+  conversationId: string | undefined,
+): SendMessageOptions | undefined {
+  if (!callSite) return undefined;
+  return {
+    config: {
+      callSite,
+      ...(overrideProfile ? { overrideProfile } : {}),
+      ...(overrideProfile && forceOverrideProfile
+        ? { forceOverrideProfile: true }
+        : {}),
+      ...(conversationId ? { selectionSeed: conversationId } : {}),
+    },
+  };
 }
 
 export interface CheckpointInfo {
@@ -1240,9 +1308,43 @@ export class AgentLoop {
 
         // Resolve tools for this turn: use the dynamic resolver if provided,
         // otherwise fall back to the static tool list.
-        const currentTools = this.resolveTools
+        const resolvedTools = this.resolveTools
           ? this.resolveTools(history)
           : this.tools;
+
+        // Provider-native web search: append a `web_search`-named tool that the
+        // provider substitutes for its server-side search (run inline, no client
+        // execution), gated STRICTLY on the capability of the provider/model
+        // this call ACTUALLY routes to so a non-native provider never sees an
+        // unexecutable client tool. The advisor consult's `advisorProfile` can
+        // route `subagentSpawn` to a provider/model whose native-search support
+        // differs from the construction-time default, so the gate resolves the
+        // routed target (callSite + overrideProfile) via
+        // `supportsNativeWebSearchFor` rather than the static
+        // `this.provider.supportsNativeWebSearch` snapshot; providers without
+        // the routing-aware probe fall back to the static flag. This is a SERVER
+        // tool — it bypasses the client allowlist and the tool executor — so the
+        // tool-less advisor consult can ground its guidance with live web access
+        // while staying one-shot for client tools. Skip when a `web_search` tool
+        // is already present so we never duplicate the name.
+        const supportsRoutedNativeWebSearch = this.provider
+          .supportsNativeWebSearchFor
+          ? this.provider.supportsNativeWebSearchFor(
+              buildNativeWebSearchProbeOptions(
+                callSite,
+                resolveEffectiveOverrideProfile(),
+                forceOverrideProfile,
+                this.conversationId,
+              ),
+            )
+          : this.provider.supportsNativeWebSearch === true;
+        const attachNativeWebSearch =
+          this.config.enableNativeWebSearch === true &&
+          supportsRoutedNativeWebSearch &&
+          !resolvedTools.some((t) => t.name === NATIVE_WEB_SEARCH_TOOL.name);
+        const currentTools = attachNativeWebSearch
+          ? [...resolvedTools, NATIVE_WEB_SEARCH_TOOL]
+          : resolvedTools;
 
         // Field precedence (highest wins):
         //   1. Per-run explicit (`runModel`)
@@ -1286,6 +1388,11 @@ export class AgentLoop {
 
         if (this.config.toolChoice) {
           providerConfig.tool_choice = this.config.toolChoice;
+        } else if (attachNativeWebSearch) {
+          // The native web-search tool is the only tool on this turn (the
+          // advisor consult is otherwise tool-less). Let the model decide
+          // whether to search rather than forcing it.
+          providerConfig.tool_choice = { type: "auto" };
         }
 
         if (this.config.cacheTtl) {

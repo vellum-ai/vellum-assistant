@@ -28,7 +28,7 @@ export type ContactSelection =
 export interface ContactSummary {
   id: string;
   displayName: string;
-  role: "guardian" | "assistant" | string;
+  role: string;
   contactType?: string | null;
   channelTypes?: string[];
 }

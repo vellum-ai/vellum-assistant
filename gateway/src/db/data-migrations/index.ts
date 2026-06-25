@@ -26,6 +26,7 @@ import * as m0004 from "./m0004-actor-token-hash-index-unfiltered.js";
 import * as m0005 from "./m0005-normalize-contact-channel-addresses.js";
 import * as m0006 from "./m0006-reconcile-contacts-from-assistant.js";
 import * as m0007 from "./m0007-backfill-ingress-invites.js";
+import * as m0008 from "./m0008-upsert-acl-columns-from-assistant.js";
 
 const log = getLogger("data-migrations");
 
@@ -44,6 +45,7 @@ const MIGRATIONS: { key: string; mod: MigrationModule }[] = [
   { key: "m0005-normalize-contact-channel-addresses", mod: m0005 },
   { key: "m0006-reconcile-contacts-from-assistant", mod: m0006 },
   { key: "m0007-backfill-ingress-invites", mod: m0007 },
+  { key: "m0008-upsert-acl-columns-from-assistant", mod: m0008 },
 ];
 
 /**

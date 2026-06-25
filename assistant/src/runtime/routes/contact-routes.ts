@@ -54,10 +54,8 @@ function rethrowGatewayError(err: unknown): never {
 }
 
 function withGuardianNameOverride<
-  T extends { role?: string; displayName: string },
+  T extends { role: string; displayName: string },
 >(contact: T): T {
-  // `role` is gateway-owned: only the gateway-relayed read carries it. Daemon-
-  // native reads (search/contactType-filtered) omit it and skip the override.
   if (contact.role === "guardian") {
     return {
       ...contact,
@@ -80,15 +78,24 @@ function withChannelCompat<T extends { channels: { address: string }[] }>(
   };
 }
 
-/** Compose both response transforms (guardian display name + channel compat). */
+/** Compose both response transforms (guardian display name + channel compat).
+ * Also coerces nullable gateway-sourced fields to their DB defaults so the
+ * response satisfies the strict enum schema even in degraded mode (assistant
+ * DB unreachable → gateway soft-fail join produces nulls).
+ */
 function prepareContactResponse<
   T extends {
-    role?: string;
+    role: string;
     displayName: string;
+    contactType?: string | null;
     channels: { address: string }[];
   },
 >(contact: T): T {
-  return withChannelCompat(withGuardianNameOverride(contact));
+  const coerced =
+    contact.contactType == null
+      ? { ...contact, contactType: "human" as T["contactType"] }
+      : contact;
+  return withChannelCompat(withGuardianNameOverride(coerced));
 }
 
 const VALID_CONTACT_TYPES: readonly ContactType[] = ["human", "assistant"];
@@ -101,12 +108,13 @@ function isContactType(value: string): value is ContactType {
 // Response schemas (drive OpenAPI spec → codegen → typed SDK)
 // ---------------------------------------------------------------------------
 
-// ACL fields (status/policy/verifiedAt/verifiedVia/revokedReason/blockedReason
-// + contact `role`) are gateway-owned and present ONLY on gateway-relayed reads
+// Channel ACL fields (status/policy/verifiedAt/verifiedVia/revokedReason/
+// blockedReason) are gateway-owned and present ONLY on gateway-relayed reads
 // (`contacts_list_rich`/`contacts_get_rich`). Daemon-native filtered reads
-// (search / contactType) omit them, so they are `.optional()`. INFO telemetry
-// (lastSeenAt/interactionCount/lastInteraction) is locally hydrated on every
-// read path and stays required.
+// (search / contactType) omit them, so they are `.optional()`. Contact-level
+// `role` is stored locally (NOT NULL, default "contact") and returned on all
+// paths. INFO telemetry (lastSeenAt/interactionCount/lastInteraction) is
+// locally hydrated on every read path and stays required.
 const contactChannelSchema = z.object({
   id: z.string(),
   contactId: z.string(),
@@ -129,9 +137,9 @@ const contactChannelSchema = z.object({
 const contactSchema = z.object({
   id: z.string(),
   displayName: z.string(),
-  role: z.string().optional(),
+  role: z.enum(["guardian", "contact"]),
   notes: z.string().nullable().optional(),
-  contactType: z.string().nullable().optional(),
+  contactType: z.enum(["human", "assistant"]),
   lastInteraction: z.number().nullable().optional(),
   interactionCount: z.number(),
   createdAt: z.number(),
@@ -150,10 +158,7 @@ const contactSchema = z.object({
  * a relay failure surfaces as an error rather than reading ACL from the
  * assistant DB.
  */
-async function relayListContacts(
-  limit: number,
-  role: ContactRole | undefined,
-) {
+async function relayListContacts(limit: number, role: ContactRole | undefined) {
   try {
     const result = await ipcCallPersistent("contacts_list_rich", {
       limit,
@@ -261,7 +266,9 @@ export async function handleGetContact(contactId: string) {
 // ~5s fallback plus IPC overhead on both nested hops. (List/revoke keep the default.)
 const INVITE_CREATE_RELAY_TIMEOUT_MS = 30_000;
 
-export async function handleListInvites({ queryParams = {} }: RouteHandlerArgs) {
+export async function handleListInvites({
+  queryParams = {},
+}: RouteHandlerArgs) {
   try {
     const result = (await ipcCallPersistent("invites_list", {
       ...(queryParams.sourceChannel
@@ -301,7 +308,9 @@ export async function handleCreateInvite({ body = {} }: RouteHandlerArgs) {
   }
 }
 
-export async function handleRevokeInvite({ pathParams = {} }: RouteHandlerArgs) {
+export async function handleRevokeInvite({
+  pathParams = {},
+}: RouteHandlerArgs) {
   try {
     const result = (await ipcCallPersistent("invites_revoke", {
       id: pathParams.id,
@@ -319,9 +328,7 @@ export async function handleRevokeInvite({ pathParams = {} }: RouteHandlerArgs) 
  * `invites_redeem_voice` method. Wraps the identity-bound
  * `redeemVoiceInviteCode` path.
  */
-export async function handleRedeemVoiceInvite({
-  body = {},
-}: RouteHandlerArgs) {
+export async function handleRedeemVoiceInvite({ body = {} }: RouteHandlerArgs) {
   const callerExternalUserId = body.callerExternalUserId as string | undefined;
   const code = body.code as string | undefined;
 
@@ -355,9 +362,7 @@ export async function handleRedeemVoiceInvite({
  * `invites_redeem_token` method. Wraps the generic `redeemIngressInvite`
  * token path.
  */
-export async function handleRedeemTokenInvite({
-  body = {},
-}: RouteHandlerArgs) {
+export async function handleRedeemTokenInvite({ body = {} }: RouteHandlerArgs) {
   const result = await redeemIngressInvite({
     token: body.token as string | undefined,
     externalUserId: body.externalUserId as string | undefined,
@@ -648,7 +653,10 @@ export const ROUTES: RouteDefinition[] = [
       // No-filter "search" is a list read — relay to the gateway so it returns
       // the same source-of-truth data as `contacts list`.
       if (!hasFilter) {
-        const { contacts } = await relayListContacts(parsed.limit ?? 50, undefined);
+        const { contacts } = await relayListContacts(
+          parsed.limit ?? 50,
+          undefined,
+        );
         return contacts;
       }
 

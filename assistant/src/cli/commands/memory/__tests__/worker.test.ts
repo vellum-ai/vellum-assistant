@@ -3,10 +3,11 @@
  *
  * Validates:
  *   - Subcommand registration (start, stop, status) under `memory worker`.
- *   - `status` reports running/not_running via PID-file liveness.
- *   - `stop` sends SIGTERM to a live worker and errors when none is running.
- *   - `start` refuses to spawn when a worker is already running, and reports
- *     the PID once the spawned process writes its PID file.
+ *   - `status` reports the worker process state, `memory.worker.enabled`, and
+ *     the synchronous in-process runner via PID/marker-file liveness.
+ *   - `stop` sends SIGTERM to a live worker and disables the config flag, and
+ *     still disables the flag (success) when no worker is running.
+ *   - `start` spawns/reuses the worker process and enables the config flag.
  */
 
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -22,10 +23,19 @@ import { Command } from "commander";
 
 let tmpDir: string;
 let pidPath: string;
+let markerPath: string;
 let logOutput: string[] = [];
+
+/** In-memory stand-in for the on-disk raw config the CLI reads/writes. */
+let rawConfig: Record<string, unknown> = {};
 
 /** Records (pid, signal) pairs passed to the mocked process.kill. */
 let killCalls: Array<{ pid: number; signal: string | number }> = [];
+
+function workerEnabledFromRaw(): boolean {
+  const memory = rawConfig.memory as { worker?: { enabled?: unknown } };
+  return memory?.worker?.enabled === true;
+}
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -33,6 +43,31 @@ let killCalls: Array<{ pid: number; signal: string | number }> = [];
 
 mock.module("../../../../util/platform.js", () => ({
   getMemoryWorkerPidPath: () => pidPath,
+  getMemorySyncRunnerMarkerPath: () => markerPath,
+}));
+
+mock.module("../../../../config/loader.js", () => ({
+  loadRawConfig: () => structuredClone(rawConfig),
+  saveRawConfig: (config: Record<string, unknown>) => {
+    rawConfig = structuredClone(config);
+  },
+  getConfigReadOnly: () => ({
+    memory: { worker: { enabled: workerEnabledFromRaw() } },
+  }),
+  setNestedValue: (
+    obj: Record<string, unknown>,
+    path: string,
+    value: unknown,
+  ) => {
+    const keys = path.split(".");
+    let cur = obj;
+    for (let i = 0; i < keys.length - 1; i++) {
+      const k = keys[i];
+      if (cur[k] == null || typeof cur[k] !== "object") cur[k] = {};
+      cur = cur[k] as Record<string, unknown>;
+    }
+    cur[keys[keys.length - 1]] = value;
+  },
 }));
 
 const capture = (...args: unknown[]) => {
@@ -47,6 +82,7 @@ const fakeLogger = {
 mock.module("../../../../util/logger.js", () => ({
   getLogger: () => fakeLogger,
   getCliLogger: () => fakeLogger,
+  getCurrentLogFilePath: () => `${tmpDir}/assistant-test-mock.log`,
 }));
 
 // ---------------------------------------------------------------------------
@@ -134,8 +170,10 @@ function stubProcessKill(livePids: Set<number>): () => void {
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "memory-worker-test-"));
   pidPath = join(tmpDir, "memory-worker.pid");
+  markerPath = join(tmpDir, "memory-sync-runner.pid");
   logOutput = [];
   killCalls = [];
+  rawConfig = {};
   process.exitCode = 0;
 });
 
@@ -164,7 +202,7 @@ describe("subcommand registration", () => {
 // ---------------------------------------------------------------------------
 
 describe("memory worker status", () => {
-  test("reports not_running when no PID file exists", async () => {
+  test("reports not_running with workerEnabled and syncRunner when nothing is running", async () => {
     const { exitCode, stdout } = await runCommand([
       "memory",
       "worker",
@@ -172,7 +210,11 @@ describe("memory worker status", () => {
       "--json",
     ]);
     expect(exitCode).toBe(0);
-    expect(JSON.parse(stdout)).toEqual({ status: "not_running" });
+    expect(JSON.parse(stdout)).toEqual({
+      status: "not_running",
+      workerEnabled: false,
+      syncRunner: { status: "not_running" },
+    });
   });
 
   test("reports running when PID file points at a live process", async () => {
@@ -189,6 +231,45 @@ describe("memory worker status", () => {
       expect(JSON.parse(stdout)).toEqual({
         status: "running",
         pid: process.pid,
+        workerEnabled: false,
+        syncRunner: { status: "not_running" },
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  test("reflects memory.worker.enabled from config", async () => {
+    rawConfig = { memory: { worker: { enabled: true } } };
+    const restore = stubProcessKill(new Set());
+    try {
+      const { exitCode, stdout } = await runCommand([
+        "memory",
+        "worker",
+        "status",
+        "--json",
+      ]);
+      expect(exitCode).toBe(0);
+      expect(JSON.parse(stdout)).toMatchObject({ workerEnabled: true });
+    } finally {
+      restore();
+    }
+  });
+
+  test("reports the synchronous runner as running when its marker is live", async () => {
+    writeFileSync(markerPath, String(process.pid));
+    const restore = stubProcessKill(new Set([process.pid]));
+    try {
+      const { exitCode, stdout } = await runCommand([
+        "memory",
+        "worker",
+        "status",
+        "--json",
+      ]);
+      expect(exitCode).toBe(0);
+      expect(JSON.parse(stdout)).toMatchObject({
+        status: "not_running",
+        syncRunner: { status: "running", pid: process.pid },
       });
     } finally {
       restore();
@@ -206,7 +287,11 @@ describe("memory worker status", () => {
         "--json",
       ]);
       expect(exitCode).toBe(0);
-      expect(JSON.parse(stdout)).toEqual({ status: "not_running" });
+      expect(JSON.parse(stdout)).toEqual({
+        status: "not_running",
+        workerEnabled: false,
+        syncRunner: { status: "not_running" },
+      });
       expect(existsSync(pidPath)).toBe(false);
     } finally {
       restore();
@@ -219,18 +304,25 @@ describe("memory worker status", () => {
 // ---------------------------------------------------------------------------
 
 describe("memory worker stop", () => {
-  test("errors with exit 1 when no worker is running", async () => {
+  test("disables the config flag and succeeds when no worker is running", async () => {
+    rawConfig = { memory: { worker: { enabled: true } } };
     const { exitCode, stdout } = await runCommand([
       "memory",
       "worker",
       "stop",
       "--json",
     ]);
-    expect(exitCode).toBe(1);
-    expect(JSON.parse(stdout)).toMatchObject({ ok: false });
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: true,
+      workerWasRunning: false,
+      workerEnabled: false,
+    });
+    expect(workerEnabledFromRaw()).toBe(false);
   });
 
-  test("sends SIGTERM to a running worker", async () => {
+  test("sends SIGTERM to a running worker and disables the flag", async () => {
+    rawConfig = { memory: { worker: { enabled: true } } };
     writeFileSync(pidPath, String(process.pid));
     const restore = stubProcessKill(new Set([process.pid]));
     try {
@@ -241,11 +333,16 @@ describe("memory worker stop", () => {
         "--json",
       ]);
       expect(exitCode).toBe(0);
-      expect(JSON.parse(stdout)).toEqual({ ok: true, pid: process.pid });
+      expect(JSON.parse(stdout)).toEqual({
+        ok: true,
+        pid: process.pid,
+        workerEnabled: false,
+      });
       expect(killCalls).toContainEqual({
         pid: process.pid,
         signal: "SIGTERM",
       });
+      expect(workerEnabledFromRaw()).toBe(false);
     } finally {
       restore();
     }
@@ -257,7 +354,7 @@ describe("memory worker stop", () => {
 // ---------------------------------------------------------------------------
 
 describe("memory worker start", () => {
-  test("refuses to start when a worker is already running", async () => {
+  test("reuses an already-running worker and enables the flag", async () => {
     writeFileSync(pidPath, String(process.pid));
     const restore = stubProcessKill(new Set([process.pid]));
     try {
@@ -267,17 +364,20 @@ describe("memory worker start", () => {
         "start",
         "--json",
       ]);
-      expect(exitCode).toBe(1);
+      expect(exitCode).toBe(0);
       expect(JSON.parse(stdout)).toMatchObject({
-        ok: false,
+        ok: true,
         pid: process.pid,
+        alreadyRunning: true,
+        workerEnabled: true,
       });
+      expect(workerEnabledFromRaw()).toBe(true);
     } finally {
       restore();
     }
   });
 
-  test("spawns the worker and reports the PID it writes", async () => {
+  test("spawns the worker, reports its PID, and enables the flag", async () => {
     const restore = stubProcessKill(new Set());
     const originalSpawn = Bun.spawn;
     // Simulate the spawned worker writing its PID file on startup.
@@ -293,7 +393,37 @@ describe("memory worker start", () => {
         "--json",
       ]);
       expect(exitCode).toBe(0);
-      expect(JSON.parse(stdout)).toMatchObject({ ok: true, pid: 424242 });
+      expect(JSON.parse(stdout)).toMatchObject({
+        ok: true,
+        pid: 424242,
+        workerEnabled: true,
+      });
+      expect(workerEnabledFromRaw()).toBe(true);
+    } finally {
+      (Bun as { spawn: typeof Bun.spawn }).spawn = originalSpawn;
+      restore();
+    }
+  });
+
+  test("leaves the config flag untouched when the spawn fails", async () => {
+    const restore = stubProcessKill(new Set());
+    const originalSpawn = Bun.spawn;
+    // Spawn returns but never writes a PID file → spawnMemoryWorkerProcess
+    // throws after its wait loop, so the flag must stay disabled.
+    (Bun as { spawn: typeof Bun.spawn }).spawn = (() => ({
+      unref: () => {},
+      pid: 0,
+    })) as unknown as typeof Bun.spawn;
+    try {
+      const { exitCode, stdout } = await runCommand([
+        "memory",
+        "worker",
+        "start",
+        "--json",
+      ]);
+      expect(exitCode).toBe(1);
+      expect(JSON.parse(stdout)).toMatchObject({ ok: false });
+      expect(workerEnabledFromRaw()).toBe(false);
     } finally {
       (Bun as { spawn: typeof Bun.spawn }).spawn = originalSpawn;
       restore();

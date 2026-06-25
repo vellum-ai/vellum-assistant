@@ -109,6 +109,7 @@ import { dropBalancedEconomyProfileMigration } from "./108-drop-balanced-economy
 import { swapQualityProfileToGlm52Migration } from "./109-swap-quality-profile-to-glm-5p2.js";
 import { flipBalancedProfileToTogetherMigration } from "./110-flip-balanced-profile-to-together.js";
 import { pruneSeededCallsiteDefaultsMigration } from "./111-prune-seeded-callsite-defaults.js";
+import { removeAdvisorCallsiteOverrideMigration } from "./112-remove-advisor-callsite-override.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -229,4 +230,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   swapQualityProfileToGlm52Migration,
   flipBalancedProfileToTogetherMigration,
   pruneSeededCallsiteDefaultsMigration,
+  removeAdvisorCallsiteOverrideMigration,
 ];

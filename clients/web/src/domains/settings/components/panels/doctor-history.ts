@@ -216,6 +216,53 @@ export function hasPendingBackup(entries: ChatEntry[]): boolean {
   return false;
 }
 
+export function serializeSessionToText(entries: ChatEntry[]): string {
+  const lines: string[] = [];
+
+  for (const entry of entries) {
+    switch (entry.kind) {
+      case "user":
+        lines.push(`User: ${entry.content}`);
+        break;
+      case "assistant":
+        lines.push(`Doctor: ${entry.content}`);
+        break;
+      case "tool_call": {
+        const { toolName, input, result, isError } = entry.meta;
+        lines.push(`Tool Call: ${toolName}`);
+        if (Object.keys(input).length > 0) {
+          lines.push(`  Input: ${JSON.stringify(input, null, 2)}`);
+        }
+        if (result !== undefined) {
+          lines.push(`  ${isError ? "Error" : "Output"}: ${result}`);
+        }
+        break;
+      }
+      case "approval": {
+        const { toolName, description, input } = entry.meta;
+        lines.push(
+          `Approval Required: ${toolName}${description ? ` — ${description}` : ""}`,
+        );
+        if (Object.keys(input).length > 0) {
+          lines.push(`  Input: ${JSON.stringify(input, null, 2)}`);
+        }
+        break;
+      }
+      case "backup_prompt":
+        lines.push(`Backup Prompt: ${entry.meta.toolName}`);
+        break;
+      case "error":
+        lines.push(`Error: ${entry.content}`);
+        break;
+      case "status":
+        lines.push(`--- ${entry.content} ---`);
+        break;
+    }
+  }
+
+  return lines.join("\n\n");
+}
+
 export function selectLatestHistorySession<
   T extends { last_message_at: string | null; created: string },
 >(sessions: T[]): T | null {

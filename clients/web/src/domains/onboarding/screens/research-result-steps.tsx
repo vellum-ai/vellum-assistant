@@ -406,8 +406,8 @@ export function ResearchResultsStep({
  */
 const FALLBACK_SUGGESTIONS: ResearchSuggestion[] = [
   {
-    suggestion: "I'll build you a live dashboard to track what matters to you",
-    prompt: "Build me a live dashboard to track what matters to me.",
+    suggestion: "I'll pull together a quick brief on what's new in your field",
+    prompt: "Give me a quick brief on what's new in my field right now.",
   },
   {
     suggestion: "I'll send a weekly briefing on news in your space",

@@ -8,7 +8,13 @@
  */
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 
 mock.module(
   "@/domains/chat/components/workflow-inline-progress-card/workflow-inline-progress-card",
@@ -102,7 +108,7 @@ describe("ActiveWorkflowsOverlay — expanded", () => {
 });
 
 describe("ActiveWorkflowsOverlay — dismissal", () => {
-  test("Escape collapses the open panel", () => {
+  test("Escape collapses the open panel", async () => {
     const ids = makeIds(2);
     const { queryByText } = render(
       <ActiveWorkflowsOverlay workflowRunIds={ids} />,
@@ -116,11 +122,16 @@ describe("ActiveWorkflowsOverlay — dismissal", () => {
     // ChatContentLayout's window keydown handler bails on defaultPrevented.
     // fireEvent returns false when the event was canceled.
     const notCanceled = fireEvent.keyDown(document, { key: "Escape" });
-    expect(queryByText("2 Active Workflows")).toBeNull();
     expect(notCanceled).toBe(false);
+    // The dropdown animates out via AnimatePresence, so it lingers for the
+    // exit animation before unmounting.
+    await waitFor(
+      () => expect(queryByText("2 Active Workflows")).toBeNull(),
+      { timeout: 4000 },
+    );
   });
 
-  test("pointerdown outside the container collapses the open panel", () => {
+  test("pointerdown outside the container collapses the open panel", async () => {
     const ids = makeIds(2);
     const { queryByText } = render(
       <ActiveWorkflowsOverlay workflowRunIds={ids} />,
@@ -130,6 +141,9 @@ describe("ActiveWorkflowsOverlay — dismissal", () => {
     expect(queryByText("2 Active Workflows")).toBeTruthy();
 
     fireEvent.pointerDown(document.body);
-    expect(queryByText("2 Active Workflows")).toBeNull();
+    await waitFor(
+      () => expect(queryByText("2 Active Workflows")).toBeNull(),
+      { timeout: 4000 },
+    );
   });
 });
