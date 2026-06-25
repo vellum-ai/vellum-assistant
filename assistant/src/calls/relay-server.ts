@@ -13,6 +13,7 @@ import type { ServerWebSocket } from "bun";
 
 import {
   getGuardianDelivery,
+  getGuardianDeliveryFresh,
   voiceGuardianDisplayName,
 } from "../contacts/guardian-delivery-reader.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
@@ -605,12 +606,14 @@ export class RelayConnection {
     // delivery cache before routeSetup's SYNC resolveActorTrust fallback. That
     // fallback reads the IO-free cache snapshot keyed per channel-filter; daemon
     // startup warms only `vellum`, so a cold-process phone call would otherwise
-    // misclassify a guardian during a gateway verdict blip. Both are independent
-    // IPC reads on different cache keys, so run them concurrently off the sync
-    // resolver's hot path.
+    // misclassify a guardian during a gateway verdict blip. Read fresh: gateway-
+    // side binding writes don't invalidate the daemon cache, so a stale empty
+    // snapshot from an earlier setup would survive the TTL otherwise. Both are
+    // independent IPC reads on different cache keys, so run them concurrently
+    // off the sync resolver's hot path.
     await Promise.all([
       this.primeGuardianDisplayName(),
-      getGuardianDelivery({ channelTypes: ["phone"] }),
+      getGuardianDeliveryFresh({ channelTypes: ["phone"] }),
     ]);
 
     // Resolve the phone channel's inbound admission floor. The reader fails
@@ -952,8 +955,10 @@ export class RelayConnection {
 
     // Warm the phone-channel guardian-delivery cache before the SYNC
     // resolveActorTrust fallback, which reads the IO-free per-channel snapshot
-    // that daemon startup leaves cold for `phone`.
-    await getGuardianDelivery({ channelTypes: ["phone"] });
+    // that daemon startup leaves cold for `phone`. Read fresh: gateway-side
+    // binding writes don't invalidate the daemon cache, so a stale empty
+    // snapshot would otherwise survive the TTL and misclassify the guardian.
+    await getGuardianDeliveryFresh({ channelTypes: ["phone"] });
 
     return toTrustContext(
       resolveActorTrust({
