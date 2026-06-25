@@ -40,7 +40,9 @@ mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
 
 mock.module("../../../prompts/user-reference.js", () => ({
   resolveGuardianName: (displayName?: string | null) =>
-    displayName && displayName.trim().length > 0 ? displayName.trim() : "my human",
+    displayName && displayName.trim().length > 0
+      ? displayName.trim()
+      : "my human",
 }));
 
 const deliverReplyCalls: Array<{ url: string; payload: unknown }> = [];
@@ -174,6 +176,30 @@ describe("enforceIngressAcl — verdict-sourced member resolution", () => {
     expect(result.resolvedMember).not.toBeNull();
     expect(result.resolvedMember!.status).toBe("active");
     expect(findContactChannelCalls.length).toBe(0);
+  });
+
+  test("member-less guardian verdict is admitted and never fires an access request (LUM-2586)", async () => {
+    // A guardian bound at the principal level (vellum anchor) reaches this
+    // channel with NO per-channel member row: trustClass is "guardian" but the
+    // verdict carries no contactId/channelId/status/policy, so
+    // verdictMemberFromVerdict returns null. Before the guardian short-circuit,
+    // this fell into the stranger branch and fired notifyGuardianOfAccessRequest
+    // against the guardian themselves.
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict({
+          trustClass: "guardian",
+          canonicalSenderId: "sender-1",
+        } as TrustVerdict),
+      }),
+    );
+
+    // Admitted: no earlyResponse, resolvedMember passes through as null.
+    expect(result.earlyResponse).toBeUndefined();
+    expect(result.resolvedMember).toBeNull();
+    // The access-request notifier must NOT fire for the guardian.
+    expect(accessRequestCalls.length).toBe(0);
+    expect(deliverReplyCalls.length).toBe(0);
   });
 });
 
@@ -365,7 +391,9 @@ describe("enforceIngressAcl — fail-closed on malformed member verdict", () => 
     const result = await enforceIngressAcl(
       makeParams({
         sourceMetadata: withVerdict(
-          memberVerdict({ status: undefined as unknown as TrustVerdict["status"] }),
+          memberVerdict({
+            status: undefined as unknown as TrustVerdict["status"],
+          }),
         ),
         effectiveAdmissionPolicy: "strangers",
       }),

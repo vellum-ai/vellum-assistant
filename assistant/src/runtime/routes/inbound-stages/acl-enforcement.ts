@@ -187,7 +187,8 @@ export async function enforceIngressAcl(
 
   // Member resolved from the gateway verdict (ACL + identity only); null for a
   // stranger verdict, which falls through to the non-member intercepts.
-  const resolvedMember: VerdictMember | null = verdictMemberFromVerdict(verdict);
+  const resolvedMember: VerdictMember | null =
+    verdictMemberFromVerdict(verdict);
 
   // A verdict carrying member identity but no resolvable member
   // (malformed/unknown ACL) fails closed, not treated as a stranger.
@@ -204,6 +205,27 @@ export async function enforceIngressAcl(
         reason: "not_a_member",
       },
     };
+  }
+
+  // ── Guardian short-circuit ──
+  // A guardian whose verdict carries `trustClass: "guardian"` is always
+  // admitted, even when it has no per-channel member row (no contactId/channelId
+  // → `resolvedMember` is null). Such guardians are bound at the principal level
+  // via the vellum anchor and reach this channel without a same-channel member
+  // record, so the member-vs-stranger recognition gate below would otherwise
+  // misroute them into the stranger branch and fire an access request against
+  // the guardian themselves (LUM-2586).
+  //
+  // Active + allow members already fall through to admit at the end of this
+  // function; this short-circuit only closes the guardian-with-no-member-row
+  // gap. `resolvedMember` is passed through unchanged (may be null), matching
+  // the recognized-member admit shape (no `earlyResponse`).
+  if (verdict.trustClass === "guardian") {
+    log.info(
+      { sourceChannel, externalUserId: canonicalSenderId },
+      "Ingress ACL: guardian admitted via trustClass",
+    );
+    return { resolvedMember };
   }
 
   // /start gv_<token> bootstrap commands must also bypass ACL — the user
@@ -839,7 +861,10 @@ export async function enforceIngressAcl(
     }
   }
 
-  return { resolvedMember, ...(isValidatedBootstrap && { isValidatedBootstrap }) };
+  return {
+    resolvedMember,
+    ...(isValidatedBootstrap && { isValidatedBootstrap }),
+  };
 }
 
 // ---------------------------------------------------------------------------

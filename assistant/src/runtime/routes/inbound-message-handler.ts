@@ -18,6 +18,7 @@ import {
 import { getChannelPermissionProfile } from "../../channels/permission-profiles.js";
 import {
   CHANNEL_IDS,
+  type ChannelId,
   INTERFACE_IDS,
   isChannelId,
   parseInterfaceId,
@@ -45,6 +46,10 @@ import {
   getAttachmentsByIds,
   validateAttachmentUpload,
 } from "../../memory/attachments-store.js";
+import {
+  getCanonicalGuardianRequest,
+  listPendingCanonicalGuardianRequestsByDestinationChat,
+} from "../../memory/canonical-guardian-store.js";
 import {
   recordConversationSeenSignal,
   type SignalType,
@@ -93,8 +98,12 @@ import { truncate } from "../../util/truncate.js";
 import { notifyGuardianOfAccessRequest } from "../access-request-helper.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { deliverChannelReply } from "../gateway-client.js";
+import { findLocalGuardianPrincipalId } from "../local-actor-identity.js";
 import { trustContextFromVerdict } from "../trust-verdict-consumer.js";
-import { canonicalChannelAssistantId } from "./channel-route-shared.js";
+import {
+  canonicalChannelAssistantId,
+  parseCallbackData,
+} from "./channel-route-shared.js";
 import { BadRequestError } from "./errors.js";
 import { handleApprovalInterception } from "./guardian-approval-interception.js";
 import { enforceIngressAcl } from "./inbound-stages/acl-enforcement.js";
@@ -244,6 +253,67 @@ export function _setDeleteLookupConfigForTests(
 ): void {
   deleteLookupRetries = retries;
   deleteLookupDelayMs = delayMs;
+}
+
+/**
+ * Decide whether an inbound channel callback should be treated as a guardian
+ * decision even though the channel-class trust verdict did not classify the
+ * clicker as `guardian`.
+ *
+ * Background: `access_request` approval cards are delivered to the guardian's
+ * Slack DM via the principal-level (vellum anchor) binding. Such a guardian has
+ * no per-channel Slack guardian row, so the ingress trust gate keys on
+ * `trustClass === "guardian"` and misclassifies them — the Approve/Reject
+ * button click then never reaches the canonical decision primitive.
+ *
+ * This predicate upgrades ONLY a legitimate `apr:<requestId>:<action>` callback,
+ * guarded by two independent security anchors:
+ *
+ *   1. Principal binding: the request's `guardianPrincipalId` must equal THIS
+ *      assistant's local guardian principal. Per the single-guardian invariant,
+ *      a canonical request's `guardianPrincipalId` is always THE guardian's
+ *      principal, so this proves the click came from the bound guardian's
+ *      identity space.
+ *   2. Delivery binding: the request must actually have been delivered to THIS
+ *      chat (channel + conversation). This blocks cross-chat replay of a guessed
+ *      requestId lifted from some other DM.
+ *
+ * Both anchors must hold to upgrade. This is defense-in-depth: the real
+ * authorization boundary remains `applyCanonicalGuardianDecision`'s
+ * principal-equality check (`actor.guardianPrincipalId === request.guardianPrincipalId`),
+ * which still runs downstream with the upgraded principal.
+ *
+ * Returns the local guardian principal id to use when the upgrade is warranted,
+ * or `null` to leave the trust context unchanged. Exported for unit testing.
+ */
+export async function _evaluateGuardianCallbackUpgrade(params: {
+  callbackData: string | undefined;
+  sourceChannel: ChannelId;
+  conversationExternalId: string;
+}): Promise<string | null> {
+  const apr = parseCallbackData(
+    params.callbackData ?? "",
+    params.sourceChannel,
+  );
+  if (!apr?.requestId) return null;
+
+  const req = getCanonicalGuardianRequest(apr.requestId);
+  const localPrincipal = await findLocalGuardianPrincipalId();
+
+  // SECURITY ANCHOR 1 — principal binding.
+  if (!req || !localPrincipal || req.guardianPrincipalId !== localPrincipal) {
+    return null;
+  }
+
+  // SECURITY ANCHOR 2 — delivery binding: the request must have been delivered
+  // to this exact chat. Blocks cross-chat replay of a guessed requestId.
+  const deliveredHere = listPendingCanonicalGuardianRequestsByDestinationChat(
+    params.sourceChannel,
+    params.conversationExternalId,
+  ).some((r) => r.id === apr.requestId);
+  if (!deliveredHere) return null;
+
+  return localPrincipal;
 }
 
 export async function handleChannelInbound({
@@ -1032,6 +1102,44 @@ export async function handleChannelInbound({
   // which handles request code matching, callback parsing, and NL classification
   // against canonical_guardian_requests.
 
+  // ── Effective trust upgrade for guardian approval-card callbacks ──
+  // `access_request` cards reach the guardian's Slack DM via the principal-level
+  // (vellum anchor) binding, so the guardian has no per-channel Slack guardian
+  // row and the channel-class verdict misclassifies them as non-guardian. That
+  // would make the Approve/Reject button click return noAction below and leave
+  // the request `pending` (LUM-2587). Upgrade ONLY a legitimate
+  // `apr:<requestId>:<action>` callback to guardian, gated by two independent
+  // anchors enforced in `_evaluateGuardianCallbackUpgrade`:
+  //   1. principal binding — the request's guardianPrincipalId equals this
+  //      assistant's local guardian principal, and
+  //   2. delivery binding — the request was actually delivered to THIS chat
+  //      (blocks cross-chat replay of a guessed requestId).
+  // We do NOT mutate `trustCtx`: code below relies on the original verdict
+  // (e.g. non-guardian content wrapping). `applyCanonicalGuardianDecision`'s
+  // principal-equality check remains the real authorization boundary; this
+  // upgrade only lets the click reach that primitive.
+  let effectiveTrustClass = trustCtx.trustClass;
+  let effectiveGuardianPrincipalId = trustCtx.guardianPrincipalId;
+  if (effectiveTrustClass !== "guardian" && hasCallbackData) {
+    const upgradedPrincipal = await _evaluateGuardianCallbackUpgrade({
+      callbackData: body.callbackData,
+      sourceChannel,
+      conversationExternalId,
+    });
+    if (upgradedPrincipal) {
+      effectiveTrustClass = "guardian";
+      effectiveGuardianPrincipalId = upgradedPrincipal;
+      const upgradeApr = parseCallbackData(
+        body.callbackData ?? "",
+        sourceChannel,
+      );
+      log.info(
+        { requestId: upgradeApr?.requestId, sourceChannel },
+        "Upgraded callback to guardian trust for delivered access_request card",
+      );
+    }
+  }
+
   // ── Canonical guardian reply router ──
   const guardianReplyResult = await handleGuardianReplyIntercept({
     isDuplicate: result.duplicate,
@@ -1046,8 +1154,8 @@ export async function handleChannelInbound({
     conversationId: result.conversationId,
     eventId: result.eventId,
     replyCallbackUrl,
-    trustClass: trustCtx.trustClass,
-    guardianPrincipalId: trustCtx.guardianPrincipalId,
+    trustClass: effectiveTrustClass,
+    guardianPrincipalId: effectiveGuardianPrincipalId,
     approvalConversationGenerator,
   });
   if (guardianReplyResult.response) return guardianReplyResult.response;
