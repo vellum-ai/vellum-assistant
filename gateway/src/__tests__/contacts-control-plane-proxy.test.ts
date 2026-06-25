@@ -29,6 +29,14 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbRun: (...args: Parameters<DbRunFn>) => assistantDbRunMock(...args),
 }));
 
+// ── Gateway DB connection mock ────────────────────────────────────────────────
+const gatewayDeleteRunMock = mock(() => ({ changes: 1 }));
+mock.module("../db/connection.js", () => ({
+  getGatewayDb: () => ({
+    delete: () => ({ where: () => ({ run: gatewayDeleteRunMock }) }),
+  }),
+}));
+
 // ── IPC assistant client mock ─────────────────────────────────────────────────
 type IpcCallFn = (method: string, params: unknown) => Promise<unknown>;
 let ipcCallAssistantMock: ReturnType<typeof mock<IpcCallFn>> = mock(async () => ({}));
@@ -132,7 +140,9 @@ const DEFAULT_INVITE: InviteRow = {
   updatedAt: 1000000,
 };
 
-type GetContactFn = (contactId: string) => { id: string } | undefined;
+type GetContactFn = (
+  contactId: string,
+) => { id: string; role?: string } | undefined;
 let contactStoreGetContactMock: ReturnType<typeof mock<GetContactFn>> = mock(
   () => ({ id: "ct_1" }),
 );
@@ -1191,6 +1201,47 @@ describe("handleUpdateContactChannel (gateway-native)", () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.contact.id).toBe("ct_mock");
+  });
+});
+describe("handleDeleteContact (gateway-native role guard)", () => {
+  test("blocks deleting a guardian read from the gateway store (403)", async () => {
+    contactStoreGetContactMock = mock(() => ({
+      id: "ct_guardian",
+      role: "guardian",
+    }));
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleDeleteContact("ct_guardian");
+
+    expect(res.status).toBe(403);
+    expect((await res.json()).error.code).toBe("FORBIDDEN");
+    expect(contactStoreGetContactMock.mock.calls[0][0]).toBe("ct_guardian");
+    expect(assistantDbRunMock).not.toHaveBeenCalled();
+  });
+
+  test("allows deleting a non-guardian read from the gateway store (204)", async () => {
+    contactStoreGetContactMock = mock(() => ({
+      id: "ct_regular",
+      role: "contact",
+    }));
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleDeleteContact("ct_regular");
+
+    expect(res.status).toBe(204);
+    expect(contactStoreGetContactMock.mock.calls[0][0]).toBe("ct_regular");
+    expect(assistantDbRunMock).toHaveBeenCalled();
+  });
+
+  test("returns 404 when the gateway store has no row", async () => {
+    contactStoreGetContactMock = mock(() => undefined);
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleDeleteContact("ct_missing");
+
+    expect(res.status).toBe(404);
+    expect((await res.json()).error.code).toBe("NOT_FOUND");
+    expect(assistantDbRunMock).not.toHaveBeenCalled();
   });
 });
 describe("handleMergeContacts (gateway-native)", () => {

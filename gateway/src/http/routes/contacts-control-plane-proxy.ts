@@ -1197,11 +1197,12 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
     },
 
     async handleDeleteContact(contactId: string): Promise<Response> {
-      const rows = await assistantDbQuery<{ role: string }>(
-        "SELECT role FROM contacts WHERE id = ?",
-        [contactId],
-      );
-      if (rows.length === 0) {
+      // Guardian-delete guard reads role from the gateway's own store (SoT);
+      // m0006 reconciles legacy assistant contacts so pre-gateway guardians are
+      // present. A missing gateway row is treated as not-found (404), matching
+      // the prior assistant-read flow — never a silent allow of a guardian.
+      const contact = new ContactStore().getContact(contactId);
+      if (!contact) {
         log.warn({ contactId }, "delete_contact: not found");
         return Response.json(
           {
@@ -1213,7 +1214,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           { status: 404 },
         );
       }
-      if (rows[0].role === "guardian") {
+      if (contact.role === "guardian") {
         log.warn({ contactId }, "delete_contact: attempted to delete guardian");
         return Response.json(
           {
