@@ -17,6 +17,7 @@ import { toast } from "@vellumai/design-library";
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
 import { SubagentSpawnGroup } from "@/domains/chat/components/subagent-inline-progress-card/subagent-spawn-group";
 import { WorkflowInlineProgressCard } from "@/domains/chat/components/workflow-inline-progress-card/workflow-inline-progress-card";
+import { AcpRunInlineProgressCard } from "@/domains/chat/components/acp-run-inline-card/acp-run-inline-progress-card";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import { SingleActivity } from "@/domains/chat/components/single-activity/single-activity";
 import { MultiActivityGroup } from "@/domains/chat/components/multi-activity-group/multi-activity-group";
@@ -36,12 +37,16 @@ import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
+import { useAcpRunStore } from "@/domains/chat/acp-run-store";
+import { useViewerStore } from "@/stores/viewer-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ConversationMessageSurface } from "@vellumai/assistant-api";
 import {
   computeCardBackedWorkflowRunIds,
   isInteractiveClickTarget,
   lookupSubagentEntriesForMessage,
+  acpRunIdForCall,
+  resolveAcpRunIds,
   resolveSpawnedSubagentIds,
   resolveWorkflowRunIds,
   SlackMessageAttribution,
@@ -185,12 +190,45 @@ export function TranscriptMessageBody({
     () => new Set(cardBackedKey ? cardBackedKey.split("|") : []),
     [cardBackedKey],
   );
+  const byToolUseIdAcp = useAcpRunStore.use.byToolUseId();
+  // The acpSessionIds in THIS message whose `acp_spawn` chip is suppressed in
+  // favor of an inline card ("card-backed"). Subscribed via a narrowed selector
+  // returning a stable key so the message re-renders only when a card's backing
+  // flips (an entry appears) — never on every leaf event. A failed call (no id)
+  // or a run with no store entry is NOT card-backed: its tool result keeps
+  // rendering instead of vanishing behind a card with nothing to show.
+  const cardBackedAcpKey = useAcpRunStore(
+    useCallback(
+      (s) => {
+        const ids: string[] = [];
+        for (const tc of message.toolCalls ?? []) {
+          const id = acpRunIdForCall(tc, s.byToolUseId);
+          if (id !== null && s.byId[id] !== undefined) ids.push(id);
+        }
+        return ids.join("|");
+      },
+      [message.toolCalls],
+    ),
+  );
+  const cardBackedAcpRunIds = useMemo(
+    () => new Set(cardBackedAcpKey ? cardBackedAcpKey.split("|") : []),
+    [cardBackedAcpKey],
+  );
+
   const claimedSpawnIds = new Set<string>();
   const claimedWorkflowIds = new Set<string>();
+  const claimedAcpIds = new Set<string>();
   const cardBackedWorkflowRunId = (tc: ChatMessageToolCall): string | null => {
     const rid = workflowRunIdForCall(tc, byToolUseIdWf);
     return rid !== null && cardBackedWorkflowRunIds.has(rid) ? rid : null;
   };
+  const cardBackedAcpRunId = (tc: ChatMessageToolCall): string | null => {
+    const id = acpRunIdForCall(tc, byToolUseIdAcp);
+    return id !== null && cardBackedAcpRunIds.has(id) ? id : null;
+  };
+  const handleAcpRunClick = useCallback((acpSessionId: string) => {
+    useViewerStore.getState().openAcpRunDetail(acpSessionId);
+  }, []);
 
   const handleVellumLinkClick = useCallback(
     (href: string, linkText: string) => {
@@ -286,6 +324,29 @@ export function TranscriptMessageBody({
     );
   };
 
+  const renderInlineAcpRunCards = (toolCalls: ChatMessageToolCall[]) => {
+    const acpSessionIds = resolveAcpRunIds(
+      toolCalls,
+      byToolUseIdAcp,
+      claimedAcpIds,
+    );
+    if (acpSessionIds.length === 0) return null;
+    return (
+      <div className="flex w-full flex-col gap-1.5">
+        {acpSessionIds.map((acpSessionId) => (
+          <AcpRunInlineProgressCard
+            key={acpSessionId}
+            acpSessionId={acpSessionId}
+            onAcpRunClick={handleAcpRunClick}
+            // Stop wiring lands in PR 13. Until a real cancel handler exists, omit
+            // onStopAcpRun so the card hides the stop button instead of showing a
+            // misleading no-op affordance.
+          />
+        ))}
+      </div>
+    );
+  };
+
   const renderToolResultImages = (toolCalls: ChatMessageToolCall[]) => {
     if (hasAttachments) return null;
     const images = toolCalls.flatMap((tc) => {
@@ -358,10 +419,14 @@ export function TranscriptMessageBody({
       }
     }
     const renderableToolCalls = groupToolCalls.filter(
-      // Suppress the raw chip only for a card-backed run_workflow call (see
-      // cardBackedWorkflowRunId). A failed call (no runId) or a 404/pruned run is
-      // not card-backed, so it renders its tool result instead of vanishing.
-      (tc) => !isSubagentSpawnCall(tc) && cardBackedWorkflowRunId(tc) === null,
+      // Suppress the raw chip only for a card-backed run_workflow / acp_spawn
+      // call (see cardBackedWorkflowRunId / cardBackedAcpRunId). A failed call
+      // (no id) or a run with no store entry is not card-backed, so it renders
+      // its tool result instead of vanishing.
+      (tc) =>
+        !isSubagentSpawnCall(tc) &&
+        cardBackedWorkflowRunId(tc) === null &&
+        cardBackedAcpRunId(tc) === null,
     );
     const loneTool =
       cardItems.length === 1 &&
@@ -378,31 +443,36 @@ export function TranscriptMessageBody({
           {renderToolResultImages(groupToolCalls)}
           {renderInlineSubagentCards(groupToolCalls)}
           {renderInlineWorkflowCards(groupToolCalls)}
+          {renderInlineAcpRunCards(groupToolCalls)}
         </Fragment>
       );
     }
     if (renderableToolCalls.length > 0) {
-      // A card-backed run_workflow call is shown by its dedicated inline card, so
-      // drop it from the steps MultiActivityGroup renders too (the group filters
-      // subagent_spawn internally but not run_workflow). A failed or 404/pruned
-      // workflow call is not card-backed and is kept, so its tool result still
-      // renders as a step; subagent spawns are left for the group to filter.
-      const suppressedWorkflowIds = new Set(
+      // A card-backed run_workflow / acp_spawn call is shown by its dedicated
+      // inline card, so drop it from the steps MultiActivityGroup renders too
+      // (the group filters subagent_spawn internally but not the others). A
+      // failed or pruned call is not card-backed and is kept, so its tool result
+      // still renders as a step; subagent spawns are left for the group to filter.
+      const suppressedCardIds = new Set(
         groupToolCalls
-          .filter((tc) => cardBackedWorkflowRunId(tc) !== null)
+          .filter(
+            (tc) =>
+              cardBackedWorkflowRunId(tc) !== null ||
+              cardBackedAcpRunId(tc) !== null,
+          )
           .map((tc) => tc.id),
       );
       const groupCardToolCalls =
-        suppressedWorkflowIds.size === 0
+        suppressedCardIds.size === 0
           ? groupToolCalls
-          : groupToolCalls.filter((tc) => !suppressedWorkflowIds.has(tc.id));
+          : groupToolCalls.filter((tc) => !suppressedCardIds.has(tc.id));
       const groupCardItems =
-        suppressedWorkflowIds.size === 0
+        suppressedCardIds.size === 0
           ? cardItems
           : cardItems.filter(
               (it) =>
                 it.kind !== "toolCall" ||
-                !suppressedWorkflowIds.has(it.toolCall.id),
+                !suppressedCardIds.has(it.toolCall.id),
             );
       return (
         <Fragment key={key}>
@@ -422,6 +492,7 @@ export function TranscriptMessageBody({
           {renderToolResultImages(groupToolCalls)}
           {renderInlineSubagentCards(groupToolCalls)}
           {renderInlineWorkflowCards(groupToolCalls)}
+          {renderInlineAcpRunCards(groupToolCalls)}
         </Fragment>
       );
     }
@@ -444,6 +515,7 @@ export function TranscriptMessageBody({
         {renderToolResultImages(groupToolCalls)}
         {renderInlineSubagentCards(groupToolCalls)}
         {renderInlineWorkflowCards(groupToolCalls)}
+        {renderInlineAcpRunCards(groupToolCalls)}
       </Fragment>
     );
   };
