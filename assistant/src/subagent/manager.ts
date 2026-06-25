@@ -167,6 +167,21 @@ export interface SubagentNotificationInfo {
   objective?: string;
 }
 
+/**
+ * Thrown by `spawnAndAwait` when the run is aborted (e.g. an external timeout)
+ * before reaching a terminal `completed` state. Carries `partialText` — the
+ * child's trailing assistant text captured at the moment of abort — so a caller
+ * that times out a long generation can still surface the partial result instead
+ * of discarding it. Extends `Error` with the same legacy message, so callers
+ * that only inspect `.message` keep working.
+ */
+export class SubagentAbortedError extends Error {
+  constructor(readonly partialText: string) {
+    super("Subagent run aborted before completion.");
+    this.name = "SubagentAbortedError";
+  }
+}
+
 export class SubagentManager {
   /** subagentId → ManagedSubagent */
   private subagents = new Map<string, ManagedSubagent>();
@@ -537,10 +552,12 @@ export class SubagentManager {
 
     try {
       const finalText = await this.runSubagent(subagentId, config.objective);
-      // Surface aborts as a rejection so the caller's timeout path is observable
-      // rather than silently resolving to whatever partial text exists.
+      // Surface aborts as a rejection so the caller's timeout path is
+      // observable — but carry the partial text on the error so a caller that
+      // timed out a long generation (e.g. the advisor consult) can still
+      // surface what was produced instead of throwing it away.
       if (signal?.aborted) {
-        throw new Error("Subagent run aborted before completion.");
+        throw new SubagentAbortedError(finalText);
       }
       return finalText;
     } finally {

@@ -37,6 +37,14 @@ interface FakeConversationConfig {
   resolveOnAbort?: boolean;
   /** Deltas to emit through sendToClient before runAgentLoop resolves. */
   emitDeltas?: ServerMessage[];
+  /**
+   * Invoked synchronously at the very start of runAgentLoop (after the loop has
+   * begun, so the run is past the early-terminal guard and marked "running").
+   * Lets a test trigger an external abort while the loop is genuinely in
+   * flight, deterministically exercising the resolve-on-abort branch that
+   * captures partial trailing text.
+   */
+  onLoopStart?: () => void;
 }
 
 let nextConversationConfig: FakeConversationConfig = {};
@@ -95,6 +103,7 @@ class FakeConversation {
 
   async runAgentLoop() {
     runLoopInvoked = true;
+    this.cfg.onLoopStart?.();
     for (const delta of this.cfg.emitDeltas ?? []) {
       this.sendToClient(delta);
     }
@@ -184,7 +193,7 @@ import {
   clearConversations,
   setConversation,
 } from "../daemon/conversation-registry.js";
-import { SubagentManager } from "../subagent/manager.js";
+import { SubagentAbortedError, SubagentManager } from "../subagent/manager.js";
 
 function makeConfig(overrides: Record<string, unknown> = {}) {
   return {
@@ -357,6 +366,39 @@ describe("SubagentManager.spawnAndAwait", () => {
     const statuses = broadcastStatuses(events);
     expect(statuses).toContain("aborted");
     expect(statuses).not.toContain("completed");
+  });
+
+  test("an abort carries the partial assistant text on the rejection", async () => {
+    // The real runAgentLoop consumes the cancellation and resolves, so the
+    // success branch captures whatever trailing assistant text was streamed
+    // before the abort. A timed-out caller (e.g. the advisor consult) must be
+    // able to recover that partial text rather than have it discarded.
+    const controller = new AbortController();
+    nextConversationConfig = {
+      resolveOnAbort: true,
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "partial advice so far" }],
+        },
+      ],
+      // Abort once the loop is in flight (past the early-terminal guard, status
+      // "running") so we exercise the partial-capture branch, not the
+      // aborted-before-start early return.
+      onLoopStart: () => controller.abort(),
+    };
+
+    const manager = new SubagentManager();
+    const err = await manager
+      .spawnAndAwait(makeConfig(), () => {}, { signal: controller.signal })
+      .then(
+        () => undefined,
+        (e) => e,
+      );
+    expect(err).toBeInstanceOf(SubagentAbortedError);
+    expect((err as SubagentAbortedError).partialText).toContain(
+      "partial advice so far",
+    );
   });
 
   test("an already-aborted signal does not run the agent loop", async () => {

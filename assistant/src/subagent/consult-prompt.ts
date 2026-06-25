@@ -41,7 +41,17 @@ Write as much as the guidance genuinely needs, and no more.`;
 /**
  * The final user turn appended to the transcript for the advisor sub-call. Asks
  * for guidance; imposes no length limit — the advisor decides how much to say.
+ *
+ * `agentRequest` is the executing agent's own `objective` from the
+ * `subagent_spawn` call — the agent's framing of what it wants weighed in on.
+ * It is included verbatim because (a) the agent naturally states the task there,
+ * and (b) the inherited transcript can be thin (e.g. a wake turn whose task
+ * lives in memory rather than a user message), so the request text is often the
+ * advisor's clearest signal of what is actually being asked.
  */
-export function advisorRequestText(): string {
-  return `Review the conversation above — the task, the tool calls, and their results — and give focused strategic guidance on how to proceed.`;
+export function advisorRequestText(agentRequest?: string): string {
+  const base = `Review the conversation above — the task, the tool calls, and their results — and give focused strategic guidance on how to proceed.`;
+  const trimmed = agentRequest?.trim();
+  if (!trimmed) return base;
+  return `${base}\n\nThe agent described what it wants your input on:\n<agent_request>\n${trimmed}\n</agent_request>\nTreat this as the agent's framing of the task. If it conflicts with the transcript above, say so; if the transcript is sparse, rely on it.`;
 }

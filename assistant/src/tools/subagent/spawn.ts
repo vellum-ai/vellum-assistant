@@ -13,15 +13,25 @@ import {
   buildAdvisorSystem,
 } from "../../subagent/consult-prompt.js";
 import { sanitizeConsultTranscript } from "../../subagent/consult-transcript.js";
-import { getSubagentManager } from "../../subagent/index.js";
+import {
+  getSubagentManager,
+  SubagentAbortedError,
+} from "../../subagent/index.js";
 import type { SubagentRole } from "../../subagent/types.js";
 import { getLogger } from "../../util/logger.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 const log = getLogger("subagent-spawn");
 
-/** Hard ceiling on a single advisor consult — mirrors the old advisor plugin. */
-const ADVISOR_TIMEOUT_MS = 60_000;
+/**
+ * Hard ceiling on a single advisor consult. Generous because the consult runs
+ * one-shot over the full inherited transcript on a stronger profile — which, on
+ * a reasoning model, spends most of its time thinking before it emits visible
+ * text. If the ceiling is hit, the partial guidance is recovered and returned
+ * rather than discarded (see the `SubagentAbortedError` branch below), so this
+ * is an upper bound on the synchronous block, not a pass/fail line.
+ */
+const ADVISOR_TIMEOUT_MS = 120_000;
 
 export async function executeSubagentSpawn(
   input: Record<string, unknown>,
@@ -85,6 +95,7 @@ export async function executeSubagentSpawn(
     return runAdvisorConsult({
       context,
       label,
+      objective,
       sendToClient: sendToClient as (msg: ServerMessage) => void,
       requestedOverrideProfile,
     });
@@ -204,17 +215,23 @@ export async function executeSubagentSpawn(
  *
  * Inherits the parent transcript (sanitized), frames it as advice via
  * `buildAdvisorSystem`, runs tool-less on `llm.advisorProfile` (unless the
- * caller passed an explicit `inference_profile`), bounded by a 60s timeout, and
- * degrades to a benign non-error notice on any failure (including the
- * depth-limit rejection when a subagent itself calls the advisor).
+ * caller passed an explicit `inference_profile`), and is bounded by
+ * `ADVISOR_TIMEOUT_MS`. If the consult hits that ceiling, the partial guidance
+ * produced so far is recovered and returned with a "may be cut off" note rather
+ * than discarded. Degrades to a benign non-error notice on any other failure
+ * (including the depth-limit rejection when a subagent itself calls the
+ * advisor).
  */
 async function runAdvisorConsult(args: {
   context: ToolContext;
   label: string;
+  /** The agent's own `objective` — its framing of what it wants advised on. */
+  objective: string;
   sendToClient: (msg: ServerMessage) => void;
   requestedOverrideProfile: string | undefined;
 }): Promise<ToolExecutionResult> {
-  const { context, label, sendToClient, requestedOverrideProfile } = args;
+  const { context, label, objective, sendToClient, requestedOverrideProfile } =
+    args;
 
   try {
     const parentConversation = findConversation(context.conversationId);
@@ -247,7 +264,7 @@ async function runAdvisorConsult(args: {
     const overrideProfile = requestedOverrideProfile ?? advisorProfile;
     const forceOverrideProfile = overrideProfile !== undefined;
 
-    // Combine the caller's signal with a hard 60s ceiling.
+    // Combine the caller's signal with the hard consult ceiling.
     const timeout = AbortSignal.timeout(ADVISOR_TIMEOUT_MS);
     const signal = context.signal
       ? AbortSignal.any([context.signal, timeout])
@@ -257,7 +274,9 @@ async function runAdvisorConsult(args: {
       {
         parentConversationId: context.conversationId,
         label,
-        objective: advisorRequestText(),
+        // Carry the agent's own objective into the consult request — the agent
+        // states the task here, and the inherited transcript can be thin.
+        objective: advisorRequestText(objective),
         sendResultToUser: false,
         role: "advisor",
         fork: true,
@@ -280,6 +299,23 @@ async function runAdvisorConsult(args: {
       isError: false,
     };
   } catch (err) {
+    // Timed out mid-generation: salvage whatever guidance the advisor had
+    // written rather than throwing it away. Partial strategic advice is far
+    // more useful to the agent than an "unavailable" notice — especially on a
+    // slow reasoning profile that needs most of the window to think.
+    if (err instanceof SubagentAbortedError) {
+      const partial = err.partialText.trim();
+      if (partial.length > 0) {
+        log.warn(
+          { conversationId: context.conversationId },
+          "Advisor consult timed out; returning partial guidance",
+        );
+        return {
+          content: `${partial}\n\n_(The advisor reached its time limit while still writing — the guidance above may be cut off.)_`,
+          isError: false,
+        };
+      }
+    }
     const reason = err instanceof Error ? err.message : String(err);
     log.warn(
       { err, conversationId: context.conversationId },

@@ -80,7 +80,10 @@ mock.module("../memory/conversation-crud.js", () => ({
 }));
 
 import { getSubagentManager } from "../subagent/index.js";
-import { SubagentManager } from "../subagent/manager.js";
+import {
+  SubagentAbortedError,
+  SubagentManager,
+} from "../subagent/manager.js";
 import type { SubagentState } from "../subagent/types.js";
 import { executeSubagentAbort } from "../tools/subagent/abort.js";
 import { executeSubagentMessage } from "../tools/subagent/message.js";
@@ -1843,6 +1846,59 @@ describe("Subagent advisor-role consult", () => {
       expect(result.isError).toBe(false);
       expect(result.content).toContain("advisor unavailable");
       expect(result.content).toContain("parent is itself a subagent");
+    } finally {
+      restore();
+      mockFindConversation = () => undefined;
+    }
+  });
+
+  test("advisor returns partial guidance (with a cut-off note) when the consult times out", async () => {
+    mockFindConversation = () => ({
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      getCurrentSystemPrompt: () => "SYS",
+    });
+    // A timeout surfaces as SubagentAbortedError carrying the partial text the
+    // advisor streamed before being cut off; that text must be salvaged.
+    const { restore } = stubAwait(async () => {
+      throw new SubagentAbortedError(
+        "Lead with the data model, then wire reminders last.",
+      );
+    });
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Consult", objective: "x", role: "advisor" },
+        makeContext("advisor-sess-timeout", { sendToClient: () => {} }),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain(
+        "Lead with the data model, then wire reminders last.",
+      );
+      expect(result.content).toContain("may be cut off");
+      // Not the generic unavailable degrade — real guidance was preserved.
+      expect(result.content).not.toContain("advisor unavailable");
+    } finally {
+      restore();
+      mockFindConversation = () => undefined;
+    }
+  });
+
+  test("advisor still degrades when a timeout yields no partial text", async () => {
+    mockFindConversation = () => ({
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      getCurrentSystemPrompt: () => "SYS",
+    });
+    // Aborted before producing any text → empty partial → fall through to the
+    // benign "advisor unavailable" notice.
+    const { restore } = stubAwait(async () => {
+      throw new SubagentAbortedError("   ");
+    });
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Consult", objective: "x", role: "advisor" },
+        makeContext("advisor-sess-timeout-empty", { sendToClient: () => {} }),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("advisor unavailable");
     } finally {
       restore();
       mockFindConversation = () => undefined;
