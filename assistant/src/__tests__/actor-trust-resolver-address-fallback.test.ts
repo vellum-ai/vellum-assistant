@@ -84,6 +84,7 @@ function makeContact(
     id: CONTACT_ID,
     displayName: "Patrick Test",
     notes: null,
+    role,
     lastInteraction: null,
     interactionCount: 0,
     contactType: "human" as const,
