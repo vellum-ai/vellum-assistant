@@ -1123,7 +1123,10 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         { contactId: contact.id, created },
         "upsert_contact: handled natively",
       );
-      return Response.json({ ok: true, contact });
+      // ACL (role/principalId, channel status/policy) is sourced from the
+      // gateway DB inside upsertContact's read-back, so this response reflects
+      // the just-written source of truth, not assistant-mirror defaults.
+      return Response.json({ ok: true, contact: toContactPayload(contact) });
     },
 
     /**
@@ -1171,11 +1174,14 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
     },
 
     async handleDeleteContact(contactId: string): Promise<Response> {
-      const rows = await assistantDbQuery<{ role: string }>(
-        "SELECT role FROM contacts WHERE id = ?",
-        [contactId],
-      );
-      if (rows.length === 0) {
+      // Guardian role is gateway-DB source of truth: a dual-write-gap survivor
+      // whose assistant row is missing/defaulted must not bypass this guard.
+      const row = getGatewayDb()
+        .select({ role: contacts.role })
+        .from(contacts)
+        .where(eq(contacts.id, contactId))
+        .get();
+      if (!row) {
         log.warn({ contactId }, "delete_contact: not found");
         return Response.json(
           {
@@ -1187,7 +1193,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           { status: 404 },
         );
       }
-      if (rows[0].role === "guardian") {
+      if (row.role === "guardian") {
         log.warn({ contactId }, "delete_contact: attempted to delete guardian");
         return Response.json(
           {

@@ -161,7 +161,7 @@ export class ContactStore {
         sql`${contacts.role} = 'guardian' DESC`,
         desc(contacts.updatedAt),
         // Primary channel first, then by creation time — mirrors the daemon
-        // (assistant/src/contacts/contact-store.ts:141) and readAssistantContact.
+        // (assistant/src/contacts/contact-store.ts:141).
         sql`${contactChannels.isPrimary} DESC`,
         contactChannels.createdAt,
       )
@@ -182,7 +182,7 @@ export class ContactStore {
       .where(eq(contacts.id, contactId))
       .orderBy(
         // Primary channel first, then by creation time — mirrors the daemon
-        // (assistant/src/contacts/contact-store.ts:141) and readAssistantContact.
+        // (assistant/src/contacts/contact-store.ts:141).
         sql`${contactChannels.isPrimary} DESC`,
         contactChannels.createdAt,
       )
@@ -454,7 +454,7 @@ export class ContactStore {
    *   - status unchanged → reasons left untouched (pass undefined)
    *
    * Channel ID resolution: the caller may pass an assistant-side channel ID
-   * (the UI gets these from `readAssistantContact`). If the ID isn't found
+   * (legacy clients reading the assistant DB). If the ID isn't found
    * in the gateway DB, we resolve it from the assistant DB by
    * (contactId, type, address) and then find the matching gateway channel.
    */
@@ -1065,7 +1065,7 @@ export class ContactStore {
       revokedReason?: string | null;
       blockedReason?: string | null;
     }>;
-  }): Promise<{ contact: ContactWithChannels; created: boolean }> {
+  }): Promise<{ contact: ContactWithInfo; created: boolean }> {
     const now = Date.now();
     let contactId = params.id;
     let created = false;
@@ -1182,15 +1182,17 @@ export class ContactStore {
     }
 
     // ── 6. Read back full contact shape (best-effort) ─────────────────
-    const fullContact = await this.readAssistantContact(contactId).catch(
-      (err) => {
-        log.warn(
-          { contactId, err },
-          "upsertContact: assistant DB read-back failed; returning gateway fallback",
-        );
-        return null;
-      },
-    );
+    // Source ACL (role/principalId, channel status/policy/verified_*) from the
+    // gateway DB — the just-written source of truth — and overlay assistant-
+    // owned info. readAssistantContact would return assistant-mirror defaults
+    // (unverified/allow, role=contact), misreporting fresh creates.
+    const fullContact = await this.getContactWithInfo(contactId).catch((err) => {
+      log.warn(
+        { contactId, err },
+        "upsertContact: gateway read-back failed; returning gateway fallback",
+      );
+      return null;
+    });
 
     if (fullContact) {
       return { contact: fullContact, created };
@@ -1216,6 +1218,7 @@ export class ContactStore {
         interactionCount: 0,
         lastInteraction: null,
         channels: [],
+        assistantMetadata: null,
       },
       created,
     };
@@ -1767,97 +1770,6 @@ export class ContactStore {
     return `${slug}-${crypto.randomUUID().slice(0, 8)}.md`;
   }
 
-  /**
-   * Read a contact + channels from the assistant DB and return the full
-   * `ContactWithChannels` shape used in API responses. Returns null if the
-   * contact is not found in the assistant DB.
-   */
-  private async readAssistantContact(
-    contactId: string,
-  ): Promise<ContactWithChannels | null> {
-    const rows = await assistantDbQuery<AssistantContactRow>(
-      `SELECT c.id,
-              c.display_name      AS displayName,
-              c.notes,
-              c.role,
-              c.contact_type      AS contactType,
-              c.principal_id      AS principalId,
-              c.user_file         AS userFile,
-              c.created_at        AS createdAt,
-              c.updated_at        AS updatedAt,
-              cc.id               AS channelId,
-              cc.type             AS channelType,
-              cc.address,
-              cc.is_primary       AS isPrimary,
-              cc.external_chat_id AS externalChatId,
-              cc.status           AS channelStatus,
-              cc.policy           AS channelPolicy,
-              cc.verified_at      AS verifiedAt,
-              cc.verified_via     AS verifiedVia,
-              cc.invite_id        AS inviteId,
-              cc.revoked_reason   AS revokedReason,
-              cc.blocked_reason   AS blockedReason,
-              cc.last_seen_at     AS lastSeenAt,
-              cc.interaction_count AS interactionCount,
-              cc.last_interaction  AS lastInteraction,
-              cc.created_at       AS channelCreatedAt,
-              cc.updated_at       AS channelUpdatedAt
-         FROM contacts c
-         LEFT JOIN contact_channels cc ON cc.contact_id = c.id
-        WHERE c.id = ?
-        ORDER BY cc.is_primary DESC, cc.created_at ASC`,
-      [contactId],
-    );
-
-    if (!rows.length) return null;
-
-    const first = rows[0];
-    const channels = rows
-      .filter((r) => r.channelId !== null)
-      .map((r) => ({
-        id: r.channelId!,
-        contactId,
-        type: r.channelType!,
-        address: r.address!,
-        isPrimary: Boolean(r.isPrimary),
-        externalChatId: r.externalChatId,
-        status: r.channelStatus,
-        policy: r.channelPolicy,
-        verifiedAt: r.verifiedAt,
-        verifiedVia: r.verifiedVia,
-        inviteId: r.inviteId,
-        revokedReason: r.revokedReason,
-        blockedReason: r.blockedReason,
-        lastSeenAt: r.lastSeenAt,
-        interactionCount: r.interactionCount ?? 0,
-        lastInteraction: r.lastInteraction,
-        createdAt: r.channelCreatedAt,
-        updatedAt: r.channelUpdatedAt,
-      }));
-
-    const interactionCount = channels.reduce(
-      (sum, ch) => sum + (ch.interactionCount ?? 0),
-      0,
-    );
-    const lastInteraction =
-      channels.reduce((max, ch) => Math.max(max, ch.lastInteraction ?? 0), 0) ||
-      null;
-
-    return {
-      id: first.id,
-      displayName: first.displayName,
-      notes: first.notes,
-      role: first.role,
-      contactType: first.contactType,
-      principalId: first.principalId,
-      userFile: first.userFile,
-      createdAt: first.createdAt,
-      updatedAt: first.updatedAt,
-      interactionCount,
-      lastInteraction,
-      channels,
-    };
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1883,21 +1795,6 @@ export interface ContactChannelShape {
   lastInteraction: number | null;
   createdAt: number | null;
   updatedAt: number | null;
-}
-
-export interface ContactWithChannels {
-  id: string;
-  displayName: string;
-  notes: string | null;
-  role: string;
-  contactType: string;
-  principalId: string | null;
-  userFile: string | null;
-  createdAt: number;
-  updatedAt: number;
-  interactionCount: number;
-  lastInteraction: number | null;
-  channels: ContactChannelShape[];
 }
 
 /**
@@ -1927,35 +1824,6 @@ export interface ContactWithInfo {
     species: string;
     metadata: Record<string, unknown> | null;
   } | null;
-}
-
-interface AssistantContactRow {
-  id: string;
-  displayName: string;
-  notes: string | null;
-  role: string;
-  contactType: string;
-  principalId: string | null;
-  userFile: string | null;
-  createdAt: number;
-  updatedAt: number;
-  channelId: string | null;
-  channelType: string | null;
-  address: string | null;
-  isPrimary: number | null;
-  externalChatId: string | null;
-  channelStatus: string | null;
-  channelPolicy: string | null;
-  verifiedAt: number | null;
-  verifiedVia: string | null;
-  inviteId: string | null;
-  revokedReason: string | null;
-  blockedReason: string | null;
-  lastSeenAt: number | null;
-  interactionCount: number | null;
-  lastInteraction: number | null;
-  channelCreatedAt: number | null;
-  channelUpdatedAt: number | null;
 }
 
 /**
