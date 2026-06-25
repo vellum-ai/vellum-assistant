@@ -149,6 +149,53 @@ describe("ActiveSubagentsOverlay — expanded", () => {
   });
 });
 
+describe("ActiveSubagentsOverlay — drill-in", () => {
+  test("opening a row fires onSubagentClick and closes the dropdown", async () => {
+    const ids = seedMany(2);
+    const opened: string[] = [];
+    const { queryByText } = render(
+      <ActiveSubagentsOverlay
+        subagentIds={ids}
+        onSubagentClick={(id) => opened.push(id)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /active subagents/i }));
+    expect(queryByText("2 Active Subagents")).toBeTruthy();
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /open subagent/i })[0],
+    );
+
+    // The detail panel still opens (existing behavior).
+    expect(opened).toEqual(["sa-0"]);
+    // ...and the dropdown then closes so the two layers stop competing. It
+    // animates out via AnimatePresence (~1.8s in happy-dom), so wait it out.
+    await waitFor(
+      () => expect(queryByText("2 Active Subagents")).toBeNull(),
+      { timeout: 4000 },
+    );
+  });
+
+  test("stopping a row does NOT close the dropdown", () => {
+    const ids = seedMany(2);
+    const stopped: string[] = [];
+    const { queryByText } = render(
+      <ActiveSubagentsOverlay
+        subagentIds={ids}
+        onStopSubagent={(id) => stopped.push(id)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /active subagents/i }));
+    fireEvent.click(screen.getAllByTestId("subagent-inline-card-stop")[0]);
+
+    expect(stopped).toEqual(["sa-0"]);
+    // Stopping keeps the list open so you can stop another / keep watching.
+    expect(queryByText("2 Active Subagents")).toBeTruthy();
+  });
+});
+
 describe("ActiveSubagentsOverlay — dismissal", () => {
   test("Escape collapses the open panel", async () => {
     const ids = seedMany(2);

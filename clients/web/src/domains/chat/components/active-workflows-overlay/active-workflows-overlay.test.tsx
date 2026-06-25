@@ -19,8 +19,34 @@ import {
 mock.module(
   "@/domains/chat/components/workflow-inline-progress-card/workflow-inline-progress-card",
   () => ({
-    WorkflowInlineProgressCard: ({ runId }: { runId: string }) => (
-      <div data-testid="wf-card" data-run-id={runId} />
+    // Mirrors the real card's affordances (open present only when clickable,
+    // stop present only when stoppable) so the overlay's drill-in/stop wiring
+    // can be exercised without hydrating the workflow store.
+    WorkflowInlineProgressCard: ({
+      runId,
+      onWorkflowClick,
+      onStopWorkflow,
+    }: {
+      runId: string;
+      onWorkflowClick?: (runId: string) => void;
+      onStopWorkflow?: (runId: string) => void;
+    }) => (
+      <div data-testid="wf-card" data-run-id={runId}>
+        {onWorkflowClick ? (
+          <button
+            type="button"
+            aria-label="Open workflow"
+            onClick={() => onWorkflowClick(runId)}
+          />
+        ) : null}
+        {onStopWorkflow ? (
+          <button
+            type="button"
+            aria-label="Stop workflow"
+            onClick={() => onStopWorkflow(runId)}
+          />
+        ) : null}
+      </div>
     ),
   }),
 );
@@ -110,6 +136,55 @@ describe("ActiveWorkflowsOverlay — expanded", () => {
 
     expect(screen.getByText("1 Active Workflow")).toBeTruthy();
     expect(screen.queryByText("1 Active Workflows")).toBeNull();
+  });
+});
+
+describe("ActiveWorkflowsOverlay — drill-in", () => {
+  test("opening a row fires onWorkflowClick and closes the dropdown", async () => {
+    const ids = makeIds(2);
+    const opened: string[] = [];
+    const { queryByText } = render(
+      <ActiveWorkflowsOverlay
+        workflowRunIds={ids}
+        onWorkflowClick={(id) => opened.push(id)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /active workflows/i }));
+    expect(queryByText("2 Active Workflows")).toBeTruthy();
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /open workflow/i })[0],
+    );
+
+    // The detail panel still opens (existing behavior).
+    expect(opened).toEqual(["wf-0"]);
+    // ...and the dropdown then closes so the two layers stop competing. It
+    // animates out via AnimatePresence (~1.8s in happy-dom), so wait it out.
+    await waitFor(
+      () => expect(queryByText("2 Active Workflows")).toBeNull(),
+      { timeout: 4000 },
+    );
+  });
+
+  test("stopping a row does NOT close the dropdown", () => {
+    const ids = makeIds(2);
+    const stopped: string[] = [];
+    const { queryByText } = render(
+      <ActiveWorkflowsOverlay
+        workflowRunIds={ids}
+        onStopWorkflow={(id) => stopped.push(id)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /active workflows/i }));
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /stop workflow/i })[0],
+    );
+
+    expect(stopped).toEqual(["wf-0"]);
+    // Stopping keeps the list open so you can stop another / keep watching.
+    expect(queryByText("2 Active Workflows")).toBeTruthy();
   });
 });
 

@@ -25,8 +25,12 @@ export interface ActiveOverlayShellProps {
   title: string;
   /** Renders the pill; receives the current expand state + a toggle handler. */
   renderPill: (args: { expanded: boolean; onToggle: () => void }) => ReactNode;
-  /** The mapped inline-card rows shown inside the expanded dropdown. */
-  children: ReactNode;
+  /**
+   * Renders the mapped inline-card rows shown inside the expanded dropdown.
+   * Receives `close()` so a row can drill into its detail panel and dismiss the
+   * dropdown in one click (both heavy layers stop competing for column width).
+   */
+  children: (api: { close: () => void }) => ReactNode;
 }
 
 /**
@@ -193,7 +197,7 @@ export function ActiveOverlayShell({
               {title}
             </Typography>
             <div className="flex max-h-[320px] flex-col gap-2 overflow-y-auto">
-              {children}
+              {children({ close: () => setExpanded(false) })}
             </div>
           </motion.div>
         )}
