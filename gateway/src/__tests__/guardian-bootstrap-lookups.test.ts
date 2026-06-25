@@ -1,14 +1,13 @@
 /**
- * Tests for guardian-bootstrap pure guardian lookups
- * (findVellumGuardian + findGuardianForChannelActor) after they were
- * repointed to read the gateway DB directly, plus the adopt-before-mint
- * path in resolveOrCreateVellumGuardian (via ensureVellumGuardianBinding /
- * bootstrapGuardian).
+ * Tests for guardian-bootstrap guardian lookups
+ * (findVellumGuardian + findGuardianForChannelActor), which read the gateway
+ * DB directly, plus the resolve-or-mint path in resolveOrCreateVellumGuardian
+ * (via ensureVellumGuardianBinding / bootstrapGuardian).
  *
  * Guardian rows are seeded ONLY in the gateway DB. By default the assistant
- * DB proxy is swapped for a backend that throws, proving the pure lookups no
- * longer depend on the assistant mirror; adopt/mint tests install a real
- * in-memory assistant store instead.
+ * DB proxy is swapped for a backend that throws, proving the lookups never
+ * read the assistant mirror; mint tests install a real in-memory assistant
+ * store so the mirror dual-write succeeds.
  */
 
 import { Database } from "bun:sqlite";
@@ -27,8 +26,8 @@ import {
 
 import "./test-preload.js";
 
-// Swappable assistant-DB backend. Default: throw (the pure gateway reads must
-// not touch the assistant mirror). Adopt/mint tests install an in-memory DB.
+// Swappable assistant-DB backend. Default: throw (the gateway reads must
+// not touch the assistant mirror). Mint tests install an in-memory DB.
 type AssistantBackend = {
   query: (sql: string, params?: unknown[]) => unknown[];
   run: (sql: string, params?: unknown[]) => { changes: number };
@@ -100,38 +99,6 @@ function makeAssistantBackend(): AssistantBackend {
     },
     exec: (sql) => db.exec(sql),
   };
-}
-
-function seedAssistantGuardian(
-  backend: AssistantBackend,
-  opts: {
-    principalId: string;
-    address: string;
-    deliveryChatId?: string;
-    displayName?: string;
-    verifiedAt?: number;
-  },
-): void {
-  const now = opts.verifiedAt ?? Date.now();
-  backend.run(
-    `INSERT INTO contacts (id, display_name, role, principal_id, created_at, updated_at)
-     VALUES (?, ?, 'guardian', ?, ?, ?)`,
-    ["asst-contact", opts.displayName ?? null, opts.principalId, now, now],
-  );
-  backend.run(
-    `INSERT INTO contact_channels
-       (id, contact_id, type, address, external_chat_id, is_primary, status,
-        policy, verified_at, interaction_count, created_at, updated_at)
-     VALUES (?, 'asst-contact', 'vellum', ?, ?, 1, 'active', 'allow', ?, 0, ?, ?)`,
-    [
-      "asst-channel",
-      opts.address,
-      opts.deliveryChatId ?? "local",
-      now,
-      now,
-      now,
-    ],
-  );
 }
 
 function seedGuardianChannel(opts: {
@@ -293,7 +260,7 @@ describe("findGuardianForChannelActor (gateway DB)", () => {
   });
 });
 
-describe("adopt-before-mint (resolveOrCreateVellumGuardian)", () => {
+describe("resolve-or-mint (resolveOrCreateVellumGuardian)", () => {
   function gatewayVellumGuardians() {
     return getGatewayDb()
       .select({
@@ -309,48 +276,32 @@ describe("adopt-before-mint (resolveOrCreateVellumGuardian)", () => {
       .all();
   }
 
-  test("adopts the assistant guardian when the gateway DB lacks it", async () => {
-    const backend = makeAssistantBackend();
-    seedAssistantGuardian(backend, {
-      principalId: "principal-existing",
+  test("returns the existing guardian on a gateway fast-path hit", async () => {
+    seedGuardianChannel({
+      type: "vellum",
       address: "vellum-principal-existing",
-      deliveryChatId: "local",
-      displayName: "Owner",
+      principalId: "principal-existing",
     });
-    assistantBackend = backend;
 
     const principalId = await ensureVellumGuardianBinding();
 
-    // Existing principal returned — no fresh vellum-principal-<uuid> minted.
     expect(principalId).toBe("principal-existing");
-
-    // Gateway mirror is repaired under the existing principal.
-    const gwRows = gatewayVellumGuardians();
-    expect(gwRows).toHaveLength(1);
-    expect(gwRows[0]).toMatchObject({
-      principalId: "principal-existing",
-      address: "vellum-principal-existing",
-      status: "active",
-    });
-  });
-
-  test("second call hits the gateway fast path (idempotent)", async () => {
-    const backend = makeAssistantBackend();
-    seedAssistantGuardian(backend, {
-      principalId: "principal-existing",
-      address: "vellum-principal-existing",
-    });
-    assistantBackend = backend;
-
-    expect(await ensureVellumGuardianBinding()).toBe("principal-existing");
-
-    // Gateway now has the row; the assistant DB must not be read again.
-    assistantBackend = throwingBackend;
-    expect(await ensureVellumGuardianBinding()).toBe("principal-existing");
     expect(gatewayVellumGuardians()).toHaveLength(1);
   });
 
-  test("mints a fresh principal when neither DB has a guardian", async () => {
+  test("second call hits the gateway fast path (idempotent)", async () => {
+    assistantBackend = makeAssistantBackend();
+
+    const principalId = await ensureVellumGuardianBinding();
+    expect(principalId).toMatch(/^vellum-principal-/);
+
+    // Gateway now has the row; the assistant DB must not be read again.
+    assistantBackend = throwingBackend;
+    expect(await ensureVellumGuardianBinding()).toBe(principalId);
+    expect(gatewayVellumGuardians()).toHaveLength(1);
+  });
+
+  test("mints a fresh principal when the gateway DB has no guardian", async () => {
     assistantBackend = makeAssistantBackend();
 
     const principalId = await ensureVellumGuardianBinding();
@@ -361,13 +312,12 @@ describe("adopt-before-mint (resolveOrCreateVellumGuardian)", () => {
     expect(gwRows[0]?.principalId).toBe(principalId);
   });
 
-  test("bootstrapGuardian adopts the assistant guardian (isNew=false)", async () => {
-    const backend = makeAssistantBackend();
-    seedAssistantGuardian(backend, {
-      principalId: "principal-existing",
+  test("bootstrapGuardian returns the existing guardian (isNew=false)", async () => {
+    seedGuardianChannel({
+      type: "vellum",
       address: "vellum-principal-existing",
+      principalId: "principal-existing",
     });
-    assistantBackend = backend;
 
     const result = await bootstrapGuardian({
       platform: "macos",
@@ -380,7 +330,7 @@ describe("adopt-before-mint (resolveOrCreateVellumGuardian)", () => {
     expect(result.refreshToken).toBeTruthy();
   });
 
-  test("bootstrapGuardian mints a fresh principal when neither DB has one (isNew=true)", async () => {
+  test("bootstrapGuardian mints a fresh principal when the gateway has none (isNew=true)", async () => {
     assistantBackend = makeAssistantBackend();
 
     const result = await bootstrapGuardian({
