@@ -103,6 +103,66 @@ describe("spawnRun", () => {
 
     expect(getState().orderedIds).toEqual(["acp-a", "acp-b", "acp-c"]);
   });
+
+  it("resumes a terminal run — clears terminal fields, marks running, keeps events", () => {
+    spawn();
+    getState().receiveEvent({
+      acpSessionId: "acp-1",
+      event: event({ seq: 1, content: "a" }),
+    });
+    getState().setTerminal({
+      acpSessionId: "acp-1",
+      status: "completed",
+      stopReason: "end_turn",
+      completedAt: NOW + 1000,
+    });
+    expect(getState().byId["acp-1"]!.status).toBe("completed");
+
+    // A respawn for the same id (resume/steer) flips it back to running.
+    spawn({ startedAt: NOW + 5000 });
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.status).toBe("running");
+    expect(entry.stopReason).toBeUndefined();
+    expect(entry.error).toBeUndefined();
+    expect(entry.completedAt).toBeUndefined();
+    // Events and startedAt are preserved across the resume.
+    expect(entry.events).toHaveLength(1);
+    expect(entry.events[0]!.content).toBe("a");
+    expect(entry.startedAt).toBe(NOW);
+    // No duplicate ordered id.
+    expect(getState().orderedIds).toEqual(["acp-1"]);
+  });
+
+  it("resume clears a failed run's error", () => {
+    spawn();
+    getState().setTerminal({
+      acpSessionId: "acp-1",
+      status: "failed",
+      error: "agent crashed",
+      completedAt: NOW + 2000,
+    });
+
+    spawn();
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.status).toBe("running");
+    expect(entry.error).toBeUndefined();
+  });
+
+  it("backfills parentToolUseId on resume when it was previously missing", () => {
+    spawn();
+    getState().setTerminal({
+      acpSessionId: "acp-1",
+      status: "completed",
+      completedAt: NOW + 1000,
+    });
+
+    spawn({ parentToolUseId: "tool-use-1" });
+
+    expect(getState().byId["acp-1"]!.parentToolUseId).toBe("tool-use-1");
+    expect(getState().byToolUseId.get("tool-use-1")).toBe("acp-1");
+  });
 });
 
 // ---------------------------------------------------------------------------
