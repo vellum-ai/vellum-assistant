@@ -42,6 +42,16 @@ import {
   PluginPinHistoryError,
   resolvePinToMarketplaceCommit,
 } from "../lib/plugin-pin-history.js";
+import {
+  buildPublishPayload,
+  findPluginRoot,
+  formatPayloadForPrint,
+  formatPublishResult,
+  formatValidationResult,
+  resolveGitContext,
+  validatePluginForPublish,
+  type PublishResult,
+} from "../lib/publish-plugin.js";
 import { registerCommand } from "../lib/register-command.js";
 import {
   InvalidSearchPatternError,
@@ -68,6 +78,7 @@ import {
   upgradePlugin,
 } from "../lib/upgrade-plugin.js";
 import { getCliLogger } from "../logger.js";
+import { VellumPlatformClient } from "../../platform/client.js";
 
 const log = getCliLogger("plugins");
 
@@ -245,9 +256,7 @@ Examples:
 
       plugins
         .command("list")
-        .description(
-          "List plugins installed in your workspace.",
-        )
+        .description("List plugins installed in your workspace.")
         .option("--json", "Emit machine-readable JSON instead of a table")
         .option(
           "--all",
@@ -276,8 +285,7 @@ Examples:
             const nameW = Math.max(4, ...rows.map((r) => r.name.length));
             const versionW = Math.max(7, ...rows.map((r) => r.version.length));
             const sourceW = Math.max(6, ...rows.map((r) => r.source.length));
-            const pad = (s: string, w: number) =>
-              s + " ".repeat(w - s.length);
+            const pad = (s: string, w: number) => s + " ".repeat(w - s.length);
             console.log(
               `${pad("NAME", nameW)}  ${pad("VERSION", versionW)}  ${pad("SOURCE", sourceW)}  STATUS`,
             );
@@ -294,9 +302,7 @@ Examples:
             console.log(
               `${all.length} plugin${all.length === 1 ? "" : "s"} ` +
                 `(${userCount} user, ${defaultCount} default` +
-                (disabledCount > 0
-                  ? `, ${disabledCount} disabled`
-                  : "") +
+                (disabledCount > 0 ? `, ${disabledCount} disabled` : "") +
                 `).`,
             );
             return;
@@ -510,6 +516,194 @@ Examples:
             process.exitCode = 1;
           }
         });
+
+      plugins
+        .command("publish")
+        .description(
+          "Validate and submit the plugin in the current directory to the Vellum marketplace catalog",
+        )
+        .option(
+          "--print",
+          "Print the entry JSON without submitting to the platform",
+        )
+        .option(
+          "--path <dir>",
+          "Validate a plugin at the given path instead of CWD",
+        )
+        .option("--force", "Skip the confirmation prompt")
+        .option("--json", "Emit machine-readable JSON instead of human output")
+        .option(
+          "--category <cat>",
+          "Set the category, skipping the interactive prompt",
+        )
+        .addHelpText(
+          "after",
+          `
+
+Validates the plugin in the current directory (or --path), resolves the
+git commit SHA and GitHub remote, and submits the entry to the Vellum
+platform API. The platform creates a pull request against
+vellum-ai/vellum-assistant adding the plugin to the marketplace catalog.
+
+Requires a connected Vellum platform account (run \`assistant platform connect\`).
+Use --print to validate and print the entry without submitting.
+
+Examples:
+$ assistant plugins publish
+$ assistant plugins publish --print
+$ assistant plugins publish --path ./my-plugin --category productivity
+$ assistant plugins publish --json`,
+        )
+        .action(
+          async (opts: {
+            print?: boolean;
+            path?: string;
+            force?: boolean;
+            json?: boolean;
+            category?: string;
+          }) => {
+            // 1. Find the plugin root
+            const searchDir = opts.path ?? process.cwd();
+            const pluginDir = findPluginRoot(searchDir);
+            if (!pluginDir) {
+              console.error(
+                `No package.json found in ${searchDir} or any parent directory.`,
+              );
+              process.exitCode = 1;
+              return;
+            }
+
+            // 2. Validate the plugin
+            const validation = validatePluginForPublish(pluginDir);
+            if (!validation.valid) {
+              if (opts.json) {
+                process.stdout.write(
+                  JSON.stringify({ ok: false, errors: validation.issues }) +
+                    "\n",
+                );
+              } else {
+                console.error(formatValidationResult(validation));
+              }
+              process.exitCode = 1;
+              return;
+            }
+
+            if (!opts.json && validation.warnings.length > 0) {
+              console.warn(formatValidationResult(validation));
+            }
+
+            // 3. Resolve git context
+            let git;
+            try {
+              git = await resolveGitContext(pluginDir);
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              console.error(`Git context resolution failed: ${message}`);
+              process.exitCode = 1;
+              return;
+            }
+
+            if (git.dirty) {
+              console.warn(
+                "Warning: working tree is dirty. The pinned commit SHA should match a clean, pushed commit.",
+              );
+            }
+
+            if (!git.pushed) {
+              console.error(
+                `Commit ${git.sha.slice(0, 7)} has not been pushed to the remote. Push your changes first.`,
+              );
+              process.exitCode = 1;
+              return;
+            }
+
+            // 4. Determine category
+            const category = opts.category ?? "other";
+
+            // 5. Build the payload
+            const payload = buildPublishPayload(validation, git, category);
+
+            // 6. Handle --print mode
+            if (opts.print) {
+              if (opts.json) {
+                process.stdout.write(
+                  JSON.stringify({ ok: true, payload }) + "\n",
+                );
+              } else {
+                console.log(formatPayloadForPrint(payload));
+              }
+              return;
+            }
+
+            // 7. Confirm before submitting (unless --force or --json)
+            if (!opts.force && !opts.json) {
+              console.log("\nPlugin entry to submit:");
+              console.log(formatPayloadForPrint(payload));
+              console.log("");
+              const result = await confirmPrompt({
+                question: "Submit this entry to the Vellum marketplace? [y/N] ",
+                isTTY: Boolean(process.stdin.isTTY),
+                refuseNonInteractiveMessage:
+                  "Refusing to publish non-interactively. Pass --force to confirm.",
+              });
+              if (result === "non-interactive") {
+                process.exitCode = 1;
+                return;
+              }
+            }
+
+            // 8. Submit to the platform API
+            const client = await VellumPlatformClient.create();
+            if (!client) {
+              const msg =
+                "Not connected to Vellum platform. Run `assistant platform connect` to connect, or use --print to generate the entry without submitting.";
+              if (opts.json) {
+                process.stdout.write(
+                  JSON.stringify({
+                    ok: false,
+                    error: "not_connected",
+                    message: msg,
+                  }) + "\n",
+                );
+              } else {
+                console.error(msg);
+              }
+              process.exitCode = 1;
+              return;
+            }
+
+            try {
+              const resp = await client.fetch("/v1/plugins/publish", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+              });
+              const result = (await resp.json()) as PublishResult;
+
+              if (opts.json) {
+                process.stdout.write(JSON.stringify(result) + "\n");
+              } else {
+                console.log(formatPublishResult(result));
+              }
+
+              if (!result.ok) process.exitCode = 1;
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              if (opts.json) {
+                process.stdout.write(
+                  JSON.stringify({
+                    ok: false,
+                    error: "request_failed",
+                    message,
+                  }) + "\n",
+                );
+              } else {
+                console.error(`Publish request failed: ${message}`);
+              }
+              process.exitCode = 1;
+            }
+          },
+        );
 
       plugins
         .command("uninstall <name>")
