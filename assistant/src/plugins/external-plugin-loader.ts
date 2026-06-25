@@ -54,8 +54,8 @@ import type { Tool, ToolDefinition } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { registerPlugin } from "./registry.js";
 import type {
+  HookFunction,
   Plugin,
-  PluginHookFn,
   PluginHooks,
   PluginManifest,
 } from "./types.js";
@@ -195,7 +195,7 @@ async function loadHooks(
   if (files.length === 0) return undefined;
   const hooks: PluginHooks = {};
   for (const { name, path } of files) {
-    const fn = await importDefault<PluginHookFn>(path);
+    const fn = await importDefault<HookFunction>(path);
     if (typeof fn !== "function") {
       throw new Error(
         `external plugin ${pluginName}: hooks/${name} default export must be a function (got ${typeof fn})`,

@@ -23,7 +23,7 @@
  */
 
 import {
-  type PluginHookFn,
+  type HookFunction,
   type UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
 
@@ -33,7 +33,7 @@ import {
 } from "../src/caption-blocks.js";
 import { findVisionProfile } from "../src/vision-caption.js";
 
-const userPromptSubmit: PluginHookFn<UserPromptSubmitContext> = async (ctx) => {
+const userPromptSubmit: HookFunction<UserPromptSubmitContext> = async (ctx) => {
   // If the turn's model already supports vision, nothing to do.
   if (!needsImageFallback(ctx.modelProfileKey)) return;
 

@@ -55,7 +55,7 @@
  * - {@link PostModelCallContext} — passed to `post-model-call` hook, fired at
  *   every model-call outcome (a finalized reply or a provider rejection) to
  *   transform content and decide whether to retry
- * - {@link PluginHookFn} — signature every lifecycle hook implements
+ * - {@link HookFunction} — signature every lifecycle hook implements
  * - {@link PluginLogger} — pino-compatible logger shape on the contexts
  * - {@link ToolDefinition} — author-facing tool spec (default-export shape
  *   for both plugin tool files and workspace tool files)
@@ -98,9 +98,9 @@ export type {
 export type { LLMCallSite } from "../config/schemas/llm.js";
 export type {
   AgentLoopExitReason,
+  HookFunction,
   InitContext,
   ModelProfileInfo,
-  PluginHookFn,
   PluginLogger,
   PostCompactContext,
   PostModelCallContext,

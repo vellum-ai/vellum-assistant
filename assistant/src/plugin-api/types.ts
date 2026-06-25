@@ -65,7 +65,7 @@ export interface PluginLogger {
  *   - `stop` — {@link StopContext}
  *   - `post-model-call` — {@link PostModelCallContext}
  */
-export type PluginHookFn<TCtx = unknown> = (
+export type HookFunction<TCtx = unknown> = (
   ctx: TCtx,
 ) => Promise<Partial<TCtx> | void>;
 
@@ -151,7 +151,7 @@ export interface ShutdownContext {
  *
  * The hook may transform `latestMessages` either by mutating it in place
  * (`push` / `splice` / `length = 0`) or by returning a new context with
- * a fresh `latestMessages` array — see {@link PluginHookFn}'s polymorphic
+ * a fresh `latestMessages` array — see {@link HookFunction}'s polymorphic
  * return shape. The daemon threads the final `latestMessages` value into
  * `agentLoop.run()` as the run-messages argument.
  *
@@ -244,7 +244,7 @@ export interface UserPromptSubmitContext {
  * their own injected context the same way.
  *
  * The hook re-injects by mutating `history` in place (or returning a new
- * context with a replacement `history`) — see {@link PluginHookFn}'s
+ * context with a replacement `history`) — see {@link HookFunction}'s
  * polymorphic return shape. The agent loop reads the settled `history` back off
  * the context and resumes the turn from it. Multiple plugins' hooks chain in
  * registration order, each seeing the previous plugin's edits.
@@ -301,7 +301,7 @@ export interface PostCompactContext {
  *
  * The hook may transform the result either by mutating `toolResponse` in
  * place (e.g. reassigning `toolResponse.content`) or by returning a new
- * context with a fresh `toolResponse` — see {@link PluginHookFn}'s
+ * context with a fresh `toolResponse` — see {@link HookFunction}'s
  * polymorphic return shape. The daemon threads the final `toolResponse`
  * into the provider-bound history.
  *

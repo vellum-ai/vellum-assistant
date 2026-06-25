@@ -19,7 +19,7 @@
 import type { HookName } from "../plugin-api/constants.js";
 import { getLogger } from "../util/logger.js";
 import { getHooksFor } from "./registry.js";
-import type { PluginHookFn } from "./types.js";
+import type { HookFunction } from "./types.js";
 
 // ─── Hook runner ────────────────────────────────────────────────────────────
 
@@ -116,7 +116,7 @@ export async function runHook<TCtx>(
   name: HookName,
   initialCtx: TCtx,
 ): Promise<TCtx> {
-  let hooks: PluginHookFn<TCtx>[];
+  let hooks: HookFunction<TCtx>[];
   try {
     hooks = await getHooksFor<TCtx>(name);
   } catch (err) {

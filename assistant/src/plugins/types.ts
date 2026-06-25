@@ -19,7 +19,7 @@ import type {
 } from "../daemon/conversation-runtime-assembly.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import type { PluginHookFn } from "../plugin-api/types.js";
+import type { HookFunction } from "../plugin-api/types.js";
 import type { Message } from "../providers/types.js";
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import type { Tool } from "../tools/types.js";
@@ -67,8 +67,8 @@ export interface PluginManifest {
 // existing internal call sites keep working. Plugin authors import these from
 // `@vellumai/plugin-api`.
 export type {
+  HookFunction,
   InitContext,
-  PluginHookFn,
   ShutdownContext,
 } from "../plugin-api/types.js";
 
@@ -343,14 +343,14 @@ export type PluginRouteRegistration = SkillRoute;
  * unknown keys are forward-compat scaffolding.
  *
  * See `assistant/src/daemon/external-plugins-bootstrap.ts` for the
- * full lifecycle, and {@link PluginHookFn} for the per-entry signature.
+ * full lifecycle, and {@link HookFunction} for the per-entry signature.
  */
 // The map stores hooks for arbitrary keys with arbitrary context shapes.
 // `any` (rather than `unknown`) is required so concrete plugin signatures
 // like `(ctx: InitContext) => Promise<void>` and `() => Promise<void>`
 // both assign in/out of slot entries under strict-function-types contravariance.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type PluginHooks = Record<string, PluginHookFn<any>>;
+export type PluginHooks = Record<string, HookFunction<any>>;
 
 /**
  * A registered plugin. Every field besides `manifest` is optional — a plugin
