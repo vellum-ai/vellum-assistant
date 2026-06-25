@@ -814,6 +814,18 @@ export class AcpSessionManager {
   }
 
   /**
+   * Returns the live ring buffer for an active session as wire-shaped
+   * `AcpSessionUpdate[]` (each carrying `seq`), matching exactly what
+   * `persistTerminal` serializes to `eventLogJson` on terminal transition.
+   * Empty array for unknown/already-torn-down ids.
+   */
+  getBufferedUpdates(acpSessionId: string): AcpSessionUpdate[] {
+    const buffer = this.eventBuffers.get(acpSessionId);
+    if (!buffer) return [];
+    return buffer.map((b) => b.update);
+  }
+
+  /**
    * Appends a wire-shaped update to the ring buffer, evicting oldest events
    * when either the count or aggregate-byte cap is exceeded. Byte
    * accounting tracks the sum of element JSON sizes; the cap is a soft

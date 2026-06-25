@@ -23,6 +23,7 @@ mock.module("../../acp/index.js", () => ({
       if (!state) throw new Error(`ACP session "${id}" not found`);
       return state;
     },
+    getBufferedUpdates: () => [],
   }),
 }));
 
