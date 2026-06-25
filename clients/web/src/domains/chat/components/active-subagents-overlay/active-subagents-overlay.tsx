@@ -54,8 +54,9 @@ export function ActiveSubagentsOverlay({
     <div
       ref={containerRef}
       data-testid="active-subagents-overlay"
-      // none here so gutter clicks reach the transcript; pill + panel re-enable. 589px per Figma 6063:149685.
-      className="pointer-events-none flex w-full max-w-[589px] flex-col items-center gap-2"
+      // Content-width + relative so the pill can sit adjacent to a sibling overlay
+      // pill; none here so gutter clicks reach the transcript, pill + panel re-enable.
+      className="pointer-events-none relative flex w-auto flex-col items-center"
     >
       <ActiveSubagentsPill
         subagentIds={subagentIds}
@@ -64,7 +65,9 @@ export function ActiveSubagentsOverlay({
       />
 
       {expanded && (
-        <div className="pointer-events-auto flex w-full flex-col gap-4 rounded-xl bg-[var(--surface-lift)] px-3 py-4 shadow-lg">
+        // Absolute dropdown anchored under the pill so its 589px width no longer
+        // dictates the row's width (Figma 6063:149685).
+        <div className="pointer-events-auto absolute left-1/2 top-full z-20 mt-2 flex w-[min(589px,calc(100vw-2rem))] -translate-x-1/2 flex-col gap-4 rounded-xl bg-[var(--surface-lift)] px-3 py-4 shadow-lg">
           <Typography
             variant="title-small"
             className="text-[var(--content-emphasised)]"
