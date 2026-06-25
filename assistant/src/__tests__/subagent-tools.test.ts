@@ -1807,19 +1807,24 @@ describe("Subagent advisor-role consult", () => {
     }
   });
 
-  test("advisor forwards the tool's onOutput as the streaming onText sink", async () => {
+  test("advisor forwards streamed chunks to the tool's onOutput sink", async () => {
     mockFindConversation = () => ({
       messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
       getCurrentSystemPrompt: () => "SYS",
     });
     const { captured, restore } = stubAwait("advice");
-    const onOutput = () => {};
+    const chunks: string[] = [];
+    const onOutput = (c: string) => chunks.push(c);
     try {
       await executeSubagentSpawn(
         { label: "Consult", objective: "x", role: "advisor" },
         makeContext("advisor-sess-6", { sendToClient: () => {}, onOutput }),
       );
-      expect(captured.current!.opts?.onText).toBe(onOutput);
+      // onText is a progress-recording wrapper (resets the idle deadline), not
+      // onOutput itself — but invoking it must still forward to onOutput.
+      expect(captured.current!.opts?.onText).toBeInstanceOf(Function);
+      captured.current!.opts?.onText?.("hello");
+      expect(chunks).toEqual(["hello"]);
       expect(captured.current!.opts?.signal).toBeInstanceOf(AbortSignal);
     } finally {
       restore();

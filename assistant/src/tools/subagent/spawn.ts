@@ -20,18 +20,27 @@ import {
 import type { SubagentRole } from "../../subagent/types.js";
 import { getLogger } from "../../util/logger.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+import { createConsultDeadline } from "./consult-deadline.js";
 
 const log = getLogger("subagent-spawn");
 
 /**
- * Hard ceiling on a single advisor consult. Generous because the consult runs
- * one-shot over the full inherited transcript on a stronger profile — which, on
- * a reasoning model, spends most of its time thinking before it emits visible
- * text. If the ceiling is hit, the partial guidance is recovered and returned
- * rather than discarded (see the `SubagentAbortedError` branch below), so this
- * is an upper bound on the synchronous block, not a pass/fail line.
+ * Idle ceiling on a single advisor consult: abort only after this much time
+ * passes with NO streamed token (thinking or text). A reasoning advisor profile
+ * streams its reasoning while it works, so a fixed wall-clock ceiling would kill
+ * it mid-thought; an idle window instead fires only when the consult is
+ * genuinely stalled (or never starts). Generous enough to also span
+ * time-to-first-token over a large inherited transcript.
  */
-const ADVISOR_TIMEOUT_MS = 120_000;
+const ADVISOR_IDLE_TIMEOUT_MS = 60_000;
+
+/**
+ * Absolute backstop on a single advisor consult regardless of streaming
+ * progress, so a runaway or looping stream can't block the parent forever.
+ * Either ceiling still yields the partial guidance (recovered in the
+ * `SubagentAbortedError` branch below), not a discard.
+ */
+const ADVISOR_MAX_TIMEOUT_MS = 300_000;
 
 export async function executeSubagentSpawn(
   input: Record<string, unknown>,
@@ -215,12 +224,14 @@ export async function executeSubagentSpawn(
  *
  * Inherits the parent transcript (sanitized), frames it as advice via
  * `buildAdvisorSystem`, runs tool-less on `llm.advisorProfile` (unless the
- * caller passed an explicit `inference_profile`), and is bounded by
- * `ADVISOR_TIMEOUT_MS`. If the consult hits that ceiling, the partial guidance
- * produced so far is recovered and returned with a "may be cut off" note rather
- * than discarded. Degrades to a benign non-error notice on any other failure
- * (including the depth-limit rejection when a subagent itself calls the
- * advisor).
+ * caller passed an explicit `inference_profile`), and is bounded by a
+ * progress-aware deadline: an idle window (`ADVISOR_IDLE_TIMEOUT_MS`) reset on
+ * every streamed token so a reasoning model isn't killed mid-thought, plus an
+ * absolute `ADVISOR_MAX_TIMEOUT_MS` backstop. If either ceiling is hit, the
+ * partial guidance produced so far is recovered and returned with a "may be cut
+ * off" note rather than discarded. Degrades to a benign non-error notice on any
+ * other failure (including the depth-limit rejection when a subagent itself
+ * calls the advisor).
  */
 async function runAdvisorConsult(args: {
   context: ToolContext;
@@ -264,40 +275,53 @@ async function runAdvisorConsult(args: {
     const overrideProfile = requestedOverrideProfile ?? advisorProfile;
     const forceOverrideProfile = overrideProfile !== undefined;
 
-    // Combine the caller's signal with the hard consult ceiling.
-    const timeout = AbortSignal.timeout(ADVISOR_TIMEOUT_MS);
+    // Progress-aware deadline: reset on every streamed token so the consult
+    // isn't killed mid-thought, with an absolute backstop. Combine it with the
+    // caller's own signal.
+    const deadline = createConsultDeadline({
+      idleMs: ADVISOR_IDLE_TIMEOUT_MS,
+      maxMs: ADVISOR_MAX_TIMEOUT_MS,
+    });
     const signal = context.signal
-      ? AbortSignal.any([context.signal, timeout])
-      : timeout;
-
-    const advice = await getSubagentManager().spawnAndAwait(
-      {
-        parentConversationId: context.conversationId,
-        label,
-        // Carry the agent's own objective into the consult request — the agent
-        // states the task here, and the inherited transcript can be thin.
-        objective: advisorRequestText(objective),
-        sendResultToUser: false,
-        role: "advisor",
-        fork: true,
-        parentMessages: sanitizedMessages,
-        systemPromptOverride: buildAdvisorSystem(parentSystemPrompt),
-        ...(overrideProfile ? { overrideProfile } : {}),
-        ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
-        ...(context.toolUseId ? { parentToolUseId: context.toolUseId } : {}),
-      },
-      sendToClient,
-      {
-        signal,
-        ...(context.onOutput ? { onText: context.onOutput } : {}),
-      },
-    );
-
-    const trimmed = advice.trim();
-    return {
-      content: trimmed.length > 0 ? trimmed : "(advisor returned no guidance)",
-      isError: false,
+      ? AbortSignal.any([context.signal, deadline.signal])
+      : deadline.signal;
+    // Every streamed chunk (thinking or text) counts as progress and resets the
+    // idle window, then forwards to the caller's stream sink if one is present.
+    const onText = (chunk: string): void => {
+      deadline.recordProgress();
+      context.onOutput?.(chunk);
     };
+
+    try {
+      const advice = await getSubagentManager().spawnAndAwait(
+        {
+          parentConversationId: context.conversationId,
+          label,
+          // Carry the agent's own objective into the consult request — the
+          // agent states the task here, and the inherited transcript can be thin.
+          objective: advisorRequestText(objective),
+          sendResultToUser: false,
+          role: "advisor",
+          fork: true,
+          parentMessages: sanitizedMessages,
+          systemPromptOverride: buildAdvisorSystem(parentSystemPrompt),
+          ...(overrideProfile ? { overrideProfile } : {}),
+          ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
+          ...(context.toolUseId ? { parentToolUseId: context.toolUseId } : {}),
+        },
+        sendToClient,
+        { signal, onText },
+      );
+
+      const trimmed = advice.trim();
+      return {
+        content:
+          trimmed.length > 0 ? trimmed : "(advisor returned no guidance)",
+        isError: false,
+      };
+    } finally {
+      deadline.dispose();
+    }
   } catch (err) {
     // Timed out mid-generation: salvage whatever guidance the advisor had
     // written rather than throwing it away. Partial strategic advice is far
