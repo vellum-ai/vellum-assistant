@@ -60,6 +60,8 @@ export interface AcpSessionUsage {
   contextSize: number;
   costAmount?: number;
   costCurrency?: string;
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 // --- Domain-level union alias (consumed by message-protocol.ts) ---

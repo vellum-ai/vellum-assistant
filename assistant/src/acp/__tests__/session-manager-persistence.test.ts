@@ -46,7 +46,10 @@ function buildSessionWithFakeProcess(opts: {
   latestUsage?: AcpUsageSnapshot;
 }): {
   manager: AcpSessionManager;
-  resolvePrompt: (v: { stopReason: string }) => void;
+  resolvePrompt: (v: {
+    stopReason: string;
+    usage?: { inputTokens: number; outputTokens: number };
+  }) => void;
   rejectPrompt: (e: Error) => void;
   emitUpdate: (update: AcpSessionUpdate) => void;
 } {
@@ -54,9 +57,13 @@ function buildSessionWithFakeProcess(opts: {
   const sent: ServerMessage[] = [];
   const sendToVellum = (msg: ServerMessage) => sent.push(msg);
 
-  let resolvePrompt!: (v: { stopReason: string }) => void;
+  type PromptResolution = {
+    stopReason: string;
+    usage?: { inputTokens: number; outputTokens: number };
+  };
+  let resolvePrompt!: (v: PromptResolution) => void;
   let rejectPrompt!: (e: Error) => void;
-  const promptPromise = new Promise<{ stopReason: string }>((res, rej) => {
+  const promptPromise = new Promise<PromptResolution>((res, rej) => {
     resolvePrompt = res;
     rejectPrompt = rej;
   });
@@ -403,6 +410,88 @@ describe("AcpSessionManager — terminal persistence", () => {
     expect(row!.context_size).toBeNull();
     expect(row!.cost_amount).toBeNull();
     expect(row!.cost_currency).toBeNull();
+    expect(row!.input_tokens).toBeNull();
+    expect(row!.output_tokens).toBeNull();
+  });
+
+  test("emits acp_session_usage and persists input/output tokens from PromptResponse.usage", async () => {
+    const id = "session-io-usage-1";
+    const sent: ServerMessage[] = [];
+    const handles = buildSessionWithFakeProcess({
+      id,
+      agentId: "agent-io",
+      protocolSessionId: "proto-io",
+      parentConversationId: "conv-io",
+      // A prior usage_update established the context-window gauge; the prompt
+      // response only adds cumulative input/output token totals.
+      latestUsage: { usedTokens: 1200, contextSize: 200_000 },
+    });
+
+    // Capture the usage event emitted at turn end.
+    const captureSend = (
+      handles.manager as unknown as { sessions: Map<string, { sendToVellum: (m: ServerMessage) => void }> }
+    ).sessions.get(id);
+    const originalSend = captureSend!.sendToVellum;
+    captureSend!.sendToVellum = (msg: ServerMessage) => {
+      sent.push(msg);
+      originalSend(msg);
+    };
+
+    handles.resolvePrompt({
+      stopReason: "end_turn",
+      usage: { inputTokens: 5000, outputTokens: 800 },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const usageEvent = sent.find((m) => m.type === "acp_session_usage");
+    expect(usageEvent).toMatchObject({
+      type: "acp_session_usage",
+      acpSessionId: id,
+      inputTokens: 5000,
+      outputTokens: 800,
+      usedTokens: 1200,
+      contextSize: 200_000,
+    });
+
+    const row = readHistoryRow(id);
+    expect(row).not.toBeNull();
+    expect(row!.input_tokens).toBe(5000);
+    expect(row!.output_tokens).toBe(800);
+    // Context-window gauge from the prior usage_update is preserved.
+    expect(row!.used_tokens).toBe(1200);
+    expect(row!.context_size).toBe(200_000);
+  });
+
+  test("does not emit usage or write token columns when PromptResponse carries no usage", async () => {
+    const id = "session-io-no-usage-1";
+    const sent: ServerMessage[] = [];
+    const handles = buildSessionWithFakeProcess({
+      id,
+      agentId: "agent-io-none",
+      protocolSessionId: "proto-io-none",
+      parentConversationId: "conv-io-none",
+    });
+
+    const entry = (
+      handles.manager as unknown as { sessions: Map<string, { sendToVellum: (m: ServerMessage) => void }> }
+    ).sessions.get(id);
+    const originalSend = entry!.sendToVellum;
+    entry!.sendToVellum = (msg: ServerMessage) => {
+      sent.push(msg);
+      originalSend(msg);
+    };
+
+    handles.resolvePrompt({ stopReason: "end_turn" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(sent.find((m) => m.type === "acp_session_usage")).toBeUndefined();
+
+    const row = readHistoryRow(id);
+    expect(row).not.toBeNull();
+    expect(row!.input_tokens).toBeNull();
+    expect(row!.output_tokens).toBeNull();
   });
 
   test("legacy rows without a cwd read back as null", () => {

@@ -37,6 +37,10 @@ export const acpSessionHistory = sqliteTable(
     contextSize: integer("context_size"),
     costAmount: real("cost_amount"),
     costCurrency: text("cost_currency"),
+    // Cumulative input/output tokens across all turns. Null for rows written
+    // before migration 305.
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
   },
   (table) => [
     index("idx_acp_session_history_started_at").on(table.startedAt),

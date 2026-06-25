@@ -299,6 +299,8 @@ export class AcpSessionManager {
             contextSize: msg.contextSize,
             costAmount: msg.costAmount,
             costCurrency: msg.costCurrency,
+            inputTokens: msg.inputTokens ?? state.latestUsage?.inputTokens,
+            outputTokens: msg.outputTokens ?? state.latestUsage?.outputTokens,
           };
         }
       }
@@ -509,6 +511,8 @@ export class AcpSessionManager {
         contextSize: row.contextSize,
         costAmount: row.costAmount ?? undefined,
         costCurrency: row.costCurrency ?? undefined,
+        inputTokens: row.inputTokens ?? undefined,
+        outputTokens: row.outputTokens ?? undefined,
       };
     }
 
@@ -905,6 +909,8 @@ export class AcpSessionManager {
       contextSize: usage?.contextSize ?? null,
       costAmount: usage?.costAmount ?? null,
       costCurrency: usage?.costCurrency ?? null,
+      inputTokens: usage?.inputTokens ?? null,
+      outputTokens: usage?.outputTokens ?? null,
     };
     try {
       getDb()
@@ -971,6 +977,34 @@ export class AcpSessionManager {
             current.state.stopReason = response.stopReason;
           }
           current.currentPrompt = null;
+
+          // `PromptResponse.usage` carries cumulative input/output totals across
+          // all turns. Overwrite (not accumulate) onto the latest usage gauge so
+          // the terminal persist captures them, and emit so clients see the final
+          // counts. Reuse the most recent context-window snapshot for
+          // usedTokens/contextSize, which the prompt response does not report.
+          const usage = response.usage;
+          if (usage) {
+            const prior = current.state.latestUsage;
+            current.state.latestUsage = {
+              usedTokens: prior?.usedTokens ?? 0,
+              contextSize: prior?.contextSize ?? 0,
+              costAmount: prior?.costAmount,
+              costCurrency: prior?.costCurrency,
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+            };
+            current.sendToVellum({
+              type: "acp_session_usage",
+              acpSessionId,
+              usedTokens: current.state.latestUsage.usedTokens,
+              contextSize: current.state.latestUsage.contextSize,
+              costAmount: current.state.latestUsage.costAmount,
+              costCurrency: current.state.latestUsage.costCurrency,
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+            });
+          }
           log.info(
             { acpSessionId, stopReason: response.stopReason },
             "ACP prompt completed",

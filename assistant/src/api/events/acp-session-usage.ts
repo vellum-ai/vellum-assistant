@@ -4,9 +4,10 @@
  * Server → client gauge of an ACP session's context-window usage,
  * forwarded from the ACP `usage_update` notification. `usedTokens` is
  * the tokens currently in context, `contextSize` the window size; the
- * optional `costAmount`/`costCurrency` mirror the agent's cumulative
- * cost. A side gauge, not part of the ordered update timeline — carries
- * no `seq`.
+ * optional `inputTokens`/`outputTokens` are the session's cumulative
+ * input/output token totals and `costAmount`/`costCurrency` mirror the
+ * agent's cumulative cost. A side gauge, not part of the ordered update
+ * timeline — carries no `seq`.
  *
  * Canonical wire-contract source. Daemon code imports the type
  * directly from this file; external consumers import via
@@ -21,6 +22,8 @@ export const AcpSessionUsageEventSchema = z
     acpSessionId: z.string(),
     usedTokens: z.number(),
     contextSize: z.number(),
+    inputTokens: z.number().optional(),
+    outputTokens: z.number().optional(),
     costAmount: z.number().optional(),
     costCurrency: z.string().optional(),
   })
