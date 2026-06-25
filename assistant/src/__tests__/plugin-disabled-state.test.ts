@@ -14,18 +14,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { RiskLevel } from "../permissions/types.js";
 import {
   getHooksFor,
   registerPlugin,
   resetPluginRegistryForTests,
   unregisterPlugin,
 } from "../plugins/registry.js";
+import { type HookFunction, type Plugin } from "../plugins/types.js";
 import {
   getPluginToolDefinitions,
   registerPluginTools,
 } from "../tools/registry.js";
-import { type HookFunction, type Plugin } from "../plugins/types.js";
-import { RiskLevel } from "../permissions/types.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 
 const TEST_WORKSPACE_DIR = join(
