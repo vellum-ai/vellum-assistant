@@ -5,8 +5,9 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PACKAGE_DIR="$ROOT_DIR/native/mac-helper"
 OUTPUT_DIR="$ROOT_DIR/resources"
 OUTPUT_BUNDLE="$OUTPUT_DIR/vellum-mac-helper.app"
-OUTPUT="$OUTPUT_BUNDLE/Contents/MacOS/vellum-mac-helper"
 OUTPUT_INFO_PLIST="$OUTPUT_BUNDLE/Contents/Info.plist"
+# $OUTPUT (the installed executable path) is set after the env block below: its
+# filename is per-environment, since that filename is what Privacy & Security shows.
 TEMPLATE_PLIST="$PACKAGE_DIR/Sources/MacHelperExecutable/Info.plist"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -42,6 +43,16 @@ else
   HELPER_DISPLAY_NAME="Vellum Helper ${ENV_CAP}"
 fi
 
+# Name the executable itself, not just the bundle. The helper is spawned
+# directly (execve, not via LaunchServices), so TCC attributes its grants by
+# executable path and the Privacy & Security list shows the binary's filename —
+# CFBundleName/CFBundleDisplayName are never consulted for that pane. Renaming
+# the binary is the only lever that makes the Accessibility entry read
+# "Vellum Helper [Env]" instead of "vellum-mac-helper". CFBundleExecutable must
+# match the on-disk filename or codesign rejects the bundle.
+HELPER_EXEC_NAME="$HELPER_DISPLAY_NAME"
+OUTPUT="$OUTPUT_BUNDLE/Contents/MacOS/$HELPER_EXEC_NAME"
+
 mkdir -p "$OUTPUT_DIR"
 # Render the templated Info.plist, then embed it into the bare executable's
 # __info_plist section so TCC can attribute permission prompts for the
@@ -53,6 +64,7 @@ rm -f "$OUTPUT_DIR"/.vellum-mac-helper.*.Info.plist
 RENDERED_TMP="$(mktemp)"
 sed -e "s|__HELPER_BUNDLE_ID__|${HELPER_BUNDLE_ID}|g" \
     -e "s|__HELPER_DISPLAY_NAME__|${HELPER_DISPLAY_NAME}|g" \
+    -e "s|__HELPER_EXEC_NAME__|${HELPER_EXEC_NAME}|g" \
     "$TEMPLATE_PLIST" > "$RENDERED_TMP"
 RENDERED_PLIST="$OUTPUT_DIR/.vellum-mac-helper.$(shasum -a 256 "$RENDERED_TMP" | cut -c1-16).Info.plist"
 mv -f "$RENDERED_TMP" "$RENDERED_PLIST"
