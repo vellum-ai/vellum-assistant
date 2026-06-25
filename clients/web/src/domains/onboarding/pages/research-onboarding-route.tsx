@@ -147,6 +147,11 @@ export function ResearchOnboardingRoute() {
   // True while the booking request is in flight, so the confirmation step can
   // hold (capped) until the booked time is known instead of advancing early.
   const [checkinPending, setCheckinPending] = useState(false);
+  // True only once the daemon confirms the check-in was booked. Persisted so a
+  // refresh that interrupts the in-flight booking POST doesn't resume past the
+  // calendar step as if it succeeded (the endpoint is non-idempotent — a blind
+  // retry would double-book), and resumes back to the calendar step instead.
+  const [checkinBooked, setCheckinBooked] = useState(false);
   // Set when the Google grant landed WITHOUT the calendar.events scope (the user
   // didn't tick the calendar box on Google's granular-consent screen). The
   // connection succeeds but no event can be booked, so we keep the user on the
@@ -213,12 +218,15 @@ export function ResearchOnboardingRoute() {
       setFormValues(snapshot.formValues);
       setFaceValues(snapshot.faceValues);
       setCheckinTime(snapshot.checkinTime);
-      if (snapshot.research) hydrateResearch(snapshot.research);
+      setCheckinBooked(snapshot.checkinBooked);
+      // Re-enqueue the named plugin installs against the re-hatched assistant so
+      // a suggestion click awaits real (idempotent) installs, not an empty map.
+      if (snapshot.research) hydrateResearch(snapshot.research, awaitHatchReady);
       setStep(resolveResumeStep(snapshot));
       setForwardStack([]);
     }
     setRestored(true);
-  }, [restored, userId, hydrateResearch]);
+  }, [restored, userId, hydrateResearch, awaitHatchReady]);
 
   // Persist the journey as it advances so a refresh can resume it. Gated on
   // `restored` so we don't overwrite the snapshot before reading it, and only
@@ -232,6 +240,7 @@ export function ResearchOnboardingRoute() {
       formValues,
       faceValues,
       checkinTime,
+      checkinBooked,
       research:
         research.status === "done"
           ? {
@@ -249,6 +258,7 @@ export function ResearchOnboardingRoute() {
     formValues,
     faceValues,
     checkinTime,
+    checkinBooked,
     research.status,
     research.claims,
     research.suggestions,
@@ -414,6 +424,7 @@ export function ResearchOnboardingRoute() {
         .filter(Boolean)
         .join(" ");
       setCheckinTime(null);
+      setCheckinBooked(false);
       setCheckinPending(true);
       void scheduleCheckin({
         assistantId: hatchedAssistantId,
@@ -422,6 +433,7 @@ export function ResearchOnboardingRoute() {
       })
         .then((result) => {
           if (result.scheduled) {
+            setCheckinBooked(true);
             setCheckinTime(formatCheckinTime(result.start, result.timeZone));
           }
         })

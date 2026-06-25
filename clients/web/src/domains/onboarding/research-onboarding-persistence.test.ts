@@ -30,6 +30,7 @@ function baseSnapshot(
     },
     faceValues: null,
     checkinTime: null,
+    checkinBooked: false,
     research: null,
     ...overrides,
   };
@@ -91,8 +92,19 @@ describe("resolveResumeStep", () => {
     expect(resolveResumeStep(snapshot)).toBe("suggestions");
   });
 
-  test("never replays the one-shot meeting confirmation — resumes on looking", () => {
-    expect(resolveResumeStep(baseSnapshot({ step: "meeting" }))).toBe("looking");
+  test("a confirmed booking resumes the meeting step on the looking carousel", () => {
+    expect(
+      resolveResumeStep(baseSnapshot({ step: "meeting", checkinBooked: true })),
+    ).toBe("looking");
+  });
+
+  test("an unconfirmed booking resumes the meeting step back on the calendar", () => {
+    // The booking POST may have been cancelled by the refresh and the endpoint
+    // is non-idempotent, so fall back to the calendar step (which only books on
+    // an explicit click) rather than skipping past it or blind-retrying.
+    expect(
+      resolveResumeStep(baseSnapshot({ step: "meeting", checkinBooked: false })),
+    ).toBe("letschat");
   });
 
   test("resumes the saved step mid-flow when research hasn't settled", () => {

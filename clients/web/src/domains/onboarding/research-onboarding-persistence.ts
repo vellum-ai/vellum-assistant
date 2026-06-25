@@ -58,6 +58,13 @@ export interface ResearchOnboardingSnapshot {
   faceValues: GiveMeAFaceValues | null;
   /** Formatted booked check-in time ("2:30 PM"), or null when not booked. */
   checkinTime: string | null;
+  /**
+   * True only once the day-2 check-in was confirmed booked by the daemon. Kept
+   * separate from the transient "meeting" confirmation step so a refresh that
+   * interrupts the in-flight (non-idempotent) booking POST doesn't resume PAST
+   * it as if it succeeded — see resolveResumeStep.
+   */
+  checkinBooked: boolean;
   /** Completed research output; null until the turn settles with results. */
   research: PersistedResearchResults | null;
 }
@@ -107,14 +114,24 @@ export function clearResearchSnapshot(userId: string | null): void {
 /**
  * Where a refresh should land given the saved journey. Once the research turn
  * finished, jump straight to the suggestions — the saved results render without
- * re-running the search. Otherwise resume the saved step, but never replay the
- * one-shot "Check-in scheduled!" confirmation: the booking already happened, so
- * resume on the looking-you-up carousel that follows it instead.
+ * re-running the search.
+ *
+ * Otherwise resume the saved step, with one guard around the "meeting"
+ * confirmation: that step is the booking's loading state, written the moment we
+ * fire the (non-idempotent, best-effort) check-in POST. A refresh there can
+ * cancel that request before the daemon books anything. So resume "meeting" to
+ * the looking-you-up carousel ONLY when the booking was confirmed; otherwise
+ * fall back to the calendar step so the user can complete it — restoring the
+ * pre-resume behavior (a refresh used to restart the whole flow back through the
+ * calendar) without ever auto-rebooking (that step books only on an explicit
+ * click, so a booking that did succeed can't be silently duplicated).
  */
 export function resolveResumeStep(
   snapshot: ResearchOnboardingSnapshot,
 ): ResearchStep {
   if (snapshot.research?.status === "done") return "suggestions";
-  if (snapshot.step === "meeting") return "looking";
+  if (snapshot.step === "meeting") {
+    return snapshot.checkinBooked ? "looking" : "letschat";
+  }
   return snapshot.step;
 }
