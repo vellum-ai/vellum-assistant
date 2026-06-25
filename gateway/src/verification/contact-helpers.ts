@@ -1,8 +1,9 @@
 /**
  * Contact upsert/lookup helpers for gateway-owned verification.
  *
- * All operations go through assistantDbQuery/assistantDbRun (raw SQL via
- * IPC proxy). No IPC routes are used — only the direct SQL executor.
+ * Reads resolve from the gateway's own contact store (source of truth); writes
+ * land in the gateway DB and dual-write the assistant mirror via
+ * assistantDbRun. No IPC routes are used — only the direct SQL executor.
  *
  * These helpers cover the subset of contact operations needed by the
  * verification intercept flow. They are intentionally simpler than the
@@ -27,42 +28,32 @@ import { canonicalizeInboundIdentity } from "./identity.js";
 const log = getLogger("verification-contacts");
 
 // ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export interface ContactChannelRow {
-  channelId: string;
-  contactId: string;
-  address: string;
-  externalChatId: string | null;
-  displayName: string | null;
-  status: string;
-}
-
-// ---------------------------------------------------------------------------
 // Lookup
 // ---------------------------------------------------------------------------
 
 /**
- * Find an existing contact channel by (type, address).
+ * Find an existing contact channel by (type, address), returning its contact's
+ * display name. Reads the gateway's own DB (source of truth); the m0006
+ * reconcile mirrors legacy assistant channels here by (type, address), so a
+ * missing row is the legitimate not-found case (no name to preserve).
  */
-export async function findContactChannelByAddress(
+export function findContactChannelByAddress(
   channelType: string,
   address: string,
-): Promise<ContactChannelRow | null> {
-  const rows = await assistantDbQuery<ContactChannelRow>(
-    `SELECT cc.id AS channelId, cc.contact_id AS contactId,
-            cc.address,
-            cc.external_chat_id AS externalChatId,
-            c.display_name AS displayName,
-            cc.status
-     FROM contact_channels cc
-     JOIN contacts c ON c.id = cc.contact_id
-     WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
-     LIMIT 1`,
-    [channelType, address],
-  );
-  return rows[0] ?? null;
+): { displayName: string | null } | null {
+  const row = getGatewayDb()
+    .select({ displayName: gwContacts.displayName })
+    .from(gwContactChannels)
+    .innerJoin(gwContacts, eq(gwContacts.id, gwContactChannels.contactId))
+    .where(
+      and(
+        eq(gwContactChannels.type, channelType),
+        sql`${gwContactChannels.address} = ${address} COLLATE NOCASE`,
+      ),
+    )
+    .limit(1)
+    .get();
+  return row ? { displayName: row.displayName } : null;
 }
 
 // ---------------------------------------------------------------------------
