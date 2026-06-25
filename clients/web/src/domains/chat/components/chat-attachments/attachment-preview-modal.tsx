@@ -7,7 +7,6 @@ import { createPortal } from "react-dom";
 import { attachmentsByIdContentGet } from "@/generated/daemon/sdk.gen";
 import { Button, Typography } from "@vellumai/design-library";
 
-import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-preview";
 import { PreviewMessageCard } from "@/domains/chat/components/chat-attachments/preview-message-card";
 import { TextPreview } from "@/domains/chat/components/chat-attachments/text-preview";
 import { formatAttachmentSize } from "@/domains/chat/components/chat-attachments/utils";
@@ -214,8 +213,8 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
 
     if (isPdf && effectiveUrl) {
       return (
-        <PdfPreview
-          url={effectiveUrl}
+        <PreviewMessageCard
+          message="PDF preview unavailable."
           filename={attachment.filename}
           onDownload={handleDownload}
         />
