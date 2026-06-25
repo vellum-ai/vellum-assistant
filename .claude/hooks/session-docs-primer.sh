@@ -7,7 +7,11 @@
 project_dir="${CLAUDE_PROJECT_DIR:-$PWD}"
 cd "$project_dir" 2>/dev/null || exit 0
 
-mapfile -t index < <(
+# Bash 3.2 (macOS /bin/bash) has no mapfile/readarray; collect with a read loop.
+index=()
+while IFS= read -r entry; do
+  [ -n "$entry" ] && index+=("$entry")
+done < <(
   find . \
     \( -path '*/node_modules' -o -path '*/.git' -o -name generated -o -name dist -o -name build \) -prune -o \
     \( -name AGENTS.md -o -name CLAUDE.md \) -print 2>/dev/null |
