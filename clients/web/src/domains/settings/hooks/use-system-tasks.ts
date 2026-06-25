@@ -4,37 +4,28 @@ import { useMemo } from "react";
 import {
   consolidationConfigGetOptions,
   consolidationRunsGetInfiniteQueryKey,
-  consolidationRunsGetOptions,
   heartbeatConfigGetOptions,
   heartbeatConfigGetSetQueryData,
   heartbeatRunsGetInfiniteQueryKey,
-  heartbeatRunsGetOptions,
   retrospectiveConfigGetOptions,
   retrospectiveRunsGetInfiniteQueryKey,
-  retrospectiveRunsGetOptions,
   useConsolidationRunnowPostMutation,
   useHeartbeatConfigPutMutation,
   useHeartbeatRunnowPostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
-  selectConsolidationRuns,
-  selectHeartbeatRuns,
-  selectRetrospectiveRuns,
-} from "@/domains/settings/utils/system-task-run-transforms";
-import {
+  scheduleUsageSummaryQueryOptions,
   type ScheduleRowUsage,
-  SYSTEM_TASK_STATS_RUN_LIMIT,
   SYSTEM_TASK_URL_IDS,
-  summarizeRunsForUsage,
+  zeroScheduleUsageSummary,
 } from "@/domains/settings/utils/schedule-formatters";
-import {
-  type ScheduleUsageWindow,
-  resolveScheduleUsageWindow,
-} from "@/domains/settings/utils/schedule-usage-window";
 import { captureError } from "@/lib/sentry/capture-error";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import type { ScheduleRun, SystemTaskKind } from "@/domains/settings/types/schedules";
+import type {
+  ScheduleUsageSummary,
+  SystemTaskKind,
+} from "@/domains/settings/types/schedules";
 
 const STALE_TIME = 10_000;
 
@@ -42,12 +33,14 @@ function deriveUsage(
   isLoading: boolean,
   isError: boolean,
   urlId: string,
-  runs: ScheduleRun[] | undefined,
-  range: ScheduleUsageWindow,
+  usageSummaryById: Map<string, ScheduleUsageSummary>,
 ): ScheduleRowUsage {
   if (isLoading) return { status: "loading" };
   if (isError) return { status: "error" };
-  return { status: "ready", summary: summarizeRunsForUsage(urlId, runs, range) };
+  return {
+    status: "ready",
+    summary: usageSummaryById.get(urlId) ?? zeroScheduleUsageSummary(urlId),
+  };
 }
 
 /**
@@ -97,72 +90,61 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
   });
 
   // ---------------------------------------------------------------------------
-  // Stats queries (recent runs for usage summary in the list view)
+  // Usage summary
   // ---------------------------------------------------------------------------
 
-  const statsOpts = {
-    path: { assistant_id: assistantId ?? "" },
-    query: { limit: SYSTEM_TASK_STATS_RUN_LIMIT },
-  };
-
   const {
-    data: heartbeatRunsForStats,
-    isLoading: isHeartbeatStatsLoading,
-    isError: isHeartbeatStatsError,
-    refetch: refetchHeartbeatStats,
-  } = useQuery({
-    ...heartbeatRunsGetOptions(statsOpts),
-    select: selectHeartbeatRuns,
-    enabled: Boolean(assistantId) && heartbeatConfig != null,
-    staleTime: STALE_TIME,
-  });
-
-  const {
-    data: consolidationRunsForStats,
-    isLoading: isConsolidationStatsLoading,
-    isError: isConsolidationStatsError,
-    refetch: refetchConsolidationStats,
-  } = useQuery({
-    ...consolidationRunsGetOptions(statsOpts),
-    select: selectConsolidationRuns,
-    enabled: Boolean(assistantId) && consolidationConfig?.available === true,
-    staleTime: STALE_TIME,
-  });
-
-  const {
-    data: retrospectiveRunsForStats,
-    isLoading: isRetrospectiveStatsLoading,
-    isError: isRetrospectiveStatsError,
-    refetch: refetchRetrospectiveStats,
-  } = useQuery({
-    ...retrospectiveRunsGetOptions(statsOpts),
-    select: selectRetrospectiveRuns,
-    enabled: Boolean(assistantId) && retrospectiveConfig?.available === true,
-    staleTime: STALE_TIME,
-  });
+    data: usageSummaries,
+    isLoading: isUsageSummaryLoading,
+    isError: isUsageSummaryError,
+    refetch: refetchUsageSummary,
+  } = useQuery(
+    scheduleUsageSummaryQueryOptions(assistantId, tz, Boolean(assistantId)),
+  );
 
   // ---------------------------------------------------------------------------
   // Derived usage stats
   // ---------------------------------------------------------------------------
 
-  const systemStatsRange = useMemo(
-    () => resolveScheduleUsageWindow(tz),
-    [tz],
+  const usageSummaryById = useMemo(
+    () =>
+      new Map(
+        (usageSummaries ?? []).map((summary) => [summary.scheduleId, summary]),
+      ),
+    [usageSummaries],
   );
 
   const heartbeatUsage: ScheduleRowUsage = useMemo(
-    () => deriveUsage(isHeartbeatStatsLoading, isHeartbeatStatsError, SYSTEM_TASK_URL_IDS.heartbeat, heartbeatRunsForStats, systemStatsRange),
-    [heartbeatRunsForStats, isHeartbeatStatsError, isHeartbeatStatsLoading, systemStatsRange],
+    () =>
+      deriveUsage(
+        isUsageSummaryLoading,
+        isUsageSummaryError,
+        SYSTEM_TASK_URL_IDS.heartbeat,
+        usageSummaryById,
+      ),
+    [isUsageSummaryError, isUsageSummaryLoading, usageSummaryById],
   );
 
   const consolidationUsage: ScheduleRowUsage = useMemo(
-    () => deriveUsage(isConsolidationStatsLoading, isConsolidationStatsError, SYSTEM_TASK_URL_IDS.consolidation, consolidationRunsForStats, systemStatsRange),
-    [consolidationRunsForStats, isConsolidationStatsError, isConsolidationStatsLoading, systemStatsRange],
+    () =>
+      deriveUsage(
+        isUsageSummaryLoading,
+        isUsageSummaryError,
+        SYSTEM_TASK_URL_IDS.consolidation,
+        usageSummaryById,
+      ),
+    [isUsageSummaryError, isUsageSummaryLoading, usageSummaryById],
   );
 
   const retrospectiveUsage: ScheduleRowUsage = useMemo(
-    () => deriveUsage(isRetrospectiveStatsLoading, isRetrospectiveStatsError, SYSTEM_TASK_URL_IDS.retrospective, retrospectiveRunsForStats, systemStatsRange),
-    [retrospectiveRunsForStats, isRetrospectiveStatsError, isRetrospectiveStatsLoading, systemStatsRange],
+    () =>
+      deriveUsage(
+        isUsageSummaryLoading,
+        isUsageSummaryError,
+        SYSTEM_TASK_URL_IDS.retrospective,
+        usageSummaryById,
+      ),
+    [isUsageSummaryError, isUsageSummaryLoading, usageSummaryById],
   );
 
   // ---------------------------------------------------------------------------
@@ -174,22 +156,21 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
     const keysForKind = {
       heartbeat: {
         config: heartbeatConfigGetOptions(pathOpts).queryKey,
-        runs: heartbeatRunsGetOptions(statsOpts).queryKey,
         infinite: heartbeatRunsGetInfiniteQueryKey(pathOpts),
       },
       consolidation: {
         config: consolidationConfigGetOptions(pathOpts).queryKey,
-        runs: consolidationRunsGetOptions(statsOpts).queryKey,
         infinite: consolidationRunsGetInfiniteQueryKey(pathOpts),
       },
       retrospective: {
         config: retrospectiveConfigGetOptions(pathOpts).queryKey,
-        runs: retrospectiveRunsGetOptions(statsOpts).queryKey,
         infinite: retrospectiveRunsGetInfiniteQueryKey(pathOpts),
       },
     }[kind];
+    void queryClient.invalidateQueries({
+      queryKey: scheduleUsageSummaryQueryOptions(assistantId, tz).queryKey,
+    });
     void queryClient.invalidateQueries({ queryKey: keysForKind.config });
-    void queryClient.invalidateQueries({ queryKey: keysForKind.runs });
     void queryClient.invalidateQueries({ queryKey: keysForKind.infinite });
   };
 
@@ -264,9 +245,7 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
     void refetchHeartbeat();
     void refetchConsolidation();
     void refetchRetrospective();
-    void refetchHeartbeatStats();
-    void refetchConsolidationStats();
-    void refetchRetrospectiveStats();
+    void refetchUsageSummary();
   };
 
   return {

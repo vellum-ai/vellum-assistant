@@ -13,7 +13,6 @@ import type { TagTone } from "@vellumai/design-library/components/tag";
 import { fetchScheduleUsageSummary } from "@/domains/settings/api/schedules";
 import { resolveScheduleUsageWindow } from "@/domains/settings/utils/schedule-usage-window";
 
-
 // ---------------------------------------------------------------------------
 // Timestamp / duration / cost formatting
 // ---------------------------------------------------------------------------
@@ -130,8 +129,6 @@ export const SYSTEM_TASK_URL_IDS = {
   consolidation: "system-consolidation",
   retrospective: "system-memory-retrospective",
 } as const satisfies Record<SystemTaskKind, string>;
-
-export const SYSTEM_TASK_STATS_RUN_LIMIT = 100;
 
 export function systemTaskKindFromUrlId(
   scheduleId: string | undefined,
@@ -314,29 +311,6 @@ export function zeroScheduleUsageSummary(
     scheduleId,
     runCount: 0,
     totalEstimatedCostUsd: 0,
-    eventCount: 0,
-  };
-}
-
-export function summarizeRunsForUsage(
-  scheduleId: string,
-  runs: ScheduleRun[] | undefined,
-  range: { from: number; to: number },
-): ScheduleUsageSummary {
-  const runsInRange = (runs ?? []).filter((run) => {
-    const startedAt = run.startedAt ?? run.createdAt;
-    return startedAt >= range.from && startedAt <= range.to;
-  });
-
-  return {
-    scheduleId,
-    runCount: runsInRange.length,
-    totalEstimatedCostUsd: runsInRange.reduce((total, run) => {
-      const cost = run.estimatedCostUsd;
-      return typeof cost === "number" && Number.isFinite(cost)
-        ? total + cost
-        : total;
-    }, 0),
     eventCount: 0,
   };
 }

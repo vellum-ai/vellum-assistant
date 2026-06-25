@@ -429,6 +429,8 @@ export function useStreamEventHandler(
         // handler ignores them.
         case "trace_event":
           break;
+        case "conversation_notice":
+          break;
         case "unknown":
           break;
         default: {
