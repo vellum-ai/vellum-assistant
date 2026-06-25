@@ -14,12 +14,28 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Silence logger before any imports that use it
+// Track health-logger warn calls so the CES soft-dependency path can be asserted.
+const healthWarn = mock(() => {});
+
+// Silence logger before any imports that use it. The "health" logger's warn is
+// captured so the /readyz CES soft-check can be verified.
 mock.module("../util/logger.js", () => ({
-  getLogger: () =>
+  getLogger: (name?: string) =>
     new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
+      get: (_target, prop) =>
+        name === "health" && prop === "warn" ? healthWarn : () => {},
     }),
+}));
+
+// Control runtime readiness independently per test. handleReadyz reads
+// isRuntimeReady(); mocking the module lets us flip the flag and reset it
+// between cases without a production reset export.
+let runtimeReadyFlag = false;
+mock.module("../runtime/ready-state.js", () => ({
+  isRuntimeReady: () => runtimeReadyFlag,
+  setRuntimeReady: () => {
+    runtimeReadyFlag = true;
+  },
 }));
 
 import {
@@ -191,17 +207,43 @@ describe("identity routes — health endpoint", () => {
     });
   });
 
-  describe("CES readiness", () => {
+  describe("readyz — runtime readiness gating", () => {
     beforeEach(() => {
       setCesClient(undefined);
+      runtimeReadyFlag = true;
+      healthWarn.mockClear();
     });
 
-    test("readyz returns 200 and logs warning when CES is unavailable", () => {
+    test("returns 503 {status:'starting'} before runtime startup completes", async () => {
+      runtimeReadyFlag = false;
+      const res = handleReadyz();
+      expect(res.status).toBe(503);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body).toEqual({ status: "starting" });
+    });
+
+    test("returns 200 {status:'ok'} once the runtime is ready, even when CES reports not-ready", async () => {
+      const mockClient = {
+        isReady: () => false,
+        close: () => {},
+      } as unknown as import("../credential-execution/client.js").CesClient;
+      setCesClient(mockClient);
+
       const res = handleReadyz();
       expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body).toEqual({ status: "ok" });
+      // CES is a soft dependency: not-ready is warned but does not gate readiness.
+      expect(healthWarn).toHaveBeenCalledTimes(1);
     });
 
-    test("readyz returns 200 when CES is connected and ready", () => {
+    test("returns 200 and logs warning when CES is unavailable", () => {
+      const res = handleReadyz();
+      expect(res.status).toBe(200);
+      expect(healthWarn).toHaveBeenCalledTimes(1);
+    });
+
+    test("returns 200 without warning when CES is connected and ready", () => {
       const mockClient = {
         isReady: () => true,
         close: () => {},
@@ -209,16 +251,7 @@ describe("identity routes — health endpoint", () => {
       setCesClient(mockClient);
       const res = handleReadyz();
       expect(res.status).toBe(200);
-    });
-
-    test("readyz returns 200 when CES client exists but is not ready", () => {
-      const mockClient = {
-        isReady: () => false,
-        close: () => {},
-      } as unknown as import("../credential-execution/client.js").CesClient;
-      setCesClient(mockClient);
-      const res = handleReadyz();
-      expect(res.status).toBe(200);
+      expect(healthWarn).not.toHaveBeenCalled();
     });
 
     test("/v1/health reports ces.connected=true when CES is ready", async () => {

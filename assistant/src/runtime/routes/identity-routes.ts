@@ -24,6 +24,7 @@ import { resolveHatchedAtReadOnly } from "../../workspace/hatched-date.js";
 import { WORKSPACE_MIGRATIONS } from "../../workspace/migrations/registry.js";
 import { getLastWorkspaceMigrationId } from "../../workspace/migrations/runner.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { isRuntimeReady } from "../ready-state.js";
 import { NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -355,13 +356,18 @@ export function handleDetailedHealth(): Response {
 }
 
 export function handleReadyz(): Response {
+  // Ready = critical startup complete (HTTP bound + DB initialized + daemon
+  // started). CES is a soft dependency with a direct-credential-store fallback,
+  // so it is logged/warned but does NOT gate readiness.
+  if (!isRuntimeReady()) {
+    return Response.json({ status: "starting" }, { status: 503 });
+  }
+
   const cesClient = getCesClient();
   if (!cesClient?.isReady()) {
-    // TODO: Return 503 once we confirm via logs that this won't cause
-    // regressions in the K8s readinessProbe.
     getLogger("health").warn(
       { reason: cesClient ? "ces_not_ready" : "ces_unavailable" },
-      "CES not ready — pod would be unready if 503 were enabled",
+      "CES not ready — readiness unaffected (soft dependency with fallback)",
     );
   }
   return Response.json({ status: "ok" });

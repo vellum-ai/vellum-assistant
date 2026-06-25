@@ -76,6 +76,7 @@ import {
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { warmLocalGuardianPrincipalCache } from "../runtime/local-actor-identity.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
+import { setRuntimeReady } from "../runtime/ready-state.js";
 import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
 import {
   publishConfigChanged,
@@ -825,6 +826,14 @@ export async function runDaemon(): Promise<void> {
 
     await server.start();
     log.info("Daemon startup: DaemonServer started");
+
+    // Critical startup is complete: the runtime HTTP server is bound, the DB is
+    // initialized, and the daemon server is accepting requests. Mark the runtime
+    // ready so `/readyz` returns 200. This is the last REQUIRED init step — a
+    // failure earlier in init leaves the runtime not-ready. CES is intentionally
+    // NOT gated here: it is a soft dependency with a direct-credential-store
+    // fallback, so readiness must not depend on the CES handshake.
+    setRuntimeReady();
 
     // Warm the gateway guardian-delivery cache so the SSE eager-subscribe path
     // (sync, IO-free) resolves the local actor principal on the FIRST client
