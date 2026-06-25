@@ -5,7 +5,12 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 /** Design max width of the dropdown (Figma 6063:149685). */
 const DROPDOWN_MAX_PX = 589;
-/** Min gutter (2rem) kept on each side of the chat column so it never clips. */
+/**
+ * Total horizontal gutter (2rem) reserved between the dropdown and the chat
+ * column edges so it never clips. The width shrink subtracts it once, so when
+ * the column bounds the width each side gets ~16px; the `left` clamp can keep a
+ * full gutter on a side when it has room.
+ */
 const DROPDOWN_GUTTER_PX = 32;
 
 /** Geometry of the dropdown's positioning context, measured from the DOM. */
@@ -58,7 +63,9 @@ export function ActiveOverlayShell({
   // Measure the chat column (the shell root's offsetParent — the nearest
   // positioned ancestor) so the dropdown fits the available width instead of
   // the viewport. Re-measure on open, on column resize (live detail-panel
-  // width + sidebar collapse both reflow it), and on window resize.
+  // width + sidebar collapse both reflow it), on pill resize (the live
+  // activity count/avatars change the pill width without reflowing the
+  // column), and on window resize.
   useEffect(() => {
     const measure = () => {
       const el = containerRef.current;
@@ -86,11 +93,16 @@ export function ActiveOverlayShell({
 
     measure();
 
-    const parent = containerRef.current?.offsetParent as HTMLElement | null;
+    const el = containerRef.current;
+    const parent = el?.offsetParent as HTMLElement | null;
     let observer: ResizeObserver | undefined;
-    if (parent && typeof ResizeObserver !== "undefined") {
+    if (parent && el && typeof ResizeObserver !== "undefined") {
       observer = new ResizeObserver(measure);
       observer.observe(parent);
+      // Also observe the shell root so pill-width changes (live count/avatars)
+      // re-measure even when the column width is unchanged — keeps the centering
+      // clamp anchored instead of drifting off-center until the next resize.
+      observer.observe(el);
     }
     window.addEventListener("resize", measure);
     return () => {
@@ -99,7 +111,7 @@ export function ActiveOverlayShell({
     };
   }, [expanded]);
 
-  // Fitted width: cap at the design max, shrink to the column minus gutters.
+  // Fitted width: cap at the design max, shrink to the column minus one gutter.
   // Unmeasured (happy-dom / pre-measure / detached) → keep the requested max,
   // mirroring `animated-right-drawer`'s "unmeasured container keeps requested
   // width" fallback. Never produce a width <= 0.
