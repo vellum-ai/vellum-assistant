@@ -123,7 +123,7 @@ describe("runWorkspaceMigrations", () => {
     expect(m2.run).toHaveBeenCalledTimes(1);
   });
 
-  test("logs a start line and returns applied/skipped/failed counts", async () => {
+  test("logs only migrations that run and returns applied/skipped/failed counts", async () => {
     // One already applied, one new — exercises both applied and skipped counts.
     mockCheckpointContents = JSON.stringify({
       applied: {
@@ -136,9 +136,10 @@ describe("runWorkspaceMigrations", () => {
 
     const summary = await runWorkspaceMigrations(WORKSPACE_DIR, [m1, m2]);
 
-    // One info log before all migrations, naming how many are registered.
-    expect(logInfoFn).toHaveBeenCalledWith(
-      "Running workspace migrations (2 registered)",
+    // No standalone "Running workspace migrations (N registered)" banner — the
+    // runner only logs migrations that actually run.
+    expect(logInfoFn).not.toHaveBeenCalledWith(
+      expect.stringContaining("registered)"),
     );
 
     // One info log for the new migration that actually ran.

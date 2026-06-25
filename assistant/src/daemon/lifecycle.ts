@@ -440,10 +440,17 @@ export async function runDaemon(): Promise<void> {
         getWorkspaceDir(),
         WORKSPACE_MIGRATIONS,
       );
-      log.info(
-        migrationSummary,
-        "Daemon startup: workspace migrations complete",
-      );
+      // Only surface a startup line when migrations actually ran or a
+      // (pre-existing) failure is still outstanding. A fully-skipped sweep on
+      // an already-migrated workspace stays silent instead of logging the same
+      // "complete" summary on every boot. Individual migrations that run or
+      // fail are logged per-migration by the runner.
+      if (migrationSummary.applied > 0 || migrationSummary.failed > 0) {
+        log.info(
+          migrationSummary,
+          "Daemon startup: workspace migrations complete",
+        );
+      }
 
       // Seed canonical inference provider_connections and backfill any legacy
       // profiles that pre-date the connection field. Runs after workspace

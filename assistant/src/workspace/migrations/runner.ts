@@ -130,8 +130,6 @@ export async function runWorkspaceMigrations(
     }
   }
 
-  log.info(`Running workspace migrations (${migrations.length} registered)`);
-
   let appliedCount = 0;
   let skippedCount = 0;
   let failedCount = 0;

@@ -282,9 +282,12 @@ export async function runMigrationSteps(
       // recoverCrashedMigrations will detect it on the next boot, log
       // a warning, and clear it so the step re-runs.
       failed.push(name);
+      // Keep the migration name in the message itself (not just the
+      // structured field): the Sentry log stream forwards only `msg`/`err`,
+      // so a bare "Migration failed" would lose the identifier in Sentry.
       log.error(
         { err, migration: name, step: stepNumber, totalSteps },
-        "Migration failed",
+        `Migration failed: ${name}`,
       );
     }
   }
