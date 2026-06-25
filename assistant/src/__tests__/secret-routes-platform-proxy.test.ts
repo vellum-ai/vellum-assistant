@@ -5,6 +5,7 @@ import { credentialKey } from "../security/credential-key.js";
 
 let lastGeminiConstructorOpts: Record<string, unknown> | null = null;
 let secureKeyStore: Record<string, string | undefined> = {};
+let secureKeyWriteHooks: Record<string, (() => Promise<void>) | undefined> = {};
 let rawConfigStore: Record<string, unknown> = {};
 const metadataUpserts: Array<{ service: string; field: string }> = [];
 const metadataDeletes: Array<{ service: string; field: string }> = [];
@@ -25,6 +26,14 @@ const MANAGED_PROVIDERS = [
 let platformBaseUrlOverride: string | undefined;
 
 const baseLlm = LLMSchema.parse({});
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve: () => void = () => {};
+  const promise = new Promise<void>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
 
 const mockConfig = {
   services: {
@@ -105,6 +114,7 @@ mock.module("../security/secure-keys.js", () => ({
   }),
   setSecureKeyAsync: async (key: string, value: string) => {
     secureKeyStore[key] = value;
+    await secureKeyWriteHooks[key]?.();
     return true;
   },
   deleteSecureKeyAsync: async (key: string) => {
@@ -186,6 +196,7 @@ function deleteApiKey(name: string) {
 describe("secret routes managed proxy registry sync", () => {
   beforeEach(async () => {
     secureKeyStore = {};
+    secureKeyWriteHooks = {};
     metadataUpserts.length = 0;
     metadataDeletes.length = 0;
     lastGeminiConstructorOpts = null;
@@ -262,6 +273,51 @@ describe("secret routes managed proxy registry sync", () => {
     expect("status" in profiles.balanced!).toBe(false);
     expect("status" in profiles["quality-optimized"]!).toBe(false);
     expect(profiles["custom-balanced"]!.status).toBe("disabled");
+    expect(
+      (rawConfigStore.llm as Record<string, unknown>)
+        .managedProfileBootstrapCompleted,
+    ).toBe(true);
+    expect(configChangedCalls).toBe(1);
+  });
+
+  test("concurrent managed bootstrap activates profiles once", async () => {
+    rawConfigStore = {
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "together",
+            provider_connection: "together-managed",
+            model: "MiniMaxAI/MiniMax-M3",
+            status: "disabled",
+          },
+        },
+      },
+    };
+    const assistantKeyWritten = deferred();
+    const releaseAssistantKeyWrite = deferred();
+    secureKeyWriteHooks[ASSISTANT_API_KEY_PATH] = async () => {
+      assistantKeyWritten.resolve();
+      await releaseAssistantKeyWrite.promise;
+    };
+
+    const assistantKeyRequest = addCredential(
+      "vellum:assistant_api_key",
+      "ast-managed-key",
+    );
+    await assistantKeyWritten.promise;
+    const baseUrlRequest = addCredential(
+      "vellum:platform_base_url",
+      PLATFORM_BASE_URL,
+    );
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    releaseAssistantKeyWrite.resolve();
+    await Promise.all([assistantKeyRequest, baseUrlRequest]);
+
+    const profiles = (
+      rawConfigStore.llm as { profiles: Record<string, unknown> }
+    ).profiles as Record<string, Record<string, unknown>>;
+    expect("status" in profiles.balanced!).toBe(false);
     expect(
       (rawConfigStore.llm as Record<string, unknown>)
         .managedProfileBootstrapCompleted,
