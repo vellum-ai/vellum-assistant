@@ -277,6 +277,58 @@ export function recordInviteUse(params: {
   return !!updated && updated.useCount === newUseCount;
 }
 
+/**
+ * Compensating reversal of {@link recordInviteUse}, used when a downstream step
+ * fails TRANSIENTLY (e.g. a gateway activation outage) after the use was
+ * recorded — so a single-use invite isn't permanently burned by an outage the
+ * redeemer can retry past.
+ *
+ * Decrements useCount by one and, when the recorded use had flipped the invite
+ * to 'redeemed' (its terminal state), restores it to 'active'. Scoped to the
+ * exact (useCount, status) the recording produced so a concurrent revoke/expire
+ * or a later real redemption is never clobbered. Returns whether the reversal
+ * took effect.
+ */
+export function releaseInviteUse(inviteId: string): boolean {
+  const db = getDb();
+  const now = Date.now();
+
+  const invite = db
+    .select()
+    .from(assistantIngressInvites)
+    .where(eq(assistantIngressInvites.id, inviteId))
+    .get();
+
+  if (!invite || invite.useCount <= 0) return false;
+
+  const restoredUseCount = invite.useCount - 1;
+  // The recording set status to 'redeemed' only when it exhausted maxUses;
+  // anything below that stayed 'active'. Reverse exactly that transition.
+  const wasExhausting = invite.useCount >= invite.maxUses;
+  const restoredStatus = wasExhausting ? "active" : invite.status;
+
+  db.update(assistantIngressInvites)
+    .set({ useCount: restoredUseCount, status: restoredStatus, updatedAt: now })
+    .where(
+      and(
+        eq(assistantIngressInvites.id, invite.id),
+        eq(assistantIngressInvites.useCount, invite.useCount),
+        eq(assistantIngressInvites.status, invite.status),
+      ),
+    )
+    .run();
+
+  // Re-read to confirm the reversal landed (the WHERE pins the pre-reversal
+  // useCount/status, so a concurrent write would prevent it).
+  const updated = db
+    .select({ useCount: assistantIngressInvites.useCount })
+    .from(assistantIngressInvites)
+    .where(eq(assistantIngressInvites.id, invite.id))
+    .get();
+
+  return !!updated && updated.useCount === restoredUseCount;
+}
+
 // ---------------------------------------------------------------------------
 // markInviteExpired
 // ---------------------------------------------------------------------------

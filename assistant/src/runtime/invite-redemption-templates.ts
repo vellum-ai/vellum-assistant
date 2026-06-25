@@ -20,6 +20,8 @@ const INVITE_REPLY_TEMPLATES = {
   revoked: "This invite is no longer valid.",
   max_uses_reached: "This invite is no longer valid.",
   channel_mismatch: "This invite is not valid for this channel.",
+  temporarily_unavailable:
+    "We couldn't process your invite right now. Please try again in a moment.",
   missing_identity:
     "Unable to process this invite. Please contact the person who shared it.",
   generic_failure:

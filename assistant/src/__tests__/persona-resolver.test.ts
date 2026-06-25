@@ -43,6 +43,10 @@ let mockWorkspaceDir: string = "";
 // findContactByAddress on the delivery's address.
 let mockGuardianDeliveries: GuardianDeliveryStub[] = [];
 let mockContactsByAddress: Record<string, { userFile: string | null }> = {};
+// Simulates a cold sync cache: the sync `peek` returns nothing until the async
+// `getGuardianDelivery` warm runs and populates `mockGuardianDeliveries`. The
+// pending list is what the warm reveals.
+let pendingWarmDeliveries: GuardianDeliveryStub[] | null = null;
 
 /**
  * Seed a vellum guardian: a gateway delivery for the vellum channel plus the
@@ -73,6 +77,15 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
       input.channelTypes!.includes(g.channelType),
     );
   },
+  // Warming the cache: reveals the pending guardian to the sync peek above,
+  // mirroring how the production single-flight read populates the cache key.
+  getGuardianDelivery: async (_input?: { channelTypes?: string[] }) => {
+    if (pendingWarmDeliveries) {
+      mockGuardianDeliveries = pendingWarmDeliveries;
+      pendingWarmDeliveries = null;
+    }
+    return mockGuardianDeliveries;
+  },
   guardianForChannel: (list: GuardianDeliveryStub[], channelType: string) =>
     list.find((g) => g.channelType === channelType && g.status === "active"),
   anyGuardian: (list: GuardianDeliveryStub[]) => list[0],
@@ -80,6 +93,7 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
 
 // Import AFTER mocks so the module under test binds to the stubbed
 // implementations.
+import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import {
   ensureGuardianPersonaFile,
@@ -107,6 +121,7 @@ beforeEach(() => {
   mockWorkspaceDir = mkdtempSync(join(testRoot, "ws-"));
   mockGuardianDeliveries = [];
   mockContactsByAddress = {};
+  pendingWarmDeliveries = null;
 });
 
 afterEach(() => {
@@ -126,6 +141,25 @@ describe("resolveGuardianPersonaPath", () => {
 
     const result = resolveGuardianPersonaPath();
     expect(result).toBe(join(mockWorkspaceDir, "users", "alice.md"));
+  });
+
+  test("falls back to default (null path) on a cold cache, but resolves the guardian after a warm", async () => {
+    // Cold start: the guardian binding exists upstream but the sync cache is
+    // empty, so a bare sync resolution misses it and falls back to default.
+    pendingWarmDeliveries = [
+      { channelType: "vellum", address: "vellum:self", status: "active" },
+    ];
+    mockContactsByAddress["vellum:vellum:self"] = { userFile: "alice.md" };
+
+    expect(resolveGuardianPersonaPath()).toBeNull();
+
+    // Async callers warm the vellum guardian-delivery cache before the sync
+    // resolution; afterwards the guardian slug resolves instead of default.md.
+    await getGuardianDelivery({ channelTypes: ["vellum"] });
+
+    expect(resolveGuardianPersonaPath()).toBe(
+      join(mockWorkspaceDir, "users", "alice.md"),
+    );
   });
 });
 

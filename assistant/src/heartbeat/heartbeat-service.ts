@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
 import type { HeartbeatConfig } from "../config/schemas/heartbeat.js";
+import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
 import {
   checkDiskPressureBackgroundGate,
   diskPressureBackgroundSkipLogFields,
@@ -761,6 +762,10 @@ export class HeartbeatService {
 
     const checklist = this.readChecklist();
     const completedRunCount = countCompletedHeartbeatRuns();
+    // Warm the vellum guardian-delivery cache so buildPrompt's sync guardian
+    // persona read (isShallowProfile → resolveGuardianPersona) hits a fresh key
+    // instead of falling back to default.md on a cold/TTL-expired cache.
+    await getGuardianDelivery({ channelTypes: ["vellum"] });
     const { prompt, includedReengagement } = this.buildPrompt(
       checklist,
       unhealthyProviders,
