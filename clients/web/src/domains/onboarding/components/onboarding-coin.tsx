@@ -86,8 +86,8 @@ function CoinFace({ idSuffix }: { idSuffix: string }) {
 
       {/* Embossed dollar sign — soft emboss, bright gold. `textAnchor=middle`
           centers horizontally and `dy=0.355em` (~half the cap height) centers
-          vertically across browsers; we avoid `dominantBaseline` because iOS
-          WebKit renders it unreliably, which pushed the glyph off-center. */}
+          vertically across browsers; `dominantBaseline` is avoided because iOS
+          WebKit renders it unreliably. */}
       <g
         fontFamily="var(--font-sans), system-ui, sans-serif"
         fontWeight={900}

@@ -143,9 +143,9 @@ export function PitchStep({
 
   // Push the text/Continue block up so it doesn't crowd the eyes peeking from
   // the bottom — more so on short viewports, where the three lines + button and
-  // the eyes are otherwise tight. The eye-wipe "above" target tracks this. On
-  // phones the previous 12% left the Continue button stranded high with a big
-  // gap above the eyes, so the short-screen block sits a touch lower now.
+  // the eyes are otherwise tight. The eye-wipe "above" target tracks this. The
+  // short-screen offset stays modest so the Continue button sits close to the
+  // text rather than stranded high above the eyes.
   const shortScreen = h > 0 && h <= 800;
   const contentTopFrac = shortScreen ? 0.17 : 0.22;
   const topClass = shortScreen ? "top-[17%]" : "top-[22%]";

@@ -4,15 +4,12 @@
  * SPIKE — research-onboarding flow.
  *
  * The peeking/motion eye components size and frame the chosen avatar's eye art
- * from the union bounding box of its SVG paths. A naïve "grab every number and
- * pair them as (x, y)" parser breaks on path commands that carry a single
- * coordinate — `H`/`V` (horizontal/vertical lineto) — because the lone value
- * desyncs every following x/y pair. The `grumpy` eye style is the only one that
- * uses `H`, so it alone parsed to a bogus near-square box and rendered small and
- * squished. This parser walks the path command-by-command, tracking the current
- * point, so `H`/`V` update a single axis while every other command keeps
- * extending by full (x, y) pairs — identical to the old behaviour for the eight
- * styles that never used `H`/`V`.
+ * from the union bounding box of its SVG paths. This parser walks the path
+ * command-by-command, tracking the current point, so single-coordinate commands
+ * — `H`/`V` (horizontal/vertical lineto) — update one axis while every other
+ * command extends the box by full (x, y) pairs. Pairing every number as (x, y)
+ * without tracking commands would desync on the lone `H`/`V` value; the `grumpy`
+ * eye style is the only one that uses `H`, so correct handling matters for it.
  */
 
 export type BBox = { x: number; y: number; w: number; h: number };

@@ -4,19 +4,16 @@
  * SPIKE — research-onboarding flow.
  *
  * The decorative layers (the avatar character stage, the edge/peeking crowd, the
- * bottom eyes, the coin arc) used to measure `window.innerWidth/innerHeight` and
- * position themselves `fixed`. On mobile that disagrees with the foreground
- * content, which lives in the dvh-sized, safe-area-padded onboarding container
- * (see `root-layout.tsx`): on iOS a `position: fixed` layer resolves against the
- * full layout viewport while the container is shorter, so the centered avatar
- * sat above the arrows, the edge cast didn't sit flush, and the page scrolled.
- *
- * Instead each onboarding screen measures its own `relative h-full` container
- * (via `useElementSize`) and publishes that size here. The decorative layers
- * read it with `useOnboardingStageSize()` and position themselves `absolute`
- * inside that same container, so every layer shares one coordinate space. When
- * no provider is present the hook falls back to the window size so standalone
- * use never breaks.
+ * bottom eyes, the coin arc) and the foreground content must share one
+ * coordinate space. Each onboarding screen measures its own `relative h-full`
+ * container — the dvh-sized, safe-area-padded onboarding box (see
+ * `root-layout.tsx`) — via `useElementSize` and publishes that size here. The
+ * decorative layers read it with `useOnboardingStageSize()` and position
+ * themselves `absolute` inside that same container, so they line up with the
+ * `%`-positioned foreground regardless of mobile viewport quirks (on iOS a
+ * `position: fixed` layer measured from `window.innerHeight` resolves against
+ * the taller layout viewport, not this container). When no provider is present
+ * the hook falls back to the window size so standalone use never breaks.
  */
 
 import {
