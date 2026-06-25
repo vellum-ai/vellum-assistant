@@ -223,6 +223,14 @@ export interface UseResearchRunner extends ResearchRunnerState {
    * disabled, none picked, or already installed), so ordinary clicks don't hang.
    */
   awaitPluginInstalls: () => Promise<void>;
+  /**
+   * Adopt research output persisted by a prior session (a page refresh) as the
+   * settled state, WITHOUT re-running the turn — so a refresh that resumes past
+   * a completed search never fires a second "research me" background turn. The
+   * plugins those results name were already installed last session (installs are
+   * idempotent server-side), so `awaitPluginInstalls` resolves instantly.
+   */
+  hydrate: (results: ResearchRunnerState) => void;
 }
 
 type GetMessage = MessagesGetResponses[200]["messages"][number];
@@ -512,5 +520,14 @@ export function useResearchRunner(): UseResearchRunner {
     await Promise.all([...installPromisesRef.current.values()]);
   }, []);
 
-  return { ...state, start, awaitPluginInstalls };
+  const hydrate = useCallback((results: ResearchRunnerState) => {
+    // Claim a fresh run id so any (improbable) in-flight loop bails, then adopt
+    // the restored results as the settled state. We don't set a subject key: the
+    // route only re-fires `start` while results are absent, so a re-run can't
+    // race this — and an edited subject should still supersede normally.
+    runIdRef.current += 1;
+    setState(results);
+  }, []);
+
+  return { ...state, start, awaitPluginInstalls, hydrate };
 }
