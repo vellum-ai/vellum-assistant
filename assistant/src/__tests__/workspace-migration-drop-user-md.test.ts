@@ -207,6 +207,12 @@ describe("workspace migration 031-drop-user-md", () => {
     );
   });
 
+  test("is retryable so a failed (null gateway read) checkpoint re-runs", () => {
+    // A clean return would checkpoint `completed` and skip forever; throwing on
+    // a null read needs this flag so the runner retries the failed checkpoint.
+    expect(dropUserMdMigration.retryFailedCheckpoint).toBe(true);
+  });
+
   test("fresh install (no guardian, no USER.md) is a no-op", async () => {
     // No guardian stubbed in, no USER.md on disk.
     await dropUserMdMigration.run(workspaceDir);
@@ -216,15 +222,20 @@ describe("workspace migration 031-drop-user-md", () => {
     expect(updatedUserFiles).toEqual([]);
   });
 
-  test("gateway read FAILS (null) — leaves customized USER.md intact and defers", async () => {
-    // Gateway IPC timeout / unreachable / malformed → reader returns null.
+  test("gateway read FAILS (null) — throws to defer, leaving customized USER.md intact", async () => {
+    // Gateway IPC timeout / unreachable / malformed → reader returns null. The
+    // migration throws so the checkpoint records `failed` (not `completed`) and
+    // `retryFailedCheckpoint` re-runs it next startup — a clean return would
+    // strand the cleanup forever.
     mockGuardianDeliveries = null;
 
     const userMdPath = join(workspaceDir, "USER.md");
     const content = customizedContent();
     writeFileSync(userMdPath, content, "utf-8");
 
-    await dropUserMdMigration.run(workspaceDir);
+    await expect(dropUserMdMigration.run(workspaceDir)).rejects.toThrow(
+      /gateway guardian read failed/i,
+    );
 
     // USER.md is preserved (NOT deleted) — the only copy survives the miss.
     expect(existsSync(userMdPath)).toBe(true);
