@@ -588,7 +588,8 @@ export function ContactsPage({
           displayName: guardian.displayName.startsWith("vellum-principal-")
             ? ""
             : guardian.displayName,
-          role: guardian.role,
+          // Selected via role === "guardian"; .find doesn't narrow the payload's optional role.
+          role: guardian.role ?? "guardian",
           channelTypes: channelTypeLabels(guardian.channels, a2aChannel),
         }
       : null,
