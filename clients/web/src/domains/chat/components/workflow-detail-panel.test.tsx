@@ -15,6 +15,9 @@ mock.module("@/domains/chat/components/workflow-status-badge", () => ({
   WorkflowStatusBadge: ({ status }: { status: string }) => (
     <div data-testid="status-badge" data-status={status} />
   ),
+  WorkflowLeafStatusBadge: ({ status }: { status: string }) => (
+    <div data-testid="leaf-status-badge" data-status={status} />
+  ),
 }));
 
 // Stub the avatar renderer so rows don't depend on the lazily-imported bundled
@@ -180,6 +183,37 @@ describe("WorkflowDetailPanel", () => {
     // The breadcrumb back affordance appears; the list is gone.
     expect(screen.getByLabelText("Back to subagents")).toBeDefined();
     expect(screen.queryByText("Subagents")).toBeNull();
+  });
+
+  test("the drilled-in leaf header shows the leaf's status, not the parent workflow's", () => {
+    render(
+      <WorkflowDetailPanel
+        entry={makeEntry({
+          status: "running",
+          leaves: leafMap([
+            makeLeaf({ seq: 0, label: "Failed leaf", status: "failed" }),
+          ]),
+        })}
+        onClose={noop}
+      />,
+    );
+
+    // List view: the badge reflects the (running) parent workflow.
+    expect(screen.getByTestId("status-badge").getAttribute("data-status")).toBe(
+      "running",
+    );
+    expect(screen.queryByTestId("leaf-status-badge")).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Failed leaf details" }),
+    );
+
+    // Leaf view: the badge reflects the selected leaf (failed), and the parent
+    // workflow badge is gone.
+    expect(
+      screen.getByTestId("leaf-status-badge").getAttribute("data-status"),
+    ).toBe("failed");
+    expect(screen.queryByTestId("status-badge")).toBeNull();
   });
 
   test("Back returns from a leaf detail to the subagents list", () => {

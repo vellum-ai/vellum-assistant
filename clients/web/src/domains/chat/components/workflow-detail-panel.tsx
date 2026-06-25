@@ -18,7 +18,10 @@ import {
 } from "@/domains/chat/components/metric-card";
 import { StopButton } from "@/domains/chat/components/stop-button";
 import { WorkflowLeafDetail } from "@/domains/chat/components/workflow-leaf-detail";
-import { WorkflowStatusBadge } from "@/domains/chat/components/workflow-status-badge";
+import {
+    WorkflowLeafStatusBadge,
+    WorkflowStatusBadge,
+} from "@/domains/chat/components/workflow-status-badge";
 import { WorkflowSubagentRow } from "@/domains/chat/components/workflow-subagent-row";
 import type { WorkflowEntry } from "@/domains/chat/workflow-store";
 import { subagentTraits } from "@/utils/avatar-subagent";
@@ -165,7 +168,11 @@ export function WorkflowDetailPanel({
         >
           {headerTitle}
         </Typography>
-        <WorkflowStatusBadge status={entry.status} />
+        {selectedLeaf ? (
+          <WorkflowLeafStatusBadge status={selectedLeaf.status} />
+        ) : (
+          <WorkflowStatusBadge status={entry.status} />
+        )}
         <span className="flex-1" />
         {isRunning && onStop && (
           <StopButton
