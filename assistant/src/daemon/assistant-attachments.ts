@@ -296,7 +296,8 @@ export function extractVellumLinks(text: string): VellumLinkExtractResult {
 
     if (authority === "workspace") {
       // Strip the leading "/" to get a workspace-relative path
-      const path = rawPath.startsWith("/") ? rawPath.slice(1) : rawPath;
+      const stripped = rawPath.startsWith("/") ? rawPath.slice(1) : rawPath;
+      const path = decodeURIComponent(stripped);
       if (!path) {
         parseWarnings.push(
           `Ignored vellum://workspace link "${linkText}": empty path.`,
@@ -317,9 +318,10 @@ export function extractVellumLinks(text: string): VellumLinkExtractResult {
         );
         continue;
       }
+      const path = decodeURIComponent(rawPath);
       directiveRequests.push({
         source: "host",
-        path: rawPath,
+        path,
         filename: linkText || undefined,
         mimeType: undefined,
       });

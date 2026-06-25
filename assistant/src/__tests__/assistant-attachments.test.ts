@@ -373,6 +373,28 @@ describe("extractVellumLinks", () => {
     expect(result.directiveRequests[1].path).toBe("/tmp/b.pdf");
   });
 
+  test("decodes URL-encoded spaces in workspace paths", () => {
+    const text =
+      "[file with spaces.txt](vellum://workspace/scratch/file%20with%20spaces.txt)";
+    const result = extractVellumLinks(text);
+
+    expect(result.directiveRequests).toHaveLength(1);
+    expect(result.directiveRequests[0].source).toBe("sandbox");
+    expect(result.directiveRequests[0].path).toBe(
+      "scratch/file with spaces.txt",
+    );
+  });
+
+  test("decodes URL-encoded spaces in host paths", () => {
+    const text =
+      "[my file.pdf](vellum://host/Users/me/my%20file.pdf)";
+    const result = extractVellumLinks(text);
+
+    expect(result.directiveRequests).toHaveLength(1);
+    expect(result.directiveRequests[0].source).toBe("host");
+    expect(result.directiveRequests[0].path).toBe("/Users/me/my file.pdf");
+  });
+
   test("warns on empty workspace path", () => {
     const text = "[file](vellum://workspace/)";
     const result = extractVellumLinks(text);
