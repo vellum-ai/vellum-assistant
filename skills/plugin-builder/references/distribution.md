@@ -267,19 +267,20 @@ export default function adapt({ dir, entry }) {
 
   const skillDir = path.join(dir, "skills", entry.name);
   fs.mkdirSync(skillDir, { recursive: true });
-  fs.renameSync(
-    path.join(dir, "SKILL.md"),
-    path.join(skillDir, "SKILL.md"),
-  );
+  fs.renameSync(path.join(dir, "SKILL.md"), path.join(skillDir, "SKILL.md"));
 
   // Generate a minimal package.json so the loader recognizes the plugin.
   fs.writeFileSync(
     path.join(dir, "package.json"),
-    JSON.stringify({
-      name: entry.name,
-      version: entry.version,
-      peerDependencies: { "@vellumai/plugin-api": ">=0.40.0" },
-    }, null, 2),
+    JSON.stringify(
+      {
+        name: entry.name,
+        version: entry.version,
+        peerDependencies: { "@vellumai/plugin-api": ">=0.40.0" },
+      },
+      null,
+      2,
+    ),
   );
 }
 ```
