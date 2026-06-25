@@ -1957,15 +1957,6 @@ export const EMOJI_CATALOG: EmojiEntry[] = [
  * Ranking: shortcode prefix → shortcode substring → alias prefix → alias substring.
  * Each shortcode appears at most once in the result.
  */
-let _shortcodeMap: Map<string, string> | null = null;
-
-export function lookupByShortcode(shortcode: string): string | undefined {
-  if (!_shortcodeMap) {
-    _shortcodeMap = new Map(EMOJI_CATALOG.map((e) => [e.shortcode, e.emoji]));
-  }
-  return _shortcodeMap.get(shortcode);
-}
-
 export function searchEmoji(query: string, limit = 8): EmojiEntry[] {
   if (!query) return EMOJI_CATALOG.slice(0, limit);
   const lower = query.toLowerCase();

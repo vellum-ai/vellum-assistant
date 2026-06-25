@@ -38,7 +38,8 @@ function loadEmojiCatalog(): Promise<void> {
   if (loadPromise) return loadPromise;
   loadPromise = import("./emoji-catalog-data").then((m) => {
     cachedSearch = m.searchEmoji;
-    cachedLookup = m.lookupByShortcode;
+    const shortcodeMap = new Map(m.EMOJI_CATALOG.map((e) => [e.shortcode, e.emoji]));
+    cachedLookup = (sc: string) => shortcodeMap.get(sc);
   });
   return loadPromise;
 }
