@@ -8,22 +8,22 @@
  * sentinel file at runtime is immediately reflected.
  */
 
-import { mkdir, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import {
-  getPluginToolDefinitions,
-  registerPluginTools,
-} from "../tools/registry.js";
 import {
   getHooksFor,
   registerPlugin,
   resetPluginRegistryForTests,
   unregisterPlugin,
 } from "../plugins/registry.js";
+import {
+  getPluginToolDefinitions,
+  registerPluginTools,
+} from "../tools/registry.js";
 import { type HookFunction, type Plugin } from "../plugins/types.js";
 import { RiskLevel } from "../permissions/types.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
@@ -86,12 +86,8 @@ afterEach(async () => {
 
 describe("per-surface disabled-state filtering", () => {
   test("getHooksFor filters out hooks from a disabled plugin", async () => {
-    let hookFired = false;
     const plugin = buildPlugin("default-test-hook", {
-      "user-prompt-submit": () => {
-        hookFired = true;
-        return Promise.resolve();
-      },
+      "user-prompt-submit": () => Promise.resolve(),
     });
     registerPlugin(plugin);
 
