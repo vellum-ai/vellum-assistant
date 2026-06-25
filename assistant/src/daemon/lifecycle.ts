@@ -977,10 +977,11 @@ export async function runDaemon(): Promise<void> {
         }
       }
 
-      // `startMemoryJobsWorker` selects the worker implementation based on
-      // `memory.worker.enabled` (in-process vs. a separate OS process).
-      // Shutdown stops whichever worker is actually running — see
-      // shutdown-handlers.ts.
+      // `startMemoryJobsWorker` starts the in-process supervisor (which owns
+      // the synchronous runner and stands down when an out-of-process worker is
+      // live) and spawns the out-of-process worker at boot when
+      // `memory.worker.enabled` is set. Shutdown stops whichever worker is
+      // actually running — see shutdown-handlers.ts.
       log.info("Daemon startup: starting memory worker");
       bgRefs.memoryWorker = startMemoryJobsWorker();
 
