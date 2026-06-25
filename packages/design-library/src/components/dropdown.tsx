@@ -358,7 +358,10 @@ export function Dropdown<T extends string>({
             <span className="flex min-w-0 flex-1 items-center gap-2">
               <span
                 className="min-w-0 flex-1 truncate"
-                title={option.label || undefined}
+                // Skip the native title when a styled tooltip is present — it
+                // would surface a second, redundant browser tooltip repeating
+                // the label. Truncation recovery still applies otherwise.
+                title={option.tooltip ? undefined : option.label || undefined}
               >
                 {option.label}
               </span>
