@@ -96,6 +96,7 @@ function parseContact(row: typeof contacts.$inferSelect): Contact {
     id: row.id,
     displayName: row.displayName,
     notes: row.notes,
+    role: (row.role as Contact["role"]) ?? "contact",
     lastInteraction: null,
     interactionCount: 0,
     createdAt: row.createdAt,

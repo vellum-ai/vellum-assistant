@@ -4922,6 +4922,7 @@ paths:
                     required:
                       - id
                       - displayName
+                      - role
                       - interactionCount
                       - createdAt
                       - updatedAt
@@ -5076,6 +5077,7 @@ paths:
                       required:
                         - id
                         - displayName
+                        - role
                         - interactionCount
                         - createdAt
                         - updatedAt
@@ -5199,6 +5201,7 @@ paths:
                     required:
                       - id
                       - displayName
+                      - role
                       - interactionCount
                       - createdAt
                       - updatedAt
@@ -5567,6 +5570,7 @@ paths:
                     required:
                       - id
                       - displayName
+                      - role
                       - interactionCount
                       - createdAt
                       - updatedAt
@@ -5755,6 +5759,7 @@ paths:
                   required:
                     - id
                     - displayName
+                    - role
                     - interactionCount
                     - createdAt
                     - updatedAt

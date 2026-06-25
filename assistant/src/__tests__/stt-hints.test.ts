@@ -318,6 +318,7 @@ function makeContact(displayName: string): ContactWithChannels {
     id: `contact-${displayName.toLowerCase()}`,
     displayName,
     notes: null,
+    role: "contact",
     lastInteraction: null,
     interactionCount: 0,
     createdAt: now,
@@ -343,7 +344,11 @@ describe("resolveCallHints", () => {
 
   test("guardian displayName for hints comes from the gateway binding", async () => {
     mockGuardianDelivery = [
-      { channelType: "phone", status: "active", displayName: "GatewayGuardian" },
+      {
+        channelType: "phone",
+        status: "active",
+        displayName: "GatewayGuardian",
+      },
     ];
 
     await resolveCallHints(null, []);
