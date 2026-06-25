@@ -16,9 +16,9 @@
  * Design doc: `.private/plans/agent-plugin-system.md`.
  */
 
+import { getHooksFor } from "../hooks/registry.js";
 import type { HookName } from "../plugin-api/constants.js";
 import { getLogger } from "../util/logger.js";
-import { getHooksFor } from "./registry.js";
 import type { HookFunction } from "./types.js";
 
 // ─── Hook runner ────────────────────────────────────────────────────────────

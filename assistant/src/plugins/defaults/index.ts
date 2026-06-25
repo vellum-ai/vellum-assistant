@@ -326,9 +326,10 @@ export const defaultToolResultTruncatePlugin: Plugin = {
  * Full set of first-party default plugins. Used by
  * {@link registerDefaultPlugins} to drive the registration loop; the array
  * order is the registration order, which fixes hook-chain order (defaults run
- * ahead of any later-registered user plugins).
+ * ahead of any later-registered user plugins). Also used by
+ * `bootstrapPlugins` to iterate defaults directly.
  */
-function getAllDefaultPlugins(): readonly Plugin[] {
+export function getAllDefaultPlugins(): readonly Plugin[] {
   return [
     defaultMemoryRetrievalPlugin,
     defaultImageFallbackPlugin,
@@ -371,15 +372,14 @@ export function registerDefaultPlugins(): void {
 }
 
 /**
- * Test-only helper: clear the plugin registry and re-register every default
+ * Test-only helper: clear the hook registry and re-register every default
  * so integration tests that exercise the full agent loop have a
  * production-parity plugin stack. Use this in `beforeEach` of tests that
  * dispatch through pipelines with a terminal that assumes the default
  * plugin handles every op (e.g. compaction).
  *
- * Tests that specifically need an empty registry (pipeline-unit tests, the
- * plugin-registry tests themselves) should continue to call
- * {@link resetPluginRegistryForTests} directly.
+ * Tests that specifically need an empty hook registry (pipeline-unit tests)
+ * should continue to call {@link resetHookRegistryForTests} directly.
  */
 export function resetPluginRegistryAndRegisterDefaults(): void {
   resetPluginRegistryForTests();
