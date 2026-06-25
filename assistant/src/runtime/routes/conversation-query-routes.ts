@@ -486,32 +486,34 @@ function readPlainObject(value: unknown): Record<string, unknown> | undefined {
   return value as Record<string, unknown>;
 }
 
-function stripHeadersRecursively(value: unknown): void {
+function stripTransportHeadersRecursively(value: unknown): void {
   if (Array.isArray(value)) {
     for (const item of value) {
-      stripHeadersRecursively(item);
+      stripTransportHeadersRecursively(item);
     }
     return;
   }
 
   const object = readPlainObject(value);
   if (!object) return;
-  delete object.headers;
+  const transport = readPlainObject(object.transport);
+  if (transport) delete transport.headers;
   for (const child of Object.values(object)) {
-    stripHeadersRecursively(child);
+    stripTransportHeadersRecursively(child);
   }
 }
 
-function containsHeadersRecursively(value: unknown): boolean {
+function containsTransportHeadersRecursively(value: unknown): boolean {
   if (Array.isArray(value)) {
-    return value.some((item) => containsHeadersRecursively(item));
+    return value.some((item) => containsTransportHeadersRecursively(item));
   }
 
   const object = readPlainObject(value);
   if (!object) return false;
-  if (Object.hasOwn(object, "headers")) return true;
+  const transport = readPlainObject(object.transport);
+  if (transport && Object.hasOwn(transport, "headers")) return true;
   return Object.values(object).some((child) =>
-    containsHeadersRecursively(child),
+    containsTransportHeadersRecursively(child),
   );
 }
 
@@ -521,13 +523,13 @@ function sanitizeMcpTransportHeadersForSettingsRead(config: unknown): void {
   const mcp = readPlainObject(root.mcp);
   if (!mcp || !Object.hasOwn(mcp, "servers")) return;
   if (Array.isArray(mcp.servers)) {
-    stripHeadersRecursively(mcp.servers);
+    stripTransportHeadersRecursively(mcp.servers);
     return;
   }
   const servers = readPlainObject(mcp.servers);
   if (!servers) return;
   for (const server of Object.values(servers)) {
-    stripHeadersRecursively(server);
+    stripTransportHeadersRecursively(server);
   }
 }
 
@@ -536,12 +538,12 @@ function patchContainsMcpTransportHeaders(patch: unknown): boolean {
   const mcp = readPlainObject(root?.mcp);
   if (!mcp || !Object.hasOwn(mcp, "servers")) return false;
   if (Array.isArray(mcp.servers)) {
-    return containsHeadersRecursively(mcp.servers);
+    return containsTransportHeadersRecursively(mcp.servers);
   }
   const servers = readPlainObject(mcp.servers);
   if (!servers) return false;
   return Object.values(servers).some((server) =>
-    containsHeadersRecursively(server),
+    containsTransportHeadersRecursively(server),
   );
 }
 

@@ -183,6 +183,28 @@ describe("MCP config secret boundary", () => {
     expect(result).toEqual(rawConfig);
   });
 
+  test("config_get preserves non-credential headers env vars", () => {
+    rawConfig = {
+      mcp: {
+        servers: {
+          local: {
+            transport: {
+              type: "stdio",
+              command: "npx",
+              env: {
+                headers: "not-a-transport-header",
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const result = configGetRoute.handler({}) as Record<string, unknown>;
+
+    expect(result).toEqual(rawConfig);
+  });
+
   test("config_patch rejects MCP transport headers so generic writes cannot reintroduce plaintext credentials", async () => {
     await expect(
       configPatchRoute.handler({
@@ -227,6 +249,42 @@ describe("MCP config secret boundary", () => {
             transport: {
               type: "streamable-http",
               url: "https://mcp.example.com",
+            },
+          },
+        },
+      },
+    });
+  });
+
+  test("config_patch allows non-credential headers env vars", async () => {
+    const result = await configPatchRoute.handler({
+      body: {
+        mcp: {
+          servers: {
+            local: {
+              transport: {
+                type: "stdio",
+                command: "npx",
+                env: {
+                  headers: "not-a-transport-header",
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(result).toEqual({
+      mcp: {
+        servers: {
+          local: {
+            transport: {
+              type: "stdio",
+              command: "npx",
+              env: {
+                headers: "not-a-transport-header",
+              },
             },
           },
         },
