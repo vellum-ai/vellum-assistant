@@ -111,8 +111,13 @@ describe("ActiveWorkflowsOverlay — dismissal", () => {
     fireEvent.click(screen.getByRole("button", { name: /active workflows/i }));
     expect(queryByText("2 Active Workflows")).toBeTruthy();
 
-    fireEvent.keyDown(document, { key: "Escape" });
+    // Escape collapses the dropdown AND claims the event (preventDefault), so a
+    // single Escape doesn't also close an underlying side panel —
+    // ChatContentLayout's window keydown handler bails on defaultPrevented.
+    // fireEvent returns false when the event was canceled.
+    const notCanceled = fireEvent.keyDown(document, { key: "Escape" });
     expect(queryByText("2 Active Workflows")).toBeNull();
+    expect(notCanceled).toBe(false);
   });
 
   test("pointerdown outside the container collapses the open panel", () => {
