@@ -1,7 +1,7 @@
 /**
  * Gateway-native guardian bootstrap — mints credentials using the
- * gateway's own SQLite database for token persistence and the
- * assistant's database (via IPC proxy) for contact lookups and writes.
+ * gateway's own SQLite database for token persistence and mirror-writes
+ * contact bindings to the assistant's database via IPC proxy.
  *
  * Uses the gateway's own signing key for JWT minting.
  */
@@ -11,11 +11,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 
 import { getGatewayDb } from "../db/connection.js";
-import {
-  assistantDbQuery,
-  assistantDbRun,
-  assistantDbExec,
-} from "../db/assistant-db-proxy.js";
+import { assistantDbRun, assistantDbExec } from "../db/assistant-db-proxy.js";
 import {
   actorRefreshTokenRecords,
   actorTokenRecords,
@@ -116,43 +112,6 @@ export async function findVellumGuardian(): Promise<{
     .get();
 
   return row?.principalId ? { principalId: row.principalId } : null;
-}
-
-/**
- * Pre-repoint assistant-DB lookup for an active vellum guardian. Used to
- * adopt an existing guardian whose row never reached the gateway mirror
- * (skipped m0006 or a dropped dual-write), so we repair instead of minting
- * a duplicate principal. Returns null when no row or no principalId.
- */
-export async function findVellumGuardianFromAssistant(): Promise<{
-  principalId: string;
-  address: string;
-  deliveryChatId: string | null;
-  displayName: string | null;
-} | null> {
-  const rows = await assistantDbQuery<{
-    principalId: string | null;
-    address: string;
-    deliveryChatId: string | null;
-    displayName: string | null;
-  }>(
-    `SELECT c.principal_id AS principalId, cc.address AS address,
-            cc.external_chat_id AS deliveryChatId, c.display_name AS displayName
-     FROM contacts c
-     INNER JOIN contact_channels cc ON cc.contact_id = c.id
-     WHERE c.role = 'guardian' AND cc.type = 'vellum' AND cc.status = 'active'
-     ORDER BY cc.verified_at DESC
-     LIMIT 1`,
-  );
-
-  const row = rows[0];
-  if (!row?.principalId) return null;
-  return {
-    principalId: row.principalId,
-    address: row.address,
-    deliveryChatId: row.deliveryChatId,
-    displayName: row.displayName,
-  };
 }
 
 /**
@@ -746,10 +705,8 @@ async function fetchPlatformOwnerDisplayName(): Promise<string | null> {
 }
 
 /**
- * Resolve the vellum guardian principal, in order: (a) gateway fast path,
- * (b) adopt an assistant guardian the gateway is missing — repairs the
- * gateway row under its EXISTING principal via the logical-key dual-write,
- * (c) mint a fresh principal when neither DB has a guardian.
+ * Resolve the vellum guardian principal: (a) gateway fast path, then
+ * (b) mint a fresh principal when the gateway has no guardian.
  *
  * Shared by ensureVellumGuardianBinding + bootstrapGuardian. `isNew` is true
  * only on the mint path.
@@ -767,25 +724,7 @@ async function resolveOrCreateVellumGuardian(): Promise<{
     return { guardianPrincipalId: gw.principalId, isNew: false };
   }
 
-  // Adopt an assistant guardian the gateway mirror is missing.
-  const asst = await findVellumGuardianFromAssistant();
-  if (asst) {
-    log.info(
-      { guardianPrincipalId: asst.principalId },
-      "Adopting assistant guardian — repairing gateway mirror",
-    );
-    await createGuardianBinding({
-      channel: "vellum",
-      externalUserId: asst.address,
-      deliveryChatId: asst.deliveryChatId ?? "local",
-      guardianPrincipalId: asst.principalId,
-      verifiedVia: "bootstrap",
-      ...(asst.displayName ? { displayName: asst.displayName } : {}),
-    });
-    return { guardianPrincipalId: asst.principalId, isNew: false };
-  }
-
-  // Neither DB has a guardian — mint a fresh principal.
+  // No gateway guardian — mint a fresh principal.
   const displayName = await fetchPlatformOwnerDisplayName();
   const guardianPrincipalId = `vellum-principal-${uuid()}`;
   await createGuardianBinding({
@@ -801,7 +740,7 @@ async function resolveOrCreateVellumGuardian(): Promise<{
 
 /**
  * Ensure a vellum guardian binding exists, returning its principalId.
- * Adopts an existing assistant guardian before minting (see
+ * Resolves from the gateway DB, minting a fresh principal on a miss (see
  * resolveOrCreateVellumGuardian).
  *
  * Called during gateway startup to backfill existing installations.
@@ -822,7 +761,7 @@ export async function bootstrapGuardian(params: {
   platform: string;
   deviceId: string;
 }): Promise<GuardianBootstrapResult> {
-  // 1. Resolve (or adopt/mint) the guardian principal.
+  // 1. Resolve (or mint) the guardian principal.
   const { guardianPrincipalId, isNew } = await resolveOrCreateVellumGuardian();
 
   // 2. Revoke existing credentials for this device and mint a fresh pair.

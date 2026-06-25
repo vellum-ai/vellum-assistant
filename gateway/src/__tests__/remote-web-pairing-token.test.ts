@@ -10,10 +10,12 @@ import { initSigningKey } from "../auth/token-service.js";
 initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long-xx"));
 
 const mockQuery = mock();
+const mockRun = mock();
+const mockExec = mock();
 mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbQuery: mockQuery,
-  assistantDbRun: mock(),
-  assistantDbExec: mock(),
+  assistantDbRun: mockRun,
+  assistantDbExec: mockExec,
 }));
 
 const { hashToken, mintAndRecordDeviceBoundTokenPair } =
@@ -171,6 +173,8 @@ function activeRefreshTokens() {
 beforeEach(async () => {
   resetRemoteWebPairingChallengesForTests();
   mockQuery.mockResolvedValue([{ principal_id: GUARDIAN_ID }]);
+  mockRun.mockReset();
+  mockExec.mockReset();
   testRoot = mkdtempSync(join(tmpdir(), "remote-web-pairing-token-test-"));
   const securityDir = join(testRoot, "protected");
   mkdirSync(securityDir, { recursive: true });
@@ -524,15 +528,16 @@ describe("remote web pairing token exchange", () => {
       "approved",
     );
 
-    // No gateway guardian: ensureVellumGuardianBinding() falls through to
-    // createGuardianBinding(), whose assistant-DB query fails this once.
+    // No gateway guardian: resolveOrCreateVellumGuardian mints fresh via
+    // createGuardianBinding, whose assistant-DB mirror write fails this once
+    // (before the gateway write and token mint), so nothing is consumed.
     clearGatewayGuardian();
-    mockQuery.mockRejectedValueOnce(new Error("temporary guardian lookup"));
+    mockRun.mockRejectedValueOnce(new Error("temporary guardian mirror write"));
     await expect(
       handleRemoteWebPairingToken(
         makeTokenRequest({ deviceCode: challenge.deviceCode }),
       ),
-    ).rejects.toThrow("temporary guardian lookup");
+    ).rejects.toThrow("temporary guardian mirror write");
 
     expect(
       getRemoteWebPairingChallengeForTests(challenge.userCode)?.status,
