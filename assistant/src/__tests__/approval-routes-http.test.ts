@@ -388,7 +388,7 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await stopServer();
     });
 
-    test("returns 404 for unknown requestId", async () => {
+    test("returns a benign already-resolved result for unknown requestId", async () => {
       await startServer(() => makeIdleSession());
 
       const res = await fetch(url("confirm"), {
@@ -397,12 +397,18 @@ describe("standalone approval endpoints — HTTP layer", () => {
         body: JSON.stringify({ requestId: "nonexistent", decision: "allow" }),
       });
 
-      expect(res.status).toBe(404);
+      // Stale/unknown confirmations are a benign no-op, not a hard 404
+      // (LUM-2542/2552) — the card is merely stale, not an error condition.
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        accepted: false,
+        reason: "already_resolved",
+      });
 
       await stopServer();
     });
 
-    test("returns 404 for already-resolved requestId", async () => {
+    test("returns a benign already-resolved result for an already-consumed requestId", async () => {
       const session = makeIdleSession();
       await startServer(() => session);
 
@@ -419,13 +425,18 @@ describe("standalone approval endpoints — HTTP layer", () => {
       });
       expect(res1.status).toBe(200);
 
-      // Second resolution fails (already consumed)
+      // Second resolution is a benign no-op (entry already consumed), not a 404 —
+      // a late/duplicate click on a stale card must not error (LUM-2542/2552).
       const res2 = await fetch(url("confirm"), {
         method: "POST",
         headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
         body: JSON.stringify({ requestId: "req-once", decision: "deny" }),
       });
-      expect(res2.status).toBe(404);
+      expect(res2.status).toBe(200);
+      expect(await res2.json()).toEqual({
+        accepted: false,
+        reason: "already_resolved",
+      });
 
       await stopServer();
     });

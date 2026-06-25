@@ -50,11 +50,17 @@ function handleConfirm({ body }: RouteHandlerArgs) {
 
   const peeked = pendingInteractions.get(requestId);
   if (!peeked) {
-    log.warn(
+    // Idempotent / benign: the interaction was already resolved — auto-denied
+    // when a newer message superseded it, timed out, or the turn aborted —
+    // before this late click landed. A hard 404 surfaces a scary error on a
+    // merely-stale card and leaves the conversation looking stuck
+    // (LUM-2542/2552). Return an already-resolved result so the client can drop
+    // the card without an error instead of throwing.
+    log.info(
       { requestId, decision },
-      "Confirmation POST for unknown requestId (already consumed or never registered)",
+      "Confirmation POST for already-resolved/unknown requestId — benign no-op",
     );
-    throw new NotFoundError("No pending interaction found for this requestId");
+    return { accepted: false, reason: "already_resolved" as const };
   }
 
   const effectiveDecision =
@@ -127,9 +133,7 @@ function handleSecret({ body }: RouteHandlerArgs) {
   // undefined) so the request settles cleanly rather than 400-ing and stranding
   // the pending interaction.
   const isCancel = delivery === "none";
-  const value = isCancel
-    ? undefined
-    : (body?.value as string | undefined);
+  const value = isCancel ? undefined : (body?.value as string | undefined);
 
   if (
     delivery !== undefined &&
