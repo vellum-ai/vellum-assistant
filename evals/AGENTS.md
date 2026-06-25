@@ -45,6 +45,13 @@ The jail is **fail-closed** (default DROP; only model + `platform.vellum.ai` hos
 
 **Report card:** JSONL — one row per (profile × test × run). Static HTML report rendered alongside.
 
+**Agent presentation workflow:** When an agent runs evals for a user, finish by
+opening the local report server to the completed session unless the user asks
+for a different handoff. Prefer `evals run --serve` when starting a new run; if
+the run already exists, start `evals server` and give/open the
+`/sessions/<sessionId>` URL so the user can drill into tests, profiles,
+transcripts, metrics, usage, and logs.
+
 ## Conventions
 
 - **CLI entry:** `src/cli.ts`. Subcommands live in `src/commands/<name>.ts` and export `register<Name>Command(program)` (commander). New subcommands register themselves on the root program in `cli.ts`.
