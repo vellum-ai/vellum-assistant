@@ -39,6 +39,7 @@ mock.module("../runtime/ready-state.js", () => ({
 }));
 
 import {
+  __resetReadyzCesStateForTest,
   handleDetailedHealth,
   handleReadyz,
   ROUTES,
@@ -211,6 +212,9 @@ describe("identity routes — health endpoint", () => {
     beforeEach(() => {
       setCesClient(undefined);
       runtimeReadyFlag = true;
+      // Reset the transition-tracking state so each case's first not-ready
+      // observation registers as a transition and warns once.
+      __resetReadyzCesStateForTest();
       healthWarn.mockClear();
     });
 
@@ -234,6 +238,22 @@ describe("identity routes — health endpoint", () => {
       const body = (await res.json()) as Record<string, unknown>;
       expect(body).toEqual({ status: "ok" });
       // CES is a soft dependency: not-ready is warned but does not gate readiness.
+      expect(healthWarn).toHaveBeenCalledTimes(1);
+    });
+
+    test("warns once on the first not-ready poll and not again on the next consecutive not-ready poll", () => {
+      const mockClient = {
+        isReady: () => false,
+        close: () => {},
+      } as unknown as import("../credential-execution/client.js").CesClient;
+      setCesClient(mockClient);
+
+      // First not-ready observation is a transition → warns once.
+      expect(handleReadyz().status).toBe(200);
+      expect(healthWarn).toHaveBeenCalledTimes(1);
+
+      // Second consecutive not-ready observation is steady-state → no new warn.
+      expect(handleReadyz().status).toBe(200);
       expect(healthWarn).toHaveBeenCalledTimes(1);
     });
 

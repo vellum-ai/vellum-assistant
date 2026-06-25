@@ -827,13 +827,25 @@ export async function runDaemon(): Promise<void> {
     await server.start();
     log.info("Daemon startup: DaemonServer started");
 
-    // Critical startup is complete: the runtime HTTP server is bound, the DB is
-    // initialized, and the daemon server is accepting requests. Mark the runtime
-    // ready so `/readyz` returns 200. This is the last REQUIRED init step — a
-    // failure earlier in init leaves the runtime not-ready. CES is intentionally
-    // NOT gated here: it is a soft dependency with a direct-credential-store
+    // Critical startup is complete: the runtime HTTP server is bound and the
+    // daemon server is accepting requests. Mark the runtime ready so `/readyz`
+    // returns 200 — but only when the DB initialized. CES is intentionally NOT
+    // gated here: it is a soft dependency with a direct-credential-store
     // fallback, so readiness must not depend on the CES handshake.
-    setRuntimeReady();
+    //
+    // Readiness is gated on `dbReady` because the contract for `/readyz` is
+    // "HTTP bound + DB initialized + daemon started". If `initializeDb()` failed
+    // we are in degraded mode: DB-backed endpoints would be degraded, so the pod
+    // must report not-ready (`/readyz` → 503) and be kept out of the Service's
+    // endpoint set. The process still stays alive and reachable for `/healthz`
+    // (liveness) so it is not killed/restart-looped while it serves diagnostics.
+    if (dbReady) {
+      setRuntimeReady();
+    } else {
+      log.warn(
+        "Daemon startup: DB not initialized — leaving runtime not-ready (/readyz will report 503)",
+      );
+    }
 
     // Warm the gateway guardian-delivery cache so the SSE eager-subscribe path
     // (sync, IO-free) resolves the local actor principal on the FIRST client

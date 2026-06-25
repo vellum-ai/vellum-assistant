@@ -355,6 +355,22 @@ export function handleDetailedHealth(): Response {
   return Response.json(getDetailedHealth());
 }
 
+// Tracks the last observed CES-ready state across `/readyz` polls so the
+// soft-dependency warning fires only on a transition into "not ready" rather
+// than on every poll. Once the K8s readinessProbe points at `/readyz` this
+// handler runs ~6x/min indefinitely; for setups where CES never connects
+// (e.g. BYOK) a per-poll warn would flood the logs. `undefined` means we have
+// not observed CES yet, so the first not-ready observation always logs once.
+let lastCesReady: boolean | undefined = undefined;
+
+/**
+ * Test-only: reset the transition-tracking state so each case starts from a
+ * clean slate (first not-ready observation logs once). Not used in production.
+ */
+export function __resetReadyzCesStateForTest(): void {
+  lastCesReady = undefined;
+}
+
 export function handleReadyz(): Response {
   // Ready = critical startup complete (HTTP bound + DB initialized + daemon
   // started). CES is a soft dependency with a direct-credential-store fallback,
@@ -364,12 +380,15 @@ export function handleReadyz(): Response {
   }
 
   const cesClient = getCesClient();
-  if (!cesClient?.isReady()) {
+  const cesReady = cesClient?.isReady() ?? false;
+  // Only warn on a transition into not-ready so steady-state polling stays quiet.
+  if (!cesReady && cesReady !== lastCesReady) {
     getLogger("health").warn(
       { reason: cesClient ? "ces_not_ready" : "ces_unavailable" },
       "CES not ready — readiness unaffected (soft dependency with fallback)",
     );
   }
+  lastCesReady = cesReady;
   return Response.json({ status: "ok" });
 }
 
