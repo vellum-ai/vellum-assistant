@@ -27,7 +27,42 @@ type ChannelKey = AssistantChannelState["key"];
 const TRUST_FLOOR_OPTIONS = ADMISSION_POLICY_VALUES.map((value) => ({
   value,
   label: POLICY_LABELS[value],
+  tooltip: POLICY_DESCRIPTIONS[value],
 }));
+
+/**
+ * Floors that loosen or hard-deny who can reach the assistant and warrant an
+ * explicit confirmation before persisting. Floors not listed here apply
+ * immediately. Web-only UI concern — the cross-surface contract lives in
+ * `@/lib/channel-admission-policy/types`.
+ */
+const POLICY_CONFIRMATIONS: Partial<
+  Record<
+    AdmissionPolicy,
+    { title: string; message: string; confirmLabel: string; destructive?: boolean }
+  >
+> = {
+  no_one: {
+    title: "Block all inbound messages?",
+    message:
+      "Setting this channel to “No one” hard-denies every inbound message — including messages from you. You can reverse this at any time.",
+    confirmLabel: "Block all",
+    destructive: true,
+  },
+  any_contact: {
+    title: "Allow any contact to reach your assistant?",
+    message:
+      "“Any contact” admits every matched contact in this channel — including pending, unverified ones — not just your verified contacts. Best for channels consisting of only people you already trust.",
+    confirmLabel: "Allow any contact",
+  },
+  strangers: {
+    title: "Allow strangers to reach your assistant?",
+    message:
+      "Are you sure you want to allow strangers to contact your assistant through this channel? Doing so could cost you money and open you up to security and privacy vulnerabilities. Enable with extreme caution.",
+    confirmLabel: "Allow strangers",
+    destructive: true,
+  },
+};
 
 interface AssistantChannelsDetailProps {
   assistantName: string;
@@ -100,17 +135,23 @@ export function AssistantChannelsDetail({
   const displayName = assistantName.trim() || "your assistant";
   const [pendingDisconnect, setPendingDisconnect] = useState<ChannelKey | null>(null);
   const [expandedChannels, setExpandedChannels] = useState<Set<ChannelKey>>(new Set());
-  // Kill-switch confirmation: non-null while the "no_one" floor dialog is shown.
-  const [killSwitchPending, setKillSwitchPending] = useState<ChannelKey | null>(null);
+  // Floor confirmation: non-null while a floor in POLICY_CONFIRMATIONS awaits
+  // the user's go-ahead before persisting.
+  const [pendingPolicy, setPendingPolicy] = useState<{
+    channelKey: ChannelKey;
+    policy: AdmissionPolicy;
+  } | null>(null);
 
   const disconnectMeta = pendingDisconnect ? CHANNEL_META[pendingDisconnect] : null;
-  const killSwitchMeta = killSwitchPending ? CHANNEL_META[killSwitchPending] : null;
+  const pendingConfirmation = pendingPolicy
+    ? POLICY_CONFIRMATIONS[pendingPolicy.policy]
+    : null;
 
-  // Intercept "no_one" to show a destructive confirmation before persisting;
-  // every other floor applies immediately. Mirrors the old ChannelPolicyCard.
+  // Floors that loosen or hard-deny access prompt a confirmation before
+  // persisting; every other floor applies immediately.
   const handlePolicyChange = (channelKey: ChannelKey, next: AdmissionPolicy) => {
-    if (next === "no_one") {
-      setKillSwitchPending(channelKey);
+    if (POLICY_CONFIRMATIONS[next]) {
+      setPendingPolicy({ channelKey, policy: next });
       return;
     }
     onChannelPolicyChange?.(channelKey, next);
@@ -196,24 +237,20 @@ export function AssistantChannelsDetail({
         onCancel={() => setPendingDisconnect(null)}
       />
 
-      {/* Kill-switch confirmation — "no_one" hard-denies all inbound traffic. */}
+      {/* Floor confirmation — loosening or hard-denying access needs a nod. */}
       <ConfirmDialog
-        open={killSwitchPending !== null}
-        title="Block all inbound messages?"
-        message={
-          killSwitchMeta
-            ? `Setting ${killSwitchMeta.label} to "No one" will hard-deny every inbound message on this channel. You can reverse this at any time.`
-            : ""
-        }
-        confirmLabel="Block all"
-        destructive
+        open={pendingPolicy !== null}
+        title={pendingConfirmation?.title ?? ""}
+        message={pendingConfirmation?.message ?? ""}
+        confirmLabel={pendingConfirmation?.confirmLabel ?? "Confirm"}
+        destructive={pendingConfirmation?.destructive ?? false}
         onConfirm={() => {
-          if (killSwitchPending) {
-            onChannelPolicyChange?.(killSwitchPending, "no_one");
+          if (pendingPolicy) {
+            onChannelPolicyChange?.(pendingPolicy.channelKey, pendingPolicy.policy);
           }
-          setKillSwitchPending(null);
+          setPendingPolicy(null);
         }}
-        onCancel={() => setKillSwitchPending(null)}
+        onCancel={() => setPendingPolicy(null)}
       />
     </div>
   );
