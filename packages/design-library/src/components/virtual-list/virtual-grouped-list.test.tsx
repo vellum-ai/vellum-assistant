@@ -20,6 +20,7 @@ import {
   NonStickyGroup,
   StickyGroup,
   buildGroupModel,
+  resolveGroupedItemKey,
   isGroupCollapsed,
   type VirtualGroupedListProps,
   type VirtualListGroup,
@@ -125,6 +126,48 @@ describe("buildGroupModel", () => {
       "e",
     ]);
     expect(expanded.combinedItemOnlyIndex).toEqual([-1, 0, 1, -1, 2, 3, 4]);
+  });
+});
+
+describe("resolveGroupedItemKey", () => {
+  test("item rows defer to computeItemKey with an item-only index", () => {
+    const model = buildGroupModel(
+      [
+        { key: "g1", label: "G1", items: [{ id: 10 }, { id: 11 }] },
+        { key: "g2", label: "G2", items: [{ id: 12 }] },
+      ],
+      {},
+    );
+    const computeItemKey = (_index: number, item: { id: number }) => item.id;
+    // combined rows: [H(g1), {10}, {11}, H(g2), {12}]
+    expect(resolveGroupedItemKey(model, 1, computeItemKey)).toBe(10);
+    expect(resolveGroupedItemKey(model, 2, computeItemKey)).toBe(11);
+    expect(resolveGroupedItemKey(model, 4, computeItemKey)).toBe(12);
+  });
+
+  test("header rows get a namespaced key that can't collide with numeric item keys", () => {
+    const model = buildGroupModel(
+      [
+        { key: "g1", label: "G1", items: [{ id: 0 }, { id: 1 }] },
+        { key: "g2", label: "G2", items: [{ id: 2 }] },
+      ],
+      {},
+    );
+    const computeItemKey = (_index: number, item: { id: number }) => item.id;
+    // Header rows at combined index 0 and 3 would, with a bare-number fallback,
+    // collide with the item keyed 0 (combined index 1). They must not.
+    expect(resolveGroupedItemKey(model, 0, computeItemKey)).toBe(
+      "__virtual-grouped-list-header-0",
+    );
+    expect(resolveGroupedItemKey(model, 3, computeItemKey)).toBe(
+      "__virtual-grouped-list-header-3",
+    );
+
+    // Every key across all combined rows is unique — no duplicate React keys.
+    const keys = [0, 1, 2, 3, 4].map((i) =>
+      resolveGroupedItemKey(model, i, computeItemKey),
+    );
+    expect(new Set(keys).size).toBe(keys.length);
   });
 });
 

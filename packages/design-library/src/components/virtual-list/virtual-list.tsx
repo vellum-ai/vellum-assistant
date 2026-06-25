@@ -171,18 +171,24 @@ export function VirtualList<T>({
       followOutput={resolvedFollowOutput}
       atBottomStateChange={atBottomStateChange}
       atBottomThreshold={atBottomThreshold}
-      firstItemIndex={firstItemIndex}
       startReached={startReached}
       endReached={endReached}
-      initialTopMostItemIndex={resolvedInitialTopMostItemIndex}
-      overscan={overscan}
-      increaseViewportBy={increaseViewportBy}
       scrollerRef={(el) => {
         // The flat scroller can be a Window when window-scrolling; we only
         // surface real elements. `nodeType` distinguishes Element from Window
         // without referencing the `Window` global.
         scrollElementRef.current = el && "nodeType" in el ? el : null;
       }}
+      // Virtuoso reads an explicitly-passed `undefined` as an override of its
+      // own numeric defaults (e.g. overscan/increaseViewportBy default to 0),
+      // which then throws in its viewport math. Only forward these when the
+      // consumer actually set them so virtuoso keeps its defaults otherwise.
+      {...(firstItemIndex !== undefined ? { firstItemIndex } : {})}
+      {...(resolvedInitialTopMostItemIndex !== undefined
+        ? { initialTopMostItemIndex: resolvedInitialTopMostItemIndex }
+        : {})}
+      {...(overscan !== undefined ? { overscan } : {})}
+      {...(increaseViewportBy !== undefined ? { increaseViewportBy } : {})}
     />
   );
 }

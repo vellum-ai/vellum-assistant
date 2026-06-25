@@ -149,6 +149,25 @@ export function buildGroupModel<T>(
 }
 
 /**
+ * Resolve the React key for a combined row given virtuoso's header-inclusive
+ * index. Header rows get a namespaced key that can't collide with a consumer's
+ * `computeItemKey` output (which may return bare numbers like item ids); item
+ * rows defer to `computeItemKey` with an item-only index consistent with
+ * `itemContent`.
+ */
+export function resolveGroupedItemKey<T>(
+  model: GroupModel<T>,
+  combinedIndex: number,
+  computeItemKey: (index: number, item: T) => Key,
+): Key {
+  const item = model.combinedItems[combinedIndex];
+  if (item === undefined) {
+    return `__virtual-grouped-list-header-${combinedIndex}`;
+  }
+  return computeItemKey(model.combinedItemOnlyIndex[combinedIndex], item);
+}
+
+/**
  * Group header used when no `groupHeader` render prop is supplied. Renders a
  * label (with optional icon); collapsible groups render as a button with a
  * rotating chevron so the whole header row is the toggle target.
@@ -323,14 +342,10 @@ export function VirtualGroupedList<T>({
     if (!computeItemKey) return undefined;
     // `GroupedVirtuoso` calls computeItemKey with the combined row index (group
     // headers counted) and also calls it for header rows, unlike itemContent's
-    // item-only index. Map back through the combined model so the right item —
-    // and an item-only index consistent with itemContent — reach the consumer;
-    // header rows (no item) get a stable fallback key.
-    return (combinedIndex: number) => {
-      const item = model.combinedItems[combinedIndex];
-      if (item === undefined) return combinedIndex;
-      return computeItemKey(model.combinedItemOnlyIndex[combinedIndex], item);
-    };
+    // item-only index — `resolveGroupedItemKey` maps that back to the right item
+    // (and a namespaced, collision-proof key for header rows).
+    return (combinedIndex: number) =>
+      resolveGroupedItemKey(model, combinedIndex, computeItemKey);
   }, [computeItemKey, model]);
 
   // When a selected key is known, open the list scrolled to that item. The
@@ -362,13 +377,18 @@ export function VirtualGroupedList<T>({
       itemContent={renderItem}
       computeItemKey={resolvedComputeItemKey}
       components={components}
-      overscan={overscan}
-      initialTopMostItemIndex={initialTopMostItemIndex}
       scrollerRef={(el) => {
         // `nodeType` distinguishes a real Element from a Window without
         // referencing the `Window` global.
         scrollElementRef.current = el && "nodeType" in el ? el : null;
       }}
+      // Virtuoso reads an explicitly-passed `undefined` as an override of its
+      // numeric defaults (overscan defaults to 0), which then throws in its
+      // viewport math; only forward these when the consumer set them.
+      {...(overscan !== undefined ? { overscan } : {})}
+      {...(initialTopMostItemIndex !== undefined
+        ? { initialTopMostItemIndex }
+        : {})}
     />
   );
 }
