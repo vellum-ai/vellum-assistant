@@ -15,6 +15,52 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { createElement, type ReactElement, type ReactNode } from "react";
+
+// Mock `motion/react` so the dropdown mounts/unmounts synchronously. The real
+// AnimatePresence exit runs ~1.8s in happy-dom; under full-suite load that
+// overran the per-test timeout and flaked the drill-in/dismissal assertions
+// (which wait for the panel to leave the DOM). This strips motion-only props
+// and forwards className/style/children so the layout assertions still hold.
+mock.module("motion/react", () => {
+  const MOTION_ONLY_PROPS = new Set([
+    "initial",
+    "animate",
+    "exit",
+    "transition",
+    "variants",
+    "whileHover",
+    "whileTap",
+    "whileFocus",
+    "whileInView",
+    "whileDrag",
+    "layout",
+    "layoutId",
+    "drag",
+    "custom",
+    "onAnimationStart",
+    "onAnimationComplete",
+  ]);
+  return {
+    motion: new Proxy(
+      {} as Record<string, (props: Record<string, unknown>) => ReactElement>,
+      {
+        get: (_target, tag) => (props: Record<string, unknown>) => {
+          const domProps: Record<string, unknown> = {};
+          for (const key in props) {
+            if (!MOTION_ONLY_PROPS.has(key)) domProps[key] = props[key];
+          }
+          return createElement(String(tag), domProps);
+        },
+      },
+    ),
+    // Render children immediately and drop them synchronously on unmount (no
+    // exit hold) so close-on-drill-in / Escape / outside-click assertions don't
+    // depend on real animation timing.
+    AnimatePresence: ({ children }: { children?: ReactNode }) => children,
+    useReducedMotion: () => true,
+  };
+});
 
 mock.module(
   "@/domains/chat/components/workflow-inline-progress-card/workflow-inline-progress-card",

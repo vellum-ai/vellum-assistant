@@ -65,7 +65,9 @@ export function ActiveOverlayShell({
   // the viewport. Re-measure on open, on column resize (live detail-panel
   // width + sidebar collapse both reflow it), on pill resize (the live
   // activity count/avatars change the pill width without reflowing the
-  // column), and on window resize.
+  // column), on sibling-pill resize/appearance (the two overlays share a
+  // centered flex row, so the other pill repositions this one without resizing
+  // the column or this shell), and on window resize.
   useEffect(() => {
     const measure = () => {
       const el = containerRef.current;
@@ -95,7 +97,19 @@ export function ActiveOverlayShell({
 
     const el = containerRef.current;
     const parent = el?.offsetParent as HTMLElement | null;
+    const row = el?.parentElement ?? null;
     let observer: ResizeObserver | undefined;
+    // Observe the shell root + every sibling pill in the centered flex row. A
+    // sibling's width change shifts this shell horizontally (changing
+    // containerLeft) without resizing the column or this shell, so neither
+    // observe(parent) nor observe(el) alone would fire (Codex P2). `observe` is
+    // idempotent, so re-observing on later mutations is safe.
+    const observeSiblings = () => {
+      if (!observer || !el) return;
+      for (const sibling of Array.from(row?.children ?? [])) {
+        if (sibling !== el) observer.observe(sibling);
+      }
+    };
     if (parent && el && typeof ResizeObserver !== "undefined") {
       observer = new ResizeObserver(measure);
       observer.observe(parent);
@@ -103,10 +117,24 @@ export function ActiveOverlayShell({
       // re-measure even when the column width is unchanged — keeps the centering
       // clamp anchored instead of drifting off-center until the next resize.
       observer.observe(el);
+      observeSiblings();
+    }
+    // A sibling pill mounting/unmounting (the other overlay activating or going
+    // idle) likewise repositions this shell without firing any ResizeObserver,
+    // so watch the row for child add/remove: re-measure and pick up resizes of
+    // any pill that appeared after setup.
+    let rowObserver: MutationObserver | undefined;
+    if (row && typeof MutationObserver !== "undefined") {
+      rowObserver = new MutationObserver(() => {
+        observeSiblings();
+        measure();
+      });
+      rowObserver.observe(row, { childList: true });
     }
     window.addEventListener("resize", measure);
     return () => {
       observer?.disconnect();
+      rowObserver?.disconnect();
       window.removeEventListener("resize", measure);
     };
   }, [expanded]);
