@@ -350,6 +350,41 @@ describe("m0008-upsert-acl-columns-from-assistant", () => {
     expect(ch.status).toBe("verified");
   });
 
+  test("case-different address updates the existing row, no duplicate actor", async () => {
+    // The gateway UNIQUE(type,address) index is case-sensitive, but the logical
+    // key collates NOCASE. An assistant row differing only by address casing must
+    // update the existing gateway row, not fork a second channel for the actor.
+    seedGatewayContact({ id: "c5" });
+    seedGatewayChannel({
+      id: "gw-id",
+      contactId: "c5",
+      type: "telegram",
+      address: "U123",
+      status: "unverified",
+    });
+
+    seedAssistantContact({ id: "c5" });
+    seedAssistantChannel({
+      id: "assistant-id",
+      contact_id: "c5",
+      type: "telegram",
+      address: "u123",
+      status: "verified",
+      policy: "deny",
+    });
+
+    const result = await m0008Up();
+    expect(result).toBe("done");
+
+    expect(gwChannelCount()).toBe(1);
+    const ch = gwChannelByAddress("telegram", "U123")!;
+    expect(ch.id).toBe("gw-id");
+    expect(ch.status).toBe("verified");
+    expect(ch.policy).toBe("deny");
+    // No second row was inserted under the lowercased address.
+    expect(gwChannelByAddress("telegram", "u123") ?? undefined).toBeUndefined();
+  });
+
   test("orphan channel (contact absent) is skipped without throwing", async () => {
     seedAssistantChannel({
       id: "orphan",
