@@ -651,13 +651,9 @@ describe("HTTP POST /v1/messages trust context from the gateway binding", () => 
     expect(ctx.sourceChannel).toBe("telegram");
   });
 
-  // Regression: a web turn with the synthetic "dev-bypass" principal must
-  // translate to the real guardian principal BEFORE the CU/app-control
-  // same-actor proxy-attachment gate runs. Without the translation, the
-  // web turn's "dev-bypass" never matches the macOS client's SSE-registered
-  // guardian principal → denied_no_clients → CU proxy never attaches →
-  // "no desktop client connected." Mirrors the surface-action-routes fix
-  // (PR #35892) for the main message path.
+  // A web turn's "dev-bypass" principal must translate to the real guardian
+  // principal before the CU/app-control same-actor proxy-attachment gate,
+  // so it matches the macOS client's SSE-registered principal.
   test("dev-bypass is translated to the guardian principal before the CU proxy attach gate (web turn)", async () => {
     hostProxyAttachCalls.length = 0;
     preactivateCalls.length = 0;
@@ -690,9 +686,8 @@ describe("HTTP POST /v1/messages trust context from the gateway binding", () => 
     );
     expect(res.status).toBe(202);
 
-    // The CU attach gate received the TRANSLATED guardian principal, not
-    // the raw "dev-bypass" string. Without the fix this would be
-    // "dev-bypass" and the same-actor filter would return zero matches.
+    // The CU attach gate receives the translated guardian principal, not
+    // the raw "dev-bypass" string.
     const cuCall = hostProxyAttachCalls.find(
       (c) => c.capability === "host_cu",
     );

@@ -63,7 +63,6 @@ import {
   shouldAttachHostProxyForCapability,
 } from "../../daemon/host-proxy-preactivation.js";
 import { getAssistantName } from "../../daemon/identity-helpers.js";
-import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type {
   HostProxyTransportMetadata,
@@ -136,7 +135,10 @@ import type {
   RuntimeMessagePayload,
   SendMessageDeps,
 } from "../http-types.js";
-import { findLocalGuardianPrincipalId } from "../local-actor-identity.js";
+import {
+  findLocalGuardianPrincipalId,
+  resolveActorPrincipalIdForLocalGuardian,
+} from "../local-actor-identity.js";
 import { resolveLocalPrincipalTrustContext } from "../local-principal-trust.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
@@ -1510,15 +1512,10 @@ export async function handleSendMessage(
   }
 
   const isInteractive = isInteractiveInterface(sourceInterface);
-  // Translate the synthetic dev-bypass actor principal to the real local
-  // guardian's principalId when running with DISABLE_HTTP_AUTH=true, so the
-  // same-actor check in shouldAttachHostProxyForCapability matches the macOS
-  // client's SSE-registered principal (which events-routes already
-  // translates). Without this, a web turn's "dev-bypass" principal never
-  // matches the macOS client's real guardian principal → denied_no_clients →
-  // CU proxy never attaches → "no desktop client connected." Real JWT
-  // principals pass through unchanged in non-dev-bypass deployments. Mirrors
-  // the fix in surface-action-routes.ts for surface-action turns.
+  // Translate the dev-bypass actor principal to the real guardian principal
+  // before the same-actor host-proxy gate so web/iOS turns match the macOS
+  // client's SSE-registered principal. No-op for real JWT principals in
+  // non-dev-bypass deployments.
   const sourceActorPrincipalId = await resolveActorPrincipalIdForLocalGuardian(
     actorPrincipalId ?? undefined,
   );
