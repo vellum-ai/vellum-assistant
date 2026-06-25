@@ -66,9 +66,10 @@ mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
   ) => list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
+// Member ACL rides on memberRecord via getLocalMemberAcl; no local contact here.
 mock.module("../../../contacts/contact-store.js", () => ({
-  findGuardianForChannel: (_channelType: string) => null,
   findContactByAddress: () => null,
+  getLocalMemberAcl: () => null,
 }));
 
 mock.module("../../../config/env.js", () => ({

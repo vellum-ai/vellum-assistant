@@ -19,10 +19,20 @@
 import type { ChannelId } from "../channels/types.js";
 import {
   findContactByAddress,
-  findGuardianForChannel,
+  getLocalMemberAcl,
 } from "../contacts/contact-store.js";
+import {
+  guardianForChannel,
+  peekCachedGuardianDelivery,
+} from "../contacts/guardian-delivery-reader.js";
 import { channelStatusToMemberStatus } from "../contacts/member-status.js";
-import type { ContactChannel, ContactWithChannels } from "../contacts/types.js";
+import type {
+  ChannelPolicy,
+  ChannelStatus,
+  ContactChannel,
+  ContactRole,
+  ContactWithChannels,
+} from "../contacts/types.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
@@ -78,10 +88,18 @@ export interface ActorTrustContext {
   } | null;
   /** Canonical principal ID from the guardian binding. */
   guardianPrincipalId?: string;
-  /** Resolved contact + channel for this sender, if any. */
+  /**
+   * Resolved contact + channel for this sender, if any. The ACL view
+   * (status/policy/role) is carried here rather than on the contact/channel
+   * objects: the verdict path sources it from the gateway verdict, the local
+   * fallback from the local ACL columns (the residual PR 6 member-ACL drain).
+   */
   memberRecord: {
     contact: ContactWithChannels;
     channel: ContactChannel;
+    status: ChannelStatus;
+    policy: ChannelPolicy;
+    role: ContactRole;
   } | null;
   /** Trust classification. */
   trustClass: TrustClass;
@@ -175,21 +193,27 @@ export function resolveActorTrust(
   }
 
   // --- Guardian lookup ---
-  const guardianResult = findGuardianForChannel(input.sourceChannel);
+  // Sync read of the gateway guardian delivery from the IO-free cache snapshot
+  // (kept warm by the async hot paths + daemon-startup warm). A cold cache
+  // yields no guardian match, the same outcome as no binding.
+  const cachedGuardians = peekCachedGuardianDelivery({
+    channelTypes: [input.sourceChannel],
+  });
+  const guardianDelivery = cachedGuardians
+    ? guardianForChannel(cachedGuardians, input.sourceChannel)
+    : undefined;
   let guardianBindingMatch: ActorTrustContext["guardianBindingMatch"] = null;
   let guardianPrincipalId: string | undefined;
   let isGuardian = false;
 
-  if (guardianResult) {
-    const { contact: guardianContact, channel: guardianChannel } =
-      guardianResult;
+  if (guardianDelivery) {
     guardianBindingMatch = {
-      guardianExternalUserId: guardianChannel.address,
-      guardianDeliveryChatId: guardianChannel.externalChatId,
+      guardianExternalUserId: guardianDelivery.address,
+      guardianDeliveryChatId: guardianDelivery.externalChatId ?? null,
     };
-    guardianPrincipalId = guardianContact.principalId ?? undefined;
+    guardianPrincipalId = guardianDelivery.principalId ?? undefined;
     isGuardian =
-      guardianChannel.address.toLowerCase() === canonicalSenderId.toLowerCase();
+      guardianDelivery.address.toLowerCase() === canonicalSenderId.toLowerCase();
   }
 
   log.debug(
@@ -213,7 +237,12 @@ export function resolveActorTrust(
       ch.address.toLowerCase() === canonicalSenderId.toLowerCase(),
   );
   if (byAddress && byAddressChannel) {
-    memberRecord = { contact: byAddress, channel: byAddressChannel };
+    const acl = getLocalMemberAcl(byAddressChannel.id) ?? {
+      status: "unverified" as ChannelStatus,
+      policy: "allow" as ChannelPolicy,
+      role: "contact" as ContactRole,
+    };
+    memberRecord = { contact: byAddress, channel: byAddressChannel, ...acl };
   }
 
   log.debug(
@@ -252,7 +281,7 @@ export function resolveActorTrust(
   if (isGuardian) {
     trustClass = "guardian";
   } else if (memberMatchesSender && memberRecord) {
-    const status = memberRecord.channel.status;
+    const status = memberRecord.status;
     if (status === "active") {
       trustClass = "trusted_contact";
     } else if (status === "unverified" || status === "pending") {
@@ -327,8 +356,8 @@ export function toTrustContext(
     // both populate it).
     requesterContactId: ctx.memberRecord?.contact.id,
     memberStatus: ctx.memberRecord
-      ? channelStatusToMemberStatus(ctx.memberRecord.channel.status)
+      ? channelStatusToMemberStatus(ctx.memberRecord.status)
       : undefined,
-    memberPolicy: ctx.memberRecord?.channel.policy,
+    memberPolicy: ctx.memberRecord?.policy,
   };
 }

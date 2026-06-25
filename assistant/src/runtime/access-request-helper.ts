@@ -97,11 +97,10 @@ export async function notifyGuardianOfAccessRequest(
 
   // Resolve guardian identity with the assistant-anchored strategy (gateway
   // source-channel match validated against the vellum anchor, else the vellum
-  // anchor), with a LOCAL-store fallback when the gateway read is empty.
+  // anchor).
   const anchored = resolveAnchoredGuardian({
     guardians: await getGuardianDelivery(),
     sourceChannel,
-    useLocalFallback: true,
   });
   const guardianExternalUserId = anchored?.address ?? null;
   const guardianPrincipalId = anchored?.principalId ?? null;

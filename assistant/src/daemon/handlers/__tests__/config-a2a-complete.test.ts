@@ -100,8 +100,6 @@ describe("completeA2AInvite", () => {
     expect(contact!.displayName).toBe("Acceptor Bot");
     expect(contact!.channels).toHaveLength(1);
     expect(contact!.channels[0]!.type).toBe("a2a");
-    expect(contact!.channels[0]!.status).toBe("active");
-    expect(contact!.channels[0]!.policy).toBe("allow");
   });
 
   test("contact channel address is acceptor.assistantId.toLowerCase()", () => {

@@ -54,8 +54,10 @@ function rethrowGatewayError(err: unknown): never {
 }
 
 function withGuardianNameOverride<
-  T extends { role: string; displayName: string },
+  T extends { role?: string; displayName: string },
 >(contact: T): T {
+  // `role` is gateway-owned: only the gateway-relayed read carries it. Daemon-
+  // native reads (search/contactType-filtered) omit it and skip the override.
   if (contact.role === "guardian") {
     return {
       ...contact,
@@ -81,7 +83,7 @@ function withChannelCompat<T extends { channels: { address: string }[] }>(
 /** Compose both response transforms (guardian display name + channel compat). */
 function prepareContactResponse<
   T extends {
-    role: string;
+    role?: string;
     displayName: string;
     channels: { address: string }[];
   },
@@ -99,6 +101,12 @@ function isContactType(value: string): value is ContactType {
 // Response schemas (drive OpenAPI spec → codegen → typed SDK)
 // ---------------------------------------------------------------------------
 
+// ACL fields (status/policy/verifiedAt/verifiedVia/revokedReason/blockedReason
+// + contact `role`) are gateway-owned and present ONLY on gateway-relayed reads
+// (`contacts_list_rich`/`contacts_get_rich`). Daemon-native filtered reads
+// (search / contactType) omit them, so they are `.optional()`. INFO telemetry
+// (lastSeenAt/interactionCount/lastInteraction) is locally hydrated on every
+// read path and stays required.
 const contactChannelSchema = z.object({
   id: z.string(),
   contactId: z.string(),
@@ -107,21 +115,21 @@ const contactChannelSchema = z.object({
   isPrimary: z.boolean(),
   /** @deprecated Echoes `address` for backwards compatibility with older macOS clients. */
   externalUserId: z.string().nullable(),
-  status: z.string(),
-  policy: z.string(),
-  verifiedAt: z.number().nullable(),
-  verifiedVia: z.string().nullable(),
+  status: z.string().optional(),
+  policy: z.string().optional(),
+  verifiedAt: z.number().nullable().optional(),
+  verifiedVia: z.string().nullable().optional(),
   lastSeenAt: z.number().nullable(),
   interactionCount: z.number(),
   lastInteraction: z.number().nullable(),
-  revokedReason: z.string().nullable(),
-  blockedReason: z.string().nullable(),
+  revokedReason: z.string().nullable().optional(),
+  blockedReason: z.string().nullable().optional(),
 });
 
 const contactSchema = z.object({
   id: z.string(),
   displayName: z.string(),
-  role: z.string(),
+  role: z.string().optional(),
   notes: z.string().nullable().optional(),
   contactType: z.string().nullable().optional(),
   lastInteraction: z.number().nullable().optional(),
@@ -188,7 +196,6 @@ export async function handleListContacts(queryParams: Record<string, string>) {
       query,
       channelAddress,
       channelType,
-      role,
       contactType,
       limit,
     });
@@ -206,7 +213,7 @@ export async function handleListContacts(queryParams: Record<string, string>) {
     log.debug(
       "handleListContacts: contactType-filtered read served daemon-native (gateway-native contactType filtering is design-blocked, pending ACL classification)",
     );
-    const contacts = listContacts(limit, role, contactType);
+    const contacts = listContacts(limit, contactType);
     return {
       ok: true,
       contacts: contacts.map(prepareContactResponse),

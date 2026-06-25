@@ -15,7 +15,6 @@ import type { GuardianDelivery } from "@vellumai/gateway-client";
 
 import { isNotificationDeliverable } from "../channels/config.js";
 import type { ChannelId } from "../channels/types.js";
-import { findGuardianForChannel } from "../contacts/contact-store.js";
 import { guardianForChannel } from "../contacts/guardian-delivery-reader.js";
 import { getLogger } from "../util/logger.js";
 import type { ChannelDestination, NotificationChannel } from "./types.js";
@@ -29,13 +28,7 @@ interface ResolvedGuardian {
   externalChatId?: string;
 }
 
-/**
- * Resolve the guardian delivery endpoint for a channel: gateway list first,
- * else the local contacts read. The local read is the transitional
- * dual-written mirror and covers a transient gateway failure (null list) or a
- * gateway list missing this channel, so a soft-failed gateway read does not
- * drop a binding the local store still holds. Removed in Combo 11.
- */
+/** Resolve the guardian delivery endpoint for a channel from the gateway list. */
 function resolveGuardian(
   guardians: GuardianDelivery[] | null,
   channelType: string,
@@ -43,19 +36,11 @@ function resolveGuardian(
   const g = guardians
     ? guardianForChannel(guardians, channelType)
     : undefined;
-  if (g) {
-    return {
-      principalId: g.principalId ?? undefined,
-      address: g.address,
-      externalChatId: g.externalChatId ?? undefined,
-    };
-  }
-  const local = findGuardianForChannel(channelType);
-  if (!local) return undefined;
+  if (!g) return undefined;
   return {
-    principalId: local.contact.principalId ?? undefined,
-    address: local.channel.address,
-    externalChatId: local.channel.externalChatId ?? undefined,
+    principalId: g.principalId ?? undefined,
+    address: g.address,
+    externalChatId: g.externalChatId ?? undefined,
   };
 }
 
@@ -67,9 +52,8 @@ function resolveGuardian(
  * Returns a map keyed by `NotificationChannel`. Channels that cannot be
  * resolved (e.g. no Telegram binding configured) are omitted from the result.
  *
- * `guardians` is the gateway-resolved guardian list; per channel, a missing
- * match (null list or no entry for the channel) falls back to the local
- * contacts read for this release.
+ * `guardians` is the gateway-resolved guardian list; a channel with no entry
+ * in the list is omitted from the result.
  */
 export function resolveDestinations(
   channels: readonly (ChannelId | NotificationChannel)[],

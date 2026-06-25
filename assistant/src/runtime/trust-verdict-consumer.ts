@@ -4,10 +4,9 @@
  *
  * The gateway resolves a per-actor verdict from its ACL DB and stamps it onto
  * inbound `sourceMetadata`. These pure mappers turn that verdict into the same
- * {@link TrustContext} / {@link ResolvedMember} the local resolver would have
- * produced — ACL + identity only. INFO fields (notes, userFile, contactType,
- * interactionCount) are never carried on the wire; the consumer re-joins them
- * locally by contactId.
+ * {@link TrustContext} the local resolver would have produced — ACL + identity
+ * only. INFO fields (notes, userFile, contactType, interactionCount) are never
+ * carried on the wire; the consumer re-joins them locally by contactId.
  */
 
 import type { TrustVerdict } from "@vellumai/gateway-client";
@@ -18,12 +17,12 @@ import type {
   ChannelPolicy,
   ChannelStatus,
   ContactChannel,
+  ContactRole,
   ContactWithChannels,
 } from "../contacts/types.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import type { ActorTrustContext } from "./actor-trust-resolver.js";
 import { toTrustContext } from "./actor-trust-resolver.js";
-import type { ResolvedMember } from "./routes/inbound-stages/acl-enforcement.js";
 
 export interface TrustVerdictTransport {
   sourceChannel: ChannelId;
@@ -66,7 +65,7 @@ export function actorTrustContextFromVerdict(
     // deny/escalate. Null for memberless verdicts. Text path is unaffected:
     // toTrustContext derives the same member fields trustContextFromVerdict
     // already stamps.
-    memberRecord: resolvedMemberFromVerdict(verdict),
+    memberRecord: memberRecordFromVerdict(verdict),
     trustClass: verdict.trustClass,
     actorMetadata: {
       identifier,
@@ -99,11 +98,11 @@ export function trustContextFromVerdict(
   // Stamp the verdict's ACL member fields onto the context so downstream turn
   // assembly reads member status/policy from the verdict rather than a local
   // re-resolution. The contact ID anchors the local info-only join.
-  const member = resolvedMemberFromVerdict(verdict);
+  const member = verdictMemberFromVerdict(verdict);
   if (member) {
-    context.requesterContactId = member.contact.id;
-    context.memberStatus = channelStatusToMemberStatus(member.channel.status);
-    context.memberPolicy = member.channel.policy;
+    context.requesterContactId = member.contactId;
+    context.memberStatus = channelStatusToMemberStatus(member.status);
+    context.memberPolicy = member.policy;
   }
 
   return context;
@@ -111,7 +110,7 @@ export function trustContextFromVerdict(
 
 /**
  * True when the verdict carries a member identity (contactId or channelId),
- * regardless of whether that member resolves to a usable {@link ResolvedMember}.
+ * regardless of whether that member resolves to a usable {@link VerdictMember}.
  */
 export function verdictHasMemberIdentity(verdict: TrustVerdict): boolean {
   return !!(verdict.contactId || verdict.channelId);
@@ -119,13 +118,13 @@ export function verdictHasMemberIdentity(verdict: TrustVerdict): boolean {
 
 /**
  * True when the verdict claims a member identity but that member can't be
- * synthesized (partial/mixed-version verdict). Such a verdict is unusable —
+ * resolved (partial/mixed-version verdict). Such a verdict is unusable —
  * callers fall back to local resolution.
  */
 export function verdictMemberUnresolvable(verdict: TrustVerdict): boolean {
   return (
     verdictHasMemberIdentity(verdict) &&
-    resolvedMemberFromVerdict(verdict) === null
+    verdictMemberFromVerdict(verdict) === null
   );
 }
 
@@ -167,8 +166,8 @@ export interface VerdictMember {
 /**
  * Extract the narrow {@link VerdictMember} ACL view from a gateway verdict.
  *
- * Mirrors {@link resolvedMemberFromVerdict}'s guards (contactId/channelId
- * present + known status/policy enums), failing closed to null otherwise.
+ * Guards on contactId/channelId presence + known status/policy enums, failing
+ * closed to null otherwise.
  */
 export function verdictMemberFromVerdict(
   verdict: TrustVerdict,
@@ -190,38 +189,26 @@ export function verdictMemberFromVerdict(
 }
 
 /**
- * Build a synthetic {@link ResolvedMember} from a gateway verdict.
+ * Build the voice-path {@link ActorTrustContext.memberRecord} from a gateway
+ * verdict's narrow ACL view.
  *
  * ACL + identity only; info fields are placeholders, re-joined locally by
- * contactId. Returns null for memberless verdicts.
+ * contactId. Returns null for memberless/unresolvable verdicts.
  */
-export function resolvedMemberFromVerdict(
+function memberRecordFromVerdict(
   verdict: TrustVerdict,
-): ResolvedMember | null {
-  if (!verdict.contactId || !verdict.channelId) return null;
-  // Member verdict requires valid known status+policy enums, else null
-  // (fail-closed): a partial/mixed-version verdict (absent OR
-  // present-but-unknown ACL value) must not synthesize an active/allow channel
-  // that would skip ingress ACL gates.
-  if (!verdict.status || !verdict.policy) return null;
-  if (!isChannelStatus(verdict.status) || !isChannelPolicy(verdict.policy)) {
-    return null;
-  }
+): ActorTrustContext["memberRecord"] {
+  const member = verdictMemberFromVerdict(verdict);
+  if (!member) return null;
 
   const channel: ContactChannel = {
-    id: verdict.channelId,
-    contactId: verdict.contactId,
+    id: member.channelId,
+    contactId: member.contactId,
     type: verdict.type ?? "",
     address: verdict.address ?? "",
     isPrimary: false,
     externalChatId: verdict.externalChatId ?? null,
-    status: verdict.status,
-    policy: verdict.policy,
-    verifiedAt: verdict.verifiedAt ?? null,
-    verifiedVia: verdict.verifiedVia ?? null,
     inviteId: null,
-    revokedReason: null,
-    blockedReason: null,
     lastSeenAt: null,
     interactionCount: 0,
     lastInteraction: null,
@@ -230,19 +217,19 @@ export function resolvedMemberFromVerdict(
   };
 
   const contact: ContactWithChannels = {
-    id: verdict.contactId,
-    displayName: verdict.memberDisplayName ?? "",
+    id: member.contactId,
+    displayName: member.displayName ?? "",
     notes: null,
     lastInteraction: null,
     interactionCount: 0,
     createdAt: 0,
     updatedAt: 0,
-    role: verdict.trustClass === "guardian" ? "guardian" : "contact",
     contactType: "human",
-    principalId: verdict.guardianPrincipalId ?? null,
     userFile: null,
     channels: [channel],
   };
 
-  return { contact, channel };
+  const role: ContactRole =
+    verdict.trustClass === "guardian" ? "guardian" : "contact";
+  return { contact, channel, status: member.status, policy: member.policy, role };
 }

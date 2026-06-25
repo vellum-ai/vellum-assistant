@@ -69,7 +69,6 @@ mock.module("../daemon/approval-generators.js", () => ({
   createApprovalConversationGenerator: () => _testApprovalConversationGenerator,
 }));
 
-import { upsertContact } from "../contacts/contact-store.js";
 import type { Conversation } from "../daemon/conversation.js";
 import {
   createCanonicalGuardianDelivery,
@@ -86,7 +85,10 @@ import * as gatewayClient from "../runtime/gateway-client.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { _setTestPollMaxWait } from "../runtime/routes/channel-route-shared.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
-import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
+import {
+  handleChannelInbound,
+  seedContactChannel,
+} from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 await initializeDb();
@@ -212,22 +214,19 @@ function makeInboundRequest(overrides: Record<string, unknown> = {}): Request {
 const noopProcessMessage = mock(async () => ({ messageId: "msg-1" }));
 
 function ensureTestContact(): void {
-  upsertContact({
+  seedContactChannel({
+    sourceChannel: "telegram",
+    externalUserId: "telegram-user-default",
     displayName: "Test User",
-    channels: [
-      {
-        type: "telegram",
-        address: "telegram-user-default",
-        status: "active",
-        policy: "allow",
-      },
-      {
-        type: "slack",
-        address: "slack-user-default",
-        status: "active",
-        policy: "allow",
-      },
-    ],
+    status: "active",
+    policy: "allow",
+  });
+  seedContactChannel({
+    sourceChannel: "slack",
+    externalUserId: "slack-user-default",
+    displayName: "Test User",
+    status: "active",
+    policy: "allow",
   });
 }
 
@@ -1926,16 +1925,12 @@ describe("trusted-contact self-approval blocked before guardian approval row exi
       guardianDeliveryChatId: "guardian-tc-selfapproval-chat",
       guardianPrincipalId: "guardian-tc-selfapproval",
     });
-    upsertContact({
+    seedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "tc-selfapproval-user",
       displayName: "TC Self-Approval User",
-      channels: [
-        {
-          type: "telegram",
-          address: "tc-selfapproval-user",
-          status: "active",
-          policy: "allow",
-        },
-      ],
+      status: "active",
+      policy: "allow",
     });
   });
 

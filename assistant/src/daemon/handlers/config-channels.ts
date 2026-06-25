@@ -1,21 +1,21 @@
 import { createHash, randomBytes } from "node:crypto";
 
 import type { GuardianDelivery } from "@vellumai/gateway-client";
-import {
-  GetContactIpcResponseSchema,
-  MarkChannelRevokedIpcResponseSchema,
-} from "@vellumai/gateway-client/gateway-ipc-contracts";
+import { MarkChannelRevokedIpcResponseSchema } from "@vellumai/gateway-client/gateway-ipc-contracts";
 
 import { startVerificationCall } from "../../calls/call-domain.js";
 import type { ChannelId } from "../../channels/types.js";
 import { emitContactChange } from "../../contacts/contact-events.js";
 import {
   findContactChannel,
-  findGuardianForChannel,
   getChannelById,
   getContact,
 } from "../../contacts/contact-store.js";
-import { getGuardianDelivery } from "../../contacts/guardian-delivery-reader.js";
+import { gatewayContactChannelState } from "../../contacts/gateway-channel-read.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../../contacts/guardian-delivery-reader.js";
 import type { ContactChannel } from "../../contacts/types.js";
 import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { getBindingByChannelChat } from "../../memory/external-conversation-store.js";
@@ -105,25 +105,6 @@ async function deliveryForChannel(
   );
 }
 
-/**
- * Read a contact channel's verified state from the gateway contact-channel read
- * (ACL source of truth). Covers all contacts, not just guardian deliveries.
- * Returns `undefined` when the gateway is unreachable or has no such channel.
- */
-async function gatewayContactChannelState(
-  channel: Pick<ContactChannel, "id" | "contactId">,
-): Promise<{ status: string; verifiedAt: number | null } | undefined> {
-  const result = await ipcCallPersistent("contacts_get_rich", {
-    contactId: channel.contactId,
-  });
-  if (!result || (result as { contact?: unknown }).contact == null) {
-    return undefined;
-  }
-  const { contact } = GetContactIpcResponseSchema.parse(result);
-  const ch = contact.channels.find((c) => c.id === channel.id);
-  return ch ? { status: ch.status, verifiedAt: ch.verifiedAt } : undefined;
-}
-
 // ---------------------------------------------------------------------------
 // Extracted business logic functions
 // ---------------------------------------------------------------------------
@@ -170,10 +151,14 @@ export async function getVerificationStatus(
 
   const binding = await getGuardianBinding(resolvedAssistantId, resolvedChannel);
 
-  // Read the contact directly to get displayName — getGuardianBinding is a
-  // compatibility shim that doesn't carry metadataJson.
-  const guardianResult = findGuardianForChannel(resolvedChannel);
-  const bindingDisplayName = guardianResult?.contact.displayName;
+  // Read the guardian displayName from the gateway delivery — getGuardianBinding
+  // is a compatibility shim that doesn't carry metadataJson.
+  const guardians = await getGuardianDelivery({
+    channelTypes: [resolvedChannel],
+  });
+  const bindingDisplayName = guardians
+    ? (guardianForChannel(guardians, resolvedChannel)?.displayName ?? undefined)
+    : undefined;
   const guardianDisplayName = resolveGuardianName(bindingDisplayName);
 
   // Resolve username from external conversation store.

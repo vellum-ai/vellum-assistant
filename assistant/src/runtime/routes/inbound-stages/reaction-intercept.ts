@@ -18,6 +18,7 @@
 import type { SourceMetadata } from "@vellumai/gateway-client";
 
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
+import { getGuardianDeliveryFresh } from "../../../contacts/guardian-delivery-reader.js";
 import { getDiskPressureStatus } from "../../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../../daemon/disk-pressure-policy.js";
 import { addMessage } from "../../../memory/conversation-crud.js";
@@ -125,6 +126,15 @@ export async function handleSlackReactionIntercept(
     slackChannelName,
     approvalConversationGenerator,
   } = params;
+
+  // Warm the channel-specific guardian-delivery cache before the SYNC trust
+  // resolve below. The sync resolver reads the IO-free cache snapshot; on a
+  // cold process only `vellum` is warmed at startup, so a Slack guardian
+  // reaction would otherwise misclassify as `unknown` and drop. Read fresh:
+  // gateway-side binding writes don't invalidate the daemon cache, so a stale
+  // empty snapshot would otherwise survive the TTL. This await runs in the
+  // already-async intercept, off the sync resolver's hot path.
+  await getGuardianDeliveryFresh({ channelTypes: [sourceChannel] });
 
   // Classify the reactor. No timezone enrichment — reactions never drive an
   // agent turn, so only the trust class / guardian principal matter.

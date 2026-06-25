@@ -47,13 +47,14 @@ export type ActivateMemberOutcome =
  * assistant DB best-effort. The gateway owns the ACL outcome; the local mirror
  * supplies the native contact/channel callers still wire downstream.
  *
- * A gateway failure fails open with a logged warning (matching the redemption
- * service's record_invite_redemption posture) so a transient gateway outage
- * never drops a legitimate activation — the local mirror still stands.
+ * A gateway write failure fails closed: the mirror is identity-only, so a
+ * gateway that did not persist the activation must surface as `refused` rather
+ * than reporting success off a local row the gateway never verified.
  *
  * Returns an `activated` outcome with a stable memberId on success, or
- * `refused` when the gateway denies the actor. A best-effort local-mirror
- * failure never downgrades a verified gateway activation.
+ * `refused` when the gateway denies the actor or the gateway write fails. A
+ * best-effort local-mirror failure never downgrades a verified gateway
+ * activation.
  */
 export async function activateMemberChannel(
   params: ActivateMemberChannelParams,
@@ -89,12 +90,14 @@ export async function activateMemberChannel(
       }
       gatewayChannelId = parsed.channel?.id;
     } catch (err) {
-      // Fail-open: the gateway write may or may not have landed. Proceed to the
-      // local mirror so a transient outage never drops a legitimate activation.
+      // Fail-closed: the gateway owns the ACL verdict and the local mirror is
+      // identity-only. If the gateway write did not land, the activation is not
+      // persisted to the source of truth, so we must not report success.
       log.warn(
         { err, sourceChannel: params.sourceChannel },
-        "upsert_verified_channel relay unavailable — failing open (local mirror still applies)",
+        "upsert_verified_channel relay failed — refusing activation (gateway write did not land)",
       );
+      return { status: "refused" };
     }
   }
 
@@ -113,7 +116,10 @@ export async function activateMemberChannel(
   return { status: "activated", memberId, member };
 }
 
-/** Best-effort local mirror of the activation. Swallows failures. */
+/**
+ * Best-effort local mirror of the activation. Swallows failures. Persists only
+ * the native contact/channel identity row — the gateway owns the ACL verdict.
+ */
 function mirrorLocalActivation(
   params: ActivateMemberChannelParams,
 ): ContactWriteResult | null {
@@ -124,12 +130,7 @@ function mirrorLocalActivation(
       externalChatId: params.externalChatId,
       displayName: params.displayName,
       username: params.username,
-      role: "contact",
-      status: "active",
-      policy: params.policy ?? "allow",
       inviteId: params.inviteId,
-      verifiedAt: params.verifiedAt,
-      verifiedVia: params.verifiedVia ?? "invite",
       contactId: params.contactId,
     });
   } catch (err) {
@@ -144,12 +145,13 @@ function mirrorLocalActivation(
 // ── Revoke ───────────────────────────────────────────────────────────
 
 /**
- * Revoke a member channel gateway-first, then mirror the downgrade to the
- * assistant DB best-effort. The memberId may be a plain channel ID or the
- * composite contactId:channelId form revokeMember accepts.
+ * Revoke a member channel gateway-first. The gateway owns the ACL outcome; the
+ * memberId may be a plain channel ID or the composite contactId:channelId form
+ * revokeMember accepts.
  *
- * Returns the local ContactWriteResult so callers still get the native
- * contact/channel, or null when the local mirror produces no result.
+ * Returns the locally-resolved native contact/channel for the revoked id, or
+ * null when no local row exists. The local read is best-effort and never gates
+ * the gateway-owned downgrade.
  */
 export async function revokeMemberChannel(
   memberId: string,
@@ -158,8 +160,8 @@ export async function revokeMemberChannel(
   const channelId = memberId.includes(":") ? memberId.split(":")[1] : memberId;
 
   // Always relay; the gateway owns the ACL outcome and mark_channel_revoked is
-  // idempotent (already-revoked → didWrite:false). Skipping on the local mirror
-  // status would suppress a needed revoke when the mirror lags the gateway.
+  // idempotent (already-revoked → didWrite:false). Skipping on the local row
+  // status would suppress a needed revoke when the local read lags the gateway.
   const result = await ipcCallPersistent("mark_channel_revoked", {
     contactChannelId: channelId,
     reason,
@@ -169,20 +171,12 @@ export async function revokeMemberChannel(
     throw new Error("mark_channel_revoked relay returned ok: false");
   }
 
-  return mirrorLocalRevoke(memberId, reason);
-}
-
-/** Best-effort local mirror of the revoke. Swallows failures. */
-function mirrorLocalRevoke(
-  memberId: string,
-  reason?: string,
-): ContactWriteResult | null {
   try {
-    return revokeMember(memberId, reason);
+    return revokeMember(memberId);
   } catch (err) {
     log.error(
       { err, memberId },
-      "Local revoke mirror failed after gateway revoke; gateway downgrade stands",
+      "Local revoke read failed after gateway revoke; gateway downgrade stands",
     );
     return null;
   }

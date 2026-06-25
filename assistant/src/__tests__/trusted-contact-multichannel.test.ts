@@ -72,15 +72,20 @@ mock.module("../runtime/approval-message-composer.js", () => ({
   composeApprovalMessageGenerative: async () => "mock generative message",
 }));
 
-import { findContactChannel } from "../contacts/contact-store.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
+import {
+  findContactChannel,
+  getLocalMemberAcl,
+} from "../contacts/contact-store.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
   createOutboundSession,
   validateAndConsumeVerification,
 } from "../runtime/channel-verification-service.js";
-import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
+import {
+  handleChannelInbound,
+  seedContactChannel,
+} from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 await initializeDb();
@@ -253,7 +258,7 @@ for (const config of CHANNEL_CONFIGS) {
         expect(challengeResult.verificationType).toBe("trusted_contact");
       }
 
-      upsertContactChannel({
+      seedContactChannel({
         sourceChannel: config.channel,
         externalUserId: config.senderExternalUserId,
         externalChatId: config.externalChatId,
@@ -269,14 +274,15 @@ for (const config of CHANNEL_CONFIGS) {
       });
 
       expect(contactResult).not.toBeNull();
-      expect(contactResult!.channel.status).toBe("active");
-      expect(contactResult!.channel.policy).toBe("allow");
+      const acl = getLocalMemberAcl(contactResult!.channel.id);
+      expect(acl!.status).toBe("active");
+      expect(acl!.policy).toBe("allow");
       expect(contactResult!.channel.type).toBe(config.channel);
     });
 
     test("no cross-channel leakage between member records", () => {
       // Create a member for this channel
-      upsertContactChannel({
+      seedContactChannel({
         sourceChannel: config.channel,
         externalUserId: config.senderExternalUserId,
         externalChatId: config.externalChatId,
