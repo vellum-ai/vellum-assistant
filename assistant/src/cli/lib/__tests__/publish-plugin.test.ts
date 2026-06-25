@@ -4,14 +4,14 @@ import { join } from "node:path";
 import { describe, expect, it } from "bun:test";
 
 import {
+  type ParsedPackageJson,
+  type PublishValidation,
   buildPublishPayload,
   findPluginRoot,
   formatPayloadForPrint,
   formatPublishResult,
   formatValidationResult,
   runPublish,
-  type ParsedPackageJson,
-  type PublishValidation,
   validatePluginForPublish,
 } from "../publish-plugin.js";
 
