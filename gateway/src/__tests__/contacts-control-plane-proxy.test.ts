@@ -1,4 +1,12 @@
-import { describe, test, expect, mock, afterEach } from "bun:test";
+import {
+  describe,
+  test,
+  expect,
+  mock,
+  afterEach,
+  beforeAll,
+  afterAll,
+} from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import { initSigningKey } from "../auth/token-service.js";
 
@@ -57,8 +65,9 @@ mock.module("../ipc/assistant-client.js", () => ({
 }));
 
 // ── ContactStore mock ─────────────────────────────────────────────────────────
-// upsertContact is now async and returns a full ContactWithChannels shape; the
-// service layer owns the assistant-DB dual-write internally.
+// upsertContact is async and returns a ContactWithInfo shape whose ACL fields
+// (role/principalId, channel status/policy) come from the gateway-DB read-back;
+// the service layer owns the assistant-DB dual-write internally.
 const DEFAULT_MOCK_CONTACT = {
   id: "ct_mock",
   displayName: "Mock Contact",
@@ -72,6 +81,7 @@ const DEFAULT_MOCK_CONTACT = {
   interactionCount: 0,
   lastInteraction: null as number | null,
   channels: [] as unknown[],
+  assistantMetadata: null as Record<string, unknown> | null,
 };
 
 type UpsertResult = { contact: typeof DEFAULT_MOCK_CONTACT; created: boolean };
@@ -96,9 +106,6 @@ type UpdateChannelFn = (channelId: string, params: {
   reason?: string | null;
 }) => { id: string; contactId: string; status: string; policy: string } | null;
 let contactStoreUpdateChannelMock: ReturnType<typeof mock<UpdateChannelFn>> = mock(() => null);
-
-type DualWriteChannelFn = (channelId: string, params: Record<string, unknown>) => Promise<void>;
-let contactStoreDualWriteChannelMock: ReturnType<typeof mock<DualWriteChannelFn>> = mock(async () => {});
 
 type MergeFn = (keepId: string, mergeId: string) => Promise<typeof DEFAULT_MOCK_CONTACT | null>;
 let contactStoreMergeMock: ReturnType<typeof mock<MergeFn>> = mock(async () => null);
@@ -204,12 +211,6 @@ mock.module("../db/contact-store.js", () => ({
     }) {
       return contactStoreUpdateChannelMock(channelId, params);
     }
-    async dualWriteChannelStatusToAssistantDb(
-      channelId: string,
-      params: Record<string, unknown>,
-    ) {
-      return contactStoreDualWriteChannelMock(channelId, params);
-    }
     async mergeContacts(keepId: string, mergeId: string) {
       return contactStoreMergeMock(keepId, mergeId);
     }
@@ -232,6 +233,22 @@ mock.module("../db/contact-store.js", () => ({
 
 const { createContactsControlPlaneProxyHandler } =
   await import("../http/routes/contacts-control-plane-proxy.js");
+
+// The delete-contact guard reads the guardian role from the gateway DB (source
+// of truth), so the delete tests below run against a real in-memory gateway DB.
+// ContactStore is fully mocked, so other tests never touch it.
+const { initGatewayDb, getGatewayDb, resetGatewayDb } = await import(
+  "../db/connection.js"
+);
+const { contacts: gwContacts } = await import("../db/schema.js");
+
+beforeAll(async () => {
+  await initGatewayDb();
+});
+
+afterAll(() => {
+  resetGatewayDb();
+});
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -273,7 +290,6 @@ afterEach(() => {
   contactStoreListMock = mock(async () => []);
   contactStoreGetMock = mock(async () => null);
   contactStoreUpdateChannelMock = mock(() => null);
-  contactStoreDualWriteChannelMock = mock(async () => {});
   contactStoreMergeMock = mock(async () => null);
   contactStoreGetContactMock = mock(() => ({ id: "ct_1" }));
   contactStoreListInvitesMock = mock(() => []);
@@ -983,7 +999,6 @@ describe("handleUpdateContactChannel (gateway-native)", () => {
     expect(channelId).toBe("ch_1");
     expect(params.status).toBe("revoked");
     expect(params.reason).toBe("user request");
-    expect(contactStoreDualWriteChannelMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -1134,31 +1149,6 @@ describe("handleUpdateContactChannel (gateway-native)", () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error.code).toBe("INTERNAL_ERROR");
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  test("continues even if assistant DB dual-write fails", async () => {
-    contactStoreUpdateChannelMock = mock(() => ({
-      ...MOCK_CHANNEL,
-      status: "blocked",
-    }));
-    contactStoreDualWriteChannelMock = mock(async () => {
-      throw new Error("assistant DB down");
-    });
-    contactStoreGetMock = mock(async () => DEFAULT_MOCK_CONTACT);
-
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleUpdateContactChannel(
-      new Request("http://localhost:7830/v1/contact-channels/ch_1", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ status: "blocked", reason: "spam" }),
-      }),
-      "ch_1",
-    );
-
-    // Should still succeed — dual-write is best-effort.
-    expect(res.status).toBe(200);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -1371,6 +1361,75 @@ describe("handleMergeContacts (gateway-native)", () => {
     expect(body.error.message).toMatch(/guardian/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+describe("handleDeleteContact (gateway-native)", () => {
+  function seedGatewayContact(id: string, role: "guardian" | "contact") {
+    const now = Date.now();
+    getGatewayDb()
+      .insert(gwContacts)
+      .values({
+        id,
+        displayName: `name-${id}`,
+        role,
+        principalId: role === "guardian" ? `prin-${id}` : null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  afterEach(() => {
+    getGatewayDb().delete(gwContacts).run();
+  });
+
+  test("rejects deleting a guardian whose role lives only in the gateway DB", async () => {
+    seedGatewayContact("ct_guardian", "guardian");
+    // The assistant row is missing/defaulted (dual-write gap): the guard must
+    // not fall back to the assistant role, which would default to contact.
+    assistantDbQueryMock = mock(async () => []);
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleDeleteContact("ct_guardian");
+
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error.code).toBe("FORBIDDEN");
+    // Neither DB was deleted from.
+    expect(assistantDbRunMock).not.toHaveBeenCalled();
+    expect(
+      getGatewayDb()
+        .select()
+        .from(gwContacts)
+        .all(),
+    ).toHaveLength(1);
+  });
+
+  test("deletes a non-guardian contact from both DBs", async () => {
+    seedGatewayContact("ct_regular", "contact");
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleDeleteContact("ct_regular");
+
+    expect(res.status).toBe(204);
+    expect(assistantDbRunMock).toHaveBeenCalledTimes(1);
+    expect(
+      getGatewayDb()
+        .select()
+        .from(gwContacts)
+        .all(),
+    ).toHaveLength(0);
+  });
+
+  test("returns 404 when the contact is absent from the gateway DB", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleDeleteContact("ct_missing");
+
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error.code).toBe("NOT_FOUND");
+    expect(assistantDbRunMock).not.toHaveBeenCalled();
+  });
+});
 
 describe("handleCreateInvite (gateway-native)", () => {
   test("returns the assistant's minted invite payload (one-time codes), not the gateway row", async () => {
