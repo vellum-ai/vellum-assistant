@@ -1,5 +1,5 @@
 import type { ExternalConversationBinding } from "../memory/external-conversation-store.js";
-import type { ChannelBindingMetadata } from "./provider-types.js";
+import type { ChannelBindingMetadata } from "./channel-binding-schema.js";
 import { buildSlackBindingMetadata } from "./providers/slack/binding-metadata.js";
 
 type BindingMetadataBuilder = (
