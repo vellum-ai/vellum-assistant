@@ -326,8 +326,8 @@ export async function upsertVerifiedContactChannel(params: {
   const contactDisplayName = displayName ?? username ?? address;
 
   // Resolve the existing channel's identity (id, parent contact) only. The
-  // ACL/status decision is owned by the gateway pre-check below; cc.status is
-  // used solely to prefer the most-relevant mirror row, not to gate the upsert.
+  // ACL/status decision is owned by the gateway pre-check below; the most
+  // recently updated mirror row is preferred.
   const existing = await assistantDbQuery<{
     channelId: string;
     contactId: string;
@@ -335,13 +335,7 @@ export async function upsertVerifiedContactChannel(params: {
     `SELECT cc.id AS channelId, cc.contact_id AS contactId
      FROM contact_channels cc
      WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
-     ORDER BY
-       CASE cc.status
-         WHEN 'active' THEN 0
-         WHEN 'unverified' THEN 1
-         ELSE 2
-       END,
-       cc.updated_at DESC
+     ORDER BY cc.updated_at DESC
      LIMIT 1`,
     [sourceChannel, address],
   );
