@@ -43,6 +43,11 @@ import {
   writeResearchSnapshot,
   type ResearchStep,
 } from "@/domains/onboarding/research-onboarding-persistence";
+import {
+  emitResearchOnboardingStepCompleted,
+  RESEARCH_ONBOARDING_FUNNEL_STEPS,
+  type OnboardingFunnelStepOutcome,
+} from "@/domains/onboarding/funnel-events";
 import { scheduleCheckin } from "@/domains/onboarding/checkin-scheduler";
 import { GOOGLE_CALENDAR_EVENTS_SCOPE } from "@/domains/onboarding/hooks/use-google-calendar-connect";
 import { formatCheckinTime } from "@/domains/onboarding/format-checkin-time";
@@ -127,7 +132,18 @@ export function ResearchOnboardingRoute() {
     setStep(next);
   }
   // Forward (Continue/Skip): a fresh forward move invalidates the redo stack.
-  function goForwardTo(next: ResearchStep) {
+  // Every forward move records the step being LEFT, tagged with how it was left
+  // (`completed` for Continue, `skipped` for a Skip) so analytics can tell a
+  // deliberate completion apart from a skip. Defaults to `completed`; the skip
+  // affordances pass `skipped` explicitly. Back/redo moves deliberately don't emit.
+  function goForwardTo(
+    next: ResearchStep,
+    outcome: OnboardingFunnelStepOutcome = "completed",
+  ) {
+    emitResearchOnboardingStepCompleted(RESEARCH_ONBOARDING_FUNNEL_STEPS[step], {
+      userId,
+      outcome,
+    });
     setForwardStack([]);
     navTo(next);
   }
@@ -519,7 +535,7 @@ export function ResearchOnboardingRoute() {
             onRetry={() => setMissingCalendarScope(false)}
             onSkip={() => {
               setMissingCalendarScope(false);
-              goForwardTo("looking");
+              goForwardTo("looking", "skipped");
             }}
             onBack={() => goBackTo("integration")}
             onForward={onForward}
@@ -558,6 +574,13 @@ export function ResearchOnboardingRoute() {
             loading={researchLoading}
             installedPlugins={research.installedPlugins}
             onSuggestionClick={async (suggestion) => {
+              // Terminal step: the handoff leaves via enterAssistant, not
+              // goForwardTo, so emit the suggestions completion here (mirrors the
+              // pre-chat funnel emitting on its final step before completeFlow).
+              emitResearchOnboardingStepCompleted(
+                RESEARCH_ONBOARDING_FUNNEL_STEPS.suggestions,
+                { userId, outcome: "completed" },
+              );
               // Wait out any background capability installs so the new chat can
               // discover their skills (else it silently degrades to a generic
               // prompt). Usually instant — installs kicked off while the user
@@ -566,6 +589,11 @@ export function ResearchOnboardingRoute() {
               enterAssistant(formValues, faceValues, suggestion.prompt);
             }}
             onSkip={async () => {
+              // "Skip to Chat" — record the suggestions step as skipped.
+              emitResearchOnboardingStepCompleted(
+                RESEARCH_ONBOARDING_FUNNEL_STEPS.suggestions,
+                { userId, outcome: "skipped" },
+              );
               await research.awaitPluginInstalls();
               enterAssistant(formValues, faceValues, undefined, { skip: true });
             }}
