@@ -2085,9 +2085,19 @@ function PhaseTiming({ run }: { run: ReportRunDetail }) {
     (e) => e.emittedAt,
   )?.emittedAt;
   const ingestLast = (() => {
+    // Use message_complete (or the last text delta) as the ingest turn
+    // end, NOT the last event in the array. collectUntilSentinel drains
+    // with a long quiet window, so trailing events like disk_pressure
+    // can arrive minutes after the turn finished and inflate the span.
     for (let i = run.ingestAssistantEvents.length - 1; i >= 0; i--) {
-      if (run.ingestAssistantEvents[i].emittedAt)
-        return run.ingestAssistantEvents[i].emittedAt;
+      const e = run.ingestAssistantEvents[i];
+      if (e.message.type === "message_complete" && e.emittedAt)
+        return e.emittedAt;
+    }
+    for (let i = run.ingestAssistantEvents.length - 1; i >= 0; i--) {
+      const e = run.ingestAssistantEvents[i];
+      const text = e.message.text ?? e.message.chunk;
+      if (text && text.trim() && e.emittedAt) return e.emittedAt;
     }
     return undefined;
   })();

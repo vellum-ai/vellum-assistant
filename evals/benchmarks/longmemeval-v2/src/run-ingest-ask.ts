@@ -380,9 +380,25 @@ export async function runIngestAsk(
     // report UI can group it under the Ingest conversation pane.
     const ingestResponseText = joinAssistantText(ingestEvents).trim();
     if (ingestResponseText) {
+      // Use the message_complete event timestamp (or the last text
+      // delta) as the turn end, NOT the last event in the array.
+      // collectUntilSentinel drains with a 120s quiet window, so
+      // unrelated trailing events (disk_pressure, sync_changed) can
+      // arrive long after the turn finished and inflate the timestamp.
       const ingestEndStamp = (() => {
         for (let i = ingestEvents.length - 1; i >= 0; i--) {
-          if (ingestEvents[i].emittedAt) return ingestEvents[i].emittedAt!;
+          const msg = ingestEvents[i].message;
+          if (msg.type === "message_complete" && ingestEvents[i].emittedAt) {
+            return ingestEvents[i].emittedAt!;
+          }
+        }
+        // Fallback: last event with text content (the actual response).
+        for (let i = ingestEvents.length - 1; i >= 0; i--) {
+          const text =
+            ingestEvents[i].message.text ?? ingestEvents[i].message.chunk;
+          if (text && text.trim() && ingestEvents[i].emittedAt) {
+            return ingestEvents[i].emittedAt!;
+          }
         }
         return ingestSendTime;
       })();
