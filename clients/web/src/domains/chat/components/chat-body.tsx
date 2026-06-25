@@ -1,4 +1,10 @@
-import { type DragEventHandler, type ReactNode } from "react";
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type DragEventHandler,
+  type ReactNode,
+} from "react";
 
 import { Eye, Paperclip, Square, X } from "lucide-react";
 
@@ -11,8 +17,6 @@ import {
     type RefreshFeedback,
 } from "@/domains/chat/refresh-feedback-pill";
 import { Button, Notice, type NoticeTone } from "@vellumai/design-library";
-
-const BOTTOM_BANNER_OVERLAY_RESERVE_PX = 88;
 
 /**
  * Single composition of a chat panel: a scrollable messages/empty-state
@@ -215,6 +219,33 @@ export function ChatBody({
   activeSubagentsSlot,
 }: ChatBodyProps) {
   const isEmptyState = scrollAreaProps.showEmptyState;
+  const bottomBannerOverlayRef = useRef<HTMLDivElement | null>(null);
+  const [bottomBannerOverlayHeight, setBottomBannerOverlayHeight] = useState(0);
+
+  useLayoutEffect(() => {
+    if (isEmptyState || !bannerSlot) {
+      setBottomBannerOverlayHeight(0);
+      return;
+    }
+
+    const el = bottomBannerOverlayRef.current;
+    if (!el) return;
+
+    const updateHeight = () => {
+      const nextHeight = Math.ceil(el.getBoundingClientRect().height);
+      setBottomBannerOverlayHeight((currentHeight) =>
+        currentHeight === nextHeight ? currentHeight : nextHeight,
+      );
+    };
+
+    updateHeight();
+
+    if (typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [bannerSlot, isEmptyState]);
 
   // When the empty state is visible, center greeting + composer + starters
   // as one group. `safe center` falls back to start-alignment when the
@@ -239,7 +270,9 @@ export function ChatBody({
   const hasOverlay =
     !isEmptyState && (showScrollToLatest || Boolean(bannerSlot));
   const bottomOverlayReservePx =
-    !isEmptyState && bannerSlot ? BOTTOM_BANNER_OVERLAY_RESERVE_PX : undefined;
+    !isEmptyState && bannerSlot && bottomBannerOverlayHeight > 0
+      ? bottomBannerOverlayHeight
+      : undefined;
 
   return (
     <div
@@ -286,7 +319,11 @@ export function ChatBody({
                 />
               </div>
             )}
-            {bannerSlot}
+            {bannerSlot && (
+              <div ref={bottomBannerOverlayRef} className="w-full">
+                {bannerSlot}
+              </div>
+            )}
           </div>
         )}
         <div className="mx-auto max-w-[var(--chat-max-width)]">
