@@ -155,6 +155,9 @@ export interface ChatBodyProps {
    * only when there is ≥1 active subagent.
    */
   activeSubagentsSlot?: ReactNode;
+
+  /** Floating overlay for active workflow runs; gated like activeSubagentsSlot. */
+  activeWorkflowsSlot?: ReactNode;
 }
 
 /**
@@ -211,6 +214,7 @@ export function ChatBody({
   readonlyBannerSlot,
   startersSlot,
   activeSubagentsSlot,
+  activeWorkflowsSlot,
 }: ChatBodyProps) {
   const isEmptyState = scrollAreaProps.showEmptyState;
 
@@ -247,11 +251,15 @@ export function ChatBody({
     >
       <ChatScrollArea {...scrollAreaProps} />
 
-      {!isEmptyState && showScrollToLatest && activeSubagentsSlot && (
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center px-3 pt-2">
-          {activeSubagentsSlot}
-        </div>
-      )}
+      {!isEmptyState &&
+        showScrollToLatest &&
+        (activeSubagentsSlot || activeWorkflowsSlot) && (
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center gap-2 px-3 pt-2">
+            {/* subagents on the left, workflows on the right (do not reorder) */}
+            {activeSubagentsSlot}
+            {activeWorkflowsSlot}
+          </div>
+        )}
 
       {/* Composer stack — stays at the same tree position across the
           empty→active transition so React preserves its state (focus,
