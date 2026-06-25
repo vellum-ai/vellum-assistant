@@ -289,6 +289,18 @@ export class AcpSessionManager {
     const wrappedSend = (msg: ServerMessage) => {
       if (msg.type === "acp_session_update") {
         this.appendToBuffer(acpSessionId, msg);
+      } else if (msg.type === "acp_session_usage") {
+        // Track the latest usage gauge so a terminal transition can persist
+        // the final snapshot.
+        const state = this.sessions.get(acpSessionId)?.state;
+        if (state) {
+          state.latestUsage = {
+            usedTokens: msg.usedTokens,
+            contextSize: msg.contextSize,
+            costAmount: msg.costAmount,
+            costCurrency: msg.costCurrency,
+          };
+        }
       }
       opts.sendToVellum(msg);
     };

@@ -4,6 +4,7 @@ import { AcpSessionCompletedEventSchema } from "./events/acp-session-completed.j
 import { AcpSessionErrorEventSchema } from "./events/acp-session-error.js";
 import { AcpSessionSpawnedEventSchema } from "./events/acp-session-spawned.js";
 import { AcpSessionUpdateEventSchema } from "./events/acp-session-update.js";
+import { AcpSessionUsageEventSchema } from "./events/acp-session-usage.js";
 import { AssistantActivityStateEventSchema } from "./events/assistant-activity-state.js";
 import { AssistantTextDeltaEventSchema } from "./events/assistant-text-delta.js";
 import { AssistantThinkingDeltaEventSchema } from "./events/assistant-thinking-delta.js";
@@ -91,6 +92,10 @@ export {
   type AcpSessionUpdateType,
   AcpSessionUpdateTypeSchema,
 } from "./events/acp-session-update.js";
+export {
+  type AcpSessionUsageEvent,
+  AcpSessionUsageEventSchema,
+} from "./events/acp-session-usage.js";
 export {
   type AssistantActivityAnchor,
   AssistantActivityAnchorSchema,
@@ -532,6 +537,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   AcpSessionErrorEventSchema,
   AcpSessionSpawnedEventSchema,
   AcpSessionUpdateEventSchema,
+  AcpSessionUsageEventSchema,
   AssistantActivityStateEventSchema,
   AssistantTextDeltaEventSchema,
   AssistantThinkingDeltaEventSchema,

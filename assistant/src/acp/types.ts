@@ -32,4 +32,14 @@ export interface AcpSessionState {
   task?: string;
   /** Tool-use id of the `acp_spawn` call that spawned this session, if any. */
   parentToolUseId?: string;
+  /** Latest context-window usage gauge, from the most recent `usage_update`. */
+  latestUsage?: AcpUsageSnapshot;
+}
+
+/** Context-window usage snapshot tracked from ACP `usage_update`. */
+export interface AcpUsageSnapshot {
+  usedTokens: number;
+  contextSize: number;
+  costAmount?: number;
+  costCurrency?: string;
 }
