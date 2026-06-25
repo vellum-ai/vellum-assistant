@@ -9,9 +9,9 @@ import {
   formatPayloadForPrint,
   formatPublishResult,
   formatValidationResult,
-  validatePluginForPublish,
   type ParsedPackageJson,
   type PublishValidation,
+  validatePluginForPublish,
 } from "../publish-plugin.js";
 
 // ---------------------------------------------------------------------------
