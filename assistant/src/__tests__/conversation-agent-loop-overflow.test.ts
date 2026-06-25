@@ -257,8 +257,8 @@ mock.module("../plugins/defaults/compaction/overflow-policy.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   setConversationHistoryStrippedAt: () => {},
   updateConversationUsage: () => {},
@@ -289,6 +289,8 @@ mock.module("../memory/conversation-crud.js", () => ({
   getLastUserTimestampBefore: () => 0,
   resolveOverrideProfile: () => undefined,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  recordConversationPersistedSeq: () => {},
+  getConversationPersistedSeq: () => null,
 }));
 
 afterAll(() => {
