@@ -123,6 +123,7 @@ export function SlackSetupWizard({
       await onSave(botToken.trim(), appToken.trim());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save");
+    } finally {
       setSaving(false);
     }
   };
