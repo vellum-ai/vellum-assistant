@@ -13,9 +13,9 @@ import { describe, expect, test } from "bun:test";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { RiskLevel } from "../permissions/types.js";
 import {
+  type InitContext,
   type Plugin,
   PluginExecutionError,
-  type PluginInitContext,
   type PluginManifest,
   type TurnContext,
 } from "../plugins/types.js";
@@ -57,7 +57,7 @@ describe("plugin core types", () => {
     const plugin = {
       manifest,
       hooks: {
-        async init(ctx: PluginInitContext) {
+        async init(ctx: InitContext) {
           // Touch every field so refactors that rename any of them break here.
           void ctx.config;
           void ctx.logger;

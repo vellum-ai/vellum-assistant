@@ -67,9 +67,9 @@ export interface PluginManifest {
 // existing internal call sites keep working. Plugin authors import these from
 // `@vellumai/plugin-api`.
 export type {
+  InitContext,
   PluginHookFn,
-  PluginInitContext,
-  PluginShutdownContext,
+  ShutdownContext,
 } from "../plugin-api/types.js";
 
 // ─── Memory-graph result ─────────────────────────────────────────────────────
@@ -347,7 +347,7 @@ export type PluginRouteRegistration = SkillRoute;
  */
 // The map stores hooks for arbitrary keys with arbitrary context shapes.
 // `any` (rather than `unknown`) is required so concrete plugin signatures
-// like `(ctx: PluginInitContext) => Promise<void>` and `() => Promise<void>`
+// like `(ctx: InitContext) => Promise<void>` and `() => Promise<void>`
 // both assign in/out of slot entries under strict-function-types contravariance.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type PluginHooks = Record<string, PluginHookFn<any>>;

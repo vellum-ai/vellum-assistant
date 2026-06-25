@@ -25,9 +25,9 @@ import { join } from "node:path";
 import { getConfig } from "../config/loader.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
+  InitContext,
   PluginHookFn,
-  PluginInitContext,
-  PluginShutdownContext,
+  ShutdownContext,
 } from "../plugin-api/types.js";
 import { listSurfaceDir } from "../plugins/external-plugin-loader.js";
 import { getMtime, importWithTimeout } from "../plugins/surface-import.js";
@@ -233,7 +233,7 @@ export async function runInitHook(ownerName: string): Promise<void> {
   if (initHookEntry === undefined) return;
 
   try {
-    const initContext: PluginInitContext = {
+    const initContext: InitContext = {
       config: getConfig().plugins?.[ownerName],
       logger: log.child({ plugin: ownerName }),
       pluginStorageDir: ensureHookStorageDir(ownerName),
@@ -256,7 +256,7 @@ export async function runInitHook(ownerName: string): Promise<void> {
  */
 export async function runShutdownHook(
   ownerName: string,
-  context: PluginShutdownContext,
+  context: ShutdownContext,
   reason: string,
 ): Promise<void> {
   const shutdownHookEntry = hookCache.get(hookKey(ownerName, HOOKS.SHUTDOWN));

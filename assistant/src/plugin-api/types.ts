@@ -57,8 +57,8 @@ export interface PluginLogger {
  * empty model that with `| null`, not `| undefined`.
  *
  * Each known hook key has a documented context shape:
- *   - `init` — {@link PluginInitContext}
- *   - `shutdown` — {@link PluginShutdownContext}
+ *   - `init` — {@link InitContext}
+ *   - `shutdown` — {@link ShutdownContext}
  *   - `user-prompt-submit` — {@link UserPromptSubmitContext}
  *   - `pre-model-call` — {@link PreModelCallContext}
  *   - `post-tool-use` — {@link PostToolUseContext}
@@ -76,7 +76,7 @@ export type PluginHookFn<TCtx = unknown> = (
  * config, a pino-compatible logger scoped to the plugin, a per-plugin
  * writable data directory, and the assistant's version metadata.
  */
-export interface PluginInitContext {
+export interface InitContext {
   /** Parsed config for this plugin (may be `unknown` until the manifest validates). */
   config: unknown;
   /** Pino-compatible child logger bound to `{ plugin: <name> }`. */
@@ -125,7 +125,7 @@ export interface ModelProfileInfo {
 
 /**
  * Context passed to the `shutdown` hook during daemon teardown. Kept
- * intentionally narrower than {@link PluginInitContext} — most teardown
+ * intentionally narrower than {@link InitContext} — most teardown
  * paths only need to know which assistant version they're shutting
  * down against (e.g. for version-conditional cleanup of state files
  * written by a previous boot).
@@ -135,7 +135,7 @@ export interface ModelProfileInfo {
  * stash a version stamp at init can compare against the same name on
  * tear-down without keeping their own copy.
  */
-export interface PluginShutdownContext {
+export interface ShutdownContext {
   /** Assistant semver for compatibility checks inside the plugin. */
   assistantVersion: string;
 }

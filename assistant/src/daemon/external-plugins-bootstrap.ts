@@ -24,7 +24,7 @@
  *    (Zod schemas with `.parse()` are supported; anything else is passed
  *    through untouched).
  * 5. Creates `<workspaceDir>/plugins-data/<plugin>/` on demand for per-plugin
- *    writable state and exposes it via {@link PluginInitContext.pluginStorageDir}.
+ *    writable state and exposes it via {@link InitContext.pluginStorageDir}.
  * 6. For each surviving plugin, registers its contributed tools and routes
  *    into their global registries via {@link registerPluginTools} and
  *    {@link registerSkillRoute}. Contributions land BEFORE `init()` so
@@ -64,7 +64,7 @@ import { getRegisteredPlugins, unregisterPlugin } from "../plugins/registry.js";
 import {
   type Plugin,
   PluginExecutionError,
-  type PluginShutdownContext,
+  type ShutdownContext,
 } from "../plugins/types.js";
 import { loadUserPlugins } from "../plugins/user-loader.js";
 import {
@@ -222,8 +222,8 @@ export async function bootstrapPlugins(): Promise<void> {
   // Shutdown context is identical for every plugin in this boot — construct
   // once and reuse across the per-plugin teardown and the normal shutdown
   // hook below. Only `assistantVersion` is exposed today; future additions
-  // live on {@link PluginShutdownContext}.
-  const shutdownContext: PluginShutdownContext = {
+  // live on {@link ShutdownContext}.
+  const shutdownContext: ShutdownContext = {
     assistantVersion: APP_VERSION,
   };
 
@@ -407,7 +407,7 @@ async function initializePlugin(
 async function teardownPlugin(
   active: ActivePlugin,
   reason: string,
-  shutdownContext: PluginShutdownContext,
+  shutdownContext: ShutdownContext,
 ): Promise<void> {
   const { plugin, routeHandles } = active;
   const name = plugin.manifest.name;
