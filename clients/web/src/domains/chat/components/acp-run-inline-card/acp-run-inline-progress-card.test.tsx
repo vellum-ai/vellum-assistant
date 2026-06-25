@@ -173,7 +173,15 @@ describe("AcpRunInlineProgressCard — interaction", () => {
     expect(seen).toEqual(["acp-open"]);
   });
 
-  test("stop button only renders while the run is in-flight", () => {
+  test("stop button is absent while running when no onStopAcpRun handler is provided", () => {
+    act(() => spawn("acp-no-stop"));
+    const { queryByTestId } = render(
+      <AcpRunInlineProgressCard acpSessionId="acp-no-stop" />,
+    );
+    expect(queryByTestId("acp-run-inline-card-stop")).toBeNull();
+  });
+
+  test("stop button renders and invokes the handler while in-flight, then hides on terminal", () => {
     act(() => spawn("acp-stop"));
     const seen: string[] = [];
     const { getByTestId, queryByTestId } = render(

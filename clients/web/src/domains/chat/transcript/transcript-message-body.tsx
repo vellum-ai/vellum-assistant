@@ -72,10 +72,6 @@ function toolResultImageSrc(imageData: string): string {
   return `data:${inferImageMimeType(trimmed)};base64,${trimmed}`;
 }
 
-// Stop wiring for ACP runs lands in PR 13. Plumb a stable no-op so the inline
-// card's stop affordance still renders while a run is in-flight.
-const NOOP_STOP_ACP_RUN = (_acpSessionId: string): void => {};
-
 /**
  * Renders a `DisplayMessage`'s body by walking its unified `contentBlocks`
  * projection — grouped by `groupContentBlocks`. Each block embeds its own
@@ -342,9 +338,9 @@ export function TranscriptMessageBody({
             key={acpSessionId}
             acpSessionId={acpSessionId}
             onAcpRunClick={handleAcpRunClick}
-            // Stop wiring lands in PR 13; plumb the prop with a no-op so the
-            // button still renders while the run is in-flight.
-            onStopAcpRun={NOOP_STOP_ACP_RUN}
+            // Stop wiring lands in PR 13. Until a real cancel handler exists, omit
+            // onStopAcpRun so the card hides the stop button instead of showing a
+            // misleading no-op affordance.
           />
         ))}
       </div>

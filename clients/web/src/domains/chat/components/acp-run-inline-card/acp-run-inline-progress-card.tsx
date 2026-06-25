@@ -13,7 +13,9 @@
  *   - Clicking anywhere on the header row opens the run's detail panel via
  *     `onAcpRunClick`. There is no inline expand — the panel is the detail view.
  *   - Stop is exposed via `onStopAcpRun`; the shell renders a small stop chip in
- *     the right rail while the run is in-flight.
+ *     the right rail while the run is in-flight ONLY when a real handler is
+ *     wired. With `onStopAcpRun` omitted, no stop affordance renders — avoiding a
+ *     misleading button that does nothing.
  */
 
 import { Code, Square } from "lucide-react";
@@ -61,8 +63,10 @@ export function AcpRunInlineProgressCard({
 
   const leadingIcon = <Code size={20} aria-hidden />;
 
+  // Render the stop affordance only when a real cancel handler is wired AND the
+  // run is in-flight — never a placeholder that no-ops on click.
   const actionSlot =
-    onStopAcpRun && isRunning ? (
+    onStopAcpRun != null && isRunning ? (
       <Button
         variant="dangerGhost"
         size="compact"
