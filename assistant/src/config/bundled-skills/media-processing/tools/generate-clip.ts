@@ -14,7 +14,7 @@ import { dirname, join } from "node:path";
 import { uploadFileBackedAttachment } from "../../../../memory/attachments-store.js";
 import { getMediaAssetById } from "../../../../memory/media-store.js";
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import {
@@ -81,7 +81,7 @@ const ALLOWED_OUTPUT_FORMATS = new Set(Object.keys(MIME_BY_FORMAT));
 
 export async function run(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const assetId = input.asset_id as string | undefined;
   if (!assetId) {

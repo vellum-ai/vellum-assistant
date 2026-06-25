@@ -15,7 +15,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { SUBAGENT_ONLY_TOOL_NAMES } from "../daemon/conversation-tool-setup.js";
 import { codeSearchTool } from "../tools/filesystem/search.js";
-import type { CoreToolContext } from "../tools/types.js";
+import type { ToolContext } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -35,7 +35,7 @@ afterEach(() => {
   }
 });
 
-function makeToolContext(workingDir: string): CoreToolContext {
+function makeToolContext(workingDir: string): ToolContext {
   return {
     workingDir,
     conversationId: "test-conv",

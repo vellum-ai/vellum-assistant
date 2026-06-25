@@ -3,7 +3,7 @@ import {
   listFollowUps,
 } from "../../followups/followup-store.js";
 import type { FollowUp, FollowUpStatus } from "../../followups/types.js";
-import type { CoreToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 const VALID_STATUSES = ["pending", "resolved", "overdue", "nudged"] as const;
 
@@ -27,7 +27,7 @@ function formatFollowUpSummary(f: FollowUp): string {
 
 export async function executeFollowupList(
   input: Record<string, unknown>,
-  _context: CoreToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const status = input.status as FollowUpStatus | undefined;
   const channel = input.channel as string | undefined;

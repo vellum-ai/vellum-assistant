@@ -4,11 +4,11 @@ import {
   buildWorkItemMismatchError,
   identifyEntityById,
 } from "../../work-items/work-item-store.js";
-import type { CoreToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeTaskRun(
   input: Record<string, unknown>,
-  _context: CoreToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const taskName = input.task_name as string | undefined;
   const taskId = input.task_id as string | undefined;

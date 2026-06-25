@@ -2,11 +2,11 @@ import { startCall } from "../../calls/call-domain.js";
 import { getConfig } from "../../config/loader.js";
 import { findActiveSession } from "../../runtime/channel-verification-service.js";
 import { normalizePhoneNumber } from "../../util/phone.js";
-import type { CoreToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeCallStart(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   if (!getConfig().calls.enabled) {
     return {

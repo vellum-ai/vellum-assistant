@@ -32,7 +32,7 @@ import {
 } from "../tools/browser/browser-execution.js";
 import { browserManager } from "../tools/browser/browser-manager.js";
 import { normalizeBrowserMode } from "../tools/browser/browser-mode.js";
-import type { CoreToolContext, ToolExecutionResult } from "../tools/types.js";
+import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 import type { BrowserOperation, BrowserOperationMeta } from "./types.js";
 
 // ── Dispatch handlers ────────────────────────────────────────────────
@@ -42,7 +42,7 @@ import type { BrowserOperation, BrowserOperationMeta } from "./types.js";
  */
 type OperationHandler = (
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ) => Promise<ToolExecutionResult>;
 
 /**
@@ -52,7 +52,7 @@ type OperationHandler = (
  */
 async function executeWaitForDownload(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   // Validate browser_mode: only auto/local are supported for downloads.
   const modeResult = normalizeBrowserMode(input.browser_mode);
@@ -123,7 +123,7 @@ const DISPATCH_HANDLERS: Record<BrowserOperation, OperationHandler> = {
  * Execute a browser operation by its canonical identifier.
  *
  * This is the single execution entrypoint. Callers pass the operation
- * name (e.g. `"navigate"`), a flat input object, and a {@link CoreToolContext}.
+ * name (e.g. `"navigate"`), a flat input object, and a {@link ToolContext}.
  * The function looks up the handler in the dispatch registry and
  * delegates to the existing browser-execution.ts implementation.
  *
@@ -137,7 +137,7 @@ const DISPATCH_HANDLERS: Record<BrowserOperation, OperationHandler> = {
 export async function executeBrowserOperation(
   operation: BrowserOperation,
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const handler = DISPATCH_HANDLERS[operation];
   if (!handler) {

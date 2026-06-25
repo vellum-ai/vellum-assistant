@@ -1,12 +1,12 @@
 import { executeAcpStatus } from "../../../../tools/acp/status.js";
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
 export async function run(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   return executeAcpStatus(input, context);
 }

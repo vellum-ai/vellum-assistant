@@ -1,9 +1,9 @@
 import { listTasks } from "../../tasks/task-store.js";
-import type { CoreToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeTaskList(
   _input: Record<string, unknown>,
-  _context: CoreToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   try {
     const tasks = listTasks();

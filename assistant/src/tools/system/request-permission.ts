@@ -1,8 +1,8 @@
 import { RiskLevel } from "../../permissions/types.js";
 import { registerTool } from "../registry.js";
 import type {
-  CoreToolContext,
-  CoreToolDefinition,
+  ToolContext,
+  ToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 
@@ -82,7 +82,7 @@ export const requestSystemPermissionTool = {
 
   async execute(
     input: Record<string, unknown>,
-    _context: CoreToolContext,
+    _context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const permType = input.permission_type as string;
     if (!PERMISSION_TYPES.includes(permType as PermissionType)) {
@@ -107,6 +107,6 @@ export const requestSystemPermissionTool = {
       isError: false,
     };
   },
-} satisfies CoreToolDefinition;
+} satisfies ToolDefinition;
 
 registerTool(requestSystemPermissionTool);

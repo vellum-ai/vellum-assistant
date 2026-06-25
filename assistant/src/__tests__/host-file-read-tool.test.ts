@@ -27,7 +27,7 @@ mock.module("../daemon/host-file-proxy.js", () => ({
 }));
 
 import { hostFileReadTool } from "../tools/host-filesystem/read.js";
-import type { CoreToolContext } from "../tools/types.js";
+import type { ToolContext } from "../tools/types.js";
 
 const testDirs: string[] = [];
 
@@ -37,7 +37,7 @@ function makeTempDir(): string {
   return dir;
 }
 
-function makeContext(): CoreToolContext {
+function makeContext(): ToolContext {
   return {
     workingDir: "/tmp",
     conversationId: "test-conversation",
@@ -215,7 +215,7 @@ describe("host_file_read image support", () => {
         ],
       };
     };
-    const proxyContext: CoreToolContext = {
+    const proxyContext: ToolContext = {
       ...makeContext(),
     };
 

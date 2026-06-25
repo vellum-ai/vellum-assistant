@@ -4,7 +4,7 @@ import type {
   QuestionPromptParams,
   QuestionPromptResult,
 } from "../../permissions/question-prompter.js";
-import type { CoreToolContext } from "../types.js";
+import type { ToolContext } from "../types.js";
 
 // Stub the prompter at the module level. The tool instantiates
 // `new QuestionPrompter(...)` inside `execute()`, so every call goes
@@ -38,9 +38,7 @@ const { askQuestionTool } = await import("./ask-question-tool.js");
 
 type PromptParams = QuestionPromptParams;
 
-function makeContext(
-  overrides: Partial<CoreToolContext> = {},
-): CoreToolContext {
+function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     workingDir: "/tmp",
     conversationId: "conv-1",

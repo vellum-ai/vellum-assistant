@@ -3,14 +3,14 @@ import {
   getStepMetrics,
 } from "../../../../sequence/analytics.js";
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { ok } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
-  _context: CoreToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const sequenceId = input.sequence_id as string | undefined;
 

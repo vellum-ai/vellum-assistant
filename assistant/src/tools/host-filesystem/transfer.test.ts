@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import type { CoreToolContext } from "../types.js";
+import type { ToolContext } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Singleton mock — must precede the tool import so bun's module mock applies.
@@ -84,8 +84,8 @@ function makeTempDir(): string {
 
 function makeContext(
   workingDir: string,
-  transportInterface?: CoreToolContext["transportInterface"],
-): CoreToolContext {
+  transportInterface?: ToolContext["transportInterface"],
+): ToolContext {
   return {
     workingDir,
     conversationId: "test-conv",

@@ -6,7 +6,7 @@ import {
   type MediaAssetStatus,
 } from "../../../../memory/media-store.js";
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
@@ -16,7 +16,7 @@ import type {
 
 export async function run(
   input: Record<string, unknown>,
-  _context: CoreToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const assetId = input.asset_id as string | undefined;
   const filePath = input.file_path as string | undefined;

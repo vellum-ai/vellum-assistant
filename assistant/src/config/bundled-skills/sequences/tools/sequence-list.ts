@@ -4,14 +4,14 @@ import {
 } from "../../../../sequence/store.js";
 import type { SequenceStatus } from "../../../../sequence/types.js";
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { err, ok } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
-  _context: CoreToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const status = input.status as SequenceStatus | undefined;
 

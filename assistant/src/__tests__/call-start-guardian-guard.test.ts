@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { CoreToolContext } from "../tools/types.js";
+import type { ToolContext } from "../tools/types.js";
 
 let callsEnabled = true;
 const startCallInputs: Array<Record<string, unknown>> = [];
@@ -39,7 +39,7 @@ mock.module("../runtime/channel-verification-service.js", () => ({
 
 const { executeCallStart } = await import("../tools/calls/call-start.js");
 
-function makeContext(): CoreToolContext {
+function makeContext(): ToolContext {
   return {
     workingDir: "/tmp",
     conversationId: "conversation-1",

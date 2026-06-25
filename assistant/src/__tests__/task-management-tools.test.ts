@@ -43,7 +43,7 @@ import { executeTaskListAdd } from "../tools/tasks/work-item-enqueue.js";
 import { executeTaskListShow } from "../tools/tasks/work-item-list.js";
 import { executeTaskListRemove } from "../tools/tasks/work-item-remove.js";
 import { executeTaskListUpdate } from "../tools/tasks/work-item-update.js";
-import type { CoreToolContext } from "../tools/types.js";
+import type { ToolContext } from "../tools/types.js";
 import {
   createWorkItem,
   deleteWorkItem,
@@ -59,7 +59,7 @@ import {
 
 await initializeDb();
 
-const ctx: CoreToolContext = {
+const ctx: ToolContext = {
   workingDir: "/tmp",
   conversationId: "test-conversation",
   trustClass: "guardian",

@@ -12,7 +12,7 @@ import {
 } from "bun:test";
 
 import { PKB_WORKSPACE_SCOPE } from "../../memory/pkb/types.js";
-import type { CoreToolContext } from "../types.js";
+import type { ToolContext } from "../types.js";
 
 // This test exercises v1 PKB re-index enqueue. `config.memory.v2.enabled`
 // (default `true`) makes the enqueue path skipped — force it off so the
@@ -89,9 +89,7 @@ afterAll(() => {
 const { recallTool, rememberTool } = await import("./register.js");
 const { getConfig } = await import("../../config/loader.js");
 
-function makeContext(
-  overrides: Partial<CoreToolContext> = {},
-): CoreToolContext {
+function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     workingDir: tmpWorkspace,
     conversationId: "test-conversation",

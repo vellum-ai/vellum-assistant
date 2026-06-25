@@ -72,8 +72,8 @@ mock.module("../permissions/checker.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
-  setConversationProcessingStartedAt: () => {},
-  isConversationProcessing: () => false,
+    setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   createConversation: (title: string) => ({ id: "conversation-1", title }),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
@@ -200,13 +200,13 @@ mock.module("../tools/verification-control-plane-policy.js", () => {
 
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { ToolExecutor } from "../tools/executor.js";
-import type { CoreToolContext } from "../tools/types.js";
+import type { ToolContext } from "../tools/types.js";
 import {
   enforceVerificationControlPlanePolicy,
   isVerificationControlPlaneInvocation,
 } from "../tools/verification-control-plane-policy.js";
 
-function makeContext(overrides?: Partial<CoreToolContext>): CoreToolContext {
+function makeContext(overrides?: Partial<ToolContext>): ToolContext {
   return {
     workingDir: "/tmp/project",
     conversationId: "conversation-1",

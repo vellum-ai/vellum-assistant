@@ -5,12 +5,12 @@ import { getAcpSessionManager } from "../../acp/index.js";
 import { prepareAgentEnv } from "../../acp/prepare-agent-env.js";
 import { formatResolveFailure } from "../../acp/resolve-agent.js";
 import { claudeResumeHint } from "../../acp/resume-hint.js";
-import type { CoreToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 import { getSendToClient } from "./context.js";
 
 export async function executeAcpSpawn(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const agent = (input.agent as string) || "claude";
   const task = input.task as string;

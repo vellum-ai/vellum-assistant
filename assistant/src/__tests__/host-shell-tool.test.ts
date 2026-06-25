@@ -80,11 +80,11 @@ mock.module("../daemon/host-bash-proxy.js", () => ({
 }));
 
 import { hostShellTool } from "../tools/host-terminal/host-shell.js";
-import type { CoreToolContext, ToolExecutionResult } from "../tools/types.js";
+import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 
 const testDirs: string[] = [];
 
-function makeContext(): CoreToolContext {
+function makeContext(): ToolContext {
   return {
     workingDir: "/tmp",
     conversationId: "test-conversation",
@@ -755,7 +755,7 @@ describe("host_bash — proxy delegation", () => {
     };
     const calls = setupMockProxy(proxyResult);
 
-    const ctx: CoreToolContext = {
+    const ctx: ToolContext = {
       ...makeContext(),
     };
 
@@ -782,7 +782,7 @@ describe("host_bash — proxy delegation", () => {
     };
     const calls = setupMockProxy(proxyResult);
 
-    const ctx: CoreToolContext = {
+    const ctx: ToolContext = {
       ...makeContext(),
     };
 
@@ -801,7 +801,7 @@ describe("host_bash — proxy delegation", () => {
     };
     const calls = setupMockProxy(proxyResult);
 
-    const ctx: CoreToolContext = {
+    const ctx: ToolContext = {
       ...makeContext(),
     };
 
@@ -820,7 +820,7 @@ describe("host_bash — proxy delegation", () => {
     const dir = mkdtempSync(join(tmpdir(), "host-shell-proxy-fallback-"));
     testDirs.push(dir);
 
-    const ctx: CoreToolContext = {
+    const ctx: ToolContext = {
       ...makeContext(),
     };
 
@@ -888,7 +888,7 @@ describe("host_bash — proxy delegation", () => {
       };
       const calls = setupMockProxy(proxyResult);
 
-      const ctx: CoreToolContext = {
+      const ctx: ToolContext = {
         ...makeContext(),
         trustClass: "trusted_contact", // untrusted actor
       };
@@ -923,7 +923,7 @@ describe("host_bash — proxy delegation", () => {
       };
       const calls = setupMockProxy(proxyResult);
 
-      const ctx: CoreToolContext = {
+      const ctx: ToolContext = {
         ...makeContext(),
         trustClass: "guardian", // trusted actor — no lockdown
       };
@@ -961,7 +961,7 @@ describe("host_bash — proxy delegation", () => {
       };
       const calls = setupMockProxy(proxyResult);
 
-      const ctx: CoreToolContext = {
+      const ctx: ToolContext = {
         ...makeContext(),
         trustClass: "guardian", // trusted actor — no lockdown
       };

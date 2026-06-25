@@ -1,6 +1,6 @@
 import { forwardComputerUseProxyTool } from "../../../../tools/computer-use/skill-proxy-bridge.js";
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
@@ -12,7 +12,7 @@ const CLICK_TYPE_TO_PROXY_TOOL: Record<string, string> = {
 
 export async function run(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const clickType = (input.click_type as string | undefined) ?? "single";
   const proxyToolName =

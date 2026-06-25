@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterAll, describe, expect, test } from "bun:test";
 
 import { runSkillToolScript } from "../tools/skills/skill-script-runner.js";
-import type { CoreToolContext } from "../tools/types.js";
+import type { ToolContext } from "../tools/types.js";
 
 const testDir = mkdtempSync(join(tmpdir(), "skill-runner-test-"));
 
@@ -16,7 +16,7 @@ afterAll(() => {
   }
 });
 
-const ctx: CoreToolContext = {
+const ctx: ToolContext = {
   workingDir: "/tmp",
   conversationId: "test-conversation",
   trustClass: "guardian",

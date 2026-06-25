@@ -1,13 +1,13 @@
 import { getNode, updateNode } from "../../../../memory/graph/store.js";
 import { parsePlaybookStatement } from "../../../../playbooks/types.js";
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
 export async function executePlaybookDelete(
   input: Record<string, unknown>,
-  _context: CoreToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const playbookId = input.playbook_id as string;
   if (!playbookId || typeof playbookId !== "string") {

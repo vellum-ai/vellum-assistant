@@ -6,12 +6,10 @@ import {
   executeDocumentFind,
   executeDocumentReplaceText,
 } from "../tools/document/document-tool.js";
-import type { CoreToolContext, ToolExecutionResult } from "../tools/types.js";
+import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
-function makeContext(
-  overrides: Partial<CoreToolContext> = {},
-): CoreToolContext {
+function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     workingDir: "/tmp/project",
     conversationId: "conv-current",

@@ -21,7 +21,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { executeFollowupCreate } from "../tools/followups/followup_create.js";
 import { executeFollowupList } from "../tools/followups/followup_list.js";
 import { executeFollowupResolve } from "../tools/followups/followup_resolve.js";
-import type { CoreToolContext } from "../tools/types.js";
+import type { ToolContext } from "../tools/types.js";
 
 await initializeDb();
 
@@ -29,7 +29,7 @@ function getRawDb(): Database {
   return (getDb() as unknown as { $client: Database }).$client;
 }
 
-const ctx: CoreToolContext = {
+const ctx: ToolContext = {
   workingDir: "/tmp",
   conversationId: "test-conversation",
   trustClass: "guardian",

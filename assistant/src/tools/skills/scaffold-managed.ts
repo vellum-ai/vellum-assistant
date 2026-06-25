@@ -1,6 +1,6 @@
 import { refreshSkillCapabilityMemories } from "../../daemon/skill-memory-refresh.js";
 import { createManagedSkill } from "../../skills/managed-store.js";
-import type { CoreToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 /** Strip embedded newlines/carriage returns to prevent YAML frontmatter injection. */
 function sanitizeFrontmatterValue(value: string): string {
@@ -13,7 +13,7 @@ function sanitizeFrontmatterValue(value: string): string {
  */
 export async function executeScaffoldManagedSkill(
   input: Record<string, unknown>,
-  _context: CoreToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const skillId = input.skill_id;
   if (typeof skillId !== "string" || !skillId.trim()) {

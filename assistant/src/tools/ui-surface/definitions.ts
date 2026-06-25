@@ -11,8 +11,8 @@ import { RiskLevel } from "../../permissions/types.js";
 import { isWeakOpenModel } from "../../providers/weak-open-model.js";
 import { ACTIVATION_MOMENT_PARAMS } from "../../telemetry/activation-funnel.js";
 import type {
-  CoreToolContext,
-  CoreToolDefinition,
+  ToolContext,
+  ToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 
@@ -34,7 +34,7 @@ const APP_BUILDER_BUILD_RE =
 function proxyExecute(toolName: string) {
   return async (
     input: Record<string, unknown>,
-    context: CoreToolContext,
+    context: ToolContext,
   ): Promise<ToolExecutionResult> => {
     if (toolName === "ui_show" && isEmptyDynamicPage(input)) {
       return {
@@ -323,7 +323,7 @@ export const uiShowTool = {
   },
 
   execute: proxyExecute("ui_show"),
-} satisfies CoreToolDefinition;
+} satisfies ToolDefinition;
 
 // ---------------------------------------------------------------------------
 // ui_update
@@ -354,7 +354,7 @@ export const uiUpdateTool = {
   },
 
   execute: proxyExecute("ui_update"),
-} satisfies CoreToolDefinition;
+} satisfies ToolDefinition;
 
 // ---------------------------------------------------------------------------
 // ui_dismiss
@@ -379,9 +379,9 @@ const uiDismissTool = {
   },
 
   execute: proxyExecute("ui_dismiss"),
-} satisfies CoreToolDefinition;
+} satisfies ToolDefinition;
 
-export const allUiSurfaceTools: CoreToolDefinition[] = [
+export const allUiSurfaceTools: ToolDefinition[] = [
   uiShowTool,
   uiUpdateTool,
   uiDismissTool,

@@ -2,8 +2,8 @@ import { RiskLevel } from "../../permissions/types.js";
 import { isUnparseableToolArgs } from "../../providers/unparseable-tool-args.js";
 import { registerTool } from "../registry.js";
 import type {
-  CoreToolContext,
-  CoreToolDefinition,
+  ToolContext,
+  ToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 
@@ -191,7 +191,7 @@ export const skillExecuteTool = {
 
   async execute(
     _input: Record<string, unknown>,
-    _context: CoreToolContext,
+    _context: ToolContext,
   ): Promise<ToolExecutionResult> {
     return {
       content:
@@ -199,6 +199,6 @@ export const skillExecuteTool = {
       isError: true,
     };
   },
-} satisfies CoreToolDefinition;
+} satisfies ToolDefinition;
 
 registerTool(skillExecuteTool);

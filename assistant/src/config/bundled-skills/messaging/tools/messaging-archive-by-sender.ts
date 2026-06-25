@@ -1,13 +1,13 @@
 import { isArchiveBySenderAuthorized } from "../../../../runtime/effective-capabilities.js";
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { err, getProviderConnection, ok, resolveProvider } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const authorized = isArchiveBySenderAuthorized({
     trustClass: context.trustClass,

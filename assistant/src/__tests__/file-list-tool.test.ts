@@ -20,7 +20,7 @@ import {
   type PathPolicy,
 } from "../tools/shared/filesystem/file-ops-service.js";
 import { sandboxPolicy } from "../tools/shared/filesystem/path-policy.js";
-import type { CoreToolContext } from "../tools/types.js";
+import type { ToolContext } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -125,8 +125,8 @@ describe("FileSystemOps.listDirSafe", () => {
 // FileListTool integration tests
 // ---------------------------------------------------------------------------
 
-/** Build a minimal CoreToolContext with the given workingDir. */
-function makeToolContext(workingDir: string): CoreToolContext {
+/** Build a minimal ToolContext with the given workingDir. */
+function makeToolContext(workingDir: string): ToolContext {
   return {
     workingDir,
     conversationId: "test-conv",

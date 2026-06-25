@@ -13,7 +13,7 @@ import type {
   PlaybookAutonomyLevel,
 } from "../../../../playbooks/types.js";
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
@@ -21,7 +21,7 @@ const VALID_AUTONOMY_LEVELS = new Set<string>(["auto", "draft", "notify"]);
 
 export async function executePlaybookCreate(
   input: Record<string, unknown>,
-  _context: CoreToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const trigger = input.trigger as string;
   const action = input.action as string;

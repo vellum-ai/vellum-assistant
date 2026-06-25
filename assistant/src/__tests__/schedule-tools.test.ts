@@ -28,7 +28,7 @@ import { executeScheduleCreate as rawExecuteScheduleCreate } from "../tools/sche
 import { executeScheduleDelete } from "../tools/schedule/delete.js";
 import { executeScheduleList } from "../tools/schedule/list.js";
 import { executeScheduleUpdate } from "../tools/schedule/update.js";
-import type { CoreToolContext, Tool } from "../tools/types.js";
+import type { Tool, ToolContext } from "../tools/types.js";
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 await initializeDb();
@@ -37,20 +37,20 @@ function getRawDb(): Database {
   return (getDb() as unknown as { $client: Database }).$client;
 }
 
-const ctx: CoreToolContext = {
+const ctx: ToolContext = {
   workingDir: "/tmp",
   conversationId: "test-conversation",
   trustClass: "guardian",
 };
 
-const trustedCtx: CoreToolContext = {
+const trustedCtx: ToolContext = {
   ...ctx,
   trustClass: "trusted_contact",
 };
 
 function executeScheduleCreate(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ) {
   return rawExecuteScheduleCreate(
     { description: "Test schedule description", ...input },

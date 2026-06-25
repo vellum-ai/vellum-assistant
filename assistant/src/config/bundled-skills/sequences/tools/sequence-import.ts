@@ -1,14 +1,14 @@
 import { bulkEnroll, parseContactFile } from "../../../../sequence/importer.js";
 import { getSequence } from "../../../../sequence/store.js";
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { err, ok } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
-  _context: CoreToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const filePath = input.file_path as string;
   const sequenceId = input.sequence_id as string;

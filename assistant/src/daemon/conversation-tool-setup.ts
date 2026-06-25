@@ -40,10 +40,10 @@ import {
 } from "../tools/skills/execute.js";
 import { resolveToolInvocationAlias } from "../tools/tool-name-aliases.js";
 import {
-  type CoreToolContext,
   isDiskPressureCleanupToolName,
   type ProxyApprovalCallback,
   type ProxyApprovalRequest,
+  type ToolContext,
   type ToolExecutionResult,
   type ToolLifecycleEventHandler,
 } from "../tools/types.js";
@@ -192,7 +192,7 @@ export function createToolExecutor(
     const turnTrust =
       ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
 
-    const toolContext: CoreToolContext = {
+    const toolContext: ToolContext = {
       workingDir: ctx.workingDir,
       conversationId: ctx.conversationId,
       assistantId: ctx.assistantId,

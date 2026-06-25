@@ -42,15 +42,13 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { runSkillToolScript } from "../tools/skills/skill-script-runner.js";
-import type { CoreToolContext } from "../tools/types.js";
+import type { ToolContext } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeContext(
-  overrides: Partial<CoreToolContext> = {},
-): CoreToolContext {
+function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     workingDir: "/tmp",
     conversationId: "test-conversation",

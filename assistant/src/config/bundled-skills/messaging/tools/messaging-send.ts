@@ -15,7 +15,7 @@ import {
 } from "../../../../messaging/providers/gmail/client.js";
 import { buildMultipartMime } from "../../../../messaging/providers/gmail/mime-builder.js";
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { getLogger } from "../../../../util/logger.js";
@@ -34,7 +34,7 @@ const log = getLogger("messaging-send");
 
 export async function run(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const platform = input.platform as string | undefined;
   const conversationId = input.conversation_id as string;

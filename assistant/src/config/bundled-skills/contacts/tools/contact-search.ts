@@ -3,7 +3,7 @@ import type { ContactRead } from "@vellumai/gateway-client/gateway-ipc-contracts
 import { cliIpcCall } from "../../../../ipc/cli-client.js";
 import { resolveGuardianName } from "../../../../prompts/user-reference.js";
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
@@ -40,7 +40,7 @@ function formatContactSummary(c: SearchContact): string {
 
 export async function executeContactSearch(
   input: Record<string, unknown>,
-  _context: CoreToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const query = input.query as string | undefined;
   const channelAddress = input.channel_address as string | undefined;

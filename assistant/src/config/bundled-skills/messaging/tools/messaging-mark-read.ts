@@ -1,12 +1,12 @@
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { err, getProviderConnection, ok, resolveProvider } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
-  _context: CoreToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const platform = input.platform as string | undefined;
   const conversationId = input.conversation_id as string;

@@ -159,9 +159,9 @@ mock.module("../tools/network/script-proxy/logging.js", () => ({
 }));
 
 import { shellTool } from "../tools/terminal/shell.js";
-import type { CoreToolContext } from "../tools/types.js";
+import type { ToolContext } from "../tools/types.js";
 
-function makeContext(overrides?: Partial<CoreToolContext>): CoreToolContext {
+function makeContext(overrides?: Partial<ToolContext>): ToolContext {
   return {
     workingDir: "/tmp",
     conversationId: "test-conv",

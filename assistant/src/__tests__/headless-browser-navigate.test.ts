@@ -148,9 +148,9 @@ mock.module("../tools/network/url-safety.js", () => ({
 
 import { executeBrowserNavigate } from "../tools/browser/browser-execution.js";
 import { __resetPinnedTabsForTests } from "../tools/browser/pinned-tabs.js";
-import type { CoreToolContext } from "../tools/types.js";
+import type { ToolContext } from "../tools/types.js";
 
-const ctx: CoreToolContext = {
+const ctx: ToolContext = {
   conversationId: "test-conversation",
   workingDir: "/tmp",
   trustClass: "guardian",
@@ -600,7 +600,7 @@ describe("executeBrowserNavigate", () => {
   test("extension path skips Playwright route interception", async () => {
     parseUrlResult = new URL("https://example.com/page");
     mockExtensionAvailable = true;
-    const extensionCtx: CoreToolContext = { ...ctx };
+    const extensionCtx: ToolContext = { ...ctx };
     // Reset page call trackers to verify they are not touched.
     const routeCallsBefore = mockPage.route.mock.calls.length;
     const unrouteCallsBefore = mockPage.unroute.mock.calls.length;
@@ -667,7 +667,7 @@ describe("executeBrowserNavigate", () => {
     };
 
     mockExtensionAvailable = true;
-    const extensionCtx: CoreToolContext = { ...ctx };
+    const extensionCtx: ToolContext = { ...ctx };
     const result = await executeBrowserNavigate(
       { url: "https://public.example.com/start" },
       extensionCtx,
@@ -779,8 +779,9 @@ describe("executeBrowserNavigate", () => {
     // follow-on Page.navigate would still route to the dead tab
     // unless we reset the session on the cdp instance too (round-3
     // P1 fix added cdp.setCdpSessionId(undefined)).
-    const { setPinnedTab, getPinnedTab } =
-      await import("../tools/browser/pinned-tabs.js");
+    const { setPinnedTab, getPinnedTab } = await import(
+      "../tools/browser/pinned-tabs.js"
+    );
     setPinnedTab(ctx.conversationId, "stale-pinned-tab-id");
     expect(getPinnedTab(ctx.conversationId)).toBe("stale-pinned-tab-id");
 

@@ -1,12 +1,12 @@
 import { executeAcpListAgents } from "../../../../tools/acp/list-agents.js";
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
 export async function run(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   return executeAcpListAgents(input, context);
 }

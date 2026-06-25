@@ -45,7 +45,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { ToolApprovalHandler } from "../tools/tool-approval-handler.js";
-import type { CoreToolContext, ToolLifecycleEvent } from "../tools/types.js";
+import type { ToolContext, ToolLifecycleEvent } from "../tools/types.js";
 
 await initializeDb();
 
@@ -76,9 +76,7 @@ function mintParams(overrides: Partial<MintGrantParams> = {}): MintGrantParams {
   };
 }
 
-function makeContext(
-  overrides: Partial<CoreToolContext> = {},
-): CoreToolContext {
+function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     workingDir: testDir,
     conversationId: "conv-1",

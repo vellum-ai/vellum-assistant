@@ -3,8 +3,8 @@ import { basename, join, resolve } from "node:path";
 import { bundledToolRegistry } from "../../config/bundled-tool-registry.js";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import type {
-  CoreToolContext,
   ExecutionTarget,
+  ToolContext,
   ToolExecutionResult,
 } from "../types.js";
 import { runSkillToolScriptSandbox } from "./sandbox-runner.js";
@@ -37,7 +37,7 @@ export async function runSkillToolScript(
   skillDir: string,
   executorPath: string,
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
   options?: RunSkillToolScriptOptions,
 ): Promise<ToolExecutionResult> {
   if (options?.target === "sandbox" && !options?.bundled) {

@@ -4,14 +4,14 @@ import {
   listEnrollments,
 } from "../../../../sequence/store.js";
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { err, ok } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
-  _context: CoreToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const id = input.id as string;
   if (!id) return err("id is required.");

@@ -1,5 +1,5 @@
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
@@ -22,7 +22,7 @@ const VALID_PANES = Object.keys(PANES) as PaneName[];
 
 export async function run(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const pane = input.pane as string;
   if (!VALID_PANES.includes(pane as PaneName)) {

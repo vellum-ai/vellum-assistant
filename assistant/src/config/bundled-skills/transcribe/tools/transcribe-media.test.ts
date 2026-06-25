@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { BatchTranscriber } from "../../../../stt/types.js";
-import type { CoreToolContext } from "../../../../tools/types.js";
+import type { ToolContext } from "../../../../tools/types.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before the subject import
@@ -77,7 +77,7 @@ import { run } from "./transcribe-media.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeContext(overrides?: Partial<CoreToolContext>): CoreToolContext {
+function makeContext(overrides?: Partial<ToolContext>): ToolContext {
   return {
     workingDir: "/tmp",
     conversationId: "test-conv",

@@ -3,7 +3,7 @@ import {
   type WorkItem,
   type WorkItemStatus,
 } from "../../work-items/work-item-store.js";
-import type { CoreToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 const PRIORITY_LABELS: Record<number, string> = {
   0: "High",
@@ -23,7 +23,7 @@ function formatTaskList(items: WorkItem[]): string {
 
 export async function executeTaskListShow(
   input: Record<string, unknown>,
-  _context: CoreToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   try {
     const statusFilter = input.status as string | string[] | undefined;

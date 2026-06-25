@@ -175,7 +175,7 @@ import {
   ToolApprovalHandler,
   waitForInlineGrant,
 } from "../tools/tool-approval-handler.js";
-import type { CoreToolContext, ToolLifecycleEvent } from "../tools/types.js";
+import type { ToolContext, ToolLifecycleEvent } from "../tools/types.js";
 
 await initializeDb();
 
@@ -192,9 +192,7 @@ function resetTables(): void {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeToolContext(
-  overrides: Partial<CoreToolContext> = {},
-): CoreToolContext {
+function makeToolContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     workingDir: testDir,
     conversationId: "conv-1",

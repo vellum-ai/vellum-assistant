@@ -1,13 +1,13 @@
 import { deleteTask, deleteTasks, getTask } from "../../tasks/task-store.js";
 import { getLogger } from "../../util/logger.js";
 import { removeWorkItemFromQueue } from "../../work-items/work-item-store.js";
-import type { CoreToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 const log = getLogger("task-delete");
 
 export async function executeTaskDelete(
   input: Record<string, unknown>,
-  _context: CoreToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const raw = input.task_ids;
   if (!Array.isArray(raw) || raw.length === 0) {

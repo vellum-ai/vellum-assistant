@@ -9,7 +9,7 @@ import { hostShellTool } from "./host-terminal/host-shell.js";
 import { toProviderSafeToolName } from "./provider-tool-name.js";
 import { registerSystemTools } from "./system/register.js";
 import { finalizeTool } from "./tool-defaults.js";
-import type { CoreToolDefinition, OwnerInfo, Tool } from "./types.js";
+import type { OwnerInfo, Tool, ToolDefinition } from "./types.js";
 import { allUiSurfaceTools } from "./ui-surface/definitions.js";
 import { registerUiSurfaceTools } from "./ui-surface/registry.js";
 
@@ -172,9 +172,9 @@ function withProviderSafeToolName(tool: Tool): Tool {
  * instance, and the existing `existing === tool` short-circuit below keeps
  * working.
  */
-const finalizedByDefinition = new WeakMap<CoreToolDefinition, Tool>();
+const finalizedByDefinition = new WeakMap<ToolDefinition, Tool>();
 
-export function registerTool(definition: CoreToolDefinition): void {
+export function registerTool(definition: ToolDefinition): void {
   const name = definition.name;
   if (typeof name !== "string" || name.length === 0) {
     throw new Error(

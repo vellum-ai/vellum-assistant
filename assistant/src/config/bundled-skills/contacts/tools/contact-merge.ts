@@ -3,7 +3,7 @@ import type { ContactRead } from "@vellumai/gateway-client/gateway-ipc-contracts
 import { cliIpcCall } from "../../../../ipc/cli-client.js";
 import { resolveGuardianName } from "../../../../prompts/user-reference.js";
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
@@ -15,7 +15,7 @@ function guardianAwareName(contact: Pick<ContactRead, "role" | "displayName">) {
 
 export async function executeContactMerge(
   input: Record<string, unknown>,
-  _context: CoreToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const keepId = input.keep_id as string | undefined;
   const mergeId = input.merge_id as string | undefined;

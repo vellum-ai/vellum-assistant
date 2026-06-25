@@ -10,7 +10,7 @@ import { memoryGraphNodes } from "../../../../memory/schema.js";
 import { clampUnitInterval } from "../../../../memory/validation.js";
 import { extractStylePatterns } from "../../../../messaging/style-analyzer.js";
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { truncate } from "../../../../util/truncate.js";
@@ -95,7 +95,7 @@ function upsertMemoryItem(opts: {
 
 export async function run(
   input: Record<string, unknown>,
-  _context: CoreToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const platform = input.platform as string | undefined;
   const maxMessages = Math.min(

@@ -118,15 +118,13 @@ mock.module("../daemon/host-bash-proxy.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { hostShellTool } from "../tools/host-terminal/host-shell.js";
-import type { CoreToolContext, ToolExecutionResult } from "../tools/types.js";
+import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeContext(
-  overrides: Partial<CoreToolContext> = {},
-): CoreToolContext {
+function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     workingDir: "/tmp",
     conversationId: "conv-xyz",

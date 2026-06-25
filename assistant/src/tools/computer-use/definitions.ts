@@ -9,8 +9,8 @@
 
 import { RiskLevel } from "../../permissions/types.js";
 import type {
-  CoreToolContext,
-  CoreToolDefinition,
+  ToolContext,
+  ToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 
@@ -27,7 +27,7 @@ import type {
 function proxyExecute(toolName: string) {
   return async (
     input: Record<string, unknown>,
-    context: CoreToolContext,
+    context: ToolContext,
   ): Promise<ToolExecutionResult> => {
     if (!context.proxyToolResolver) {
       return {
@@ -87,7 +87,7 @@ export const computerUseClickTool = {
   },
 
   execute: proxyExecute("computer_use_click"),
-} satisfies CoreToolDefinition;
+} satisfies ToolDefinition;
 
 // ---------------------------------------------------------------------------
 // type_text
@@ -122,7 +122,7 @@ export const computerUseTypeTextTool = {
   },
 
   execute: proxyExecute("computer_use_type_text"),
-} satisfies CoreToolDefinition;
+} satisfies ToolDefinition;
 
 // ---------------------------------------------------------------------------
 // key
@@ -157,7 +157,7 @@ export const computerUseKeyTool = {
   },
 
   execute: proxyExecute("computer_use_key"),
-} satisfies CoreToolDefinition;
+} satisfies ToolDefinition;
 
 // ---------------------------------------------------------------------------
 // scroll
@@ -210,7 +210,7 @@ export const computerUseScrollTool = {
   },
 
   execute: proxyExecute("computer_use_scroll"),
-} satisfies CoreToolDefinition;
+} satisfies ToolDefinition;
 
 // ---------------------------------------------------------------------------
 // drag
@@ -268,7 +268,7 @@ export const computerUseDragTool = {
   },
 
   execute: proxyExecute("computer_use_drag"),
-} satisfies CoreToolDefinition;
+} satisfies ToolDefinition;
 
 // ---------------------------------------------------------------------------
 // wait
@@ -302,7 +302,7 @@ export const computerUseWaitTool = {
   },
 
   execute: proxyExecute("computer_use_wait"),
-} satisfies CoreToolDefinition;
+} satisfies ToolDefinition;
 
 // ---------------------------------------------------------------------------
 // open_app
@@ -339,7 +339,7 @@ export const computerUseOpenAppTool = {
   },
 
   execute: proxyExecute("computer_use_open_app"),
-} satisfies CoreToolDefinition;
+} satisfies ToolDefinition;
 
 // ---------------------------------------------------------------------------
 // run_applescript
@@ -375,7 +375,7 @@ export const computerUseRunAppleScriptTool = {
   },
 
   execute: proxyExecute("computer_use_run_applescript"),
-} satisfies CoreToolDefinition;
+} satisfies ToolDefinition;
 
 // ---------------------------------------------------------------------------
 // done
@@ -401,7 +401,7 @@ export const computerUseDoneTool = {
   },
 
   execute: proxyExecute("computer_use_done"),
-} satisfies CoreToolDefinition;
+} satisfies ToolDefinition;
 
 // ---------------------------------------------------------------------------
 // respond
@@ -431,7 +431,7 @@ export const computerUseRespondTool = {
   },
 
   execute: proxyExecute("computer_use_respond"),
-} satisfies CoreToolDefinition;
+} satisfies ToolDefinition;
 
 // ---------------------------------------------------------------------------
 // observe
@@ -458,13 +458,13 @@ export const computerUseObserveTool = {
   },
 
   execute: proxyExecute("computer_use_observe"),
-} satisfies CoreToolDefinition;
+} satisfies ToolDefinition;
 
 // ---------------------------------------------------------------------------
 // All tools exported as array for convenience
 // ---------------------------------------------------------------------------
 
-export const allComputerUseTools: CoreToolDefinition[] = [
+export const allComputerUseTools: ToolDefinition[] = [
   computerUseObserveTool,
   computerUseClickTool,
   computerUseTypeTextTool,

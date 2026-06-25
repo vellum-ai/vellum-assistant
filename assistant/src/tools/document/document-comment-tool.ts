@@ -4,14 +4,14 @@ import {
   listComments,
   resolveComment,
 } from "../../documents/document-comments-store.js";
-import type { CoreToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 import { canAccessDocument, documentNotFound } from "./document-tool.js";
 
 // ── Exported execute functions ─────────────────────────────────────────
 
 export function executeCommentList(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): ToolExecutionResult {
   const surfaceId = input.surface_id as string;
 
@@ -44,7 +44,7 @@ export function executeCommentList(
 
 export function executeCommentResolve(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): ToolExecutionResult {
   const surfaceId = input.surface_id as string;
   const commentId = input.comment_id as string;
@@ -89,7 +89,7 @@ export function executeCommentResolve(
 
 export function executeCommentReply(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): ToolExecutionResult {
   const surfaceId = input.surface_id as string;
   const commentId = input.comment_id as string;

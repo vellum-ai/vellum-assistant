@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 
 import { getTool } from "../tools/registry.js";
-import type { CoreToolContext, Tool } from "../tools/types.js";
+import type { Tool, ToolContext } from "../tools/types.js";
 
 let fileReadTool: Tool;
 const testDirs: string[] = [];
@@ -20,7 +20,7 @@ beforeAll(async () => {
   fileReadTool = getTool("file_read")!;
 });
 
-function makeContext(workingDir: string): CoreToolContext {
+function makeContext(workingDir: string): ToolContext {
   return {
     workingDir,
     conversationId: "test-conversation",

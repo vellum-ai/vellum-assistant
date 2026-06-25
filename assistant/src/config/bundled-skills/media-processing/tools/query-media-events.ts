@@ -8,7 +8,7 @@
  */
 
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import {
@@ -29,7 +29,7 @@ export { reduceForAsset } from "../services/reduce.js";
 
 export async function run(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const assetId = input.asset_id as string | undefined;
   if (!assetId) {

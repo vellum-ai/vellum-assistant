@@ -21,14 +21,14 @@ import { RiskLevel } from "../../permissions/types.js";
 import { getCesClient } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import type {
-  CoreToolContext,
-  CoreToolDefinition,
+  ToolContext,
+  ToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 
 const log = getLogger("ces-tool:manage-secure-command-tool");
 
-class ManageSecureCommandToolImpl implements CoreToolDefinition {
+class ManageSecureCommandToolImpl implements ToolDefinition {
   name = "manage_secure_command_tool";
   description =
     "Request installation, update, or removal of a secure command tool bundle. " +
@@ -241,7 +241,7 @@ class ManageSecureCommandToolImpl implements CoreToolDefinition {
 
   async execute(
     input: Record<string, unknown>,
-    _context: CoreToolContext,
+    _context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const cesClient = getCesClient();
     if (!cesClient) {

@@ -1,12 +1,12 @@
 import { executeFollowupCreate } from "../../../../tools/followups/followup_create.js";
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
 export async function run(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   return executeFollowupCreate(input, context);
 }

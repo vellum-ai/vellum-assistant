@@ -1,6 +1,6 @@
 import { refreshSkillCapabilityMemories } from "../../daemon/skill-memory-refresh.js";
 import { deleteManagedSkill } from "../../skills/managed-store.js";
-import type { CoreToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 /**
  * Core execution logic for delete_managed_skill.
@@ -8,7 +8,7 @@ import type { CoreToolContext, ToolExecutionResult } from "../types.js";
  */
 export async function executeDeleteManagedSkill(
   input: Record<string, unknown>,
-  _context: CoreToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const skillId = input.skill_id;
   if (typeof skillId !== "string" || !skillId.trim()) {

@@ -17,8 +17,8 @@ import {
 } from "../../util/retry.js";
 import { registerTool } from "../registry.js";
 import type {
-  CoreToolContext,
-  CoreToolDefinition,
+  ToolContext,
+  ToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 import { extractDomain } from "./domain-normalize.js";
@@ -1170,7 +1170,7 @@ export const webSearchTool = {
 
   async execute(
     input: Record<string, unknown>,
-    context: CoreToolContext,
+    context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const query = input.query;
     if (!query || typeof query !== "string") {
@@ -1269,6 +1269,6 @@ export const webSearchTool = {
       );
     }
   },
-} satisfies CoreToolDefinition;
+} satisfies ToolDefinition;
 
 registerTool(webSearchTool);

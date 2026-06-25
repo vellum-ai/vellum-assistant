@@ -126,11 +126,7 @@ import { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
 import { scanText } from "../security/secret-scanner.js";
 import { ToolExecutor } from "../tools/executor.js";
-import type {
-  CoreToolContext,
-  Tool,
-  ToolExecutionResult,
-} from "../tools/types.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -414,7 +410,7 @@ describe("Tool execution pipeline benchmark", () => {
     // Fewer iterations for slow-tool tests to avoid timeouts (50ms * 30 = 1.5s)
     const SLOW_ITERATIONS = 30;
     let executor: ToolExecutor;
-    const toolContext: CoreToolContext = {
+    const toolContext: ToolContext = {
       workingDir: "/tmp",
       conversationId: "bench-conv",
       trustClass: "guardian",

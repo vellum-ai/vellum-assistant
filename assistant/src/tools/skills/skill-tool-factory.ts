@@ -5,9 +5,9 @@ import {
   validateInputAgainstSchema,
 } from "../../skills/validate-input.js";
 import type {
-  CoreToolContext,
   ExecutionTarget,
   Tool,
+  ToolContext,
   ToolExecutionResult,
 } from "../types.js";
 import { runSkillToolScript } from "./skill-script-runner.js";
@@ -43,7 +43,7 @@ export function createSkillTool(
 
     async execute(
       input: Record<string, unknown>,
-      context: CoreToolContext,
+      context: ToolContext,
     ): Promise<ToolExecutionResult> {
       const schema = entry.input_schema as Record<string, unknown> | undefined;
       const coercedInput = coerceStringBooleans(input, schema);

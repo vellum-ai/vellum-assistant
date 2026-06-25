@@ -29,9 +29,9 @@ import {
   MAX_OUTPUT_LENGTH,
 } from "../shared/shell-output.js";
 import type {
-  CoreToolContext,
-  CoreToolDefinition,
   ProxyEnvVars,
+  ToolContext,
+  ToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 import { buildSanitizedEnv } from "./safe-env.js";
@@ -94,7 +94,7 @@ export const shellTool = {
 
   async execute(
     input: Record<string, unknown>,
-    context: CoreToolContext,
+    context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const command = input.command as string;
     if (!command || typeof command !== "string") {
@@ -576,7 +576,7 @@ export const shellTool = {
 
     return result;
   },
-} satisfies CoreToolDefinition;
+} satisfies ToolDefinition;
 
 /**
  * Structured teardown log. Pairs with the `"Executing shell command"`

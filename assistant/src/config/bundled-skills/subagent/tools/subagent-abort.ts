@@ -1,12 +1,12 @@
 import { executeSubagentAbort } from "../../../../tools/subagent/abort.js";
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
 export async function run(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   return executeSubagentAbort(input, context);
 }

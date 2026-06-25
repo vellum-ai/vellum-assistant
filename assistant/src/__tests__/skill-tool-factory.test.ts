@@ -10,7 +10,7 @@ import {
   createSkillTool,
   createSkillToolsFromManifest,
 } from "../tools/skills/skill-tool-factory.js";
-import type { CoreToolContext } from "../tools/types.js";
+import type { ToolContext } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -33,9 +33,7 @@ function makeEntry(overrides: Partial<SkillToolEntry> = {}): SkillToolEntry {
   };
 }
 
-function makeContext(
-  overrides: Partial<CoreToolContext> = {},
-): CoreToolContext {
+function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     workingDir: "/tmp",
     conversationId: "test-conversation",

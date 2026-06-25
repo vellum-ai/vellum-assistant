@@ -22,7 +22,7 @@ import {
 } from "../../daemon/trust-context.js";
 import { CapabilityManifestSchema } from "../../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../../workflows/run-manager.js";
-import type { CoreToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 /**
  * Resolve the {@link TrustContext} to forward to the run's leaves. Prefer the
@@ -31,7 +31,7 @@ import type { CoreToolContext, ToolExecutionResult } from "../types.js";
  * fallback built from the tool context's `trustClass`. We never elevate beyond
  * the tool context's own trust class.
  */
-function resolveTrustContext(context: CoreToolContext): TrustContext {
+function resolveTrustContext(context: ToolContext): TrustContext {
   const conversation = findConversation(context.conversationId);
   const fromConversation =
     conversation?.currentTurnTrustContext ?? conversation?.trustContext;
@@ -41,7 +41,7 @@ function resolveTrustContext(context: CoreToolContext): TrustContext {
 
 export async function executeRunWorkflow(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const script = input.script as string | undefined;
   const name = input.name as string | undefined;

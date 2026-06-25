@@ -2,11 +2,11 @@ import {
   compileTaskFromConversation,
   saveCompiledTask,
 } from "../../tasks/task-compiler.js";
-import type { CoreToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeTaskSave(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const conversationId =
     (input.conversation_id as string | undefined) || context.conversationId;

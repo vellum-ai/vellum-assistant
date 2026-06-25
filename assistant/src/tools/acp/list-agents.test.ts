@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 import { installAcpConfigStub } from "../../acp/__tests__/helpers/acp-config-stub.js";
 import { installWhichStub } from "../../acp/__tests__/helpers/which-stub.js";
-import type { CoreToolContext } from "../types.js";
+import type { ToolContext } from "../types.js";
 
 const config = await installAcpConfigStub();
 const which = installWhichStub();
@@ -13,7 +13,7 @@ afterAll(() => {
 
 const { executeAcpListAgents } = await import("./list-agents.js");
 
-function makeContext(): CoreToolContext {
+function makeContext(): ToolContext {
   return {
     workingDir: "/tmp",
     conversationId: "conv-test",

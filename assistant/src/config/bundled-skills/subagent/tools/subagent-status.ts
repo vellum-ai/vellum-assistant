@@ -1,12 +1,12 @@
 import { executeSubagentStatus } from "../../../../tools/subagent/status.js";
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
 export async function run(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   return executeSubagentStatus(input, context);
 }

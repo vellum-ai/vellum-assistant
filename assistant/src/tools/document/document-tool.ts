@@ -14,9 +14,9 @@ import {
   updateDocumentContent,
 } from "../../documents/document-store.js";
 import { canActOnPrivilegedDocuments } from "../../runtime/effective-capabilities.js";
-import type { CoreToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
-function isPrivilegedDocumentActor(context: CoreToolContext): boolean {
+function isPrivilegedDocumentActor(context: ToolContext): boolean {
   return canActOnPrivilegedDocuments(context);
 }
 
@@ -33,7 +33,7 @@ export function documentNotFound(surfaceId: string): ToolExecutionResult {
 
 export function canAccessDocument(
   surfaceId: string,
-  context: CoreToolContext,
+  context: ToolContext,
 ): boolean {
   return (
     isPrivilegedDocumentActor(context) ||
@@ -66,7 +66,7 @@ function validateSurfaceId(
 
 export function executeDocumentOpen(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): ToolExecutionResult {
   const surfaceIdOrError = validateSurfaceId(input);
   if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
@@ -138,7 +138,7 @@ const EMPTY_DOCUMENT_DEDUPE_WINDOW_MS = 5 * 60 * 1000;
 function maybeReuseEmptyDocument(
   title: string,
   initialContent: string,
-  context: CoreToolContext,
+  context: ToolContext,
 ): ToolExecutionResult | null {
   if (initialContent.length === 0) return null;
   const existing = findRecentEmptyDocumentByTitle(
@@ -198,7 +198,7 @@ function maybeReuseEmptyDocument(
 
 export function executeDocumentCreate(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): ToolExecutionResult {
   const title = (input.title as string | undefined) || "Untitled Document";
   const initialContent = (input.initial_content as string | undefined) || "";
@@ -280,7 +280,7 @@ export function executeDocumentCreate(
  */
 function resolveUpdateSurfaceId(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): ToolExecutionResult | string {
   if (typeof input.surface_id === "string" && input.surface_id.trim() !== "") {
     return input.surface_id;
@@ -296,7 +296,7 @@ function resolveUpdateSurfaceId(
 
 export function executeDocumentUpdate(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): ToolExecutionResult {
   if (typeof input.content !== "string") {
     return invalidInput("content is required and must be a string");
@@ -366,7 +366,7 @@ export function executeDocumentUpdate(
 
 export function executeDocumentRead(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): ToolExecutionResult {
   const surfaceIdOrError = validateSurfaceId(input);
   if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
@@ -394,7 +394,7 @@ export function executeDocumentRead(
 
 export function executeDocumentList(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): ToolExecutionResult {
   const query =
     typeof input.query === "string" && input.query.trim().length > 0
@@ -425,7 +425,7 @@ export function executeDocumentList(
 
 export function executeDocumentDelete(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): ToolExecutionResult {
   const surfaceIdOrError = validateSurfaceId(input);
   if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
@@ -450,7 +450,7 @@ export function executeDocumentDelete(
 
 export function executeDocumentFind(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): ToolExecutionResult {
   const surfaceIdOrError = validateSurfaceId(input);
   if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
@@ -503,7 +503,7 @@ export function executeDocumentFind(
 
 export function executeDocumentReplaceText(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): ToolExecutionResult {
   const surfaceIdOrError = validateSurfaceId(input);
   if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;

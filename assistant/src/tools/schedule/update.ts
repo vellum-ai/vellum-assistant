@@ -17,7 +17,7 @@ import {
   getSchedule,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
-import type { CoreToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script", "workflow"];
 const VALID_ROUTING_INTENTS: RoutingIntent[] = [
@@ -28,7 +28,7 @@ const VALID_ROUTING_INTENTS: RoutingIntent[] = [
 
 export async function executeScheduleUpdate(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   if (!resolveCapabilities(context.trustClass).canManageSchedules) {
     return {

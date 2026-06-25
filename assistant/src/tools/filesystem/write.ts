@@ -11,8 +11,8 @@ import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatWriteSummary } from "../shared/filesystem/format-diff.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
 import type {
-  CoreToolContext,
-  CoreToolDefinition,
+  ToolContext,
+  ToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 
@@ -29,8 +29,7 @@ const logger = getLogger("file-write");
  * never blocks the app-builder workflow it redirects to.
  */
 const STANDALONE_HTML_RE = /<!doctype\s+html|<html[\s>]/i;
-const INLINE_SCRIPT_RE =
-  /<script\b(?![^>]*\bsrc=)[^>]*>[\s\S]{400,}?<\/script>/i;
+const INLINE_SCRIPT_RE = /<script\b(?![^>]*\bsrc=)[^>]*>[\s\S]{400,}?<\/script>/i;
 
 function isSelfContainedArtifactHtml(path: string, content: string): boolean {
   if (!/\.html?$/i.test(path)) return false;
@@ -89,7 +88,7 @@ export const fileWriteTool = {
 
   async execute(
     input: Record<string, unknown>,
-    context: CoreToolContext,
+    context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const rawPath = input.path as string;
     if (!rawPath || typeof rawPath !== "string") {
@@ -184,6 +183,6 @@ export const fileWriteTool = {
       diff: { filePath, oldContent, newContent, isNewFile },
     };
   },
-} satisfies CoreToolDefinition;
+} satisfies ToolDefinition;
 
 registerTool(fileWriteTool);

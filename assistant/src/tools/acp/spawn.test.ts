@@ -3,7 +3,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { installAcpConfigStub } from "../../acp/__tests__/helpers/acp-config-stub.js";
 import { installExecFileStub } from "../../acp/__tests__/helpers/exec-file-stub.js";
 import { installWhichStub } from "../../acp/__tests__/helpers/which-stub.js";
-import type { CoreToolContext } from "../types.js";
+import type { ToolContext } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Mock infrastructure
@@ -77,7 +77,8 @@ mock.module("../../tools/credentials/metadata-store.js", () => ({
     const existing = metadataStore.get(key);
     metadataStore.set(key, {
       allowedTools: policy?.allowedTools ?? existing?.allowedTools ?? [],
-      usageDescription: policy?.usageDescription ?? existing?.usageDescription,
+      usageDescription:
+        policy?.usageDescription ?? existing?.usageDescription,
     });
     return {
       credentialId: `cred-${key}`,
@@ -147,20 +148,21 @@ mock.module("../../acp/index.js", () => ({
 }));
 
 const { executeAcpSpawn } = await import("./spawn.js");
-const { _resetAdapterInstallCacheForTests } =
-  await import("../../acp/auto-install.js");
+const { _resetAdapterInstallCacheForTests } = await import(
+  "../../acp/auto-install.js"
+);
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeContext(): CoreToolContext {
+function makeContext(): ToolContext {
   return {
     workingDir: "/tmp",
     conversationId: "test-conversation",
     trustClass: "guardian",
     sendToClient: () => {},
-  } as CoreToolContext;
+  } as ToolContext;
 }
 
 beforeEach(() => {

@@ -1,9 +1,9 @@
 import { getCallStatus } from "../../calls/call-domain.js";
-import type { CoreToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeCallStatus(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const callSessionId = input.call_session_id as string | undefined;
 

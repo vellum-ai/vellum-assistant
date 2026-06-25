@@ -5,7 +5,7 @@
  * the proxy resolver, which forwards the call to the connected macOS client.
  */
 
-import type { CoreToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 /**
  * Forward a computer-use proxy tool call through the context's proxyToolResolver.
@@ -16,7 +16,7 @@ import type { CoreToolContext, ToolExecutionResult } from "../types.js";
 export function forwardComputerUseProxyTool(
   toolName: string,
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   if (!context.proxyToolResolver) {
     return Promise.resolve({

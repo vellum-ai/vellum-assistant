@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import { run } from "../config/bundled-skills/settings/tools/navigate-settings-tab.js";
-import type { CoreToolContext } from "../tools/types.js";
+import type { ToolContext } from "../tools/types.js";
 
-function makeContext(sendToClient?: (msg: unknown) => void): CoreToolContext {
-  return { sendToClient } as unknown as CoreToolContext;
+function makeContext(sendToClient?: (msg: unknown) => void): ToolContext {
+  return { sendToClient } as unknown as ToolContext;
 }
 
 const CANONICAL_TABS = [

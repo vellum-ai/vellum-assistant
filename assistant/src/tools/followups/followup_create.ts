@@ -1,7 +1,7 @@
 import { getContact } from "../../contacts/contact-store.js";
 import { createFollowUp } from "../../followups/followup-store.js";
 import type { FollowUp } from "../../followups/types.js";
-import type { CoreToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 function formatFollowUp(f: FollowUp): string {
   const lines = [
@@ -24,7 +24,7 @@ function formatFollowUp(f: FollowUp): string {
 
 export async function executeFollowupCreate(
   input: Record<string, unknown>,
-  _context: CoreToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const channel = input.channel as string | undefined;
   if (!channel || typeof channel !== "string" || channel.trim().length === 0) {

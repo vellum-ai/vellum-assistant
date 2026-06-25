@@ -126,7 +126,7 @@ mock.module("../tools/shared/filesystem/path-policy.js", () => ({
 import { initializeDb } from "../memory/db-init.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { ToolExecutor } from "../tools/executor.js";
-import type { CoreToolContext as TC } from "../tools/types.js";
+import type { ToolContext as TC } from "../tools/types.js";
 
 await initializeDb();
 

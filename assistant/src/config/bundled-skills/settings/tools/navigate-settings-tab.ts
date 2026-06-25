@@ -1,5 +1,5 @@
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
@@ -23,7 +23,7 @@ const LEGACY_TAB_ALIASES: Record<string, SettingsTab> = {
 
 export async function run(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const rawTab = input.tab as string;
   const tab = LEGACY_TAB_ALIASES[rawTab] ?? rawTab;

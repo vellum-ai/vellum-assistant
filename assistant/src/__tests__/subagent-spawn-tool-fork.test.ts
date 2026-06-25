@@ -3,8 +3,8 @@ import { mock } from "bun:test";
 
 // Mock conversation-crud before importing tool executors that depend on it.
 mock.module("../memory/conversation-crud.js", () => ({
-  setConversationProcessingStartedAt: () => {},
-  isConversationProcessing: () => false,
+    setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -50,7 +50,7 @@ function makeContext(
     conversationId,
     trustClass: "guardian" as const,
     ...extras,
-  } as import("../tools/types.js").CoreToolContext;
+  } as import("../tools/types.js").ToolContext;
 }
 
 const FAKE_PARENT_MESSAGES: Message[] = [

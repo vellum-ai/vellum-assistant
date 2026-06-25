@@ -13,13 +13,13 @@ import { getFilePathBySourcePath } from "../../../../memory/attachments-store.js
 import type { ImageContent } from "../../../../providers/types.js";
 import { sandboxPolicy } from "../../../../tools/shared/filesystem/path-policy.js";
 import type {
-  CoreToolContext,
+  ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
 export async function run(
   input: Record<string, unknown>,
-  context: CoreToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const config = getConfig();
   const svc = config.services["image-generation"];

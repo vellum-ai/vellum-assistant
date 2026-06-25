@@ -249,15 +249,6 @@ export function stringifyToolInput(input: Record<string, unknown>): string {
   }
 }
 
-/**
- * The slim, public tool-execution context — the surface the assistant is
- * comfortable exposing to **workspace** and **plugin** tools (re-exported as
- * `ToolContext` from `@vellumai/plugin-api`). Keep this minimal: every field
- * here becomes part of the public, third-party tool contract, so only add a
- * field once we are confident it is safe and stable to expose. Trust,
- * permission, requester-identity, proxy, routing, and telemetry fields are
- * deliberately NOT here — they live on {@link CoreToolContext}.
- */
 export interface ToolContext {
   /** Identifier of the conversation this tool invocation belongs to. */
   conversationId: string;
@@ -271,25 +262,6 @@ export interface ToolContext {
   onOutput?: (chunk: string) => void;
   /** Logical assistant scope for multi-assistant routing. */
   assistantId?: string;
-  /** True when an interactive client is connected (not just a no-op callback). */
-  isInteractive?: boolean;
-}
-
-/**
- * The full, daemon-internal tool-execution context. This is the object the
- * daemon actually constructs and passes to every tool at runtime; it extends
- * the slim public {@link ToolContext} with daemon-internal fields.
- *
- * LEGACY: the extra fields below are surface area we are deliberately trying
- * to shrink over time. They were historically exposed on the single
- * `ToolContext` that plugins and workspace tools saw; they are now confined to
- * this `CoreToolContext`, which only **core**, **skill**, and **MCP** tools
- * (all of which run inside the daemon's trust boundary) may depend on.
- * Workspace and plugin tools must use the slim {@link ToolContext}. Prefer the
- * slim context for new code, and avoid adding fields here — the goal is to
- * remove these over time, not grow them.
- */
-export interface CoreToolContext extends ToolContext {
   /** When set, the tool execution is part of a task run. Used to retrieve ephemeral permission rules. */
   taskRunId?: string;
   /**
@@ -319,6 +291,8 @@ export interface CoreToolContext extends ToolContext {
   }) => Promise<SecretPromptResult>;
   /** Optional callback to send a message to the connected client (e.g. open_url). */
   sendToClient?: (msg: { type: string; [key: string]: unknown }) => void;
+  /** True when an interactive client is connected (not just a no-op callback). */
+  isInteractive?: boolean;
   /** When true, tools with side effects should always prompt for confirmation. */
   forcePromptSideEffects?: boolean;
   /**
@@ -466,14 +440,6 @@ export const ToolDefinitionSchema = z.object({
    * Tool sources use `satisfies ToolDefinition` (not `: ToolDefinition`)
    * so the inferred export type preserves `execute` as required at
    * call sites that statically import the literal.
-   *
-   * The `context` parameter is the slim, public {@link ToolContext} — this is
-   * the author-facing definition re-exported through `@vellumai/plugin-api`
-   * and used by workspace and plugin tools. Core/skill/MCP tools that need the
-   * daemon-internal fields author against {@link CoreToolDefinition} instead,
-   * whose `execute` receives the full {@link CoreToolContext}; the daemon
-   * always supplies a `CoreToolContext` at runtime, so a slim-typed `execute`
-   * is a safe narrowing of that.
    */
   execute: z
     .custom<
@@ -504,35 +470,13 @@ export const ToolDefinitionSchema = z.object({
 export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
 
 /**
- * Internal tool spec for **core**, **skill**, and **MCP** tools, whose
- * `execute` receives the full {@link CoreToolContext} (trust, permissions,
- * requester identity, proxies, routing). Identical to {@link ToolDefinition}
- * apart from the wider context parameter.
- *
- * A {@link ToolDefinition} (slim `execute`) is assignable to a
- * `CoreToolDefinition` — a function accepting the narrower public context can
- * always be called with the full one — so the registry accepts both shapes
- * through this single type while workspace/plugin authors remain confined to
- * the slim `ToolDefinition`.
- */
-export type CoreToolDefinition = Omit<ToolDefinition, "execute"> & {
-  execute?: (
-    input: Record<string, unknown>,
-    context: CoreToolContext,
-  ) => Promise<ToolExecutionResult>;
-};
-
-/**
  * Tool after the loader has derived its name and filled defaults. Every field
  * is required except `exclusive`, which stays optional — most tools never set
  * it, and the agent loop reads it as `?.exclusive === true`, so forcing every
  * hand-built `Tool` (MCP/meet/test fixtures) to carry it would be noise.
- *
- * Built from {@link CoreToolDefinition} because the daemon invokes every
- * finalized tool with a full {@link CoreToolContext} at runtime.
  */
-export type Tool = Required<Omit<CoreToolDefinition, "exclusive">> &
-  Pick<CoreToolDefinition, "exclusive">;
+export type Tool = Required<Omit<ToolDefinition, "exclusive">> &
+  Pick<ToolDefinition, "exclusive">;
 
 /** The kind of extension that owns a tool. Core tools have no owner. */
 export type OwnerKind = "skill" | "mcp" | "plugin" | "workspace";

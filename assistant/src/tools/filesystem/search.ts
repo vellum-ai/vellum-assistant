@@ -11,8 +11,8 @@ import {
   sandboxPolicy,
 } from "../shared/filesystem/path-policy.js";
 import type {
-  CoreToolContext,
-  CoreToolDefinition,
+  ToolContext,
+  ToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 
@@ -121,7 +121,7 @@ export const codeSearchTool = {
 
   async execute(
     input: Record<string, unknown>,
-    context: CoreToolContext,
+    context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const pattern = input.pattern;
     if (!pattern || typeof pattern !== "string") {
@@ -538,6 +538,6 @@ export const codeSearchTool = {
       ...(truncated || skippedLargeFile ? { status: "truncated" } : {}),
     };
   },
-} satisfies CoreToolDefinition;
+} satisfies ToolDefinition;
 
 registerTool(codeSearchTool);
