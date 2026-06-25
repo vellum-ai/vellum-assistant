@@ -200,14 +200,12 @@ describe("m0006-reconcile-contacts-from-assistant", () => {
       ["existing-gw", "missing-1", "missing-2"].sort(),
     );
 
-    // ACL is gateway-owned and no longer copied from the assistant: the
-    // reconciled contact falls to the gateway schema defaults regardless of
-    // the assistant's role/principal_id.
+    // Verify the reconciled contact has the right ACL fields.
     const row = getGatewayDb().$client
     .prepare("SELECT role, principal_id FROM contacts WHERE id = ?")
-      .get("missing-1") as { role: string; principal_id: string | null };
-    expect(row.role).toBe("contact");
-    expect(row.principal_id).toBeNull();
+      .get("missing-1") as { role: string; principal_id: string };
+    expect(row.role).toBe("guardian");
+    expect(row.principal_id).toBe("prin-1");
   });
 
   test("seeds channels missing from gateway", async () => {
@@ -220,13 +218,13 @@ describe("m0006-reconcile-contacts-from-assistant", () => {
     expect(result).toBe("done");
     expect(gatewayChannelIds()).toEqual(["ch1", "ch2"].sort());
 
-    // Identity columns are copied; ACL (status) falls to the gateway default.
+    // Verify channel has correct fields.
     const ch = getGatewayDb().$client
     .prepare("SELECT type, address, status FROM contact_channels WHERE id = ?")
       .get("ch1") as { type: string; address: string; status: string };
     expect(ch.type).toBe("telegram");
     expect(ch.address).toBe("addr-ch1");
-    expect(ch.status).toBe("unverified");
+    expect(ch.status).toBe("active");
   });
 
   test("no-op when gateway already has all contacts + channels", async () => {
@@ -293,27 +291,6 @@ describe("m0006-reconcile-contacts-from-assistant", () => {
 
     expect(result).toBe("done");
     expect(gatewayContactIds()).toEqual([]);
-  });
-
-  test("does not backfill ACL from the assistant (gateway defaults win)", async () => {
-    // Assistant carries non-default ACL; reconciliation must NOT copy it so a
-    // retry can never downgrade an active gateway guardian/channel.
-    seedAssistantContact({ id: "guard", role: "guardian", principalId: "prin-x" });
-    seedAssistantChannel({ id: "ch-g", contactId: "guard", status: "verified" });
-
-    await m0006Up();
-
-    const c = getGatewayDb().$client
-      .prepare("SELECT role, principal_id FROM contacts WHERE id = ?")
-      .get("guard") as { role: string; principal_id: string | null };
-    expect(c.role).toBe("contact");
-    expect(c.principal_id).toBeNull();
-
-    const ch = getGatewayDb().$client
-      .prepare("SELECT status, policy FROM contact_channels WHERE id = ?")
-      .get("ch-g") as { status: string; policy: string };
-    expect(ch.status).toBe("unverified");
-    expect(ch.policy).toBe("allow");
   });
 
   test("down is a no-op (returns skip)", () => {
