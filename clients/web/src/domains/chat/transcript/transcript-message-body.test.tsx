@@ -556,6 +556,35 @@ describe("TranscriptMessageBody", () => {
     );
   });
 
+  test("infers non-png MIME types for assistant tool-result images", () => {
+    const jpegData = "/9j/4AAQSkZJRgABAQAAAQABAAD";
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-jpeg",
+      name: "media_generate_image",
+      input: { prompt: "photo" },
+      result: "Generated 1 image",
+      imageDataList: [jpegData],
+      completedAt: 1,
+    };
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-generated-jpeg",
+          role: "assistant",
+          contentBlocks: [toolUseBlock(toolCall)],
+          toolCalls: [toolCall],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const image = container.querySelector("[data-testid='tool-result-image']");
+    expect(image?.getAttribute("src")).toBe(
+      `data:image/jpeg;base64,${jpegData}`,
+    );
+  });
+
   test("a tool + thinking run still renders the boxed activity card", () => {
     // A run with more than one card item (tool + thinking) is NOT a lone tool,
     // so it stays the boxed card rather than collapsing to the inline chip.
