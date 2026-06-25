@@ -116,8 +116,7 @@ function writeVerifiedGatewayChannel(params: {
   };
 
   // Blocked is never reactivated. Revoked is reactivated only on the invite
-  // path (allowRevokedReactivation); otherwise the caller's guard only inspects
-  // the assistant mirror, which may be stale relative to the gateway status.
+  // path (allowRevokedReactivation); otherwise the gateway row stays revoked.
   const reactivatable = allowRevokedReactivation
     ? sql`${gwContactChannels.status} not in ('blocked')`
     : sql`${gwContactChannels.status} not in ('blocked', 'revoked')`;
@@ -296,10 +295,11 @@ export function getGatewayChannelByKey(
  * it handles the verification-specific case only (single channel, no
  * reassignment, no invite binding).
  *
- * Returns `{ verified: false }` when the verification is rejected because the
- * authoritative gateway row (or the assistant mirror) is blocked/revoked, so
- * the caller can suppress the success reply. Returns `{ verified: true }` on
- * the normal activate/insert paths.
+ * Returns `{ verified: false }` when the authoritative gateway row is
+ * blocked/revoked, or when the authoritative gateway write fails, so the caller
+ * suppresses the success reply (the mirror no longer records ACL state, so a
+ * lost gateway write must fail closed). Returns `{ verified: true }` on the
+ * normal activate/insert paths.
  */
 export async function upsertVerifiedContactChannel(params: {
   sourceChannel: string;
@@ -327,13 +327,14 @@ export async function upsertVerifiedContactChannel(params: {
     params.externalUserId;
   const contactDisplayName = displayName ?? username ?? address;
 
-  // Check if a channel for this actor already exists.
+  // Resolve the existing channel's identity (id, parent contact) only. The
+  // ACL/status decision is owned by the gateway pre-check below; cc.status is
+  // used solely to prefer the most-relevant mirror row, not to gate the upsert.
   const existing = await assistantDbQuery<{
     channelId: string;
     contactId: string;
-    channelStatus: string;
   }>(
-    `SELECT cc.id AS channelId, cc.contact_id AS contactId, cc.status AS channelStatus
+    `SELECT cc.id AS channelId, cc.contact_id AS contactId
      FROM contact_channels cc
      WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
      ORDER BY
@@ -366,18 +367,10 @@ export async function upsertVerifiedContactChannel(params: {
   if (existing.length > 0) {
     const row = existing[0];
 
-    // Blocked is never overwritten; revoked only on the invite path
-    // (assistant mirror guard).
-    if (
-      row.channelStatus === "blocked" ||
-      (row.channelStatus === "revoked" && !allowRevokedReactivation)
-    ) {
-      log.warn(
-        { sourceChannel, address, status: row.channelStatus },
-        "Skipping upsert: channel is blocked or revoked",
-      );
-      return { verified: false };
-    }
+    // The block/revoke decision is owned by the authoritative gateway row,
+    // already gated above. The assistant mirror's status is not consulted: it
+    // can lag the gateway (e.g. a gateway reactivation leaves a stale revoked
+    // mirror), and gating on it would falsely reject a gateway-active channel.
 
     // Bind to the invite's target contact when supplied: an invite can attach a
     // redeemer's existing channel to a different contact, so reassign the
@@ -437,13 +430,14 @@ export async function upsertVerifiedContactChannel(params: {
         gatewayRejected = true;
       }
     } catch (gwErr) {
-      // A thrown gateway DB error is an infra failure, not a rejection: the
-      // code already matched, so fall through and activate the assistant mirror
-      // best-effort rather than failing a legitimate verification.
-      log.warn(
+      // The gateway is the source of truth and the mirror no longer records ACL
+      // state, so a thrown write means NO DB recorded an active verified channel.
+      // Fail closed rather than reply success off a stale best-effort mirror.
+      log.error(
         { err: gwErr },
-        "Gateway DB contact channel update dual-write failed",
+        "Gateway DB contact channel update failed; failing verification closed",
       );
+      gatewayRejected = true;
     }
 
     if (gatewayRejected) {
@@ -525,9 +519,14 @@ export async function upsertVerifiedContactChannel(params: {
       gatewayRejected = true;
     }
   } catch (gwErr) {
-    // A thrown gateway DB error is an infra failure, not a rejection: fall
-    // through and create the assistant mirror best-effort.
-    log.warn({ err: gwErr }, "Gateway DB contact create dual-write failed");
+    // The gateway is the source of truth and the mirror no longer records ACL
+    // state, so a thrown write means NO DB recorded an active verified channel.
+    // Fail closed rather than reply success off a stale best-effort mirror.
+    log.error(
+      { err: gwErr },
+      "Gateway DB contact create failed; failing verification closed",
+    );
+    gatewayRejected = true;
   }
 
   if (gatewayRejected) {
