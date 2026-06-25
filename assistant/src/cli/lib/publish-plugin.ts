@@ -302,7 +302,7 @@ export async function postPublishRequest(
   deps: PublishDeps,
 ): Promise<PublishResult> {
   const resp = await deps.fetch(
-    `${deps.platformBaseUrl.replace(/\/+$/, "")}/v1/plugins/publish`,
+    `${deps.platformBaseUrl.replace(/\/+$/, "")}/v1/plugins/publish/`,
     {
       method: "POST",
       headers: {
