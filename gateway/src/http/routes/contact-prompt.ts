@@ -167,8 +167,8 @@ export async function handleContactPromptSubmit(
           .run();
         try {
           await assistantDbRun(
-            `INSERT INTO contacts (id, display_name, role, contact_type, created_at, updated_at)
-             VALUES (?, ?, 'guardian', 'human', ?, ?)`,
+            `INSERT INTO contacts (id, display_name, contact_type, created_at, updated_at)
+             VALUES (?, ?, 'human', ?, ?)`,
             [contactId, effectiveDisplayName, now, now],
           );
         } catch (mirrorErr) {
@@ -355,25 +355,6 @@ export async function handleContactPromptSubmit(
         { channelType, address: normalizedAddress, contactId, channelId },
         "contact-prompt-submit: created new channel",
       );
-    }
-
-    // Re-assert role="guardian" in the best-effort assistant mirror: if the
-    // bootstrap-create mirror INSERT failed, the Phase-2 upsertContact INSERTs
-    // this id with a hardcoded role="contact", downgrading the guardian in the
-    // mirror (gateway stays authoritative, so ACL is unaffected). Heal only
-    // when this request minted the guardian; never fails the request.
-    if (createdNewContact) {
-      try {
-        await assistantDbRun(
-          "UPDATE contacts SET role = 'guardian', updated_at = ? WHERE id = ?",
-          [now, contactId],
-        );
-      } catch (roleErr) {
-        log.warn(
-          { err: roleErr, contactId },
-          "contact-prompt-submit: assistant DB guardian role re-assert failed (best-effort)",
-        );
-      }
     }
   } catch (err) {
     log.error({ err, requestId }, "contact-prompt-submit: DB error");
