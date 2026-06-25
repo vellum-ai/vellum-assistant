@@ -297,7 +297,8 @@ export function SubagentDetailPanel({
         <Typography
           variant="title-medium"
           title={headerTitle}
-          className="min-w-0 shrink truncate text-[var(--content-default)]"
+          // leading-snug: title-medium is line-height:1, so truncate clips the descenders.
+          className="min-w-0 shrink truncate leading-snug text-[var(--content-default)]"
         >
           {headerTitle}
         </Typography>
