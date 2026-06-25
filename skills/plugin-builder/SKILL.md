@@ -89,11 +89,7 @@ If a surface fails to load or fire, see `references/plugins.md` for loader rules
 
 ## Shipping to the catalog
 
-See `references/distribution.md` for the full marketplace manifest schema, CLI commands, and commit-pinning rules. The short version:
-
-1. Open a PR against `vellum-ai/vellum-assistant` adding your entry to `plugins/marketplace.json`.
-2. Pin `source.ref` to a full commit SHA. Tags and branches are rejected.
-3. Wait for the Vellum team's review. The catalog is curated.
+See `references/distribution.md` for the full publishing walkthrough (push to GitHub, add a `marketplace.json` entry with a copy-pasteable template, and what the review checks), plus the manifest schema, CLI commands, and commit-pinning rules.
 
 Once merged, users install by name: `assistant plugins install my-plugin`. The new plugin is picked up automatically.
 
