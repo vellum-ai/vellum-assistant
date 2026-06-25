@@ -371,8 +371,10 @@ export function dbMigrationUnavailableResponse(): Response | null {
 }
 
 export function handleReadyz(): Response {
-  const dbMigrationResponse = dbMigrationUnavailableResponse();
-  if (dbMigrationResponse) return dbMigrationResponse;
+  const dbMigrations = getDbMigrationReadiness();
+  if (dbMigrations.state === "failed") {
+    return dbMigrationUnavailableResponse()!;
+  }
 
   const cesClient = getCesClient();
   if (!cesClient?.isReady()) {
@@ -383,7 +385,11 @@ export function handleReadyz(): Response {
       "CES not ready — pod would be unready if 503 were enabled",
     );
   }
-  return Response.json({ status: "ok", ready: true });
+  return Response.json({
+    status: "ok",
+    ready: true,
+    ...(!dbMigrations.ready ? { dbMigrations } : {}),
+  });
 }
 
 function getIdentity() {

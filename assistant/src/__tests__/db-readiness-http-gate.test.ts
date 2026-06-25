@@ -73,6 +73,20 @@ describe("DB migration readiness HTTP gate", () => {
     expect(body.status).toBe("healthy");
   });
 
+  test("continues serving readiness while migrations are running", async () => {
+    markDbMigrationsRunning();
+    await startServer();
+
+    const response = await fetch(`http://127.0.0.1:${port}/readyz`);
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body.ready).toBe(true);
+    expect((body.dbMigrations as Record<string, unknown>).reason).toBe(
+      "db_migrations_running",
+    );
+  });
+
   test("continues serving config schema while migrations are running", async () => {
     markDbMigrationsRunning();
     await startServer();
@@ -111,9 +125,9 @@ describe("DB migration readiness HTTP gate", () => {
   });
 
   async function startServer(): Promise<void> {
-    port = 20_000 + Math.floor(Math.random() * 1_000);
-    server = new RuntimeHttpServer({ port });
+    server = new RuntimeHttpServer({ port: 0 });
     await server.start();
+    port = server.actualPort;
   }
 
   function url(pathname: string): string {

@@ -1129,8 +1129,8 @@ export async function runDaemon(): Promise<void> {
 
     // Wire up the runtime HTTP server's deferred dependencies. The server
     // itself was bound early in runDaemon (right after the auth signing key
-    // was loaded) so /healthz answers and /readyz reports DB migration
-    // readiness before the live DaemonServer / CES / relay handlers attach.
+    // was loaded) so /healthz answers and /readyz stays available while DB
+    // migrations run, before the live DaemonServer / CES / relay handlers attach.
     // They're module-level state, so they're effective even when the HTTP
     // server failed to bind (IPC clients still work).
     registerSecretsDeps({
