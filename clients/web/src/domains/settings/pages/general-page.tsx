@@ -13,7 +13,10 @@ import {
     AssistantStatusPanel,
     useAssistantWithHealthz,
 } from "@/domains/settings/components/assistant-status-panel";
-import { AssistantUpgrades } from "@/domains/settings/components/assistant-upgrades";
+import {
+    AssistantUpgrades,
+    LocalAssistantUpgrades,
+} from "@/domains/settings/components/assistant-upgrades";
 import { ComposerSendCard } from "@/domains/settings/components/composer-send-card";
 import { DeleteAccountSection } from "@/domains/settings/components/delete-account-section";
 import { IOSAppCard } from "@/domains/settings/components/ios-app-card";
@@ -23,6 +26,7 @@ import { PreviewReleaseChannel } from "@/domains/settings/components/preview-rel
 import { ResizeCard } from "@/domains/settings/components/resize-card";
 import { RetireAssistant } from "@/domains/settings/components/retire-assistant";
 import { TimezonePicker } from "@/domains/settings/components/timezone-picker";
+import { TeleportCard } from "@/domains/settings/teleport/teleport-card";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -38,6 +42,7 @@ import {
     getSelectedAssistant,
     isLocalAssistant,
     isLocalMode,
+    isRemoteGatewayMode,
 } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -221,6 +226,7 @@ export function GeneralPage() {
     refetchUntilResized,
   } = useAssistantWithHealthz();
   const multiPlatformAssistant = useClientFeatureFlagStore.use.multiPlatformAssistant();
+  const teleportEnabled = useClientFeatureFlagStore.use.teleport();
   const settingsSleepPolicy = useAssistantFeatureFlagStore.use.settingsSleepPolicy();
   const isAuthenticated = useIsAuthenticated();
   const navigate = useNavigate();
@@ -234,8 +240,11 @@ export function GeneralPage() {
 
   const platformAssistant = assistant?.is_local && !isLocalMode() ? null : assistant;
   const selected = getSelectedAssistant();
-  const canRetireLocally =
+  const hasSelectedLocalAssistant =
     isLocalMode() && !!assistant && !!selected && isLocalAssistant(selected);
+  const canRetireLocally = hasSelectedLocalAssistant;
+  const canUpgradeLocally =
+    hasSelectedLocalAssistant && !isRemoteGatewayMode();
 
   useEffect(() => {
     if (!assistant || window.location.hash !== "#storage-resources") {
@@ -308,6 +317,8 @@ export function GeneralPage() {
 
       {isElectron() && <LaunchAtLoginCard />}
 
+      {teleportEnabled && isElectron() && <TeleportCard />}
+
       {infraGate === "full" && platformAssistant && (
         <DetailCard title="Software Updates">
           <AssistantUpgrades
@@ -330,7 +341,22 @@ export function GeneralPage() {
           />
         </DetailCard>
       )}
-      {infraGate === "disabled" && (
+      {canUpgradeLocally && assistant && (
+        <DetailCard title="Software Updates">
+          <LocalAssistantUpgrades
+            assistantId={assistant.id}
+            currentVersion={
+              healthz?.version ??
+              assistant.current_release_version ??
+              null
+            }
+            onUpgradeComplete={() => {
+              void refetch();
+            }}
+          />
+        </DetailCard>
+      )}
+      {infraGate === "disabled" && !canUpgradeLocally && (
         <DetailCard title="Software Updates">
           <PlatformLoginNotice>
             Log in to the Vellum platform to manage software updates.

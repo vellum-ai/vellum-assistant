@@ -436,6 +436,108 @@ describe("installPlugin — marketplace resolution", () => {
     expect(meta.contentHash).toMatch(/^v2:[0-9a-f]{64}$/);
   });
 
+  test("installs a plugin rooted at a sub-path, copying only that subtree", async () => {
+    // GIVEN a marketplace entry whose source pins a directory *within* a repo
+    // (a monorepo that ships several plugins) rather than the repo root.
+    const NESTED_SHA = "0f".repeat(20);
+    const NESTED_MANIFEST = {
+      name: "vellum-assistant",
+      plugins: [
+        {
+          name: "nested-plugin",
+          source: {
+            source: "github",
+            repo: "example-org/monorepo",
+            path: "packages/my-plugin",
+            ref: NESTED_SHA,
+          },
+          description: "A plugin that lives in a monorepo sub-directory.",
+        },
+      ],
+    };
+    const fetch = makeContentsFetch({ tree: {}, manifest: NESTED_MANIFEST });
+    // The clone carries files both at the repo root and under the pinned
+    // sub-path; only the sub-path subtree should be materialized.
+    const runGit = fakeGitRunner({
+      tree: {
+        "package.json": '{"name":"monorepo-root"}',
+        "README.md": "# monorepo root",
+        "packages/my-plugin/package.json": '{"name":"nested-plugin"}',
+        "packages/my-plugin/README.md": "# nested plugin",
+        "packages/my-plugin/hooks/init.ts": "export default async () => {};",
+        "packages/other-plugin/package.json": '{"name":"other"}',
+      },
+      commit: NESTED_SHA,
+    });
+
+    // WHEN we install by name
+    const result = await installPlugin(
+      { name: "nested-plugin", ref: "main" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN only the sub-path subtree lands, rooted at <pluginsDir>/nested-plugin
+    const target = join(pluginsDir, "nested-plugin");
+    expect(result.target).toBe(target);
+    expect(readFileSync(join(target, "package.json"), "utf-8")).toBe(
+      '{"name":"nested-plugin"}',
+    );
+    expect(existsSync(join(target, "README.md"))).toBe(true);
+    expect(existsSync(join(target, "hooks", "init.ts"))).toBe(true);
+    // AND the repo-root and sibling-package files are NOT copied in — the
+    // install is scoped to the pinned directory.
+    expect(result.fileCount).toBe(3);
+    expect(readFileSync(join(target, "package.json"), "utf-8")).not.toContain(
+      "monorepo-root",
+    );
+    expect(existsSync(join(target, "packages"))).toBe(false);
+
+    // AND provenance records the sub-path so an upgrade/diff re-resolves the
+    // same directory rather than the repo root.
+    const meta = readInstallMeta(target);
+    expect(meta?.source.owner).toBe("example-org");
+    expect(meta?.source.repo).toBe("monorepo");
+    expect(meta?.source.path).toBe("packages/my-plugin");
+    expect(meta?.source.ref).toBe(NESTED_SHA);
+  });
+
+  test("a sub-path that does not exist in the clone surfaces a clean not-found", async () => {
+    // GIVEN an entry pinning a directory the cloned ref doesn't contain
+    const MISSING_SHA = "1a".repeat(20);
+    const MISSING_PATH_MANIFEST = {
+      name: "vellum-assistant",
+      plugins: [
+        {
+          name: "nested-plugin",
+          source: {
+            source: "github",
+            repo: "example-org/monorepo",
+            path: "packages/does-not-exist",
+            ref: MISSING_SHA,
+          },
+        },
+      ],
+    };
+    const fetch = makeContentsFetch({
+      tree: {},
+      manifest: MISSING_PATH_MANIFEST,
+    });
+    const runGit = fakeGitRunner({
+      tree: { "package.json": '{"name":"monorepo-root"}' },
+      commit: MISSING_SHA,
+    });
+
+    // WHEN we install
+    // THEN the absent sub-path yields a hard not-found and nothing is staged
+    await expect(
+      installPlugin(
+        { name: "nested-plugin", ref: "main" },
+        { fetch, runGit, workspacePluginsDir: pluginsDir },
+      ),
+    ).rejects.toBeInstanceOf(PluginNotFoundError);
+    expect(readdirSync(pluginsDir)).toEqual([]);
+  });
+
   test("refuses to install when the checked-out commit differs from the pinned SHA", async () => {
     // GIVEN a clone whose resolved HEAD does not match the manifest's pinned
     // commit SHA — i.e. the upstream object served something unexpected

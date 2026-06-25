@@ -1,3 +1,13 @@
+import type { ChannelId as CanonicalChannelId } from "@vellumai/service-contracts/channels";
+
+/**
+ * Channels the gateway can ingress — a strict subset of the canonical
+ * `ChannelId` set. The gateway never sees `platform` (internal control plane),
+ * and the admission-policy routes rely on that omission: a request for a
+ * `platform` policy fails the `isChannelId` gate and returns 403. The
+ * `satisfies` clause asserts every entry is a real canonical channel, so the
+ * gateway can never list one the assistant doesn't recognize.
+ */
 export const CHANNEL_IDS = [
   "telegram",
   "phone",
@@ -6,7 +16,7 @@ export const CHANNEL_IDS = [
   "slack",
   "email",
   "a2a",
-] as const;
+] as const satisfies readonly CanonicalChannelId[];
 
 export type ChannelId = (typeof CHANNEL_IDS)[number];
 
@@ -15,10 +25,6 @@ export function isChannelId(value: unknown): value is ChannelId {
     typeof value === "string" &&
     (CHANNEL_IDS as readonly string[]).includes(value)
   );
-}
-
-export function parseChannelId(value: unknown): ChannelId | null {
-  return isChannelId(value) ? value : null;
 }
 
 export const INTERFACE_IDS = [

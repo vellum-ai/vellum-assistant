@@ -96,6 +96,8 @@ const addMessageMock = mock(
 );
 
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   addMessage: (
     conversationId: string,
     role: string,
@@ -125,6 +127,18 @@ mock.module("../runtime/trust-context-resolver.js", () => ({
     ...(ctx as Record<string, unknown>),
     sourceChannel,
   }),
+}));
+
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => [
+    {
+      channelType: "vellum",
+      contactId: "guardian-contact",
+      principalId: "test-user",
+      address: "test-user",
+      status: "active",
+    },
+  ],
 }));
 
 mock.module("../runtime/guardian-reply-router.js", () => ({

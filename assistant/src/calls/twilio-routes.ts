@@ -55,6 +55,7 @@ import {
   updateCallSession,
 } from "./call-store.js";
 import { getChannelAdmissionPolicy } from "./channel-admission-reader.js";
+import { getPhoneCallerVerdict } from "./inbound-trust-reader.js";
 import { routeSetup } from "./relay-setup-router.js";
 import { resolveCallHints } from "./stt-hints.js";
 import { resolveTelephonySttRouting } from "./telephony-stt-routing.js";
@@ -298,7 +299,7 @@ async function processVoiceWebhook(
       "Inbound voice webhook — creating/reusing session",
     );
 
-    const { session } = createInboundVoiceSession({
+    const { session } = await createInboundVoiceSession({
       callSid,
       fromNumber: callerFrom,
       toNumber: callerTo,
@@ -484,12 +485,21 @@ async function buildVoiceWebhookTwiml(
   // admits the caller.
   const admissionPolicy = await getChannelAdmissionPolicy("phone");
 
+  // Verdict-first caller trust so this preflight matches handleSetup's ACL.
+  // routeSetup uses it when present and not resolutionFailed, else falls back
+  // to local resolution. The reader returns null on failure, keeping the
+  // local path on a gateway blip.
+  const isInbound = sessionContext?.direction !== "outbound";
+  const otherPartyNumber = isInbound ? from : to;
+  const verdict = await getPhoneCallerVerdict(otherPartyNumber);
+
   const { outcome } = routeSetup({
     callSessionId,
     session: session ?? null,
     from,
     to,
     admissionPolicy,
+    verdict,
   });
 
   // The media-stream transport supports normal_call and deny (which speaks
@@ -522,7 +532,7 @@ async function buildVoiceWebhookTwiml(
 /**
  * Build ConversationRelay TwiML for Twilio-native STT providers.
  */
-function buildConversationRelayTwiml(
+async function buildConversationRelayTwiml(
   callSessionId: string,
   profile: ReturnType<typeof resolveVoiceQualityProfile>,
   sessionContext: {
@@ -535,8 +545,8 @@ function buildConversationRelayTwiml(
   } | null,
   verificationSessionId: string | null | undefined,
   sttAttrs: { transcriptionProvider: string; speechModel: string | undefined },
-): string {
-  const rawHints = resolveCallHints(sessionContext, profile.hints);
+): Promise<string> {
+  const rawHints = await resolveCallHints(sessionContext, profile.hints);
 
   const speechConfig: TwilioRelaySpeechConfig = {
     transcriptionProvider: sttAttrs.transcriptionProvider,

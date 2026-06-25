@@ -112,9 +112,9 @@ type VerificationCallResult =
  * so the caller can apply side-effects (state mutations, TTS, session
  * updates) without this function needing access to the relay connection.
  */
-export function attemptVerificationCode(
+export async function attemptVerificationCode(
   params: VerificationCallParams,
-): VerificationCallResult {
+): Promise<VerificationCallResult> {
   const {
     verificationAssistantId,
     verificationFromNumber,
@@ -142,7 +142,7 @@ export function attemptVerificationCode(
     let canonicalPrincipal: string | undefined;
 
     if (result.verificationType === "guardian") {
-      const existingBinding = getGuardianBinding(
+      const existingBinding = await getGuardianBinding(
         verificationAssistantId,
         "phone",
       );
@@ -155,7 +155,7 @@ export function attemptVerificationCode(
         };
       } else {
         // Resolve canonical principal from the vellum channel binding
-        const vellumBinding = getGuardianBinding(
+        const vellumBinding = await getGuardianBinding(
           verificationAssistantId,
           "vellum",
         );
@@ -224,7 +224,8 @@ interface InviteRedemptionParams {
   inviteRedemptionAssistantId: string;
   inviteRedemptionFromNumber: string;
   enteredCode: string;
-  inviteRedemptionGuardianName: string | null;
+  /** Resolved guardian label used in the failure TTS message. */
+  guardianLabel: string;
 }
 
 type InviteRedemptionResult =
@@ -251,7 +252,7 @@ export async function attemptInviteCodeRedemption(
     inviteRedemptionAssistantId,
     inviteRedemptionFromNumber,
     enteredCode,
-    inviteRedemptionGuardianName,
+    guardianLabel,
   } = params;
 
   const result = await redeemVoiceInviteCode({
@@ -270,9 +271,8 @@ export async function attemptInviteCodeRedemption(
     };
   }
 
-  const displayGuardian = inviteRedemptionGuardianName ?? "your contact";
   return {
     outcome: "failure",
-    ttsMessage: `Sorry, the code you provided is incorrect or has since expired. Please ask ${displayGuardian} for a new code. Goodbye.`,
+    ttsMessage: `Sorry, the code you provided is incorrect or has since expired. Please ask ${guardianLabel} for a new code. Goodbye.`,
   };
 }

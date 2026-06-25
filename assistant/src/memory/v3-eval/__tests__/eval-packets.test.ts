@@ -11,6 +11,8 @@ import {
   type RawMsgRow,
   renderMemorySet,
   resolveDir,
+  selectPinnedTurns,
+  turnConversationId,
 } from "../eval-packets.js";
 
 /** Build a stored content-block JSON string the way the DB holds it. */
@@ -244,5 +246,41 @@ describe("resolveDir", () => {
     expect(() => resolveDir("/ws", "../outside")).toThrow(
       /within the workspace/,
     );
+  });
+});
+
+describe("turn pinning (reproducible re-runs)", () => {
+  const mk = (turn: string, createdAt: number) => ({
+    turn,
+    conversationId: turnConversationId(turn),
+    userText: `u-${turn}`,
+    replyText: `r-${turn}`,
+    context: "",
+    createdAt,
+  });
+  const all = [mk("c1:100", 100), mk("c1:102", 102), mk("c2:200", 200)];
+
+  test("turnConversationId splits on the LAST colon (ids keep colons)", () => {
+    expect(turnConversationId("c1:100")).toBe("c1");
+    // A UUID conversation id has no colons; the createdAt is the final segment.
+    expect(turnConversationId("019d1e04-cb20-719a:1781916529975")).toBe(
+      "019d1e04-cb20-719a",
+    );
+  });
+
+  test("keeps exactly the pinned turns, in pinned order", () => {
+    const picked = selectPinnedTurns(all, ["c2:200", "c1:100"]);
+    expect(picked.map((t) => t.turn)).toEqual(["c2:200", "c1:100"]);
+  });
+
+  test("drops pinned ids that no longer exist (count surfaces the loss)", () => {
+    const picked = selectPinnedTurns(all, ["c1:100", "c9:999", "c1:102"]);
+    // c9:999 was deleted since the ids were captured — dropped, not faked.
+    expect(picked.map((t) => t.turn)).toEqual(["c1:100", "c1:102"]);
+    expect(picked).toHaveLength(2);
+  });
+
+  test("an empty pin set selects nothing", () => {
+    expect(selectPinnedTurns(all, [])).toEqual([]);
   });
 });

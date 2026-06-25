@@ -51,6 +51,7 @@ import {
   primeLocalGatewayConnectionWithRepair,
   syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
+import { bootstrapLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 import { listAssistants } from "@/assistant/api";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
@@ -63,6 +64,8 @@ import {
   resolveServerConsent,
   TOS_CONSENT_VERSION,
   PRIVACY_CONSENT_VERSION,
+  ANALYTICS_CONSENT_VERSION,
+  DIAGNOSTICS_CONSENT_VERSION,
 } from "@/utils/onboarding-cleanup";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import {
@@ -76,6 +79,7 @@ import {
 import { clearUserScopedStorage } from "@/lib/auth/session-cleanup";
 import { subscribe } from "@/lib/event-bus";
 import { isElectron } from "@/runtime/is-electron";
+import { clearLocalPlatformSession } from "@/runtime/local-mode-host";
 import {
   isNativePlatform,
   isOAuthFlowInFlight,
@@ -319,7 +323,9 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
         // opted-in user whose acceptance lives only in the per-device cache
         // isn't left with Sentry disabled. The live-session requirement still
         // applies via sentry-control's composed gate.
-        setDiagnosticsReportingGate(store.shareDiagnostics && diagnosticsCurrent);
+        setDiagnosticsReportingGate(
+          store.shareDiagnostics && diagnosticsCurrent,
+        );
         if (deviceConsent.tos && deviceConsent.privacy) {
           tos = true;
           privacy = true;
@@ -332,13 +338,13 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
             ai_data_sharing_accepted_version: PRIVACY_CONSENT_VERSION,
             ...(analyticsCurrent
               ? {
-                  share_analytics_accepted_version: PRIVACY_CONSENT_VERSION,
+                  share_analytics_accepted_version: ANALYTICS_CONSENT_VERSION,
                   share_analytics: store.shareAnalytics,
                 }
               : {}),
             ...(diagnosticsCurrent
               ? {
-                  share_diagnostics_accepted_version: PRIVACY_CONSENT_VERSION,
+                  share_diagnostics_accepted_version: DIAGNOSTICS_CONSENT_VERSION,
                   share_diagnostics: store.shareDiagnostics,
                 }
               : {}),
@@ -351,7 +357,10 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       store.setAnalyticsConsentCurrent(analyticsCurrent);
       store.setDiagnosticsConsentCurrent(diagnosticsCurrent);
       persistConsentForUser(nextUserId, tos, privacy);
-      persistToggleConsent(nextUserId, { analyticsCurrent, diagnosticsCurrent });
+      persistToggleConsent(nextUserId, {
+        analyticsCurrent,
+        diagnosticsCurrent,
+      });
       syncOrganizationState(nextUserId);
       return;
     } catch {
@@ -471,6 +480,7 @@ function probePlatformSession(
           platformSessionRestoredOffline: false,
           ...userUpdate,
         });
+        bootstrapLocalAssistantPlatformIdentity();
       } else if (options.clearOnFailure) {
         set({ platformSession: "absent" });
       }
@@ -739,6 +749,14 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     await setSelectedAssistant(assistantId);
     set(authenticatedLocalUser());
     await lifecycleService.checkAssistant();
+    if (
+      isConfirmedPlatformSession(
+        get().platformSession,
+        get().platformSessionRestoredOffline,
+      )
+    ) {
+      bootstrapLocalAssistantPlatformIdentity(assistantId);
+    }
     probePlatformSessionIfReachable(set);
   },
 
@@ -878,9 +896,9 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     } finally {
       // Clean up session token in the main process.
       if (isElectron()) await window.vellum?.auth?.signOut?.();
-      if (isLocalMode()) {
-        document.cookie =
-          "sessionid=; path=/; samesite=lax; expires=Thu, 01 Jan 1970 00:00:00 UTC";
+      // Web loopback: drop the token the local server's proxy authenticates with.
+      if (isLocalMode() && !isElectron()) {
+        await clearLocalPlatformSession();
       }
       void deleteBiometricToken();
       clearOrganization();

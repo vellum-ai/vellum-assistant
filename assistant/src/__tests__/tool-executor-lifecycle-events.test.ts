@@ -78,6 +78,8 @@ mock.module("../permissions/checker.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   createConversation: (title: string) => ({ id: "conversation-1", title }),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));

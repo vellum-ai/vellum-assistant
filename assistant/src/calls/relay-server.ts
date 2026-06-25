@@ -8,15 +8,17 @@
 
 import { randomInt } from "node:crypto";
 
-import type { AdmissionPolicy } from "@vellumai/gateway-client";
+import type { AdmissionPolicy, TrustVerdict } from "@vellumai/gateway-client";
 import type { ServerWebSocket } from "bun";
 
 import {
-  findGuardianForChannel,
-  listGuardianChannels,
-} from "../contacts/contact-store.js";
+  getGuardianDelivery,
+  getGuardianDeliveryFresh,
+  voiceGuardianDisplayName,
+} from "../contacts/guardian-delivery-reader.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import { addMessage } from "../memory/conversation-crud.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
@@ -26,6 +28,11 @@ import {
   resolveActorTrust,
   toTrustContext,
 } from "../runtime/actor-trust-resolver.js";
+import {
+  trustContextFromVerdict,
+  verdictHasMemberIdentity,
+  verdictMemberUnresolvable,
+} from "../runtime/trust-verdict-consumer.js";
 import {
   composeVerificationVoice,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
@@ -51,6 +58,10 @@ import { ConversationRelayTransport } from "./call-transport.js";
 import { getChannelAdmissionPolicy } from "./channel-admission-reader.js";
 import { finalizeCall } from "./finalize-call.js";
 import {
+  getInboundTrustVerdict,
+  getPhoneCallerVerdict,
+} from "./inbound-trust-reader.js";
+import {
   classifyWaitUtterance,
   emitAccessRequestCallbackHandoff,
   scheduleNextHeartbeat,
@@ -70,6 +81,17 @@ import {
 const log = getLogger("relay-server");
 const UUID_SHAPED_NAME =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/**
+ * Return the first whitespace-delimited token of a name, or `null` when the
+ * input is null/blank. Used for greetings so "Carolina Flaherty" -> "Carolina".
+ */
+function firstToken(name: string | null | undefined): string | null {
+  if (!name) return null;
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  return trimmed.split(/\s+/)[0] ?? null;
+}
 
 // ── ConversationRelay message types ──────────────────────────────────
 
@@ -220,8 +242,7 @@ export class RelayConnection {
   private inviteRedemptionAssistantId: string | null = null;
   private inviteRedemptionFromNumber: string | null = null;
   private inviteRedemptionCodeLength = 6;
-  private inviteRedemptionFriendName: string | null = null;
-  private inviteRedemptionGuardianName: string | null = null;
+  private inviteRedemptionInviteeName: string | null = null;
 
   // In-call guardian approval wait state (friend-initiated)
   private accessRequestWaitActive = false;
@@ -242,6 +263,10 @@ export class RelayConnection {
   private accessRequestWaitStartedAt: number = 0;
   private heartbeatSequence = 0;
 
+  // Guardian displayName primed from the gateway binding at setup, read
+  // synchronously by the heartbeat-driven wait-label path.
+  private primedGuardianDisplayName: string | undefined;
+
   // In-wait prompt handling state
   private lastInWaitReplyAt = 0;
   private static readonly IN_WAIT_REPLY_COOLDOWN_MS = 3000;
@@ -250,6 +275,12 @@ export class RelayConnection {
   private callbackOfferMade = false;
   private callbackOptIn = false;
   private callbackHandoffNotified = false;
+
+  // True while mid-call trust is being re-resolved (async). handlePrompt defers
+  // prompts to trustReResolvePending so a verified caller can't start a turn
+  // under the stale pre-verification trust context during the await window.
+  private trustReResolving = false;
+  private trustReResolvePending: RelayPromptMessage[] = [];
 
   constructor(ws: ServerWebSocket<RelayWebSocketData>, callSessionId: string) {
     this.ws = ws;
@@ -571,12 +602,33 @@ export class RelayConnection {
     const session = getCallSession(this.callSessionId);
     this.recordSetupBookkeeping(session, msg);
 
+    // Prime the guardian displayName and warm the phone-channel guardian-
+    // delivery cache before routeSetup's SYNC resolveActorTrust fallback. That
+    // fallback reads the IO-free cache snapshot keyed per channel-filter; daemon
+    // startup warms only `vellum`, so a cold-process phone call would otherwise
+    // misclassify a guardian during a gateway verdict blip. Read fresh: gateway-
+    // side binding writes don't invalidate the daemon cache, so a stale empty
+    // snapshot from an earlier setup would survive the TTL otherwise. Both are
+    // independent IPC reads on different cache keys, so run them concurrently
+    // off the sync resolver's hot path.
+    await Promise.all([
+      this.primeGuardianDisplayName(),
+      getGuardianDeliveryFresh({ channelTypes: ["phone"] }),
+    ]);
+
     // Resolve the phone channel's inbound admission floor. The reader fails
     // open to `null` by contract, so a transport hiccup admits the caller.
     const admissionPolicy = await getChannelAdmissionPolicy("phone");
 
+    // Verdict-first caller trust. routeSetup uses it when present and not
+    // resolutionFailed, else falls back to local resolution. The reader
+    // returns null on failure, so a gateway blip keeps the local path.
+    const isInbound = session?.initiatedFromConversationId == null;
+    const otherPartyNumber = isInbound ? msg.from : msg.to;
+    const verdict = await getPhoneCallerVerdict(otherPartyNumber);
+
     try {
-      await this.routeSetupOutcome(msg, session, admissionPolicy);
+      await this.routeSetupOutcome(msg, session, admissionPolicy, verdict);
     } catch (err) {
       // Never leave the connection stranded in "setting_up": a setup that
       // throws before reaching a terminal outcome would otherwise drop every
@@ -605,6 +657,7 @@ export class RelayConnection {
     msg: RelaySetupMessage,
     session: ReturnType<typeof getCallSession>,
     admissionPolicy: AdmissionPolicy | null,
+    verdict: TrustVerdict | null,
   ): Promise<void> {
     const { outcome, resolved } = routeSetup({
       callSessionId: this.callSessionId,
@@ -613,6 +666,7 @@ export class RelayConnection {
       to: msg.to,
       customParameters: msg.customParameters,
       admissionPolicy,
+      verdict,
     });
 
     const initialTrustContext = toTrustContext(
@@ -650,8 +704,7 @@ export class RelayConnection {
         this.startInviteRedemption(
           outcome.assistantId,
           outcome.fromNumber,
-          outcome.friendName,
-          outcome.guardianName,
+          outcome.inviteeName,
           !resolved.isInbound,
         );
         return;
@@ -771,7 +824,7 @@ export class RelayConnection {
       from,
       trustClass: resolved.actorTrust.trustClass,
       channelId: resolved.actorTrust.memberRecord?.channel.id,
-      memberPolicy: resolved.actorTrust.memberRecord?.channel.policy,
+      memberPolicy: resolved.actorTrust.memberRecord?.policy,
     });
     this.connectionState = "disconnecting";
     updateCallSession(this.callSessionId, {
@@ -863,56 +916,156 @@ export class RelayConnection {
   }
 
   /**
+   * Re-resolve caller trust after a mid-call verification/activation. Prefers
+   * the gateway verdict (authoritative right after the gateway updated the
+   * binding); falls back to local resolution on a missing/failed/unusable
+   * verdict so a blip never drops the call. Mirrors the setup path's
+   * verdict-first-with-fallback condition.
+   */
+  private async resolveMidCallTrustContext(
+    assistantId: string,
+    fromNumber: string,
+  ): Promise<TrustContext> {
+    const verdict = await getInboundTrustVerdict({
+      channelType: "phone",
+      actorExternalId: fromNumber,
+    });
+
+    // Only a MEMBERLESS unknown verdict is treated as a stale gateway view and
+    // falls back to local: the caller was just activated, and invite redemption
+    // writes the channel assistant-side, so the gateway may not see the member
+    // yet — local resolution has it. A MEMBERFUL unknown verdict (blocked/revoked
+    // member, carrying contactId/channelId) is honored so its deny ACL is
+    // enforced; falling back could lose the gateway's member status if local
+    // state is stale.
+    const memberlessUnknown =
+      verdict?.trustClass === "unknown" && !verdictHasMemberIdentity(verdict);
+    const usable =
+      verdict &&
+      !verdict.resolutionFailed &&
+      !verdictMemberUnresolvable(verdict) &&
+      !memberlessUnknown;
+
+    if (usable) {
+      return trustContextFromVerdict(verdict, {
+        sourceChannel: "phone",
+        conversationExternalId: fromNumber,
+      });
+    }
+
+    // Warm the phone-channel guardian-delivery cache before the SYNC
+    // resolveActorTrust fallback, which reads the IO-free per-channel snapshot
+    // that daemon startup leaves cold for `phone`. Read fresh: gateway-side
+    // binding writes don't invalidate the daemon cache, so a stale empty
+    // snapshot would otherwise survive the TTL and misclassify the guardian.
+    await getGuardianDeliveryFresh({ channelTypes: ["phone"] });
+
+    return toTrustContext(
+      resolveActorTrust({
+        assistantId,
+        sourceChannel: "phone",
+        conversationExternalId: fromNumber,
+        actorExternalId: fromNumber,
+      }),
+      fromNumber,
+    );
+  }
+
+  /**
+   * Re-resolve mid-call trust and install it on the controller, deferring any
+   * prompt that arrives during the async window. Guards the gap between
+   * connectionState flipping to "connected" and the upgraded context landing so
+   * a verified caller never starts a turn under the stale pre-verification
+   * trust. Clears the guard in a finally and flushes buffered prompts under the
+   * new context, so an IPC error can't wedge the call.
+   */
+  private async reResolveAndApplyTrustContext(
+    assistantId: string,
+    fromNumber: string,
+  ): Promise<void> {
+    if (!this.controller) return;
+    this.trustReResolving = true;
+    try {
+      const context = await this.resolveMidCallTrustContext(
+        assistantId,
+        fromNumber,
+      );
+      this.controller.setTrustContext(context);
+    } finally {
+      this.trustReResolving = false;
+      this.flushDeferredPrompts();
+    }
+  }
+
+  /**
+   * Replay prompts buffered while trust was re-resolving. Runs after the
+   * upgraded context is installed so deferred utterances are answered under the
+   * correct trust.
+   */
+  private flushDeferredPrompts(): void {
+    if (this.trustReResolvePending.length === 0) return;
+    const pending = this.trustReResolvePending;
+    this.trustReResolvePending = [];
+    for (const msg of pending) {
+      void this.handlePrompt(msg);
+    }
+  }
+
+  /**
    * Shared post-activation handoff for all trusted-contact success paths
    * (access-request approval, invite redemption, verification code).
    * Activates the caller, updates guardian context, delivers deterministic
    * transition copy, and marks the next utterance as opening-ack so the
    * LLM continues naturally.
    */
-  private continueCallAfterTrustedContactActivation(params: {
+  private async continueCallAfterTrustedContactActivation(params: {
     assistantId: string;
     fromNumber: string;
     activationReason?:
       | "invite_redeemed"
       | "access_approved"
       | "trusted_contact_verified";
-    friendName?: string;
-    guardianName?: string;
-  }): void {
+    /**
+     * Display name resolved from the bound contact (or, for outbound invite
+     * calls, the session's recorded invitee name). Greeting uses only the
+     * first whitespace-delimited token; an empty/blank value triggers the
+     * neutral "Hi there" greeting rather than substituting the channel
+     * address.
+     */
+    inviteeName?: string | null;
+  }): Promise<void> {
     const { assistantId, fromNumber } = params;
 
     // Contact activation is handled by the gateway — the assistant no
     // longer writes contact/channel records on inbound voice calls.
 
-    const updatedTrust = resolveActorTrust({
-      assistantId,
-      sourceChannel: "phone",
-      conversationExternalId: fromNumber,
-      actorExternalId: fromNumber,
-    });
+    // Reach connected and clear wait/verification flags before re-resolving
+    // trust, so a prompt buffered during re-resolution flushes onto the
+    // real-turn path, not the verification/wait branches.
+    this.connectionState = "connected";
+    this.verificationSessionActive = false;
+    this.inviteRedemptionActive = false;
+    this.accessRequestWaitActive = false;
+    updateCallSession(this.callSessionId, { status: "in_progress" });
 
     if (this.controller) {
-      this.controller.setTrustContext(toTrustContext(updatedTrust, fromNumber));
+      await this.reResolveAndApplyTrustContext(assistantId, fromNumber);
     }
-
-    this.connectionState = "connected";
-    updateCallSession(this.callSessionId, { status: "in_progress" });
 
     const guardianLabel = this.resolveGuardianLabel();
     let handoffText: string;
 
     if (params.activationReason === "invite_redeemed") {
-      const name = params.friendName;
+      const firstName = firstToken(params.inviteeName);
       const assistantName = this.resolveAssistantLabel();
-      const gLabel = params.guardianName || guardianLabel;
-      if (name) {
+      if (firstName) {
         handoffText = assistantName
-          ? `Great, I've verified that you are ${name}. It's nice to meet you! I'm ${assistantName}, ${gLabel}'s assistant. How can I help?`
-          : `Great, I've verified that you are ${name}. It's nice to meet you! How can I help?`;
+          ? `Great, I've verified that you are ${firstName}. It's nice to meet you! I'm ${assistantName}, ${guardianLabel}'s assistant. How can I help?`
+          : `Great, I've verified that you are ${firstName}. It's nice to meet you! How can I help?`;
       } else {
         handoffText = assistantName
-          ? `Great, I've verified your identity. It's nice to meet you! I'm ${assistantName}, ${gLabel}'s assistant. How can I help?`
-          : `Great, I've verified your identity. It's nice to meet you! How can I help?`;
+          ? `Hi there! I'm ${assistantName}, ${guardianLabel}'s assistant. How can I help?`
+          : `Hi there! How can I help?`;
       }
     } else {
       handoffText = `Great! ${guardianLabel} said I can speak with you. How can I help?`;
@@ -1031,7 +1184,7 @@ export class RelayConnection {
     const assistantId = this.verificationAssistantId;
     const fromNumber = this.verificationFromNumber;
 
-    const result = attemptVerificationCode({
+    const result = await attemptVerificationCode({
       verificationAssistantId: assistantId,
       verificationFromNumber: fromNumber,
       enteredCode,
@@ -1077,15 +1230,7 @@ export class RelayConnection {
 
         // Update trust context on the controller so the LLM knows this is the guardian
         if (this.controller) {
-          const verifiedActorTrust = resolveActorTrust({
-            assistantId,
-            sourceChannel: "phone",
-            conversationExternalId: fromNumber,
-            actorExternalId: fromNumber,
-          });
-          this.controller.setTrustContext(
-            toTrustContext(verifiedActorTrust, fromNumber),
-          );
+          await this.reResolveAndApplyTrustContext(assistantId, fromNumber);
         }
 
         // Mark session as in-progress and transition to guardian conversation
@@ -1102,7 +1247,7 @@ export class RelayConnection {
             );
         }
       } else if (result.verificationType === "trusted_contact") {
-        this.continueCallAfterTrustedContactActivation({
+        await this.continueCallAfterTrustedContactActivation({
           assistantId,
           fromNumber,
           activationReason: "trusted_contact_verified",
@@ -1111,15 +1256,7 @@ export class RelayConnection {
         // Inbound guardian verification: binding already handled above,
         // proceed to normal call flow.
         if (this.controller) {
-          const verifiedActorTrust = resolveActorTrust({
-            assistantId,
-            sourceChannel: "phone",
-            conversationExternalId: fromNumber,
-            actorExternalId: fromNumber,
-          });
-          this.controller.setTrustContext(
-            toTrustContext(verifiedActorTrust, fromNumber),
-          );
+          await this.reResolveAndApplyTrustContext(assistantId, fromNumber);
           this.startNormalCallFlow(this.controller, true);
         }
       }
@@ -1199,16 +1336,14 @@ export class RelayConnection {
   private startInviteRedemption(
     assistantId: string,
     fromNumber: string,
-    friendName: string | null,
-    guardianName: string | null,
+    inviteeName: string | null,
     isOutbound: boolean,
   ): void {
     this.inviteRedemptionActive = true;
     this.inviteRedemptionInFlight = false;
     this.inviteRedemptionAssistantId = assistantId;
     this.inviteRedemptionFromNumber = fromNumber;
-    this.inviteRedemptionFriendName = friendName;
-    this.inviteRedemptionGuardianName = guardianName;
+    this.inviteRedemptionInviteeName = inviteeName;
     this.connectionState = "verification_pending";
     this.verificationAttempts = 0;
     this.verificationMaxAttempts = 1;
@@ -1221,8 +1356,8 @@ export class RelayConnection {
       maxAttempts: this.verificationMaxAttempts,
     });
 
-    const displayFriend = friendName ?? "there";
-    const displayGuardian = guardianName ?? "your contact";
+    const displayFriend = firstToken(inviteeName) ?? "there";
+    const displayGuardian = this.resolveGuardianLabel();
 
     let promptText: string;
     if (isOutbound) {
@@ -1284,7 +1419,7 @@ export class RelayConnection {
    * Creates a canonical access request, notifies the guardian, and
    * enters the bounded wait loop for the guardian decision.
    */
-  private handleNameCaptureResponse(callerName: string): void {
+  private async handleNameCaptureResponse(callerName: string): Promise<void> {
     if (!this.accessRequestAssistantId || !this.accessRequestFromNumber) {
       return;
     }
@@ -1305,7 +1440,7 @@ export class RelayConnection {
     // Create canonical access request and notify the guardian, including
     // the caller's spoken name and voice channel metadata.
     try {
-      const accessResult = notifyGuardianOfAccessRequest({
+      const accessResult = await notifyGuardianOfAccessRequest({
         canonicalAssistantId: this.accessRequestAssistantId,
         sourceChannel: "phone",
         conversationExternalId: this.accessRequestFromNumber,
@@ -1398,7 +1533,7 @@ export class RelayConnection {
       }
 
       if (request.status === "approved") {
-        this.handleAccessRequestApproved();
+        void this.handleAccessRequestApproved();
       } else if (request.status === "denied") {
         void this.handleAccessRequestDenied();
       }
@@ -1450,7 +1585,7 @@ export class RelayConnection {
    * Handle an approved access request: activate the caller as a trusted
    * contact, update runtime context, and continue with normal call flow.
    */
-  private handleAccessRequestApproved(): void {
+  private async handleAccessRequestApproved(): Promise<void> {
     this.clearAccessRequestWait();
 
     const assistantId = this.accessRequestAssistantId!;
@@ -1468,7 +1603,7 @@ export class RelayConnection {
       "Access request approved — caller activated and continuing call",
     );
 
-    this.continueCallAfterTrustedContactActivation({
+    await this.continueCallAfterTrustedContactActivation({
       assistantId,
       fromNumber,
       activationReason: "access_approved",
@@ -1655,7 +1790,7 @@ export class RelayConnection {
       inviteRedemptionAssistantId: this.inviteRedemptionAssistantId,
       inviteRedemptionFromNumber: this.inviteRedemptionFromNumber,
       enteredCode,
-      inviteRedemptionGuardianName: this.inviteRedemptionGuardianName,
+      guardianLabel: this.resolveGuardianLabel(),
     });
 
     if (result.outcome === "success") {
@@ -1676,12 +1811,11 @@ export class RelayConnection {
         "Voice invite redemption succeeded",
       );
 
-      this.continueCallAfterTrustedContactActivation({
+      await this.continueCallAfterTrustedContactActivation({
         assistantId: this.inviteRedemptionAssistantId,
         fromNumber: this.inviteRedemptionFromNumber,
         activationReason: "invite_redeemed",
-        friendName: this.inviteRedemptionFriendName ?? undefined,
-        guardianName: this.inviteRedemptionGuardianName ?? undefined,
+        inviteeName: this.inviteRedemptionInviteeName,
       });
     } else {
       this.inviteRedemptionActive = false;
@@ -1720,15 +1854,20 @@ export class RelayConnection {
    * Resolve a human-readable guardian label for voice wait copy.
    * Delegates to the shared resolveGuardianName() which checks the
    * guardian's per-user persona file (users/<slug>.md) first, then falls
-   * back to Contact.displayName, then DEFAULT_USER_REFERENCE.
+   * back to the primed gateway-binding displayName, then
+   * DEFAULT_USER_REFERENCE.
    */
   private resolveGuardianLabel(): string {
-    // Look up the guardian contact for a displayName fallback
-    const voiceGuardian = findGuardianForChannel("phone");
-    const guardianChannels = voiceGuardian ? null : listGuardianChannels();
-    const guardianContact = voiceGuardian?.contact ?? guardianChannels?.contact;
+    return resolveGuardianName(this.primedGuardianDisplayName);
+  }
 
-    return resolveGuardianName(guardianContact?.displayName);
+  /**
+   * Prime the guardian displayName from the gateway binding so the
+   * synchronous wait-label path can read it without an IPC round-trip.
+   */
+  private async primeGuardianDisplayName(): Promise<void> {
+    const list = await getGuardianDelivery();
+    this.primedGuardianDisplayName = voiceGuardianDisplayName(list);
   }
 
   /**
@@ -1906,6 +2045,15 @@ export class RelayConnection {
       return;
     }
 
+    // Defer (don't drop) prompts while trust is being re-resolved mid-call so a
+    // verified caller's first utterance runs under the upgraded context, not the
+    // stale pre-verification one. flushDeferredPrompts replays them in order
+    // once the new context lands.
+    if (this.trustReResolving) {
+      this.trustReResolvePending.push(msg);
+      return;
+    }
+
     // Prompts arriving before setup routing/ACL completes are dropped — never
     // persisted or emitted — so a not-yet-authorized caller's speech can't be
     // stored ahead of the admission floor / trust ACL decision.
@@ -1931,7 +2079,7 @@ export class RelayConnection {
         { callSessionId: this.callSessionId, callerName },
         "Name captured from unknown inbound caller",
       );
-      this.handleNameCaptureResponse(callerName);
+      await this.handleNameCaptureResponse(callerName);
       return;
     }
 

@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 
 import { __resetForTesting, publish } from "@/lib/event-bus";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
@@ -22,6 +24,7 @@ function paginationStub(): HistoryPaginationResult {
   return {
     messages: [],
     latestPage: undefined,
+    subagentNotifications: undefined,
     isLoading: false,
     isSuccess: false,
     isError: false,
@@ -47,13 +50,25 @@ const { useConversationHistory } = await import(
   "@/domains/chat/hooks/use-conversation-history"
 );
 
+// The hook reads `useQueryClient()` (for surface cache writes and the
+// live-turn→history handoff), so it must render inside a provider.
+const queryClient = new QueryClient();
+
+function Wrapper({ children }: { children: ReactNode }) {
+  return (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+}
+
 function renderHistory(activeConversationId: string | null = "conv-A") {
-  return renderHook(() =>
-    useConversationHistory({
-      assistantId: "asst-1",
-      assistantStateKind: "active",
-      activeConversationId,
-    }),
+  return renderHook(
+    () =>
+      useConversationHistory({
+        assistantId: "asst-1",
+        assistantStateKind: "active",
+        activeConversationId,
+      }),
+    { wrapper: Wrapper },
   );
 }
 

@@ -50,6 +50,7 @@ import {
   getCannedFirstGreeting,
   isWakeUpGreeting,
 } from "../../daemon/first-greeting.js";
+import { supersedePendingInteractionsOnEnqueue } from "../../daemon/handlers/conversations.js";
 import {
   collectAttachmentRefs,
   type HistoryAttachmentRef,
@@ -67,6 +68,7 @@ import type {
   HostProxyTransportMetadata,
   NonHostProxyTransportMetadata,
 } from "../../daemon/message-types/conversations.js";
+import type { TrustContext } from "../../daemon/trust-context.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import {
   writeOnboardingSidecar,
@@ -120,30 +122,30 @@ import {
 } from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { getPersistedSeq } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   type GuardianPendingScope,
   routeGuardianReply,
 } from "../guardian-reply-router.js";
-import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
+import { reResolveTrustOnResetDrift } from "../guardian-vellum-migration.js";
 import type {
   ApprovalConversationGenerator,
   RuntimeAttachmentMetadata,
   RuntimeMessagePayload,
   SendMessageDeps,
 } from "../http-types.js";
-import { resolveLocalTrustContext } from "../local-actor-identity.js";
+import {
+  findLocalGuardianPrincipalId,
+  resolveActorPrincipalIdForLocalGuardian,
+} from "../local-actor-identity.js";
+import { resolveLocalPrincipalTrustContext } from "../local-principal-trust.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
   publishConversationListAndMetadataChanged,
   publishConversationMessagesChanged,
 } from "../sync/resource-sync-events.js";
-import {
-  resolveTrustContext,
-  withSourceChannel,
-} from "../trust-context-resolver.js";
+import { withSourceChannel } from "../trust-context-resolver.js";
 import {
   BadRequestError,
   InternalError,
@@ -946,25 +948,28 @@ export function handleListMessages({
         .filter((block) => block.type !== "text" || block.text.length > 0);
     }
 
-  // Ensure every hydrated attachment has a corresponding content block.
-  // renderHistoryContent inlines attachment blocks only when it has
-  // file-block refs with matching DB rows; directives (assistant-authored
-  // <vellum-attachment/> tags) don't leave a file block after stripping,
-  // so their attachments end up in the flat `attachments` array but not in
-  // `contentBlocks`. Append any that are missing so the canonical
-  // projection is complete.
-  const existingAttachmentIds = new Set(
-    contentBlocks
-      .filter((b): b is Extract<ConversationContentBlock, { type: "attachment" }> => b.type === "attachment")
-      .map((b) => b.attachment.id),
-  );
-  for (const att of msgAttachments) {
-    if (!existingAttachmentIds.has(att.id)) {
-      contentBlocks.push({ type: "attachment", attachment: att });
+    // Ensure every hydrated attachment has a corresponding content block.
+    // renderHistoryContent inlines attachment blocks only when it has
+    // file-block refs with matching DB rows; directives (assistant-authored
+    // <vellum-attachment/> tags) don't leave a file block after stripping,
+    // so their attachments end up in the flat `attachments` array but not in
+    // `contentBlocks`. Append any that are missing so the canonical
+    // projection is complete.
+    const existingAttachmentIds = new Set(
+      contentBlocks
+        .filter(
+          (b): b is Extract<ConversationContentBlock, { type: "attachment" }> =>
+            b.type === "attachment",
+        )
+        .map((b) => b.attachment.id),
+    );
+    for (const att of msgAttachments) {
+      if (!existingAttachmentIds.has(att.id)) {
+        contentBlocks.push({ type: "attachment", attachment: att });
+      }
     }
-  }
 
-  const alignedContentOrder = aligned.rewriteContentOrder(contentOrder);
+    const alignedContentOrder = aligned.rewriteContentOrder(contentOrder);
 
     // Use sentAt (actual event time) for the display timestamp when available,
     // falling back to createdAt (persistence time). Clients use this display
@@ -1440,56 +1445,65 @@ export async function handleSendMessage(
     conversation.setOnboardingContext(body.onboarding!);
   }
 
-  // Resolve guardian context from the AuthContext's actorPrincipalId.
-  // The JWT-verified principal is used as the sender identity through
-  // the same trust resolution pipeline that channel ingress uses.
+  // Resolve guardian context from the AuthContext's actorPrincipalId via the
+  // gateway guardian binding: a vellum principal is the guardian or nobody.
   if (actorPrincipalId) {
     // Dev bypass (HTTP auth disabled): the synthetic "dev-bypass" principal
-    // won't match any guardian binding. Resolve from the local guardian
-    // binding instead, which produces the correct guardian trust context.
+    // won't match any guardian binding. Resolve the real guardian principal and
+    // map that through, failing closed to unknown on an empty gateway.
     if (isHttpAuthDisabled() && actorPrincipalId === "dev-bypass") {
-      conversation.setTrustContext(resolveLocalTrustContext(sourceChannel));
+      const guardianPrincipalId = await findLocalGuardianPrincipalId();
+      let trustCtx: TrustContext = guardianPrincipalId
+        ? withSourceChannel(
+            sourceChannel,
+            await resolveLocalPrincipalTrustContext({
+              actorPrincipalId: guardianPrincipalId,
+              sourceChannel: "vellum",
+              conversationExternalId: "local",
+            }),
+          )
+        : { trustClass: "unknown", sourceChannel };
+      if (guardianPrincipalId && trustCtx.trustClass === "unknown") {
+        const healed = await reResolveTrustOnResetDrift(
+          guardianPrincipalId,
+          sourceChannel,
+        );
+        if (healed) trustCtx = healed;
+      }
+      conversation.setTrustContext(trustCtx);
     } else {
-      const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-      let trustCtx = resolveTrustContext({
-        assistantId,
-        sourceChannel: "vellum",
-        conversationExternalId: "local",
-        actorExternalId: actorPrincipalId,
-      });
+      let trustCtx = withSourceChannel(
+        sourceChannel,
+        await resolveLocalPrincipalTrustContext({
+          actorPrincipalId,
+          sourceChannel: "vellum",
+          conversationExternalId: "local",
+        }),
+      );
       if (trustCtx.trustClass === "unknown") {
-        // Attempt to heal guardian binding drift: after a DB reset the
-        // guardian binding gets a new vellum-principal-* UUID while the
-        // client still holds a valid JWT with the old one. The signing
-        // key survives the reset, so the JWT is authentic — just stale.
-        const healed = healGuardianBindingDrift(actorPrincipalId);
-        if (healed) {
-          trustCtx = resolveTrustContext({
-            assistantId,
-            sourceChannel: "vellum",
-            conversationExternalId: "local",
-            actorExternalId: actorPrincipalId,
-          });
+        const healed = await reResolveTrustOnResetDrift(
+          actorPrincipalId,
+          sourceChannel,
+        );
+        if (healed && healed.trustClass !== "unknown") {
+          trustCtx = healed;
           log.info(
-            {
-              actorPrincipalId: actorPrincipalId,
-              trustClass: trustCtx.trustClass,
-            },
-            "Trust re-resolved after guardian binding drift heal",
+            { actorPrincipalId, trustClass: trustCtx.trustClass },
+            "Trust re-resolved from local mirror after gateway returned unknown",
           );
         } else {
           log.warn(
             {
-              actorPrincipalId: actorPrincipalId,
+              actorPrincipalId,
               sourceChannel,
-              trustClass: trustCtx.trustClass,
-              principalType: principalType,
+              trustClass: "unknown",
+              principalType,
             },
             "JWT-verified actor resolved to unknown trust class — possible guardian binding drift (e.g. DB reset without re-bootstrap)",
           );
         }
       }
-      conversation.setTrustContext(withSourceChannel(sourceChannel, trustCtx));
+      conversation.setTrustContext(trustCtx);
     }
   } else {
     // Service principals (svc_gateway) or tokens without an actor ID
@@ -1498,10 +1512,13 @@ export async function handleSendMessage(
   }
 
   const isInteractive = isInteractiveInterface(sourceInterface);
-  // Use the JWT-verified requester principal — not guardianPrincipalId,
-  // which is the workspace owner and would let a trusted contact's web
-  // turn match against the guardian's macOS client.
-  const sourceActorPrincipalId = actorPrincipalId ?? undefined;
+  // Translate the dev-bypass actor principal to the real guardian principal
+  // before the same-actor host-proxy gate so web/iOS turns match the macOS
+  // client's SSE-registered principal. No-op for real JWT principals in
+  // non-dev-bypass deployments.
+  const sourceActorPrincipalId = await resolveActorPrincipalIdForLocalGuardian(
+    actorPrincipalId ?? undefined,
+  );
   // Bash/File/Transfer singletons are globally available via isAvailable() —
   // no per-conversation gating needed. CU is per-conversation (owns step
   // count, AX tree history, loop detection).
@@ -1814,29 +1831,11 @@ export async function handleSendMessage(
     // the client showing "Failed to send" for a message the daemon will
     // process from the queue.
     try {
-      if (conversation.hasAnyPendingConfirmation()) {
-        // Emit authoritative denial state for each pending request.
-        // sendToClient (wired to the SSE hub) delivers these to the client.
-        for (const interaction of pendingInteractions.getByConversation(
-          mapping.conversationId,
-        )) {
-          if (interaction.kind === "confirmation") {
-            conversation.emitConfirmationStateChanged({
-              conversationId: mapping.conversationId,
-              requestId: interaction.requestId,
-              state: "denied" as const,
-              source: "auto_deny" as const,
-            });
-            // Sync canonical guardian request status so stale "pending" DB
-            // records don't get matched by later guardian reply routing.
-            resolveCanonicalGuardianRequest(interaction.requestId, "pending", {
-              status: "denied",
-            });
-          }
-        }
-        conversation.denyAllPendingConfirmations();
-        pendingInteractions.removeByConversation(mapping.conversationId);
-      }
+      // Supersede interactions left pending by the in-flight turn: auto-deny
+      // confirmations (with canonical/client sync) and steer to the enqueued
+      // message if an ask_question is parked. Centralized so the CLI signal
+      // path (signals/user-message.ts) gets identical handling.
+      supersedePendingInteractionsOnEnqueue(mapping.conversationId, requestId);
 
       // Expire any orphaned canonical requests that survived without a
       // matching in-memory pending interaction (e.g. prompter timeouts).

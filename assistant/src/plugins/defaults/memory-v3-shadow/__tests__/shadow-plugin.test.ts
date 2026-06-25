@@ -808,7 +808,7 @@ describe("memory-v3 shadow plugin", () => {
   });
 });
 
-describe("memory-v3 infrastructure-failure handling (hard-fail vs swallow)", () => {
+describe("memory-v3 infrastructure-failure handling", () => {
   const throwInfra = () =>
     orchestrateSpy.mockImplementationOnce(async () => {
       throw new MemoryV3RetrievalUnavailableError(
@@ -816,14 +816,12 @@ describe("memory-v3 infrastructure-failure handling (hard-fail vs swallow)", () 
       );
     });
 
-  test("LIVE injector HARD-FAILS the turn on an infra failure (no silent memory loss)", async () => {
+  test("LIVE injector logs and degrades to no v3 block on an infra failure", async () => {
     liveEnabled = true;
     shadowEnabled = false;
     throwInfra();
 
-    await expect(produce("conv-infra-live", 0)).rejects.toThrow(
-      MemoryV3RetrievalUnavailableError,
-    );
+    expect(await produce("conv-infra-live", 0)).toBeNull();
   });
 
   test("SHADOW injector swallows an infra failure (v2 fallback) — no throw, no block", async () => {
@@ -832,7 +830,7 @@ describe("memory-v3 infrastructure-failure handling (hard-fail vs swallow)", () 
     throwInfra();
 
     // Shadow mode: v2 retrieval still ran this turn, so the v3 injector returns
-    // null rather than failing the turn.
+    // null.
     expect(await produce("conv-infra-shadow", 0)).toBeNull();
   });
 
@@ -853,8 +851,6 @@ describe("memory-v3 infrastructure-failure handling (hard-fail vs swallow)", () 
       throw new Error("some unexpected non-infra bug");
     });
 
-    // Only INFRA failures hard-fail; any other error stays non-fatal so a bug
-    // in one lane can't take every turn down.
     expect(await produce("conv-nonfatal-live", 0)).toBeNull();
   });
 });

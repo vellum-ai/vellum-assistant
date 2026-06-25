@@ -27,14 +27,14 @@ mock.module("../copy-composer.js", () => ({
   composeFallbackCopy: () => composeFallbackReturn,
 }));
 
-mock.module("../destination-resolver.js", () => ({
-  resolveDestinations: (channels: string[]) => {
-    const map = new Map<string, ChannelDestination>();
-    for (const ch of channels) {
-      map.set(ch, { channel: ch as ChannelDestination["channel"] });
-    }
-    return map;
-  },
+// Stub only getGuardianDelivery; keep the real selectors so this mock is
+// harmless if it leaks into destination-resolver.test.ts under a shared run.
+const realGuardianReader = await import(
+  "../../contacts/guardian-delivery-reader.js"
+);
+mock.module("../../contacts/guardian-delivery-reader.js", () => ({
+  ...realGuardianReader,
+  getGuardianDelivery: async () => null,
 }));
 
 mock.module("../conversation-pairing.js", () => ({

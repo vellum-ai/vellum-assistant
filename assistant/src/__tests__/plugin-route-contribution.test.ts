@@ -22,26 +22,15 @@
  *     each plugin's shutdown only removes its own route — the other plugin's
  *     route stays live until its own teardown runs.
  *
- * Uses `mock.module` to stub credential resolution — bootstrap otherwise
- * tries to hit the real secure-key backend. `resetPluginRegistryForTests()`
- * isolates plugin-registry state and `resetSkillRoutesForTests()` isolates
- * skill-route-registry state between cases.
+ * `resetPluginRegistryForTests()` isolates plugin-registry state and
+ * `resetSkillRoutesForTests()` isolates skill-route-registry state between
+ * cases.
  */
 
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-// Stub the credential store before importing bootstrap so the module binds to
-// the mock. Plugins in these tests don't declare `requiresCredential`, but
-// the mock keeps the test hermetic regardless of what the backend would do.
-const getSecureKeyAsyncMock = mock(
-  async (_account: string): Promise<string | undefined> => undefined,
-);
-mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyAsync: getSecureKeyAsyncMock,
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { bootstrapPlugins } from "../daemon/external-plugins-bootstrap.js";
 import { runShutdownHooks } from "../daemon/shutdown-registry.js";
@@ -49,7 +38,7 @@ import {
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
-import type { Plugin, PluginInitContext } from "../plugins/types.js";
+import type { InitContext, Plugin } from "../plugins/types.js";
 import {
   matchSkillRoute,
   resetSkillRoutesForTests,
@@ -75,7 +64,7 @@ function buildPlugin(
   name: string,
   extras: Partial<Omit<Plugin, "manifest" | "hooks">> & {
     hooks?: Plugin["hooks"];
-    init?: (ctx: PluginInitContext) => Promise<void>;
+    init?: (ctx: InitContext) => Promise<void>;
     onShutdown?: () => Promise<void>;
   } = {},
 ): Plugin {
@@ -113,8 +102,6 @@ describe("plugin route contributions", () => {
   beforeEach(async () => {
     resetPluginRegistryForTests();
     resetSkillRoutesForTests();
-    getSecureKeyAsyncMock.mockReset();
-    getSecureKeyAsyncMock.mockImplementation(async () => undefined);
     await rm(TEST_WORKSPACE_DIR, { recursive: true, force: true });
   });
 

@@ -33,9 +33,12 @@ export interface StreamHandlerContext {
   streamContext: StreamContext | null;
   assistantId: string | null;
 
-  // --- Messages ---
+  // --- In-flight turn ---
+  // Handlers patch the client-owned in-flight turn — the optimistic send and
+  // the still-streaming rows. Persisted history lives in the TanStack Query
+  // cache and is never mutated here; the store routes these onto `liveTurn`.
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
-  /** Current messages snapshot — read from store via `getState().messages`. */
+  /** The in-flight turn snapshot — `getState().liveTurn`. */
   messages: DisplayMessage[];
 
   // --- Turn state ---
@@ -55,6 +58,7 @@ export interface StreamHandlerContext {
 
   // --- Error & stream lifecycle ---
   setError: Dispatch<SetStateAction<ChatError | null>>;
+  setNotice: Dispatch<SetStateAction<ChatError | null>>;
   /** Cancel the active SSE stream and clear the store's stream state. */
   cancelAndClearStream: () => void;
 
@@ -96,4 +100,17 @@ export interface StreamHandlerContext {
    *  subagent_spawned can read the correct parent without waiting for
    *  React's batched render. Mirrors macOS `currentAssistantMessageId`. */
   currentAssistantMessageIdRef: MutableRefObject<string | undefined>;
+
+  // --- Tool output streaming (coalesced) ---
+  /**
+   * Per-`toolUseId` buffer of pending `tool_output_chunk` text (with the row
+   * `messageId` anchor), drained by a single coalesced flush per animation
+   * frame. Keying by id keeps interleaved chunks from different running tools
+   * separate. See `handleToolOutputChunk` / `flushToolOutput`.
+   */
+  toolOutputBufferRef: MutableRefObject<
+    Map<string, { conversationId?: string; messageId?: string; text: string }>
+  >;
+  /** rAF handle for the pending coalesced flush, or `null` when idle. */
+  toolOutputFlushHandleRef: MutableRefObject<number | null>;
 }

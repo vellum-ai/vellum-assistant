@@ -23,6 +23,8 @@ type ExistingRow = {
 let queryRows: ExistingRow[] = [];
 const queryCalls: { sql: string; params: unknown[] }[] = [];
 const runCalls: { sql: string; params: unknown[] }[] = [];
+// When set, assistantDbRun throws for any SQL containing this substring.
+let runThrowOnSql: string | null = null;
 
 // Fake gateway DB: records update/insert calls and returns a configurable
 // `changes` count per update so the resilient dual-write fallback can be
@@ -62,6 +64,11 @@ mock.module("../db/connection.js", () => ({
               return Array.from({ length: n }, () => ({ id: "x" }));
             },
           }),
+          // reassignChannelContact re-parents a channel via a bare update.
+          run: () => {
+            void table;
+            gwUpdates.push({ set, where });
+          },
         }),
       }),
     }),
@@ -95,6 +102,9 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   },
   assistantDbRun: async (sql: string, params: unknown[]) => {
     runCalls.push({ sql, params });
+    if (runThrowOnSql && sql.includes(runThrowOnSql)) {
+      throw new Error(`assistantDbRun failed for: ${runThrowOnSql}`);
+    }
   },
 }));
 
@@ -141,6 +151,7 @@ beforeEach(() => {
   // Default: no authoritative gateway row (legacy/unmirrored happy path).
   gwSelectStatus = null;
   gwInsertWrote = true;
+  runThrowOnSql = null;
   writeFileSync(TEST_SOCKET_PATH, "");
 });
 
@@ -580,6 +591,102 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     expect(assistantActivate).toBeUndefined();
   });
 
+  test("allowRevokedReactivation: a revoked authoritative gateway row is reactivated and the activation update fires", async () => {
+    // Stale assistant mirror is active so we reach the existing-channel branch;
+    // the authoritative gateway row is revoked. With the flag, the invite path
+    // reactivates it and the assistant activation UPDATE fires (status→active).
+    queryRows = [
+      { channelId: "ch-rev", contactId: "co-rev", channelStatus: "active" },
+    ];
+    gwSelectStatus = "revoked";
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550001313",
+      externalChatId: "+15550001313",
+      verifiedVia: "invite",
+      allowRevokedReactivation: true,
+    });
+
+    expect(result).toEqual({ verified: true });
+    const activate = runCalls.find(
+      (c) =>
+        c.sql.includes("UPDATE contact_channels") &&
+        c.sql.includes("status = 'active'"),
+    );
+    expect(activate).toBeTruthy();
+    // The gateway reactivation guard excludes only 'blocked', allowing the
+    // revoked row to be UPDATED to active.
+    expect(gwUpdates[0]!.where).toMatchObject({ op: "and" });
+  });
+
+  test("allowRevokedReactivation: a blocked gateway row is still refused", async () => {
+    queryRows = [
+      { channelId: "ch-blk", contactId: "co-blk", channelStatus: "active" },
+    ];
+    gwSelectStatus = "blocked";
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550001414",
+      externalChatId: "+15550001414",
+      verifiedVia: "invite",
+      allowRevokedReactivation: true,
+    });
+
+    expect(result).toEqual({ verified: false });
+    expect(
+      runCalls.filter(
+        (c) => c.sql.includes("UPDATE") && c.sql.includes("status = 'active'"),
+      ),
+    ).toHaveLength(0);
+    expect(gwUpdates).toHaveLength(0);
+    expect(gwInserts).toHaveLength(0);
+  });
+
+  test("allowRevokedReactivation: a revoked assistant-mirror row in the existing-channel branch is reactivated", async () => {
+    // No authoritative gateway row; the assistant mirror itself is revoked. With
+    // the flag the mirror guard is relaxed and the activation proceeds.
+    queryRows = [
+      { channelId: "ch-mirror", contactId: "co-mirror", channelStatus: "revoked" },
+    ];
+    gwSelectStatus = null;
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550001515",
+      externalChatId: "+15550001515",
+      verifiedVia: "invite",
+      allowRevokedReactivation: true,
+    });
+
+    expect(result).toEqual({ verified: true });
+    const activate = runCalls.find(
+      (c) =>
+        c.sql.includes("UPDATE contact_channels") &&
+        c.sql.includes("status = 'active'"),
+    );
+    expect(activate).toBeTruthy();
+    expect(activate!.params).toContain("+15550001515");
+  });
+
+  test("allowRevokedReactivation: without the flag a revoked assistant-mirror row is still refused", async () => {
+    queryRows = [
+      { channelId: "ch-mirror", contactId: "co-mirror", channelStatus: "revoked" },
+    ];
+    gwSelectStatus = null;
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550001616",
+      externalChatId: "+15550001616",
+      verifiedVia: "invite",
+    });
+
+    expect(result).toEqual({ verified: false });
+    expect(runCalls.filter((c) => c.sql.includes("UPDATE"))).toHaveLength(0);
+  });
+
   test("honors an explicit verifiedVia value on the update path", async () => {
     queryRows = [
       { channelId: "ch-7", contactId: "co-7", channelStatus: "active" },
@@ -596,6 +703,162 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
       c.sql.includes("UPDATE contact_channels"),
     );
     expect(update!.params).toContain("manual");
+  });
+});
+
+describe("upsertVerifiedContactChannel — invite target-contact binding", () => {
+  test("reassigns an existing channel to the supplied target contact", async () => {
+    // The redeemer's channel currently lives under a different contact (the
+    // guardian); the invite binds it to the target contact "mom".
+    queryRows = [
+      { channelId: "ch-redeemer", contactId: "co-guardian", channelStatus: "active" },
+    ];
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "redeemer-tg",
+      externalChatId: "redeemer-tg",
+      verifiedVia: "invite",
+      contactId: "co-mom",
+    });
+
+    // Assistant mirror re-parents the channel to the target contact.
+    const reparent = runCalls.find(
+      (c) =>
+        c.sql.includes("UPDATE contact_channels") &&
+        c.sql.includes("contact_id = ?"),
+    );
+    expect(reparent).toBeTruthy();
+    expect(reparent!.params).toEqual(["co-mom", "ch-redeemer"]);
+
+    // Gateway channel re-parented to the target contact too.
+    const gwReparent = gwUpdates.find(
+      (u) => (u.set as { contactId?: string }).contactId === "co-mom",
+    );
+    expect(gwReparent).toBeTruthy();
+
+    // The re-parent keys on the (type,address) logical key, not the assistant
+    // channel id: the gateway row can live under a different UUID (m0006
+    // reconcile), where an id-only update would re-parent nothing.
+    const where = gwReparent!.where as {
+      op: string;
+      conds: { op: string; col?: unknown; val?: unknown }[];
+    };
+    expect(where.op).toBe("and");
+    expect(where.conds).toContainEqual({
+      op: "eq",
+      col: "type",
+      val: "telegram",
+    });
+    expect(where.conds.some((c) => c.op === "eq" && c.col === "id")).toBe(false);
+
+    // The verified gateway write lands under the bound (target) contact.
+    expect(
+      gwUpdates.some(
+        (u) => (u.set as { status?: string }).status === "active",
+      ),
+    ).toBe(true);
+  });
+
+  test("activates the gateway channel even when the assistant mirror re-parent fails", async () => {
+    queryRows = [
+      { channelId: "ch-redeemer", contactId: "co-guardian", channelStatus: "active" },
+    ];
+    // The assistant-DB mirror re-parent throws transiently.
+    runThrowOnSql = "SET contact_id";
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "redeemer-tg",
+      externalChatId: "redeemer-tg",
+      verifiedVia: "invite",
+      contactId: "co-mom",
+    });
+
+    // The gateway activation still ran (mirror failure is best-effort), so the
+    // gateway source of truth is verified rather than left inactive.
+    expect(result).toEqual({ verified: true });
+    expect(
+      gwUpdates.some(
+        (u) => (u.set as { status?: string }).status === "active",
+      ),
+    ).toBe(true);
+  });
+
+  test("does not reassign when the channel already belongs to the target contact", async () => {
+    queryRows = [
+      { channelId: "ch-x", contactId: "co-mom", channelStatus: "active" },
+    ];
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "redeemer-tg",
+      externalChatId: "redeemer-tg",
+      verifiedVia: "invite",
+      contactId: "co-mom",
+    });
+
+    const reparent = runCalls.find(
+      (c) =>
+        c.sql.includes("UPDATE contact_channels") &&
+        c.sql.includes("contact_id = ?"),
+    );
+    expect(reparent).toBeUndefined();
+  });
+
+  test("creates a fresh channel under the supplied target contact", async () => {
+    queryRows = [];
+    gwSelectStatus = null;
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "fresh-tg",
+      externalChatId: "fresh-tg",
+      verifiedVia: "invite",
+      contactId: "co-target",
+    });
+
+    // The assistant contact INSERT uses the supplied target contactId, not a
+    // freshly minted UUID.
+    const contactInsert = runCalls.find((c) =>
+      c.sql.includes("INSERT OR IGNORE INTO contacts"),
+    );
+    expect(contactInsert).toBeTruthy();
+    expect(contactInsert!.params[0]).toBe("co-target");
+  });
+
+  test("re-parents a divergent gateway row to the target when the assistant lookup misses", async () => {
+    // The assistant mirror has no row (no-existing branch), but the gateway
+    // already holds the (type,address) row under a different contact.
+    queryRows = [];
+    gwSelectStatus = "unverified"; // non-blocked gateway row → pre-check passes
+
+    await upsertVerifiedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "diverged-tg",
+      externalChatId: "diverged-tg",
+      verifiedVia: "invite",
+      contactId: "co-target",
+    });
+
+    // The gateway row is re-parented to the target by the (type,address)
+    // logical key, not the assistant channel id (the byKey activation update
+    // omits contactId, so without this the gateway row keeps the old contact).
+    const gwReparent = gwUpdates.find(
+      (u) => (u.set as { contactId?: string }).contactId === "co-target",
+    );
+    expect(gwReparent).toBeTruthy();
+    const where = gwReparent!.where as {
+      op: string;
+      conds: { op: string; col?: unknown; val?: unknown }[];
+    };
+    expect(where.op).toBe("and");
+    expect(where.conds).toContainEqual({
+      op: "eq",
+      col: "type",
+      val: "telegram",
+    });
+    expect(where.conds.some((c) => c.op === "eq" && c.col === "id")).toBe(false);
   });
 });
 

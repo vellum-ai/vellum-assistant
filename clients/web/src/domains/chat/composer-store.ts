@@ -19,6 +19,7 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
+import type { AttachmentMetadata, DisplayAttachment } from "@/types/attachment-types";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { uploadChatAttachment } from "@/domains/chat/api/messages";
 import {
@@ -31,33 +32,26 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
+/** Attachment metadata known before the upload completes — same server-canonical
+ *  fields as {@link AttachmentMetadata} minus the server-assigned `id`. */
+type LocalAttachmentMetadata = Omit<AttachmentMetadata, "id">;
+
 /** Attachment that is currently being uploaded. */
-export interface PendingAttachmentUpload {
+export interface PendingAttachmentUpload extends LocalAttachmentMetadata {
   kind: "uploading";
   localId: string;
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
 }
 
 /** Attachment that successfully finished uploading and has a server-assigned id. */
-export interface UploadedAttachment {
+export interface UploadedAttachment extends DisplayAttachment {
   kind: "uploaded";
   localId: string;
-  id: string;
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
-  previewUrl: string | null;
 }
 
 /** Attachment whose upload failed; kept in the list so the user can retry or dismiss. */
-export interface FailedAttachmentUpload {
+export interface FailedAttachmentUpload extends LocalAttachmentMetadata {
   kind: "failed";
   localId: string;
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
   error: string;
 }
 

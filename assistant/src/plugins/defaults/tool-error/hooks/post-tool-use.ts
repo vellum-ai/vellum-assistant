@@ -22,7 +22,7 @@
  * result for the tool resets its streak.
  */
 
-import type { PluginHookFn, PostToolUseContext } from "@vellumai/plugin-api";
+import type { HookFunction, PostToolUseContext } from "@vellumai/plugin-api";
 
 import type { Message } from "../../../../providers/types.js";
 
@@ -85,7 +85,7 @@ function priorConsecutiveErrors(
   return streak;
 }
 
-const postToolUse: PluginHookFn<PostToolUseContext> = async (ctx) => {
+const postToolUse: HookFunction<PostToolUseContext> = async (ctx) => {
   if (ctx.toolResponse.is_error !== true) return;
 
   const namesById = toolNamesById(ctx.messages);

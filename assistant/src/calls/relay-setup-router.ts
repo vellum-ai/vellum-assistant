@@ -6,9 +6,10 @@
  * next — without performing any side effects itself.
  */
 
-import type { AdmissionPolicy } from "@vellumai/gateway-client";
+import type { AdmissionPolicy, TrustVerdict } from "@vellumai/gateway-client";
 
 import { getConfig } from "../config/loader.js";
+import { getContact } from "../contacts/contact-store.js";
 import { findActiveVoiceInvites } from "../memory/invite-store.js";
 import {
   type ActorTrustContext,
@@ -20,6 +21,10 @@ import {
   type AdmissionPolicyResult,
   enforceAdmissionPolicy,
 } from "../runtime/routes/inbound-stages/admission-policy.js";
+import {
+  actorTrustContextFromVerdict,
+  verdictMemberUnresolvable,
+} from "../runtime/trust-verdict-consumer.js";
 import { getLogger } from "../util/logger.js";
 import type { CallSession } from "./types.js";
 
@@ -39,6 +44,12 @@ interface SetupContext {
    * preserving all pre-admission behavior.
    */
   admissionPolicy?: AdmissionPolicy | null;
+  /**
+   * Gateway-stamped caller trust verdict. When present and not
+   * `resolutionFailed`, the caller's trust is built from it; otherwise the
+   * router falls back to local resolution.
+   */
+  verdict?: TrustVerdict | null;
 }
 
 // ── Setup outcomes ───────────────────────────────────────────────────
@@ -64,8 +75,15 @@ type SetupOutcome =
       action: "invite_redemption";
       assistantId: string;
       fromNumber: string;
-      friendName: string | null;
-      guardianName: string | null;
+      /**
+       * Display name of the invitee. For inbound redemptions, resolved from the
+       * bound contact's `displayName`; falls back to the legacy `friend_name`
+       * column for pre-contact-binding invites. For outbound invite calls,
+       * carries the session-recorded `inviteFriendName`. When null/empty, the
+       * relay uses a neutral "Hi there" greeting instead of substituting the
+       * channel address.
+       */
+      inviteeName: string | null;
     }
   | { action: "name_capture"; assistantId: string; fromNumber: string }
   | {
@@ -104,12 +122,32 @@ export function routeSetup(ctx: SetupContext): {
   const isInbound = ctx.session?.initiatedFromConversationId == null;
   const otherPartyNumber = isInbound ? ctx.from : ctx.to;
 
-  const actorTrust = resolveActorTrust({
-    assistantId,
-    sourceChannel: "phone",
-    conversationExternalId: otherPartyNumber,
-    actorExternalId: otherPartyNumber || undefined,
-  });
+  // Verdict-first: build caller trust from the gateway verdict when present.
+  // Voice falls back to local resolution on a missing/failed verdict so a
+  // gateway blip does not drop a known guardian's call — the deliberate
+  // difference from the fail-closed text path.
+  //
+  // A verdict that claims a member (contactId/channelId) but whose ACL can't be
+  // reassembled (malformed/mixed-version status·policy) also falls back to local
+  // resolution, so voice never trusts a member it cannot ACL-check. A real
+  // stranger verdict (no member identity) still takes the verdict path —
+  // memberRecord null is correct there.
+  const usable =
+    ctx.verdict &&
+    !ctx.verdict.resolutionFailed &&
+    !verdictMemberUnresolvable(ctx.verdict);
+  const actorTrust = usable
+    ? actorTrustContextFromVerdict(ctx.verdict!, {
+        sourceChannel: "phone",
+        conversationExternalId: otherPartyNumber,
+        actorDisplayName: undefined,
+      })
+    : resolveActorTrust({
+        assistantId,
+        sourceChannel: "phone",
+        conversationExternalId: otherPartyNumber,
+        actorExternalId: otherPartyNumber || undefined,
+      });
 
   const resolved: SetupResolved = {
     assistantId,
@@ -128,8 +166,7 @@ export function routeSetup(ctx: SetupContext): {
         action: "invite_redemption" as const,
         assistantId,
         fromNumber: ctx.to,
-        friendName: ctx.session?.inviteFriendName ?? null,
-        guardianName: ctx.session?.inviteGuardianName ?? null,
+        inviteeName: ctx.session?.inviteFriendName ?? null,
       },
       resolved,
     };
@@ -209,7 +246,7 @@ export function routeSetup(ctx: SetupContext): {
     ? enforceAdmissionPolicy({
         sourceChannel: "phone",
         trustClass: actorTrust.trustClass,
-        memberStatus: actorTrust.memberRecord?.channel.status,
+        memberStatus: actorTrust.memberRecord?.status,
         policy: ctx.admissionPolicy!,
       })
     : ({ admitted: true } as const);
@@ -246,7 +283,7 @@ export function routeSetup(ctx: SetupContext): {
     !pendingChallenge
   ) {
     // Check for blocked caller
-    if (actorTrust.memberRecord?.channel.status === "blocked") {
+    if (actorTrust.memberRecord?.status === "blocked") {
       log.info(
         {
           callSessionId: ctx.callSessionId,
@@ -289,13 +326,20 @@ export function routeSetup(ctx: SetupContext): {
         { callSessionId: ctx.callSessionId, from: ctx.from },
         "Inbound voice ACL: unknown caller has active voice invite — entering redemption flow",
       );
+      // Resolve the invitee's name from the bound contact's displayName so
+      // the post-redemption greeting matches what the guardian sees in the
+      // contact graph. `contact_id` is NOT NULL on the invite row, so every
+      // invite is bound — when the contact has no displayName the greeting
+      // falls through to the neutral "Hi there" copy in relay-server.ts
+      // rather than a stale free-text `friend_name` label.
+      const boundContact = getContact(matchedInvite.contactId);
+      const inviteeName = boundContact?.displayName?.trim() || null;
       return {
         outcome: {
           action: "invite_redemption",
           assistantId,
           fromNumber: ctx.from,
-          friendName: matchedInvite.friendName,
-          guardianName: matchedInvite.guardianName,
+          inviteeName: inviteeName ?? null,
         },
         resolved,
       };
@@ -322,14 +366,14 @@ export function routeSetup(ctx: SetupContext): {
     // gateway and assistant DBs) still get useful guidance instead of
     // the "I don't recognize this number" name-capture script.
     const unverifiedStatuses = new Set(["unverified", "pending"]);
-    const memberChannel = actorTrust.memberRecord?.channel;
-    if (memberChannel && unverifiedStatuses.has(memberChannel.status)) {
+    const member = actorTrust.memberRecord;
+    if (member && unverifiedStatuses.has(member.status)) {
       log.info(
         {
           callSessionId: ctx.callSessionId,
           from: ctx.from,
-          channelId: memberChannel.id,
-          channelStatus: memberChannel.status,
+          channelId: member.channel.id,
+          channelStatus: member.status,
         },
         "Inbound voice ACL: known but unverified caller — returning verification guidance",
       );
@@ -338,8 +382,8 @@ export function routeSetup(ctx: SetupContext): {
           action: "unverified_caller",
           assistantId,
           fromNumber: ctx.from,
-          displayName: actorTrust.memberRecord!.contact.displayName,
-          isGuardian: actorTrust.memberRecord!.contact.role === "guardian",
+          displayName: member.contact.displayName,
+          isGuardian: member.role === "guardian",
         },
         resolved,
       };
@@ -365,7 +409,7 @@ export function routeSetup(ctx: SetupContext): {
   }
 
   // Members with policy: 'deny'
-  if (actorTrust.memberRecord?.channel.policy === "deny") {
+  if (actorTrust.memberRecord?.policy === "deny") {
     log.info(
       {
         callSessionId: ctx.callSessionId,
@@ -386,7 +430,7 @@ export function routeSetup(ctx: SetupContext): {
   }
 
   // Members with policy: 'escalate' — live calls can't wait for approval
-  if (actorTrust.memberRecord?.channel.policy === "escalate") {
+  if (actorTrust.memberRecord?.policy === "escalate") {
     log.info(
       {
         callSessionId: ctx.callSessionId,

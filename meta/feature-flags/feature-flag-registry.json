@@ -67,14 +67,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "workspace-tools-watcher",
-      "scope": "assistant",
-      "key": "workspace-tools-watcher",
-      "label": "Workspace tools file watcher",
-      "description": "Hot-reload workspace tool overrides under `<workspaceDir>/tools/` by watching the directory and re-registering tools as files change. When disabled, workspace tools still load from disk once at daemon startup, but live edits require a restart to take effect.",
-      "defaultEnabled": false
-    },
-    {
       "id": "settings-developer-nav",
       "scope": "assistant",
       "key": "settings-developer-nav",
@@ -291,14 +283,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "query-complexity-routing",
-      "scope": "assistant",
-      "key": "query-complexity-routing",
-      "label": "Query Complexity Routing",
-      "description": "Automatically route user messages to the most appropriate inference profile based on query complexity. Simple queries use the speed profile, complex queries escalate to the quality profile. The user is notified of each switch and can opt out by pinning a profile on the conversation.",
-      "defaultEnabled": false
-    },
-    {
       "id": "queue-steering",
       "scope": "assistant",
       "key": "queue-steering",
@@ -419,11 +403,11 @@
       "defaultEnabled": false
     },
     {
-      "id": "mcp-settings",
+      "id": "mcp-add-server",
       "scope": "assistant",
-      "key": "mcp-settings",
-      "label": "MCP Settings",
-      "description": "Show the MCP page in Settings for managing Model Context Protocol server connections: view status, enable/disable, configure, and inspect registered tools per server.",
+      "key": "mcp-add-server",
+      "label": "MCP Add Server",
+      "description": "Show the Add Server action on the MCP settings page. The MCP page itself remains visible; this flag gates only creating new Model Context Protocol server connections.",
       "defaultEnabled": false
     },
     {
@@ -431,7 +415,7 @@
       "scope": "assistant",
       "key": "os-beta",
       "label": "OS Beta",
-      "description": "Enable the OS Beta model profile (GLM 5.2 / Fireworks) in the assistant's model profile selection.",
+      "description": "Enable the OS Beta model profile (MiniMax M3 / Together) in the assistant's model profile selection.",
       "defaultEnabled": false
     }
   ]

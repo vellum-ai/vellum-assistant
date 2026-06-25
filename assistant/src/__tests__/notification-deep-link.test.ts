@@ -20,6 +20,10 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => null,
+}));
+
 // Mock destination-resolver for broadcaster tests
 mock.module("../notifications/destination-resolver.js", () => ({
   resolveDestinations: (channels: string[]) => {
@@ -42,6 +46,8 @@ mock.module("../notifications/deliveries-store.js", () => ({
 // can be driven from tests without DB access.
 let mockExistingConversations: Record<string, { id: string }> = {};
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   getConversation: (id: string) => mockExistingConversations[id] ?? null,
 }));
 

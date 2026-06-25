@@ -53,6 +53,7 @@ import type { Conversation } from "@/types/conversation-types";
 import { requestComposerFocus } from "./composer-focus";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
+import { RuntimeUpgradeBanner } from "@/components/runtime-upgrade-banner";
 import { StatusBanner } from "@/components/status-banner";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
@@ -60,6 +61,7 @@ import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { ResearchResultsOverlay } from "@/domains/chat/onboarding-research/research-results-overlay";
 import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overlay";
+import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatLayoutHeader } from "./chat-layout-header";
 import { RenameDialogFromStore } from "./rename-dialog-from-store";
@@ -126,6 +128,10 @@ export function ChatLayout() {
   // toggles — otherwise a suggestion click's navigate + `?prompt=` auto-send
   // gets raced by the remount and the message is lost.
   const isFocused = useOnboardingFocusStore.use.focused();
+  const sidebarCollapseRequested =
+    useOnboardingFocusStore.use.sidebarCollapseRequested();
+  const consumeSidebarCollapse =
+    useOnboardingFocusStore.use.consumeSidebarCollapse();
 
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantStateKind = useAssistantLifecycleStore(
@@ -269,6 +275,18 @@ export function ChatLayout() {
   useEffect(() => {
     if (!isMobile) setDrawerOpen(false);
   }, [isMobile]);
+
+  useEffect(() => {
+    if (!sidebarCollapseRequested) return;
+    // One-shot: research-onboarding asked us to open with the side panel
+    // collapsed across the whole web experience (not just desktop). Collapse
+    // the desktop sidebar — `setCollapsed(true)` flows through the persistence
+    // effect above, so this intentionally sets the user's persisted collapsed
+    // preference — AND close the mobile drawer, then clear the signal.
+    setCollapsed(true);
+    setDrawerOpen(false);
+    consumeSidebarCollapse();
+  }, [sidebarCollapseRequested, consumeSidebarCollapse]);
 
   const drawerVisible = isMobile && drawerOpen;
 
@@ -614,7 +632,16 @@ export function ChatLayout() {
         />
       )}
 
-      {!isPopout && electron ? <StatusBanner placement="electron" /> : null}
+      {!isPopout && electron ? (
+        <div className="flex shrink-0 flex-col gap-2 empty:hidden">
+          <StatusBanner placement="electron" />
+          <RuntimeUpgradeBanner
+            assistantId={assistantId}
+            currentVersion={assistantVersion}
+            placement="electron"
+          />
+        </div>
+      ) : null}
 
       {isMobile ? (
         <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
@@ -682,6 +709,9 @@ export function ChatLayout() {
           shown over the streaming research output until connect/skip. Self-gates
           on `checkinPending`; top-level so it can compose the onboarding screen. */}
       <OnboardingCheckinOverlay />
+      {/* Applies the research-onboarding picker's avatar once the assistant is
+          hatched (avatar isn't part of the pre-chat handoff context). */}
+      <OnboardingAvatarApplier />
 
       <RenameDialogFromStore assistantId={assistantId} />
       {commandPalette.isOpen ? (

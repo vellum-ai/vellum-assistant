@@ -2,7 +2,7 @@ import {
   CircleAlert,
   CircleCheck,
   Info,
-  OctagonX,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import { type ReactElement, type ReactNode } from "react";
@@ -60,7 +60,7 @@ const VARIANT_STYLES: Record<
     container:
       "bg-[var(--system-negative-weak)] border-[var(--system-negative-strong)] text-[var(--system-negative-strong)]",
     icon: "text-[var(--system-negative-strong)]",
-    iconElement: <OctagonX className="h-4 w-4" />,
+    iconElement: <TriangleAlert className="h-4 w-4" />,
   },
   success: {
     container:

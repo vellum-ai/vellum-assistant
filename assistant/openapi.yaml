@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.10.0
+  version: 0.10.2
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -1491,19 +1491,19 @@ paths:
                 properties:
                   id:
                     type: string
-                  original_filename:
+                  filename:
                     type: string
-                  mime_type:
+                  mimeType:
                     type: string
-                  size_bytes:
+                  sizeBytes:
                     type: number
                   kind:
                     type: string
                 required:
                   - id
-                  - original_filename
-                  - mime_type
-                  - size_bytes
+                  - filename
+                  - mimeType
+                  - sizeBytes
                   - kind
                 additionalProperties: false
   /v1/attachments/{id}:
@@ -3959,6 +3959,61 @@ paths:
                         - trusted_contacts
                         - any_contact
                         - strangers
+                    trustVerdict:
+                      type: object
+                      properties:
+                        trustClass:
+                          type: string
+                          enum:
+                            - guardian
+                            - trusted_contact
+                            - unverified_contact
+                            - unknown
+                        canonicalSenderId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        resolutionFailed:
+                          type: boolean
+                        guardianExternalUserId:
+                          type: string
+                        guardianDeliveryChatId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        guardianPrincipalId:
+                          type: string
+                        guardianDisplayName:
+                          type: string
+                        contactId:
+                          type: string
+                        channelId:
+                          type: string
+                        type:
+                          type: string
+                        address:
+                          type: string
+                        externalChatId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        status:
+                          type: string
+                        policy:
+                          type: string
+                        verifiedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        verifiedVia:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        memberDisplayName:
+                          type: string
+                      required:
+                        - trustClass
+                        - canonicalSenderId
                     emailSubject:
                       type: string
                     emailRecipient:
@@ -4860,20 +4915,13 @@ paths:
                             - address
                             - isPrimary
                             - externalUserId
-                            - status
-                            - policy
-                            - verifiedAt
-                            - verifiedVia
                             - lastSeenAt
                             - interactionCount
                             - lastInteraction
-                            - revokedReason
-                            - blockedReason
                           additionalProperties: false
                     required:
                       - id
                       - displayName
-                      - role
                       - interactionCount
                       - createdAt
                       - updatedAt
@@ -5021,20 +5069,13 @@ paths:
                               - address
                               - isPrimary
                               - externalUserId
-                              - status
-                              - policy
-                              - verifiedAt
-                              - verifiedVia
                               - lastSeenAt
                               - interactionCount
                               - lastInteraction
-                              - revokedReason
-                              - blockedReason
                             additionalProperties: false
                       required:
                         - id
                         - displayName
-                        - role
                         - interactionCount
                         - createdAt
                         - updatedAt
@@ -5151,20 +5192,13 @@ paths:
                             - address
                             - isPrimary
                             - externalUserId
-                            - status
-                            - policy
-                            - verifiedAt
-                            - verifiedVia
                             - lastSeenAt
                             - interactionCount
                             - lastInteraction
-                            - revokedReason
-                            - blockedReason
                           additionalProperties: false
                     required:
                       - id
                       - displayName
-                      - role
                       - interactionCount
                       - createdAt
                       - updatedAt
@@ -5259,18 +5293,9 @@ paths:
                 expiresInMs:
                   type: number
                   description: Expiry duration in ms
-                contactName:
-                  type: string
-                  description: Contact display name
                 expectedExternalUserId:
                   type: string
                   description: Expected user ID (E.164 for phone)
-                friendName:
-                  type: string
-                  description: Friend name for the invite
-                guardianName:
-                  type: string
-                  description: Guardian name
               required:
                 - contactId
       responses:
@@ -5535,20 +5560,13 @@ paths:
                             - address
                             - isPrimary
                             - externalUserId
-                            - status
-                            - policy
-                            - verifiedAt
-                            - verifiedVia
                             - lastSeenAt
                             - interactionCount
                             - lastInteraction
-                            - revokedReason
-                            - blockedReason
                           additionalProperties: false
                     required:
                       - id
                       - displayName
-                      - role
                       - interactionCount
                       - createdAt
                       - updatedAt
@@ -5730,20 +5748,13 @@ paths:
                           - address
                           - isPrimary
                           - externalUserId
-                          - status
-                          - policy
-                          - verifiedAt
-                          - verifiedVia
                           - lastSeenAt
                           - interactionCount
                           - lastInteraction
-                          - revokedReason
-                          - blockedReason
                         additionalProperties: false
                   required:
                     - id
                     - displayName
-                    - role
                     - interactionCount
                     - createdAt
                     - updatedAt
@@ -8333,6 +8344,52 @@ paths:
                         callSite:
                           anyOf:
                             - type: string
+                            - type: "null"
+                        error:
+                          anyOf:
+                            - type: object
+                              properties:
+                                name:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                message:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                code:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                provider:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                statusCode:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                retryAfterMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                apiErrorCode:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                apiErrorType:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                apiErrorParam:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                requestId:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                              additionalProperties: false
                             - type: "null"
                       required:
                         - id
@@ -13326,8 +13383,8 @@ paths:
           schema:
             type: string
           description:
-            "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, openai-compatible,
-            minimax, atlascloud"
+            "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
+            openai-compatible, minimax, atlascloud"
       responses:
         "200":
           description: Successful response
@@ -14635,12 +14692,49 @@ paths:
                   type: string
                 disabled:
                   type: boolean
+                headers:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties:
+                    type: string
               required:
                 - name
                 - transportType
       responses:
         "200":
           description: Successful response
+  /v1/internal/mcp/auth/revoke:
+    post:
+      operationId: internal_mcp_auth_revoke_post
+      summary: Revoke MCP OAuth credentials
+      description: Deletes stored OAuth tokens for an MCP server and triggers a reload.
+      tags:
+        - internal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                serverId:
+                  type: string
+              required:
+                - serverId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked:
+                    type: boolean
+                required:
+                  - revoked
+                additionalProperties: false
   /v1/internal/mcp/auth/start:
     post:
       operationId: internal_mcp_auth_start_post
@@ -14720,6 +14814,8 @@ paths:
                           type: boolean
                         defaultRiskLevel:
                           type: string
+                        hasOAuth:
+                          type: boolean
                         allowedTools:
                           type: array
                           items:
@@ -14734,6 +14830,7 @@ paths:
                         - transport
                         - enabled
                         - defaultRiskLevel
+                        - hasOAuth
                       additionalProperties: false
                 required:
                   - servers
@@ -14860,6 +14957,14 @@ paths:
                   anyOf:
                     - type: array
                       items:
+                        type: string
+                    - type: "null"
+                headers:
+                  anyOf:
+                    - type: object
+                      propertyNames:
+                        type: string
+                      additionalProperties:
                         type: string
                     - type: "null"
               required:
@@ -15234,6 +15339,52 @@ paths:
                     anyOf:
                       - type: string
                       - type: "null"
+                  error:
+                    anyOf:
+                      - type: object
+                        properties:
+                          name:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          message:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          code:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          provider:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          statusCode:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          retryAfterMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          apiErrorCode:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          apiErrorType:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          apiErrorParam:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          requestId:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                        additionalProperties: false
+                      - type: "null"
                 required:
                   - id
                   - createdAt
@@ -15556,6 +15707,14 @@ paths:
                   type: integer
                   minimum: -9007199254740991
                   maximum: 9007199254740991
+                turnIds:
+                  type: array
+                  items:
+                    type: string
+                excludeConversationIds:
+                  type: array
+                  items:
+                    type: string
               required:
                 - stagingDir
                 - snapshotDir
@@ -15570,11 +15729,15 @@ paths:
                 properties:
                   turnsMined:
                     type: number
+                  turnsRequested:
+                    type: number
                   packetsWritten:
                     type: number
                   packetsPath:
                     type: string
                   keyPath:
+                    type: string
+                  metaPath:
                     type: string
                   snapshotPages:
                     type: number
@@ -15582,14 +15745,177 @@ paths:
                     type: number
                   dense:
                     type: boolean
+                  seed:
+                    type: number
+                  k:
+                    type: number
+                  embedding:
+                    type: object
+                    properties:
+                      provider:
+                        type: string
+                      model:
+                        type: string
+                      dims:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                    required:
+                      - provider
+                      - model
+                      - dims
+                    additionalProperties: false
+                  turnIds:
+                    type: array
+                    items:
+                      type: string
                 required:
                   - turnsMined
+                  - turnsRequested
                   - packetsWritten
                   - packetsPath
                   - keyPath
+                  - metaPath
                   - snapshotPages
                   - stagingPages
                   - dense
+                  - seed
+                  - k
+                  - embedding
+                  - turnIds
+                additionalProperties: false
+  /v1/memory/eval/tally:
+    post:
+      operationId: memory_eval_tally_post
+      summary: Unblind + tally blind-judge verdicts against the key with a noise-aware win/tie/loss verdict
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                verdicts:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      turn:
+                        type: string
+                      winner:
+                        type: string
+                      scoreA:
+                        type: number
+                      scoreB:
+                        type: number
+                    required:
+                      - turn
+                      - scoreA
+                      - scoreB
+                key:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      turn:
+                        type: string
+                      a:
+                        type: string
+                        enum:
+                          - snapshot
+                          - staging
+                      b:
+                        type: string
+                        enum:
+                          - snapshot
+                          - staging
+                    required:
+                      - turn
+                      - a
+                      - b
+                alpha:
+                  type: number
+                  exclusiveMinimum: 0
+              required:
+                - verdicts
+                - key
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  turns:
+                    type: number
+                  verdictsCounted:
+                    type: number
+                  unmatchedVerdicts:
+                    type: number
+                  panel:
+                    type: object
+                    properties:
+                      min:
+                        type: number
+                      max:
+                        type: number
+                      mean:
+                        type: number
+                    required:
+                      - min
+                      - max
+                      - mean
+                    additionalProperties: false
+                  snapshotWins:
+                    type: number
+                  stagingWins:
+                    type: number
+                  ties:
+                    type: number
+                  decided:
+                    type: number
+                  meanSnapshot:
+                    type: number
+                  meanStaging:
+                    type: number
+                  signTestP:
+                    type: number
+                  verdict:
+                    type: string
+                    enum:
+                      - wiki-wins
+                      - tie
+                      - wiki-loses
+                  gate:
+                    type: string
+                    enum:
+                      - pass
+                      - fail
+                  confident:
+                    type: boolean
+                  notes:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - turns
+                  - verdictsCounted
+                  - unmatchedVerdicts
+                  - panel
+                  - snapshotWins
+                  - stagingWins
+                  - ties
+                  - decided
+                  - meanSnapshot
+                  - meanStaging
+                  - signTestP
+                  - verdict
+                  - gate
+                  - confident
+                  - notes
                 additionalProperties: false
   /v1/memory/v2/backfill:
     post:
@@ -17486,6 +17812,52 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        error:
+                          anyOf:
+                            - type: object
+                              properties:
+                                name:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                message:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                code:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                provider:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                statusCode:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                retryAfterMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                apiErrorCode:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                apiErrorType:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                apiErrorParam:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                requestId:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                              additionalProperties: false
+                            - type: "null"
                       required:
                         - id
                         - createdAt
@@ -19296,6 +19668,56 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/onboarding/checkin:
+    post:
+      operationId: onboarding_checkin_post
+      summary: Schedule the onboarding Day 2 check-in
+      description:
+        "Find the first open 15-minute slot between 12pm and 5pm tomorrow (widening to 8am–8pm if booked) on the
+        user's Google Calendar and create the Day 2 Check-in event. Best-effort: returns scheduled=false when no
+        calendar is connected or the calendar scope wasn't granted."
+      tags:
+        - onboarding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userName:
+                  type: string
+                assistantName:
+                  type: string
+                timezone:
+                  type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scheduled:
+                    type: boolean
+                  reason:
+                    type: string
+                  eventId:
+                    type: string
+                  htmlLink:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  start:
+                    type: string
+                  end:
+                    type: string
+                  timeZone:
+                    type: string
+                required:
+                  - scheduled
+                additionalProperties: false
   /v1/pages/{appId}:
     get:
       operationId: pages_by_appId_get
@@ -25669,6 +26091,13 @@ paths:
                           type: boolean
                         messageId:
                           type: string
+                        toolUseId:
+                          type: string
+                        input:
+                          type: object
+                          propertyNames:
+                            type: string
+                          additionalProperties: {}
                       required:
                         - type
                         - content
@@ -29050,6 +29479,7 @@ components:
         - openai-compatible
         - minimax
         - atlascloud
+        - together
     ProfilePatchEntry:
       type: object
       properties:
@@ -29426,6 +29856,7 @@ components:
         - gemini
         - ollama
         - fireworks
+        - together
         - openrouter
         - openai-compatible
         - minimax

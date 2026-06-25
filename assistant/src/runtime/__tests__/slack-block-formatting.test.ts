@@ -161,8 +161,7 @@ describe("splitLongTextSegment", () => {
     // must recognize those as protected spans so it does not bisect the
     // URL token when deciding where to cut a long chunk.
     const filler = "lorem ipsum dolor sit amet. ".repeat(200);
-    const longUrl =
-      "ftp://example.com/" + "segment/".repeat(30) + "final-path";
+    const longUrl = "ftp://example.com/" + "segment/".repeat(30) + "final-path";
     const linkToken = `<${longUrl}|download>`;
     const text = filler + linkToken + " " + filler;
     expect(text.length).toBeGreaterThan(SLACK_SECTION_MAX_CHARS);
@@ -313,7 +312,8 @@ describe("textToSlackBlocks long-text splitting", () => {
     // `>`). Span-aware splitting must reject that boundary and either back
     // up to before the span or hard-slice safely.
     const filler = "a".repeat(2770);
-    const linkMarkdown = "[First sentence. Second sentence](https://example.com)";
+    const linkMarkdown =
+      "[First sentence. Second sentence](https://example.com)";
     const text = filler + linkMarkdown + " trailing content here. ".repeat(40);
     expect(text.length).toBeGreaterThan(SLACK_SECTION_MAX_CHARS);
 
@@ -365,9 +365,7 @@ describe("textToSlackBlocks long-text splitting", () => {
     }
 
     const combined = sectionBlocks.map((s) => s.text.text).join("\n");
-    expect(combined).toContain(
-      "<https://example.com/path|link text here>",
-    );
+    expect(combined).toContain("<https://example.com/path|link text here>");
   });
 
   test("does not split a **bold** span across section blocks when the bold text contains a sentence boundary near maxChars", () => {
@@ -466,16 +464,47 @@ describe("textToSlackBlocks long-text splitting", () => {
 
     // After the header: at least one section block (the second paragraph).
     const afterHeader = blocks!.slice(headerIndex + 1);
-    const sectionsAfterHeader = afterHeader.filter(
-      (b) => b.type === "section",
-    );
+    const sectionsAfterHeader = afterHeader.filter((b) => b.type === "section");
     expect(sectionsAfterHeader.length).toBeGreaterThanOrEqual(1);
 
     // Every section block stays under Slack's 3000-char ceiling.
     for (const block of blocks!) {
-      if (block.type === "section") {
+      if (block.type === "section" && block.text) {
         expect(block.text.text.length).toBeLessThanOrEqual(3000);
       }
     }
+  });
+});
+
+describe("textToSlackBlocks block-limit guard", () => {
+  test("caps output at Slack's 50-block limit with a truncation note", () => {
+    // 40 headings → 40 header blocks + 39 dividers = 79 blocks, over the limit.
+    // (Blank-line paragraphs collapse into one segment, so headings are what
+    // actually produce many blocks.)
+    const text = Array.from({ length: 40 }, (_, i) => `# Heading ${i}`).join(
+      "\n",
+    );
+
+    const blocks = textToSlackBlocks(text);
+
+    expect(blocks).toBeDefined();
+    expect(blocks!.length).toBe(50);
+    const last = blocks![49];
+    expect(last.type).toBe("context");
+    expect(JSON.stringify(last)).toContain("omitted");
+  });
+
+  test("leaves output untouched when under the 50-block limit", () => {
+    const text = Array.from({ length: 5 }, (_, i) => `# Heading ${i}`).join(
+      "\n",
+    );
+
+    const blocks = textToSlackBlocks(text);
+
+    expect(blocks).toBeDefined();
+    expect(blocks!.length).toBeLessThanOrEqual(50);
+    expect(blocks!.some((b) => JSON.stringify(b).includes("omitted"))).toBe(
+      false,
+    );
   });
 });

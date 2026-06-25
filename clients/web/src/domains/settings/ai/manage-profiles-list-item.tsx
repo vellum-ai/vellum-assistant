@@ -5,7 +5,10 @@ import { Tag } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import { AUTO_PROFILE_KEY } from "@vellumai/assistant-api";
+import {
+  getModelsForProvider,
+  PROVIDER_DISPLAY_NAMES,
+} from "@/assistant/llm-model-catalog";
 import type { ProfileWithName } from "@/domains/settings/ai/utils";
 
 // ---------------------------------------------------------------------------
@@ -35,6 +38,46 @@ interface ProfileListItemProps {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function resolveModelDisplayName(
+  provider: string | undefined,
+  modelId: string,
+): string {
+  if (provider) {
+    const match = getModelsForProvider(provider).find((m) => m.id === modelId);
+    if (match) return match.displayName;
+  }
+  // Fallback: strip common path prefixes for readability
+  const lastSlash = modelId.lastIndexOf("/");
+  return lastSlash >= 0 ? modelId.slice(lastSlash + 1) : modelId;
+}
+
+function formatProfileSubtitle(profile: ProfileWithName): string {
+  const parts: string[] = [];
+
+  if (profile.description) {
+    parts.push(profile.description);
+  }
+
+  const modelProvider: string[] = [];
+  if (profile.model) {
+    modelProvider.push(resolveModelDisplayName(profile.provider, profile.model));
+  }
+  if (profile.provider) {
+    const providerLabel = PROVIDER_DISPLAY_NAMES[profile.provider] ?? profile.provider;
+    modelProvider.push(`hosted by ${providerLabel}`);
+  }
+
+  if (modelProvider.length > 0) {
+    parts.push(modelProvider.join(" "));
+  }
+
+  return parts.join(" \u2013 ");
+}
+
+// ---------------------------------------------------------------------------
 // ProfileListItem
 // ---------------------------------------------------------------------------
 
@@ -56,7 +99,6 @@ export function ProfileListItem({
 }: ProfileListItemProps) {
   const isManaged = profile.source === "managed";
   const isActive = profile.status !== "disabled";
-  const isAutoProfile = profile.name === AUTO_PROFILE_KEY;
 
   return (
     <div className="relative">
@@ -78,9 +120,7 @@ export function ProfileListItem({
         />
 
         {/* Label — dimmed when disabled */}
-        <div
-          className={`min-w-0 flex-1${isActive ? "" : " opacity-55"}`}
-        >
+        <div className={`min-w-0 flex-1${isActive ? "" : " opacity-55"}`}>
           <div className="flex items-center gap-2">
             <Typography
               variant="body-medium-default"
@@ -89,7 +129,7 @@ export function ProfileListItem({
             >
               {profile.label ?? profile.name}
             </Typography>
-            {isManaged && profile.name !== AUTO_PROFILE_KEY && (
+            {isManaged && (
               <Tag
                 tone="positive"
                 title="Managed by Platform — auth is locked, but you can rename or disable this profile."
@@ -98,22 +138,13 @@ export function ProfileListItem({
               </Tag>
             )}
           </div>
-          {profile.description ? (
+          {(profile.description || profile.model || profile.provider) ? (
             <Typography
               variant="body-medium-lighter"
               as="p"
               className="mt-0.5 text-(--content-tertiary)"
             >
-              {profile.description}
-            </Typography>
-          ) : null}
-          {(profile.model ?? profile.provider) ? (
-            <Typography
-              variant="body-medium-lighter"
-              as="p"
-              className="mt-0.5 text-(--content-tertiary)"
-            >
-              {profile.model ?? profile.provider}
+              {formatProfileSubtitle(profile)}
             </Typography>
           ) : null}
         </div>
@@ -135,14 +166,8 @@ export function ProfileListItem({
               aria-label={`${isActive ? "Disable" : "Enable"} ${profile.label ?? profile.name}`}
             />
           </div>
-          <div
-            className={`flex w-[92px] items-center justify-end gap-2${isAutoProfile ? " invisible" : ""}`}
-          >
-            <Button
-              variant="ghost"
-              size="compact"
-              onClick={onEditClick}
-            >
+          <div className="flex w-[92px] items-center justify-end gap-2">
+            <Button variant="ghost" size="compact" onClick={onEditClick}>
               {isManaged ? "View" : "Edit"}
             </Button>
             <Button
@@ -172,9 +197,6 @@ export function ProfileListItem({
           {deleteError}
         </Typography>
       ) : null}
-      {profile.name === AUTO_PROFILE_KEY && (
-        <div className="mx-2 mt-1 border-b border-[var(--border-subtle)]" />
-      )}
     </div>
   );
 }

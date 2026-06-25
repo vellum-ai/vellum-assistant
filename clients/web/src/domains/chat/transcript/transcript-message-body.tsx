@@ -10,10 +10,12 @@ import {
 } from "react";
 
 import { BubbleAttachments } from "@/domains/chat/components/chat-attachments/bubble-attachments";
+import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import { toast } from "@vellumai/design-library";
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
-import { SubagentInlineProgressCard } from "@/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card";
+import { SubagentSpawnGroup } from "@/domains/chat/components/subagent-inline-progress-card/subagent-spawn-group";
 import { WorkflowInlineProgressCard } from "@/domains/chat/components/workflow-inline-progress-card/workflow-inline-progress-card";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import { SingleActivity } from "@/domains/chat/components/single-activity/single-activity";
@@ -46,6 +48,24 @@ import {
   type TranscriptMessageBodyProps,
   workflowRunIdForCall,
 } from "@/domains/chat/transcript/transcript-message-body-shared";
+
+function inferImageMimeType(imageData: string): string {
+  const normalized = imageData.replace(/\s/g, "");
+  if (normalized.startsWith("iVBORw0KGgo")) return "image/png";
+  if (normalized.startsWith("/9j/")) return "image/jpeg";
+  if (normalized.startsWith("UklGR")) return "image/webp";
+  if (normalized.startsWith("R0lGOD")) return "image/gif";
+  if (normalized.startsWith("Qk")) return "image/bmp";
+  return "image/png";
+}
+
+function toolResultImageSrc(imageData: string): string {
+  const trimmed = imageData.trim();
+  if (/^data:image\/[a-z0-9.+-]+;base64,/i.test(trimmed)) {
+    return trimmed;
+  }
+  return `data:${inferImageMimeType(trimmed)};base64,${trimmed}`;
+}
 
 /**
  * Renders a `DisplayMessage`'s body by walking its unified `contentBlocks`
@@ -172,6 +192,25 @@ export function TranscriptMessageBody({
     return rid !== null && cardBackedWorkflowRunIds.has(rid) ? rid : null;
   };
 
+  const handleVellumLinkClick = useCallback(
+    (href: string, linkText: string) => {
+      const pathBasename = href.split("/").pop() ?? "";
+      const att =
+        message.attachments?.find((a) => a.filename === linkText) ??
+        message.attachments?.find((a) => a.filename === pathBasename);
+      if (att) {
+        void downloadAttachment(att, assistantId);
+      } else {
+        const isHost = href.startsWith("vellum://host/");
+        toast.error(
+          `File not available for download${isHost ? " (host file approval may have timed out)" : ""}`,
+          { description: linkText || pathBasename },
+        );
+      }
+    },
+    [message.attachments, assistantId],
+  );
+
   const renderTextWithInlineSurfaces = (text: string, key: string) => {
     const inlineSegments = parseInlineSurfaces(text);
     if (inlineSegments) {
@@ -195,7 +234,7 @@ export function TranscriptMessageBody({
             }
             return (
               <div key={`inline-text-${si}`} className={segmentClass}>
-                <ChatMarkdownMessage content={seg.content} hardLineBreaks />
+                <ChatMarkdownMessage content={seg.content} hardLineBreaks onVellumLinkClick={handleVellumLinkClick} />
               </div>
             );
           })}
@@ -204,7 +243,7 @@ export function TranscriptMessageBody({
     }
     return (
       <div key={key} className={segmentClass}>
-        <ChatMarkdownMessage content={text} hardLineBreaks />
+        <ChatMarkdownMessage content={text} hardLineBreaks onVellumLinkClick={handleVellumLinkClick} />
       </div>
     );
   };
@@ -218,16 +257,11 @@ export function TranscriptMessageBody({
     );
     if (spawnedIds.length === 0) return null;
     return (
-      <div className="flex w-full flex-col gap-1.5">
-        {spawnedIds.map((subagentId) => (
-          <SubagentInlineProgressCard
-            key={subagentId}
-            subagentId={subagentId}
-            onSubagentClick={onSubagentClick}
-            onStopSubagent={onStopSubagent}
-          />
-        ))}
-      </div>
+      <SubagentSpawnGroup
+        subagentIds={spawnedIds}
+        onSubagentClick={onSubagentClick}
+        onStopSubagent={onStopSubagent}
+      />
     );
   };
 
@@ -246,6 +280,28 @@ export function TranscriptMessageBody({
             runId={runId}
             onWorkflowClick={onWorkflowClick}
             onStopWorkflow={onStopWorkflow}
+          />
+        ))}
+      </div>
+    );
+  };
+
+  const renderToolResultImages = (toolCalls: ChatMessageToolCall[]) => {
+    if (hasAttachments) return null;
+    const images = toolCalls.flatMap((tc) => {
+      if (tc.imageDataList?.length) return tc.imageDataList;
+      return tc.imageData ? [tc.imageData] : [];
+    });
+    if (images.length === 0) return null;
+    return (
+      <div className="flex w-full flex-wrap gap-2">
+        {images.map((imageData, index) => (
+          <img
+            key={`tool-result-image-${index}`}
+            data-testid="tool-result-image"
+            src={toolResultImageSrc(imageData)}
+            alt={`Generated image ${index + 1}`}
+            className="max-h-72 max-w-full rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] object-contain sm:max-w-[28rem]"
           />
         ))}
       </div>
@@ -319,6 +375,7 @@ export function TranscriptMessageBody({
       return (
         <Fragment key={key}>
           <SingleActivity variant="tool" toolCall={loneTool} />
+          {renderToolResultImages(groupToolCalls)}
           {renderInlineSubagentCards(groupToolCalls)}
           {renderInlineWorkflowCards(groupToolCalls)}
         </Fragment>
@@ -362,6 +419,7 @@ export function TranscriptMessageBody({
               onDismissUnknownNudge={onDismissUnknownNudge}
             />
           </div>
+          {renderToolResultImages(groupToolCalls)}
           {renderInlineSubagentCards(groupToolCalls)}
           {renderInlineWorkflowCards(groupToolCalls)}
         </Fragment>
@@ -383,6 +441,7 @@ export function TranscriptMessageBody({
             groupIndex={groupIndex}
           />
         )}
+        {renderToolResultImages(groupToolCalls)}
         {renderInlineSubagentCards(groupToolCalls)}
         {renderInlineWorkflowCards(groupToolCalls)}
       </Fragment>
@@ -478,23 +537,6 @@ export function TranscriptMessageBody({
     </>
   );
 
-  if (isUser && message.isSubagentNotification) {
-    // Daemon-injected subagent lifecycle notifications: visible but visually
-    // distinct from a real user bubble. Narrow centered pill, no hover
-    // affordances, no slack attribution, no MessageHoverActions trailer.
-    return (
-      <div
-        ref={wrapperRef}
-        data-testid="subagent-notification-row"
-        className="flex justify-start"
-      >
-        <div className="inline-flex max-w-full items-center rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-overlay)] px-3 py-1.5 text-body-small-default text-[var(--content-secondary)]">
-          Subagent update
-        </div>
-      </div>
-    );
-  }
-
   if (isUser) {
     const userItems = groups.map((group, gi) => ({
       kind: group.type === "text" ? ("text" as const) : ("nonText" as const),
@@ -503,6 +545,8 @@ export function TranscriptMessageBody({
     return (
       <div
         ref={wrapperRef}
+        data-message-id={message.id || undefined}
+        data-message-role={message.role}
         onClick={handleBubbleClick}
         data-revealed={revealed}
         className={wrapperClass}
@@ -519,6 +563,8 @@ export function TranscriptMessageBody({
     <div
       ref={wrapperRef}
       id={message.id ? `msg-${message.id}` : undefined}
+      data-message-id={message.id || undefined}
+      data-message-role={message.role}
       onClick={handleBubbleClick}
       data-revealed={revealed}
       className={wrapperClass}

@@ -3,8 +3,9 @@
  *
  * handleListContacts (non-search) and handleGetContact relay to the gateway
  * via `ipcCallPersistent`. On the happy path they serve gateway-sourced data
- * and do NOT read the assistant DB. On IPC failure they fall back to the
- * assistant-DB read and log a warning. getContact still 404s for unknown ids.
+ * and do NOT read the assistant DB. On IPC failure they FAIL CLOSED — the relay
+ * error propagates rather than falling back to the assistant DB. getContact
+ * surfaces a clean gateway not-found as a 404.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -62,19 +63,18 @@ const realContactStore = await import("../contacts/contact-store.js");
 // contactType is filtered in SQL (before the limit) rather than relayed.
 const listContactsArgs: Array<{
   limit?: number;
-  role?: string;
   contactType?: string;
 }> = [];
 mock.module("../contacts/contact-store.js", () => ({
   ...realContactStore,
-  listContacts: (limit?: number, role?: string, contactType?: string) => {
+  listContacts: (limit?: number, contactType?: string) => {
     localCalls.push("listContacts");
-    listContactsArgs.push({ limit, role, contactType });
+    listContactsArgs.push({ limit, contactType });
     return [
       {
         id: "local-1",
         displayName: "Local Contact",
-        role: role ?? "contact",
+        role: "contact",
         contactType: contactType ?? "human",
         interactionCount: 0,
         channels: [],
@@ -213,16 +213,15 @@ describe("handleListContacts relay", () => {
     expect(result.contacts[0].displayName).toBe("Your Guardian");
   });
 
-  test("falls back to the assistant DB on IPC failure", async () => {
+  test("fails closed on IPC failure (no assistant-DB fallback)", async () => {
     ipcStub = () => {
       throw new Error("gateway down");
     };
 
-    const result = await handleListContacts({});
+    await expect(handleListContacts({})).rejects.toThrow("gateway down");
 
     expect(ipcCalls.map((c) => c.method)).toEqual(["contacts_list_rich"]);
-    expect(localCalls).toContain("listContacts");
-    expect(result.contacts[0].id).toBe("local-1");
+    expect(localCalls).toEqual([]);
   });
 
   test("search params stay daemon-native and log the boundary note", async () => {
@@ -248,20 +247,18 @@ describe("handleListContacts relay", () => {
     // contactType + limit are pushed into the SQL-filtered daemon read (the
     // daemon-native listContacts filters contactType BEFORE applying limit).
     expect(listContactsArgs).toEqual([
-      { limit: 50, role: undefined, contactType: "assistant" },
+      { limit: 50, contactType: "assistant" },
     ]);
     expect(result.contacts[0].id).toBe("local-1");
     expect(result.contacts[0].contactType).toBe("assistant");
     expect(debugLogs.some((m) => m.includes("daemon-native"))).toBe(true);
   });
 
-  test("contactType + role both flow into the daemon-native read", async () => {
+  test("contactType filters daemon-native; role is gateway-owned and no longer a local predicate", async () => {
     await handleListContacts({ contactType: "human", role: "guardian" });
 
     expect(ipcCalls).toEqual([]);
-    expect(listContactsArgs).toEqual([
-      { limit: 50, role: "guardian", contactType: "human" },
-    ]);
+    expect(listContactsArgs).toEqual([{ limit: 50, contactType: "human" }]);
   });
 });
 
@@ -384,26 +381,24 @@ describe("handleGetContact relay", () => {
     expect(localCalls).toEqual([]);
   });
 
-  test("falls back to the assistant DB on IPC transport failure", async () => {
+  test("fails closed on IPC transport failure (no assistant-DB fallback)", async () => {
     ipcStub = () => {
       throw new Error("gateway down");
     };
 
-    const result = await handleGetContact("gw-1");
+    await expect(handleGetContact("gw-1")).rejects.toThrow("gateway down");
 
     expect(ipcCalls.map((c) => c.method)).toEqual(["contacts_get_rich"]);
-    expect(localCalls).toContain("getContact");
-    expect(result.contact.id).toBe("gw-1");
+    expect(localCalls).toEqual([]);
   });
 
-  test("fallback path still 404s for unknown ids", async () => {
-    ipcStub = () => {
-      throw new Error("gateway down");
-    };
+  test("clean gateway not-found surfaces as a 404 for unknown ids", async () => {
+    ipcStub = () => null;
 
     await expect(handleGetContact("missing")).rejects.toThrow(
       'Contact "missing" not found',
     );
-    expect(localCalls).toContain("getContact");
+    expect(ipcCalls.map((c) => c.method)).toEqual(["contacts_get_rich"]);
+    expect(localCalls).toEqual([]);
   });
 });

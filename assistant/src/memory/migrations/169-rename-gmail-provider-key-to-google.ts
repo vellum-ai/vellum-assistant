@@ -1,6 +1,5 @@
 import type { DrizzleDb } from "../db-connection.js";
 import { getSqliteFrom } from "../db-connection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
 
 /**
  * One-shot migration: rename the `integration:gmail` provider key to
@@ -18,50 +17,44 @@ import { withCrashRecovery } from "./validate-migration-state.js";
 export function migrateRenameGmailProviderKeyToGoogle(
   database: DrizzleDb,
 ): void {
-  withCrashRecovery(
-    database,
-    "migration_rename_gmail_provider_key_to_google_v1",
-    () => {
-      const raw = getSqliteFrom(database);
+  const raw = getSqliteFrom(database);
 
-      raw.exec("PRAGMA foreign_keys = OFF");
-      try {
-        // If `integration:google` already exists (runtime seeded it after the
-        // code rename), the old `integration:gmail` rows are orphaned — just
-        // delete them instead of renaming.
-        const googleExists = raw
-          .prepare(
-            /*sql*/ `SELECT 1 FROM oauth_providers WHERE provider_key = 'integration:google'`,
-          )
-          .get();
+  raw.exec("PRAGMA foreign_keys = OFF");
+  try {
+    // If `integration:google` already exists (runtime seeded it after the
+    // code rename), the old `integration:gmail` rows are orphaned — just
+    // delete them instead of renaming.
+    const googleExists = raw
+      .prepare(
+        /*sql*/ `SELECT 1 FROM oauth_providers WHERE provider_key = 'integration:google'`,
+      )
+      .get();
 
-        if (googleExists) {
-          raw.exec(
-            /*sql*/ `DELETE FROM oauth_connections WHERE provider_key = 'integration:gmail'`,
-          );
-          raw.exec(
-            /*sql*/ `DELETE FROM oauth_apps WHERE provider_key = 'integration:gmail'`,
-          );
-          raw.exec(
-            /*sql*/ `DELETE FROM oauth_providers WHERE provider_key = 'integration:gmail'`,
-          );
-        } else {
-          // Update child tables first, then the parent.
-          raw.exec(
-            /*sql*/ `UPDATE oauth_connections SET provider_key = 'integration:google' WHERE provider_key = 'integration:gmail'`,
-          );
-          raw.exec(
-            /*sql*/ `UPDATE oauth_apps SET provider_key = 'integration:google' WHERE provider_key = 'integration:gmail'`,
-          );
-          raw.exec(
-            /*sql*/ `UPDATE oauth_providers SET provider_key = 'integration:google' WHERE provider_key = 'integration:gmail'`,
-          );
-        }
-      } finally {
-        raw.exec("PRAGMA foreign_keys = ON");
-      }
-    },
-  );
+    if (googleExists) {
+      raw.exec(
+        /*sql*/ `DELETE FROM oauth_connections WHERE provider_key = 'integration:gmail'`,
+      );
+      raw.exec(
+        /*sql*/ `DELETE FROM oauth_apps WHERE provider_key = 'integration:gmail'`,
+      );
+      raw.exec(
+        /*sql*/ `DELETE FROM oauth_providers WHERE provider_key = 'integration:gmail'`,
+      );
+    } else {
+      // Update child tables first, then the parent.
+      raw.exec(
+        /*sql*/ `UPDATE oauth_connections SET provider_key = 'integration:google' WHERE provider_key = 'integration:gmail'`,
+      );
+      raw.exec(
+        /*sql*/ `UPDATE oauth_apps SET provider_key = 'integration:google' WHERE provider_key = 'integration:gmail'`,
+      );
+      raw.exec(
+        /*sql*/ `UPDATE oauth_providers SET provider_key = 'integration:google' WHERE provider_key = 'integration:gmail'`,
+      );
+    }
+  } finally {
+    raw.exec("PRAGMA foreign_keys = ON");
+  }
 }
 
 /**

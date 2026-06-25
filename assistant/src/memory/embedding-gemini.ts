@@ -18,6 +18,11 @@ export interface GeminiEmbeddingOptions {
   dimensions?: number;
   /** When set, routes requests through the managed proxy at this base URL. */
   managedBaseUrl?: string;
+  /**
+   * Milliseconds to sleep between sequential embed calls to yield to the
+   * event loop. Defaults to 5000 in production; set to 0 in tests.
+   */
+  interCallDelayMs?: number;
 }
 
 export class GeminiEmbeddingBackend implements EmbeddingBackend {
@@ -27,6 +32,7 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
   private readonly taskType?: EmbeddingTaskType;
   private readonly dimensions?: number;
   private readonly managedBaseUrl?: string;
+  private readonly interCallDelayMs: number;
 
   constructor(apiKey: string, model: string, options?: GeminiEmbeddingOptions) {
     this.apiKey = apiKey;
@@ -34,6 +40,7 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
     this.taskType = options?.taskType;
     this.dimensions = options?.dimensions;
     this.managedBaseUrl = options?.managedBaseUrl;
+    this.interCallDelayMs = options?.interCallDelayMs ?? 100;
   }
 
   /** True when requests route through the managed platform proxy. */
@@ -46,9 +53,18 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
     options?: EmbeddingRequestOptions,
   ): Promise<number[][]> {
     const vectors: number[][] = [];
-    for (const input of inputs) {
-      const values = await this.embedSingle(input, options);
+    for (let i = 0; i < inputs.length; i++) {
+      const values = await this.embedSingle(inputs[i], options);
       vectors.push(values);
+      // Yield to the event loop between sequential embed calls so the
+      // daemon can serve HTTP requests, health checks, and cron ticks
+      // while a large batch (e.g. startup skill reseed / concept-page
+      // reembed) is in flight. Without this, 68+ sequential Gemini
+      // round-trips starve the event loop for minutes at a time.
+      // TODO: replace with full backgrounding (worker thread / subprocess).
+      if (i < inputs.length - 1 && this.interCallDelayMs > 0) {
+        await Bun.sleep(this.interCallDelayMs);
+      }
     }
     return vectors;
   }

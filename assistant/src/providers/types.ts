@@ -265,6 +265,15 @@ export interface Provider {
    * Falls back to `name` when unset.
    */
   tokenEstimationProvider?: string;
+  /**
+   * True when this provider instance was constructed to run web search
+   * server-side (provider-native). The native search only activates when a
+   * `web_search`-named tool is passed in the request, so callers that want to
+   * enable web search on a one-shot completion (e.g. the advisor consult) check
+   * this first — passing the tool to a non-native instance would surface an
+   * unexecutable client tool call. Absent/false on providers without it.
+   */
+  supportsNativeWebSearch?: boolean;
   sendMessage(
     messages: Message[],
     options?: SendMessageOptions,

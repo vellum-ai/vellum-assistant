@@ -1,5 +1,4 @@
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
 
 /**
  * Reverse v21: rename channel_verification_sessions back to
@@ -61,57 +60,55 @@ export function downRenameVerificationTable(database: DrizzleDb): void {
  * old table name.
  */
 export function migrateRenameVerificationTable(database: DrizzleDb): void {
-  withCrashRecovery(database, "migration_rename_verification_table_v1", () => {
-    const raw = getSqliteFrom(database);
+  const raw = getSqliteFrom(database);
 
-    // Check the old table exists before attempting anything
-    const oldTableExists = raw
-      .query(
-        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'channel_guardian_verification_challenges'`,
-      )
-      .get();
-    if (!oldTableExists) return;
+  // Check the old table exists before attempting anything
+  const oldTableExists = raw
+    .query(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'channel_guardian_verification_challenges'`,
+    )
+    .get();
+  if (!oldTableExists) return;
 
-    // If the new table already exists, the rename would collide — skip
-    const newTableExists = raw
-      .query(
-        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'channel_verification_sessions'`,
-      )
-      .get();
-    if (newTableExists) return;
+  // If the new table already exists, the rename would collide — skip
+  const newTableExists = raw
+    .query(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'channel_verification_sessions'`,
+    )
+    .get();
+  if (newTableExists) return;
 
-    // Rename the physical table
-    raw.exec(
-      /*sql*/ `ALTER TABLE channel_guardian_verification_challenges RENAME TO channel_verification_sessions`,
-    );
+  // Rename the physical table
+  raw.exec(
+    /*sql*/ `ALTER TABLE channel_guardian_verification_challenges RENAME TO channel_verification_sessions`,
+  );
 
-    // Drop and recreate indexes that referenced the old table name.
-    // SQLite automatically updates index table references on RENAME, but the
-    // index names still reference the old naming convention — drop and recreate
-    // with consistent names pointing at the new table.
+  // Drop and recreate indexes that referenced the old table name.
+  // SQLite automatically updates index table references on RENAME, but the
+  // index names still reference the old naming convention — drop and recreate
+  // with consistent names pointing at the new table.
 
-    raw.exec(
-      /*sql*/ `DROP INDEX IF EXISTS idx_channel_guardian_challenges_lookup`,
-    );
-    raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_guardian_sessions_active`);
-    raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_guardian_sessions_identity`);
-    raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_guardian_sessions_destination`);
-    raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_guardian_sessions_bootstrap`);
+  raw.exec(
+    /*sql*/ `DROP INDEX IF EXISTS idx_channel_guardian_challenges_lookup`,
+  );
+  raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_guardian_sessions_active`);
+  raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_guardian_sessions_identity`);
+  raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_guardian_sessions_destination`);
+  raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_guardian_sessions_bootstrap`);
 
-    raw.exec(
-      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_verification_sessions_lookup ON channel_verification_sessions(channel, challenge_hash, status)`,
-    );
-    raw.exec(
-      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_verification_sessions_active ON channel_verification_sessions(channel, status)`,
-    );
-    raw.exec(
-      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_verification_sessions_identity ON channel_verification_sessions(channel, expected_external_user_id, expected_chat_id, status)`,
-    );
-    raw.exec(
-      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_verification_sessions_destination ON channel_verification_sessions(channel, destination_address)`,
-    );
-    raw.exec(
-      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_verification_sessions_bootstrap ON channel_verification_sessions(channel, bootstrap_token_hash, status)`,
-    );
-  });
+  raw.exec(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_verification_sessions_lookup ON channel_verification_sessions(channel, challenge_hash, status)`,
+  );
+  raw.exec(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_verification_sessions_active ON channel_verification_sessions(channel, status)`,
+  );
+  raw.exec(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_verification_sessions_identity ON channel_verification_sessions(channel, expected_external_user_id, expected_chat_id, status)`,
+  );
+  raw.exec(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_verification_sessions_destination ON channel_verification_sessions(channel, destination_address)`,
+  );
+  raw.exec(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_verification_sessions_bootstrap ON channel_verification_sessions(channel, bootstrap_token_hash, status)`,
+  );
 }

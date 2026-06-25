@@ -1,8 +1,5 @@
 import type { DrizzleDb } from "../db-connection.js";
 import { tableHasColumn } from "./schema-introspection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
-
-const CHECKPOINT_KEY = "migration_conversation_cleaned_at_v1";
 
 const COLUMN_NAME = "cleaned_at";
 const COLUMN_DEFINITION = "cleaned_at INTEGER";
@@ -17,12 +14,10 @@ const COLUMN_DEFINITION = "cleaned_at INTEGER";
  * to the child only when the fork point is at-or-after the clean.
  */
 export function migrateConversationCleanedAt(database: DrizzleDb): void {
-  withCrashRecovery(database, CHECKPOINT_KEY, () => {
-    if (tableHasColumn(database, "conversations", COLUMN_NAME)) {
-      return;
-    }
-    database.run(`ALTER TABLE conversations ADD COLUMN ${COLUMN_DEFINITION}`);
-  });
+  if (tableHasColumn(database, "conversations", COLUMN_NAME)) {
+    return;
+  }
+  database.run(`ALTER TABLE conversations ADD COLUMN ${COLUMN_DEFINITION}`);
 }
 
 export function downConversationCleanedAt(database: DrizzleDb): void {

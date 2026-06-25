@@ -453,6 +453,13 @@ export function renderHistoryContent(
       // time filter in cleanAssistantContent and migration 222.
       if (isPlaceholderSentinelText(displayText)) continue;
       textParts.push(displayText);
+      // A ui_surface card's plain-text fallback (flagged `_surfaceFallback` by
+      // the approval-card builder) is represented by the adjacent surface for
+      // surface-capable clients. Keep it in the flat `.text` body above (CLI,
+      // search, channel replies, non-surface clients) but don't emit it as a
+      // text segment or content block, or those clients would render the card
+      // AND its fallback text.
+      if (block._surfaceFallback === true) continue;
       ensureSegment();
       currentSegmentParts.push(displayText);
       seenText = true;

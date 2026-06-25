@@ -13,6 +13,7 @@
 import { type FormEvent, type RefObject, useCallback, useEffect, useRef } from "react";
 
 import { useComposerStore, selectUploadingCount, selectUploadedIds } from "@/domains/chat/composer-store";
+import { useQuoteReplyStore, type StagedQuote } from "@/domains/chat/quote-reply-store";
 import { conversationsByIdUndoPost } from "@/generated/daemon/sdk.gen";
 import { haptic } from "@/utils/haptics";
 import { isPointerCoarse } from "@/utils/pointer";
@@ -75,9 +76,10 @@ export function useComposerSubmit({
     const uploadingCount = selectUploadingCount(chatAttachments);
     const uploadedIds = selectUploadedIds(chatAttachments);
 
+    const stagedQuotes = useQuoteReplyStore.getState().stagedQuotes;
     const trimmed = (inputOverride ?? input).trim();
     if (sendDisabled) return;
-    if (!trimmed && uploadedIds.length === 0) return;
+    if (!trimmed && uploadedIds.length === 0 && stagedQuotes.length === 0) return;
     if (uploadingCount > 0) return;
 
     const attachmentsToSend: DisplayAttachment[] = chatAttachments
@@ -100,6 +102,7 @@ export function useComposerSubmit({
       inputRef.current.style.height = "auto";
     }
     useComposerStore.getState().resetAttachments();
+    useQuoteReplyStore.getState().clearStagedQuotes();
 
     if (!isPointerCoarse()) {
       shouldFocusInputRef.current = true;
@@ -119,7 +122,8 @@ export function useComposerSubmit({
         // If undo fails, still send the message as a new one
       }
     }
-    await sendMessage(trimmed, attachmentsToSend);
+    const contentWithQuotes = buildContentWithQuotes(stagedQuotes, trimmed);
+    await sendMessage(contentWithQuotes, attachmentsToSend);
   }, [sendDisabled, activeConversationId, inputRef, scrollToLatest, isEditing, editingMessageId, assistantId, cancelEditing, sendMessage]);
 
   const handleFormSubmit = useCallback((e: FormEvent) => {
@@ -128,4 +132,32 @@ export function useComposerSubmit({
   }, [submitMessage]);
 
   return { submitMessage, handleFormSubmit };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Formats staged quotes and the user's freeform text into a single message
+ * string. Each quote is rendered as a markdown blockquote followed by the
+ * user's reply. The ordering is:
+ *   quote1 → reply1 → quote2 → reply2 → … → freeform text
+ */
+function buildContentWithQuotes(
+  quotes: StagedQuote[],
+  freeformText: string,
+): string {
+  const parts: string[] = [];
+  for (const quote of quotes) {
+    const blockquote = quote.quotedText
+      .split("\n")
+      .map((line) => `> ${line}`)
+      .join("\n");
+    parts.push(`${blockquote}\n\n${quote.replyText}`);
+  }
+  if (freeformText) {
+    parts.push(freeformText);
+  }
+  return parts.join("\n\n");
 }

@@ -109,10 +109,9 @@ export function registerMcpCommand(program: Command): void {
     transport: "ipc",
     description: "Manage MCP (Model Context Protocol) servers",
     build: (mcp) => {
-
-  mcp.addHelpText(
-    "after",
-    `
+      mcp.addHelpText(
+        "after",
+        `
 MCP servers extend the assistant's capabilities with external tools. Servers
 are configured in the assistant's config.json under the mcp.servers key. Each
 server uses one of three transport types:
@@ -129,15 +128,15 @@ Examples:
   $ assistant mcp add my-server -t stdio -c npx -a my-mcp-server
   $ assistant mcp auth my-server
   $ assistant mcp remove my-server`,
-  );
+      );
 
-  mcp
-    .command("list")
-    .description("List configured MCP servers and their status")
-    .option("--json", "Output as JSON")
-    .addHelpText(
-      "after",
-      `
+      mcp
+        .command("list")
+        .description("List configured MCP servers and their status")
+        .option("--json", "Output as JSON")
+        .addHelpText(
+          "after",
+          `
 Shows each configured MCP server with its current status and configuration:
 
   Name         The server identifier used in config.json
@@ -157,49 +156,49 @@ list including health status.
 Examples:
   $ assistant mcp list
   $ assistant mcp list --json`,
-    )
-    .action(async (opts: { json?: boolean }) => {
-      const result = await cliIpcCall<{ servers: McpServerEntry[] }>(
-        "internal_mcp_list",
-      );
+        )
+        .action(async (opts: { json?: boolean }) => {
+          const result = await cliIpcCall<{ servers: McpServerEntry[] }>(
+            "internal_mcp_list",
+          );
 
-      if (!result.ok) {
-        return exitFromIpcResult({
-          ok: false,
-          error: result.error,
-          statusCode: result.statusCode,
+          if (!result.ok) {
+            return exitFromIpcResult({
+              ok: false,
+              error: result.error,
+              statusCode: result.statusCode,
+            });
+          }
+
+          const servers = result.result?.servers ?? [];
+
+          if (servers.length === 0) {
+            if (opts.json) {
+              process.stdout.write(JSON.stringify([], null, 2) + "\n");
+            } else {
+              log.info("No MCP servers configured.");
+            }
+            return;
+          }
+
+          if (opts.json) {
+            process.stdout.write(JSON.stringify(servers, null, 2) + "\n");
+            return;
+          }
+
+          log.info(`${servers.length} MCP server(s) configured:\n`);
+
+          for (const entry of servers) {
+            printServerEntry(entry);
+          }
         });
-      }
 
-      const servers = result.result?.servers ?? [];
-
-      if (servers.length === 0) {
-        if (opts.json) {
-          process.stdout.write(JSON.stringify([], null, 2) + "\n");
-        } else {
-          log.info("No MCP servers configured.");
-        }
-        return;
-      }
-
-      if (opts.json) {
-        process.stdout.write(JSON.stringify(servers, null, 2) + "\n");
-        return;
-      }
-
-      log.info(`${servers.length} MCP server(s) configured:\n`);
-
-      for (const entry of servers) {
-        printServerEntry(entry);
-      }
-    });
-
-  mcp
-    .command("reload")
-    .description("Reload MCP server connections in the running assistant")
-    .addHelpText(
-      "after",
-      `
+      mcp
+        .command("reload")
+        .description("Reload MCP server connections in the running assistant")
+        .addHelpText(
+          "after",
+          `
 Signals the running assistant to disconnect and reconnect all MCP servers
 using the current configuration from disk. Active sessions pick up new tools
 on their next turn automatically. The assistant must be running.
@@ -208,40 +207,49 @@ Examples:
   $ vellum mcp reload
   $ vellum mcp reload   # after editing config.json to add a new server
   $ vellum mcp reload   # after running "vellum mcp auth <server>"`,
-    )
-    .action(async () => {
-      const result = await cliIpcCall("internal_mcp_reload", { body: {} });
-      if (!result.ok) {
-        log.warn(
-          `Could not signal reload: ${result.error}. ` +
-            `Run 'assistant mcp reload' once the assistant is up.`,
-        );
-      } else {
-        log.info(
-          "MCP reload signal sent. The running assistant will reconnect servers shortly.",
-        );
-      }
-    });
+        )
+        .action(async () => {
+          const result = await cliIpcCall("internal_mcp_reload", { body: {} });
+          if (!result.ok) {
+            log.warn(
+              `Could not signal reload: ${result.error}. ` +
+                `Run 'assistant mcp reload' once the assistant is up.`,
+            );
+          } else {
+            log.info(
+              "MCP reload signal sent. The running assistant will reconnect servers shortly.",
+            );
+          }
+        });
 
-  mcp
-    .command("add <name>")
-    .description("Add an MCP server configuration")
-    .requiredOption(
-      "-t, --transport-type <type>",
-      "Transport type: stdio, sse, or streamable-http",
-    )
-    .option("-u, --url <url>", "Server URL (for sse/streamable-http)")
-    .option("-c, --command <cmd>", "Command to run (for stdio)")
-    .option("-a, --args <args...>", "Command arguments (for stdio)")
-    .option(
-      "-r, --risk <level>",
-      "Default risk level: low, medium, or high",
-      "high",
-    )
-    .option("--disabled", "Add as disabled")
-    .addHelpText(
-      "after",
-      `
+      mcp
+        .command("add <name>")
+        .description("Add an MCP server configuration")
+        .requiredOption(
+          "-t, --transport-type <type>",
+          "Transport type: stdio, sse, or streamable-http",
+        )
+        .option("-u, --url <url>", "Server URL (for sse/streamable-http)")
+        .option("-c, --command <cmd>", "Command to run (for stdio)")
+        .option("-a, --args <args...>", "Command arguments (for stdio)")
+        .option(
+          "-r, --risk <level>",
+          "Default risk level: low, medium, or high",
+          "high",
+        )
+        .option(
+          "-H, --header <key:value>",
+          "Custom HTTP header (repeatable, for sse/streamable-http). E.g. -H 'Authorization: Bearer tok123'",
+          (val: string, acc: string[]) => {
+            acc.push(val);
+            return acc;
+          },
+          [] as string[],
+        )
+        .option("--disabled", "Add as disabled")
+        .addHelpText(
+          "after",
+          `
 Arguments:
   name   Unique identifier for the server (used as the key in config.json)
 
@@ -254,58 +262,84 @@ The --risk flag sets the default risk level for all tools from this server
 (defaults to "high" if not specified). The server starts enabled unless
 --disabled is passed.
 
+The --header (-H) flag adds custom HTTP headers to sse/streamable-http
+transports. Use it for Bearer Token or API Key authentication. The flag
+is repeatable — pass multiple -H flags for multiple headers.
+
 If a server with the same name already exists, the command fails. Remove the
 existing server first with "assistant mcp remove <name>".
 
 Examples:
   $ assistant mcp add my-server -t stdio -c npx -a my-mcp-server
   $ assistant mcp add remote-api -t streamable-http -u https://api.example.com/mcp -r medium
-  $ assistant mcp add legacy-sse -t sse -u https://old.example.com/events --disabled`,
-    )
-    .action(
-      async (
-        name: string,
-        opts: {
-          transportType: string;
-          url?: string;
-          command?: string;
-          args?: string[];
-          risk: string;
-          disabled?: boolean;
-        },
-      ) => {
-        const result = await cliIpcCall<{ added: true }>(
-          "internal_mcp_add",
-          {
-            body: {
-              name,
-              transportType: opts.transportType,
-              url: opts.url,
-              command: opts.command,
-              args: opts.args,
-              risk: opts.risk,
-              disabled: opts.disabled,
+  $ assistant mcp add legacy-sse -t sse -u https://old.example.com/events --disabled
+  $ assistant mcp add authed-api -t sse -u https://api.example.com/mcp -H 'Authorization: Bearer tok123'
+  $ assistant mcp add apikey-srv -t streamable-http -u https://srv.example.com/mcp -H 'X-API-Key: sk_live_abc'`,
+        )
+        .action(
+          async (
+            name: string,
+            opts: {
+              transportType: string;
+              url?: string;
+              command?: string;
+              args?: string[];
+              risk: string;
+              header: string[];
+              disabled?: boolean;
             },
+          ) => {
+            let headers: Record<string, string> | undefined;
+            if (opts.header.length > 0) {
+              headers = {};
+              for (const h of opts.header) {
+                const colonIdx = h.indexOf(":");
+                if (colonIdx === -1) {
+                  log.error(
+                    `Invalid header format: "${h}". Expected "Key: Value".`,
+                  );
+                  process.exitCode = 1;
+                  return;
+                }
+                headers[h.slice(0, colonIdx).trim()] = h
+                  .slice(colonIdx + 1)
+                  .trim();
+              }
+            }
+
+            const result = await cliIpcCall<{ added: true }>(
+              "internal_mcp_add",
+              {
+                body: {
+                  name,
+                  transportType: opts.transportType,
+                  url: opts.url,
+                  command: opts.command,
+                  args: opts.args,
+                  risk: opts.risk,
+                  disabled: opts.disabled,
+                  headers,
+                },
+              },
+            );
+
+            if (!result.ok) {
+              log.error(result.error ?? "Failed to add MCP server");
+              process.exitCode = 1;
+              return;
+            }
+
+            log.info(`Added MCP server "${name}" (${opts.transportType})`);
+            log.info("The running assistant is reloading MCP servers now.");
           },
         );
 
-        if (!result.ok) {
-          log.error(result.error ?? "Failed to add MCP server");
-          process.exitCode = 1;
-          return;
-        }
-
-        log.info(`Added MCP server "${name}" (${opts.transportType})`);
-        log.info("The running assistant is reloading MCP servers now.");
-      },
-    );
-
-  mcp
-    .command("auth <name>")
-    .description("Authenticate with an MCP server via OAuth")
-    .addHelpText(
-      "after",
-      `
+      mcp
+        .command("auth <name>")
+        .description("Authenticate with an MCP server via OAuth")
+        .addHelpText(
+          "after",
+          `
 Arguments:
   name   Name of a configured MCP server to authenticate with
 
@@ -324,79 +358,79 @@ automatically. You can also run 'vellum mcp reload' to apply immediately.
 Examples:
   $ assistant mcp auth my-server
   $ assistant mcp auth remote-api`,
-    )
-    .action(async (name: string) => {
-      // IPC-first path — attempt daemon-orchestrated flow (works on hosted assistants)
-      const startResult = await cliIpcCall<{
-        auth_url: string;
-        state: string;
-        already_authenticated?: boolean;
-      }>("internal_mcp_auth_start", { body: { serverId: name } });
+        )
+        .action(async (name: string) => {
+          // IPC-first path — attempt daemon-orchestrated flow (works on hosted assistants)
+          const startResult = await cliIpcCall<{
+            auth_url: string;
+            state: string;
+            already_authenticated?: boolean;
+          }>("internal_mcp_auth_start", { body: { serverId: name } });
 
-      if (startResult.ok && startResult.result?.already_authenticated) {
-        log.info(`Server "${name}" is already authenticated.`);
-        process.exit(0);
-        return;
-      }
+          if (startResult.ok && startResult.result?.already_authenticated) {
+            log.info(`Server "${name}" is already authenticated.`);
+            process.exit(0);
+            return;
+          }
 
-      if (startResult.ok && startResult.result?.auth_url) {
-        const authUrl = startResult.result.auth_url;
-        log.info(`Opening browser for "${name}" OAuth authorization...`);
-        openInHostBrowser(authUrl);
-        log.info(`If the browser did not open, visit:\n${authUrl}`);
-        log.info(
-          "Waiting for authorization in browser... (press Ctrl+C to cancel)",
-        );
+          if (startResult.ok && startResult.result?.auth_url) {
+            const authUrl = startResult.result.auth_url;
+            log.info(`Opening browser for "${name}" OAuth authorization...`);
+            openInHostBrowser(authUrl);
+            log.info(`If the browser did not open, visit:\n${authUrl}`);
+            log.info(
+              "Waiting for authorization in browser... (press Ctrl+C to cancel)",
+            );
 
-        const finalStatus = await pollMcpAuthStatus(name, {
-          intervalMs: 2_000,
-          timeoutMs: 150_000, // matches existing OAUTH_TIMEOUT_MS
+            const finalStatus = await pollMcpAuthStatus(name, {
+              intervalMs: 2_000,
+              timeoutMs: 150_000, // matches existing OAUTH_TIMEOUT_MS
+            });
+
+            if (finalStatus.status === "complete") {
+              log.info(`Authentication successful for "${name}".`);
+              log.info(
+                "The running assistant has picked up this change automatically.",
+              );
+              process.exit(0);
+              return;
+            }
+
+            const errMsg = finalStatus.error ?? "Unknown error";
+            if (errMsg.includes("denied") || errMsg.includes("cancelled")) {
+              log.error(`Authorization cancelled for "${name}".`);
+            } else if (errMsg.includes("timed out")) {
+              log.error(
+                `Authorization timed out for "${name}". Try again with: assistant mcp auth ${name}`,
+              );
+            } else {
+              log.error(`OAuth failed for "${name}": ${errMsg}`);
+            }
+            process.exitCode = 1;
+            return;
+          }
+
+          // Any !startResult.ok case: surface error and exit 1
+          const ipcErrMsg = startResult.error ?? "Unknown error";
+          if (
+            ipcErrMsg.startsWith("Could not connect to assistant daemon") ||
+            ipcErrMsg.startsWith("Unknown method:")
+          ) {
+            log.error(
+              `MCP OAuth requires the assistant to be running. Is it running?`,
+            );
+          } else {
+            log.error(`MCP OAuth failed via assistant: ${ipcErrMsg}`);
+          }
+          process.exitCode = 1;
         });
 
-        if (finalStatus.status === "complete") {
-          log.info(`Authentication successful for "${name}".`);
-          log.info(
-            "The running assistant has picked up this change automatically.",
-          );
-          process.exit(0);
-          return;
-        }
-
-        const errMsg = finalStatus.error ?? "Unknown error";
-        if (errMsg.includes("denied") || errMsg.includes("cancelled")) {
-          log.error(`Authorization cancelled for "${name}".`);
-        } else if (errMsg.includes("timed out")) {
-          log.error(
-            `Authorization timed out for "${name}". Try again with: assistant mcp auth ${name}`,
-          );
-        } else {
-          log.error(`OAuth failed for "${name}": ${errMsg}`);
-        }
-        process.exitCode = 1;
-        return;
-      }
-
-      // Any !startResult.ok case: surface error and exit 1
-      const ipcErrMsg = startResult.error ?? "Unknown error";
-      if (
-        ipcErrMsg.startsWith("Could not connect to assistant daemon") ||
-        ipcErrMsg.startsWith("Unknown method:")
-      ) {
-        log.error(
-          `MCP OAuth requires the assistant to be running. Is it running?`,
-        );
-      } else {
-        log.error(`MCP OAuth failed via assistant: ${ipcErrMsg}`);
-      }
-      process.exitCode = 1;
-    });
-
-  mcp
-    .command("remove <name>")
-    .description("Remove an MCP server configuration")
-    .addHelpText(
-      "after",
-      `
+      mcp
+        .command("remove <name>")
+        .description("Remove an MCP server configuration")
+        .addHelpText(
+          "after",
+          `
 Arguments:
   name   Name of the MCP server to remove
 
@@ -411,25 +445,25 @@ can also run 'vellum mcp reload' to apply immediately.
 Examples:
   $ assistant mcp remove my-server
   $ assistant mcp remove legacy-sse`,
-    )
-    .action(async (name: string) => {
-      const result = await cliIpcCall<{ removed: true }>(
-        "internal_mcp_remove",
-        { body: { name } },
-      );
+        )
+        .action(async (name: string) => {
+          const result = await cliIpcCall<{ removed: true }>(
+            "internal_mcp_remove",
+            { body: { name } },
+          );
 
-      if (!result.ok) {
-        log.error(result.error ?? `Failed to remove MCP server "${name}".`);
-        process.exitCode = 1;
-        return;
-      }
+          if (!result.ok) {
+            log.error(result.error ?? `Failed to remove MCP server "${name}".`);
+            process.exitCode = 1;
+            return;
+          }
 
-      log.info(`Removed MCP server "${name}".`);
-      log.info(
-        "The running assistant will pick up this change automatically. " +
-          "Or run 'vellum mcp reload' to apply now.",
-      );
-    });
+          log.info(`Removed MCP server "${name}".`);
+          log.info(
+            "The running assistant will pick up this change automatically. " +
+              "Or run 'vellum mcp reload' to apply now.",
+          );
+        });
     },
   });
 }

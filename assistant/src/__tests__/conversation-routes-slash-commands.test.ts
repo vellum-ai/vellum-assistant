@@ -126,6 +126,8 @@ mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   addMessage: (
     conversationId: string,
     role: string,
@@ -188,6 +190,18 @@ mock.module("../runtime/trust-context-resolver.js", () => ({
     ...(ctx as Record<string, unknown>),
     sourceChannel,
   }),
+}));
+
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => [
+    {
+      channelType: "vellum",
+      contactId: "guardian-contact",
+      principalId: "test-user",
+      address: "test-user",
+      status: "active",
+    },
+  ],
 }));
 
 const ipcCallMock = mock(

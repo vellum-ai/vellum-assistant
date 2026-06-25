@@ -74,6 +74,7 @@ import {
   resolveSigningKey,
 } from "../runtime/auth/token-service.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
+import { warmLocalGuardianPrincipalCache } from "../runtime/local-actor-identity.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
 import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
 import {
@@ -121,6 +122,10 @@ import {
   startDiskPressureGuard,
   stopDiskPressureGuard,
 } from "./disk-pressure-guard.js";
+import {
+  startEventLoopWatchdog,
+  stopEventLoopWatchdog,
+} from "./event-loop-watchdog.js";
 import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
 import { installAssistantSymlink } from "./install-symlink.js";
@@ -820,8 +825,19 @@ export async function runDaemon(): Promise<void> {
 
     await server.start();
     log.info("Daemon startup: DaemonServer started");
+
+    // Warm the gateway guardian-delivery cache so the SSE eager-subscribe path
+    // (sync, IO-free) resolves the local actor principal on the FIRST client
+    // registration. Without this, a cold cache regresses host-proxy same-user
+    // targeting until a later reconnect. Non-blocking: failures aren't cached
+    // and the async hot paths re-warm on their next read.
+    void warmLocalGuardianPrincipalCache().catch((err) =>
+      log.warn({ err }, "Guardian principal cache warm failed — continuing"),
+    );
+
     startDiskPressureGuardForLifecycle();
     startOrphanReaper();
+    startEventLoopWatchdog();
 
     // Mutable refs for Qdrant and memory worker so background
     // init can assign them and the shutdown handler always sees the latest value.
@@ -961,6 +977,10 @@ export async function runDaemon(): Promise<void> {
         }
       }
 
+      // `startMemoryJobsWorker` selects the worker implementation based on
+      // `memory.worker.enabled` (in-process vs. a separate OS process).
+      // Shutdown stops whichever worker is actually running — see
+      // shutdown-handlers.ts.
       log.info("Daemon startup: starting memory worker");
       bgRefs.memoryWorker = startMemoryJobsWorker();
 
@@ -1422,6 +1442,7 @@ export async function runDaemon(): Promise<void> {
         stopGatewayFlagListener();
         stopDiskPressureGuardForLifecycle();
         stopOrphanReaper();
+        stopEventLoopWatchdog();
         cleanupPidFile();
       },
     });
@@ -1437,6 +1458,7 @@ export async function runDaemon(): Promise<void> {
     log.error({ err }, "Daemon startup failed — cleaning up");
     stopDiskPressureGuardForLifecycle();
     stopOrphanReaper();
+    stopEventLoopWatchdog();
     cleanupPidFileIfOwner(process.pid);
     throw err;
   }

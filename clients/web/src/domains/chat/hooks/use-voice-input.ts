@@ -1,6 +1,7 @@
 
-import { type Dispatch, type RefObject, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useComposerStore } from "@/domains/chat/composer-store";
 import {
   type VoiceInputButtonHandle,
 } from "@/domains/chat/components/voice-input-button";
@@ -30,8 +31,6 @@ export interface UseVoiceInputOptions {
   assistantId: string | null;
   /** Ref to the composer textarea for cursor-position reads and resize. */
   inputRef: RefObject<HTMLTextAreaElement | null>;
-  /** State setter for the composer input value (React useState dispatch). */
-  setInput: Dispatch<SetStateAction<string>>;
 }
 
 export interface UseVoiceInputReturn {
@@ -102,7 +101,6 @@ export interface UseVoiceInputReturn {
 export function useVoiceInput({
   assistantId,
   inputRef,
-  setInput,
 }: UseVoiceInputOptions): UseVoiceInputReturn {
   const [voiceInterim, setVoiceInterim] = useState("");
   const [voiceError, setVoiceError] = useState<string | null>(null);
@@ -179,7 +177,10 @@ export function useVoiceInput({
           .flagDictationInsertionError("dictation-paste-blocked");
       }
 
-      setInput((current: string) => {
+      // Imperative write — voice transcripts can land while the composer is
+      // unfocused (front-app dictation), so we go through the store rather than
+      // a subscribed setter (per docs/STATE_MANAGEMENT.md: getState in callbacks).
+      useComposerStore.getState().setInput((current: string) => {
         const insertAt = capturedPos ?? current.length;
         const pos = Math.min(insertAt, current.length);
         const before = current.slice(0, pos);
@@ -191,7 +192,7 @@ export function useVoiceInput({
 
       inputRef.current?.focus();
     },
-    [assistantId, inputRef, setInput],
+    [assistantId, inputRef],
   );
 
   const isRecording = useVoiceRecordingStore.use.phase() === "recording";

@@ -5,7 +5,12 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 
 import { initSigningKey } from "../auth/token-service.js";
-import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
+import {
+  initGatewayDb,
+  getGatewayDb,
+  resetGatewayDb,
+} from "../db/connection.js";
+import { contacts, contactChannels } from "../db/schema.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
@@ -115,6 +120,8 @@ async function setupTestDirs(): Promise<void> {
   await initGatewayDb();
 }
 
+// Seeds both DBs: the assistant mirror (for activeBindingFor reads) and the
+// gateway DB (now the source of truth for guardian-binding lookups).
 function insertGuardianContact(id: string, principalId: string, now: number) {
   testAssistantDb!
     .prepare(
@@ -122,6 +129,18 @@ function insertGuardianContact(id: string, principalId: string, now: number) {
        VALUES (?, ?, 'guardian', ?, ?, ?)`,
     )
     .run(id, `Guardian ${id}`, principalId, now, now);
+
+  getGatewayDb()
+    .insert(contacts)
+    .values({
+      id,
+      displayName: `Guardian ${id}`,
+      role: "guardian",
+      principalId,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
 }
 
 function insertChannel(opts: {
@@ -150,6 +169,22 @@ function insertChannel(opts: {
       opts.createdAt,
       opts.updatedAt,
     );
+
+  getGatewayDb()
+    .insert(contactChannels)
+    .values({
+      id: opts.id,
+      contactId: opts.contactId,
+      type: opts.type,
+      address: opts.externalUserId,
+      externalChatId: opts.externalUserId,
+      isPrimary: true,
+      status: opts.status,
+      policy: "allow",
+      createdAt: opts.createdAt,
+      updatedAt: opts.updatedAt,
+    })
+    .run();
 }
 
 function activeBindingFor(phone: string): {

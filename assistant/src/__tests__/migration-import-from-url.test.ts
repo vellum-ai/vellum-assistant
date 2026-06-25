@@ -420,9 +420,9 @@ describe("handleMigrationImport — JSON {url} body", () => {
 
 describe("handleMigrationImport — no-swap path omits newer-migration warning", () => {
   test("credentials-only bundle does not inherit live-DB migration warnings", async () => {
-    // Seed the live workspace DB with a migration_* checkpoint that's NOT
-    // in the registry. validateMigrationState treats this as a "newer
-    // version" and would otherwise push a warning into the report. With
+    // Seed the live workspace DB with a step:* checkpoint that's NOT
+    // in the known step list. validateMigrationState treats this as a
+    // "newer version" and would otherwise push a warning into the report. With
     // the gate in appendNewerMigrationWarningsIfAny the warning must be
     // suppressed when the import didn't modify the workspace.
     const dbDir = join(testWorkspaceRoot, "data", "db");
@@ -441,7 +441,7 @@ describe("handleMigrationImport — no-swap path omits newer-migration warning",
         .query(
           `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES (?, ?, ?)`,
         )
-        .run("migration_from_the_future", "1", Date.now());
+        .run("step:migrationFromTheFuture", "1", Date.now());
     } finally {
       seed.close();
     }

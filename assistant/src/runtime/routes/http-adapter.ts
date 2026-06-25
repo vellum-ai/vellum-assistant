@@ -51,7 +51,7 @@ export function routeDefinitionsToHTTPRoutes(
     handler: async ({ req, url, params, authContext }) => {
       try {
         if (r.requireGuardian) {
-          const guardianError = requireBoundGuardian(authContext);
+          const guardianError = await requireBoundGuardian(authContext);
           if (guardianError) return guardianError;
         }
 
@@ -95,6 +95,21 @@ export function routeDefinitionsToHTTPRoutes(
         req.headers.forEach((value, key) => {
           headers[key] = value;
         });
+
+        // Strip any caller-supplied identity headers before deriving them
+        // from the verified AuthContext. On the HTTP path the actor identity
+        // always comes from the validated JWT — never from inbound headers —
+        // so a request that carries these headers is either confused or
+        // hostile. Without this, a caller whose token carries no
+        // actorPrincipalId (svc_gateway / svc_daemon / local principals) could
+        // spoof another principal — e.g. the guardian — by setting the header
+        // explicitly, because the override below only fires when the context
+        // supplies a value. Handlers that gate on principal identity (surface
+        // action `apr:*` guardian decisions, guardian actions, host proxies)
+        // would then apply a decision as the impersonated principal. Mirrors
+        // the gateway IPC proxy (gateway/src/http/routes/ipc-runtime-proxy.ts).
+        delete headers["x-vellum-actor-principal-id"];
+        delete headers["x-vellum-principal-type"];
 
         // Inject auth context fields so transport-agnostic handlers can
         // resolve trust context without importing auth internals.

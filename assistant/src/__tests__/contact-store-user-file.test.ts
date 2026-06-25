@@ -22,7 +22,7 @@ function resetContactTables(): void {
   sqlite.run("DELETE FROM contact_channels");
   sqlite.run("DELETE FROM contacts");
   sqlite.run(
-    "DELETE FROM memory_checkpoints WHERE key = 'migration_normalize_user_file_by_principal_v1'",
+    "DELETE FROM memory_checkpoints WHERE key = 'step:migrateNormalizeUserFileByPrincipal'",
   );
 }
 
@@ -66,11 +66,10 @@ describe("upsertContact user_file selection", () => {
     resetContactTables();
   });
 
-  test("reuses an existing sibling's userFile when principalId matches", () => {
+  test("assigns a fresh slug per contact; principalId is gateway-owned and no longer groups siblings locally", () => {
     const primary = upsertContact({
       displayName: "Chris",
       role: "guardian",
-      principalId: "principal-abc",
       channels: [
         {
           type: "vellum",
@@ -80,12 +79,12 @@ describe("upsertContact user_file selection", () => {
     });
     expect(primary.userFile).toBe("chris.md");
 
-    // Second contact for the same principal on Slack — must inherit the
-    // first contact's userFile, NOT auto-increment to chris-2.md.
+    // A second contact with the same display name no longer inherits the
+    // first's userFile via a local principal lookup — it gets a fresh
+    // (collision-incremented) slug. Sibling grouping is owned by the gateway.
     const slack = upsertContact({
       displayName: "chris",
       role: "guardian",
-      principalId: "principal-abc",
       channels: [
         {
           type: "slack",
@@ -94,15 +93,14 @@ describe("upsertContact user_file selection", () => {
         },
       ],
     });
-    expect(slack.userFile).toBe("chris.md");
+    expect(slack.userFile).toBe("chris-2.md");
     expect(slack.id).not.toBe(primary.id);
   });
 
-  test("falls back to generateUserFileSlug when principalId has no existing sibling", () => {
+  test("generates a slug from the display name for a brand-new contact", () => {
     const contact = upsertContact({
       displayName: "Alice",
       role: "contact",
-      principalId: "principal-alone",
       channels: [
         {
           type: "slack",
@@ -141,7 +139,7 @@ describe("upsertContact user_file selection", () => {
     expect(second.userFile).toBe("bob-2.md");
   });
 
-  test("ignores a sibling whose userFile is null and generates a new slug", () => {
+  test("a null-userFile contact does not block a fresh slug for a new contact", () => {
     insertContact({
       id: "seed-null",
       displayName: "legacy",
@@ -154,7 +152,6 @@ describe("upsertContact user_file selection", () => {
     const contact = upsertContact({
       displayName: "Legacy",
       role: "guardian",
-      principalId: "principal-null",
       channels: [
         {
           type: "phone",

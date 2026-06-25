@@ -1,16 +1,16 @@
 import { type DragEventHandler, type ReactNode } from "react";
 
-import { Eye, Paperclip, Square } from "lucide-react";
+import { Eye, Paperclip, Square, X } from "lucide-react";
 
-import { ChatComposer, type ChatComposerProps } from "@/domains/chat/components/chat-composer/chat-composer";
 import { QuestionPromptSlot } from "@/domains/chat/components/question-prompt-slot";
+import { StagedQuotesStrip } from "@/domains/chat/components/staged-quotes-strip";
 import { ChatScrollArea, type ChatScrollAreaProps } from "@/domains/chat/components/chat-scroll-area";
 import { ScrollToLatestButton } from "@/domains/chat/components/scroll-to-latest-button";
 import {
     RefreshFeedbackPill,
     type RefreshFeedback,
 } from "@/domains/chat/refresh-feedback-pill";
-import { Button, Notice } from "@vellumai/design-library";
+import { Button, Notice, type NoticeTone } from "@vellumai/design-library";
 
 /**
  * Single composition of a chat panel: a scrollable messages/empty-state
@@ -60,8 +60,18 @@ export interface ChatBodyProps {
   /** Props forwarded to {@link ChatScrollArea}. */
   scrollAreaProps: ChatScrollAreaProps;
 
-  /** Props forwarded to {@link ChatComposer}. */
-  composerProps: ChatComposerProps;
+  /**
+   * The composer element to render below the scroll area. The orchestrator
+   * builds `<ChatComposer …/>` with explicit props and passes it as a node;
+   * `ChatBody` only positions it (and swaps it for the read-only banner).
+   */
+  composerSlot: ReactNode;
+  /**
+   * Stop-generation handler for the read-only banner's cancel control. In
+   * read-only conversations the composer is replaced by the banner, so this is
+   * passed alongside {@link composerSlot} rather than read off it.
+   */
+  onStopGenerating: () => void;
 
   /** Drag handlers attached to the outer container for attachment drag-and-drop. */
   dragHandlers: ChatBodyDragHandlers;
@@ -83,8 +93,18 @@ export interface ChatBodyProps {
   /** Retry handler for {@link refreshFeedback}. */
   onRetryRefresh: () => void;
 
-  /** Generic chat error rendered above the composer, or `null` when none. */
-  genericChatError: { message: string; actions?: ReactNode } | null;
+  /** Generic chat notice rendered above the composer, or `null` when none. */
+  genericChatError: {
+    message: string;
+    actions?: ReactNode;
+    tone?: NoticeTone;
+  } | null;
+  /**
+   * Dismiss handler for {@link genericChatError}. When provided, the
+   * banner renders a "Dismiss" button as a second action next to the
+   * existing actions (typically "Go to Doctor").
+   */
+  onDismissChatError?: () => void;
 
   /** When true, a read-only banner replaces the composer entirely. */
   isChannelReadonly: boolean;
@@ -128,6 +148,16 @@ export interface ChatBodyProps {
    * starter data model.
    */
   startersSlot?: ReactNode;
+
+  /**
+   * Top-center floating overlay; shown only when scrolled up. Visibility on
+   * scroll is gated here on `showScrollToLatest`; the caller passes the slot
+   * only when there is ≥1 active subagent.
+   */
+  activeSubagentsSlot?: ReactNode;
+
+  /** Floating overlay for active workflow runs; gated like activeSubagentsSlot. */
+  activeWorkflowsSlot?: ReactNode;
 }
 
 /**
@@ -164,7 +194,8 @@ function ChatReadonlyBanner({
 export function ChatBody({
   variant,
   scrollAreaProps,
-  composerProps,
+  composerSlot,
+  onStopGenerating,
   dragHandlers,
   isAttachmentDragOver,
   showScrollToLatest,
@@ -174,6 +205,7 @@ export function ChatBody({
   onDismissRefreshFeedback,
   onRetryRefresh,
   genericChatError,
+  onDismissChatError,
   isChannelReadonly,
   canStopGenerating,
   bannerSlot,
@@ -181,6 +213,8 @@ export function ChatBody({
   channelFooterSlot,
   readonlyBannerSlot,
   startersSlot,
+  activeSubagentsSlot,
+  activeWorkflowsSlot,
 }: ChatBodyProps) {
   const isEmptyState = scrollAreaProps.showEmptyState;
 
@@ -217,6 +251,16 @@ export function ChatBody({
     >
       <ChatScrollArea {...scrollAreaProps} />
 
+      {!isEmptyState &&
+        showScrollToLatest &&
+        (activeSubagentsSlot || activeWorkflowsSlot) && (
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center gap-2 px-3 pt-2">
+            {/* subagents on the left, workflows on the right (do not reorder) */}
+            {activeSubagentsSlot}
+            {activeWorkflowsSlot}
+          </div>
+        )}
+
       {/* Composer stack — stays at the same tree position across the
           empty→active transition so React preserves its state (focus,
           draft text, attachments) and iOS Safari does not blur the input
@@ -249,12 +293,38 @@ export function ChatBody({
         <div className="mx-auto max-w-[var(--chat-max-width)]">
           {genericChatError && (
             <div className="mb-2">
-              <Notice tone="error" actions={genericChatError.actions}>{genericChatError.message}</Notice>
+              <Notice
+                tone={genericChatError.tone ?? "error"}
+                actions={
+                  <>
+                    {genericChatError.actions}
+                    {onDismissChatError ? (
+                      <Button
+                        variant="outlined"
+                        size="compact"
+                        leftIcon={
+                          <X
+                            className="h-3.5 w-3.5"
+                            strokeWidth={2}
+                            aria-hidden="true"
+                          />
+                        }
+                        onClick={onDismissChatError}
+                      >
+                        Dismiss
+                      </Button>
+                    ) : null}
+                  </>
+                }
+              >
+                {genericChatError.message}
+              </Notice>
             </div>
           )}
           {queuedDrawerSlot}
           <QuestionPromptSlot />
           {channelFooterSlot}
+          <StagedQuotesStrip />
           {isChannelReadonly ? (
             readonlyBannerSlot ? (
               <div className="flex items-center gap-2">
@@ -263,7 +333,7 @@ export function ChatBody({
                   <Button
                     variant="primary"
                     iconOnly={<Square className="h-3 w-3" fill="currentColor" />}
-                    onClick={composerProps.onStopGenerating}
+                    onClick={onStopGenerating}
                     aria-label="Stop generating"
                     title="Stop generation"
                   />
@@ -272,11 +342,11 @@ export function ChatBody({
             ) : (
               <ChatReadonlyBanner
                 canStopGenerating={canStopGenerating}
-                onStopGenerating={composerProps.onStopGenerating}
+                onStopGenerating={onStopGenerating}
               />
             )
           ) : (
-            <ChatComposer {...composerProps} />
+            composerSlot
           )}
           {startersSlot}
         </div>

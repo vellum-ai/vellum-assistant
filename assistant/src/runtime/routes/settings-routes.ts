@@ -15,6 +15,7 @@ import {
 } from "../../config/env.js";
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import { loadSkillCatalog } from "../../config/skills.js";
+import { getGuardianDelivery } from "../../contacts/guardian-delivery-reader.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import {
   computeGatewayTarget,
@@ -303,8 +304,12 @@ async function handleOAuthConnectStart({ body = {} }: RouteHandlerArgs) {
 // Workspace files (list/read)
 // ---------------------------------------------------------------------------
 
-function getWorkspaceFiles(): string[] {
+async function getWorkspaceFiles(): Promise<string[]> {
   const files = ["IDENTITY.md", "SOUL.md", "skills/"];
+  // Warm the vellum guardian-delivery cache so the sync persona resolution
+  // below hits a fresh key instead of falling back to default.md on a cold or
+  // TTL-expired cache.
+  await getGuardianDelivery({ channelTypes: ["vellum"] });
   const guardianPath = resolveGuardianPersonaPath();
   if (guardianPath) {
     files.push(`users/${basename(guardianPath)}`);
@@ -312,9 +317,9 @@ function getWorkspaceFiles(): string[] {
   return files;
 }
 
-function handleWorkspaceFilesList() {
+async function handleWorkspaceFilesList() {
   const base = getWorkspaceDir();
-  const files = getWorkspaceFiles().map((name) => ({
+  const files = (await getWorkspaceFiles()).map((name) => ({
     path: name,
     name,
     exists: pathExists(join(base, name)),

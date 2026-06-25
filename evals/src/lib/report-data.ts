@@ -176,6 +176,10 @@ export interface SessionProfileAggregate {
   failedCount: number;
   runningCount: number;
   scoreTotal: number;
+  /** Sum of every run's wall-clock runtime (ms) — undefined when any run lacks it. */
+  totalRuntimeMs?: number;
+  /** Sum of every run's cost (USD cents) — undefined when any run lacks it. */
+  totalCostUsd?: number;
 }
 
 /** One test row inside a session detail page. */
@@ -284,6 +288,13 @@ function summarize(input: {
   transcript: TranscriptTurn[];
   usage: UsageSummary;
   assistantEvents: AgentEvent[];
+  /**
+   * V2 ingest-turn events. Counted alongside `assistantEvents` so the
+   * Responses total reflects every conversation in the run, not just the
+   * question turn — mirroring the Transcript view, which folds both event
+   * streams together. Empty for V1 runs.
+   */
+  ingestAssistantEvents?: AgentEvent[];
   simulatorMessages: AgentMessage[];
 }): ReportRunSummary {
   return {
@@ -304,7 +315,10 @@ function summarize(input: {
     scoreTotal: scoreTotal(input.metrics),
     assistantResponses: countAssistantResponses(
       input.transcript,
-      input.assistantEvents,
+      // Fold both event streams so a two-conversation (ingest → ask) run
+      // counts the assistant's ingest replies too, not just the question
+      // turn — matches the Transcript view's `[...ingest, ...question]`.
+      [...(input.ingestAssistantEvents ?? []), ...input.assistantEvents],
     ),
     runtimeMs: runtimeMs(input.metadata),
     assistantEventCount: input.assistantEvents.length,
@@ -442,6 +456,7 @@ export async function readReportRun(runId: string): Promise<ReportRunDetail> {
     transcript,
     usage,
     assistantEvents,
+    ingestAssistantEvents,
     simulatorMessages,
   });
 
@@ -615,6 +630,14 @@ function aggregateByProfile(
       runningCount: profileRuns.filter((run) => run.status === "running")
         .length,
       scoreTotal: aggregateScore(profileRuns),
+      // Sum per-run runtime/cost. Undefined when any run lacks the field
+      // (legacy runs) so the UI shows "—" rather than a misleading partial sum.
+      totalRuntimeMs: profileRuns.every((r) => r.runtimeMs !== undefined)
+        ? profileRuns.reduce((sum, r) => sum + (r.runtimeMs ?? 0), 0)
+        : undefined,
+      totalCostUsd: profileRuns.every((r) => r.totalCostUsd !== undefined)
+        ? profileRuns.reduce((sum, r) => sum + (r.totalCostUsd ?? 0), 0)
+        : undefined,
     }))
     .sort((a, b) => a.profileId.localeCompare(b.profileId));
 }

@@ -29,6 +29,7 @@ Defend technical positions with evidence. Don't flip-flop to placate the user �
 ```bash
 cd assistant && bun install          # Install dependencies
 cd assistant && bunx tsc --noEmit    # Type-check
+cd assistant && bun run typecheck:fast  # Fast type-check using tsgo
 cd assistant && bun test src/path/to/changed.test.ts  # Run tests
 cd assistant && bun run lint         # Lint
 ```
@@ -78,7 +79,7 @@ The full test suite is large and will hang or timeout if run unscoped. **Never r
 - After making changes, run only the tests relevant to what you changed:
   `cd assistant && bun test src/path/to/file.test.ts`
 - To run tests matching a pattern: `cd assistant && bun test src/path/to/file.test.ts --grep "pattern"`
-- Use `bunx tsc --noEmit` for full-project type-checking instead of running all tests.
+- Use `bunx tsc --noEmit` for full-project type-checking instead of running all tests. In memory-constrained environments, use `bun run typecheck:fast` instead.
 - **Regression tests for unfixed bugs**: When adding tests that reproduce a bug or document expected behavior before the fix lands, use `test.todo("description", () => {})` so mainline stays green. Never commit normally-failing `test(...)` cases — red CI blocks merges and erodes signal. Convert `test.todo` to `test` when the implementation PR lands.
 
 ## PR Workflow
@@ -234,6 +235,7 @@ Docker instances use six per-service volumes enforcing least-privilege at the co
 - **Trust rules** are owned by the gateway. In Docker mode (`IS_CONTAINERIZED=true`), the assistant reads/writes trust rules via the gateway's HTTP trust API — no direct filesystem access to `trust.json`.
 - **Credentials** are owned by the CES. The assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`). Neither has filesystem access to `keys.enc` / `store.key`.
 - **Meet bots in Docker mode** are not yet supported. The assistant container has no elevated capabilities (`--privileged`, `CAP_SYS_ADMIN` are absent). In bare-metal mode, meet bots are sibling containers on the host's Docker engine.
+- **CES bootstrap socket auth is intentionally absent**: the CES managed-mode Unix socket on the shared `emptyDir` volume does not require a handshake auth token because all containers in the pod are controlled by Vellum — no untrusted process can connect to the socket.
 
 ## Workspace & Secrets
 

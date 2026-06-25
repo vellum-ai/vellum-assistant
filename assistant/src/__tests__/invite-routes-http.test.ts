@@ -34,6 +34,40 @@ mock.module("../calls/call-domain.js", () => ({
   startInviteCall: async () => mockStartInviteCallResult,
 }));
 
+// Model the gateway: the redemption claim (record_invite_redemption) and the
+// gateway-owned activation (upsert_verified_channel) are both relayed. The
+// activation write fails closed in production, so the mock must serve a
+// verified upsert for the legitimate-success redemption paths.
+const gatewayIpc = {
+  claim: { ok: true, updated: true, mirrored: true },
+  activationVerified: true,
+};
+mock.module("../ipc/gateway-client.js", () => ({
+  ipcCallPersistent: async (
+    method: string,
+    params?: Record<string, unknown>,
+  ) => {
+    if (method === "record_invite_redemption") return gatewayIpc.claim;
+    if (method === "upsert_verified_channel") {
+      if (!gatewayIpc.activationVerified) return { ok: true, verified: false };
+      return {
+        ok: true,
+        verified: true,
+        channel: {
+          id: "gw-channel-id",
+          contactId: (params?.contactId as string) ?? "gw-contact",
+          type: (params?.type as string) ?? "telegram",
+          address: (params?.address as string) ?? "gw-addr",
+          status: "active",
+          verifiedAt: 1,
+          verifiedVia: (params?.verifiedVia as string) ?? "invite",
+        },
+      };
+    }
+    return undefined;
+  },
+}));
+
 import { upsertContact } from "../contacts/contact-store.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
@@ -63,10 +97,7 @@ async function handleCreateInvite(req: Request) {
     note: body.note as string | undefined,
     maxUses: body.maxUses as number | undefined,
     expiresInMs: body.expiresInMs as number | undefined,
-    contactName: body.contactName as string | undefined,
     expectedExternalUserId: body.expectedExternalUserId as string | undefined,
-    friendName: body.friendName as string | undefined,
-    guardianName: body.guardianName as string | undefined,
     contactId: body.contactId as string,
   });
   if (!result.ok) return fakeResponse({ ok: false, error: result.error }, 400);
@@ -293,10 +324,8 @@ describe("voice invite HTTP routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sourceChannel: "phone",
-        contactId: createTargetContact(),
+        contactId: createTargetContact("Alice"),
         expectedExternalUserId: "+15551234567",
-        friendName: "Alice",
-        guardianName: "Bob",
         maxUses: 3,
       }),
     });
@@ -319,9 +348,8 @@ describe("voice invite HTTP routes", () => {
     expect(invite.voiceCodeDigits).toBe(6);
     // expectedExternalUserId should be recorded
     expect(invite.expectedExternalUserId).toBe("+15551234567");
-    // friendName and guardianName should be recorded
+    // friendName is mirrored from the bound contact's displayName, not a flag
     expect(invite.friendName).toBe("Alice");
-    expect(invite.guardianName).toBe("Bob");
   });
 
   test("voice invite creation requires expectedExternalUserId", async () => {
@@ -331,8 +359,6 @@ describe("voice invite HTTP routes", () => {
       body: JSON.stringify({
         sourceChannel: "phone",
         contactId: createTargetContact(),
-        friendName: "Alice",
-        guardianName: "Bob",
       }),
     });
 
@@ -352,8 +378,6 @@ describe("voice invite HTTP routes", () => {
         sourceChannel: "phone",
         contactId: createTargetContact(),
         expectedExternalUserId: "not-a-phone-number",
-        friendName: "Alice",
-        guardianName: "Bob",
       }),
     });
 
@@ -365,46 +389,6 @@ describe("voice invite HTTP routes", () => {
     expect(body.error).toContain("E.164");
   });
 
-  test("voice invite creation requires friendName", async () => {
-    const req = new Request("http://localhost/v1/contacts/invites", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sourceChannel: "phone",
-        contactId: createTargetContact(),
-        expectedExternalUserId: "+15551234567",
-        guardianName: "Bob",
-      }),
-    });
-
-    const res = await handleCreateInvite(req);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(res.status).toBe(400);
-    expect(body.ok).toBe(false);
-    expect(body.error).toContain("friendName");
-  });
-
-  test("voice invite creation requires guardianName", async () => {
-    const req = new Request("http://localhost/v1/contacts/invites", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sourceChannel: "phone",
-        contactId: createTargetContact(),
-        expectedExternalUserId: "+15551234567",
-        friendName: "Alice",
-      }),
-    });
-
-    const res = await handleCreateInvite(req);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(res.status).toBe(400);
-    expect(body.ok).toBe(false);
-    expect(body.error).toContain("guardianName");
-  });
-
   test("voiceCodeDigits is always 6 — custom values are ignored", async () => {
     const req = new Request("http://localhost/v1/contacts/invites", {
       method: "POST",
@@ -413,8 +397,6 @@ describe("voice invite HTTP routes", () => {
         sourceChannel: "phone",
         contactId: createTargetContact(),
         expectedExternalUserId: "+15551234567",
-        friendName: "Alice",
-        guardianName: "Bob",
         voiceCodeDigits: 8,
       }),
     });
@@ -437,8 +419,6 @@ describe("voice invite HTTP routes", () => {
         sourceChannel: "phone",
         contactId: createTargetContact(),
         expectedExternalUserId: "+15551234567",
-        friendName: "Alice",
-        guardianName: "Bob",
       }),
     });
 
@@ -462,8 +442,6 @@ describe("voice invite HTTP routes", () => {
           sourceChannel: "phone",
           contactId: createTargetContact(),
           expectedExternalUserId: "+15551234567",
-          friendName: "Alice",
-          guardianName: "Bob",
           maxUses: 1,
         }),
       }),
@@ -520,8 +498,6 @@ describe("voice invite HTTP routes", () => {
           sourceChannel: "phone",
           contactId: createTargetContact(),
           expectedExternalUserId: "+15551234567",
-          friendName: "Alice",
-          guardianName: "Bob",
           maxUses: 1,
         }),
       }),
@@ -543,16 +519,14 @@ describe("voice invite HTTP routes", () => {
     expect(body.ok).toBe(false);
   });
 
-  test("voice invite creation returns guardianInstruction with friend name", async () => {
+  test("voice invite creation returns guardianInstruction with the contact's first name", async () => {
     const req = new Request("http://localhost/v1/contacts/invites", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sourceChannel: "phone",
-        contactId: createTargetContact(),
+        contactId: createTargetContact("Carolina Flaherty"),
         expectedExternalUserId: "+15551234567",
-        friendName: "Alice",
-        guardianName: "Bob",
       }),
     });
 
@@ -562,8 +536,9 @@ describe("voice invite HTTP routes", () => {
     expect(res.status).toBe(201);
     expect(body.ok).toBe(true);
     const invite = body.invite as Record<string, unknown>;
+    // First-token of the contact's displayName is used in the instruction
     expect(invite.guardianInstruction).toBe(
-      "Alice will need this code when they answer. Share it with them first.",
+      "Carolina will need this code when they answer. Share it with them first.",
     );
   });
 });
@@ -587,8 +562,6 @@ describe("POST /v1/contacts/invites/:id/call", () => {
           sourceChannel: "phone",
           contactId: createTargetContact(),
           expectedExternalUserId: "+15551234567",
-          friendName: "Alice",
-          guardianName: "Bob",
         }),
       }),
     );
@@ -620,8 +593,6 @@ describe("POST /v1/contacts/invites/:id/call", () => {
           sourceChannel: "phone",
           contactId: createTargetContact(),
           expectedExternalUserId: "+15551234567",
-          friendName: "Alice",
-          guardianName: "Bob",
         }),
       }),
     );

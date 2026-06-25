@@ -2,13 +2,13 @@ import {
   findAssistantByName,
   getActiveAssistant,
   loadAllAssistants,
-  resolveCloud,
   saveAssistantEntry,
   type AssistantEntry,
 } from "../lib/assistant-config";
 import {
   captureImageRefs,
   GATEWAY_INTERNAL_PORT,
+  ASSISTANT_INTERNAL_PORT,
   dockerResourceNames,
   startContainers,
   stopContainers,
@@ -208,7 +208,7 @@ async function rollbackPlatformViaEndpoint(
 export async function rollback(): Promise<void> {
   const { name, version } = parseArgs();
   const entry = resolveTargetAssistant(name);
-  const cloud = resolveCloud(entry);
+  const cloud = entry.cloud;
 
   if (cloud === "apple-container") {
     console.error(
@@ -325,6 +325,9 @@ export async function rollback(): Promise<void> {
       // use default
     }
 
+    // Recover the assistant host port from the entry, fall back to default.
+    const assistantPort = entry.containerInfo?.assistantPort ?? ASSISTANT_INTERNAL_PORT;
+
     // Notify connected clients that a rollback is about to begin (best-effort)
     console.log("📢 Notifying connected clients...");
     await broadcastUpgradeEvent(
@@ -374,6 +377,7 @@ export async function rollback(): Promise<void> {
         extraAssistantEnv,
         extraGatewayEnv,
         gatewayPort,
+        assistantPort,
         imageTags: previousImageRefs,
         instanceName,
         res,
@@ -400,6 +404,7 @@ export async function rollback(): Promise<void> {
           gatewayDigest: newDigests?.gateway,
           cesDigest: newDigests?.["credential-executor"],
           networkName: res.network,
+          assistantPort,
         },
         previousContainerInfo: entry.containerInfo,
         // Clear the backup path — it belonged to the upgrade we just rolled back

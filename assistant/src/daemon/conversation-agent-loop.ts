@@ -70,7 +70,6 @@ import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
-import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
@@ -101,6 +100,10 @@ import {
   isUserCancellation,
 } from "./conversation-error.js";
 import { raceWithTimeout } from "./conversation-media-retry.js";
+import {
+  clearConversationNotices,
+  drainConversationNotices,
+} from "./conversation-notices.js";
 import {
   getSlackCompactionWatermarkForPrefix,
   loadSlackChronologicalContext,
@@ -351,18 +354,11 @@ export async function runAgentLoopImpl(
 
   const config = getConfig();
 
-  // Tool-based auto-routing: the switch_inference_profile tool lets the model
-  // self-select a different profile mid-turn. Reset the per-turn slot so a
-  // stale selection from a previous turn doesn't leak forward.
-  ctx.toolRoutedProfile = undefined;
-
   const turnOverrideProfile = userExplicitOverride;
   const forceOverrideProfile = options?.forceOverrideProfile === true;
 
   const readCurrentOverrideProfile = (): string | undefined =>
-    options?.overrideProfile ??
-    resolveOverrideProfile(ctx) ??
-    ctx.toolRoutedProfile;
+    options?.overrideProfile ?? resolveOverrideProfile(ctx);
 
   const effectiveContextWindow = resolveEffectiveContextWindow({
     llm: config.llm,
@@ -384,7 +380,6 @@ export async function runAgentLoopImpl(
   ctx.contextWindowManager.updateConfig(currentContextWindowConfig);
 
   let appliedOverrideProfile = turnOverrideProfile;
-  let emittedToolRoutedProfile: string | undefined;
   const refreshCurrentProfileState = (): string | undefined => {
     const currentOverrideProfile = readCurrentOverrideProfile();
     if (currentOverrideProfile !== appliedOverrideProfile) {
@@ -409,23 +404,6 @@ export async function runAgentLoopImpl(
         { overrideProfile: currentOverrideProfile ?? null },
         "Turn inference profile changed mid-loop",
       );
-    }
-
-    // Emit turn_profile_auto_routed when the tool-based router selects a
-    // new profile. Deduplicated so the event fires at most once per profile.
-    if (
-      ctx.toolRoutedProfile &&
-      ctx.toolRoutedProfile !== emittedToolRoutedProfile
-    ) {
-      emittedToolRoutedProfile = ctx.toolRoutedProfile;
-      const profileEntry = config.llm.profiles?.[ctx.toolRoutedProfile];
-      const label = profileEntry?.label ?? ctx.toolRoutedProfile;
-      broadcastMessage({
-        type: "turn_profile_auto_routed",
-        conversationId: ctx.conversationId,
-        profile: ctx.toolRoutedProfile,
-        profileLabel: label,
-      });
     }
 
     ctx.currentTurnOverrideProfile = currentOverrideProfile;
@@ -506,6 +484,11 @@ export async function runAgentLoopImpl(
   // resolved once here and threaded into every re-injection — including the
   // post-compaction hook — rather than re-read per assembly call.
   const isNonInteractive = !isInteractiveResolved;
+  // Expose the resolved turn-level interactivity to tool execution so tools
+  // (e.g. ask_question) see whether a human is present to answer, rather than
+  // re-deriving it from live client state that misclassifies a scheduled turn
+  // running on a client-attached conversation.
+  ctx.currentTurnIsNonInteractive = isNonInteractive;
   const diskPressureDecision = classifyDiskPressureTurnPolicy(
     getDiskPressureStatus(),
     {
@@ -791,10 +774,7 @@ export async function runAgentLoopImpl(
     // the post-compaction hook re-emits this same value during in-loop recovery
     // instead of re-resolving against contact/member registry state that may
     // have drifted mid-turn.
-    const actorContext = resolveTurnInboundActorContext(
-      ctx.trustContext,
-      ctx.assistantId,
-    );
+    const actorContext = resolveTurnInboundActorContext(ctx.trustContext);
     ctx.currentTurnInboundActorContext = actorContext;
 
     // Surface long gaps between user messages so the model can acknowledge
@@ -1039,6 +1019,15 @@ export async function runAgentLoopImpl(
           budgetYieldClassification,
         ),
       );
+    }
+
+    const shouldEmitQueuedConversationNotices =
+      !overflowTerminalReason &&
+      !yieldedForHandoff &&
+      !state.providerErrorUserMessage &&
+      !abortController.signal.aborted;
+    if (!shouldEmitQueuedConversationNotices) {
+      clearConversationNotices(ctx.conversationId);
     }
 
     // Flush remaining tool results. On a normal turn these drain at the next
@@ -1433,10 +1422,16 @@ export async function runAgentLoopImpl(
             ? { messageId: state.lastAssistantMessageId }
             : {}),
         });
+        if (shouldEmitQueuedConversationNotices) {
+          for (const notice of drainConversationNotices(ctx.conversationId)) {
+            onEvent(notice);
+          }
+        }
         publishLoopMessagesChanged();
       }
     }
   } catch (err) {
+    clearConversationNotices(ctx.conversationId);
     const errorCtx = {
       phase: "agent_loop" as const,
       aborted: abortController.signal.aborted,
@@ -1544,6 +1539,10 @@ export async function runAgentLoopImpl(
     ctx.diskPressureCleanupModeActive = false;
     ctx.preactivatedSkillIds = undefined;
     ctx.currentTurnOverrideProfile = undefined;
+    // Turn-scoped interactivity. Clear it so paths that bypass this loop (e.g.
+    // opportunity wakes calling `agentLoop.run` directly) don't inherit a stale
+    // value and instead fall back to live client state in the tool context.
+    ctx.currentTurnIsNonInteractive = undefined;
     // Channel command intents (e.g. Telegram /start) are single-turn metadata.
     // Clear at turn end so they never leak into subsequent unrelated messages.
     ctx.commandIntent = undefined;

@@ -1,5 +1,8 @@
 import MarkdownIt from "markdown-it";
+import katex from "katex";
+import katexCssText from "katex/dist/katex.min.css?text";
 import { renderToStaticMarkup } from "react-dom/server";
+import React from "react";
 
 import type {
   CostDiagnostic,
@@ -202,6 +205,60 @@ markdown.renderer.rules.image = (tokens, idx) => {
 };
 
 /**
+ * Render Markdown with inline LaTeX support. Extracts `$$...$$` (display)
+ * and `$...$` (inline) math blocks before markdown processing, renders them
+ * with KaTeX, then reinserts the rendered HTML so the markdown parser doesn't
+ * mangle the math syntax. Placeholder tokens survive markdown untouched
+ * because they contain no special characters.
+ */
+function renderMarkdownWithMath(text: string): string {
+  const mathBlocks: string[] = [];
+  const PLACEHOLDER = (i: number) => `MATHBLOCK${i}ENDMATHBLOCK`;
+
+  // Extract $$...$$ (display math) first — greedy across newlines.
+  let processed = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, expr: string) => {
+    const i = mathBlocks.length;
+    try {
+      mathBlocks.push(
+        katex.renderToString(expr.trim(), {
+          displayMode: true,
+          throwOnError: false,
+        }),
+      );
+    } catch {
+      mathBlocks.push(`<code>$$${expr}$$</code>`);
+    }
+    return PLACEHOLDER(i);
+  });
+
+  // Extract $...$ (inline math) — but not inside code spans or after $.
+  processed = processed.replace(
+    /(^|[^$])\$(?!\s)([^\n$]+?)(?!\s)\$(?!\d)/g,
+    (_, pre: string, expr: string) => {
+      const i = mathBlocks.length;
+      try {
+        mathBlocks.push(
+          katex.renderToString(expr.trim(), {
+            displayMode: false,
+            throwOnError: false,
+          }),
+        );
+      } catch {
+        mathBlocks.push(`<code>$${expr}$</code>`);
+      }
+      return `${pre}${PLACEHOLDER(i)}`;
+    },
+  );
+
+  // Render markdown, then reinsert math blocks.
+  const html = markdown.render(processed);
+  return html.replace(
+    /MATHBLOCK(\d+)ENDMATHBLOCK/g,
+    (_, i: string) => mathBlocks[Number(i)] ?? "",
+  );
+}
+
+/**
  * A chunk's run time, shown only on hover of its chunk (CSS reveal) so the
  * transcript stays uncluttered. The badge's own `title` surfaces the chunk's
  * start time on hover, so the two timestamps are one interaction apart without
@@ -396,6 +453,13 @@ td .row-link { display: block; }
 .muted { color: var(--muted); }
 .status { border: 1px solid currentColor; border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 800; text-transform: uppercase; }
 .transcript { display: flex; flex-direction: column; gap: 12px; }
+.transcript-wrap { display: flex; flex-direction: column; gap: 12px; }
+.transcript-header { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.transcript-header h2 { margin: 0; }
+.conversation-switcher { display: flex; flex-direction: column; gap: 12px; }
+.conversation-select { padding: 8px 12px; font-size: 13px; font-weight: 700; color: var(--text); background: rgba(0,0,0,.18); border: 1px solid var(--border); border-radius: 10px; cursor: pointer; min-width: 180px; }
+.conversation-select:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+.conversation-panel { display: none; }
 .turn { padding: 14px 16px; border-radius: 18px; border: 1px solid var(--border); background: rgba(255,255,255,.045); }
 .turn.assistant { border-color: rgba(34,211,238,.22); }
 .turn.simulator { border-color: rgba(139,92,246,.24); }
@@ -510,6 +574,21 @@ pre.log { max-height: 480px; overflow: auto; padding: 16px; border-radius: 16px;
 .metric-card-meta dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; margin: 0; }
 .metric-card-meta dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; word-break: break-word; }
 .debug-section { border: 1px solid rgba(251, 113, 133, .24); background: rgba(251, 113, 133, .06); }
+.phase-timing { margin-bottom: 22px; }
+.phase-timing-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--border); margin-bottom: 10px; }
+.phase-bar-segment { height: 100%; transition: width .2s ease; }
+.phase-setup { background: #6366f1; }
+.phase-hatch { background: #f59e0b; }
+.phase-ingest { background: #22d3ee; }
+.phase-switch { background: #ec4899; }
+.phase-question { background: #a78bfa; }
+.phase-grading { background: #34d399; }
+.phase-teardown { background: #64748b; }
+.phase-timing-labels { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.phase-timing-item { display: inline-flex; align-items: center; gap: 6px; }
+.phase-timing-item strong { color: var(--text); font-variant-numeric: tabular-nums; }
+.phase-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.phase-timing-total { margin-left: auto; }
 .debug-item { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
 .debug-item:last-child { margin-bottom: 0; }
 .debug-item code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: rgba(0,0,0,.3); padding: 2px 6px; border-radius: 4px; font-size: 12px; flex: 1; overflow: auto; }
@@ -544,6 +623,23 @@ button.bad:hover { background: rgba(251,113,133,.15); border-color: var(--bad); 
 .subprocess-log-empty { color: var(--muted); font-size: 12.5px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; padding: 8px 12px; border-radius: 8px; background: rgba(0,0,0,.25); }
 @media (max-width: 980px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 620px) { .shell { padding: 18px; } .cards { grid-template-columns: 1fr; } .hero { display: block; } }
+@media (max-width: 720px) {
+  .run-heading { font-size: 22px; }
+  .run-heading-meta { gap: 8px; font-size: 12px; }
+  .tablist { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .tab-pill { padding: 12px; border-radius: 14px; }
+  .tab-pill-value { font-size: 22px; }
+  .tabpanel { padding: 16px; border-radius: 16px; }
+  .section { padding: 16px; border-radius: 16px; }
+  .profile-info > div { grid-template-columns: 1fr; gap: 4px; }
+  .metric-card-meta > div { grid-template-columns: 1fr; gap: 4px; }
+  .phase-timing-labels { gap: 10px; font-size: 11px; }
+  .conversation-select { min-width: 140px; }
+  .transcript-header { flex-wrap: wrap; justify-content: flex-start; }
+  table { font-size: 12px; }
+  table th, table td { padding: 6px 8px; word-break: break-word; }
+  .section { overflow-x: auto; }
+}
 `;
 
 function StatusBadge({ status }: { status: string }) {
@@ -743,6 +839,12 @@ function profileRunBreakdown(aggregate: SessionProfileAggregate): string {
   }
   if (aggregate.runningCount > 0) {
     parts.push(`${aggregate.runningCount} running`);
+  }
+  if (aggregate.totalRuntimeMs !== undefined) {
+    parts.push(formatDuration(aggregate.totalRuntimeMs));
+  }
+  if (aggregate.totalCostUsd !== undefined) {
+    parts.push(formatCostCents(aggregate.totalCostUsd));
   }
   return parts.join(" · ");
 }
@@ -1319,7 +1421,7 @@ function AssistantMessage({ message }: { message: AssistantMessageView }) {
               <div
                 className="md"
                 dangerouslySetInnerHTML={{
-                  __html: markdown.render(block.text),
+                  __html: renderMarkdownWithMath(block.text),
                 }}
               />
               <ChunkDuration
@@ -1398,39 +1500,172 @@ function AssistantMessage({ message }: { message: AssistantMessageView }) {
 function Transcript({
   turns,
   assistantEvents,
+  ingestAssistantEvents = [],
 }: {
   turns: TranscriptTurn[];
   assistantEvents: AgentEvent[];
+  ingestAssistantEvents?: AgentEvent[];
 }) {
-  const items = buildTranscriptView(turns, assistantEvents);
+  const items = buildTranscriptView(turns, [
+    ...ingestAssistantEvents,
+    ...assistantEvents,
+  ]);
+
+  const headerText = "Transcript";
+  const subText =
+    "Simulator turns interleaved with the assistant's reply — text, thinking, tool calls, and surfaces grouped per assistant message, folded from the container event stream.";
+
   if (items.length === 0) {
-    return <p className="muted">No transcript turns recorded.</p>;
+    return (
+      <>
+        <h2>{headerText}</h2>
+        <p className="section-subtle">{subText}</p>
+        <p className="muted">No transcript turns recorded.</p>
+      </>
+    );
   }
 
+  // Group items by conversationKey. Turns without a key (legacy runs or
+  // single-conversation benchmarks) go into a single default group so the
+  // dropdown only appears when there are genuinely multiple conversations.
+  const groups: { key: string; label: string; items: typeof items }[] = [];
+  const DEFAULT_KEY = "__default__";
+  for (const item of items) {
+    const key = item.conversationKey ?? DEFAULT_KEY;
+    let group = groups.find((g) => g.key === key);
+    if (!group) {
+      group = {
+        key,
+        label: conversationLabel(key, turns),
+        items: [],
+      };
+      groups.push(group);
+    }
+    group.items.push(item);
+  }
+
+  // Single conversation (or legacy with no keys) — render flat, no dropdown.
+  if (groups.length <= 1) {
+    return (
+      <>
+        <h2>{headerText}</h2>
+        <p className="section-subtle">{subText}</p>
+        <div className="transcript">
+          {(groups[0]?.items ?? items).map((item, index) => (
+            <TranscriptItem
+              key={`${item.emittedAt ?? ""}-${index}`}
+              item={item}
+            />
+          ))}
+        </div>
+      </>
+    );
+  }
+
+  // Multiple conversations — a segmented control inline with the header
+  // toggles which panel is visible. Built with hidden radio inputs +
+  // `:checked` sibling selectors, exactly like the run's main tabs, so it
+  // stays fully interactive in the static, no-JS report bundle (and under
+  // a CSP that blocks inline scripts). The earlier <select> + inline
+  // <script> version silently no-op'd in those contexts — the script
+  // never ran, so switching Ingest → Question left the first conversation
+  // visible.
+  //
+  // All radios must be siblings of the panels (inside one wrapper) for the
+  // `~` selector to reach them; the header + tablist sit between, also as
+  // siblings, so the active-label highlight rules can target them too.
   return (
-    <div className="transcript">
-      {items.map((item, index) => {
-        const stamp = item.role === "simulator" ? item.emittedAt : item.endedAt;
-        return (
-          <article
-            key={`${item.emittedAt ?? ""}-${index}`}
-            className={`turn ${item.role}`}
-          >
-            <div className="turn-head">
-              <span>{item.role}</span>
+    <>
+      <div className="conversation-switcher">
+        <div className="transcript-header">
+          <h2>{headerText}</h2>
+          {/* renderToStaticMarkup passes string onChange through to the
+              HTML attribute, but React's TS types expect a function.
+              Cast to Record to bridge the static-HTML rendering model. */}
+          {React.createElement(
+            "select",
+            {
+              className: "conversation-select",
+              "data-conv-count": groups.length,
+              onChange:
+                "document.querySelectorAll('.conversation-panel').forEach((p,i)=>{p.style.display=i===this.selectedIndex?'flex':'none'});const u=new URL(location.href);u.searchParams.set('conv',this.selectedIndex);history.replaceState(null,'',u)",
+            } as Record<string, unknown>,
+            groups.map((group, index) => (
+              <option key={group.key} value={index}>
+                {group.label}
+              </option>
+            )),
+          )}
+        </div>
+        <p className="section-subtle">{subText}</p>
+        <div className="transcript-wrap">
+          {groups.map((group, index) => (
+            <div
+              key={group.key}
+              className="transcript conversation-panel"
+              data-conv-index={index}
+              style={index === 0 ? { display: "flex" } : { display: "none" }}
+            >
+              {group.items.map((item, i) => (
+                <TranscriptItem
+                  key={`${item.emittedAt ?? ""}-${i}`}
+                  item={item}
+                />
+              ))}
             </div>
-            {item.role === "simulator" ? (
-              <div className="turn-body">{item.content}</div>
-            ) : (
-              <AssistantMessage message={item} />
-            )}
-            {stamp ? (
-              <div className="turn-time">{formatRecordedAt(stamp)}</div>
-            ) : null}
-          </article>
-        );
-      })}
-    </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+/** Human-readable label for a conversation key, derived from the turns. */
+function conversationLabel(key: string, turns: TranscriptTurn[]): string {
+  if (key === "__default__") return "Conversation";
+  // The first simulator turn with this conversationKey tells us which
+  // phase it is — ingest prompts mention "staged" / "trajectory" /
+  // "memory", question prompts are the actual test question.
+  const firstSim = turns.find(
+    (t) => t.role === "simulator" && t.conversationKey === key,
+  );
+  if (!firstSim) return key.length > 12 ? `${key.slice(0, 12)}…` : key;
+  const content = firstSim.content.toLowerCase();
+  if (
+    content.includes("staged") ||
+    content.includes("trajectory") ||
+    content.includes("memory")
+  ) {
+    return "Ingest";
+  }
+  return "Question";
+}
+
+function TranscriptItem({
+  item,
+}: {
+  item: ReturnType<typeof buildTranscriptView>[number];
+}) {
+  const stamp = item.role === "simulator" ? item.emittedAt : item.endedAt;
+  return (
+    <article key={`${item.emittedAt ?? ""}`} className={`turn ${item.role}`}>
+      <div className="turn-head">
+        <span>{item.role}</span>
+      </div>
+      {item.role === "simulator" ? (
+        <div
+          className="turn-body md"
+          dangerouslySetInnerHTML={{
+            __html: renderMarkdownWithMath(item.content),
+          }}
+        />
+      ) : (
+        <AssistantMessage message={item} />
+      )}
+      {stamp ? (
+        <div className="turn-time">{formatRecordedAt(stamp)}</div>
+      ) : null}
+    </article>
   );
 }
 
@@ -1782,15 +2017,10 @@ function ExecutionTabs({ run }: { run: ReportRunDetail }) {
         </section>
 
         <section className="tabpanel panel-responses">
-          <h2>Transcript</h2>
-          <p className="section-subtle">
-            Simulator turns interleaved with the assistant&apos;s reply — text,
-            thinking, tool calls, and surfaces grouped per assistant message,
-            folded from the container event stream.
-          </p>
           <Transcript
             turns={run.transcript}
             assistantEvents={run.assistantEvents}
+            ingestAssistantEvents={run.ingestAssistantEvents}
           />
         </section>
 
@@ -1813,6 +2043,145 @@ function ExecutionTabs({ run }: { run: ReportRunDetail }) {
           </p>
           <LogsPanel run={run} />
         </section>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Per-phase wall-clock timing breakdown. Computes durations from the progress
+ * events (setup/send/metrics) and the ingest + question event streams, so the
+ * user can see where time was spent — especially when a run takes 5+ minutes
+ * and it's not clear whether the ingest or the question turn dominated.
+ */
+function PhaseTiming({ run }: { run: ReportRunDetail }) {
+  // Derive phase spans from progress events.
+  const setupStart = run.progressEvents.find(
+    (e) => e.step === "setup" && e.status === "start",
+  )?.emittedAt;
+  const setupEnd = run.progressEvents.find(
+    (e) => e.step === "setup" && e.status === "done",
+  )?.emittedAt;
+  const sendStart = run.progressEvents.find(
+    (e) => e.step === "send" && e.status === "start",
+  )?.emittedAt;
+  const sendEnd = run.progressEvents.find(
+    (e) => e.step === "send" && e.status === "done",
+  )?.emittedAt;
+  const metricsStart = run.progressEvents.find(
+    (e) => e.step === "metrics" && e.status === "start",
+  )?.emittedAt;
+
+  const span = (start?: string, end?: string): number | undefined => {
+    if (!start || !end) return undefined;
+    const ms = Date.parse(end) - Date.parse(start);
+    return Number.isNaN(ms) ? undefined : Math.max(0, ms);
+  };
+
+  const setupMs = span(setupStart, setupEnd);
+  const totalSendMs = span(sendStart, sendEnd);
+  // Grading spans from metrics:start to run completion — NOT sendEnd,
+  // which fires before metrics even starts (send:done is the hypothesis
+  // capture, metrics:start is the judge call after it).
+  const metricsEnd =
+    run.progressEvents.find((e) => e.step === "metrics" && e.status === "done")
+      ?.emittedAt ?? run.completedAt;
+  const metricsMs = span(metricsStart, metricsEnd);
+
+  // Ingest vs question split from the event streams.
+  const ingestFirst = run.ingestAssistantEvents.find(
+    (e) => e.emittedAt,
+  )?.emittedAt;
+  const ingestLast = (() => {
+    for (let i = run.ingestAssistantEvents.length - 1; i >= 0; i--) {
+      if (run.ingestAssistantEvents[i].emittedAt)
+        return run.ingestAssistantEvents[i].emittedAt;
+    }
+    return undefined;
+  })();
+  const questionFirst = run.assistantEvents.find((e) => e.emittedAt)?.emittedAt;
+  const questionLast = (() => {
+    for (let i = run.assistantEvents.length - 1; i >= 0; i--) {
+      if (run.assistantEvents[i].emittedAt)
+        return run.assistantEvents[i].emittedAt;
+    }
+    return undefined;
+  })();
+
+  const ingestMs = span(ingestFirst, ingestLast);
+  const questionMs = span(questionFirst, questionLast);
+
+  // Only render if we have at least the total send duration.
+  if (
+    totalSendMs === undefined &&
+    ingestMs === undefined &&
+    questionMs === undefined
+  ) {
+    return null;
+  }
+
+  // Break down the gaps between labeled phases into named segments so the
+  // bar tiles to the real total without a mystery "Other" slice. The three
+  // gaps that matter on a LongMemEval-V2 run:
+  //
+  //   Hatch — setup end to first ingest event. Includes Docker container
+  //   startup, capability checks, and workspace file writes. Can be minutes
+  //   on a cold container pull.
+  //
+  //   Conv switch — last ingest event to first question event. The
+  //   newConversation() call plus event-stream respawn.
+  //
+  //   Teardown — last question/grading event to run completion. Agent
+  //   shutdown, container retirement, and final metadata write.
+  const wallClockMs = span(run.startedAt, run.completedAt);
+  const hatchMs = span(setupEnd, ingestFirst);
+  const convSwitchMs = span(ingestLast, questionFirst);
+  const teardownStart =
+    metricsEnd ?? questionLast ?? sendEnd ?? run.completedAt;
+  const teardownMs = span(teardownStart, run.completedAt);
+
+  const phases: { label: string; ms: number | undefined }[] = [
+    { label: "Setup", ms: setupMs },
+    { label: "Hatch", ms: hatchMs },
+    { label: "Ingest", ms: ingestMs },
+    { label: "Switch", ms: convSwitchMs },
+    { label: "Question", ms: questionMs },
+    { label: "Grading", ms: metricsMs },
+    { label: "Teardown", ms: teardownMs },
+  ];
+  // Total wall-clock from run start to completion. Falls back to summing
+  // the phase durations only when run timestamps are unavailable.
+  const phaseSumMs = phases.reduce((sum, p) => sum + (p.ms ?? 0), 0);
+  const totalMs = wallClockMs ?? (phaseSumMs || undefined);
+
+  return (
+    <div className="phase-timing">
+      <div className="phase-timing-bar">
+        {phases.map((phase) => {
+          if (phase.ms === undefined || totalMs === undefined || totalMs === 0)
+            return null;
+          const pct = Math.max(2, (phase.ms / totalMs) * 100);
+          return (
+            <div
+              key={phase.label}
+              className={`phase-bar-segment phase-${phase.label.toLowerCase()}`}
+              style={{ width: `${pct}%` }}
+              title={`${phase.label}: ${formatDuration(phase.ms)}`}
+            />
+          );
+        })}
+      </div>
+      <div className="phase-timing-labels">
+        {phases.map((phase) => (
+          <span key={phase.label} className="phase-timing-item">
+            <span className={`phase-dot phase-${phase.label.toLowerCase()}`} />
+            {phase.label}
+            <strong>{formatDuration(phase.ms)}</strong>
+          </span>
+        ))}
+        <span className="phase-timing-item phase-timing-total">
+          Total <strong>{formatDuration(totalMs)}</strong>
+        </span>
       </div>
     </div>
   );
@@ -1850,55 +2219,67 @@ function ExecutionPage({
         <span>completed {run.completedAt ?? "—"}</span>
       </div>
 
+      <PhaseTiming run={run} />
+
       <CliCommandSection argv={run.cliArgv} />
 
-      {(run.status === "abandoned" ||
-        run.status === "failed" ||
-        run.metadata?.error ||
-        run.metadata?.lastHeartbeatAt) && (
-        <section className="section debug-section">
-          <h2>Debug info</h2>
-          {run.metadata?.error && (
-            <div className="debug-item bad">
-              <strong>Error:</strong>
-              <code>{run.metadata.error}</code>
-            </div>
-          )}
-          {run.metadata?.lastHeartbeatAt && (
-            <div className="debug-item">
-              <strong>Last heartbeat:</strong>
-              <span>{run.metadata.lastHeartbeatAt}</span>
-            </div>
-          )}
-          {!readOnly && (
-            <div className="action-buttons">
-              <details className="confirm-action">
-                <summary className="bad">Delete run</summary>
-                <form
-                  className="confirm-form"
-                  method="post"
-                  action={`/api/runs/${encodeURIComponent(run.runId)}/delete`}
-                >
-                  <input
-                    type="hidden"
-                    name="backToSession"
-                    value={run.sessionId}
-                  />
-                  <p className="confirm-prompt">
-                    This deletes <code>{run.runId}</code> permanently. It cannot
-                    be undone.
-                  </p>
-                  <button className="bad" type="submit">
-                    Yes, delete this run
-                  </button>
-                </form>
-              </details>
-            </div>
-          )}
-        </section>
+      {!readOnly && (
+        <div className="action-buttons">
+          <details className="confirm-action">
+            <summary className="bad">Delete run</summary>
+            <form
+              className="confirm-form"
+              method="post"
+              action={`/api/runs/${encodeURIComponent(run.runId)}/delete`}
+            >
+              <input type="hidden" name="backToSession" value={run.sessionId} />
+              <p className="confirm-prompt">
+                This deletes <code>{run.runId}</code> permanently. It cannot be
+                undone.
+              </p>
+              <button className="bad" type="submit">
+                Yes, delete this run
+              </button>
+            </form>
+          </details>
+        </div>
       )}
 
       <ExecutionTabs run={run} />
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `
+        (function() {
+          var params = new URLSearchParams(location.search);
+          var tab = params.get('tab');
+          var conv = params.get('conv');
+          var tabIds = ['score','responses','cost','logs'];
+          if (tab && tabIds.indexOf(tab) !== -1) {
+            var radio = document.getElementById('exec-tab-' + tab);
+            if (radio) radio.checked = true;
+          }
+          var sel = document.querySelector('.conversation-select');
+          if (sel && conv !== null) {
+            var idx = parseInt(conv, 10);
+            if (!isNaN(idx) && idx >= 0 && idx < sel.options.length) {
+              sel.selectedIndex = idx;
+              sel.dispatchEvent(new Event('change'));
+            }
+          }
+          tabIds.forEach(function(name) {
+            var r = document.getElementById('exec-tab-' + name);
+            if (r) r.addEventListener('change', function() {
+              if (r.checked) {
+                var u = new URL(location.href);
+                u.searchParams.set('tab', name);
+                history.replaceState(null, '', u);
+              }
+            });
+          });
+        })();
+      `,
+        }}
+      />
     </>
   );
 }
@@ -2166,6 +2547,11 @@ function ReportDocument({
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{pageTitle(input)}</title>
         <style dangerouslySetInnerHTML={{ __html: STYLES }} />
+        <style
+          dangerouslySetInnerHTML={{
+            __html: katexCssText.replace(/@font-face\{[^}]*\}/g, ""),
+          }}
+        />
       </head>
       <body>
         <div className="shell">

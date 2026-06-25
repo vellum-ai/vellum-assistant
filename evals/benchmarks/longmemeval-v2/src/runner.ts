@@ -42,19 +42,18 @@ import {
   appendAssistantEvents,
   ensureRunArtifacts,
   type MetricResult,
+  readTranscript,
   updateRunMetadata,
   writeIngestAssistantEvents,
   writeRunMetadata,
-  writeTranscript,
   writeUsage,
 } from "../../../src/lib/metrics";
 import type { Profile } from "../../../src/lib/profile";
-import type { TranscriptTurn } from "../../../src/lib/transcript";
 import {
   DEFAULT_QUESTION_MAX_MS,
   IngestAskError,
   runIngestAsk,
-} from "../../../src/lib/runner/run-ingest-ask";
+} from "./run-ingest-ask";
 import { summarizeAssistantUsage } from "../../../src/lib/usage";
 
 import { type EvalOverrides, type EvalResult, evalFromSpec } from "./judge";
@@ -101,7 +100,7 @@ export interface RunLongMemEvalV2UnitInput {
   quietMs?: number;
   /**
    * Hard wall-clock cap (ms) for the *question* turn in `runIngestAsk`.
-   * Defaults to 6 minutes. If the agent doesn't produce an answer within
+   * Defaults to 10 minutes. If the agent doesn't produce an answer within
    * this budget the run is graded as a completed miss (score 0), not an
    * errored run. Surfaced here so the harness can override per-run.
    */
@@ -215,7 +214,14 @@ function buildRunUsageEvents(
     message: { type: "usage", usage },
   }));
   if (judgeUsage) {
-    events.push({ message: { type: "usage", usage: judgeUsage } });
+    // Tag the record so the shared summarizer excludes it from the
+    // assistant cost breakdown — judge traffic is harness grading overhead,
+    // not the agent's own model spend, so it must not land in the run's
+    // `totalCostUsd` or the per-request Cost tab (where it would otherwise
+    // show up as a stray gpt-5.2 row inflating the agent's bill).
+    events.push({
+      message: { type: "usage", usage: { ...judgeUsage, origin: "metric" } },
+    });
   }
   return events;
 }
@@ -322,25 +328,10 @@ export async function runLongMemEvalV2Unit(
       detail: `${ingestAskResult.hypothesis.length} chars`,
     });
 
-    // Build a three-turn transcript: ingest prompt → question prompt →
-    // assistant hypothesis. This is the deliberately-coarse Phase 1
-    // shape — per-event transcript reconstruction lives with the full
-    // event capture in a later PR.
-    const transcriptStamp = new Date().toISOString();
-    const transcript: TranscriptTurn[] = [
-      { role: "simulator", content: ingestMessage, emittedAt: transcriptStamp },
-      {
-        role: "simulator",
-        content: questionMessage,
-        emittedAt: transcriptStamp,
-      },
-      {
-        role: "assistant",
-        content: ingestAskResult.hypothesis,
-        emittedAt: transcriptStamp,
-      },
-    ];
-    await writeTranscript(input.runId, transcript);
+    // The transcript is written by `runIngestAsk` itself — it appends
+    // simulator + assistant turns to `transcript.json` as each
+    // conversation progresses, tagged with the real conversation keys.
+    // The benchmark runner no longer constructs the transcript manually.
 
     // Persist the question-turn events as the run's `assistant-events.json`
     // (what the agent said in response to the question), and the ingest-turn
@@ -357,16 +348,20 @@ export async function runLongMemEvalV2Unit(
     let judgeUsage: Record<string, unknown> | undefined;
     if (!ingestAskResult.questionAnswered) {
       // The agent produced no answer within the question turn's time budget
-      // (it ran to the `questionMaxMs` wall-clock cap, or went quiet, mid-
-      // work). Grade it as a completed miss — score 0 — rather than erroring
-      // the run. "Too slow to answer" is a real outcome that belongs in the
-      // score and the denominator, not an excluded `failed` run. No judge
-      // call is made: there's nothing to grade.
+      // (it ran to the `questionMaxMs` wall-clock cap, or completed its turn
+      // without composing text). Grade it as a completed miss — score 0 —
+      // rather than erroring the run. "Too slow to answer" or "answered
+      // nothing" are real outcomes that belong in the score and the
+      // denominator, not an excluded `failed` run. No judge call is made:
+      // there's nothing to grade.
       const budgetSeconds = Math.round(questionMaxMs / 1000);
+      const reason = ingestAskResult.questionCompleted
+        ? "Agent completed its turn but produced no answer text."
+        : `No answer produced within the question turn's ${budgetSeconds}s time budget.`;
       metric = {
         name: "longmemeval-v2-judge",
         score: 0,
-        reason: `No answer produced within the question turn's ${budgetSeconds}s time budget.`,
+        reason,
         metadata: {
           function: "no-answer",
           ability: input.item.ability,
@@ -430,6 +425,11 @@ export async function runLongMemEvalV2Unit(
           }
         : undefined,
     );
+
+    // Read back the transcript that `runIngestAsk` wrote incrementally
+    // as each conversation progressed — the benchmark runner no longer
+    // constructs it manually.
+    const transcript = await readTranscript(input.runId);
 
     return {
       runId: input.runId,

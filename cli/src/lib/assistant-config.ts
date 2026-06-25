@@ -11,6 +11,11 @@ import { homedir } from "os";
 import { dirname, join } from "path";
 
 import { SEEDS, type EnvironmentDefinition } from "@vellumai/environments";
+import {
+  resolveCloud,
+  type LocalAssistantResources,
+  type LockfileAssistant,
+} from "@vellumai/local-mode/contract";
 
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./constants.js";
 import {
@@ -23,11 +28,17 @@ import { getCurrentEnvironment } from "./environments/resolve.js";
 import { probePort } from "./port-probe.js";
 
 /**
- * Per-instance resource paths and ports. Each local assistant instance gets
- * its own directory tree, ports, and socket so multiple instances can run
- * side-by-side without conflicts.
+ * Per-instance resource paths and ports. Each local assistant instance gets its
+ * own directory tree, ports, and socket so multiple instances can run
+ * side-by-side without conflicts. Extends the renderer-safe resources contract
+ * (`instanceDir`, `gatewayPort`, `daemonPort`) with the host-only ports and the
+ * signing key. Host-only and same-process, so it is a plain type — the
+ * renderer-facing shape is the one with a Zod contract.
  */
-export interface LocalInstanceResources {
+export type LocalInstanceResources = Omit<
+  LocalAssistantResources,
+  "instanceDir"
+> & {
   /**
    * Instance-specific data root. New local assistants are placed under
    * `$XDG_DATA_HOME/vellum{-env}/assistants/<name>/`. Legacy entries
@@ -36,10 +47,6 @@ export interface LocalInstanceResources {
    * lives inside it.
    */
   instanceDir: string;
-  /** HTTP port for the daemon runtime server */
-  daemonPort: number;
-  /** HTTP port for the gateway */
-  gatewayPort: number;
   /** HTTP port for the Qdrant vector store */
   qdrantPort: number;
   /** HTTP port for the CES (Claude Extension Server) */
@@ -47,8 +54,12 @@ export interface LocalInstanceResources {
   /** Persisted HMAC signing key (hex). Survives daemon/gateway restarts so
    *  client actor tokens remain valid across `wake` cycles. */
   signingKey?: string;
+  /** Version of the npm-backed local runtime this assistant should run. */
+  runtimeVersion?: string;
+  /** Install directory containing the npm-backed local runtime packages. */
+  runtimeInstallDir?: string;
   [key: string]: unknown;
-}
+};
 
 /** Docker image metadata for the service group. Enables rollback to known-good digests. */
 export interface ContainerInfo {
@@ -63,28 +74,42 @@ export interface ContainerInfo {
   cesDigest?: string;
   /** Docker network name for the service group */
   networkName?: string;
+  /**
+   * Host-side port the assistant HTTP API is published on. Dynamically
+   * allocated at hatch time so concurrent instances don't collide on the
+   * default (7821). Stored so rollback/upgrade can rebind the same port
+   * instead of re-allocating (which could grab a different port if another
+   * process took it in the interim).
+   */
+  assistantPort?: number;
 }
 
-export interface AssistantEntry {
-  assistantId: string;
-  /** Platform-provided display name, when available. */
-  name?: string;
+/**
+ * The CLI's full view of an assistant entry: the renderer-safe base
+ * (`LockfileAssistant`, the one canonical Zod contract) plus the host-only and
+ * sensitive fields the CLI reads and writes. Those extra fields never cross a
+ * validation boundary — the same toolchain writes and reads them — so they are
+ * modeled as plain types here rather than re-validated.
+ *
+ * `runtimeUrl` is required (`readAssistants` only returns entries that have one)
+ * and `resources` is the richer host shape. `cloud` is inherited from
+ * `LockfileAssistant` (always present; normalized at the read seam — see
+ * `readAssistants`). The index signature preserves unknown on-disk fields so a
+ * read→write round-trip never drops a newer writer's data.
+ */
+export type AssistantEntry = Omit<
+  LockfileAssistant,
+  "runtimeUrl" | "resources"
+> & {
+  runtimeUrl: string;
+  /** Per-instance resource config. Present for local entries in multi-instance setups. */
+  resources?: LocalInstanceResources;
   /** Older lockfile key for the display name, if present. */
   assistantName?: string;
-  runtimeUrl: string;
   /** Loopback URL for same-machine health checks (e.g. `http://127.0.0.1:7831`).
    *  Avoids mDNS resolution issues when the machine checks its own gateway. */
   localUrl?: string;
   bearerToken?: string;
-  /** Deployment topology / how the assistant is reached. Known values:
-   *  `"local"` (on-machine daemon), `"docker"` (local container),
-   *  `"apple-container"` (macOS-app-managed container), `"vellum"`
-   *  (platform-managed, uses the X-Session-Token auth path), `"gcp"` / `"aws"`
-   *  / `"custom"` (remote, SSH-managed), and `"paired"` (a remote assistant
-   *  paired from another machine — reached via a bearer guardian token at
-   *  `runtimeUrl`; has no local process, container, or `resources`).
-   *  Kept as a free `string` (not a union) for forward-compatibility. */
-  cloud: string;
   /** True when this entry was registered via `vellum connect import` (a remote
    *  pairing). Set alongside `cloud: "paired"`; also backs the re-import /
    *  overwrite guard in connect import. */
@@ -93,12 +118,8 @@ export interface AssistantEntry {
   namespace?: string;
   project?: string;
   region?: string;
-  species?: string;
   sshUser?: string;
   zone?: string;
-  hatchedAt?: string;
-  /** Per-instance resource config. Present for local entries in multi-instance setups. */
-  resources?: LocalInstanceResources;
   /** PID of the file watcher process for docker instances hatched with --watch. */
   watcherPid?: number;
   /** Local bootstrap secret used to lease guardian tokens for Docker assistants after detached hatch. */
@@ -119,7 +140,7 @@ export interface AssistantEntry {
   /** Pre-upgrade workspace migration ID — used by rollback to know how far back to revert. */
   previousWorkspaceMigrationId?: string;
   [key: string]: unknown;
-}
+};
 
 export type AssistantLookupResult =
   | { status: "found"; entry: AssistantEntry }
@@ -300,10 +321,20 @@ function readAssistants(): AssistantEntry[] {
     writeLockfile(data);
   }
 
-  return entries.filter(
-    (e): e is AssistantEntry =>
-      typeof e.assistantId === "string" && typeof e.runtimeUrl === "string",
-  );
+  const result: AssistantEntry[] = [];
+  for (const entry of entries) {
+    if (
+      typeof entry.assistantId !== "string" ||
+      typeof entry.runtimeUrl !== "string"
+    ) {
+      continue;
+    }
+    // Normalize `cloud` once, at the read seam every reader shares, so
+    // downstream code reads `entry.cloud` instead of re-deriving the topology.
+    entry.cloud = resolveCloud(entry);
+    result.push(entry as AssistantEntry);
+  }
+  return result;
 }
 
 function writeAssistants(entries: AssistantEntry[]): void {
@@ -471,6 +502,7 @@ export function loadAllAssistantsAcrossEnvs(
       ) {
         continue;
       }
+      entry.cloud = resolveCloud(entry);
       all.push(entry);
     }
   }
@@ -553,22 +585,6 @@ export function resolveTargetAssistant(nameArg?: string): AssistantEntry {
     }
   }
   process.exit(1);
-}
-
-/**
- * Determine which cloud topology an assistant entry is running on.
- */
-export function resolveCloud(entry: AssistantEntry): string {
-  if (entry.cloud) {
-    return entry.cloud;
-  }
-  if (entry.project) {
-    return "gcp";
-  }
-  if (entry.sshUser) {
-    return "custom";
-  }
-  return "local";
 }
 
 /**

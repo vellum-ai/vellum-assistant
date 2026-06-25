@@ -60,6 +60,8 @@ const reserveMessageMock = mock(
 const updateMessageContentMock = mock((_id: string, _content: string) => {});
 
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   getConversation: () => null,
   getMessageById: () => null,
   updateMessageContent: updateMessageContentMock,

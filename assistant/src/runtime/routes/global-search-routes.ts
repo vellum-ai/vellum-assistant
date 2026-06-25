@@ -263,7 +263,9 @@ async function handleGlobalSearch({
       id: c.id,
       displayName: c.displayName,
       notes: c.notes,
-      lastInteraction: c.lastInteraction,
+      // Daemon-native search has no gateway-relayed read; recency orders on
+      // contacts.updatedAt, not the channel-derived lastInteraction column.
+      lastInteraction: c.updatedAt,
     }));
   }
 

@@ -270,7 +270,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-04T21:30:07.000Z"
+      "updatedAt": "2026-06-23T21:50:11.000Z"
     },
     {
       "id": "google-calendar",
@@ -378,7 +378,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-06-23T23:40:56.000Z"
     },
     {
       "id": "influencer",
@@ -622,7 +622,7 @@
     {
       "id": "plugin-builder",
       "name": "plugin-builder",
-      "description": "Walk the user through building, scaffolding, shipping, and editing a Vellum plugin that bundles hooks, tools, and skills into one installable package. Use when the user wants to extend their assistant with a new capability shipped as a plugin, publish to the marketplace, or push edits to an existing plugin's GitHub repo.",
+      "description": "Use when the user wants to build, scaffold, ship, or edit a Vellum plugin that bundles hooks, tools, and skills into one installable package.",
       "metadata": {
         "emoji": "🧩",
         "vellum": {
@@ -644,7 +644,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-16T19:50:46.000Z"
+      "updatedAt": "2026-06-25T11:46:21.000Z"
     },
     {
       "id": "public-ingress",
@@ -787,17 +787,27 @@
     {
       "id": "start-the-day",
       "name": "start-the-day",
-      "description": "Get a personalized daily briefing with weather, news, and actionable insights",
+      "description": "An on-demand personal daily briefing — weather, headlines, the shape of your day, and one thing worth your attention — in a sharp executive-assistant voice. The general-purpose morning brief; richer work or admin digests compose it as their general layer.",
       "metadata": {
         "icon": "assets/icon.svg",
         "emoji": "🌅",
         "vellum": {
           "category": "productivity",
-          "display-name": "Start the Day"
+          "display-name": "Start the Day",
+          "user-invocable": "true",
+          "activation-hints": [
+            "User asks to start their day, for a morning briefing, or a daily briefing/recap",
+            "User asks what's going on today or what they should know this morning",
+            "User wants weather, headlines, and a quick personal rundown"
+          ],
+          "avoid-when": [
+            "User wants a detailed work/admin digest — deep inbox triage, follow-up tracking, or meeting-by-meeting prep — rather than a general briefing",
+            "User wants to set up recurring or automated briefings rather than one right now"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-06-22T21:42:47.000Z"
     },
     {
       "id": "stripe-app-setup",
@@ -978,7 +988,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-20T16:20:53.000Z"
+      "updatedAt": "2026-06-21T15:06:32.000Z"
     },
     {
       "id": "vellum-memory-v2-migration",
@@ -1024,7 +1034,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-18T03:26:43.000Z"
+      "updatedAt": "2026-06-22T18:02:37.000Z"
     },
     {
       "id": "vellum-oauth-integrations",

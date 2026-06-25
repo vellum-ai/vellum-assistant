@@ -553,6 +553,15 @@ export class SubagentManager {
       ),
     );
     managed.state.completedAt = Date.now();
+    // Capture the conversation's latest usage before emitting the terminal
+    // status. `subagent_status_changed` ships `state.usage`, and the abort path
+    // (unlike the completion/failure paths, which sync at agent-loop exit) would
+    // otherwise send the {0,0,0} init usage — zeroing the client's token counts
+    // even though those tokens were already spent. `usageStats` accrues per LLM
+    // turn (see conversation-usage.ts), so this is the most recent total.
+    if (managed.conversation) {
+      managed.state.usage = { ...managed.conversation.usageStats };
+    }
     if (parentSendToClient) {
       // Route the status update through the stored parent sender so the
       // owning conversation's UI chip updates, even when the abort comes from a

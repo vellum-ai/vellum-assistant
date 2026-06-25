@@ -24,6 +24,7 @@ import {
 } from "../../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
+import { channelStatusToMemberStatus } from "../../contacts/member-status.js";
 import {
   createApprovalConversationGenerator,
   createApprovalCopyGenerator,
@@ -92,14 +93,11 @@ import { truncate } from "../../util/truncate.js";
 import { notifyGuardianOfAccessRequest } from "../access-request-helper.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { deliverChannelReply } from "../gateway-client.js";
-import { resolveTrustContext } from "../trust-context-resolver.js";
+import { trustContextFromVerdict } from "../trust-verdict-consumer.js";
 import { canonicalChannelAssistantId } from "./channel-route-shared.js";
 import { BadRequestError } from "./errors.js";
 import { handleApprovalInterception } from "./guardian-approval-interception.js";
-import {
-  channelStatusToMemberStatus,
-  enforceIngressAcl,
-} from "./inbound-stages/acl-enforcement.js";
+import { enforceIngressAcl } from "./inbound-stages/acl-enforcement.js";
 import { enforceAdmissionPolicy } from "./inbound-stages/admission-policy.js";
 import { processChannelMessageInBackground } from "./inbound-stages/background-dispatch.js";
 import { handleBootstrapIntercept } from "./inbound-stages/bootstrap-intercept.js";
@@ -682,7 +680,7 @@ export async function handleChannelInbound({
       canonicalAssistantId,
       assistantId,
       content,
-      channelId: resolvedMember?.channel.id,
+      channelId: resolvedMember?.channelId,
     });
   }
 
@@ -717,17 +715,24 @@ export async function handleChannelInbound({
   }
 
   // ── Actor role resolution ──
-  // Uses shared channel-agnostic resolution so all ingress paths classify
-  // guardian vs non-guardian actors the same way.
+  // Built from the gateway-stamped trust verdict (ACL + identity). An absent
+  // verdict is already hard-denied upstream in enforceIngressAcl; the synthetic
+  // unknown ctx here only guards non-ACL metadata use on that unreachable path.
+  const inboundVerdict = sourceMetadata?.trustVerdict;
   const trustCtx: TrustContext = attachSlackRequesterTimezone(
-    resolveTrustContext({
-      assistantId: canonicalAssistantId,
-      sourceChannel,
-      conversationExternalId,
-      actorExternalId: rawSenderId,
-      actorUsername: body.actorUsername,
-      actorDisplayName: body.actorDisplayName,
-    }),
+    inboundVerdict
+      ? trustContextFromVerdict(inboundVerdict, {
+          sourceChannel,
+          conversationExternalId,
+          actorUsername: body.actorUsername,
+          actorDisplayName: body.actorDisplayName,
+        })
+      : {
+          sourceChannel,
+          trustClass: "unknown",
+          requesterExternalUserId: canonicalSenderId ?? undefined,
+          requesterChatId: conversationExternalId,
+        },
     slackActorTimezone,
   );
 
@@ -756,7 +761,7 @@ export async function handleChannelInbound({
       : enforceAdmissionPolicy({
           sourceChannel,
           trustClass: trustCtx.trustClass,
-          memberStatus: resolvedMember?.channel.status,
+          memberStatus: resolvedMember?.status,
           policy: admissionPolicyFromGateway,
         });
   if (!admissionResult.admitted) {
@@ -796,7 +801,7 @@ export async function handleChannelInbound({
     // guardian sees "previously pending" etc.
     let guardianNotified = false;
     try {
-      const accessResult = notifyGuardianOfAccessRequest({
+      const accessResult = await notifyGuardianOfAccessRequest({
         canonicalAssistantId,
         sourceChannel,
         conversationExternalId,
@@ -806,7 +811,7 @@ export async function handleChannelInbound({
         ...(resolvedMember
           ? {
               previousMemberStatus: channelStatusToMemberStatus(
-                resolvedMember.channel.status,
+                resolvedMember.status,
               ),
             }
           : {}),
@@ -930,7 +935,7 @@ export async function handleChannelInbound({
   }
 
   // ── Ingress escalation ──
-  const escalationResponse = handleEscalationIntercept({
+  const escalationResponse = await handleEscalationIntercept({
     resolvedMember,
     canonicalAssistantId,
     sourceChannel,

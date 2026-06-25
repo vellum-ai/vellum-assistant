@@ -1,8 +1,5 @@
 import type { DrizzleDb } from "../db-connection.js";
 import { tableHasColumn } from "./schema-introspection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
-
-const CHECKPOINT_KEY = "migration_llm_usage_add_raw_usage_v1";
 
 const TABLE = "llm_usage_events";
 const COLUMN = "raw_usage";
@@ -22,11 +19,9 @@ const COLUMN = "raw_usage";
  * payload.
  */
 export function migrateLlmUsageAddRawUsage(database: DrizzleDb): void {
-  withCrashRecovery(database, CHECKPOINT_KEY, () => {
-    if (!tableHasColumn(database, TABLE, COLUMN)) {
-      database.run(`ALTER TABLE ${TABLE} ADD COLUMN ${COLUMN} TEXT`);
-    }
-  });
+  if (!tableHasColumn(database, TABLE, COLUMN)) {
+    database.run(`ALTER TABLE ${TABLE} ADD COLUMN ${COLUMN} TEXT`);
+  }
 }
 
 export function downLlmUsageAddRawUsage(database: DrizzleDb): void {

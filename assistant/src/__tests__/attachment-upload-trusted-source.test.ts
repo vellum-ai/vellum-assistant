@@ -26,7 +26,10 @@ mock.module("../config/env.js", () => ({
 }));
 
 import { initializeDb } from "../memory/db-init.js";
-import { ROUTES } from "../runtime/routes/attachment-routes.js";
+import {
+  attachmentMetadataSchema,
+  ROUTES,
+} from "../runtime/routes/attachment-routes.js";
 import { RouteError } from "../runtime/routes/errors.js";
 import type { RouteHandlerArgs } from "../runtime/routes/types.js";
 
@@ -62,7 +65,7 @@ describe("attachment upload — trustedSource flag", () => {
   });
 
   test("svc_gateway + trustedSource:true accepts a non-allowlisted MIME type", async () => {
-    const result = (await uploadRoute.handler(
+    const raw = await uploadRoute.handler(
       makeUploadArgs(
         {
           filename: "clip.mkv",
@@ -72,14 +75,15 @@ describe("attachment upload — trustedSource flag", () => {
         },
         "svc_gateway",
       ),
-    )) as { id: string; mime_type: string };
+    );
+    const result = attachmentMetadataSchema.parse(raw);
 
     expect(result.id).toBeDefined();
-    expect(result.mime_type).toBe("video/x-matroska");
+    expect(result.mimeType).toBe("video/x-matroska");
   });
 
   test("svc_gateway + trustedSource:true accepts a dangerous extension", async () => {
-    const result = (await uploadRoute.handler(
+    const raw = await uploadRoute.handler(
       makeUploadArgs(
         {
           filename: "installer.dmg",
@@ -89,7 +93,8 @@ describe("attachment upload — trustedSource flag", () => {
         },
         "svc_gateway",
       ),
-    )) as { id: string };
+    );
+    const result = attachmentMetadataSchema.parse(raw);
 
     expect(result.id).toBeDefined();
   });

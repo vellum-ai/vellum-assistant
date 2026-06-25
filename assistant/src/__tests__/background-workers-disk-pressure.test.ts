@@ -100,6 +100,8 @@ mock.module("../daemon/process-message.js", () => ({
 
 const createdConversations: Array<{ conversationType: string }> = [];
 mock.module("../memory/conversation-crud.js", () => ({
+    setConversationProcessingStartedAt: () => {},
+    isConversationProcessing: () => false,
   addMessage: mock(() => ({ id: "msg-1" })),
   archiveConversation: mock(() => true),
   batchSetDisplayOrders: mock(() => {}),
@@ -116,6 +118,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   findAnalysisConversationFor: mock(() => null),
   findMostRecentRetrospectiveFor: mock(() => null),
   forkConversation: mock(() => ({ id: "conv-fork" })),
+  forkConversationForRetrospective: mock(async () => ({ id: "conv-fork" })),
   getConversationOverrideProfile: () => undefined,
   resolveOverrideProfile: () => undefined,
   getConversationMemoryScopeId: () => "default",

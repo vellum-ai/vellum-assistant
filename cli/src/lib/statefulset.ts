@@ -85,8 +85,9 @@ interface VolumeMount {
 interface PortSpec {
   containerPort: number;
   /**
-   * Host-side port. Literal string = use as-is. `"{{ gatewayPort }}"` is
-   * a sentinel replaced with the instance-specific gateway port at build time.
+   * Host-side port. Literal string = use as-is. `"{{ gatewayPort }}"` and
+   * `"{{ assistantPort }}"` are sentinels replaced with the instance-specific
+   * gateway / assistant host ports at build time.
    */
   hostPort?: string;
   description?: string;
@@ -172,7 +173,7 @@ export const DOCKER_STATEFUL_SET_SPEC: DockerStatefulSetSpec = {
         },
         {
           containerPort: ASSISTANT_INTERNAL_PORT,
-          hostPort: `${ASSISTANT_INTERNAL_PORT}`,
+          hostPort: "{{ assistantPort }}",
           description: "Assistant HTTP API",
         },
       ],
@@ -261,6 +262,13 @@ export const DOCKER_STATEFUL_SET_SPEC: DockerStatefulSetSpec = {
 
 export interface BuildServiceRunArgsOpts extends DockerRunSecrets {
   gatewayPort: number;
+  /**
+   * Host-side port for the assistant HTTP API. Allocated dynamically by
+   * `hatchDocker` (mirroring `gatewayPort`) so concurrent instances on the
+   * same host don't collide on a fixed port bind. Unused when
+   * `netnsContainer` is set (no host ports are published in that mode).
+   */
+  assistantPort: number;
   imageTags: Record<ServiceName, string>;
   instanceName: string;
   res: DockerResourceNames;
@@ -353,6 +361,7 @@ export function buildServiceRunArgs(
 ): Record<ServiceName, () => string[]> {
   const {
     gatewayPort,
+    assistantPort,
     imageTags,
     instanceName,
     res,
@@ -396,7 +405,9 @@ export function buildServiceRunArgs(
           const hostSide =
             port.hostPort === "{{ gatewayPort }}"
               ? `${gatewayPort}`
-              : port.hostPort;
+              : port.hostPort === "{{ assistantPort }}"
+                ? `${assistantPort}`
+                : port.hostPort;
           if (hostSide !== undefined) {
             args.push("-p", `${hostSide}:${port.containerPort}`);
           }

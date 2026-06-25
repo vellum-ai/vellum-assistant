@@ -25,6 +25,7 @@ import {
   type WorkflowLeaf,
 } from "@/domains/chat/workflow-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { isActiveStatus } from "@/utils/workflow-status";
 import type { WorkflowRunStatus } from "@vellumai/assistant-api";
 import {
   type ToolCallCardData,
@@ -108,34 +109,54 @@ function sortedLeaves(entry: WorkflowEntry): WorkflowLeaf[] {
 }
 
 /**
- * Derive the header `(title, info)` tuple. When the run carries a `phase`
- * we surface it; otherwise we fall back to the latest leaf (the deepest
- * `seq`), and finally to the run label. The latest `log(...)` `message`
- * fills the secondary line when there is no more-specific leaf info or
- * phase, so a log-only update doesn't read as stale.
+ * Derive the header `(title, info)` tuple.
+ *
+ * The bold title is the workflow's *name* (`label`) — stable and
+ * recognizable, matching the detail panel header. The card's leading glyph
+ * is a generic workflow icon (no avatar), so unlike the subagent inline
+ * card — whose identity rides the avatar and whose title is the live
+ * activity verb — the workflow card has nowhere else to surface its name;
+ * it belongs in the title.
+ *
+ * While the run is active, the live activity is demoted to the secondary info
+ * line so the card still reads as in-flight: the current `phase`, else the
+ * latest leaf's prompt summary (or its label), else the latest `log(...)`
+ * `message`. (A leaf with neither prompt nor label no longer leaks a
+ * `Leaf <seq>` fallback into the header — the row's own list still labels it.)
+ *
+ * Once the run is terminal, the secondary line reflects the *outcome* — the
+ * final `summary` — instead. `completeRun()` leaves the last `entry.phase` set,
+ * so without this gate a finished card would keep showing a stale live phase
+ * (e.g. "Synthesizing…") rather than the result.
  */
 function deriveCurrentStep(
   entry: WorkflowEntry,
   leaves: WorkflowLeaf[],
 ): { currentStepTitle: string; currentStepInfo: string } {
-  if (entry.phase) {
-    return {
-      currentStepTitle: entry.phase,
-      currentStepInfo: entry.summary ?? entry.message ?? entry.label ?? "",
-    };
-  }
-
   const latest = leaves[leaves.length - 1];
-  if (latest) {
+  const title = entry.label ?? "Workflow";
+
+  if (!isActiveStatus(entry.status)) {
     return {
-      currentStepTitle: latest.label ?? `Leaf ${latest.seq}`,
-      currentStepInfo: latest.promptSummary ?? "",
+      currentStepTitle: title,
+      currentStepInfo:
+        entry.summary ||
+        entry.message ||
+        latest?.resultSummary ||
+        latest?.promptSummary ||
+        latest?.label ||
+        "",
     };
   }
 
   return {
-    currentStepTitle: entry.label ?? "Workflow",
-    currentStepInfo: entry.message ?? entry.summary ?? "",
+    currentStepTitle: title,
+    currentStepInfo:
+      entry.phase ||
+      latest?.promptSummary ||
+      latest?.label ||
+      entry.message ||
+      "",
   };
 }
 

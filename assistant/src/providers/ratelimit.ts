@@ -23,6 +23,10 @@ export class RateLimitProvider implements Provider {
     return this.inner.tokenEstimationProvider;
   }
 
+  get supportsNativeWebSearch(): boolean | undefined {
+    return this.inner.supportsNativeWebSearch;
+  }
+
   private requestTimestamps: number[];
 
   // Forward the optional token-counting endpoint so the capability survives

@@ -6,6 +6,14 @@ import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 type TransportType = "stdio" | "sse" | "streamable-http";
+type AuthType = "none" | "bearer" | "api-key" | "oauth";
+
+const AUTH_OPTIONS: { value: AuthType; label: string }[] = [
+  { value: "none", label: "None" },
+  { value: "oauth", label: "OAuth" },
+  { value: "bearer", label: "Bearer Token" },
+  { value: "api-key", label: "API Key" },
+];
 
 const TRANSPORT_OPTIONS: { value: TransportType; label: string }[] = [
   { value: "sse", label: "SSE" },
@@ -22,6 +30,8 @@ interface McpAddServerModalProps {
     url?: string;
     command?: string;
     args?: string[];
+    headers?: Record<string, string>;
+    autoAuth?: boolean;
   }) => void;
   isPending: boolean;
 }
@@ -37,6 +47,10 @@ export function McpAddServerModal({
   const [url, setUrl] = useState("");
   const [command, setCommand] = useState("");
   const [args, setArgs] = useState("");
+  const [authType, setAuthType] = useState<AuthType>("none");
+  const [bearerToken, setBearerToken] = useState("");
+  const [apiKeyHeader, setApiKeyHeader] = useState("X-API-Key");
+  const [apiKeyValue, setApiKeyValue] = useState("");
 
   const resetForm = useCallback(() => {
     setName("");
@@ -44,6 +58,10 @@ export function McpAddServerModal({
     setUrl("");
     setCommand("");
     setArgs("");
+    setAuthType("none");
+    setBearerToken("");
+    setApiKeyHeader("X-API-Key");
+    setApiKeyValue("");
   }, []);
 
   const handleClose = useCallback(() => {
@@ -65,6 +83,8 @@ export function McpAddServerModal({
       url?: string;
       command?: string;
       args?: string[];
+      headers?: Record<string, string>;
+      autoAuth?: boolean;
     } = { name: trimmedName, transportType };
 
     if (transportType === "stdio") {
@@ -83,10 +103,18 @@ export function McpAddServerModal({
         return;
       }
       config.url = trimmedUrl;
+
+      if (authType === "bearer" && bearerToken.trim()) {
+        config.headers = { Authorization: `Bearer ${bearerToken.trim()}` };
+      } else if (authType === "api-key" && apiKeyHeader.trim() && apiKeyValue.trim()) {
+        config.headers = { [apiKeyHeader.trim()]: apiKeyValue.trim() };
+      } else if (authType === "oauth") {
+        config.autoAuth = true;
+      }
     }
 
     onAdd(config);
-  }, [name, transportType, url, command, args, onAdd]);
+  }, [name, transportType, url, command, args, authType, bearerToken, apiKeyHeader, apiKeyValue, onAdd]);
 
   const isStdio = transportType === "stdio";
   const canSubmit = name.trim() && (isStdio ? command.trim() : url.trim());
@@ -166,19 +194,92 @@ export function McpAddServerModal({
                 </div>
               </>
             ) : (
-              <div className="space-y-1.5">
-                <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-url">
-                  Server URL
-                </label>
-                <Input
-                  id="mcp-url"
-                  type="url"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://example.com/mcp"
-                  fullWidth
-                />
-              </div>
+              <>
+                <div className="space-y-1.5">
+                  <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-url">
+                    Server URL
+                  </label>
+                  <Input
+                    id="mcp-url"
+                    type="url"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    placeholder="https://example.com/mcp"
+                    fullWidth
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-auth">
+                    Authentication
+                  </label>
+                  <select
+                    id="mcp-auth"
+                    value={authType}
+                    onChange={(e) => setAuthType(e.target.value as AuthType)}
+                    className="w-full rounded-md border border-[var(--border-element)] bg-[var(--surface-lift)] px-3 py-1.5 text-body-medium-default text-[var(--content-default)] outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                  >
+                    {AUTH_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {authType === "oauth" ? (
+                  <p className="rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] px-3 py-2 text-body-small-default text-[var(--content-tertiary)]">
+                    OAuth credentials will be configured through a browser-based authorization flow after the server is added.
+                  </p>
+                ) : null}
+
+                {authType === "bearer" ? (
+                  <div className="space-y-1.5">
+                    <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-bearer">
+                      Bearer token
+                    </label>
+                    <Input
+                      id="mcp-bearer"
+                      type="password"
+                      value={bearerToken}
+                      onChange={(e) => setBearerToken(e.target.value)}
+                      placeholder="tok_..."
+                      fullWidth
+                    />
+                  </div>
+                ) : null}
+
+                {authType === "api-key" ? (
+                  <div className="flex gap-3">
+                    <div className="flex-1 space-y-1.5">
+                      <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-apikey-header">
+                        Header name
+                      </label>
+                      <Input
+                        id="mcp-apikey-header"
+                        type="text"
+                        value={apiKeyHeader}
+                        onChange={(e) => setApiKeyHeader(e.target.value)}
+                        placeholder="X-API-Key"
+                        fullWidth
+                      />
+                    </div>
+                    <div className="flex-1 space-y-1.5">
+                      <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-apikey-value">
+                        API key
+                      </label>
+                      <Input
+                        id="mcp-apikey-value"
+                        type="password"
+                        value={apiKeyValue}
+                        onChange={(e) => setApiKeyValue(e.target.value)}
+                        placeholder="sk_..."
+                        fullWidth
+                      />
+                    </div>
+                  </div>
+                ) : null}
+              </>
             )}
           </div>
         </Modal.Body>

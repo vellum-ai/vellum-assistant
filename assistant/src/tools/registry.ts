@@ -1,3 +1,4 @@
+import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { getLogger } from "../util/logger.js";
 import { coreAppProxyTools } from "./apps/definitions.js";
 import { registerAppTools } from "./apps/registry.js";
@@ -549,6 +550,25 @@ export function getMcpToolDefinitions(): Tool[] {
 }
 
 /**
+ * Return tool definitions for all currently registered plugin-origin tools.
+ * Used by the session resolver to dynamically pick up plugin tools that were
+ * registered after session creation — e.g. a plugin installed at runtime and
+ * activated on a subsequent turn (see `plugins/mtime-cache.ts`). Mirrors
+ * {@link getMcpToolDefinitions} so a plugin install behaves like `mcp reload`.
+ */
+export function getPluginToolDefinitions(): Tool[] {
+  return Array.from(tools.values()).filter((t) => {
+    const owner = ownersByName.get(t.name);
+    if (owner?.kind !== "plugin") return false;
+    // Filter out tools contributed by disabled plugins at read time so
+    // `assistant plugins disable <name>` takes effect on the next turn
+    // without a daemon restart. Mirrors the `.disabled` sentinel filtering
+    // in `getHooksFor` (plugins/registry.ts).
+    return !isPluginDisabled(owner.id);
+  });
+}
+
+/**
  * Return MCP tools grouped by their owning server ID. Each entry contains
  * the server ID and the tool definitions registered by that server.
  */
@@ -827,6 +847,20 @@ export function getWorkspaceToolNames(): string[] {
 }
 
 /**
+ * Return tool definitions for all currently registered workspace-origin
+ * tools. Used by the conversation tool resolver to re-read workspace tools
+ * from the registry each turn, the same way {@link getMcpToolDefinitions}
+ * lets a conversation pick up MCP tools registered after it was created —
+ * here so reconciled edits under `<workspaceDir>/tools/` are picked up
+ * without recreating the conversation.
+ */
+export function getWorkspaceToolDefinitions(): Tool[] {
+  return Array.from(tools.values()).filter(
+    (t) => ownersByName.get(t.name)?.kind === "workspace",
+  );
+}
+
+/**
  * Return the names of core tools currently stripped via workspace
  * `.removed` sentinels — i.e. names where the stash holds an entry but
  * no live tool sits in the registry.
@@ -967,6 +1001,10 @@ export async function initializeTools(): Promise<void> {
   //   core registrations → workspace tools → MCP → plugins.
   // Workspace tools land after the core snapshot above so they're never
   // baked into the test-reset baseline.
+  //
+  // `loadWorkspaceTools` is idempotent: this is the first reconcile, and
+  // conversation reads re-run it later to pick up on-disk edits without a
+  // restart (see workspace-tools/loader.ts).
   //
   // Imported dynamically because the loader imports back from this module
   // (registerWorkspaceTools / removeCoreToolViaWorkspace); a static import

@@ -225,10 +225,11 @@ describe("exploration-drift post-tool-use hook — long-dig trigger", () => {
     expect(ctx.toolResponse.content).toBe(BASE_CONTENT);
   });
 
-  test("counts file_read and file_list as exploration tools", async () => {
+  test("counts code_search, file_read, and file_list as exploration tools", async () => {
+    const explorationNames = ["code_search", "file_read", "file_list"];
     const messages: Message[] = [];
     for (let i = 0; i < EXPLORATION_NUDGE_THRESHOLD - 1; i++) {
-      const name = i % 2 === 0 ? "file_read" : "file_list";
+      const name = explorationNames[i % explorationNames.length];
       const id = `${name}-${i}`;
       messages.push(toolUseTurn(id, name, { path: `/tmp/file-${i}` }));
       messages.push(toolResultTurn(id));

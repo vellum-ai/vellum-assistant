@@ -1,8 +1,5 @@
 import type { DrizzleDb } from "../db-connection.js";
 import { getSqliteFrom } from "../db-connection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
-
-const CHECKPOINT_KEY = "migration_memory_v3_coactivation_v1";
 
 /**
  * Create the memory_v3_coactivation table — an append-only log of
@@ -26,29 +23,27 @@ const CHECKPOINT_KEY = "migration_memory_v3_coactivation_v1";
  * - `(created_at)` for time-range pruning later.
  */
 export function migrateMemoryV3Coactivation(database: DrizzleDb): void {
-  withCrashRecovery(database, CHECKPOINT_KEY, () => {
-    const raw = getSqliteFrom(database);
-    raw.exec(/*sql*/ `
-      CREATE TABLE IF NOT EXISTS memory_v3_coactivation (
-        id INTEGER PRIMARY KEY,
-        conversation_id TEXT NOT NULL,
-        turn INTEGER NOT NULL,
-        source_slug TEXT NOT NULL,
-        target_slug TEXT NOT NULL,
-        pass_gap INTEGER NOT NULL,
-        used INTEGER NOT NULL,
-        created_at INTEGER NOT NULL
-      )
-    `);
-    raw.exec(/*sql*/ `
-      CREATE INDEX IF NOT EXISTS idx_memory_v3_coactivation_pair
-        ON memory_v3_coactivation (source_slug, target_slug)
-    `);
-    raw.exec(/*sql*/ `
-      CREATE INDEX IF NOT EXISTS idx_memory_v3_coactivation_time
-        ON memory_v3_coactivation (created_at)
-    `);
-  });
+  const raw = getSqliteFrom(database);
+  raw.exec(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS memory_v3_coactivation (
+      id INTEGER PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      turn INTEGER NOT NULL,
+      source_slug TEXT NOT NULL,
+      target_slug TEXT NOT NULL,
+      pass_gap INTEGER NOT NULL,
+      used INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `);
+  raw.exec(/*sql*/ `
+    CREATE INDEX IF NOT EXISTS idx_memory_v3_coactivation_pair
+      ON memory_v3_coactivation (source_slug, target_slug)
+  `);
+  raw.exec(/*sql*/ `
+    CREATE INDEX IF NOT EXISTS idx_memory_v3_coactivation_time
+      ON memory_v3_coactivation (created_at)
+  `);
 }
 
 export function downMemoryV3Coactivation(database: DrizzleDb): void {

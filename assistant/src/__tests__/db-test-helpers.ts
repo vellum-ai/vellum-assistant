@@ -22,7 +22,7 @@
 
 // Mirrors `src/memory/db-singleton.ts`. Duplicated by design — see the
 // "No source-module imports" section above.
-type DbSlotKey = "main" | "logs" | "memory";
+type DbSlotKey = "main" | "logs" | "memory" | "telemetry";
 
 type DbSlot = {
   db: unknown;
@@ -46,12 +46,13 @@ function dbSlots(): DbSlots {
     main: emptySlot(),
     logs: emptySlot(),
     memory: emptySlot(),
+    telemetry: emptySlot(),
   });
 }
 
 /**
- * Close every active DB connection (main, logs, memory) and drop the
- * singletons.
+ * Close every active DB connection (main, logs, memory, telemetry) and drop
+ * the singletons.
  *
  * Used by tests that nuke or replace a DB file mid-run — without this
  * reset, subsequent `getDb()`/`getLogsDb()`/`getMemoryDb()` calls return a
@@ -60,7 +61,7 @@ function dbSlots(): DbSlots {
  */
 export function resetDbForTesting(): void {
   const slots = dbSlots();
-  for (const key of ["main", "logs", "memory"] as const) {
+  for (const key of ["main", "logs", "memory", "telemetry"] as const) {
     const s = slots[key];
     if (s.closer) {
       try {

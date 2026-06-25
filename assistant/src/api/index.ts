@@ -11,6 +11,7 @@ import { ConfirmationRequestEventSchema } from "./events/confirmation-request.js
 import { ContactRequestEventSchema } from "./events/contact-request.js";
 import { ConversationErrorEventSchema } from "./events/conversation-error.js";
 import { ConversationListInvalidatedEventSchema } from "./events/conversation-list-invalidated.js";
+import { ConversationNoticeEventSchema } from "./events/conversation-notice.js";
 import { ConversationTitleUpdatedEventSchema } from "./events/conversation-title-updated.js";
 import { DiskPressureStatusChangedEventSchema } from "./events/disk-pressure-status-changed.js";
 import { DocumentCommentCreatedEventSchema } from "./events/document-comment-created.js";
@@ -44,7 +45,6 @@ import { ToolResultEventSchema } from "./events/tool-result.js";
 import { ToolUsePreviewStartEventSchema } from "./events/tool-use-preview-start.js";
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
 import { TraceEventSchema } from "./events/trace-event.js";
-import { TurnProfileAutoRoutedEventSchema } from "./events/turn-profile-auto-routed.js";
 import { UISurfaceCompleteEventSchema } from "./events/ui-surface-complete.js";
 import { UISurfaceDismissEventSchema } from "./events/ui-surface-dismiss.js";
 import { UISurfaceShowEventSchema } from "./events/ui-surface-show.js";
@@ -62,7 +62,10 @@ export {
   CALL_SITE_COMPACTION_AGENT,
   CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
 } from "./constants/call-sites.js";
-export { AUTO_PROFILE_KEY } from "./constants/inference-profiles.js";
+export {
+  SSE_REPLAY_RING_AGE_LIMIT_MS,
+  SSE_REPLAY_RING_COUNT_LIMIT,
+} from "./constants/sse-replay.js";
 export { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "./constants/tool-execution.js";
 export {
   type AssistantActivityAnchor,
@@ -136,6 +139,11 @@ export {
   type ConversationListInvalidatedReason,
   ConversationListInvalidatedReasonSchema,
 } from "./events/conversation-list-invalidated.js";
+export {
+  type ConversationNoticeEvent,
+  ConversationNoticeEventSchema,
+  ConversationNoticeSourceSchema,
+} from "./events/conversation-notice.js";
 export {
   type ConversationTitleUpdatedEvent,
   ConversationTitleUpdatedEventSchema,
@@ -299,10 +307,6 @@ export {
   TraceEventStatusSchema,
 } from "./events/trace-event.js";
 export {
-  type TurnProfileAutoRoutedEvent,
-  TurnProfileAutoRoutedEventSchema,
-} from "./events/turn-profile-auto-routed.js";
-export {
   type UISurfaceCompleteEvent,
   UISurfaceCompleteEventSchema,
 } from "./events/ui-surface-complete.js";
@@ -436,6 +440,8 @@ export {
   LlmContextResponseSchema,
 } from "./responses/llm-context-response.js";
 export {
+  type LLMCallError,
+  LLMCallErrorSchema,
   type LLMCallSummary,
   LLMCallSummarySchema,
   type LLMContextSection,
@@ -477,6 +483,12 @@ export {
   type WorkflowLeaf,
   WorkflowLeafSchema,
 } from "./responses/workflow-journal.js";
+export {
+  type CardSurfaceData,
+  CardSurfaceDataSchema,
+  type FileUploadSurfaceData,
+  FileUploadSurfaceDataSchema,
+} from "./surfaces.js";
 
 /**
  * Canonical SSE event schema for the assistant runtime.
@@ -503,6 +515,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ContactRequestEventSchema,
   ConversationErrorEventSchema,
   ConversationListInvalidatedEventSchema,
+  ConversationNoticeEventSchema,
   ConversationTitleUpdatedEventSchema,
   DiskPressureStatusChangedEventSchema,
   DocumentCommentCreatedEventSchema,
@@ -536,7 +549,6 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ToolUsePreviewStartEventSchema,
   ToolUseStartEventSchema,
   TraceEventSchema,
-  TurnProfileAutoRoutedEventSchema,
   UISurfaceCompleteEventSchema,
   UISurfaceDismissEventSchema,
   UISurfaceShowEventSchema,

@@ -40,10 +40,31 @@ export interface LlmContextSection {
   language?: string;
 }
 
+/**
+ * Structured error extracted from a rejected call's response payload.
+ * Mirrors the on-disk `responsePayload.error` shape produced by
+ * `buildProviderErrorResponsePayload`. Present only when the call failed
+ * before returning a response — consumers branch on its presence to
+ * render the call as failed.
+ */
+export interface LlmContextError {
+  name?: string;
+  message?: string;
+  code?: string;
+  provider?: string;
+  statusCode?: number;
+  retryAfterMs?: number;
+  apiErrorCode?: string;
+  apiErrorType?: string;
+  apiErrorParam?: string;
+  requestId?: string;
+}
+
 export interface LlmContextNormalizationResult {
   summary?: LlmContextSummary;
   requestSections?: LlmContextSection[];
   responseSections?: LlmContextSection[];
+  error?: LlmContextError;
 }
 
 interface NormalizedPayloadCandidate {
@@ -54,6 +75,68 @@ interface NormalizedPayloadCandidate {
 }
 
 export function normalizeLlmContextPayloads(
+  input: LlmContextNormalizationInput,
+): LlmContextNormalizationResult {
+  const base = normalizeSuccessPayloads(input);
+  const error = normalizeProviderErrorPayload(input.responsePayload);
+  if (!error) {
+    return base;
+  }
+  // A rejected call has no response sections to render — only the request
+  // side normalized. Attach the structured error so the inspector can show
+  // a failure banner and treat the cost as $0.00 instead of silently
+  // falling back to "section rendering unavailable".
+  return { ...base, error };
+}
+
+/**
+ * Detect a provider/transport error stored in the response payload.
+ *
+ * Error rows are written as `{ error: { name, message, code?, provider?,
+ * statusCode?, retryAfterMs? } }` by `buildProviderErrorResponsePayload`.
+ * Successful provider responses never carry a top-level `error` object, so
+ * the presence of one (with at least one identifying field) is a reliable
+ * signal that the call failed.
+ */
+function normalizeProviderErrorPayload(
+  responsePayload: unknown,
+): LlmContextError | null {
+  const error = asRecord(asRecord(responsePayload)?.error);
+  if (!error) {
+    return null;
+  }
+
+  const name = asString(error.name);
+  const message = asString(error.message);
+  const code = asString(error.code);
+  // Require at least one identifying field so an unrelated `error` key on a
+  // success payload isn't misread as a provider failure.
+  if (name === undefined && message === undefined && code === undefined) {
+    return null;
+  }
+
+  const normalized: LlmContextError = {};
+  if (name !== undefined) normalized.name = name;
+  if (message !== undefined) normalized.message = message;
+  if (code !== undefined) normalized.code = code;
+  const provider = asString(error.provider);
+  if (provider !== undefined) normalized.provider = provider;
+  const statusCode = asNumber(error.statusCode);
+  if (statusCode !== undefined) normalized.statusCode = statusCode;
+  const retryAfterMs = asNumber(error.retryAfterMs);
+  if (retryAfterMs !== undefined) normalized.retryAfterMs = retryAfterMs;
+  const apiErrorCode = asString(error.apiErrorCode);
+  if (apiErrorCode !== undefined) normalized.apiErrorCode = apiErrorCode;
+  const apiErrorType = asString(error.apiErrorType);
+  if (apiErrorType !== undefined) normalized.apiErrorType = apiErrorType;
+  const apiErrorParam = asString(error.apiErrorParam);
+  if (apiErrorParam !== undefined) normalized.apiErrorParam = apiErrorParam;
+  const requestId = asString(error.requestId);
+  if (requestId !== undefined) normalized.requestId = requestId;
+  return normalized;
+}
+
+function normalizeSuccessPayloads(
   input: LlmContextNormalizationInput,
 ): LlmContextNormalizationResult {
   const requestCandidates = [

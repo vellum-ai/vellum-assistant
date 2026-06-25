@@ -31,7 +31,6 @@ mock.module("../daemon/handlers/shared.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { upsertContact } from "../contacts/contact-store.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import * as deliveryChannels from "../memory/delivery-channels.js";
@@ -39,7 +38,10 @@ import { resetTestTables } from "../memory/raw-query.js";
 import { attachments, conversationAttentionEvents } from "../memory/schema.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
-import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
+import {
+  handleChannelInbound,
+  seedContactChannel,
+} from "./helpers/channel-test-adapter.js";
 
 await initializeDb();
 
@@ -55,7 +57,6 @@ function resetTables(): void {
   resetTestTables(
     "conversation_attention_events",
     "conversation_assistant_attention_state",
-    "channel_guardian_approval_requests",
     "channel_verification_sessions",
     "conversation_keys",
     "message_runs",
@@ -70,16 +71,12 @@ function resetTables(): void {
 }
 
 function ensureTestContact(): void {
-  upsertContact({
+  seedContactChannel({
+    sourceChannel: "telegram",
+    externalUserId: "telegram-user-default",
     displayName: "Test User",
-    channels: [
-      {
-        type: "telegram",
-        address: "telegram-user-default",
-        status: "active",
-        policy: "allow",
-      },
-    ],
+    status: "active",
+    policy: "allow",
   });
 }
 

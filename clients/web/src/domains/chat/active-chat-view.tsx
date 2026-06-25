@@ -97,7 +97,6 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   // Chat session store — reactive selectors for per-conversation state
   // -------------------------------------------------------------------------
-  const messages = useChatSessionStore.use.messages();
 
   // -------------------------------------------------------------------------
   // Local state (not store-backed)
@@ -195,10 +194,6 @@ export function ActiveChatView() {
     }
   }, [assistantId]);
 
-  // Persist the composer draft across reloads (debounced autosave + unload
-  // flush) and restore it on cold load.
-  useDraftPersistence();
-
   // Keyboard focus: Electron host focus relay + typing auto-focus.
   useComposerKeyboard(inputRef);
 
@@ -243,6 +238,11 @@ export function ActiveChatView() {
     onboardingDraftConversationIdRef,
   });
 
+  // Persist the composer draft across reloads (debounced autosave + unload
+  // flush) and restore it on cold load. Mounted after useConversationLoader
+  // so the switchToConversation effect fires before restoreDraftIfEmpty.
+  useDraftPersistence();
+
   // -------------------------------------------------------------------------
   // Message lifecycle — reconciliation, stream event handling, SSE
   // subscription, active-conversation message sync, and latest-message
@@ -277,7 +277,6 @@ export function ActiveChatView() {
     assistantId,
     activeConversationId,
     diskPressureChatBlockReason,
-    messages,
     pendingOnboardingContextRef,
     onboardingDraftConversationIdRef,
     startReconciliationLoop,

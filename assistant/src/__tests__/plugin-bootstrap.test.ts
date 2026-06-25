@@ -2,34 +2,21 @@
  * Tests for plugin bootstrap (PR 14).
  *
  * Covers:
- * - A noop `init()` fires with a valid `PluginInitContext` that exposes every
+ * - A noop `init()` fires with a valid `InitContext` that exposes every
  *   documented field.
- * - `requiresCredential` entries are resolved through the credential store
- *   helper and arrive in `ctx.credentials`.
  * - Version-mismatch registration fails with an error that names the plugin
  *   (the registry enforces this at `registerPlugin` time, so bootstrap never
  *   sees the malformed plugin).
  * - Shutdown hook walks plugins in reverse registration order.
  *
- * Uses `mock.module` to stub `security/secure-keys.js` so credential
- * resolution doesn't hit the real backend. `resetPluginRegistryForTests()`
- * isolates registry state between cases.
+ * `resetPluginRegistryForTests()` isolates registry state between cases.
  */
 
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-// Mock credential store before importing the bootstrap module so the
-// module-under-test captures the stubbed binding.
-const getSecureKeyAsyncMock = mock(
-  async (_account: string): Promise<string | undefined> => undefined,
-);
-mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyAsync: getSecureKeyAsyncMock,
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { clearFeatureFlagOverridesCache } from "../config/assistant-feature-flags.js";
 import { bootstrapPlugins } from "../daemon/external-plugins-bootstrap.js";
@@ -42,7 +29,7 @@ import {
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
-import { type Plugin, type PluginInitContext } from "../plugins/types.js";
+import { type InitContext, type Plugin } from "../plugins/types.js";
 import { APP_VERSION } from "../version.js";
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
@@ -64,11 +51,10 @@ function buildPlugin(
   name: string,
   extras: Partial<Omit<Plugin, "manifest" | "hooks">> & {
     hooks?: Plugin["hooks"];
-    init?: (ctx: PluginInitContext) => Promise<void>;
+    init?: (ctx: InitContext) => Promise<void>;
     onShutdown?: () => Promise<void>;
   } = {},
   options: {
-    requiresCredential?: string[];
     requiresFlag?: string[];
   } = {},
 ): Plugin {
@@ -94,9 +80,6 @@ function buildPlugin(
     manifest: {
       name,
       version: "0.0.1",
-      ...(options.requiresCredential
-        ? { requiresCredential: options.requiresCredential }
-        : {}),
       ...(options.requiresFlag ? { requiresFlag: options.requiresFlag } : {}),
     },
     ...rest,
@@ -107,8 +90,6 @@ function buildPlugin(
 describe("plugin bootstrap", () => {
   beforeEach(async () => {
     resetPluginRegistryForTests();
-    getSecureKeyAsyncMock.mockReset();
-    getSecureKeyAsyncMock.mockImplementation(async () => undefined);
     // Reset feature-flag cache so tests start from a known state. Individual
     // tests that exercise `requiresFlag` use `setOverridesForTesting(...)`
     // to install their own overrides.
@@ -117,8 +98,8 @@ describe("plugin bootstrap", () => {
     await rm(TEST_WORKSPACE_DIR, { recursive: true, force: true });
   });
 
-  test("noop plugin: init fires with a fully-populated PluginInitContext", async () => {
-    let received: PluginInitContext | undefined;
+  test("noop plugin: init fires with a fully-populated InitContext", async () => {
+    let received: InitContext | undefined;
     const plugin: Plugin = buildPlugin("alpha", {
       async init(ctx) {
         received = ctx;
@@ -133,7 +114,6 @@ describe("plugin bootstrap", () => {
 
     // Every documented field must be present on the context passed to init.
     expect(ctx.config).toBeUndefined(); // no `plugins.alpha` block in fake config
-    expect(ctx.credentials).toEqual({});
     expect(ctx.logger).toBeDefined();
     expect(typeof (ctx.logger as { info: unknown }).info).toBe("function");
     // Storage dir lives under getWorkspaceDir()/plugins-data/<name> and must have
@@ -143,52 +123,6 @@ describe("plugin bootstrap", () => {
     );
     expect(existsSync(ctx.pluginStorageDir)).toBe(true);
     expect(ctx.assistantVersion).toBe(APP_VERSION);
-  });
-
-  test("credential resolution: init receives the resolved value under credentials[key]", async () => {
-    getSecureKeyAsyncMock.mockImplementation(async (account: string) => {
-      if (account === "some-key") return "super-secret-value";
-      return undefined;
-    });
-
-    let received: PluginInitContext | undefined;
-    const plugin = buildPlugin(
-      "credentialed",
-      {
-        async init(ctx) {
-          received = ctx;
-        },
-      },
-      { requiresCredential: ["some-key"] },
-    );
-    registerPlugin(plugin);
-
-    await bootstrapPlugins();
-
-    expect(getSecureKeyAsyncMock).toHaveBeenCalledTimes(1);
-    expect(getSecureKeyAsyncMock).toHaveBeenCalledWith("some-key");
-    expect(received?.credentials).toEqual({ "some-key": "super-secret-value" });
-  });
-
-  test("credential resolution: a plugin whose required credential is missing is skipped, not fatal", async () => {
-    // GIVEN a plugin that requires a credential the store cannot resolve
-    getSecureKeyAsyncMock.mockImplementation(async () => undefined);
-    registerPlugin(
-      buildPlugin(
-        "missing-cred",
-        { async init() {} },
-        { requiresCredential: ["absent-key"] },
-      ),
-    );
-
-    // WHEN bootstrap runs
-    // THEN it completes without throwing — the unresolvable credential is
-    // contained to that plugin (same per-plugin isolation as an init throw)
-    await bootstrapPlugins();
-
-    // AND the plugin is dropped from the registry
-    const names = getRegisteredPlugins().map((p) => p.manifest.name);
-    expect(names).not.toContain("missing-cred");
   });
 
   test("version mismatch: external plugin loader rejects when peerDependency unsatisfied", async () => {
@@ -541,11 +475,13 @@ describe("plugin bootstrap", () => {
   //
   // A plugin is disabled when a `.disabled` file exists at
   // <workspace>/plugins/<manifest-name>/.disabled. The bootstrap must
-  // skip the plugin entirely — no init, no tools, no routes, no shutdown
-  // hook — and remove it from the registry, mirroring the requiresFlag
-  // gate.
+  // skip the plugin's init, tools, routes, and shutdown hook. Unlike the
+  // requiresFlag gate, the plugin is NOT removed from the registry — its
+  // hooks stay registered and are filtered at read time by
+  // `isPluginDisabled` in `getHooksFor`, so `assistant plugins enable`
+  // takes effect on the next turn without a restart.
 
-  test(".disabled sentinel: init does not fire and plugin is unregistered", async () => {
+  test(".disabled sentinel: init does not fire and hooks are filtered at read time", async () => {
     let initFired = false;
     const plugin = buildPlugin("sentinel-off", {
       async init() {
@@ -555,11 +491,7 @@ describe("plugin bootstrap", () => {
     registerPlugin(plugin);
 
     // Create the .disabled sentinel in the workspace plugins dir.
-    const sentinelDir = join(
-      TEST_WORKSPACE_DIR,
-      "plugins",
-      "sentinel-off",
-    );
+    const sentinelDir = join(TEST_WORKSPACE_DIR, "plugins", "sentinel-off");
     const { mkdir, writeFile } = await import("node:fs/promises");
     await mkdir(sentinelDir, { recursive: true });
     await writeFile(join(sentinelDir, ".disabled"), "");
@@ -567,8 +499,14 @@ describe("plugin bootstrap", () => {
     await bootstrapPlugins();
 
     expect(initFired).toBe(false);
+    // The plugin stays in the registry (not unregistered) so its hooks can
+    // be re-enabled at runtime by removing the sentinel.
     const names = getRegisteredPlugins().map((p) => p.manifest.name);
-    expect(names).not.toContain("sentinel-off");
+    expect(names).toContain("sentinel-off");
+    // But its hooks are filtered out at read time by `isPluginDisabled`.
+    const { getHooksFor } = await import("../plugins/registry.js");
+    const hooks = await getHooksFor("init");
+    expect(hooks).toHaveLength(0);
 
     await rm(sentinelDir, { recursive: true, force: true });
   });

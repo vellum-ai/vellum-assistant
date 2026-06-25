@@ -72,7 +72,14 @@ mock.module("electron", () => ({
 }));
 
 let exists = true;
-mock.module("node:fs", () => ({ existsSync: () => exists }));
+// getMacHelperPath reads CFBundleExecutable from the bundle's Info.plist to
+// resolve the (per-environment) executable filename.
+let helperExecutableName = "vellum-mac-helper";
+mock.module("node:fs", () => ({
+  existsSync: () => exists,
+  readFileSync: () =>
+    `<plist><dict><key>CFBundleExecutable</key><string>${helperExecutableName}</string></dict></plist>`,
+}));
 
 let lastChild: FakeHotkeyChild | null = null;
 const spawnCalls: Array<[string, string[], object]> = [];
@@ -105,13 +112,15 @@ const {
   __resetForTesting,
   __setPlatformForTesting,
   __setSupervisorOptionsForTesting,
-  getMacHelperAppPath,
-  getMacHelperPath,
   installHotkeyHelper,
   queryFreshMacHelperPermission,
   requestMacHelperInputMonitoringPermission,
   requestMacHelperSpeechRecognitionPermission,
 } = await import("./hotkey-helper");
+
+const { getMacHelperAppPath, getMacHelperPath } = await import(
+  "./sidecar/mac-helper-path"
+);
 
 const invokeFnPushToTalk = (enable: boolean) =>
   handlers["vellum:helper:hotkey:fnPushToTalk"](
@@ -145,6 +154,7 @@ beforeEach(() => {
   spawnCalls.length = 0;
   lastChild = null;
   exists = true;
+  helperExecutableName = "vellum-mac-helper";
   appState.isPackaged = false;
   appState.appPath = "/repo/clients/macos";
   nextWebContentsId = 1;
@@ -179,6 +189,13 @@ describe("getMacHelperPath", () => {
     appState.isPackaged = true;
     expect(getMacHelperPath()).toBe(
       "/mock/resources/bin/vellum-mac-helper.app/Contents/MacOS/vellum-mac-helper",
+    );
+  });
+
+  test("resolves the per-environment executable name from CFBundleExecutable", () => {
+    helperExecutableName = "Vellum Helper Dev";
+    expect(getMacHelperPath()).toBe(
+      "/repo/clients/macos/resources/vellum-mac-helper.app/Contents/MacOS/Vellum Helper Dev",
     );
   });
 });

@@ -17,8 +17,17 @@ let mockDefault: { provider?: string; model?: string } = {
   model: "claude-opus-4-6",
 };
 
+const realConfigLoader = await import("../config/loader.js");
+
 mock.module("../config/loader.js", () => ({
+  ...realConfigLoader,
   getConfig: () => ({
+    llm: {
+      profiles: mockProfiles,
+      default: mockDefault,
+    },
+  }),
+  getConfigReadOnly: () => ({
     llm: {
       profiles: mockProfiles,
       default: mockDefault,
@@ -75,34 +84,16 @@ describe("doesSupportVision", () => {
     expect(doesSupportVision(profile("text-profile"))).toBe(false);
   });
 
-  test("returns false for the 'auto' meta-profile even when llm.default is vision-capable", () => {
-    // auto has no provider/model — would inherit llm.default (anthropic/claude-opus-4-6,
-    // which IS vision-capable) — but must still return false because auto is a router,
-    // not a concrete model, and may route to a text-only profile at runtime.
-    setMockConfig({
-      auto: { /* no provider/model — metadata only */ },
-    });
-    expect(doesSupportVision(profile("auto"))).toBe(false);
-  });
-
-  test("returns false for the 'auto' meta-profile when llm.default is text-only", () => {
-    setMockConfig(
-      { auto: {} },
-      { provider: "fireworks", model: "accounts/fireworks/models/glm-5p2" },
-    );
-    expect(doesSupportVision(profile("auto"))).toBe(false);
-  });
-
-  test("fails open (true) for an unknown profile key not in config", () => {
+  test("returns false for an unknown profile key not in config", () => {
     setMockConfig({});
-    expect(doesSupportVision(profile("nonexistent"))).toBe(true);
+    expect(doesSupportVision(profile("nonexistent"))).toBe(false);
   });
 
-  test("fails open (true) for an unknown provider/model pair", () => {
+  test("returns false for an unknown provider/model pair", () => {
     setMockConfig({
       "unknown-model": { provider: "unknown-provider", model: "unknown-model" },
     });
-    expect(doesSupportVision(profile("unknown-model"))).toBe(true);
+    expect(doesSupportVision(profile("unknown-model"))).toBe(false);
   });
 
   test("inherits provider from llm.default when profile only sets model", () => {
@@ -154,5 +145,29 @@ describe("doesSupportVision", () => {
       },
     });
     expect(doesSupportVision(profile("mix-profile"))).toBe(false);
+  });
+});
+
+describe("doesSupportVision with a bare string", () => {
+  test("returns true for a known vision-capable model id", () => {
+    expect(doesSupportVision("claude-opus-4-6")).toBe(true);
+  });
+
+  test("returns false for a known text-only model id", () => {
+    expect(doesSupportVision("accounts/fireworks/models/glm-5p2")).toBe(false);
+  });
+
+  test("falls back to resolving the string as a profile key", () => {
+    // "vision-profile" is not a catalog model id, so it resolves as a profile
+    // key → anthropic/claude-opus-4-6 (vision-capable).
+    setMockConfig({
+      "vision-profile": { provider: "anthropic", model: "claude-opus-4-6" },
+    });
+    expect(doesSupportVision("vision-profile")).toBe(true);
+  });
+
+  test("returns false for a string that is neither a model nor a profile", () => {
+    setMockConfig({});
+    expect(doesSupportVision("some-unknown-string")).toBe(false);
   });
 });

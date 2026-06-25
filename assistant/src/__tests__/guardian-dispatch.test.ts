@@ -24,6 +24,56 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
+// The pending_question request principal is resolved via the gateway guardian
+// delivery for the vellum channel — the SAME source the Vellum actor uses — so
+// the stamped principal always equals the submitting actor principal. The real
+// contacts DB is seeded in resetTables(); the reader mock below derives the
+// gateway delivery from that DB binding so tests model drift / missing guardian
+// by reseeding or clearing the local binding directly.
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async (input?: { channelTypes?: string[] }) => {
+    const { getDb } = await import("../memory/db-connection.js");
+    const { contacts, contactChannels } = await import("../memory/schema.js");
+    const { and, eq } = await import("drizzle-orm");
+    const channels = input?.channelTypes ?? [];
+    return channels
+      .map((channelType) => {
+        const row = getDb()
+          .select({ contact: contacts, channel: contactChannels })
+          .from(contacts)
+          .innerJoin(
+            contactChannels,
+            eq(contacts.id, contactChannels.contactId),
+          )
+          .where(
+            and(
+              eq(contacts.role, "guardian"),
+              eq(contactChannels.type, channelType),
+              eq(contactChannels.status, "active"),
+            ),
+          )
+          .get();
+        if (!row) return null;
+        return {
+          channelType,
+          contactId: row.contact.id,
+          principalId: row.contact.principalId ?? null,
+          displayName: row.contact.displayName ?? null,
+          address: row.channel.address,
+          externalChatId: row.channel.externalChatId ?? null,
+          status: "active",
+          verifiedAt: row.channel.verifiedAt ?? null,
+        };
+      })
+      .filter((g) => g !== null);
+  },
+  guardianForChannel: (
+    list: Array<{ channelType: string; status: string }>,
+    channelType: string,
+  ) =>
+    list.find((g) => g.channelType === channelType && g.status === "active"),
+}));
+
 const emitCalls: unknown[] = [];
 let conversationCreatedFromMock: ConversationCreatedInfo | null = null;
 let mockEmitResult: {
@@ -154,11 +204,18 @@ describe("guardian-dispatch", () => {
         "SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?",
       )
       .get(session.id) as
-      | { id: string; status: string; question_text: string }
+      | {
+          id: string;
+          status: string;
+          question_text: string;
+          guardian_principal_id: string | null;
+        }
       | undefined;
     expect(request).toBeDefined();
     expect(request!.status).toBe("pending");
     expect(request!.question_text).toBe("What is the gate code?");
+    // principalId comes from the local guardian binding (same source the actor submits)
+    expect(request!.guardian_principal_id).toBe("test-principal-id");
 
     const vellumDelivery = raw
       .query(
@@ -173,6 +230,88 @@ describe("guardian-dispatch", () => {
 
     const signalParams = emitCalls[0] as Record<string, unknown>;
     expect(typeof signalParams.onConversationCreated).toBe("function");
+  });
+
+  test("stamps the request principal from the local source the actor submits, not the (possibly drifted) gateway binding", async () => {
+    // Simulate gateway/local binding drift: the local guardian binding (the
+    // source the actor submit path reads) carries a different principal than
+    // the gateway would. The request must be stamped with that local value so
+    // a later actor submission matches (no identity_mismatch under drift).
+    const db = getDb();
+    db.run("DELETE FROM contact_channels");
+    db.run("DELETE FROM contacts");
+    createGuardianBinding({
+      channel: "vellum",
+      guardianExternalUserId: "local-actor-principal",
+      guardianDeliveryChatId: "local",
+      guardianPrincipalId: "local-actor-principal",
+      verifiedVia: "bootstrap",
+    });
+
+    const convId = "conv-dispatch-drift";
+    ensureConversation(convId);
+
+    const session = createCallSession({
+      conversationId: convId,
+      provider: "twilio",
+      fromNumber: "+15550001111",
+      toNumber: "+15550002222",
+    });
+    const pq = createPendingQuestion(session.id, "Drifted bindings?");
+
+    await dispatchGuardianQuestion({
+      callSessionId: session.id,
+      conversationId: convId,
+      assistantId: "self",
+      pendingQuestion: pq,
+    });
+
+    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
+      .$client;
+    const request = raw
+      .query(
+        "SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?",
+      )
+      .get(session.id) as
+      | { guardian_principal_id: string | null }
+      | undefined;
+    expect(request).toBeDefined();
+    expect(request!.guardian_principal_id).toBe("local-actor-principal");
+  });
+
+  test("skips dispatch when no local guardian binding exists (no principal to stamp)", async () => {
+    const db = getDb();
+    db.run("DELETE FROM contact_channels");
+    db.run("DELETE FROM contacts");
+
+    const convId = "conv-dispatch-no-principal";
+    ensureConversation(convId);
+
+    const session = createCallSession({
+      conversationId: convId,
+      provider: "twilio",
+      fromNumber: "+15550001111",
+      toNumber: "+15550002222",
+    });
+    const pq = createPendingQuestion(session.id, "No principal available");
+
+    await dispatchGuardianQuestion({
+      callSessionId: session.id,
+      conversationId: convId,
+      assistantId: "self",
+      pendingQuestion: pq,
+    });
+
+    // No request is created and the pipeline is never invoked.
+    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
+      .$client;
+    const request = raw
+      .query(
+        "SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?",
+      )
+      .get(session.id) as { id: string } | null;
+    expect(request).toBeNull();
+    expect(emitCalls).toHaveLength(0);
   });
 
   test("creates a telegram guardian delivery with binding metadata when pipeline sends telegram", async () => {

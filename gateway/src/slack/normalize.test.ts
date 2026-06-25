@@ -215,6 +215,71 @@ describe("normalizeSlackBlockActions", () => {
 
     expect(result).toBeNull();
   });
+
+  // LUM-2414: a guardian's Block Kit button click (Approve/Reject on an
+  // access-request card) arrives on their DM channel (D...). When that channel
+  // isn't in the routing table the normalizer must fall back to the default
+  // assistant rather than silently dropping the click — mirroring the fallback
+  // in normalizeSlackDirectMessage, normalizeSlackReaction, and the message
+  // edit/delete normalizers.
+  it("falls back to the default assistant for an unrouted DM channel", () => {
+    const config = makeConfig({
+      defaultAssistantId: "default-ast",
+      unmappedPolicy: "reject",
+    });
+    const payload = makeBlockActionsPayload({ channelId: "D999" });
+    const result = normalizeSlackBlockActions(
+      payload,
+      "env-dm-fallback",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.channel).toBe("D999");
+    expect(result!.routing.assistantId).toBe("default-ast");
+    expect(result!.routing.routeSource).toBe("default");
+  });
+
+  it("uses explicit routing for a DM channel that is in the routing table", () => {
+    // The DM fallback only fires when routing rejects; an explicit
+    // conversation_id route for the DM channel must still win.
+    const config = makeConfig({
+      defaultAssistantId: "default-ast",
+      unmappedPolicy: "reject",
+      routingEntries: [
+        { type: "conversation_id", key: "D789", assistantId: "explicit-ast" },
+      ],
+    });
+    const payload = makeBlockActionsPayload({ channelId: "D789" });
+    const result = normalizeSlackBlockActions(
+      payload,
+      "env-dm-explicit",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.routing.assistantId).toBe("explicit-ast");
+    expect(result!.routing.routeSource).toBe("conversation_id");
+  });
+
+  it("returns null for an unrouted non-DM channel even when a default assistant exists", () => {
+    // Non-DM channels keep strict routing: the DM-only fallback must not leak
+    // into public channels, so a rejected route stays dropped even though
+    // defaultAssistantId is set. (The "returns null when routing rejects" case
+    // above uses defaultAssistantId: undefined and so can't pin this guard.)
+    const config = makeConfig({
+      defaultAssistantId: "default-ast",
+      unmappedPolicy: "reject",
+    });
+    const payload = makeBlockActionsPayload({ channelId: "C456" });
+    const result = normalizeSlackBlockActions(
+      payload,
+      "env-non-dm-reject",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
 });
 
 describe("normalizeSlackReactionAdded", () => {

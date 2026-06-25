@@ -74,7 +74,9 @@ describe("getLockfileData", () => {
     const result = getLockfileData([lockfilePath]);
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.data.assistants).toEqual([{ assistantId: "asst_legacy" }]);
+      expect(result.data.assistants).toEqual([
+        { assistantId: "asst_legacy", cloud: "local" },
+      ]);
       expect(result.data.activeAssistant).toBe("asst_legacy");
     }
   });

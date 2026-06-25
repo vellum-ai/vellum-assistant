@@ -51,12 +51,6 @@ mock.module(
   }),
 );
 
-mock.module(
-  "@/domains/chat/components/chat-composer/chat-composer",
-  () => ({
-    ChatComposer: () => <div data-testid="composer">COMPOSER</div>,
-  }),
-);
 
 mock.module("@vellumai/design-library", () => ({
   Button: ({
@@ -69,9 +63,42 @@ mock.module("@vellumai/design-library", () => ({
   } & ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button {...props}>{iconOnly ?? children}</button>
   ),
-  Notice: ({ children }: { children: string }) => (
-    <div data-testid="notice">{children}</div>
+  Notice: ({
+    children,
+    actions,
+    tone,
+  }: {
+    children?: ReactNode;
+    actions?: ReactNode;
+    tone?: string;
+  }) => (
+    <div data-testid="notice" data-tone={tone}>
+      {children}
+      {actions ? <div data-testid="notice-actions">{actions}</div> : null}
+    </div>
   ),
+  Card: {
+    Root: ({
+      children,
+      padding: _padding,
+      bordered: _bordered,
+      elevated: _elevated,
+      ...props
+    }: {
+      children?: ReactNode;
+      padding?: unknown;
+      bordered?: unknown;
+      elevated?: unknown;
+    }) => <div {...props}>{children}</div>,
+    Body: ({
+      children,
+      padding: _padding,
+      ...props
+    }: {
+      children?: ReactNode;
+      padding?: unknown;
+    }) => <div {...props}>{children}</div>,
+  },
   ResizablePanel: () => <div data-testid="resizable-panel" />,
   Typography: ({ children }: { children?: ReactNode }) => (
     <span>{children}</span>
@@ -112,7 +139,8 @@ function baseProps(
       transcriptRef: null,
       transcriptProps: { messages: [], onScrollToMessage: noop } as never,
     },
-    composerProps: {} as never,
+    composerSlot: <div data-testid="composer">COMPOSER</div>,
+    onStopGenerating: noop,
     dragHandlers: {
       onDragEnter: noopDrag,
       onDragOver: noopDrag,
@@ -226,13 +254,142 @@ describe("ChatBody — startersSlot rendering", () => {
 
 });
 
+describe("ChatBody — active subagents overlay slot", () => {
+  const activeSubagentsSlot = (
+    <div data-testid="active-subagents-slot">ACTIVE_SUBAGENTS</div>
+  );
+
+  test("renders the slot top-center when scrolled up and slot is provided", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          showScrollToLatest: true,
+          activeSubagentsSlot,
+        })}
+      />,
+    );
+    expect(html).toContain("ACTIVE_SUBAGENTS");
+  });
+
+  test("does NOT render the slot when pinned (showScrollToLatest false)", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          showScrollToLatest: false,
+          activeSubagentsSlot,
+        })}
+      />,
+    );
+    expect(html).not.toContain("ACTIVE_SUBAGENTS");
+  });
+
+  test("does NOT render the slot on the empty state", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...withEmptyState({
+          showScrollToLatest: true,
+          activeSubagentsSlot,
+        })}
+      />,
+    );
+    expect(html).not.toContain("ACTIVE_SUBAGENTS");
+  });
+
+  test("Go-to-Newest bottom overlay still renders alongside the slot (no regression)", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          showScrollToLatest: true,
+          activeSubagentsSlot,
+        })}
+      />,
+    );
+    expect(html).toContain("SCROLL_TO_LATEST");
+    expect(html).toContain("ACTIVE_SUBAGENTS");
+  });
+});
+
+describe("ChatBody — active workflows overlay slot", () => {
+  const activeSubagentsSlot = (
+    <div data-testid="active-subagents-slot">ACTIVE_SUBAGENTS</div>
+  );
+  const activeWorkflowsSlot = (
+    <div data-testid="active-workflows-slot">ACTIVE_WORKFLOWS</div>
+  );
+
+  test("renders the slot top-center when scrolled up and slot is provided", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          showScrollToLatest: true,
+          activeWorkflowsSlot,
+        })}
+      />,
+    );
+    expect(html).toContain("ACTIVE_WORKFLOWS");
+  });
+
+  test("does NOT render the slot when pinned (showScrollToLatest false)", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          showScrollToLatest: false,
+          activeWorkflowsSlot,
+        })}
+      />,
+    );
+    expect(html).not.toContain("ACTIVE_WORKFLOWS");
+  });
+
+  test("does NOT render the slot on the empty state", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...withEmptyState({
+          showScrollToLatest: true,
+          activeWorkflowsSlot,
+        })}
+      />,
+    );
+    expect(html).not.toContain("ACTIVE_WORKFLOWS");
+  });
+
+  test("renders BOTH slots simultaneously when both are provided", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          showScrollToLatest: true,
+          activeSubagentsSlot,
+          activeWorkflowsSlot,
+        })}
+      />,
+    );
+    expect(html).toContain("ACTIVE_SUBAGENTS");
+    expect(html).toContain("ACTIVE_WORKFLOWS");
+  });
+
+  test("renders the subagent pill to the LEFT of the workflow pill", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          showScrollToLatest: true,
+          activeSubagentsSlot,
+          activeWorkflowsSlot,
+        })}
+      />,
+    );
+    // DOM order: subagents must precede workflows in the centered row.
+    expect(html.indexOf("ACTIVE_SUBAGENTS")).toBeLessThan(
+      html.indexOf("ACTIVE_WORKFLOWS"),
+    );
+  });
+});
+
 describe("ChatBody — read-only cancellation", () => {
   test("renders the read-only banner without a stop control while idle", () => {
     const html = renderToStaticMarkup(
       <ChatBody
         {...baseProps({
           isChannelReadonly: true,
-          composerProps: { onStopGenerating: noop } as never,
         })}
       />,
     );
@@ -248,7 +405,6 @@ describe("ChatBody — read-only cancellation", () => {
         {...baseProps({
           isChannelReadonly: true,
           canStopGenerating: true,
-          composerProps: { onStopGenerating: noop } as never,
         })}
       />,
     );
@@ -276,5 +432,68 @@ describe("ChatBody — channel footer slot", () => {
     expect(html.indexOf("CHANNEL_FOOTER")).toBeLessThan(
       html.indexOf("COMPOSER"),
     );
+  });
+});
+
+describe("ChatBody — generic chat error Notice (dismiss UX)", () => {
+  // The Notice is rendered as an inline error banner above the composer.
+  // The banner has a "Go to Doctor" action and a "Dismiss" button as a
+  // second action (so the user has a real way to close the banner).
+
+  test("renders a Dismiss button when genericChatError + onDismissChatError are both provided", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          genericChatError: {
+            message: "Model doesn't support image input.",
+            actions: (
+              <a href="/assistant/settings/debug?tab=doctor">Go to Doctor</a>
+            ),
+          },
+          onDismissChatError: () => {},
+        })}
+      />,
+    );
+
+    expect(html).toContain("Go to Doctor");
+    expect(html).toContain("Dismiss");
+  });
+
+  test("renders warning-tone generic notices as status banners", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          genericChatError: {
+            message: "Memory is temporarily unavailable.",
+            tone: "warning",
+          },
+          onDismissChatError: () => {},
+        })}
+      />,
+    );
+
+    expect(html).toContain("Memory is temporarily unavailable.");
+    expect(html).toContain('data-tone="warning"');
+  });
+
+  test("does NOT render the Dismiss button when onDismissChatError is omitted", () => {
+    // Defensive: don't silently show a Dismiss button that does nothing.
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          genericChatError: { message: "Something went wrong." },
+        })}
+      />,
+    );
+
+    expect(html).not.toContain("Dismiss");
+  });
+
+  test("does not render the error banner at all when genericChatError is null", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody {...baseProps({ genericChatError: null })} />,
+    );
+
+    expect(html).not.toContain(">Dismiss<");
   });
 });

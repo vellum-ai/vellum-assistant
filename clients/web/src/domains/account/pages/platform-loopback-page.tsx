@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from "react-router";
 
 import { listAssistants } from "@/assistant/api";
 import { syncPlatformAssistantsToLockfile } from "@/lib/local-mode";
+import { registerLocalPlatformSession } from "@/runtime/local-mode-host";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
@@ -19,10 +20,11 @@ const LOOPBACK_RETURN_TO_KEY = "vellum:loopback:returnTo";
  *      and navigates to the platform login with
  *      `returnTo=/accounts/cli/callback?port={localPort}&state={nonce}`
  *   2. After authentication, the platform redirects to
- *      `http://127.0.0.1:{port}/callback?state={nonce}&session_token={token}`
+ *      `http://localhost:{port}/callback?state={nonce}&session_token={token}`
  *   3. The local web server redirects `/callback` → this SPA page
- *   4. This page validates the state, installs the session cookie,
- *      checks for existing assistants, and navigates accordingly
+ *   4. This page validates the state, registers the token with the local
+ *      server (which authenticates its platform proxy with it — no browser
+ *      cookie), checks for existing assistants, and navigates accordingly
  */
 export function PlatformLoopbackPage() {
   const [searchParams] = useSearchParams();
@@ -33,7 +35,8 @@ export function PlatformLoopbackPage() {
     const state = searchParams.get("state");
     const sessionToken = searchParams.get("session_token");
     const expectedState = sessionStorage.getItem(LOOPBACK_STATE_KEY);
-    const returnTo = sessionStorage.getItem(LOOPBACK_RETURN_TO_KEY) || routes.assistant;
+    const returnTo =
+      sessionStorage.getItem(LOOPBACK_RETURN_TO_KEY) || routes.assistant;
 
     sessionStorage.removeItem(LOOPBACK_STATE_KEY);
     sessionStorage.removeItem(LOOPBACK_RETURN_TO_KEY);
@@ -53,10 +56,20 @@ export function PlatformLoopbackPage() {
       return;
     }
 
-    document.cookie = `sessionid=${sessionToken}; path=/; samesite=lax; max-age=1209600`;
-
     void (async () => {
-      // Re-run session init now that the cookie is set — this moves
+      // Hand the validated token to the local web server; its proxy uses it to
+      // authenticate to the platform. No browser session cookie is involved, so
+      // a stale HttpOnly `sessionid` from the local platform can't block login.
+      const registered = await registerLocalPlatformSession(sessionToken);
+      if (!registered) {
+        setError(
+          "Login failed: couldn't reach the local Vellum server to store the " +
+            "session. Please try again.",
+        );
+        return;
+      }
+
+      // Re-run session init now that the proxy is authenticated — this moves
       // sessionStatus to "authenticated" so the auth middleware lets
       // navigation through.
       await useAuthStore.getState().initSession();

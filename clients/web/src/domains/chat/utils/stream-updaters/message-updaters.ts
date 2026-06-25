@@ -181,6 +181,7 @@ export function appendTextDelta(
   prev: DisplayMessage[],
   text: string,
   messageId?: string,
+  seedTwin?: () => DisplayMessage | undefined,
 ): DisplayMessage[] {
   if (messageId) {
     const idx = findAssistantRowIndexByMessageId(prev, messageId);
@@ -189,6 +190,20 @@ export function appendTextDelta(
     }
     if (tailIsAssistant(prev)) {
       return appendTextSegmentIntoRow(prev, prev.length - 1, text, messageId);
+    }
+    // No live row owns this id and there is no assistant tail to fold into:
+    // this is the first delta this client sees for the turn. If the daemon
+    // persisted a prefix before we attached — re-attach, late-join, or a
+    // reconnect that replays only `seq >` the snapshot watermark — that
+    // prefix lives in history under this id. Seed the live row from that
+    // history twin so the delta extends the persisted prefix instead of
+    // opening a fresh, prefix-less bubble (the "vanishing prefix" bug). The
+    // thunk is resolved here, in the cold branch only, so the steady-state
+    // hot path never pays for the history lookup. No twin → genuinely new
+    // turn → open a fresh bubble as before.
+    const twin = seedTwin?.();
+    if (twin) {
+      return appendTextSegmentIntoRow([...prev, twin], prev.length, text, messageId);
     }
     return createStreamingBubble(prev, text, messageId);
   }
@@ -241,6 +256,7 @@ export function appendThinkingDelta(
   prev: DisplayMessage[],
   thinking: string,
   messageId?: string,
+  seedTwin?: () => DisplayMessage | undefined,
 ): DisplayMessage[] {
   if (messageId) {
     const idx = findAssistantRowIndexByMessageId(prev, messageId);
@@ -250,6 +266,19 @@ export function appendThinkingDelta(
       return appendThinkingSegmentIntoRow(
         prev,
         prev.length - 1,
+        thinking,
+        messageId,
+      );
+    }
+    // First event this client sees for the turn — seed from the history twin
+    // (the persisted prefix) when present so a re-attach extends it instead of
+    // dropping it. See `appendTextDelta` for the full rationale; reasoning-heavy
+    // models open the turn with thinking, so the prefix can be thinking text.
+    const twin = seedTwin?.();
+    if (twin) {
+      return appendThinkingSegmentIntoRow(
+        [...prev, twin],
+        prev.length,
         thinking,
         messageId,
       );
@@ -403,10 +432,12 @@ function findOptimisticUserEchoIdx(
  *  2. An optimistic user row is correlated by `clientMessageId` (or, absent
  *     the nonce, the most recent optimistic row) — the originating client
  *     whose POST hasn't resolved yet (the echo beat the 202). Swap its id to
- *     the server `messageId` and clear `isOptimistic`, mirroring the
- *     POST-resolve path so a later reconcile can't double it. With no
- *     `messageId` (synthetic echo) there is nothing to upgrade to, so the
- *     optimistic row is left as-is.
+ *     the server `messageId`, clear `isOptimistic`, and clear any
+ *     `queueStatus`/`queuePosition`: the echo is emitted only once the daemon
+ *     is processing the message (a direct send, or a queued send right after
+ *     it is dequeued), so a persisted echo means the row is no longer waiting
+ *     in the queue. With no `messageId` (synthetic echo) there is nothing to
+ *     upgrade to, so the optimistic row is left as-is.
  *  3. Otherwise append a new user row — passive client or synthetic
  *     prompt. Keyed by `messageId` when present so reconcile/refetch merges
  *     by id; otherwise optimistic.
@@ -438,6 +469,8 @@ export function applyUserMessageEcho(
       ...next[optimisticIdx]!,
       id: serverId,
       isOptimistic: false,
+      queueStatus: undefined,
+      queuePosition: undefined,
     };
     return next;
   }

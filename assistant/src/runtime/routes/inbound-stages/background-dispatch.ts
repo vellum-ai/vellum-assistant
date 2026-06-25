@@ -8,7 +8,10 @@
  * focused on orchestration.
  */
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
-import { findGuardianForChannel } from "../../../contacts/contact-store.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../../../contacts/guardian-delivery-reader.js";
 import type { ServerMessage } from "../../../daemon/message-protocol.js";
 import type { TrustContext } from "../../../daemon/trust-context.js";
 import {
@@ -960,10 +963,15 @@ function startTrustedContactApprovalNotifier(params: {
 
         if (info && !globalNotifiedApprovalRequestIds.has(info.requestId)) {
           globalNotifiedApprovalRequestIds.set(info.requestId, conversationId);
-          const guardian = findGuardianForChannel(sourceChannel);
-          const guardianName = resolveGuardianName(
-            guardian?.contact.displayName,
-          );
+          // Gateway-resolved guardian display name (display-only).
+          const guardians = await getGuardianDelivery({
+            channelTypes: [sourceChannel],
+          });
+          const displayName = guardians
+            ? (guardianForChannel(guardians, sourceChannel)?.displayName ??
+              undefined)
+            : undefined;
+          const guardianName = resolveGuardianName(displayName);
           const waitingText = `Waiting for ${guardianName}'s approval...`;
           try {
             await deliverChannelReply(replyCallbackUrl, {

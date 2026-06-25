@@ -7,11 +7,16 @@
  * persisted, or returned in the outcome.
  */
 
+import {
+  getInboundTrustVerdict,
+  getPhoneCallerVerdict,
+} from "../calls/inbound-trust-reader.js";
 import type { ChannelId } from "../channels/types.js";
 import { findContactChannel, getContact } from "../contacts/contact-store.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
+import { gatewayContactChannelState } from "../contacts/gateway-channel-read.js";
+import { activateMemberChannel } from "../contacts/member-write-relay.js";
+import type { ChannelStatus, ContactChannel } from "../contacts/types.js";
 import { ipcCallPersistent } from "../ipc/gateway-client.js";
-import { getSqlite } from "../memory/db-connection.js";
 import {
   findActiveVoiceInvites,
   findByInviteCodeHash,
@@ -23,8 +28,40 @@ import {
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { hashVoiceCode } from "../util/voice-code.js";
+import { verdictMemberFromVerdict } from "./trust-verdict-consumer.js";
 
 const log = getLogger("invite-redemption-service");
+
+/**
+ * Resolve the sender's existing member status for the already_member/blocked
+ * gate from the gateway trust verdict. Falls back to the gateway-sourced channel
+ * status when the verdict is absent or carries no resolvable member status (e.g.
+ * an externalChatId-only match or a resolutionFailed verdict), so a blocked
+ * contact can't bypass the gate.
+ */
+export async function resolveMemberGateStatus(
+  verdict: Awaited<ReturnType<typeof getInboundTrustVerdict>>,
+  fallbackStatus: ChannelStatus | null,
+): Promise<ChannelStatus | null> {
+  const memberStatus = verdict
+    ? verdictMemberFromVerdict(verdict)?.status
+    : null;
+  return memberStatus ?? fallbackStatus;
+}
+
+/**
+ * Gateway-sourced status for an existing local channel, used as the gate-status
+ * fallback when the verdict resolves no member. The local row is only located by
+ * identity; its status is read from the gateway (ACL source of truth), never the
+ * local column.
+ */
+async function gatewayFallbackStatus(
+  channel: Pick<ContactChannel, "contactId" | "type" | "address"> | null,
+): Promise<ChannelStatus | null> {
+  if (!channel) return null;
+  const state = await gatewayContactChannelState(channel);
+  return (state?.status as ChannelStatus | undefined) ?? null;
+}
 
 // ---------------------------------------------------------------------------
 // Gateway lifecycle bridge (shared by all redemption paths)
@@ -218,18 +255,22 @@ export async function redeemInvite(params: {
   const targetMismatch =
     existingContact && existingContact.id !== invite.contactId;
 
-  if (
-    existingChannel &&
-    existingChannel.status === "active" &&
-    !targetMismatch
-  ) {
+  const gateStatus = await resolveMemberGateStatus(
+    await getInboundTrustVerdict({
+      channelType: sourceChannel as ChannelId,
+      actorExternalId: canonicalUserId,
+    }),
+    await gatewayFallbackStatus(existingChannel),
+  );
+
+  if (existingChannel && gateStatus === "active" && !targetMismatch) {
     return { ok: true, type: "already_member", memberId: existingChannel.id };
   }
 
   // Blocked members cannot bypass the guardian's explicit block via invite
   // links. Return the same generic failure as an invalid token to avoid
   // leaking membership status to the caller.
-  if (existingChannel && existingChannel.status === "blocked") {
+  if (existingChannel && gateStatus === "blocked") {
     return { ok: false, reason: "invalid_token" };
   }
 
@@ -247,14 +288,10 @@ export async function redeemInvite(params: {
     return { ok: false, reason: "invalid_token" };
   }
 
-  // Inactive member reactivation: when the user already has a member record
-  // in a non-active state (revoked/pending), reactivate it via upsertContactChannel
-  // and consume an invite use atomically. The fresh-member path below also
-  // uses upsertContactChannel to keep contacts in sync.
+  // Inactive member reactivation: when the user already has a member record in
+  // a non-active state (revoked/pending), reactivate it gateway-first then
+  // consume an invite use. The fresh-member path below mirrors this.
   if (existingChannel && !targetMismatch) {
-    // Sentinel error used to trigger a transaction rollback when the invite
-    // was concurrently revoked/expired between pre-validation and write time.
-    const STALE_INVITE = Symbol("stale_invite");
     const canonicalMemberId = existingChannel.address;
     const canonicalCallerId = externalUserId
       ? canonicalizeInboundIdentity(sourceChannel as ChannelId, externalUserId)
@@ -266,42 +303,17 @@ export async function redeemInvite(params: {
         ? existingContact.displayName
         : displayName;
 
-    let reactivated: ReturnType<typeof upsertContactChannel> | undefined;
+    // Consume the assistant invite use BEFORE activating the member, so a
+    // concurrent revoke/exhaustion (recordInviteUse returns false) leaves no
+    // active member behind.
     try {
-      getSqlite()
-        .transaction(() => {
-          reactivated = upsertContactChannel({
-            sourceChannel,
-            externalUserId,
-            externalChatId,
-            // Reactivation should not overwrite a guardian-managed nickname.
-            displayName: preservedDisplayName,
-            username,
-            role: "contact",
-            status: "active",
-            policy: "allow",
-            inviteId: invite.id,
-            verifiedAt: Date.now(),
-            verifiedVia: "invite",
-            contactId: invite.contactId,
-          });
-
-          const recorded = recordInviteUse({
-            inviteId: invite.id,
-            externalUserId,
-            externalChatId,
-          });
-
-          // If the invite was revoked/expired between pre-validation and this
-          // write, recordInviteUse returns false — throw to roll back the
-          // member reactivation so the DB stays consistent.
-          if (!recorded) throw STALE_INVITE;
-        })
-        .immediate();
-    } catch (err) {
-      if (err === STALE_INVITE) {
+      if (
+        !recordInviteUse({ inviteId: invite.id, externalUserId, externalChatId })
+      ) {
+        // Invite revoked/expired between pre-validation and write.
         return { ok: false, reason: "invalid_token" };
       }
+    } catch (err) {
       // Rare: the gateway claim already consumed the row but the assistant
       // mutation failed — a recoverable wasted gateway use; no cross-process
       // rollback is attempted.
@@ -312,10 +324,30 @@ export async function redeemInvite(params: {
       throw err;
     }
 
+    // Gateway-first: activate the member channel on the authoritative gateway
+    // before the assistant DB; the local mirror is best-effort.
+    const reactivated = await activateMemberChannel({
+      sourceChannel,
+      externalUserId,
+      externalChatId,
+      // Reactivation should not overwrite a guardian-managed nickname.
+      displayName: preservedDisplayName,
+      username,
+      policy: "allow",
+      inviteId: invite.id,
+      verifiedAt: Date.now(),
+      verifiedVia: "invite",
+      contactId: invite.contactId,
+    });
+
+    if (reactivated.status === "refused") {
+      return { ok: false, reason: "invalid_token" };
+    }
+
     return {
       ok: true,
       type: "redeemed",
-      memberId: reactivated!.channel.id,
+      memberId: reactivated.memberId,
       inviteId: invite.id,
     };
   }
@@ -332,39 +364,17 @@ export async function redeemInvite(params: {
     }
   }
 
-  const STALE_INVITE_FRESH = Symbol("stale_invite_fresh");
-  let freshResult: ReturnType<typeof upsertContactChannel> | undefined;
+  // Consume the assistant invite use BEFORE activating the member, so a
+  // concurrent revoke/exhaustion (recordInviteUse returns false) leaves no
+  // active member behind.
   try {
-    getSqlite()
-      .transaction(() => {
-        freshResult = upsertContactChannel({
-          sourceChannel,
-          externalUserId,
-          externalChatId,
-          displayName: freshDisplayName,
-          username,
-          role: "contact",
-          status: "active",
-          policy: "allow",
-          inviteId: invite.id,
-          verifiedAt: Date.now(),
-          verifiedVia: "invite",
-          contactId: invite.contactId,
-        });
-
-        const recorded = recordInviteUse({
-          inviteId: invite.id,
-          externalUserId,
-          externalChatId,
-        });
-
-        if (!recorded) throw STALE_INVITE_FRESH;
-      })
-      .immediate();
-  } catch (err) {
-    if (err === STALE_INVITE_FRESH) {
+    if (
+      !recordInviteUse({ inviteId: invite.id, externalUserId, externalChatId })
+    ) {
+      // Invite revoked/expired between pre-validation and write.
       return { ok: false, reason: "invalid_token" };
     }
+  } catch (err) {
     // Rare: gateway claim succeeded but the assistant mutation failed — a
     // recoverable wasted gateway use; no cross-process rollback attempted.
     log.error(
@@ -374,10 +384,29 @@ export async function redeemInvite(params: {
     throw err;
   }
 
+  // Gateway-first: activate the member channel on the authoritative gateway
+  // before the assistant DB; the local mirror is best-effort.
+  const freshResult = await activateMemberChannel({
+    sourceChannel,
+    externalUserId,
+    externalChatId,
+    displayName: freshDisplayName,
+    username,
+    policy: "allow",
+    inviteId: invite.id,
+    verifiedAt: Date.now(),
+    verifiedVia: "invite",
+    contactId: invite.contactId,
+  });
+
+  if (freshResult.status === "refused") {
+    return { ok: false, reason: "invalid_token" };
+  }
+
   return {
     ok: true,
     type: "redeemed",
-    memberId: freshResult!.channel.id,
+    memberId: freshResult.memberId,
     inviteId: invite.id,
   };
 }
@@ -465,11 +494,12 @@ export async function redeemVoiceInviteCode(params: {
   // should bind the sender's identity to the target contact, not the existing one.
   const targetMismatch = voiceContact && voiceContact.id !== invite.contactId;
 
-  if (
-    existingVoiceChannel &&
-    existingVoiceChannel.status === "active" &&
-    !targetMismatch
-  ) {
+  const gateStatus = await resolveMemberGateStatus(
+    await getPhoneCallerVerdict(canonicalCallerId),
+    await gatewayFallbackStatus(existingVoiceChannel),
+  );
+
+  if (existingVoiceChannel && gateStatus === "active" && !targetMismatch) {
     return {
       ok: true,
       type: "already_member",
@@ -478,7 +508,7 @@ export async function redeemVoiceInviteCode(params: {
   }
 
   // Blocked members cannot bypass the guardian's explicit block
-  if (existingVoiceChannel && existingVoiceChannel.status === "blocked") {
+  if (existingVoiceChannel && gateStatus === "blocked") {
     return { ok: false, reason: "invalid_or_expired" };
   }
 
@@ -496,10 +526,6 @@ export async function redeemVoiceInviteCode(params: {
     return { ok: false, reason: "invalid_or_expired" };
   }
 
-  // Atomic redemption: upsert member + consume invite use in a transaction
-  const STALE_INVITE = Symbol("stale_invite");
-  let memberId: string | undefined;
-
   // When the invite targets a specific contact, preserve the target contact's
   // guardian-assigned display name if it has one.
   let preservedDisplayName = voiceContact?.displayName?.trim().length
@@ -512,36 +538,20 @@ export async function redeemVoiceInviteCode(params: {
     }
   }
 
+  // Consume the assistant invite use BEFORE activating the member, so a
+  // concurrent revoke/exhaustion (recordInviteUse returns false) leaves no
+  // active member behind.
   try {
-    getSqlite()
-      .transaction(() => {
-        const writeResult = upsertContactChannel({
-          sourceChannel: "phone",
-          externalUserId: callerExternalUserId,
-          externalChatId: callerExternalUserId,
-          displayName: preservedDisplayName,
-          role: "contact",
-          status: "active",
-          policy: "allow",
-          inviteId: invite.id,
-          verifiedAt: Date.now(),
-          verifiedVia: "invite",
-          contactId: invite.contactId,
-        });
-        memberId = writeResult!.channel.id;
-
-        const recorded = recordInviteUse({
-          inviteId: invite.id,
-          externalUserId: callerExternalUserId,
-        });
-
-        if (!recorded) throw STALE_INVITE;
+    if (
+      !recordInviteUse({
+        inviteId: invite.id,
+        externalUserId: callerExternalUserId,
       })
-      .immediate();
-  } catch (err) {
-    if (err === STALE_INVITE) {
+    ) {
+      // Invite revoked/expired between pre-validation and write.
       return { ok: false, reason: "invalid_or_expired" };
     }
+  } catch (err) {
     // Rare: gateway claim succeeded but the assistant mutation failed — a
     // recoverable wasted gateway use; no cross-process rollback attempted.
     log.error(
@@ -551,10 +561,28 @@ export async function redeemVoiceInviteCode(params: {
     throw err;
   }
 
+  // Gateway-first: activate the member channel on the authoritative gateway
+  // before the assistant DB; the local mirror is best-effort.
+  const writeResult = await activateMemberChannel({
+    sourceChannel: "phone",
+    externalUserId: callerExternalUserId,
+    externalChatId: callerExternalUserId,
+    displayName: preservedDisplayName,
+    policy: "allow",
+    inviteId: invite.id,
+    verifiedAt: Date.now(),
+    verifiedVia: "invite",
+    contactId: invite.contactId,
+  });
+
+  if (writeResult.status === "refused") {
+    return { ok: false, reason: "invalid_or_expired" };
+  }
+
   return {
     ok: true,
     type: "redeemed",
-    memberId: memberId!,
+    memberId: writeResult.memberId,
     inviteId: invite.id,
   };
 }
@@ -639,18 +667,22 @@ export async function redeemInviteByCode(params: {
   const targetMismatch =
     existingContact && existingContact.id !== invite.contactId;
 
-  if (
-    existingChannel &&
-    existingChannel.status === "active" &&
-    !targetMismatch
-  ) {
+  const gateStatus = await resolveMemberGateStatus(
+    await getInboundTrustVerdict({
+      channelType: sourceChannel as ChannelId,
+      actorExternalId: canonicalUserId,
+    }),
+    await gatewayFallbackStatus(existingChannel),
+  );
+
+  if (existingChannel && gateStatus === "active" && !targetMismatch) {
     return { ok: true, type: "already_member", memberId: existingChannel.id };
   }
 
   // Blocked members cannot bypass the guardian's explicit block via invite
   // codes. Return the same generic failure as an invalid token to avoid
   // leaking membership status to the caller.
-  if (existingChannel && existingChannel.status === "blocked") {
+  if (existingChannel && gateStatus === "blocked") {
     return { ok: false, reason: "invalid_token" };
   }
 
@@ -667,10 +699,9 @@ export async function redeemInviteByCode(params: {
     return { ok: false, reason: "invalid_token" };
   }
 
-  // Inactive member reactivation: reactivate via upsertContactChannel and consume
-  // an invite use atomically.
+  // Inactive member reactivation: reactivate gateway-first, then consume an
+  // invite use.
   if (existingChannel && !targetMismatch) {
-    const STALE_INVITE_REACTIVATE = Symbol("stale_invite_reactivate");
     const canonicalMemberId = existingChannel.address;
     const canonicalCallerId = externalUserId
       ? canonicalizeInboundIdentity(sourceChannel as ChannelId, externalUserId)
@@ -682,38 +713,17 @@ export async function redeemInviteByCode(params: {
         ? existingContact.displayName
         : displayName;
 
-    let reactivated: ReturnType<typeof upsertContactChannel> | undefined;
+    // Consume the assistant invite use BEFORE activating the member, so a
+    // concurrent revoke/exhaustion (recordInviteUse returns false) leaves no
+    // active member behind.
     try {
-      getSqlite()
-        .transaction(() => {
-          reactivated = upsertContactChannel({
-            sourceChannel,
-            externalUserId,
-            externalChatId,
-            displayName: preservedDisplayName,
-            username,
-            role: "contact",
-            status: "active",
-            policy: "allow",
-            inviteId: invite.id,
-            verifiedAt: Date.now(),
-            verifiedVia: "invite",
-            contactId: invite.contactId,
-          });
-
-          const recorded = recordInviteUse({
-            inviteId: invite.id,
-            externalUserId,
-            externalChatId,
-          });
-
-          if (!recorded) throw STALE_INVITE_REACTIVATE;
-        })
-        .immediate();
-    } catch (err) {
-      if (err === STALE_INVITE_REACTIVATE) {
+      if (
+        !recordInviteUse({ inviteId: invite.id, externalUserId, externalChatId })
+      ) {
+        // Invite revoked/expired between pre-validation and write.
         return { ok: false, reason: "invalid_token" };
       }
+    } catch (err) {
       // Rare: gateway claim succeeded but the assistant mutation failed — a
       // recoverable wasted gateway use; no cross-process rollback attempted.
       log.error(
@@ -723,10 +733,29 @@ export async function redeemInviteByCode(params: {
       throw err;
     }
 
+    // Gateway-first: activate the member channel on the authoritative gateway
+    // before the assistant DB; the local mirror is best-effort.
+    const reactivated = await activateMemberChannel({
+      sourceChannel,
+      externalUserId,
+      externalChatId,
+      displayName: preservedDisplayName,
+      username,
+      policy: "allow",
+      inviteId: invite.id,
+      verifiedAt: Date.now(),
+      verifiedVia: "invite",
+      contactId: invite.contactId,
+    });
+
+    if (reactivated.status === "refused") {
+      return { ok: false, reason: "invalid_token" };
+    }
+
     return {
       ok: true,
       type: "redeemed",
-      memberId: reactivated!.channel.id,
+      memberId: reactivated.memberId,
       inviteId: invite.id,
     };
   }
@@ -743,39 +772,17 @@ export async function redeemInviteByCode(params: {
     }
   }
 
-  const STALE_INVITE_FRESH = Symbol("stale_invite_fresh");
-  let freshResult: ReturnType<typeof upsertContactChannel> | undefined;
+  // Consume the assistant invite use BEFORE activating the member, so a
+  // concurrent revoke/exhaustion (recordInviteUse returns false) leaves no
+  // active member behind.
   try {
-    getSqlite()
-      .transaction(() => {
-        freshResult = upsertContactChannel({
-          sourceChannel,
-          externalUserId,
-          externalChatId,
-          displayName: freshDisplayName,
-          username,
-          role: "contact",
-          status: "active",
-          policy: "allow",
-          inviteId: invite.id,
-          verifiedAt: Date.now(),
-          verifiedVia: "invite",
-          contactId: invite.contactId,
-        });
-
-        const recorded = recordInviteUse({
-          inviteId: invite.id,
-          externalUserId,
-          externalChatId,
-        });
-
-        if (!recorded) throw STALE_INVITE_FRESH;
-      })
-      .immediate();
-  } catch (err) {
-    if (err === STALE_INVITE_FRESH) {
+    if (
+      !recordInviteUse({ inviteId: invite.id, externalUserId, externalChatId })
+    ) {
+      // Invite revoked/expired between pre-validation and write.
       return { ok: false, reason: "invalid_token" };
     }
+  } catch (err) {
     // Rare: gateway claim succeeded but the assistant mutation failed — a
     // recoverable wasted gateway use; no cross-process rollback attempted.
     log.error(
@@ -785,10 +792,29 @@ export async function redeemInviteByCode(params: {
     throw err;
   }
 
+  // Gateway-first: activate the member channel on the authoritative gateway
+  // before the assistant DB; the local mirror is best-effort.
+  const freshResult = await activateMemberChannel({
+    sourceChannel,
+    externalUserId,
+    externalChatId,
+    displayName: freshDisplayName,
+    username,
+    policy: "allow",
+    inviteId: invite.id,
+    verifiedAt: Date.now(),
+    verifiedVia: "invite",
+    contactId: invite.contactId,
+  });
+
+  if (freshResult.status === "refused") {
+    return { ok: false, reason: "invalid_token" };
+  }
+
   return {
     ok: true,
     type: "redeemed",
-    memberId: freshResult!.channel.id,
+    memberId: freshResult.memberId,
     inviteId: invite.id,
   };
 }

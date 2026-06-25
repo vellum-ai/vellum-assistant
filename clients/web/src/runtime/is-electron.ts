@@ -33,6 +33,7 @@ import type {
   HotkeyEventState,
   HotkeyScope,
   LocalAssistantStatusResult,
+  LocalUpgradeOptions,
   LocalWakeOptions,
   NotificationActionEvent,
   NotificationCategory,
@@ -199,6 +200,10 @@ declare global {
           assistantId: string,
           options?: LocalWakeOptions,
         ): Promise<{ ok: boolean; error?: string }>;
+        upgrade?(
+          assistantId: string,
+          options?: LocalUpgradeOptions,
+        ): Promise<{ ok: boolean; version?: string; error?: string }>;
         status?(
           assistantId: string,
         ): Promise<LocalAssistantStatusResult>;
@@ -263,6 +268,9 @@ declare global {
           callback: (state: DictationOverlayState) => void,
         ): () => void;
         getState(): Promise<DictationOverlayState | null>;
+        requestStop(): void;
+        onStopRequested(callback: () => void): () => void;
+        setInteractive(interactive: boolean): void;
       };
       notifications?: {
         show(

@@ -6,6 +6,14 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 
+type AuthType = "none" | "bearer" | "api-key";
+
+const AUTH_OPTIONS: { value: AuthType; label: string }[] = [
+  { value: "none", label: "None" },
+  { value: "bearer", label: "Bearer Token" },
+  { value: "api-key", label: "API Key" },
+];
+
 const RISK_LEVELS = ["low", "medium", "high"] as const;
 
 interface McpServerDetailModalProps {
@@ -16,8 +24,7 @@ interface McpServerDetailModalProps {
     name: string;
     defaultRiskLevel?: string;
     maxTools?: number;
-    allowedTools?: string[] | null;
-    blockedTools?: string[] | null;
+    headers?: Record<string, string> | null;
   }) => void;
   isPending: boolean;
 }
@@ -30,14 +37,20 @@ export function McpServerDetailModal({
   isPending,
 }: McpServerDetailModalProps) {
   const [riskLevel, setRiskLevel] = useState("medium");
-  const [allowedToolsText, setAllowedToolsText] = useState("");
-  const [blockedToolsText, setBlockedToolsText] = useState("");
+  const [authType, setAuthType] = useState<AuthType>("none");
+  const [bearerToken, setBearerToken] = useState("");
+  const [apiKeyHeader, setApiKeyHeader] = useState("X-API-Key");
+  const [apiKeyValue, setApiKeyValue] = useState("");
 
   useEffect(() => {
     if (server) {
       setRiskLevel(server.defaultRiskLevel);
-      setAllowedToolsText(server.allowedTools?.join(", ") ?? "");
-      setBlockedToolsText(server.blockedTools?.join(", ") ?? "");
+      setAuthType(server.authType);
+      // Credential store never returns raw values — reset secret fields.
+      // Preserve the non-secret header name for API-key auth rotations.
+      setBearerToken("");
+      setApiKeyHeader(server.authHeaderName ?? "X-API-Key");
+      setApiKeyValue("");
     }
   }, [server]);
 
@@ -46,16 +59,32 @@ export function McpServerDetailModal({
       return;
     }
 
-    const allowed = allowedToolsText.trim();
-    const blocked = blockedToolsText.trim();
+    // Determine if auth was changed: type switched, or new values entered
+    const typeChanged = authType !== server.authType;
+    const hasNewBearerValue = authType === "bearer" && bearerToken.trim() !== "";
+    const hasNewApiKeyValue =
+      authType === "api-key" && apiKeyHeader.trim() !== "" && apiKeyValue.trim() !== "";
+    const authChanged = typeChanged || hasNewBearerValue || hasNewApiKeyValue;
+
+    let headers: Record<string, string> | null | undefined;
+    if (!authChanged) {
+      headers = undefined;
+    } else if (authType === "none") {
+      headers = null;
+    } else if (authType === "bearer" && bearerToken.trim()) {
+      headers = { Authorization: `Bearer ${bearerToken.trim()}` };
+    } else if (authType === "api-key" && apiKeyHeader.trim() && apiKeyValue.trim()) {
+      headers = { [apiKeyHeader.trim()]: apiKeyValue.trim() };
+    } else {
+      headers = undefined;
+    }
 
     onSave(server.id, {
       name: server.id,
       defaultRiskLevel: riskLevel,
-      allowedTools: allowed ? allowed.split(",").map((s) => s.trim()).filter(Boolean) : null,
-      blockedTools: blocked ? blocked.split(",").map((s) => s.trim()).filter(Boolean) : null,
+      ...(headers !== undefined ? { headers } : {}),
     });
-  }, [server, riskLevel, allowedToolsText, blockedToolsText, onSave]);
+  }, [server, riskLevel, authType, bearerToken, apiKeyHeader, apiKeyValue, onSave]);
 
   const handleClose = useCallback(() => {
     if (!isPending) {
@@ -97,33 +126,90 @@ export function McpServerDetailModal({
               </select>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-allowed">
-                Allowed tools (comma-separated, leave empty for all)
-              </label>
-              <Input
-                id="mcp-allowed"
-                type="text"
-                value={allowedToolsText}
-                onChange={(e) => setAllowedToolsText(e.target.value)}
-                placeholder="tool_a, tool_b"
-                fullWidth
-              />
-            </div>
+            {server.transport.type !== "stdio" ? (
+              <>
+                {server.hasOAuth ? (
+                  <div className="flex items-center gap-2 rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] px-3 py-2">
+                    <span className="text-body-small-default text-[var(--content-secondary)]">
+                      Authentication
+                    </span>
+                    <span className="rounded-full bg-[var(--surface-lift)] px-2 py-0.5 text-label-small-default text-[var(--content-default)]">
+                      OAuth
+                    </span>
+                    <span className="text-body-small-default text-[var(--content-tertiary)]">
+                      — managed via OAuth flow
+                    </span>
+                  </div>
+                ) : null}
 
-            <div className="space-y-1.5">
-              <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-blocked">
-                Blocked tools (comma-separated)
-              </label>
-              <Input
-                id="mcp-blocked"
-                type="text"
-                value={blockedToolsText}
-                onChange={(e) => setBlockedToolsText(e.target.value)}
-                placeholder="dangerous_tool"
-                fullWidth
-              />
-            </div>
+                {!server.hasOAuth ? (
+                  <div className="space-y-1.5">
+                    <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-detail-auth">
+                      Authentication
+                    </label>
+                    <select
+                      id="mcp-detail-auth"
+                      value={authType}
+                      onChange={(e) => setAuthType(e.target.value as AuthType)}
+                      className="w-full rounded-md border border-[var(--border-element)] bg-[var(--surface-lift)] px-3 py-1.5 text-body-medium-default text-[var(--content-default)] outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                    >
+                      {AUTH_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+
+                {authType === "bearer" && !server.hasOAuth ? (
+                  <div className="space-y-1.5">
+                    <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-detail-bearer">
+                      Bearer token
+                    </label>
+                    <Input
+                      id="mcp-detail-bearer"
+                      type="password"
+                      value={bearerToken}
+                      onChange={(e) => setBearerToken(e.target.value)}
+                      placeholder={server.hasStaticAuth && server.authType === "bearer" ? "••••••••  (leave blank to keep current)" : "tok_..."}
+                      fullWidth
+                    />
+                  </div>
+                ) : null}
+
+                {authType === "api-key" && !server.hasOAuth ? (
+                  <div className="flex gap-3">
+                    <div className="flex-1 space-y-1.5">
+                      <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-detail-apikey-header">
+                        Header name
+                      </label>
+                      <Input
+                        id="mcp-detail-apikey-header"
+                        type="text"
+                        value={apiKeyHeader}
+                        onChange={(e) => setApiKeyHeader(e.target.value)}
+                        placeholder="X-API-Key"
+                        fullWidth
+                      />
+                    </div>
+                    <div className="flex-1 space-y-1.5">
+                      <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-detail-apikey-value">
+                        API key
+                      </label>
+                      <Input
+                        id="mcp-detail-apikey-value"
+                        type="password"
+                        value={apiKeyValue}
+                        onChange={(e) => setApiKeyValue(e.target.value)}
+                        placeholder={server.hasStaticAuth && server.authType === "api-key" ? "••••••••  (leave blank to keep current)" : "sk_..."}
+                        fullWidth
+                      />
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
 
             {toolsSummary && toolsSummary.tools.length > 0 ? (
               <div className="space-y-2">

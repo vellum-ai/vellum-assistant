@@ -10,6 +10,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -63,7 +64,7 @@ function cleanupAfterConfirmationDecision(
   // AND stamp risk metadata on the target tool call.
   let nudgeTcId: string | null = null;
 
-  useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) => {
+  patchTranscriptMessages((prev: DisplayMessage[]) => {
     // Resolve stamp target: explicit mapping or heuristic fallback
     let stampTargetId = mappedToolCallId;
     if (!stampTargetId) {
@@ -106,6 +107,37 @@ function cleanupAfterConfirmationDecision(
   }
 
   useChatSessionStore.getState().deleteConfirmationToolCall(snapshot.requestId);
+  useInteractionStore.getState().submitConfirmationEnd();
+}
+
+/**
+ * Clear a confirmation prompt the daemon has already discarded.
+ *
+ * A confirmation POST comes back 404 ("No pending interaction found for this
+ * requestId") when the server-side pending interaction is gone — the turn
+ * ended, the tool call timed out, the prompt was superseded, or a daemon
+ * restart dropped it. This is terminal and non-retryable: the decision is moot
+ * because the server has moved on. The matching `interaction_resolved` SSE
+ * event that would normally retire the card can be missed entirely (the web /
+ * iOS SSE stream tears down on app background and has no replay), so the stale
+ * prompt lingers — leaving the user tapping Allow/Deny into the same 404.
+ *
+ * Retire the prompt without surfacing a blocking error so the user is never
+ * stranded. No decision is stamped on the tool call — none was applied; the
+ * transcript already reflects the tool call's own outcome.
+ */
+function clearStaleConfirmation(snapshot: PendingConfirmationState): void {
+  useInteractionStore.getState().dismissConfirmation();
+  useInteractionStore.getState().setInlineConfirmationToolCallId(null);
+  const convKey = useConversationStore.getState().activeConversationId;
+  if (convKey) {
+    useConversationStore.getState().removeAttentionConversationId(convKey);
+  }
+  patchTranscriptMessages((prev: DisplayMessage[]) =>
+    clearConfirmationByRequestId(prev, snapshot.requestId),
+  );
+  useChatSessionStore.getState().deleteConfirmationToolCall(snapshot.requestId);
+  useChatSessionStore.getState().setError(null);
   useInteractionStore.getState().submitConfirmationEnd();
 }
 
@@ -162,6 +194,12 @@ export async function handleConfirmationSubmit(
     );
 
     if (!result.ok) {
+      if (result.status === 404) {
+        // Pending interaction already gone server-side — retire the stale
+        // prompt instead of stranding the user on an un-actionable card.
+        clearStaleConfirmation(snapshot);
+        return;
+      }
       useChatSessionStore.getState().setError({ message: result.error });
       useInteractionStore.getState().submitConfirmationEnd();
       return;
@@ -229,10 +267,15 @@ export async function handleAllowAndCreateRule(toolCall?: ChatMessageToolCall): 
     );
 
     if (!result.ok) {
-      useChatSessionStore.getState().setError({ message: result.error });
+      // A 404 means the pending interaction is already gone server-side; the
+      // user can still create a rule, so retire the prompt quietly rather than
+      // surfacing a blocking "No pending interaction" error they can't act on.
+      useChatSessionStore
+        .getState()
+        .setError(result.status === 404 ? null : { message: result.error });
       useInteractionStore.getState().submitConfirmationEnd();
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-      useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
+      patchTranscriptMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
       openCreateEditor({ ...editorContext, requestId: "" });
       return;
     }
@@ -243,7 +286,7 @@ export async function handleAllowAndCreateRule(toolCall?: ChatMessageToolCall): 
   } catch (err) {
     captureError(err, { context: "allow_and_create_rule" });
     useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-    useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
+    patchTranscriptMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
     openCreateEditor({ ...editorContext, requestId: "" });
     useChatSessionStore.getState().setError({ message: "Failed to submit confirmation, but you can still create a rule." });
     useInteractionStore.getState().submitConfirmationEnd();

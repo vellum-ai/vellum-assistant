@@ -38,7 +38,7 @@
  * {@link PostCompactContext}.
  */
 
-import type { PluginHookFn, PostCompactContext } from "@vellumai/plugin-api";
+import type { HookFunction, PostCompactContext } from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
 import { findConversationOrSubagent } from "../../../../daemon/conversation-registry.js";
@@ -53,7 +53,7 @@ import {
 import { getLiveGraphMemory } from "../../../../memory/graph/conversation-graph-memory.js";
 import { stripTailInjectionsForReinjection } from "../tail-reinjection-strip.js";
 
-const postCompact: PluginHookFn<PostCompactContext> = async (ctx) => {
+const postCompact: HookFunction<PostCompactContext> = async (ctx) => {
   const {
     history,
     requestId,

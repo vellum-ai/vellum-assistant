@@ -525,7 +525,32 @@ export function getUsageTotals(
   };
 }
 
-/** Fetch raw events in a time range for in-memory bucketing. */
+/**
+ * Width of the SQL pre-aggregation bucket used by the time-series read paths,
+ * in milliseconds. The series/daily endpoints bucket events into local-day or
+ * local-hour buckets in JavaScript (SQLite's `strftime` is UTC-only and can't
+ * honor an IANA timezone). To avoid materializing one JS object per usage event
+ * — which on a 90-day window can mean hundreds of thousands of rows on the
+ * daemon's main thread — we first roll events up in SQL into fixed UTC buckets,
+ * then feed those far-fewer rows into the same JS bucketing logic.
+ *
+ * 15 minutes is the finest quantum every real-world IANA UTC offset divides
+ * into (whole-hour offsets, plus the :30 and :45 zones like Asia/Kolkata and
+ * Asia/Kathmandu). Because every local-day and local-hour boundary therefore
+ * lands on a 15-minute UTC boundary, no pre-aggregation bucket can straddle a
+ * local bucket boundary — so rolling up to 15-minute UTC buckets and then
+ * re-bucketing in local time is exactly equal to bucketing each raw event.
+ * DST fall-back hours stay distinct because their instants fall in different
+ * 15-minute UTC buckets (and the JS layer disambiguates them by UTC offset).
+ */
+const USAGE_PREAGG_BUCKET_MS = 15 * 60 * 1000;
+
+/**
+ * Fetch usage rows for a time range, pre-aggregated into {@link
+ * USAGE_PREAGG_BUCKET_MS} UTC buckets, for in-memory local-time bucketing. Each
+ * returned row's `created_at` is its UTC bucket start, which the JS bucketing
+ * maps to the same local bucket every raw event in that window would map to.
+ */
 function fetchRawBucketRows(
   range: UsageTimeRange,
   filter?: UsageAggregationFilter,
@@ -534,13 +559,14 @@ function fetchRawBucketRows(
   return rawAll<UsageEventBucketRow>(
     /*sql*/ `
     SELECT
-      created_at,
-      input_tokens,
-      output_tokens,
-      estimated_cost_usd,
-      llm_call_count
+      (created_at / ${USAGE_PREAGG_BUCKET_MS}) * ${USAGE_PREAGG_BUCKET_MS} AS created_at,
+      COALESCE(SUM(input_tokens), 0)                AS input_tokens,
+      COALESCE(SUM(output_tokens), 0)               AS output_tokens,
+      SUM(estimated_cost_usd)                       AS estimated_cost_usd,
+      SUM(COALESCE(llm_call_count, 1))              AS llm_call_count
     FROM llm_usage_events
     WHERE ${where.sql}
+    GROUP BY (created_at / ${USAGE_PREAGG_BUCKET_MS})
     ORDER BY created_at ASC
     `,
     ...where.params,
@@ -829,17 +855,18 @@ export function getUsageGroupedSeries(
         WHERE ${where.sql}
       )
       SELECT
-        schedule_usage.created_at,
-        schedule_usage.input_tokens,
-        schedule_usage.output_tokens,
-        schedule_usage.estimated_cost_usd,
-        schedule_usage.llm_call_count,
-        schedule_usage.group_key,
-        schedule_group_jobs.name AS group_label
+        (schedule_usage.created_at / ${USAGE_PREAGG_BUCKET_MS}) * ${USAGE_PREAGG_BUCKET_MS} AS created_at,
+        COALESCE(SUM(schedule_usage.input_tokens), 0)            AS input_tokens,
+        COALESCE(SUM(schedule_usage.output_tokens), 0)           AS output_tokens,
+        SUM(schedule_usage.estimated_cost_usd)                   AS estimated_cost_usd,
+        SUM(COALESCE(schedule_usage.llm_call_count, 1))          AS llm_call_count,
+        schedule_usage.group_key                                 AS group_key,
+        MAX(schedule_group_jobs.name)                            AS group_label
       FROM schedule_usage
       LEFT JOIN cron_jobs schedule_group_jobs
         ON schedule_group_jobs.id = schedule_usage.group_key
-      ORDER BY schedule_usage.created_at ASC
+      GROUP BY (schedule_usage.created_at / ${USAGE_PREAGG_BUCKET_MS}), schedule_usage.group_key
+      ORDER BY created_at ASC
       `,
       ...groupKeySubquery.params,
       ...where.params,
@@ -850,15 +877,16 @@ export function getUsageGroupedSeries(
     rows = rawAll<UsageGroupedBucketRow>(
       /*sql*/ `
       SELECT
-        e.created_at,
-        e.input_tokens,
-        e.output_tokens,
-        e.estimated_cost_usd,
-        e.llm_call_count,
+        (e.created_at / ${USAGE_PREAGG_BUCKET_MS}) * ${USAGE_PREAGG_BUCKET_MS} AS created_at,
+        COALESCE(SUM(e.input_tokens), 0)             AS input_tokens,
+        COALESCE(SUM(e.output_tokens), 0)            AS output_tokens,
+        SUM(e.estimated_cost_usd)                    AS estimated_cost_usd,
+        SUM(COALESCE(e.llm_call_count, 1))           AS llm_call_count,
         e.${column} AS group_key
       FROM llm_usage_events e
       WHERE ${where.sql}
-      ORDER BY e.created_at ASC
+      GROUP BY (e.created_at / ${USAGE_PREAGG_BUCKET_MS}), e.${column}
+      ORDER BY created_at ASC
       `,
       ...where.params,
     );

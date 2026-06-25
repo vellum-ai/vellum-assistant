@@ -125,10 +125,12 @@ export interface ToolSetupContext extends SurfaceConversationContext {
    */
   currentTurnOverrideProfile?: string;
   /**
-   * Set by the `switch_inference_profile` tool when the model self-selects a
-   * different profile mid-turn. Read by `readCurrentOverrideProfile` in the
-   * agent loop so the next LLM call uses the switched profile. Reset at
-   * turn start.
+   * Whether the current turn has no human present to answer clarification
+   * prompts. Resolved once per turn by the agent loop — honoring an explicit
+   * per-run `isInteractive` option (e.g. scheduled/background turns) over the
+   * live client state — so tool execution sees turn-level interactivity rather
+   * than re-deriving it from `hasNoClient`/`headlessLock`, which would read a
+   * scheduled turn running on a client-attached conversation as interactive.
    */
-  toolRoutedProfile?: string;
+  currentTurnIsNonInteractive?: boolean;
 }

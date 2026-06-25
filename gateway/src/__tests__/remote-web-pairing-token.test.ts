@@ -20,8 +20,12 @@ const { hashToken, mintAndRecordDeviceBoundTokenPair } =
   await import("../auth/guardian-bootstrap.js");
 const { initGatewayDb, resetGatewayDb, getGatewayDb } =
   await import("../db/connection.js");
-const { actorRefreshTokenRecords, actorTokenRecords } =
-  await import("../db/schema.js");
+const {
+  actorRefreshTokenRecords,
+  actorTokenRecords,
+  contacts,
+  contactChannels,
+} = await import("../db/schema.js");
 const { handleGuardianRefresh } =
   await import("../http/routes/guardian-refresh.js");
 const { handleRemoteWebPairingToken } =
@@ -111,6 +115,43 @@ function cookieValue(cookies: string[], name: string): string {
   return decodeURIComponent(cookie!.split(";")[0].slice(name.length + 1));
 }
 
+// findVellumGuardian() now reads the gateway DB, so seed the guardian there.
+function seedGatewayGuardian() {
+  const now = Date.now();
+  getGatewayDb()
+    .insert(contacts)
+    .values({
+      id: "contact-guardian",
+      displayName: "guardian",
+      role: "guardian",
+      principalId: GUARDIAN_ID,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  getGatewayDb()
+    .insert(contactChannels)
+    .values({
+      id: "channel-guardian",
+      contactId: "contact-guardian",
+      type: "vellum",
+      address: GUARDIAN_ID,
+      isPrimary: true,
+      status: "active",
+      policy: "allow",
+      verifiedAt: now,
+      interactionCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+}
+
+function clearGatewayGuardian() {
+  getGatewayDb().delete(contactChannels).run();
+  getGatewayDb().delete(contacts).run();
+}
+
 function activeTokens() {
   return getGatewayDb()
     .select()
@@ -135,6 +176,7 @@ beforeEach(async () => {
   mkdirSync(securityDir, { recursive: true });
   process.env.GATEWAY_SECURITY_DIR = securityDir;
   await initGatewayDb();
+  seedGatewayGuardian();
 });
 
 afterEach(() => {
@@ -482,6 +524,9 @@ describe("remote web pairing token exchange", () => {
       "approved",
     );
 
+    // No gateway guardian: ensureVellumGuardianBinding() falls through to
+    // createGuardianBinding(), whose assistant-DB query fails this once.
+    clearGatewayGuardian();
     mockQuery.mockRejectedValueOnce(new Error("temporary guardian lookup"));
     await expect(
       handleRemoteWebPairingToken(
@@ -495,6 +540,7 @@ describe("remote web pairing token exchange", () => {
     expect(activeTokens()).toHaveLength(0);
     expect(activeRefreshTokens()).toHaveLength(0);
 
+    seedGatewayGuardian();
     const retry = await handleRemoteWebPairingToken(
       makeTokenRequest({ deviceCode: challenge.deviceCode }),
     );

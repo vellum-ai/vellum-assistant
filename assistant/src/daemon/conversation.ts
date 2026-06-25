@@ -50,6 +50,7 @@ import {
   getMessages,
   resolveOverrideProfile,
   setConversationHistoryStrippedAt,
+  setConversationProcessingStartedAt,
 } from "../memory/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
@@ -91,7 +92,7 @@ import {
   isActivationMomentParam,
 } from "../telemetry/activation-funnel.js";
 import { ToolExecutor } from "../tools/executor.js";
-import { getAllToolDefinitions } from "../tools/registry.js";
+import { getAllToolDefinitions, getTool } from "../tools/registry.js";
 import type { ToolLifecycleEvent } from "../tools/types.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import type { AbortReason } from "../util/abort-reasons.js";
@@ -376,7 +377,7 @@ export class Conversation {
    */
   wakePersonaOverride?: SystemPromptPersonaOverride;
   /** @internal */ currentTurnOverrideProfile?: string;
-  /** @internal */ toolRoutedProfile?: string;
+  /** @internal */ currentTurnIsNonInteractive?: boolean;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ currentTurnAuthContext?: AuthContext;
   /** @internal */ currentTurnSourceActorPrincipalId?: string;
@@ -702,6 +703,9 @@ export class Conversation {
       tools: toolDefs.length > 0 ? toolDefs : undefined,
       toolExecutor: toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
+      // A tool the registry marks exclusive (e.g. `advisor`) runs alone in its
+      // turn; the loop defers any sibling calls until the next turn.
+      isExclusiveTool: (name) => getTool(name)?.exclusive === true,
       resolveConversationDir: () => {
         const conv = getConversation(this.conversationId);
         if (!conv) return null;
@@ -1336,6 +1340,13 @@ export class Conversation {
   setProcessing(value: boolean): void {
     const wasProcessing = this._processing;
     this._processing = value;
+    // Persist the cross-process source of truth so out-of-process callers
+    // (retrospective CLI, future detached workers) can detect mid-turn state
+    // by reading the conversations row directly.
+    setConversationProcessingStartedAt(
+      this.conversationId,
+      value ? Date.now() : null,
+    );
     if (wasProcessing && !value) {
       void publishSyncInvalidation([
         conversationMetadataSyncTag(this.conversationId),
@@ -1550,9 +1561,7 @@ export class Conversation {
 
   ensureHostProxiesForTurn(
     sourceInterface: import("../channels/types.js").InterfaceId | undefined,
-    sourceActorPrincipalId = this.currentTurnSourceActorPrincipalId ??
-      this.currentTurnAuthContext?.actorPrincipalId ??
-      this.authContext?.actorPrincipalId,
+    sourceActorPrincipalId = this.getTurnActorPrincipalId(),
   ): void {
     if (
       shouldAttachHostProxyForCapability(
@@ -1847,6 +1856,21 @@ export class Conversation {
     return this.authContext;
   }
 
+  /**
+   * The actor principal that owns the current turn, for host-proxy routing.
+   * Prefers the in-flight turn's actor over the conversation's resting
+   * authContext so a /v1/messages turn (which sets only
+   * `currentTurnSourceActorPrincipalId`/`currentTurnAuthContext`) scopes
+   * correctly. Returns `undefined` when no actor identity is known.
+   */
+  getTurnActorPrincipalId(): string | undefined {
+    return (
+      this.currentTurnSourceActorPrincipalId ??
+      this.currentTurnAuthContext?.actorPrincipalId ??
+      this.authContext?.actorPrincipalId
+    );
+  }
+
   setVoiceCallControlPrompt(prompt: string | null): void {
     this.voiceCallControlPrompt = prompt ?? undefined;
   }
@@ -2036,8 +2060,15 @@ export class Conversation {
     surfaceId: string,
     actionId: string,
     data?: Record<string, unknown>,
+    sourceActorPrincipalId?: string,
   ): Promise<SurfaceActionResult> {
-    return handleSurfaceActionImpl(this, surfaceId, actionId, data);
+    return handleSurfaceActionImpl(
+      this,
+      surfaceId,
+      actionId,
+      data,
+      sourceActorPrincipalId,
+    );
   }
 
   handleSurfaceUndo(surfaceId: string): void {

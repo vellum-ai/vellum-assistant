@@ -19,19 +19,26 @@ import { RiskLevel } from "@vellumai/plugin-api";
 import { advisorEnabledForProfile } from "../advisor-gate.js";
 import { getCapture } from "../advisor-state-store.js";
 import { consultAdvisor } from "../consult.js";
+import { buildAdvisorContext } from "../context-pack.js";
 
 const advisorTool: ToolDefinition = {
   name: "advisor",
   description:
     "Consult a stronger advisor model to shape your plan and get strategic guidance. " +
     "Takes NO parameters — your full conversation (the task, every tool call, and every " +
-    "result) is forwarded automatically. Call it BEFORE you start building: it can lay out " +
-    "a plan when you don't have one yet, or review and sharpen the plan you've already " +
-    "drafted. Also call it when you're stuck, when weighing a change in approach, and once " +
-    "before declaring a task complete. Give its guidance serious weight.",
+    "result) is forwarded automatically, along with your available tools and skills, the " +
+    "workspace/project context, and relevant memory. Call it BEFORE you start building: it " +
+    "can lay out a plan when you don't have one yet, or review and sharpen the plan you've " +
+    "already drafted. Also call it when you're stuck, when weighing a change in approach, and " +
+    "once before declaring a task complete. It runs on its own — if you call it alongside " +
+    "other tools, those are held back until you've seen its guidance. Give its guidance " +
+    "serious weight.",
   input_schema: { type: "object", properties: {}, additionalProperties: false },
   // Read-only advice; low risk so the consult isn't gated behind a prompt.
   defaultRiskLevel: RiskLevel.Low,
+  // Runs alone in its turn: the loop defers any sibling tool calls so the model
+  // incorporates the advisor's guidance before acting on anything else.
+  exclusive: true,
   async execute(
     _input: Record<string, unknown>,
     ctx: ToolContext,
@@ -48,10 +55,30 @@ const advisorTool: ToolDefinition = {
     }
     try {
       const capture = getCapture(ctx.conversationId);
+      const messages = capture?.messages ?? [];
+      // Gather the agent's situational context (tools, skills, workspace,
+      // memory) so the advisor reasons with the same awareness the agent has.
+      // Best-effort: a failure here must not block the consult.
+      const runtimeContext = await buildAdvisorContext({
+        conversationId: ctx.conversationId,
+        workingDir: ctx.workingDir,
+        allowedToolNames: ctx.allowedToolNames,
+        // Per-turn trust snapshot — gates personal-memory surfaces off the same
+        // values the executor captured for this invocation, not live state.
+        trustClass: ctx.trustClass,
+        sourceChannel: ctx.executionChannel,
+        transcript: messages,
+        signal: ctx.signal,
+      }).catch(() => null);
       const advice = await consultAdvisor({
         systemPrompt: capture?.systemPrompt ?? null,
-        messages: capture?.messages ?? [],
+        messages,
+        runtimeContext,
         signal: ctx.signal,
+        // Stream the advisor's guidance live as it generates: each delta is
+        // surfaced as a `tool_output_chunk` for this tool call and rendered in
+        // the tool-detail drawer. The complete text is still returned below.
+        onText: (chunk) => ctx.onOutput?.(chunk),
       });
       return { content: advice, isError: false };
     } catch (err) {

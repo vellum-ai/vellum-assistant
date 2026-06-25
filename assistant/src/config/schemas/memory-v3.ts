@@ -259,6 +259,13 @@ export const MemoryV3ConfigSchema = z
       .describe(
         "Per-lane article budget for the reply-query finder pass: needle and dense each re-run over the assistant's previous message as separate queries (never concatenated with the user's message). 0 disables the pass. Deliberately small next to needleK/denseK — the pass adds the assistant-side retrieval signal, not a second full sweep.",
       ),
+    selectorPromptPath: z
+      .string({ error: "memory.v3.selectorPromptPath must be a string" })
+      .nullable()
+      .default(null)
+      .describe(
+        "Optional path to a file whose contents replace the bundled per-turn selector system prompt (the instructions that tell the selector which candidate pages to keep). Absolute paths are used as-is, a leading `~/` is expanded to the home directory, otherwise the path is resolved under the workspace root. The selector prompt takes no placeholders — the candidate pool is supplied separately as the user message — so the file is used verbatim. If the file is missing, unreadable, empty, or over 1 MiB, the bundled prompt is used and a warning is logged.",
+      ),
     edge: MemoryV3EdgeSchema.default(MemoryV3EdgeSchema.parse({})),
   })
   .describe("Memory v3 — section-grain lane retrieval");

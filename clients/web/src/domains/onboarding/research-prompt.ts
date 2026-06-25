@@ -24,22 +24,65 @@ export interface ResearchSubject {
   firstName: string;
   lastName: string;
   occupation: string;
+  hobby?: string;
 }
 
-export function buildResearchPrompt({
-  firstName,
-  lastName,
-  occupation,
-}: ResearchSubject): string {
+/**
+ * A specialized capability (marketplace plugin) the assistant can offer to
+ * invoke on the user's behalf. `name` is the install name (e.g.
+ * "marketing-expert"); `description` is a one-line summary. The runner compacts
+ * the live catalog into these before injecting them so the prompt never bloats.
+ */
+export interface AvailableCapability {
+  name: string;
+  description: string;
+}
+
+/** Cap on injected capabilities so a growing marketplace can't bloat the turn. */
+const MAX_INJECTED_CAPABILITIES = 12;
+
+/**
+ * Render the "capabilities you can offer" block. Compact by construction: one
+ * short line per capability (`- name — description`), capped. Returns "" when
+ * nothing was passed so the prompt is byte-for-byte unchanged for callers that
+ * don't inject a catalog (e.g. the route's fallback kickoff message).
+ */
+function renderCapabilitiesBlock(capabilities: AvailableCapability[]): string {
+  const lines = capabilities
+    .slice(0, MAX_INJECTED_CAPABILITIES)
+    .map((c) => `- ${c.name} — ${c.description}`)
+    .join("\n");
+  if (!lines) return "";
+  return `
+Capabilities you can offer me — specialized skillsets you can invoke on my behalf, not generic chat:
+${lines}
+
+Add a "plugins" array as the FIRST key in your JSON object, before "claims" and "suggestions": the 1-2 capabilities from the list above (exact names) that best fit who I am — judged by what you researched about my real role, stack, and day-to-day work. (Emit it first so setup can start while you finish the rest.) These get set up for me automatically as part of getting started, so pick by overall fit to ME, not to any single suggestion. Prefer fewer over forcing a match; use [] if nothing clearly fits. Example: "plugins": ["<exact name from the list above>"]. Don't reference the setup in the claims or suggestions text.
+`;
+}
+
+export function buildResearchPrompt(
+  { firstName, lastName, occupation, hobby }: ResearchSubject,
+  availableCapabilities: AvailableCapability[] = [],
+): string {
   const fullName = [firstName.trim(), lastName.trim()]
     .filter(Boolean)
     .join(" ");
   const role = occupation.trim();
+  const hobbyText = hobby?.trim() ?? "";
+  const capabilitiesBlock = renderCapabilitiesBlock(availableCapabilities);
+  // When capabilities are advertised, the canonical shape MUST show `plugins`
+  // first — otherwise "respond with exactly this shape" (which the example
+  // defines) would tell the model to omit it, and nothing gets installed.
+  const pluginsExample = capabilitiesBlock
+    ? `"plugins": ["<exact name from the list above>"], `
+    : "";
 
   const identity =
     [
       fullName ? `My name is ${fullName}.` : "",
       role ? `I work as ${role}.` : "",
+      hobbyText ? `My hobby is ${hobbyText}.` : "",
     ]
       .filter(Boolean)
       .join(" ") ||
@@ -47,40 +90,31 @@ export function buildResearchPrompt({
 
   return `${identity}
 
-Before we dive in, get to know me. Search the web for what's publicly known about the person matching my name and role, and infer a handful of things about who I am — what I do, my role, where I'm based, what I'm into, anything that would help you assist me better. Lean on public sources (LinkedIn, company pages, social profiles, articles). It's fine to make reasonable inferences and label them honestly.
+Get to know me. Search the web for what's publicly known about the person matching my name and role, and infer a handful of things about who I am: what I do, my role, where I'm based, what I'm into, anything that would help you assist me better. Lean on public sources (LinkedIn, company pages, social profiles, articles, personal sites, GitHub). It's fine to make reasonable inferences and label them honestly.
 
-CRITICAL — your final reply must be ONLY a JSON object. No preamble, no explanation, no prose, nothing before or after it. Do your thinking and searching, then respond with exactly this shape and nothing else:
+CRITICAL: your final reply must be ONLY a JSON object. No preamble, no explanation, no prose, nothing before or after it. Do your thinking and searching, then respond with exactly this shape and nothing else:
 
-{
-  "claims": [
-    { "claim": "Software engineer in Columbus, OH", "confidence": "confident", "sources": ["https://github.com/you"] },
-    { "claim": "You climb outdoors", "confidence": "maybe", "sources": [] },
-    { "claim": "Head of growth at Vellum", "confidence": "guessing", "sources": ["https://example.com/about"] }
-  ],
-  "suggestions": [
-    "Build a live dashboard to track your prompt eval runs across models",
-    "Set up a weekly monitor that flags new LLM releases every Monday morning",
-    "Write a deep-dive doc on your team's current evals setup in the live editor",
-    "Connect Linear and auto-triage new bugs into your team's backlog"
-  ]
-}
+{ ${pluginsExample}"claims": [ { "claim": "Senior engineer at an AI infra startup", "confidence": "confident", "sources": ["https://linkedin.com/in/example-user"] }, { "claim": "Based in Boulder, CO", "confidence": "confident", "sources": ["https://linkedin.com/in/example-user"] }, { "claim": "Active climber on Mountain Project", "confidence": "maybe", "sources": [] }, { "claim": "Focused on evals or model serving infrastructure", "confidence": "guessing", "sources": ["https://github.com/example-user"] } ], "suggestions": [ { "suggestion": "I'll build you a dashboard for your eval runs", "prompt": "Build me a dashboard to track my eval runs." }, { "suggestion": "I'll watch arXiv for new eval papers and brief you weekly", "prompt": "Send me a weekly brief on new eval papers from arXiv." }, { "suggestion": "Connect GitHub and I'll triage your stalest issues", "prompt": "Connect to GitHub and triage my oldest open issues." }, { "suggestion": "I'll plan a weekend climbing trip near Boulder", "prompt": "Plan me a weekend climbing trip near Boulder." } ] }
 
 Rules for "claims":
-- AT MOST 5 claims — the strongest, most useful ones only.
-- Each claim must be SHORT: a few words to one brief line. No multi-clause sentences, no em-dash asides, no explanations. Think headline, not bio.
-  Good: "Contributed to Chirps (vector-DB security)". Bad: "You've done real work in vector database security — you contributed to Chirps, a tool for scanning vector DBs for sensitive data".
-- Each claim independently true-or-false so I can remove ones that are wrong.
-- Phrase them directly ("You're…", "You climb outdoors", "Head of growth at Vellum").
-- "confidence" is one of: "confident" (well supported by what you found), "maybe" (plausible but unverified), "guessing" (a hunch from limited signal).
-- "sources": 0–3 URLs you actually used as evidence for that specific claim (the pages you read). Use [] for pure inferences.
 
+AT MOST 5 claims, typically 3 to 4. Aim for at least one "confident" and at least one "guessing"; the rest "maybe".
+Phrase each claim in third person as a short headline ("Senior engineer at an AI infra startup", "Based in Boulder, CO", "Active climber on Mountain Project"). No multi-clause sentences, no em-dash asides, no explanations. Good: "Contributed to Chirps (vector-DB security)". Bad: "You've done real work in vector database security. You contributed to Chirps, a tool for scanning vector DBs for sensitive data".
+Each claim must be independently true-or-false so I can remove the ones that are wrong.
+"confidence" is one of: "confident" (well supported by what you found), "maybe" (plausible but unverified), "guessing" (a hunch from limited signal).
+"sources": 0 to 3 URLs you actually used as evidence for that specific claim. Use [] for pure inferences.
 Rules for "suggestions":
-- EXACTLY 4 suggestions. These TEACH me what you can do — each should showcase a DIFFERENT, non-obvious capability that would make me say "wait, you can do that?" Concrete capabilities to draw from: build an interactive app or dashboard (tracker, calculator, visualizer); write a long-form document in a live rich-text editor; set up a heartbeat or scheduled monitor to watch for something on a recurring basis; use integrations to act on Gmail, Google Calendar, Slack, or Linear.
-- Map each suggestion to a different category from the list above so the four suggestions cover distinct capabilities. Avoid generic things like "summarize" or "draft a post" — those are expected. Favor the surprising ones.
-- Use what you learned about me during research to make each suggestion feel specific to me — my role, my stack, my industry. Not "build a tracker" but something grounded in what you actually found. The research phase exists partly to make this possible.
-- Phrase each as a short, inviting action I can click to try right now, starting with a verb. No explanations.
-- Make them feel concrete and immediately runnable, not generic.
 
+Each suggestion is an object with two fields:
+"suggestion": the offer spoken in YOUR voice (the assistant), exactly as it appears on the clickable card. First-person "I" here refers to you. This is what the user reads.
+"prompt": the message that is sent on the user's behalf when they click that card, written from the USER's perspective in their first person — what they'd say to take you up on the offer. First-person "I"/"my" here refers to the user. Same intent as the suggestion, re-voiced as a request TO you (e.g. suggestion "I'll build you a training plan" → prompt "Build me a training plan for my next climbing trip"). Never echo the assistant-voiced wording in the prompt. Don't ask the user a question back in the prompt — it's their opening message, so state the request. Keep it natural and concise.
+
+Generate EXACTLY 4 suggestions, each teaching me something you can do — aim to make me think "wait, you can do that?" Cover four DIFFERENT capabilities; don't repeat the same kind of task. Draw on your range: build a small app or dashboard, set up a recurring brief or monitor, draft a doc in a live editor, connect an integration (GitHub, Gmail, Calendar, Slack, Linear) and take a first action, or lean on a hobby/personal hook if research surfaced one. Pick whatever genuinely fits — don't force a fixed set of themes.
+Ground every suggestion in what you actually learned about me during research — my real role, stack, industry, and (if given) hobby. Specific to me, not generic LLM-assistant stuff. Avoid "summarize" or "draft a post" as standalone suggestions; favor the surprising, specific capabilities (apps, monitors, doc editor, integrations).
+Keep each suggestion SHORT and skimmable: aim for under 10 words, ONE clause, ONE artifact. No lists of three ("X, Y, and Z"), no intake question stacked in front of the offer. The reader scans four cards in a couple of seconds — a long line loses them.
+Favor easy, fast-to-first-output tasks over big builds, so my first reply lands quickly. Prefer "I'll set up a morning brief for today's sales calls" over "I'll build a CRM to manage your deals"; prefer one weekly digest, a short plan, or a single connected action over a multi-part system. The ambitious build can come later in the conversation, not on the first card.
+Each suggestion should be spoken in your voice, offering a service. First-person "I" in the suggestion refers to you, regardless of your name. Core sentence pattern: "I'll [verb] [specific artifact]" or "Connect me to [integration] and I'll [verb] [artifact]." Lead with the offer itself — no intake question in front of it; you gather the details in the follow-up conversation after the click. Suggestions render as clickable; clicking indicates the user wants to proceed. Refinement happens in follow-up conversation, not through the click itself.
+${capabilitiesBlock}
 Don't include anything sensitive or private. If you found very little, lean on "guessing" claims and broadly useful suggestions for my role.
-Output ONLY the JSON object — no code fence, no extra text.`;
+Keep every string value simple so the JSON always parses: one line, no line breaks inside a value, and NO double-quote characters inside a value — use single quotes (or none) for emphasis, quoted names, or tool names. Output ONLY the JSON object. No code fence, no extra text.`;
 }

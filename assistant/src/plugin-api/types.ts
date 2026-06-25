@@ -57,30 +57,28 @@ export interface PluginLogger {
  * empty model that with `| null`, not `| undefined`.
  *
  * Each known hook key has a documented context shape:
- *   - `init` — {@link PluginInitContext}
- *   - `shutdown` — {@link PluginShutdownContext}
+ *   - `init` — {@link InitContext}
+ *   - `shutdown` — {@link ShutdownContext}
  *   - `user-prompt-submit` — {@link UserPromptSubmitContext}
  *   - `pre-model-call` — {@link PreModelCallContext}
  *   - `post-tool-use` — {@link PostToolUseContext}
  *   - `stop` — {@link StopContext}
  *   - `post-model-call` — {@link PostModelCallContext}
  */
-export type PluginHookFn<TCtx = unknown> = (
+export type HookFunction<TCtx = unknown> = (
   ctx: TCtx,
 ) => Promise<Partial<TCtx> | void>;
 
 // ─── Init context ────────────────────────────────────────────────────────────
 
 /**
- * Context passed to `Plugin.init()` during bootstrap. Carries resolved
- * config/credentials, a pino-compatible logger scoped to the plugin, a
- * per-plugin writable data directory, and the assistant's version metadata.
+ * Context passed to `Plugin.init()` during bootstrap. Carries the resolved
+ * config, a pino-compatible logger scoped to the plugin, a per-plugin
+ * writable data directory, and the assistant's version metadata.
  */
-export interface PluginInitContext {
+export interface InitContext {
   /** Parsed config for this plugin (may be `unknown` until the manifest validates). */
   config: unknown;
-  /** Resolved credential values keyed by the entries of `manifest.requiresCredential`. */
-  credentials: Record<string, string>;
   /** Pino-compatible child logger bound to `{ plugin: <name> }`. */
   logger: PluginLogger;
   /** Absolute path to `<workspaceDir>/plugins-data/<plugin>/` (created by bootstrap). */
@@ -127,7 +125,7 @@ export interface ModelProfileInfo {
 
 /**
  * Context passed to the `shutdown` hook during daemon teardown. Kept
- * intentionally narrower than {@link PluginInitContext} — most teardown
+ * intentionally narrower than {@link InitContext} — most teardown
  * paths only need to know which assistant version they're shutting
  * down against (e.g. for version-conditional cleanup of state files
  * written by a previous boot).
@@ -137,7 +135,7 @@ export interface ModelProfileInfo {
  * stash a version stamp at init can compare against the same name on
  * tear-down without keeping their own copy.
  */
-export interface PluginShutdownContext {
+export interface ShutdownContext {
   /** Assistant semver for compatibility checks inside the plugin. */
   assistantVersion: string;
 }
@@ -153,7 +151,7 @@ export interface PluginShutdownContext {
  *
  * The hook may transform `latestMessages` either by mutating it in place
  * (`push` / `splice` / `length = 0`) or by returning a new context with
- * a fresh `latestMessages` array — see {@link PluginHookFn}'s polymorphic
+ * a fresh `latestMessages` array — see {@link HookFunction}'s polymorphic
  * return shape. The daemon threads the final `latestMessages` value into
  * `agentLoop.run()` as the run-messages argument.
  *
@@ -246,7 +244,7 @@ export interface UserPromptSubmitContext {
  * their own injected context the same way.
  *
  * The hook re-injects by mutating `history` in place (or returning a new
- * context with a replacement `history`) — see {@link PluginHookFn}'s
+ * context with a replacement `history`) — see {@link HookFunction}'s
  * polymorphic return shape. The agent loop reads the settled `history` back off
  * the context and resumes the turn from it. Multiple plugins' hooks chain in
  * registration order, each seeing the previous plugin's edits.
@@ -303,7 +301,7 @@ export interface PostCompactContext {
  *
  * The hook may transform the result either by mutating `toolResponse` in
  * place (e.g. reassigning `toolResponse.content`) or by returning a new
- * context with a fresh `toolResponse` — see {@link PluginHookFn}'s
+ * context with a fresh `toolResponse` — see {@link HookFunction}'s
  * polymorphic return shape. The daemon threads the final `toolResponse`
  * into the provider-bound history.
  *

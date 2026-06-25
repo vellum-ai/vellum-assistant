@@ -19,13 +19,14 @@ mock.module("../channels/config.js", () => ({
   getDeliverableChannels: () => ["vellum", "telegram"],
 }));
 
-mock.module("../contacts/contact-store.js", () => ({
-  findGuardianForChannel: (_channelType: string, _assistantId: string) => null,
+// Guardian connectivity is resolved from the gateway pull. No active guardian
+// binding ⇒ binding-based channels (telegram) are not reported connected.
+// Guardian connectivity resolves solely from the gateway delivery; an empty
+// list ⇒ telegram stays disconnected.
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => [],
+  guardianForChannel: () => undefined,
 }));
-
-// Note: stale mock for channel-guardian-store.js removed — the barrel was
-// deleted and none of the functions it mocked (getActiveBinding) existed in
-// the barrel.
 
 mock.module("../notifications/adapters/macos.js", () => ({
   VellumAdapter: class {

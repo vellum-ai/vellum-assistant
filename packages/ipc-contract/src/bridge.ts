@@ -52,6 +52,12 @@ export interface LocalWakeOptions {
   repairGuardian?: boolean;
 }
 
+export interface LocalUpgradeOptions {
+  version?: string;
+  latest?: boolean;
+  force?: boolean;
+}
+
 export interface VellumBridge {
   platform: "electron";
   app: {
@@ -166,6 +172,10 @@ export interface VellumBridge {
       assistantId: string,
       options?: LocalWakeOptions,
     ): Promise<{ ok: boolean; error?: string }>;
+    upgrade(
+      assistantId: string,
+      options?: LocalUpgradeOptions,
+    ): Promise<{ ok: boolean; version?: string; error?: string }>;
     status(assistantId: string): Promise<LocalAssistantStatusResult>;
     guardianToken(
       assistantId: string,
@@ -229,6 +239,9 @@ export interface VellumBridge {
     setState(state: DictationOverlayMessage): void;
     onState(callback: (state: DictationOverlayState) => void): () => void;
     getState(): Promise<DictationOverlayState | null>;
+    requestStop(): void;
+    onStopRequested(callback: () => void): () => void;
+    setInteractive(interactive: boolean): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;

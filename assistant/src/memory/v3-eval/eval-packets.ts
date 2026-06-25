@@ -25,7 +25,7 @@ import {
 } from "node:fs";
 import { join, resolve, sep } from "node:path";
 
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../config/types.js";
 import { renderCard } from "../../plugins/defaults/memory-v3-shadow/card.js";
@@ -304,12 +304,67 @@ export function pairTurns(
   return capped.slice(0, opts.limit);
 }
 
-/** Read recent user→assistant turns from the live DB (read-only). */
+/** The conversation id embedded in a `${conversationId}:${createdAt}` turn id. */
+export function turnConversationId(turnId: string): string {
+  return turnId.slice(0, turnId.lastIndexOf(":"));
+}
+
+/**
+ * Keep exactly the pinned turn ids, in pinned order. Turns that no longer exist
+ * (deleted since the ids were captured) are dropped — the caller compares the
+ * returned count to the requested count to surface drops. Pure over `allTurns`
+ * so it is unit-testable.
+ */
+export function selectPinnedTurns(
+  allTurns: MinedTurn[],
+  pinnedTurnIds: string[],
+): MinedTurn[] {
+  const byId = new Map(allTurns.map((t) => [t.turn, t]));
+  const out: MinedTurn[] = [];
+  for (const id of pinnedTurnIds) {
+    const t = byId.get(id);
+    if (t) out.push(t);
+  }
+  return out;
+}
+
+/** Group by conversation, ascending by time, so `pairTurns` walks each in order. */
+function sortForPairing(rows: RawMsgRow[]): RawMsgRow[] {
+  return [...rows].sort(
+    (a, b) =>
+      a.conversationId.localeCompare(b.conversationId) ||
+      a.createdAt - b.createdAt ||
+      a.id.localeCompare(b.id),
+  );
+}
+
+/**
+ * Read user→assistant turns from the live DB (read-only).
+ *
+ * Default: the most recent `limit` turns by recency, optionally omitting given
+ * conversations — e.g. the migration's own chat, which would otherwise let the
+ * eval judge turns from the very conversation driving the migration. With
+ * `pinnedTurnIds`, instead re-mine EXACTLY those turns (scoped to their
+ * conversations, no recency window) so a re-run measures the same turn set as a
+ * prior run — the eval is only reproducible if the turns are held fixed while
+ * the staged corpus changes.
+ */
 export function mineTurns(
   db: DrizzleDb,
-  opts: { limit: number; perConversationCap: number; maxScan?: number },
+  opts: {
+    limit: number;
+    perConversationCap: number;
+    maxScan?: number;
+    pinnedTurnIds?: string[];
+    excludeConversationIds?: string[];
+  },
 ): MinedTurn[] {
+  if (opts.pinnedTurnIds && opts.pinnedTurnIds.length > 0) {
+    return minePinnedTurns(db, opts.pinnedTurnIds);
+  }
+
   const maxScan = opts.maxScan ?? 6000;
+  const exclude = opts.excludeConversationIds ?? [];
   const recent = db
     .select({
       conversationId: messages.conversationId,
@@ -324,20 +379,45 @@ export function mineTurns(
       and(
         sql`COALESCE(${conversations.source}, 'user') = 'user'`,
         sql`${conversations.scheduleJobId} IS NULL`,
+        ...(exclude.length > 0
+          ? [notInArray(messages.conversationId, exclude)]
+          : []),
       ),
     )
     .orderBy(desc(messages.createdAt), desc(messages.id))
     .limit(maxScan)
     .all() as RawMsgRow[];
 
-  // Re-sort ascending and group so the pairing walks each conversation in order.
-  recent.sort(
-    (a, b) =>
-      a.conversationId.localeCompare(b.conversationId) ||
-      a.createdAt - b.createdAt ||
-      a.id.localeCompare(b.id),
-  );
-  return pairTurns(recent, opts);
+  return pairTurns(sortForPairing(recent), opts);
+}
+
+/** Re-mine exactly the pinned turns from their conversations (no recency cap). */
+function minePinnedTurns(db: DrizzleDb, pinnedTurnIds: string[]): MinedTurn[] {
+  const conversationIds = [...new Set(pinnedTurnIds.map(turnConversationId))];
+  const rows = db
+    .select({
+      conversationId: messages.conversationId,
+      id: messages.id,
+      role: messages.role,
+      content: messages.content,
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+    .where(
+      and(
+        inArray(messages.conversationId, conversationIds),
+        sql`COALESCE(${conversations.source}, 'user') = 'user'`,
+        sql`${conversations.scheduleJobId} IS NULL`,
+      ),
+    )
+    .all() as RawMsgRow[];
+
+  const allTurns = pairTurns(sortForPairing(rows), {
+    limit: Number.MAX_SAFE_INTEGER,
+    perConversationCap: Number.MAX_SAFE_INTEGER,
+  });
+  return selectPinnedTurns(allTurns, pinnedTurnIds);
 }
 
 // ---------------------------------------------------------------------------
@@ -436,16 +516,52 @@ export interface EvalParams {
   dense?: boolean;
   seed?: number;
   sectionCharCap?: number;
+  /**
+   * Pin the exact turns to mine (the `turn` ids from a prior run's key.json or
+   * packets.json). Re-running with the same pinned set holds the comparison
+   * fixed while the staged corpus changes — required for a reproducible re-judge.
+   */
+  turnIds?: string[];
+  /**
+   * Conversations to omit from the default (recency) mining — e.g. the
+   * migration's own chat, so the eval does not judge turns from the very
+   * conversation driving it. Ignored when `turnIds` is set.
+   */
+  excludeConversationIds?: string[];
+}
+
+/**
+ * The embedding backend identity in effect for a run, recorded in eval-meta.json.
+ * Dense retrieval is only comparable across runs with the SAME identity: a
+ * mid-migration config change (e.g. a 384-dim local model to a 3072-dim hosted
+ * one) silently re-embeds both corpora in a different vector space, so a re-run
+ * that drifted here is measuring something different — exactly the kind of hidden
+ * variable that made an eval gate look non-reproducible.
+ */
+export interface EmbeddingIdentity {
+  provider: string;
+  model: string;
+  /** Observed embedding dimension (from the first vector); null when dense is off. */
+  dims: number | null;
 }
 
 export interface EvalResult {
   turnsMined: number;
+  /** Turns requested: the pinned count, or the recency `turns` limit. */
+  turnsRequested: number;
   packetsWritten: number;
   packetsPath: string;
   keyPath: string;
+  /** eval-meta.json: seed/k/dense/embedding identity + the resolved turn ids. */
+  metaPath: string;
   snapshotPages: number;
   stagingPages: number;
   dense: boolean;
+  seed: number;
+  k: number;
+  embedding: EmbeddingIdentity;
+  /** The resolved turn ids actually packed — pass as `turnIds` to pin a re-run. */
+  turnIds: string[];
 }
 
 export interface EvalDeps {
@@ -454,6 +570,26 @@ export interface EvalDeps {
   db: DrizzleDb;
   /** Embed one batch of texts. Defaults to the live embedding backend. */
   embed?: EmbedAll;
+}
+
+/** Human-readable identity of the configured embedding model (provider + model name). */
+function describeEmbeddingModel(config: AssistantConfig): {
+  provider: string;
+  model: string;
+} {
+  const e = config.memory?.embeddings;
+  const provider = e?.provider ?? "unknown";
+  const model =
+    provider === "gemini"
+      ? e?.geminiModel
+      : provider === "openai"
+        ? e?.openaiModel
+        : provider === "ollama"
+          ? e?.ollamaModel
+          : provider === "local"
+            ? e?.localModel
+            : provider; // "auto" / future providers: name == provider
+  return { provider, model: model ?? provider };
 }
 
 /** Chunk an embed function so a large corpus never overruns provider batch limits. */
@@ -502,7 +638,17 @@ export async function runMemoryEval(
   const baseEmbed: EmbedAll =
     deps.embed ??
     (async (texts) => (await embedWithRetry(deps.config, texts)).vectors);
-  const embedAll = chunkedEmbed(baseEmbed);
+  // Capture the observed embedding dimension so eval-meta.json records the
+  // vector space the dense lane actually ran in (drift detection across re-runs).
+  let observedDims: number | null = null;
+  const capturingEmbed: EmbedAll = async (texts) => {
+    const vectors = await baseEmbed(texts);
+    if (observedDims === null && vectors.length > 0 && vectors[0]) {
+      observedDims = vectors[0].length;
+    }
+    return vectors;
+  };
+  const embedAll = chunkedEmbed(capturingEmbed);
 
   const snapshotCorpus = loadCorpus(snapshotDir);
   const stagingCorpus = loadCorpus(stagingDir);
@@ -510,9 +656,17 @@ export async function runMemoryEval(
   const snapshot = await buildRetriever(snapshotCorpus, embedAll, dense);
   const staging = await buildRetriever(stagingCorpus, embedAll, dense);
 
+  const turnsRequested =
+    params.turnIds && params.turnIds.length > 0
+      ? params.turnIds.length
+      : (params.turns ?? 30);
   const turns = mineTurns(deps.db, {
     limit: params.turns ?? 30,
     perConversationCap: params.perConversationCap ?? 4,
+    ...(params.turnIds ? { pinnedTurnIds: params.turnIds } : {}),
+    ...(params.excludeConversationIds
+      ? { excludeConversationIds: params.excludeConversationIds }
+      : {}),
   });
 
   const { packets, key } = await buildPackets(
@@ -528,19 +682,50 @@ export async function runMemoryEval(
     },
   );
 
+  const embedding: EmbeddingIdentity = {
+    ...describeEmbeddingModel(deps.config),
+    dims: dense ? observedDims : null,
+  };
+  const turnIds = packets.map((p) => p.turn);
+
   mkdirSync(outDir, { recursive: true });
   const packetsPath = join(outDir, "packets.json");
   const keyPath = join(outDir, "key.json");
+  const metaPath = join(outDir, "eval-meta.json");
   writeFileSync(packetsPath, JSON.stringify(packets, null, 2));
   writeFileSync(keyPath, JSON.stringify(key, null, 2));
+  writeFileSync(
+    metaPath,
+    JSON.stringify(
+      {
+        seed,
+        k,
+        dense,
+        embedding,
+        snapshotPages: snapshotCorpus.slugs.length,
+        stagingPages: stagingCorpus.slugs.length,
+        turnsRequested,
+        turnsMined: turns.length,
+        turnIds,
+      },
+      null,
+      2,
+    ),
+  );
 
   return {
     turnsMined: turns.length,
+    turnsRequested,
     packetsWritten: packets.length,
     packetsPath,
     keyPath,
+    metaPath,
     snapshotPages: snapshotCorpus.slugs.length,
     stagingPages: stagingCorpus.slugs.length,
     dense,
+    seed,
+    k,
+    embedding,
+    turnIds,
   };
 }

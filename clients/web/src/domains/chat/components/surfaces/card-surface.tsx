@@ -1,8 +1,8 @@
 import { lazy } from "react";
 import { Circle, CircleCheck, CircleX, Clock, Loader2 } from "lucide-react";
 
+import { CardSurfaceDataSchema } from "@vellumai/assistant-api";
 import type { Surface } from "@/domains/chat/types/types";
-import { isTaskProgressSurface } from "@/domains/chat/transcript/message-content";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
@@ -21,25 +21,11 @@ const WeatherForecastDisplay = lazy(() =>
 // Types
 // ---------------------------------------------------------------------------
 
-interface CardMetadataItem {
-  label: string;
-  value: string;
-}
-
 interface TaskStepItem {
   id?: string;
   label: string;
   status?: string;
   detail?: string;
-}
-
-interface CardSurfaceData {
-  title: string;
-  subtitle?: string;
-  body: string;
-  metadata?: CardMetadataItem[];
-  template?: string;
-  templateData?: Record<string, unknown>;
 }
 
 interface CardSurfaceProps {
@@ -235,15 +221,22 @@ function TaskStepList({
 // ---------------------------------------------------------------------------
 
 export function CardSurface({ surface, onAction }: CardSurfaceProps) {
-  const data = surface.data as unknown as CardSurfaceData;
+  // The wire keeps surface `data` opaque; narrow it with the canonical schema
+  // (every field optional, so a real card never fails to parse) rather than an
+  // unchecked cast or a re-declared local interface.
+  const parsed = CardSurfaceDataSchema.safeParse(surface.data);
+  const data = parsed.success ? parsed.data : {};
+
   const isWeather = data.template === "weather_forecast" && data.templateData;
   const isTaskProgress =
     data.template === "task_progress" &&
     !!data.templateData &&
     hasUsableProgressCounters(data.templateData);
-  // Shared predicate so this render-detection and the activity-summary
-  // hoist-detection in transcript-message-body cannot drift.
-  const hasSteps = isTaskProgressSurface(surface);
+  const steps = data.templateData?.steps;
+  const hasSteps =
+    data.template === "task_progress" &&
+    Array.isArray(steps) &&
+    steps.length > 0;
   const cardTitle =
     normalizedTitle(data.title) || normalizedTitle(surface.title);
 
@@ -269,35 +262,9 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
     );
   }
 
-  // A card the model has shown but not yet populated (e.g. an interim
-  // "building the app" placeholder emitted as `data: {}`) carries nothing
-  // renderable. Rather than a bare bordered box with only a title, show a
-  // loading affordance until real content arrives. A `completed` card is
-  // terminal, so it falls through to the normal render even when empty.
-  const hasRenderableContent =
-    normalizedTitle(data.body).length > 0 ||
-    !!data.subtitle ||
-    (data.metadata?.length ?? 0) > 0 ||
-    (surface.actions?.length ?? 0) > 0 ||
-    !!isWeather ||
-    isTaskProgress;
-
-  if (!hasRenderableContent && !surface.completed) {
-    return (
-      <SurfaceContainer surface={surface} onAction={onAction} hideTitle>
-        <div className="flex items-center gap-2.5">
-          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[var(--content-tertiary)]" />
-          <span className="text-body-medium-default text-[var(--content-tertiary)]">
-            {cardTitle || "Working…"}
-          </span>
-        </div>
-      </SurfaceContainer>
-    );
-  }
-
   const bodyMarkdown = (
     <ChatMarkdownMessage
-      content={data.body}
+      content={data.body ?? ""}
       className="mt-2 text-body-medium-lighter text-[var(--content-tertiary)]"
     />
   );

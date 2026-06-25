@@ -167,6 +167,12 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "memory v3 rebuild-index",
   "memory v3 backfill-sections",
   "memory v3 eval",
+  "memory retrospective",
+  "memory retrospective run",
+  "memory worker",
+  "memory worker start",
+  "memory worker stop",
+  "memory worker status",
   "notifications",
   "notifications send",
   "notifications list",
@@ -275,6 +281,8 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "plugins search",
   "plugins uninstall",
   "plugins upgrade",
+  "plugins enable",
+  "plugins disable",
 ] as const;
 
 interface AssistantRiskOverride {
@@ -513,6 +521,27 @@ const riskOverrides: AssistantRiskOverride[] = [
     reason:
       "Invalidates the in-memory v3 section lanes so they rebuild on the next turn",
   },
+  {
+    path: "memory retrospective run",
+    risk: "medium",
+    reason:
+      "Forks a conversation and wakes a retrospective agent that calls remember on uncovered facts",
+  },
+  {
+    path: "memory worker start",
+    risk: "medium",
+    reason: "Spawns a background process that processes memory jobs",
+  },
+  {
+    path: "memory worker stop",
+    risk: "low",
+    reason: "Sends SIGTERM to the memory worker process",
+  },
+  {
+    path: "memory worker status",
+    risk: "low",
+    reason: "Read-only liveness probe via PID file",
+  },
   { path: "notifications send", risk: "low" },
   {
     path: "oauth request",
@@ -595,6 +624,17 @@ const riskOverrides: AssistantRiskOverride[] = [
     path: "plugins upgrade",
     risk: "high",
     reason: "Fetches and re-installs external plugin code from GitHub",
+  },
+  {
+    path: "plugins disable",
+    risk: "medium",
+    reason:
+      "Disables a plugin by creating a .disabled sentinel file in the workspace",
+  },
+  {
+    path: "plugins enable",
+    risk: "medium",
+    reason: "Re-enables a plugin by removing the .disabled sentinel file",
   },
   { path: "skills install", risk: "high" },
   { path: "skills uninstall", risk: "medium" },

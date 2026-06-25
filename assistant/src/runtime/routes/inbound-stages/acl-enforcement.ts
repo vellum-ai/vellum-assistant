@@ -7,15 +7,8 @@ import type { AdmissionPolicy, SourceMetadata } from "@vellumai/gateway-client";
 
 import { isInviteCodeRedemptionEnabled } from "../../../channels/config.js";
 import type { ChannelId } from "../../../channels/types.js";
-import {
-  findContactChannel,
-  findGuardianForChannel,
-} from "../../../contacts/contact-store.js";
-import type {
-  ChannelStatus,
-  ContactChannel,
-  ContactWithChannels,
-} from "../../../contacts/types.js";
+import { getGuardianDelivery } from "../../../contacts/guardian-delivery-reader.js";
+import { channelStatusToMemberStatus } from "../../../contacts/member-status.js";
 import { deleteInbound, recordInbound } from "../../../memory/delivery-crud.js";
 import { markProcessed } from "../../../memory/delivery-status.js";
 import {
@@ -28,6 +21,7 @@ import { getLogger } from "../../../util/logger.js";
 import { truncate } from "../../../util/truncate.js";
 import { hashVoiceCode } from "../../../util/voice-code.js";
 import { notifyGuardianOfAccessRequest } from "../../access-request-helper.js";
+import { resolveAnchoredGuardian } from "../../anchored-guardian.js";
 import { getInviteAdapterRegistry } from "../../channel-invite-transport.js";
 import {
   createOutboundSession,
@@ -41,6 +35,8 @@ import {
   redeemInviteByCode,
 } from "../../invite-redemption-service.js";
 import { getInviteRedemptionReply } from "../../invite-redemption-templates.js";
+import type { VerdictMember } from "../../trust-verdict-consumer.js";
+import { verdictMemberFromVerdict } from "../../trust-verdict-consumer.js";
 
 const log = getLogger("runtime-http");
 
@@ -48,28 +44,20 @@ const log = getLogger("runtime-http");
  * Resolve the guardian's display name for use in requester-facing messages.
  *
  * Uses the assistant's anchored vellum principal to validate the guardian
- * contact, matching the same strategy used by `notifyGuardianOfAccessRequest`.
- * This prevents stale or cross-assistant contacts from leaking a wrong name.
+ * binding, matching the same strategy used by `notifyGuardianOfAccessRequest`.
+ * This prevents stale or cross-assistant bindings from leaking a wrong name.
+ * Cosmetic copy, not an admission decision, so a null gateway list degrades
+ * gracefully to the default reference.
  */
-function resolveGuardianLabel(sourceChannel: ChannelId): string {
-  const vellumGuardian = findGuardianForChannel("vellum");
-  const anchoredPrincipalId = vellumGuardian?.contact.principalId;
-
-  if (!anchoredPrincipalId) {
-    return resolveGuardianName(undefined);
-  }
-
-  // Try source-channel guardian, but only accept it when the principal
-  // matches the assistant's anchor.
-  const sourceGuardian = findGuardianForChannel(sourceChannel);
-  if (
-    sourceGuardian &&
-    sourceGuardian.contact.principalId === anchoredPrincipalId
-  ) {
-    return resolveGuardianName(sourceGuardian.contact.displayName);
-  }
-
-  return resolveGuardianName(vellumGuardian.contact.displayName);
+async function resolveGuardianLabel(sourceChannel: ChannelId): Promise<string> {
+  // Cosmetic copy, not an admission decision: no local-store fallback, and a
+  // missing anchor principal degrades to the default reference.
+  const anchored = resolveAnchoredGuardian({
+    guardians: await getGuardianDelivery(),
+    sourceChannel,
+    requireAnchorPrincipal: true,
+  });
+  return resolveGuardianName(anchored?.displayName);
 }
 
 // ---------------------------------------------------------------------------
@@ -104,14 +92,8 @@ export interface AclEnforcementParams {
   effectiveAdmissionPolicy?: AdmissionPolicy;
 }
 
-/** Resolved contact + channel pair from ACL enforcement. */
-export type ResolvedMember = {
-  contact: ContactWithChannels;
-  channel: ContactChannel;
-};
-
 export interface AclResult {
-  resolvedMember: ResolvedMember | null;
+  resolvedMember: VerdictMember | null;
   /** When set, the caller must return this response immediately. */
   earlyResponse?: Record<string, unknown>;
   /**
@@ -120,14 +102,6 @@ export interface AclResult {
    * bootstrap intercept stage can handle identity binding and emit its reply.
    */
   isValidatedBootstrap?: boolean;
-}
-
-/** Map ChannelStatus to the API-facing member status (excludes "unverified"). */
-export function channelStatusToMemberStatus(
-  status: ChannelStatus,
-): Exclude<ChannelStatus, "unverified"> {
-  if (status === "unverified") return "pending";
-  return status;
 }
 
 /**
@@ -164,7 +138,63 @@ export async function enforceIngressAcl(
   // Slack message timestamp for permalink construction.
   const messageTs = sourceMetadata?.messageId ?? undefined;
 
-  let resolvedMember: ResolvedMember | null = null;
+  // Absent verdict = gateway could not vouch for this actor → fail-closed deny.
+  // A PRESENT verdict with no member (stranger) still flows through the
+  // intercepts below; only a missing verdict short-circuits here.
+  const verdict = sourceMetadata?.trustVerdict;
+  if (verdict == null) {
+    log.info(
+      { sourceChannel, externalUserId: canonicalSenderId },
+      "Ingress ACL: absent trust verdict, denying fail-closed",
+    );
+    return {
+      resolvedMember: null,
+      earlyResponse: {
+        accepted: true,
+        denied: true,
+        reason: "not_a_member",
+      },
+    };
+  }
+
+  // Gateway attempted resolution but failed (DB error) → fail-closed deny,
+  // distinct from an absent verdict and from a real stranger. TEXT does not
+  // fall back to local ACL reads; the sender can retry.
+  if (verdict.resolutionFailed === true) {
+    log.warn(
+      { sourceChannel, externalUserId: canonicalSenderId },
+      "Ingress ACL: gateway trust resolution failed, denying fail-closed",
+    );
+    return {
+      resolvedMember: null,
+      earlyResponse: {
+        accepted: true,
+        denied: true,
+        reason: "not_a_member",
+      },
+    };
+  }
+
+  // Member resolved from the gateway verdict (ACL + identity only); null for a
+  // stranger verdict, which falls through to the non-member intercepts.
+  const resolvedMember: VerdictMember | null = verdictMemberFromVerdict(verdict);
+
+  // A verdict carrying member identity but no resolvable member
+  // (malformed/unknown ACL) fails closed, not treated as a stranger.
+  if (!resolvedMember && (verdict.contactId || verdict.channelId)) {
+    log.info(
+      { sourceChannel, externalUserId: canonicalSenderId },
+      "Ingress ACL: member verdict with unresolvable ACL, denying fail-closed",
+    );
+    return {
+      resolvedMember: null,
+      earlyResponse: {
+        accepted: true,
+        denied: true,
+        reason: "not_a_member",
+      },
+    };
+  }
 
   // /start gv_<token> bootstrap commands must also bypass ACL — the user
   // hasn't been verified yet and needs to complete the bootstrap handshake.
@@ -181,23 +211,6 @@ export async function enforceIngressAcl(
   });
 
   if (canonicalSenderId || hasSenderIdentityClaim) {
-    // Only perform member lookup when we have a usable canonical ID.
-    // Whitespace-only senders (hasSenderIdentityClaim=true but
-    // canonicalSenderId=null) skip the lookup and fall into the deny path.
-    if (canonicalSenderId) {
-      const contactResult = findContactChannel({
-        channelType: sourceChannel,
-        address: canonicalSenderId,
-        externalChatId: conversationExternalId,
-      });
-      resolvedMember = contactResult
-        ? {
-            contact: contactResult.contact,
-            channel: contactResult.channel,
-          }
-        : null;
-    }
-
     if (!resolvedMember) {
       let denyNonMember = true;
 
@@ -318,7 +331,7 @@ export async function enforceIngressAcl(
           if (slackVerifyResult.initiated) {
             // Still notify the guardian about the access attempt
             try {
-              notifyGuardianOfAccessRequest({
+              await notifyGuardianOfAccessRequest({
                 canonicalAssistantId,
                 sourceChannel,
                 conversationExternalId,
@@ -358,7 +371,7 @@ export async function enforceIngressAcl(
               try {
                 await deliverChannelReply(dmCallbackUrl, {
                   chatId: senderUserId,
-                  text: `I don't recognize you yet! I've let ${resolveGuardianLabel(sourceChannel)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
+                  text: `I don't recognize you yet! I've let ${await resolveGuardianLabel(sourceChannel)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
                   assistantId,
                 });
               } catch (err) {
@@ -393,7 +406,7 @@ export async function enforceIngressAcl(
 
           if (emailVerifyResult.initiated) {
             try {
-              notifyGuardianOfAccessRequest({
+              await notifyGuardianOfAccessRequest({
                 canonicalAssistantId,
                 sourceChannel,
                 conversationExternalId,
@@ -432,7 +445,7 @@ export async function enforceIngressAcl(
         // deduplication, canonical request creation, and notification emission.
         let guardianNotified = false;
         try {
-          const accessResult = notifyGuardianOfAccessRequest({
+          const accessResult = await notifyGuardianOfAccessRequest({
             canonicalAssistantId,
             sourceChannel,
             conversationExternalId,
@@ -456,7 +469,7 @@ export async function enforceIngressAcl(
         }
 
         const replyText = guardianNotified
-          ? `Hmm looks like you don't have access to talk to me. I'll let ${resolveGuardianLabel(sourceChannel)} know you tried talking to me and get back to you.`
+          ? `Hmm looks like you don't have access to talk to me. I'll let ${await resolveGuardianLabel(sourceChannel)} know you tried talking to me and get back to you.`
           : "Sorry, you haven't been approved to message this assistant.";
         let replyDelivered = false;
         if (replyCallbackUrl) {
@@ -496,8 +509,8 @@ export async function enforceIngressAcl(
     }
 
     if (resolvedMember) {
-      if (resolvedMember.channel.status !== "active") {
-        const isBlockedMember = resolvedMember.channel.status === "blocked";
+      if (resolvedMember.status !== "active") {
+        const isBlockedMember = resolvedMember.status === "blocked";
         // Bootstrap commands must pass through for re-verifiable states
         // (pending/revoked), but never for blocked members.
         let denyInactiveMember = true;
@@ -518,7 +531,7 @@ export async function enforceIngressAcl(
             log.info(
               {
                 sourceChannel,
-                channelId: resolvedMember.channel.id,
+                channelId: resolvedMember.channelId,
                 hasValidBootstrapSession: false,
               },
               "Ingress ACL: inactive member bootstrap bypass denied",
@@ -603,11 +616,11 @@ export async function enforceIngressAcl(
         if (!isBlockedMember && denyInactiveMember) {
           if (
             (effectiveAdmissionPolicy === "strangers" &&
-              resolvedMember.channel.status !== "revoked") ||
+              resolvedMember.status !== "revoked") ||
             ((effectiveAdmissionPolicy === "any_contact" ||
               effectiveAdmissionPolicy === "guardian_only") &&
-              (resolvedMember.channel.status === "pending" ||
-                resolvedMember.channel.status === "unverified"))
+              (resolvedMember.status === "pending" ||
+                resolvedMember.status === "unverified"))
           ) {
             denyInactiveMember = false;
           }
@@ -617,8 +630,8 @@ export async function enforceIngressAcl(
           log.info(
             {
               sourceChannel,
-              channelId: resolvedMember.channel.id,
-              status: resolvedMember.channel.status,
+              channelId: resolvedMember.channelId,
+              status: resolvedMember.status,
             },
             "Ingress ACL: member not active, denying",
           );
@@ -628,7 +641,7 @@ export async function enforceIngressAcl(
           // the guardian made an explicit decision to block them.
           if (
             sourceChannel === "slack" &&
-            resolvedMember.channel.status !== "blocked" &&
+            resolvedMember.status !== "blocked" &&
             (canonicalSenderId ?? rawSenderId)
           ) {
             const slackVerifyResult = initiateSlackVerificationChallenge({
@@ -638,7 +651,7 @@ export async function enforceIngressAcl(
 
             if (slackVerifyResult.initiated) {
               try {
-                notifyGuardianOfAccessRequest({
+                await notifyGuardianOfAccessRequest({
                   canonicalAssistantId,
                   sourceChannel,
                   conversationExternalId,
@@ -646,7 +659,7 @@ export async function enforceIngressAcl(
                   actorDisplayName,
                   actorUsername,
                   previousMemberStatus: channelStatusToMemberStatus(
-                    resolvedMember.channel.status,
+                    resolvedMember.status,
                   ),
                   messagePreview: truncate(
                     trimmedContent,
@@ -677,7 +690,7 @@ export async function enforceIngressAcl(
                 try {
                   await deliverChannelReply(dmCallbackUrl, {
                     chatId: senderUserId,
-                    text: `I don't recognize you yet! I've let ${resolveGuardianLabel(sourceChannel)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
+                    text: `I don't recognize you yet! I've let ${await resolveGuardianLabel(sourceChannel)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
                     assistantId,
                   });
                 } catch (err) {
@@ -704,9 +717,9 @@ export async function enforceIngressAcl(
           // re-approve. Blocked members are intentionally excluded — the
           // guardian already made an explicit decision to block them.
           let guardianNotified = false;
-          if (resolvedMember.channel.status !== "blocked") {
+          if (resolvedMember.status !== "blocked") {
             try {
-              const accessResult = notifyGuardianOfAccessRequest({
+              const accessResult = await notifyGuardianOfAccessRequest({
                 canonicalAssistantId,
                 sourceChannel,
                 conversationExternalId,
@@ -714,7 +727,7 @@ export async function enforceIngressAcl(
                 actorDisplayName,
                 actorUsername,
                 previousMemberStatus: channelStatusToMemberStatus(
-                  resolvedMember.channel.status,
+                  resolvedMember.status,
                 ),
                 messagePreview: truncate(
                   trimmedContent,
@@ -734,7 +747,7 @@ export async function enforceIngressAcl(
           }
 
           const inactiveReplyText = guardianNotified
-            ? `Hmm looks like you don't have access to talk to me. I'll let ${resolveGuardianLabel(sourceChannel)} know you tried talking to me and get back to you.`
+            ? `Hmm looks like you don't have access to talk to me. I'll let ${await resolveGuardianLabel(sourceChannel)} know you tried talking to me and get back to you.`
             : "Sorry, you haven't been approved to message this assistant.";
           let inactiveReplyDelivered = false;
           if (replyCallbackUrl) {
@@ -768,16 +781,16 @@ export async function enforceIngressAcl(
             earlyResponse: {
               accepted: true,
               denied: true,
-              reason: `member_${channelStatusToMemberStatus(resolvedMember.channel.status)}`,
+              reason: `member_${channelStatusToMemberStatus(resolvedMember.status)}`,
               ...(!inactiveReplyDelivered && { replyText: inactiveReplyText }),
             },
           };
         }
       }
 
-      if (resolvedMember.channel.policy === "deny") {
+      if (resolvedMember.policy === "deny") {
         log.info(
-          { sourceChannel, channelId: resolvedMember.channel.id },
+          { sourceChannel, channelId: resolvedMember.channelId },
           "Ingress ACL: member policy deny",
         );
         const denyReplyText =

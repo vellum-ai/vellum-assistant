@@ -55,8 +55,10 @@ import type {
     ChannelsAvailableGetResponse,
     IntegrationsSlackChannelConfigGetResponse,
 } from "@/generated/daemon/types.gen";
+import { useChannelTrustFloors } from "@/domains/contacts/hooks/use-channel-trust-floors";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { toastOnError } from "@/utils/mutation-error";
 
 /**
  * Hardcoded fallback for assistants that don't expose
@@ -242,6 +244,10 @@ export function ContactsPage({
 
   const slackThreadMode = slackConfigQuery.data as SlackThreadMode | undefined;
 
+  // Per-channel trust floors (admission policy), shown inline on each connected
+  // channel when the `channelTrustFloors` flag is on.
+  const channelTrustFloors = useChannelTrustFloors(assistantId);
+
   // ---------------------------------------------------------------------------
   // Mutations
   // ---------------------------------------------------------------------------
@@ -270,6 +276,7 @@ export function ContactsPage({
       );
       setSelection({ kind: "contact", contactId: contact.id });
     },
+    onError: toastOnError("Failed to create contact"),
     onSettled: () => invalidateContacts(),
   });
 
@@ -287,6 +294,7 @@ export function ContactsPage({
       );
       setSelection({ kind: "assistant" });
     },
+    onError: toastOnError("Failed to delete contact"),
     onSettled: () => invalidateContacts(),
   });
 
@@ -315,6 +323,7 @@ export function ContactsPage({
           : undefined,
       );
     },
+    onError: toastOnError("Failed to save contact"),
     onSettled: () => invalidateContacts(),
   });
 
@@ -528,11 +537,7 @@ export function ContactsPage({
     mutationFn: (args: { channelId: string }) =>
       verifyContactChannel(assistantId, args.channelId),
     onSuccess: () => invalidateContacts(),
-    onError: (err) => {
-      const message =
-        err instanceof Error ? err.message : "Failed to verify channel";
-      toast.error(message);
-    },
+    onError: toastOnError("Failed to verify channel"),
   });
 
   const handleVerifyChannel = useCallback(
@@ -633,6 +638,11 @@ export function ContactsPage({
             }
             slackThreadMode={slackThreadMode}
             slackThreadModePending={slackThreadModeMutation.isPending}
+            channelPolicies={channelTrustFloors.policies}
+            policySavingKey={channelTrustFloors.savingKey}
+            policiesLoading={channelTrustFloors.isLoading}
+            policiesError={channelTrustFloors.isError}
+            onChannelPolicyChange={channelTrustFloors.onChange}
             onSetup={onStartSetupConversation ? handleAssistantSetup : undefined}
             onDisconnect={handleDisconnect}
             onSaveTelegramToken={handleSaveTelegramToken}
@@ -651,8 +661,8 @@ export function ContactsPage({
               canMerge={canMerge}
               availableChannels={availableChannels}
               a2aEnabled={a2aChannel}
-              onSave={async (patch) => {
-                await updateMutation.mutateAsync({
+              onSave={(patch) => {
+                updateMutation.mutate({
                   contactId: optimisticContact.id,
                   patch,
                 });
@@ -675,14 +685,14 @@ export function ContactsPage({
               canMerge={canMerge}
               availableChannels={availableChannels}
               a2aEnabled={a2aChannel}
-              onSave={async (patch) => {
-                await updateMutation.mutateAsync({
+              onSave={(patch) => {
+                updateMutation.mutate({
                   contactId: optimisticContact.id,
                   patch,
                 });
               }}
-              onDelete={async () => {
-                await deleteMutation.mutateAsync(optimisticContact.id);
+              onDelete={() => {
+                deleteMutation.mutate(optimisticContact.id);
               }}
               onMerge={handleOpenMerge}
               onSetupChannel={

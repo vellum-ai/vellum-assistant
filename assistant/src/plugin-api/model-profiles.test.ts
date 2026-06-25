@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 interface MockProfileEntry {
   label?: string;
   description?: string;
+  provider?: string;
+  model?: string;
   status?: string;
   mix?: unknown;
 }
@@ -13,8 +15,18 @@ let mockProfiles: Record<string, MockProfileEntry> = {};
 let mockActiveProfile: string | undefined;
 let mockProfileOrder: string[] | undefined;
 
+const realConfigLoader = await import("../config/loader.js");
+
 mock.module("../config/loader.js", () => ({
+  ...realConfigLoader,
   getConfig: () => ({
+    llm: {
+      profiles: mockProfiles,
+      activeProfile: mockActiveProfile,
+      profileOrder: mockProfileOrder,
+    },
+  }),
+  getConfigReadOnly: () => ({
     llm: {
       profiles: mockProfiles,
       activeProfile: mockActiveProfile,
@@ -38,8 +50,8 @@ beforeEach(() => {
 describe("getModelProfiles", () => {
   test("returns all configured profiles in order", () => {
     mockProfiles = {
-      balanced: { label: "Balanced" },
-      "quality-optimized": { label: "Quality" },
+      balanced: { label: "Balanced", provider: "anthropic" },
+      "quality-optimized": { label: "Quality", provider: "anthropic" },
     };
     mockProfileOrder = ["balanced", "quality-optimized"];
 
@@ -47,50 +59,14 @@ describe("getModelProfiles", () => {
     expect(result.map((p) => p.key)).toEqual(["balanced", "quality-optimized"]);
   });
 
-  test("excludes the 'auto' meta-profile", () => {
-    // The daemon seeds 'auto' unconditionally into llm.profiles. It has no
-    // concrete provider/model and is not a valid dispatch target for a plugin
-    // sending an actual LLM call, so getModelProfiles must filter it out.
-    mockProfiles = {
-      auto: { label: "Auto", description: "Routes automatically" },
-      balanced: { label: "Balanced" },
-      "quality-optimized": { label: "Quality" },
-    };
-    mockProfileOrder = ["auto", "balanced", "quality-optimized"];
-
-    const result = getModelProfiles();
-    const keys = result.map((p) => p.key);
-    expect(keys).not.toContain("auto");
-    expect(keys).toEqual(["balanced", "quality-optimized"]);
-  });
-
-  test("excludes 'auto' even when it is the active profile", () => {
-    mockProfiles = {
-      auto: { label: "Auto" },
-      balanced: { label: "Balanced" },
-    };
-    mockActiveProfile = "auto";
-    mockProfileOrder = ["auto", "balanced"];
-
-    const result = getModelProfiles();
-    expect(result.map((p) => p.key)).toEqual(["balanced"]);
-    // No profile should be marked active since auto was filtered
-    expect(result.find((p) => p.isActive)).toBeUndefined();
-  });
-
-  test("excludes 'auto' when it is the only profile", () => {
-    mockProfiles = {
-      auto: { label: "Auto" },
-    };
-
-    const result = getModelProfiles();
-    expect(result).toEqual([]);
-  });
-
   test("includes disabled profiles (flagged via isDisabled)", () => {
     mockProfiles = {
-      balanced: { label: "Balanced" },
-      disabled: { label: "Disabled", status: "disabled" },
+      balanced: { label: "Balanced", provider: "anthropic" },
+      disabled: {
+        label: "Disabled",
+        provider: "anthropic",
+        status: "disabled",
+      },
     };
 
     const result = getModelProfiles();
@@ -101,22 +77,47 @@ describe("getModelProfiles", () => {
 
   test("flags mix profiles via isMix", () => {
     mockProfiles = {
-      "mix-profile": { label: "Mix", mix: [{ profile: "balanced", weight: 1 }] },
+      "mix-profile": {
+        label: "Mix",
+        mix: [{ profile: "balanced", weight: 1 }],
+      },
     };
 
     const result = getModelProfiles();
     expect(result[0].isMix).toBe(true);
   });
 
+  test("skips metadata-only profiles that cannot route plugin calls", () => {
+    mockProfiles = {
+      metadata: { label: "Metadata Only" },
+      "model-only": { label: "Model Only", model: "claude-opus-4-6" },
+      "provider-only": { label: "Provider Only", provider: "anthropic" },
+      mix: {
+        label: "Mix",
+        mix: [{ profile: "model-only", weight: 1 }],
+      },
+    };
+    mockProfileOrder = ["metadata", "model-only", "provider-only", "mix"];
+
+    const result = getModelProfiles();
+    expect(result.map((p) => p.key)).toEqual([
+      "model-only",
+      "provider-only",
+      "mix",
+    ]);
+  });
+
   test("marks the active profile with isActive", () => {
     mockProfiles = {
-      balanced: { label: "Balanced" },
-      "quality-optimized": { label: "Quality" },
+      balanced: { label: "Balanced", provider: "anthropic" },
+      "quality-optimized": { label: "Quality", provider: "anthropic" },
     };
     mockActiveProfile = "balanced";
 
     const result = getModelProfiles();
     expect(result.find((p) => p.key === "balanced")?.isActive).toBe(true);
-    expect(result.find((p) => p.key === "quality-optimized")?.isActive).toBe(false);
+    expect(result.find((p) => p.key === "quality-optimized")?.isActive).toBe(
+      false,
+    );
   });
 });

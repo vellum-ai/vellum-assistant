@@ -9,11 +9,11 @@
  * advisor's own `inference`-call-site sub-call — are ignored.
  */
 
-import type { PluginHookFn, PostModelCallContext } from "@vellumai/plugin-api";
+import type { HookFunction, PostModelCallContext } from "@vellumai/plugin-api";
 
 import { recordMessages } from "../advisor-state-store.js";
 
-const postModelCall: PluginHookFn<PostModelCallContext> = async (ctx) => {
+const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   if (ctx.callSite !== "mainAgent") return;
   if (ctx.error) return;
   // `ctx.messages` is the pre-reply history; the turn the model just produced —

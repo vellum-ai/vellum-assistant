@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNotNull, like, sql } from "drizzle-orm";
+import { and, asc, desc, eq, like, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type { ChannelId } from "../channels/types.js";
@@ -100,9 +100,7 @@ function parseContact(row: typeof contacts.$inferSelect): Contact {
     interactionCount: 0,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-    role: row.role as Contact["role"],
     contactType: (row.contactType as Contact["contactType"]) ?? "human",
-    principalId: row.principalId,
     userFile: row.userFile ?? null,
   };
 }
@@ -117,13 +115,7 @@ function parseChannel(
     address: row.address,
     isPrimary: row.isPrimary,
     externalChatId: row.externalChatId,
-    status: row.status as ContactChannel["status"],
-    policy: row.policy as ContactChannel["policy"],
-    verifiedAt: row.verifiedAt,
-    verifiedVia: row.verifiedVia,
     inviteId: row.inviteId,
-    revokedReason: row.revokedReason,
-    blockedReason: row.blockedReason,
     lastSeenAt: row.lastSeenAt,
     interactionCount: row.interactionCount,
     lastInteraction: row.lastInteraction,
@@ -145,6 +137,8 @@ function getChannelsForContact(contactId: string): ContactChannel[] {
 
 function withChannels(contact: Contact): ContactWithChannels {
   const channels = getChannelsForContact(contact.id);
+  // INFO telemetry aggregated from channel rows (not ACL): sum interaction
+  // counts, take the most recent interaction across channels.
   const interactionCount = channels.reduce(
     (sum, ch) => sum + ch.interactionCount,
     0,
@@ -184,6 +178,27 @@ export function getContact(id: string): ContactWithChannels | null {
 /** @deprecated Use {@link getContact} directly. */
 export const getContactInternal = getContact;
 
+/** INFO-only contact fields, joined locally by contact ID. */
+export interface ContactInfo {
+  notes: string | null;
+  interactionCount: number;
+}
+
+/**
+ * Look up a contact's INFO fields (notes, interaction count) by ID.
+ *
+ * Carries no ACL state (status/policy/verification) — those are owned by the
+ * gateway-stamped trust verdict. Returns null when the contact does not exist.
+ */
+export function findContactInfoById(contactId: string): ContactInfo | null {
+  const contact = getContact(contactId);
+  if (!contact) return null;
+  return {
+    notes: contact.notes,
+    interactionCount: contact.interactionCount,
+  };
+}
+
 /**
  * Look up a single contact channel by its primary key.
  * Returns the parsed channel row, or null if it does not exist.
@@ -204,7 +219,6 @@ export function upsertContact(params: {
   notes?: string | null;
   role?: ContactRole;
   contactType?: ContactType;
-  principalId?: string | null;
   userFile?: string | null;
   channels?: SyncChannelData[];
   /** When true, conflicting channels on other contacts are reassigned to this
@@ -239,11 +253,8 @@ export function upsertContact(params: {
         updatedAt: now,
       };
       if (params.notes !== undefined) updateSet.notes = params.notes;
-      if (params.role !== undefined) updateSet.role = params.role;
       if (params.contactType !== undefined)
         updateSet.contactType = params.contactType;
-      if (params.principalId !== undefined)
-        updateSet.principalId = params.principalId;
       if (params.userFile !== undefined) updateSet.userFile = params.userFile;
 
       db.update(contacts)
@@ -277,11 +288,8 @@ export function upsertContact(params: {
           updatedAt: now,
         };
         if (params.notes !== undefined) updateSet.notes = params.notes;
-        if (params.role !== undefined) updateSet.role = params.role;
         if (params.contactType !== undefined)
           updateSet.contactType = params.contactType;
-        if (params.principalId !== undefined)
-          updateSet.principalId = params.principalId;
         if (params.userFile !== undefined) updateSet.userFile = params.userFile;
 
         db.update(contacts)
@@ -298,35 +306,16 @@ export function upsertContact(params: {
 
   // Create new contact
   contactId = contactId ?? uuid();
-  // Sibling contacts sharing a principal_id must share a user_file so every
-  // channel for one principal resolves to the same persona + journal slug.
-  let resolvedUserFile: string | null;
-  if (params.userFile !== undefined) {
-    resolvedUserFile = params.userFile;
-  } else if (params.principalId) {
-    const sibling = db
-      .select({ userFile: contacts.userFile })
-      .from(contacts)
-      .where(
-        and(
-          eq(contacts.principalId, params.principalId),
-          isNotNull(contacts.userFile),
-        ),
-      )
-      .get();
-    resolvedUserFile =
-      sibling?.userFile ?? generateUserFileSlug(params.displayName);
-  } else {
-    resolvedUserFile = generateUserFileSlug(params.displayName);
-  }
+  const resolvedUserFile =
+    params.userFile !== undefined
+      ? params.userFile
+      : generateUserFileSlug(params.displayName);
   db.insert(contacts)
     .values({
       id: contactId,
       displayName: params.displayName,
       notes: params.notes ?? null,
-      role: params.role ?? "contact",
       contactType: params.contactType ?? "human",
-      principalId: params.principalId ?? null,
       userFile: resolvedUserFile,
       createdAt: now,
       updatedAt: now,
@@ -375,27 +364,12 @@ function syncChannels(
       .get();
 
     if (existing) {
-      // Preserve guardian blocks: if the channel is blocked, do not overwrite
-      // its status/policy — mirrors the guard in the cross-contact reassignment
-      // path so a blocked channel cannot be unblocked via a same-contact sync.
-      const isBlocked = existing.status === "blocked";
-
       const updateSet: Record<string, unknown> = {};
       // Self-heal legacy lowercased addresses to canonical form.
       if (existing.address !== ch.address) updateSet.address = ch.address;
       if (ch.isPrimary !== undefined) updateSet.isPrimary = ch.isPrimary;
       if (ch.externalChatId !== undefined)
         updateSet.externalChatId = ch.externalChatId;
-      if (!isBlocked) {
-        if (ch.status !== undefined) updateSet.status = ch.status;
-        if (ch.policy !== undefined) updateSet.policy = ch.policy;
-        if (ch.revokedReason !== undefined)
-          updateSet.revokedReason = ch.revokedReason;
-        if (ch.blockedReason !== undefined)
-          updateSet.blockedReason = ch.blockedReason;
-      }
-      if (ch.verifiedAt !== undefined) updateSet.verifiedAt = ch.verifiedAt;
-      if (ch.verifiedVia !== undefined) updateSet.verifiedVia = ch.verifiedVia;
       if (ch.inviteId !== undefined) updateSet.inviteId = ch.inviteId;
 
       if (Object.keys(updateSet).length > 0) {
@@ -413,11 +387,6 @@ function syncChannels(
 
     if (conflicting) {
       if (reassignConflicting) {
-        // Preserve guardian blocks: if the existing channel is blocked, do not
-        // overwrite its status/policy — a valid invite must not bypass an
-        // explicit guardian block on a different contact.
-        const isBlocked = conflicting.status === "blocked";
-
         // Reassign the channel to the target contact. Used by invite redemption
         // to bind a redeemer's existing channel identity to the invite's target.
         const reassignSet: Record<string, unknown> = {
@@ -426,17 +395,6 @@ function syncChannels(
         };
         if (ch.externalChatId !== undefined)
           reassignSet.externalChatId = ch.externalChatId;
-        if (!isBlocked) {
-          if (ch.status !== undefined) reassignSet.status = ch.status;
-          if (ch.policy !== undefined) reassignSet.policy = ch.policy;
-          if (ch.revokedReason !== undefined)
-            reassignSet.revokedReason = ch.revokedReason;
-          if (ch.blockedReason !== undefined)
-            reassignSet.blockedReason = ch.blockedReason;
-        }
-        if (ch.verifiedAt !== undefined) reassignSet.verifiedAt = ch.verifiedAt;
-        if (ch.verifiedVia !== undefined)
-          reassignSet.verifiedVia = ch.verifiedVia;
         if (ch.inviteId !== undefined) reassignSet.inviteId = ch.inviteId;
 
         db.update(contactChannels)
@@ -457,10 +415,6 @@ function syncChannels(
         address: ch.address,
         isPrimary: ch.isPrimary ?? false,
         externalChatId: ch.externalChatId ?? null,
-        status: ch.status ?? "unverified",
-        policy: ch.policy ?? "allow",
-        verifiedAt: ch.verifiedAt ?? null,
-        verifiedVia: ch.verifiedVia ?? null,
         inviteId: ch.inviteId ?? null,
         createdAt: now,
         updatedAt: now,
@@ -473,7 +427,6 @@ export function searchContacts(params: {
   query?: string;
   channelAddress?: string;
   channelType?: string;
-  role?: ContactRole;
   contactType?: ContactType;
   limit?: number;
 }): ContactWithChannels[] {
@@ -513,7 +466,6 @@ export function searchContacts(params: {
       const contact = getContactInternal(id);
       if (
         contact &&
-        (!params.role || contact.role === params.role) &&
         (!params.contactType || contact.contactType === params.contactType) &&
         (!sanitizedQuery ||
           (contact.displayName &&
@@ -543,7 +495,6 @@ export function searchContacts(params: {
       const contact = getContactInternal(id);
       if (
         contact &&
-        (!params.role || contact.role === params.role) &&
         (!params.contactType || contact.contactType === params.contactType)
       ) {
         results.push(contact);
@@ -556,13 +507,10 @@ export function searchContacts(params: {
   const conditions = [];
   if (params.query) {
     const sanitized = escapeLike(params.query);
-    if (!sanitized && !params.role && !params.contactType) return [];
+    if (!sanitized && !params.contactType) return [];
     if (sanitized) {
       conditions.push(like(contacts.displayName, `%${sanitized}%`));
     }
-  }
-  if (params.role) {
-    conditions.push(eq(contacts.role, params.role));
   }
   if (params.contactType) {
     conditions.push(eq(contacts.contactType, params.contactType));
@@ -612,20 +560,16 @@ export function searchContacts(params: {
 
 export function listContacts(
   limit = 50,
-  role?: ContactRole,
   contactType?: ContactType,
   opts?: { uncapped?: boolean },
 ): ContactWithChannels[] {
   const db = getDb();
   const effectiveLimit = opts?.uncapped ? limit : Math.min(limit, 200);
-  const conditions = [];
-  if (role) conditions.push(eq(contacts.role, role));
-  if (contactType) conditions.push(eq(contacts.contactType, contactType));
   const rows = db
     .select()
     .from(contacts)
-    .where(conditions.length === 1 ? conditions[0] : and(...conditions))
-    .orderBy(sql`${contacts.role} = 'guardian' DESC`, desc(contacts.updatedAt))
+    .where(contactType ? eq(contacts.contactType, contactType) : undefined)
+    .orderBy(desc(contacts.updatedAt))
     .limit(effectiveLimit)
     .all();
   return rows.map((r) => withChannels(parseContact(r)));
@@ -737,7 +681,8 @@ export function findContactByAddress(
 /**
  * Find a contact by channel external chat ID. Fallback for callers that only
  * have a chat ID (no user-level address) — matches by (type, externalChatId).
- * No unique constraint exists on externalChatId, so ORDER BY is needed.
+ * No unique constraint exists on externalChatId, so ORDER BY is needed for a
+ * deterministic pick; channel ranking (status) is owned by the gateway now.
  */
 function findContactByChannelExternalChatId(
   channelType: string,
@@ -753,14 +698,7 @@ function findContactByChannelExternalChatId(
         eq(contactChannels.externalChatId, externalChatId),
       ),
     )
-    .orderBy(
-      sql`CASE ${contactChannels.status}
-        WHEN 'active' THEN 0
-        WHEN 'unverified' THEN 1
-        ELSE 2
-      END`,
-      desc(contactChannels.updatedAt),
-    )
+    .orderBy(desc(contactChannels.updatedAt), desc(contactChannels.createdAt))
     .get();
   if (!channel) return null;
   return getContactInternal(channel.contactId);
@@ -809,131 +747,10 @@ export function findContactChannel(params: {
 }
 
 /**
- * Find the guardian contact and their specific channel entry for a given channel type.
- * This is the contacts-based equivalent of getGuardianBinding(assistantId, channel).
- * Returns null if no guardian contact has a channel of the specified type.
- */
-export function findGuardianForChannel(
-  channelType: string,
-): { contact: Contact; channel: ContactChannel } | null {
-  const db = getDb();
-  const conditions = [
-    eq(contacts.role, "guardian"),
-    eq(contactChannels.type, channelType),
-    eq(contactChannels.status, "active"),
-  ];
-  const rows = db
-    .select({
-      contact: contacts,
-      channel: contactChannels,
-    })
-    .from(contacts)
-    .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
-    .where(and(...conditions))
-    .orderBy(desc(contactChannels.verifiedAt))
-    .limit(1)
-    .all();
-
-  if (rows.length === 0) return null;
-  const row = rows[0];
-  return {
-    contact: parseContact(row.contact),
-    channel: parseChannel(row.channel),
-  };
-}
-
-/**
- * List all active channels for guardian contacts.
- * This is the contacts-based equivalent of listActiveBindingsByAssistant(assistantId).
- * Joins contacts+channels with status='active' in a single query so we never
- * pick a guardian that has no active channels.
- * Returns channels ordered by most-recently-verified first.
- */
-export function listGuardianChannels(): {
-  contact: Contact;
-  channels: ContactChannel[];
-} | null {
-  const db = getDb();
-  const rows = db
-    .select({
-      contact: contacts,
-      channel: contactChannels,
-    })
-    .from(contacts)
-    .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
-    .where(
-      and(eq(contacts.role, "guardian"), eq(contactChannels.status, "active")),
-    )
-    .orderBy(desc(contactChannels.verifiedAt))
-    .all();
-
-  if (rows.length === 0) return null;
-
-  // Use the first row's contact (the guardian with the most-recently-verified
-  // active channel) and collect all active channels for that contact.
-  const guardian = parseContact(rows[0].contact);
-  const channels = rows
-    .filter((r) => r.contact.id === guardian.id)
-    .map((r) => parseChannel(r.channel));
-
-  return { contact: guardian, channels };
-}
-
-/**
- * Update a channel's access-control fields (status, policy, reasons).
- * Returns the updated channel, or null if the channel does not exist.
- */
-export function updateChannelStatus(
-  channelId: string,
-  params: {
-    status?: ChannelStatus;
-    policy?: ChannelPolicy;
-    revokedReason?: string | null;
-    blockedReason?: string | null;
-  },
-): ContactChannel | null {
-  const db = getDb();
-  const existing = db
-    .select()
-    .from(contactChannels)
-    .where(eq(contactChannels.id, channelId))
-    .get();
-
-  if (!existing) return null;
-
-  const updateSet: Record<string, unknown> = {};
-  if (params.status !== undefined) updateSet.status = params.status;
-  if (params.policy !== undefined) updateSet.policy = params.policy;
-  if (params.revokedReason !== undefined)
-    updateSet.revokedReason = params.revokedReason;
-  if (params.blockedReason !== undefined)
-    updateSet.blockedReason = params.blockedReason;
-
-  if (Object.keys(updateSet).length > 0) {
-    updateSet.updatedAt = Date.now();
-    db.update(contactChannels)
-      .set(updateSet)
-      .where(eq(contactChannels.id, channelId))
-      .run();
-
-    const updated = db
-      .select()
-      .from(contactChannels)
-      .where(eq(contactChannels.id, channelId))
-      .get();
-
-    const result = updated ? parseChannel(updated) : null;
-    emitContactChange();
-    return result;
-  }
-
-  return parseChannel(existing);
-}
-
-/**
- * Update a guardian contact's principalId and its channel's identity fields.
- * Used for healing guardian binding drift when the JWT principal no longer
- * matches the stored guardian binding after a DB reset.
+ * Heal a guardian channel's identity address when the JWT principal no longer
+ * matches the stored guardian binding after a DB reset. The principalId ACL
+ * column is gateway-owned and no longer written here; only the channel identity
+ * address is repaired.
  *
  * Returns false if the update would violate the unique (type, address)
  * constraint on contact_channels — e.g. when the incoming principal already
@@ -941,7 +758,7 @@ export function updateChannelStatus(
  * In that case the heal is skipped and trust stays `unknown`.
  */
 export function updateContactPrincipalAndChannel(
-  contactId: string,
+  _contactId: string,
   channelId: string,
   newPrincipalId: string,
 ): boolean {
@@ -962,20 +779,13 @@ export function updateContactPrincipalAndChannel(
     return false;
   }
 
-  db.transaction(() => {
-    db.update(contacts)
-      .set({ principalId: newPrincipalId, updatedAt: now })
-      .where(eq(contacts.id, contactId))
-      .run();
-
-    db.update(contactChannels)
-      .set({
-        address: newPrincipalId,
-        updatedAt: now,
-      })
-      .where(eq(contactChannels.id, channelId))
-      .run();
-  });
+  db.update(contactChannels)
+    .set({
+      address: newPrincipalId,
+      updatedAt: now,
+    })
+    .where(eq(contactChannels.id, channelId))
+    .run();
 
   emitContactChange();
   return true;

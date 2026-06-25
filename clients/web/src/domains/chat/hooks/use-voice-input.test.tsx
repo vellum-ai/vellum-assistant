@@ -1,6 +1,8 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import type { Dispatch, RefObject, SetStateAction } from "react";
+import type { RefObject } from "react";
+
+import { useComposerStore } from "@/domains/chat/composer-store";
 
 type TextInsertionStatus =
   | "inserted"
@@ -61,11 +63,10 @@ mock.module("@/runtime/system-permissions", () => ({
 const { useVoiceInput } = await import("./use-voice-input");
 
 const renderVoiceInput = (assistantId: string | null = null) => {
-  let input = "";
+  // The hook writes transcripts straight to the composer store; start clean so
+  // each case asserts only what this render produced.
+  useComposerStore.setState({ input: "" });
   let focusCount = 0;
-  const setInput: Dispatch<SetStateAction<string>> = (value) => {
-    input = typeof value === "function" ? value(input) : value;
-  };
   const inputRef = {
     current: {
       selectionStart: null,
@@ -75,19 +76,18 @@ const renderVoiceInput = (assistantId: string | null = null) => {
     } as unknown as HTMLTextAreaElement,
   } satisfies RefObject<HTMLTextAreaElement | null>;
 
-  const hook = renderHook(() =>
-    useVoiceInput({ assistantId, inputRef, setInput }),
-  );
+  const hook = renderHook(() => useVoiceInput({ assistantId, inputRef }));
 
   return {
     hook,
-    getInput: () => input,
+    getInput: () => useComposerStore.getState().input,
     getFocusCount: () => focusCount,
   };
 };
 
 afterEach(() => {
   cleanup();
+  useComposerStore.setState({ input: "" });
   nextTextInsertionStatus = "unavailable";
   nextDictationResult = null;
   insertedTexts.length = 0;

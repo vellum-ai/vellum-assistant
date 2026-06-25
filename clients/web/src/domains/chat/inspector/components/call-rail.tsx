@@ -14,6 +14,7 @@ import {
   CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
   type LLMRequestLogEntry,
 } from "@vellumai/assistant-api";
+import { Tooltip } from "@vellumai/design-library";
 
 interface CallRailProps {
   logs: LLMRequestLogEntry[];
@@ -78,9 +79,7 @@ export function CallRail({
         <CallRow
           key={entry.id}
           entry={entry}
-          callNumber={
-            callNumbers?.get(entry.id) ?? logs.length - displayIndex
-          }
+          callNumber={callNumbers?.get(entry.id) ?? logs.length - displayIndex}
           isSelected={entry.id === selectedLogId}
           isLatest={displayIndex === 0}
           href={buildCallHref(entry.id)}
@@ -109,18 +108,25 @@ function CallRow({
   onSelect,
 }: CallRowProps): ReactNode {
   const isSynthetic = isSyntheticAgentErrorMessage(entry);
+  const isFailed = isFailedCall(entry);
   const isCompaction = isCompactionAgentCall(entry);
   const subtitle = buildCallSubtitle(entry) ?? "Unrecognized call";
-  const estimatedCost = formatCost(entry.summary?.estimatedCostUsd ?? null);
+  // A rejected call accrued no billable cost — show $0.00 rather than the
+  // "Unavailable" placeholder a missing cost would otherwise render.
+  const estimatedCost = isFailed
+    ? formatCost(0)
+    : formatCost(entry.summary?.estimatedCostUsd ?? null);
 
   // Synthetic rows (e.g. budget_yield_unrecovered) represent agent-loop
-  // error messages with no LLM call backing them. Render with a
-  // warning-tinted border + icon so a yielded turn is spottable in the
-  // rail at a glance, while still occupying a numbered call slot so the
-  // "Call N" framing stays consistent with the rest of the conversation.
+  // error messages with no LLM call backing them; failed rows are real
+  // calls the provider rejected. Both render with a warning-tinted border
+  // + icon so a problem turn is spottable in the rail at a glance, while
+  // still occupying a numbered call slot so the "Call N" framing stays
+  // consistent with the rest of the conversation.
+  const isWarning = isSynthetic || isFailed;
   const borderColor = isSelected
     ? "var(--border-active)"
-    : isSynthetic
+    : isWarning
       ? "var(--system-negative-strong)"
       : "var(--border-base)";
 
@@ -142,7 +148,7 @@ function CallRow({
           className="line-clamp-1 flex-1 text-body-medium-default"
           style={{ color: "var(--content-default)" }}
         >
-          {isSynthetic ? (
+          {isWarning ? (
             <span className="inline-flex items-center gap-1.5">
               <TriangleAlert
                 className="h-3.5 w-3.5"
@@ -155,6 +161,17 @@ function CallRow({
             <>Call {callNumber}</>
           )}
         </span>
+        {isFailed ? (
+          <span
+            className="rounded-[4px] px-1.5 py-0.5 text-label-default"
+            style={{
+              background: "var(--system-negative-weak)",
+              color: "var(--system-negative-strong)",
+            }}
+          >
+            Failed
+          </span>
+        ) : null}
         {isCompaction ? (
           <span
             className="rounded-[4px] px-1.5 py-0.5 text-label-default"
@@ -178,16 +195,18 @@ function CallRow({
           </span>
         ) : null}
       </div>
-      <div
-        className="line-clamp-2 text-label-default"
-        style={{
-          color: isSynthetic
-            ? "var(--system-negative-strong)"
-            : "var(--content-secondary)",
-        }}
-      >
-        {subtitle}
-      </div>
+      <Tooltip content={subtitle}>
+        <div
+          className="line-clamp-2 text-label-default"
+          style={{
+            color: isSynthetic
+              ? "var(--system-negative-strong)"
+              : "var(--content-secondary)",
+          }}
+        >
+          {subtitle}
+        </div>
+      </Tooltip>
       <div
         className="flex flex-wrap items-center gap-x-2 gap-y-1 text-label-default"
         style={{ color: "var(--content-tertiary)" }}
@@ -212,6 +231,14 @@ function CallRow({
 
 function isSyntheticAgentErrorMessage(entry: LLMRequestLogEntry): boolean {
   return entry.callSite === CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE;
+}
+
+/**
+ * A real LLM call the provider rejected before returning a response. The
+ * daemon records the failure as a structured `error` object on the entry.
+ */
+function isFailedCall(entry: LLMRequestLogEntry): boolean {
+  return entry.error != null;
 }
 
 /**

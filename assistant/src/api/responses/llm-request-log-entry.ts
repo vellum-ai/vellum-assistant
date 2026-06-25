@@ -68,6 +68,34 @@ export const LLMContextSectionSchema = z.object({
 export type LLMContextSection = z.infer<typeof LLMContextSectionSchema>;
 
 /**
+ * Structured provider/transport error recorded when an LLM call was
+ * rejected before producing a response. Mirrors the on-disk
+ * `responsePayload.error` shape written by
+ * `buildProviderErrorResponsePayload` — the inspector branches on the
+ * presence of this field to render a failed call distinctly (failure
+ * banner in the Response tab, $0.00 cost in the rail, etc.) instead of
+ * the generic "section rendering unavailable" fallback.
+ *
+ * Every field is optional because the serializer degrades a plain
+ * `Error` down to just `{ name, message }`; only the wrapper object is
+ * guaranteed.
+ */
+export const LLMCallErrorSchema = z.object({
+  name: z.string().nullish(),
+  message: z.string().nullish(),
+  code: z.string().nullish(),
+  provider: z.string().nullish(),
+  statusCode: z.number().nullish(),
+  retryAfterMs: z.number().nullish(),
+  apiErrorCode: z.string().nullish(),
+  apiErrorType: z.string().nullish(),
+  apiErrorParam: z.string().nullish(),
+  requestId: z.string().nullish(),
+});
+
+export type LLMCallError = z.infer<typeof LLMCallErrorSchema>;
+
+/**
  * One LLM request log row.
  *
  * `callSite` is the logical call site that produced this row —
@@ -88,6 +116,7 @@ export const LLMRequestLogEntrySchema = z.object({
   responseSections: z.array(LLMContextSectionSchema).nullish(),
   agentLoopExitReason: z.string().nullish(),
   callSite: z.string().nullish(),
+  error: LLMCallErrorSchema.nullish(),
 });
 
 export type LLMRequestLogEntry = z.infer<typeof LLMRequestLogEntrySchema>;

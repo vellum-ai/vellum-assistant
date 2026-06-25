@@ -13,7 +13,7 @@
 
 import { answerCall } from "../calls/call-domain.js";
 import { findContactChannel } from "../contacts/contact-store.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
+import { activateMemberChannel } from "../contacts/member-write-relay.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import {
   type CanonicalGuardianRequest,
@@ -24,6 +24,10 @@ import {
   isNotificationSourceChannel,
   type NotificationSourceChannel,
 } from "../notifications/signal.js";
+import type {
+  TrustedContactDecisionPayload,
+  TrustedContactVerificationSentPayload,
+} from "../notifications/trusted-contact-payloads.js";
 import type { UserDecision } from "../permissions/types.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import type { ApprovalAction } from "../runtime/channel-approval-types.js";
@@ -32,6 +36,7 @@ import { deliverChannelReply } from "../runtime/gateway-client.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { TC_GRANT_WAIT_MAX_MS } from "../tools/tool-approval-handler.js";
 import { getLogger } from "../util/logger.js";
+import { resolveDeliverCallbackUrlForChannel } from "./guardian-channel-delivery.js";
 
 const log = getLogger("guardian-request-resolvers");
 
@@ -136,6 +141,35 @@ function buildRequesterChannelNotice(params: {
   return payload;
 }
 
+/**
+ * Emit the `verification_sent` lifecycle signal on guardian approve.
+ *
+ * Always `visibleInSourceNow: true` so the notification pipeline suppresses
+ * delivery — the guardian already received the code (on-channel via the channel
+ * reply, off-channel via the inline reply text), so this records the lifecycle
+ * transition without sending a redundant "approved" message. It also stands in
+ * for `guardian_decision` on approve (which would notify), so the pipeline
+ * doesn't announce approval before verification.
+ */
+function emitVerificationSentSignal(
+  payload: TrustedContactVerificationSentPayload,
+  conversationId: string | null | undefined,
+): void {
+  void emitNotificationSignal({
+    sourceEventName: "ingress.trusted_contact.verification_sent",
+    sourceChannel: payload.sourceChannel,
+    sourceContextId: conversationId ?? "",
+    attentionHints: {
+      requiresAction: false,
+      urgency: "low",
+      isAsyncBackground: true,
+      visibleInSourceNow: true,
+    },
+    contextPayload: payload,
+    dedupeKey: `trusted-contact:verification-sent:${payload.verificationSessionId}`,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -208,17 +242,6 @@ export type ResolverResult =
       };
     }
   | { ok: false; reason: string };
-
-function resolveDeliverCallbackUrlForChannel(channel: string): string | null {
-  switch (channel) {
-    case "telegram":
-    case "whatsapp":
-    case "slack":
-      return `/deliver/${channel}`;
-    default:
-      return null;
-  }
-}
 
 /** Interface that kind-specific resolvers implement. */
 export interface GuardianRequestResolver {
@@ -418,15 +441,11 @@ const pendingQuestionResolver: GuardianRequestResolver = {
  * Instead, they create identity-bound verification sessions so the requester
  * can prove their identity.
  *
- * This resolver directly mints the verification session on approve rather
- * than going through handleAccessRequestDecision -> resolveApprovalRequest,
- * because canonical requests have no legacy channel_guardian_approval_requests
- * row, making the resolveApprovalRequest step a no-op that returns 'stale'.
+ * On approve, the resolver mints the verification session directly.
  *
  * When a `channelDeliveryContext` is provided (channel path), the resolver
  * also delivers the verification code to the guardian, notifies the requester,
- * and emits lifecycle notification signals — mirroring the legacy
- * handleAccessRequestApproval side effects.
+ * and emits lifecycle notification signals.
  *
  * For deny: notifies the requester and emits denial lifecycle signals when
  * channelDeliveryContext is available.
@@ -500,14 +519,14 @@ const accessRequestResolver: GuardianRequestResolver = {
           );
         }
 
-        const deniedPayload = {
+        const deniedPayload: TrustedContactDecisionPayload = {
           sourceChannel: channel,
           requesterExternalUserId,
           requesterChatId,
           decidedByExternalUserId,
           requesterDisplayName,
           decidedByDisplayName,
-          decision: "denied" as const,
+          decision: "denied",
         };
 
         void emitNotificationSignal({
@@ -573,19 +592,31 @@ const accessRequestResolver: GuardianRequestResolver = {
     // a verification session. The caller is already on the line and the
     // relay server's in-call wait loop will detect the approved status.
     if (channel === "phone") {
+      let activation: Awaited<ReturnType<typeof activateMemberChannel>>;
       try {
-        upsertContactChannel({
+        // Gateway-first activation: the gateway owns the ACL verdict, the local
+        // mirror persists the caller's contact/channel identity.
+        activation = await activateMemberChannel({
           sourceChannel: "phone",
           externalUserId: requesterExternalUserId,
           externalChatId: requesterChatId,
-          status: "active",
-          policy: "allow",
         });
       } catch (err) {
         log.error(
           { err, requesterExternalUserId },
           "Access request resolver: failed to activate voice caller as trusted contact",
         );
+        return { ok: false, reason: "voice_activation_failed" };
+      }
+
+      // Fail-closed: a refused activation did not land on the gateway source of
+      // truth, so the caller is not actually trusted — do not report success.
+      if (activation.status === "refused") {
+        log.error(
+          { requesterExternalUserId },
+          "Access request resolver: gateway refused voice caller activation",
+        );
+        return { ok: false, reason: "voice_activation_refused" };
       }
 
       log.info(
@@ -782,20 +813,10 @@ const accessRequestResolver: GuardianRequestResolver = {
         }
       }
 
-      // Emit verification_sent with visibleInSourceNow=true so the notification
-      // pipeline suppresses delivery — the guardian already received the code.
+      // Record the verification_sent lifecycle transition (delivery suppressed).
       if (codeDelivered) {
-        void emitNotificationSignal({
-          sourceEventName: "ingress.trusted_contact.verification_sent",
-          sourceChannel: channel,
-          sourceContextId: request.conversationId ?? "",
-          attentionHints: {
-            requiresAction: false,
-            urgency: "low",
-            isAsyncBackground: true,
-            visibleInSourceNow: true,
-          },
-          contextPayload: {
+        emitVerificationSentSignal(
+          {
             sourceChannel: channel,
             requesterExternalUserId,
             requesterChatId,
@@ -803,48 +824,75 @@ const accessRequestResolver: GuardianRequestResolver = {
             decidedByDisplayName,
             verificationSessionId: session.sessionId,
           },
-          dedupeKey: `trusted-contact:verification-sent:${session.sessionId}`,
-        });
+          request.conversationId,
+        );
       }
-    } else if (desktopDeliverUrl && requesterChatId) {
-      // Guardian decided off-channel (e.g. desktop) but the requester is on a
-      // deliverable channel. On Slack, DM the code directly (parity with the
-      // on-channel path); otherwise fall back to the courier notice.
-      const requesterCodeDelivered =
-        channel === "slack" && requesterExternalUserId
-          ? await deliverVerificationCodeToSlackRequester({
-              replyCallbackUrl: desktopDeliverUrl,
-              requesterExternalUserId,
-              verificationCode: session.secret,
-              assistantId,
-            })
-          : false;
-
-      if (requesterCodeDelivered) {
-        requesterNotified = true;
-      } else {
-        // For Slack, route to DM via requesterExternalUserId (user ID) instead
-        // of requesterChatId (channel ID) to avoid posting in public channels.
-        const targetChatId =
+    } else {
+      // Guardian decided off-channel (e.g. desktop). The guardian receives the
+      // verification code inline via `guardianReplyText` regardless of the
+      // requester's channel, so the lifecycle transition is recorded for every
+      // off-channel approve — including channels with no deliverable callback
+      // (e.g. email), where the requester cannot be auto-notified here.
+      if (desktopDeliverUrl && requesterChatId) {
+        // The requester is on a deliverable channel. On Slack, DM the code
+        // directly (parity with the on-channel path); otherwise fall back to
+        // the courier notice.
+        const requesterCodeDelivered =
           channel === "slack" && requesterExternalUserId
-            ? requesterExternalUserId
-            : requesterChatId;
-        try {
-          await deliverChannelReply(desktopDeliverUrl, {
-            chatId: targetChatId,
-            text:
-              "Your access request has been approved! " +
-              "Please enter the 6-digit verification code you receive from the guardian.",
-            assistantId,
-          });
+            ? await deliverVerificationCodeToSlackRequester({
+                replyCallbackUrl: desktopDeliverUrl,
+                requesterExternalUserId,
+                verificationCode: session.secret,
+                assistantId,
+              })
+            : false;
+
+        if (requesterCodeDelivered) {
           requesterNotified = true;
-        } catch (err) {
-          log.error(
-            { err, requesterChatId },
-            "Failed to notify requester of access request approval (desktop decision path)",
-          );
+        } else {
+          // For Slack, route to DM via requesterExternalUserId (user ID)
+          // instead of requesterChatId (channel ID) to avoid posting in public
+          // channels.
+          const targetChatId =
+            channel === "slack" && requesterExternalUserId
+              ? requesterExternalUserId
+              : requesterChatId;
+          try {
+            await deliverChannelReply(desktopDeliverUrl, {
+              chatId: targetChatId,
+              text:
+                "Your access request has been approved! " +
+                "Please enter the 6-digit verification code you receive from the guardian.",
+              assistantId,
+            });
+            requesterNotified = true;
+          } catch (err) {
+            log.error(
+              { err, requesterChatId },
+              "Failed to notify requester of access request approval (desktop decision path)",
+            );
+          }
         }
       }
+
+      // Record the verification_sent lifecycle transition for every off-channel
+      // approve. The session is minted and the guardian has the code via
+      // `guardianReplyText` regardless of whether (or how) the requester was
+      // notified — mirroring the on-channel branch, which keys off guardian
+      // receipt rather than requester delivery. Without this, approves on
+      // channels with no deliverable callback (e.g. email) would silently skip
+      // the audit/lifecycle record.
+      emitVerificationSentSignal(
+        {
+          sourceChannel: channel,
+          requesterExternalUserId,
+          requesterChatId,
+          requesterDisplayName,
+          decidedByDisplayName,
+          verificationSessionId: session.sessionId,
+        },
+        request.conversationId,
+      );
     }
 
     const verificationReplyText = requesterNotified

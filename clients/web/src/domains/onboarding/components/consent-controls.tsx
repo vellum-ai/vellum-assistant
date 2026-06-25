@@ -79,6 +79,41 @@ function Divider() {
   return <div className="h-px bg-[var(--surface-active)] dark:bg-[var(--surface-lift)]" />;
 }
 
+// A short "what's changed" summary shown above a consent checkbox when the
+// policy version was bumped. A recessed, left-ruled callout that promotes the
+// change itself to the most legible line in the card — it's why the user is
+// here. Renders nothing when there are no notes.
+function PolicyChangeNotes({ notes }: { notes?: string[] }) {
+  if (!notes || notes.length === 0) return null;
+  return (
+    <div className="rounded-r-md border-l-2 border-[var(--content-secondary)] bg-[var(--surface-base)] py-3 pl-3.5 pr-3.5">
+      <p className="text-body-small-default font-medium text-[var(--content-secondary)]">
+        What&apos;s changed
+      </p>
+      {notes.length === 1 ? (
+        <p className="mt-1.5 text-body-medium-lighter text-[var(--content-default)]">
+          {notes[0]}
+        </p>
+      ) : (
+        <ul className="mt-2 flex flex-col gap-1.5">
+          {notes.map((note) => (
+            <li
+              key={note}
+              className="flex gap-2.5 text-body-medium-lighter text-[var(--content-default)]"
+            >
+              <span
+                aria-hidden
+                className="mt-[0.5em] h-1 w-1 flex-none rounded-full bg-[var(--content-tertiary)]"
+              />
+              <span>{note}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function PrivacyPreferencesCard({
   electron,
   showAnalytics = true,
@@ -136,6 +171,8 @@ export function AgreementsCard({
   tosAccepted,
   onPrivacyChange,
   onTosChange,
+  privacyNotes,
+  tosNotes,
   className,
   style,
 }: {
@@ -146,6 +183,8 @@ export function AgreementsCard({
   tosAccepted: boolean;
   onPrivacyChange: (next: boolean) => void;
   onTosChange: (next: boolean) => void;
+  privacyNotes?: string[];
+  tosNotes?: string[];
   className?: string;
   style?: CSSProperties;
 }) {
@@ -155,18 +194,24 @@ export function AgreementsCard({
       <Card padding={electron ? "sm" : "md"} className="w-full">
         <div className={`flex flex-col ${electron ? "gap-3.5" : "gap-4"}`}>
           {showPrivacy && (
-            <ConsentCheckbox
-              kind="privacy"
-              checked={privacyConsent}
-              onChange={onPrivacyChange}
-            />
+            <div className="flex flex-col gap-2">
+              <PolicyChangeNotes notes={privacyNotes} />
+              <ConsentCheckbox
+                kind="privacy"
+                checked={privacyConsent}
+                onChange={onPrivacyChange}
+              />
+            </div>
           )}
           {showTos && (
-            <ConsentCheckbox
-              kind="tos"
-              checked={tosAccepted}
-              onChange={onTosChange}
-            />
+            <div className="flex flex-col gap-2">
+              <PolicyChangeNotes notes={tosNotes} />
+              <ConsentCheckbox
+                kind="tos"
+                checked={tosAccepted}
+                onChange={onTosChange}
+              />
+            </div>
           )}
         </div>
       </Card>

@@ -43,8 +43,8 @@ import {
   parseInterfaceId,
 } from "../channels/types.js";
 import type { AssistantConfig } from "../config/types.js";
+import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
 import { extractTurnContextTimestamp } from "../context/compactor.js";
-import { findConversation } from "../daemon/conversation-registry.js";
 import {
   formatLocalTimestamp,
   resolveTurnTimezoneContext,
@@ -60,9 +60,10 @@ import {
   type ConversationRow,
   deleteConversation,
   findMostRecentRetrospectiveFor,
-  forkConversation,
+  forkConversationForRetrospective,
   getConversation,
   getMessagesAfter,
+  isConversationProcessing,
   resolveOverrideProfile,
 } from "./conversation-crud.js";
 import {
@@ -130,7 +131,7 @@ export async function memoryRetrospectiveJob(
 // the source's turns.
 // ---------------------------------------------------------------------------
 
-async function runForkBasedRetrospective(
+export async function runForkBasedRetrospective(
   sourceConversationId: string,
   config: AssistantConfig,
 ): Promise<MemoryRetrospectiveOutcome> {
@@ -145,14 +146,15 @@ async function runForkBasedRetrospective(
 
   // Forking mid-turn would capture a half-finished display turn — incremental
   // checkpoint persistence writes complete tool turns to the DB while the
-  // agent loop is still running. Peek the in-memory registry only (an
-  // unloaded conversation is by definition not processing); never load the
-  // conversation just to check. Bump `lastRunAt` so the cooldown gate
-  // applies, leave `lastProcessedMessageId` untouched so the next
-  // interval/message-count trigger re-processes the same messages — nothing
-  // is lost. Returning (not throwing) keeps the jobs-worker from
+  // agent loop is still running. Check the persisted `processing_started_at`
+  // column (the cross-process source of truth) instead of the in-memory
+  // registry, so this guard works even when running in a separate CLI
+  // process with an empty conversation registry. Bump `lastRunAt` so the
+  // cooldown gate applies, leave `lastProcessedMessageId` untouched so the
+  // next interval/message-count trigger re-processes the same messages —
+  // nothing is lost. Returning (not throwing) keeps the jobs-worker from
   // retry-with-backoff.
-  if (findConversation(sourceConversationId)?.isProcessing()) {
+  if (isConversationProcessing(sourceConversationId)) {
     bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
     log.info(
       { sourceConversationId },
@@ -215,9 +217,14 @@ async function runForkBasedRetrospective(
   // `contextCompactedMessageCount` / `contextCompactedAt` when the fork
   // point sits within the visible window. Compacted source ⇒ compacted
   // fork ⇒ summary + tail visible to the agent natively.
-  let forkConversationRow: ReturnType<typeof forkConversation>;
+  let forkConversationRow: Awaited<
+    ReturnType<typeof forkConversationForRetrospective>
+  >;
   try {
-    forkConversationRow = forkConversation({
+    // Async variant: the source message-row copy runs off the event loop in a
+    // sqlite3 subprocess so this background pass cannot freeze the daemon's
+    // event loop (health probes / gateway IPC) on a large database.
+    forkConversationRow = await forkConversationForRetrospective({
       conversationId: sourceConversationId,
       throughMessageId: cutoffMessageId,
       source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
@@ -229,7 +236,7 @@ async function runForkBasedRetrospective(
     bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
     log.error(
       { err, sourceConversationId },
-      "memory-retrospective (fork): forkConversation failed",
+      "memory-retrospective (fork): forkConversationForRetrospective failed",
     );
     throw err;
   }
@@ -284,6 +291,10 @@ async function runForkBasedRetrospective(
   // parity — the fork always runs execution gate mode below, so the source's
   // full tool surface stays on the wire while the allowlist holds at
   // execution time.
+  // Warm the vellum guardian-delivery cache so the sync slug resolution inside
+  // resolveSourceParityPins (resolveUserSlug(undefined)) hits a fresh key
+  // instead of falling back to "default" on a cold/TTL-expired cache.
+  await getGuardianDelivery({ channelTypes: ["vellum"] });
   const { personaOverride, toolContextPin } = resolveSourceParityPins(
     sourceConversation,
     newMessages,

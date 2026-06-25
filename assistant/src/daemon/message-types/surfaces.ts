@@ -1,5 +1,24 @@
 // Surface types, UI surface lifecycle messages.
 
+import {
+  type CardSurfaceData,
+  CardSurfaceDataSchema,
+  type FileUploadSurfaceData,
+  FileUploadSurfaceDataSchema,
+} from "../../api/surfaces.js";
+
+// Surface `data` shapes are wire payloads owned by `@vellumai/assistant-api`.
+// Card and file_upload are migrated (canonical Zod schemas); the remaining
+// types below are still hand-written interfaces pending migration. Re-exported
+// so the daemon's surface protocol barrel (`message-protocol.ts`) keeps
+// surfacing them to daemon consumers under their canonical names.
+export {
+  type CardSurfaceData,
+  CardSurfaceDataSchema,
+  type FileUploadSurfaceData,
+  FileUploadSurfaceDataSchema,
+};
+
 // === Surface type definitions ===
 
 export type SurfaceType =
@@ -33,17 +52,6 @@ export interface SurfaceAction {
   style?: "primary" | "secondary" | "destructive";
   /** Optional data payload returned to the daemon when this action is clicked. */
   data?: Record<string, unknown>;
-}
-
-export interface CardSurfaceData {
-  title: string;
-  subtitle?: string;
-  body: string;
-  metadata?: Array<{ label: string; value: string }>;
-  /** Optional template name for specialized rendering (e.g. "weather_forecast"). */
-  template?: string;
-  /** Arbitrary data consumed by the template renderer. Shape depends on template. */
-  templateData?: Record<string, unknown>;
 }
 
 export interface ChoiceOption {
@@ -152,13 +160,6 @@ export interface DynamicPageSurfaceData {
   reloadGeneration?: number;
   status?: string;
   preview?: DynamicPagePreview;
-}
-
-export interface FileUploadSurfaceData {
-  prompt: string;
-  acceptedTypes?: string[];
-  maxFiles?: number;
-  maxSizeBytes?: number;
 }
 
 export interface TableColumn {

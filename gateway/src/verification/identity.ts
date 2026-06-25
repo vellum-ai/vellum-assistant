@@ -67,3 +67,16 @@ export function canonicalizeInboundIdentity(
 
   return trimmed;
 }
+
+/**
+ * Canonical sender id for a possibly-absent inbound actor id. Treats a missing
+ * or whitespace-only id as absent (null) before canonicalizing, so trust
+ * resolution and its failure sentinels share one normalization.
+ */
+export function canonicalSenderIdFor(
+  channel: string,
+  actorExternalId?: string,
+): string | null {
+  const trimmed = actorExternalId?.trim();
+  return trimmed ? canonicalizeInboundIdentity(channel, trimmed) : null;
+}

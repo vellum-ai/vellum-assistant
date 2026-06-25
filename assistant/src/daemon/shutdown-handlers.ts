@@ -5,6 +5,7 @@ import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import type { McpServerManager } from "../mcp/manager.js";
 import { getSqlite, resetDb } from "../memory/db-connection.js";
 import type { QdrantManager } from "../memory/qdrant-manager.js";
+import { stopMemoryWorkerProcess } from "../memory/worker-control.js";
 import type { RuntimeHttpServer } from "../runtime/http-server.js";
 import { browserManager } from "../tools/browser/browser-manager.js";
 import { cleanupShellOutputTempFiles } from "../tools/shared/shell-output.js";
@@ -117,7 +118,26 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     await browserManager.closeAllPages();
     cleanupShellOutputTempFiles();
     deps.scheduler.stop();
+
+    // Stop the in-process memory worker if one was started on the daemon's
+    // event loop (memory.worker.enabled = false).
     deps.getMemoryWorker()?.stop();
+
+    // Stop the out-of-process memory worker if it's actually running. This is
+    // keyed off live state rather than config: the worker may have been
+    // spawned at startup (memory.worker.enabled = true) or out of band via
+    // `assistant memory worker start`, so we stop whatever is actually there.
+    try {
+      const workerStatus = stopMemoryWorkerProcess();
+      if (workerStatus.status === "running") {
+        log.info(
+          { pid: workerStatus.pid },
+          "Sent SIGTERM to memory worker process",
+        );
+      }
+    } catch (err) {
+      log.warn({ err }, "Failed to stop memory worker process (non-fatal)");
+    }
 
     if (deps.mcpManager) {
       try {

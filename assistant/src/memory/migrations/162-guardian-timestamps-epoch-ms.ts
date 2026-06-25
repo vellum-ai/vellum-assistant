@@ -1,6 +1,5 @@
 import { getLogger } from "../../util/logger.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
-import { withCrashRecovery } from "./validate-migration-state.js";
 
 const log = getLogger("migration-162");
 
@@ -18,71 +17,58 @@ const log = getLogger("migration-162");
  */
 export function migrateGuardianTimestampsEpochMs(database: DrizzleDb): void {
   // Step 1: Convert existing text timestamps to integer epoch ms values.
-  withCrashRecovery(
-    database,
-    "migration_guardian_timestamps_epoch_ms_v1",
-    () => {
-      const raw = getSqliteFrom(database);
+  const raw = getSqliteFrom(database);
 
-      // Convert canonical_guardian_requests timestamp columns
-      raw.exec(/*sql*/ `
-      UPDATE canonical_guardian_requests
-      SET created_at = CAST(strftime('%s', created_at) AS INTEGER) * 1000 + CAST(substr(created_at, 21, 3) AS INTEGER),
-          updated_at = CAST(strftime('%s', updated_at) AS INTEGER) * 1000 + CAST(substr(updated_at, 21, 3) AS INTEGER),
-          expires_at = CASE
-            WHEN expires_at IS NOT NULL
-            THEN CAST(strftime('%s', expires_at) AS INTEGER) * 1000 + CAST(substr(expires_at, 21, 3) AS INTEGER)
-            ELSE NULL
-          END
-      WHERE typeof(created_at) = 'text'
-    `);
+  // Convert canonical_guardian_requests timestamp columns
+  raw.exec(/*sql*/ `
+  UPDATE canonical_guardian_requests
+  SET created_at = CAST(strftime('%s', created_at) AS INTEGER) * 1000 + CAST(substr(created_at, 21, 3) AS INTEGER),
+      updated_at = CAST(strftime('%s', updated_at) AS INTEGER) * 1000 + CAST(substr(updated_at, 21, 3) AS INTEGER),
+      expires_at = CASE
+        WHEN expires_at IS NOT NULL
+        THEN CAST(strftime('%s', expires_at) AS INTEGER) * 1000 + CAST(substr(expires_at, 21, 3) AS INTEGER)
+        ELSE NULL
+      END
+  WHERE typeof(created_at) = 'text'
+`);
 
-      // Convert canonical_guardian_deliveries timestamp columns
-      raw.exec(/*sql*/ `
-      UPDATE canonical_guardian_deliveries
-      SET created_at = CAST(strftime('%s', created_at) AS INTEGER) * 1000 + CAST(substr(created_at, 21, 3) AS INTEGER),
-          updated_at = CAST(strftime('%s', updated_at) AS INTEGER) * 1000 + CAST(substr(updated_at, 21, 3) AS INTEGER)
-      WHERE typeof(created_at) = 'text'
-    `);
+  // Convert canonical_guardian_deliveries timestamp columns
+  raw.exec(/*sql*/ `
+  UPDATE canonical_guardian_deliveries
+  SET created_at = CAST(strftime('%s', created_at) AS INTEGER) * 1000 + CAST(substr(created_at, 21, 3) AS INTEGER),
+      updated_at = CAST(strftime('%s', updated_at) AS INTEGER) * 1000 + CAST(substr(updated_at, 21, 3) AS INTEGER)
+  WHERE typeof(created_at) = 'text'
+`);
 
-      // Convert scoped_approval_grants timestamp columns
-      raw.exec(/*sql*/ `
-      UPDATE scoped_approval_grants
-      SET expires_at = CAST(strftime('%s', expires_at) AS INTEGER) * 1000 + CAST(substr(expires_at, 21, 3) AS INTEGER),
-          created_at = CAST(strftime('%s', created_at) AS INTEGER) * 1000 + CAST(substr(created_at, 21, 3) AS INTEGER),
-          updated_at = CAST(strftime('%s', updated_at) AS INTEGER) * 1000 + CAST(substr(updated_at, 21, 3) AS INTEGER),
-          consumed_at = CASE
-            WHEN consumed_at IS NOT NULL
-            THEN CAST(strftime('%s', consumed_at) AS INTEGER) * 1000 + CAST(substr(consumed_at, 21, 3) AS INTEGER)
-            ELSE NULL
-          END
-      WHERE typeof(created_at) = 'text'
-    `);
+  // Convert scoped_approval_grants timestamp columns
+  raw.exec(/*sql*/ `
+  UPDATE scoped_approval_grants
+  SET expires_at = CAST(strftime('%s', expires_at) AS INTEGER) * 1000 + CAST(substr(expires_at, 21, 3) AS INTEGER),
+      created_at = CAST(strftime('%s', created_at) AS INTEGER) * 1000 + CAST(substr(created_at, 21, 3) AS INTEGER),
+      updated_at = CAST(strftime('%s', updated_at) AS INTEGER) * 1000 + CAST(substr(updated_at, 21, 3) AS INTEGER),
+      consumed_at = CASE
+        WHEN consumed_at IS NOT NULL
+        THEN CAST(strftime('%s', consumed_at) AS INTEGER) * 1000 + CAST(substr(consumed_at, 21, 3) AS INTEGER)
+        ELSE NULL
+      END
+  WHERE typeof(created_at) = 'text'
+`);
 
-      log.info(
-        "Converted guardian table timestamps from ISO 8601 text to epoch ms",
-      );
-    },
+  log.info(
+    "Converted guardian table timestamps from ISO 8601 text to epoch ms",
   );
 
   // Step 2: Rebuild tables so timestamp columns have INTEGER affinity.
   // Databases created before the CREATE TABLE migrations were updated still
   // have TEXT affinity on these columns, which coerces integer values back
   // to text strings on read.
-  withCrashRecovery(
-    database,
-    "migration_guardian_timestamps_rebuild_v1",
-    () => {
-      const raw = getSqliteFrom(database);
 
-      rebuildCanonicalGuardianRequests(raw);
-      rebuildCanonicalGuardianDeliveries(raw);
-      rebuildScopedApprovalGrants(raw);
+  rebuildCanonicalGuardianRequests(raw);
+  rebuildCanonicalGuardianDeliveries(raw);
+  rebuildScopedApprovalGrants(raw);
 
-      log.info(
-        "Rebuilt guardian tables with INTEGER affinity on timestamp columns",
-      );
-    },
+  log.info(
+    "Rebuilt guardian tables with INTEGER affinity on timestamp columns",
   );
 }
 

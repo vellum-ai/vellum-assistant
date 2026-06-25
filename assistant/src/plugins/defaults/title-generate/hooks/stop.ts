@@ -18,7 +18,7 @@
  * stateless and means a mid-run array rewrite (compaction) can't invalidate it.
  */
 
-import type { PluginHookFn, StopContext } from "@vellumai/plugin-api";
+import type { HookFunction, StopContext } from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
 import { getConversation } from "../../../../memory/conversation-crud.js";
@@ -65,7 +65,7 @@ function shouldRetryFallbackTitle(conversation: {
   );
 }
 
-const stop: PluginHookFn<StopContext> = async (ctx) => {
+const stop: HookFunction<StopContext> = async (ctx) => {
   // Re-title only at a genuine successful turn end (the model returned a reply
   // with no tool calls). Any other terminal — a provider rejection, abort, or
   // an output-limit cutoff — produced no new topic to re-title from.

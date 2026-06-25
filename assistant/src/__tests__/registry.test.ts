@@ -36,6 +36,9 @@ function makeFakeTool(name: string): Tool {
     category: "test",
     defaultRiskLevel: RiskLevel.Low,
     executionTarget: "sandbox",
+    // Match the finalized shape the registry stores, so identity comparisons
+    // (`getTool(name)` toEqual coreTool) hold after registration fills defaults.
+    exclusive: false,
     input_schema: { type: "object", properties: {}, required: [] },
     async execute(
       _input: Record<string, unknown>,
@@ -108,7 +111,7 @@ describe("tool registry dynamic-tools tools", () => {
 
 describe("tool manifest", () => {
   test("eager module tool names list contains expected count", () => {
-    expect(eagerModuleToolNames.length).toBe(11);
+    expect(eagerModuleToolNames.length).toBe(12);
   });
 
   test("explicit tools list includes memory tools", () => {

@@ -625,6 +625,20 @@ export type LoopToolExecutor = (
   activityMetadata?: ToolActivityMetadata;
 }>;
 
+/**
+ * The benign result returned for a sibling tool call that was deferred because
+ * an exclusive tool ran in the same turn. Phrased so the model treats it as a
+ * "not run yet" signal — read the exclusive tool's output, then re-issue this
+ * call if it is still the right next step.
+ */
+function deferredForExclusiveMessage(exclusiveToolName: string): string {
+  return (
+    `(not run: \`${exclusiveToolName}\` was called this turn and runs first, on its own, ` +
+    `so the rest of your tool calls were held back. Read its output, then call this tool ` +
+    `again if it is still the right next step.)`
+  );
+}
+
 export interface AgentLoopConstructorOptions {
   /** LLM provider the loop issues every call through. */
   provider: Provider;
@@ -634,6 +648,14 @@ export interface AgentLoopConstructorOptions {
   tools?: ToolDefinition[];
   toolExecutor?: LoopToolExecutor;
   resolveTools?: (history: Message[]) => ToolDefinition[];
+  /**
+   * Decide whether a tool runs exclusively in its turn (see
+   * {@link ToolDefinition.exclusive}). When it returns true for a tool present
+   * in a multi-call turn, the loop runs only that tool and defers the siblings
+   * un-run. Injected by the conversation wiring, which can read the tool
+   * registry; lightweight loops that omit it never defer.
+   */
+  isExclusiveTool?: (toolName: string) => boolean;
   /**
    * Conversation this loop drives. Scopes the loop-held compaction circuit
    * breaker and is the source of truth the loop's pipeline contexts and
@@ -659,6 +681,7 @@ export class AgentLoop {
   private tools: ToolDefinition[];
   private resolveTools: ((history: Message[]) => ToolDefinition[]) | null;
   private toolExecutor: LoopToolExecutor | null;
+  private isExclusiveTool: ((toolName: string) => boolean) | null;
 
   /**
    * Conversation this loop drives. Source of truth for the `conversationId`
@@ -688,6 +711,7 @@ export class AgentLoop {
       tools,
       toolExecutor,
       resolveTools,
+      isExclusiveTool,
       conversationId,
       resolveConversationDir,
     } = options;
@@ -697,6 +721,7 @@ export class AgentLoop {
     this.tools = tools ?? [];
     this.resolveTools = resolveTools ?? null;
     this.toolExecutor = toolExecutor ?? null;
+    this.isExclusiveTool = isExclusiveTool ?? null;
     this.conversationId = conversationId;
     this.resolveConversationDir = resolveConversationDir ?? null;
     this.compactionCircuit = new CompactionCircuit(this.conversationId);
@@ -1883,8 +1908,39 @@ export class AgentLoop {
           "Tool execution start",
         );
 
+        // When an exclusive tool (e.g. the advisor) is among this turn's calls,
+        // it must run alone: the model should incorporate its output before
+        // acting on anything else. Run only the first exclusive call and defer
+        // the siblings with a benign, un-run result so the model re-issues them
+        // next turn if still needed. Every tool_use still gets a matching
+        // tool_result, so history stays well-formed.
+        const exclusiveBlock = this.isExclusiveTool
+          ? toolUseBlocks.find((block) => this.isExclusiveTool!(block.name))
+          : undefined;
+        const deferSiblings =
+          exclusiveBlock !== undefined && toolUseBlocks.length > 1;
+        if (deferSiblings) {
+          rlog.info(
+            {
+              turn: toolUseTurns,
+              exclusiveTool: exclusiveBlock!.name,
+              deferred: toolUseBlocks
+                .filter((block) => block !== exclusiveBlock)
+                .map((block) => block.name),
+            },
+            "Exclusive tool present — running it alone and deferring sibling tool calls this turn",
+          );
+        }
+
         const toolExecutionPromise = Promise.all(
           toolUseBlocks.map(async (toolUse) => {
+            if (deferSiblings && toolUse !== exclusiveBlock) {
+              const result: Awaited<ReturnType<LoopToolExecutor>> = {
+                content: deferredForExclusiveMessage(exclusiveBlock!.name),
+                isError: false,
+              };
+              return { toolUse, result };
+            }
             const result = await this.toolExecutor!(
               toolUse.name,
               toolUse.input,

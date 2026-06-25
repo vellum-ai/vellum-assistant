@@ -44,6 +44,7 @@ const EFFORT_SUPPORTED_PROVIDERS = new Set([
   "openai",
   "openrouter",
   "fireworks",
+  "together",
 ]);
 
 /**
@@ -615,6 +616,10 @@ export class RetryProvider implements Provider {
 
   get tokenEstimationProvider(): string | undefined {
     return this.inner.tokenEstimationProvider;
+  }
+
+  get supportsNativeWebSearch(): boolean | undefined {
+    return this.inner.supportsNativeWebSearch;
   }
 
   // Forward the optional token-counting endpoint so the capability survives

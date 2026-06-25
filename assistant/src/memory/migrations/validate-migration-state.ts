@@ -3,71 +3,28 @@ import { getLogger } from "../../util/logger.js";
 import { getDbPath } from "../../util/platform.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 import {
-  MIGRATION_REGISTRY,
-  type MigrationValidationResult,
-} from "./registry.js";
-import { clearMigrationStepCheckpoints } from "./run-migrations.js";
+  getStepName,
+  type MigrationStep,
+  normalizeStep,
+  STEP_CHECKPOINT_PREFIX,
+} from "./run-migrations.js";
 
-const log = getLogger("memory-db");
+// Share the DB-init logger namespace so the whole startup DB-migration
+// sequence (run steps -> summary -> post-run validation) reports under a
+// single `[db-init]` tag instead of being split across modules.
+const log = getLogger("db-init");
 
-/**
- * Wrap a migration function with crash-recovery bookkeeping.
- *
- * Writes a 'started' checkpoint before executing the migration body, then
- * overwrites it with the completion value on success. If the process crashes
- * between the start marker and completion, recoverCrashedMigrations (which
- * runs before all migrations) will detect and clear it on the next startup.
- *
- * The migrationFn receives the raw SQLite database and should perform its
- * own transaction management internally.
- */
-export function withCrashRecovery(
-  database: DrizzleDb,
-  checkpointKey: string,
-  migrationFn: () => void,
-): void {
-  const raw = getSqliteFrom(database);
-
-  const existing = raw
-    .query(`SELECT value FROM memory_checkpoints WHERE key = ?`)
-    .get(checkpointKey) as { value: string } | null;
-  if (
-    existing &&
-    existing.value !== "started" &&
-    existing.value !== "rolling_back"
-  )
-    return;
-
-  raw
-    .query(
-      `INSERT OR REPLACE INTO memory_checkpoints (key, value, updated_at) VALUES (?, 'started', ?)`,
-    )
-    .run(checkpointKey, Date.now());
-
-  try {
-    migrationFn();
-  } catch (error) {
-    log.error(
-      { checkpointKey, error },
-      `Memory migration failed: ${checkpointKey} — marking as failed and continuing`,
-    );
-    raw
-      .query(
-        `UPDATE memory_checkpoints SET value = 'failed', updated_at = ? WHERE key = ?`,
-      )
-      .run(Date.now(), checkpointKey);
-    return;
-  }
-
-  raw
-    .query(
-      `UPDATE memory_checkpoints SET value = '1', updated_at = ? WHERE key = ?`,
-    )
-    .run(Date.now(), checkpointKey);
+export interface MigrationValidationResult {
+  /** Keys of migrations whose checkpoint has value 'started' — started but never completed. */
+  crashed: string[];
+  /** Pairs where a completed migration's declared prerequisite is missing from checkpoints. */
+  dependencyViolations: Array<{ migration: string; missingDependency: string }>;
+  /** Checkpoint keys present in the database but absent from the known step names — likely from a newer version. */
+  unknownCheckpoints: string[];
 }
 
 /**
- * Validate the applied migration state against the registry at startup.
+ * Validate the applied migration state against the known step list at startup.
  *
  * Logs a prominent error when a migration started but never completed (crash
  * detected) — startup continues so the migration can be retried.
@@ -79,9 +36,15 @@ export function withCrashRecovery(
  *
  * Call this AFTER all DDL and migration functions have run so that the final
  * state is inspected.
+ *
+ * @param database  The Drizzle database instance.
+ * @param steps     The full ordered migration step array (same one passed to
+ *   `runMigrationSteps`). Used to determine known step names for unknown-checkpoint
+ *   detection and to check `dependsOn` declarations.
  */
 export function validateMigrationState(
   database: DrizzleDb,
+  steps: MigrationStep[],
 ): MigrationValidationResult {
   const raw = getSqliteFrom(database);
 
@@ -117,32 +80,34 @@ export function validateMigrationState(
     );
   }
 
-  // Only rows whose value is NOT 'started' or 'rolling_back' represent truly
-  // completed migrations. In-progress/crashed checkpoints must not count as
-  // applied dependencies — the migration never finished, so its postconditions
-  // are unmet.
-  const completed = new Set(
+  // Build a set of completed step names from `step:*` checkpoints with value '1'.
+  const completedStepNames = new Set(
     rows
-      .filter((r) => r.value !== "started" && r.value !== "rolling_back")
-      .map((r) => r.key),
+      .filter(
+        (r) =>
+          r.key.startsWith(STEP_CHECKPOINT_PREFIX) && r.value === "1",
+      )
+      .map((r) => r.key.slice(STEP_CHECKPOINT_PREFIX.length)),
   );
 
+  // Check dependency ordering for object-form steps that declare dependsOn.
+  // A step is "completed" if its name appears in the completedStepNames set.
   const dependencyViolations: Array<{
     migration: string;
     missingDependency: string;
   }> = [];
 
-  // Validate dependency ordering.
-  for (const entry of MIGRATION_REGISTRY) {
-    if (!entry.dependsOn || entry.dependsOn.length === 0) continue;
-    // Only check entries that have been completed — unapplied or in-progress
+  for (const step of steps) {
+    const obj = normalizeStep(step);
+    if (!obj.dependsOn || obj.dependsOn.length === 0) continue;
+    // Only check steps that have been completed — unapplied or in-progress
     // migrations have not had a chance to violate their prerequisites yet.
-    if (!completed.has(entry.key)) continue;
+    if (!completedStepNames.has(obj.name)) continue;
 
-    for (const dep of entry.dependsOn) {
-      if (!completed.has(dep)) {
+    for (const dep of obj.dependsOn) {
+      if (!completedStepNames.has(dep)) {
         dependencyViolations.push({
-          migration: entry.key,
+          migration: obj.name,
           missingDependency: dep,
         });
       }
@@ -162,21 +127,12 @@ export function validateMigrationState(
     );
   }
 
-  // Detect checkpoints that exist in the database but have no corresponding
-  // registry entry — these are from a newer version of the daemon.
-  //
-  // The memory_checkpoints table is a general-purpose key-value store also
-  // used by non-migration subsystems (e.g., "empty_state:greeting:text",
-  // "conversation_starters:item_count_at_last_gen"). Filter to only keys
-  // that follow migration naming conventions before comparing against the
-  // registry to avoid false-positive warnings.
-  const registryKeys = new Set(MIGRATION_REGISTRY.map((e) => e.key));
-  const isMigrationKey = (k: string): boolean =>
-    k.startsWith("migration_") ||
-    k.startsWith("backfill_") ||
-    k.startsWith("drop_");
-  const unknownCheckpoints = [...completed].filter(
-    (k) => isMigrationKey(k) && !registryKeys.has(k),
+  // Detect step checkpoints that exist in the database but have no
+  // corresponding entry in the known step list — these are from a newer
+  // version of the daemon.
+  const knownStepNames = new Set(steps.map((s) => getStepName(s)));
+  const unknownCheckpoints = [...completedStepNames].filter(
+    (name) => !knownStepNames.has(name),
   );
 
   if (unknownCheckpoints.length > 0) {
@@ -192,23 +148,26 @@ export function validateMigrationState(
 /**
  * Roll back all completed memory (database) migrations with version > targetVersion.
  *
- * Iterates eligible migrations in reverse version order. For each:
- * 1. Marks the checkpoint as `"rolling_back"` for crash recovery.
+ * Iterates eligible migration steps in reverse version order. For each
+ * rollback entry on a completed step:
+ * 1. Marks the step checkpoint as `"rolling_back"` for crash recovery.
  * 2. Calls `entry.down(database)` — each down() manages its own transactions.
- *    (`down` is required on `MigrationRegistryEntry` at the type level.)
- * 3. Deletes the checkpoint from `memory_checkpoints`.
+ * 3. Deletes the step checkpoint from `memory_checkpoints`.
+ *
+ * A single step may carry multiple rollback entries (e.g. migration 162 has
+ * two). All entries with version > target are rolled back in reverse version
+ * order. The step checkpoint is only deleted after the last rollback entry
+ * for that step completes.
  *
  * **Usage**: Pass the target version number you want to roll back *to*. All
- * migrations with a higher version number that have been applied will be
- * reversed. For example, `rollbackMemoryMigration(db, 5)` rolls back all
- * applied migrations with version > 5.
+ * rollback entries with a higher version number on completed steps will be
+ * reversed. For example, `rollbackMemoryMigration(db, 5, steps)` rolls back
+ * all rollback entries with version > 5.
  *
- * **Checkpoint state**: Each rolled-back migration's checkpoint is deleted
- * from `memory_checkpoints`. If the process crashes mid-rollback, the
- * `"rolling_back"` marker is detected and cleared by
- * `recoverCrashedMigrations` on the next startup. The forward-step checkpoints
- * recorded by the migration runner (the `step:` namespace) are also discarded
- * so a later upgrade re-applies (and re-validates) every step.
+ * **Checkpoint state**: Each rolled-back step's `step:*` checkpoint is deleted
+ * from `memory_checkpoints` after its down() functions succeed. If the process
+ * crashes mid-rollback, the `"rolling_back"` marker is detected and cleared by
+ * `recoverCrashedMigrations` on the next startup.
  *
  * **Warning — data loss**: Some down() migrations may not fully restore the
  * original state (e.g., DROP TABLE migrations recreate the table but cannot
@@ -220,17 +179,19 @@ export function validateMigrationState(
  * query failures, or data corruption.
  *
  * @param database  The Drizzle database instance.
- * @param targetVersion  Roll back to this version (exclusive — all migrations
- *   with version > targetVersion are reversed).
- * @returns The list of rolled-back migration keys.
+ * @param targetVersion  Roll back to this version (exclusive — all rollback
+ *   entries with version > targetVersion are reversed).
+ * @param steps     The full ordered migration step array.
+ * @returns The list of rolled-back step names.
  */
 export function rollbackMemoryMigration(
   database: DrizzleDb,
   targetVersion: number,
+  steps: MigrationStep[],
 ): string[] {
   const raw = getSqliteFrom(database);
 
-  // Read completed checkpoints to determine which migrations have been applied.
+  // Read step checkpoints to determine which migrations have been applied.
   let rows: Array<{ key: string; value: string }>;
   try {
     rows = raw
@@ -240,52 +201,76 @@ export function rollbackMemoryMigration(
     return [];
   }
 
-  const completedKeys = new Set(
+  // Build a set of completed step names from `step:*` checkpoints with value '1'.
+  const completedStepNames = new Set(
     rows
-      .filter((r) => r.value !== "started" && r.value !== "rolling_back")
-      .map((r) => r.key),
+      .filter(
+        (r) =>
+          r.key.startsWith(STEP_CHECKPOINT_PREFIX) && r.value === "1",
+      )
+      .map((r) => r.key.slice(STEP_CHECKPOINT_PREFIX.length)),
   );
 
-  // Find registry entries with version > targetVersion that have completed checkpoints.
-  const toRollback = MIGRATION_REGISTRY.filter(
-    (entry) => entry.version > targetVersion && completedKeys.has(entry.key),
-  ).sort((a, b) => b.version - a.version); // reverse version order
-
-  // Forward-step checkpoints recorded by the migration runner gate whether each
-  // step re-runs on the next upgrade. A rolled-back registry-backed step clears
-  // its own memory_checkpoints entry via down(), so its step checkpoint must be
-  // discarded too — otherwise the runner skips the step on re-upgrade and the
-  // rolled-back schema is never restored. Clearing before the loop keeps this
-  // correct even if the process crashes partway through the rollback.
-  if (toRollback.length > 0) {
-    clearMigrationStepCheckpoints(database);
+  // Collect all rollback entries with version > targetVersion on completed steps.
+  // Each entry references its parent step name so we can clear the checkpoint
+  // after all rollback entries for that step have been executed.
+  interface RollbackItem {
+    stepName: string;
+    version: number;
+    description: string;
+    down: (db: DrizzleDb) => void;
   }
 
+  const toRollback: RollbackItem[] = [];
+  for (const step of steps) {
+    const obj = normalizeStep(step);
+    if (!obj.rollback) continue;
+    if (!completedStepNames.has(obj.name)) continue;
+
+    for (const entry of obj.rollback) {
+      if (entry.version > targetVersion) {
+        toRollback.push({
+          stepName: obj.name,
+          version: entry.version,
+          description: entry.description,
+          down: entry.down,
+        });
+      }
+    }
+  }
+
+  // Sort in reverse version order — children (higher version) before parents.
+  toRollback.sort((a, b) => b.version - a.version);
+
+  // Group by stepName so we only delete the checkpoint after all rollback
+  // entries for that step have been executed.
+  const stepNamesToRollback = new Set(toRollback.map((r) => r.stepName));
   const rolledBack: string[] = [];
 
-  for (const entry of toRollback) {
-    // Mark as rolling_back for crash recovery — if the process crashes here,
-    // recoverCrashedMigrations will clear this checkpoint on next startup.
+  for (const item of toRollback) {
+    const stepKey = `${STEP_CHECKPOINT_PREFIX}${item.stepName}`;
+
+    // Mark as rolling_back for crash recovery.
     raw
       .query(
-        `UPDATE memory_checkpoints SET value = 'rolling_back', updated_at = ? WHERE key = ?`,
+        `INSERT OR REPLACE INTO memory_checkpoints (key, value, updated_at) VALUES (?, 'rolling_back', ?)`,
       )
-      .run(Date.now(), entry.key);
+      .run(stepKey, Date.now());
 
-    // Execute the down migration — let it manage its own transaction lifecycle.
-    // Many down() functions call BEGIN/COMMIT internally or use PRAGMA statements
-    // that are no-ops inside a transaction.
-    entry.down(database);
-
-    // Delete the checkpoint after down() succeeds — outside any transaction
-    // so it's not affected by down()'s internal transaction management.
-    raw.query(`DELETE FROM memory_checkpoints WHERE key = ?`).run(entry.key);
+    // Execute the down migration.
+    item.down(database);
 
     log.info(
-      { key: entry.key, version: entry.version },
-      `Rolled back migration "${entry.key}" (version ${entry.version})`,
+      { step: item.stepName, version: item.version, description: item.description },
+      `Rolled back migration "${item.stepName}" (version ${item.version})`,
     );
-    rolledBack.push(entry.key);
+  }
+
+  // After all down() calls succeed, delete checkpoints for the rolled-back steps.
+  for (const stepName of stepNamesToRollback) {
+    const stepKey = `${STEP_CHECKPOINT_PREFIX}${stepName}`;
+    raw.query(`DELETE FROM memory_checkpoints WHERE key = ?`).run(stepKey);
+    rolledBack.push(stepName);
   }
 
   return rolledBack;

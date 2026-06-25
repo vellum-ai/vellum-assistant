@@ -23,12 +23,12 @@ const log = getLogger("sync-gated-profiles");
  * Reconcile flag-gated managed profiles against the current feature-flag state.
  *
  * `seedInferenceProfiles()` runs synchronously at boot before feature flags are
- * available, so the OS Beta profile (GLM 5.2 / fireworks-managed) is materialized
- * here once flags have loaded. When the `os-beta` flag is on, the managed profile
- * is created (ordered right after `balanced`); when it is off, a previously
- * managed entry is removed with `profileOrder` / `activeProfile` / `advisorProfile`
- * fallbacks. The reconcile is idempotent and never touches a user-owned profile of
- * the same name.
+ * available, so the OS Beta profile (MiniMax M3 / together-managed) is
+ * materialized here once flags have loaded. When the `os-beta` flag is on, the
+ * managed profile is created (ordered right after `balanced`); when it is off, a
+ * previously managed entry is removed with `profileOrder` / `activeProfile` /
+ * `advisorProfile` fallbacks. The reconcile is idempotent and never touches a
+ * user-owned profile of the same name.
  *
  * Returns whether the on-disk config changed.
  */
@@ -105,23 +105,22 @@ function enableProfile(
     OS_BETA_PROFILE_TEMPLATE.connectionName,
   ) as Record<string, unknown>;
 
-  // BYOK installs seed managed profiles disabled: the platform-auth
-  // `fireworks-managed` connection backing this profile isn't usable until the
-  // user enables it, so a fresh OS Beta entry starts disabled to avoid offering
-  // an unusable route. A user's own status override (preserved below) wins on
-  // later reconciles.
+  // BYOK installs seed managed profiles disabled: the managed inference
+  // connection backing this profile isn't usable until the user enables it, so a
+  // fresh OS Beta entry starts disabled to avoid offering an unusable route. A
+  // user's own status override (preserved below) wins on later reconciles.
   if (isByokMode && !previous) {
     next.status = "disabled";
   }
 
   if (previous) {
-    // The only fields a user may override on a managed profile. Carry `label`
-    // by key-presence so an explicit null (user cleared it) survives too.
+    // Preserve user-owned overrides across reconciles.
     if ("label" in previous) next.label = previous.label;
     if ("status" in previous) next.status = previous.status;
     if ("advisorEnabled" in previous) {
       next.advisorEnabled = previous.advisorEnabled;
     }
+    if ("topP" in previous) next.topP = previous.topP;
   }
 
   let changed = false;
@@ -193,7 +192,19 @@ function disableProfile(
     typeof llm.advisorProfile === "string" &&
     removed.has(llm.advisorProfile)
   ) {
-    if (readObject(profiles["quality-optimized"]) !== null) {
+    // Repoint the advisor at the managed Frontier profile (the strongest).
+    // `frontier` is seeded unconditionally every boot, so target it even if it
+    // has not been materialized yet this startup — this reconcile can run before
+    // the seeder in the boot sequence, and the later seeder won't rewrite an
+    // already-set `advisorProfile`. The exception is a user-owned profile named
+    // `frontier`: that is not ours to route to, so fall back to the
+    // always-managed Quality profile, then clear the pointer as a last resort.
+    const frontierEntry = readObject(profiles["frontier"]);
+    const frontierIsUserOwned =
+      frontierEntry !== null && frontierEntry.source !== "managed";
+    if (!frontierIsUserOwned) {
+      llm.advisorProfile = "frontier";
+    } else if (readObject(profiles["quality-optimized"]) !== null) {
       llm.advisorProfile = "quality-optimized";
     } else {
       delete llm.advisorProfile;

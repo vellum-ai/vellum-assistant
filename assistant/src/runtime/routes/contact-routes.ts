@@ -17,8 +17,6 @@ import { IpcCallError } from "@vellumai/gateway-client/ipc-client";
 import { z } from "zod";
 
 import {
-  getAssistantContactMetadata,
-  getContact,
   listContacts,
   mergeContacts,
   searchContacts,
@@ -56,8 +54,10 @@ function rethrowGatewayError(err: unknown): never {
 }
 
 function withGuardianNameOverride<
-  T extends { role: string; displayName: string },
+  T extends { role?: string; displayName: string },
 >(contact: T): T {
+  // `role` is gateway-owned: only the gateway-relayed read carries it. Daemon-
+  // native reads (search/contactType-filtered) omit it and skip the override.
   if (contact.role === "guardian") {
     return {
       ...contact,
@@ -83,7 +83,7 @@ function withChannelCompat<T extends { channels: { address: string }[] }>(
 /** Compose both response transforms (guardian display name + channel compat). */
 function prepareContactResponse<
   T extends {
-    role: string;
+    role?: string;
     displayName: string;
     channels: { address: string }[];
   },
@@ -101,6 +101,12 @@ function isContactType(value: string): value is ContactType {
 // Response schemas (drive OpenAPI spec → codegen → typed SDK)
 // ---------------------------------------------------------------------------
 
+// ACL fields (status/policy/verifiedAt/verifiedVia/revokedReason/blockedReason
+// + contact `role`) are gateway-owned and present ONLY on gateway-relayed reads
+// (`contacts_list_rich`/`contacts_get_rich`). Daemon-native filtered reads
+// (search / contactType) omit them, so they are `.optional()`. INFO telemetry
+// (lastSeenAt/interactionCount/lastInteraction) is locally hydrated on every
+// read path and stays required.
 const contactChannelSchema = z.object({
   id: z.string(),
   contactId: z.string(),
@@ -109,21 +115,21 @@ const contactChannelSchema = z.object({
   isPrimary: z.boolean(),
   /** @deprecated Echoes `address` for backwards compatibility with older macOS clients. */
   externalUserId: z.string().nullable(),
-  status: z.string(),
-  policy: z.string(),
-  verifiedAt: z.number().nullable(),
-  verifiedVia: z.string().nullable(),
+  status: z.string().optional(),
+  policy: z.string().optional(),
+  verifiedAt: z.number().nullable().optional(),
+  verifiedVia: z.string().nullable().optional(),
   lastSeenAt: z.number().nullable(),
   interactionCount: z.number(),
   lastInteraction: z.number().nullable(),
-  revokedReason: z.string().nullable(),
-  blockedReason: z.string().nullable(),
+  revokedReason: z.string().nullable().optional(),
+  blockedReason: z.string().nullable().optional(),
 });
 
 const contactSchema = z.object({
   id: z.string(),
   displayName: z.string(),
-  role: z.string(),
+  role: z.string().optional(),
   notes: z.string().nullable().optional(),
   contactType: z.string().nullable().optional(),
   lastInteraction: z.number().nullable().optional(),
@@ -139,9 +145,10 @@ const contactSchema = z.object({
 
 /**
  * Relay a non-search contact list read to the gateway (source of truth for ACL
- * fields), falling back to the assistant DB on IPC failure. Shared by the GET
- * `contacts` list and the `search_contacts` no-filter case so both serve
- * gateway-sourced data consistently.
+ * fields). Shared by the GET `contacts` list and the `search_contacts`
+ * no-filter case so both serve gateway-sourced data consistently. Fail-closed:
+ * a relay failure surfaces as an error rather than reading ACL from the
+ * assistant DB.
  */
 async function relayListContacts(
   limit: number,
@@ -158,15 +165,7 @@ async function relayListContacts(
       contacts: contacts.map(prepareContactResponse),
     };
   } catch (err) {
-    log.warn(
-      { err },
-      "relayListContacts: gateway relay failed; falling back to assistant DB",
-    );
-    const contacts = listContacts(limit, role);
-    return {
-      ok: true,
-      contacts: contacts.map(prepareContactResponse),
-    };
+    rethrowGatewayError(err);
   }
 }
 
@@ -197,7 +196,6 @@ export async function handleListContacts(queryParams: Record<string, string>) {
       query,
       channelAddress,
       channelType,
-      role,
       contactType,
       limit,
     });
@@ -215,7 +213,7 @@ export async function handleListContacts(queryParams: Record<string, string>) {
     log.debug(
       "handleListContacts: contactType-filtered read served daemon-native (gateway-native contactType filtering is design-blocked, pending ACL classification)",
     );
-    const contacts = listContacts(limit, role, contactType);
+    const contacts = listContacts(limit, contactType);
     return {
       ok: true,
       contacts: contacts.map(prepareContactResponse),
@@ -240,25 +238,10 @@ export async function handleGetContact(contactId: string) {
       assistantMetadata: assistantMetadata ?? undefined,
     };
   } catch (err) {
-    // A clean not-found is a real 404 — don't fall back or mask it.
+    // A clean not-found is a real 404. Any other relay failure fails closed
+    // rather than reading ACL from the assistant DB.
     if (err instanceof NotFoundError) throw err;
-    log.warn(
-      { err, contactId },
-      "handleGetContact: gateway relay failed; falling back to assistant DB",
-    );
-    const contact = getContact(contactId);
-    if (!contact) {
-      throw new NotFoundError(`Contact "${contactId}" not found`);
-    }
-    const assistantMeta =
-      contact.contactType === "assistant"
-        ? getAssistantContactMetadata(contact.id)
-        : undefined;
-    return {
-      ok: true,
-      contact: prepareContactResponse(contact),
-      assistantMetadata: assistantMeta ?? undefined,
-    };
+    rethrowGatewayError(err);
   }
 }
 
@@ -302,12 +285,9 @@ export async function handleCreateInvite({ body = {} }: RouteHandlerArgs) {
         note: body.note as string | undefined,
         maxUses: body.maxUses as number | undefined,
         expiresInMs: body.expiresInMs as number | undefined,
-        contactName: body.contactName as string | undefined,
         expectedExternalUserId: body.expectedExternalUserId as
           | string
           | undefined,
-        friendName: body.friendName as string | undefined,
-        guardianName: body.guardianName as string | undefined,
       },
       INVITE_CREATE_RELAY_TIMEOUT_MS,
     )) as { invite: Record<string, unknown>; rawToken?: string };
@@ -530,13 +510,10 @@ export const ROUTES: RouteDefinition[] = [
       note: z.string().describe("Optional note").optional(),
       maxUses: z.number().describe("Max redemptions").optional(),
       expiresInMs: z.number().describe("Expiry duration in ms").optional(),
-      contactName: z.string().describe("Contact display name").optional(),
       expectedExternalUserId: z
         .string()
         .describe("Expected user ID (E.164 for phone)")
         .optional(),
-      friendName: z.string().describe("Friend name for the invite").optional(),
-      guardianName: z.string().describe("Guardian name").optional(),
     }),
     responseBody: z.object({
       ok: z.boolean(),

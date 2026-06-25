@@ -760,10 +760,63 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         maxEffort: "max",
         pricing: { inputPer1mTokens: 1.74, outputPer1mTokens: 3.48 },
       },
+      {
+        id: "accounts/fireworks/models/deepseek-v4-flash",
+        displayName: "DeepSeek V4 Flash",
+        contextWindowTokens: 1040000,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: false,
+        supportsToolUse: true,
+        maxEffort: "max",
+        pricing: {
+          inputPer1mTokens: 0.14,
+          outputPer1mTokens: 0.28,
+          cacheReadPer1mTokens: 0.03,
+        },
+      },
     ],
     defaultModel: "accounts/fireworks/models/kimi-k2p5",
     apiKeyUrl: "https://fireworks.ai/account/api-keys",
     apiKeyPlaceholder: "fw_...",
+  },
+  {
+    id: "together",
+    displayName: "Together AI",
+    subtitle: "Open models served by Together AI. Requires a Together API key.",
+    setupMode: "api-key",
+    setupHint: "Enter your Together API key to enable Together models.",
+    envVar: "TOGETHER_API_KEY",
+    credentialsGuide: {
+      description: "Sign in to the Together dashboard and create an API key.",
+      url: "https://api.together.ai/settings/api-keys",
+      linkLabel: "Open Together Dashboard",
+    },
+    models: [
+      {
+        id: "MiniMaxAI/MiniMax-M3",
+        displayName: "MiniMax M3",
+        // Managed route for MiniMax M3. Together honors forced tool_choice
+        // and serializes object-typed tool args correctly. Window and pricing
+        // are from Together's published rate card.
+        contextWindowTokens: 524288,
+        maxOutputTokens: 512000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        maxEffort: "high",
+        pricing: {
+          inputPer1mTokens: 0.3,
+          outputPer1mTokens: 1.2,
+          cacheReadPer1mTokens: 0.06,
+        },
+      },
+    ],
+    defaultModel: "MiniMaxAI/MiniMax-M3",
+    apiKeyUrl: "https://api.together.ai/settings/api-keys",
+    apiKeyPlaceholder: "...",
   },
   {
     id: "openrouter",

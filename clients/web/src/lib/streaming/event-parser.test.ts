@@ -1097,6 +1097,29 @@ describe("parseAssistantEvent", () => {
     });
   });
 
+  // ---------------------------------------------------------------------
+  // conversation_notice (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses conversation_notice with billing fields", () => {
+    const event = parseEvent({
+      type: "conversation_notice",
+      conversationId: "conv-1",
+      source: "memory_v3",
+      code: "PROVIDER_BILLING",
+      userMessage: "You've run out of credits.",
+      errorCategory: "credits_exhausted",
+    });
+    expect(event).toEqual({
+      type: "conversation_notice",
+      conversationId: "conv-1",
+      source: "memory_v3",
+      code: "PROVIDER_BILLING",
+      userMessage: "You've run out of credits.",
+      errorCategory: "credits_exhausted",
+    });
+  });
+
   test("parses interaction_resolved with explicit conversationId", () => {
     const event = parseEvent({
       type: "interaction_resolved",
@@ -1563,51 +1586,6 @@ describe("parseAssistantEvent", () => {
         surfaceId: "surface-1",
         markdown: "body",
         mode: "replace",
-      });
-      expect(event.type).toBe("unknown");
-    });
-  });
-
-  describe("turn_profile_auto_routed", () => {
-    test("parses an auto-routed profile notification", () => {
-      const event = parseEvent({
-        type: "turn_profile_auto_routed",
-        conversationId: "conv-1",
-        profile: "quality-optimized",
-        profileLabel: "Quality",
-      });
-      expect(event).toEqual({
-        type: "turn_profile_auto_routed",
-        conversationId: "conv-1",
-        profile: "quality-optimized",
-        profileLabel: "Quality",
-      });
-    });
-
-    test("strips the legacy conversationKey field (strip-mode)", () => {
-      // GIVEN a payload still carrying the legacy conversationKey field
-      // the daemon no longer emits
-      const event = parseEvent({
-        type: "turn_profile_auto_routed",
-        conversationId: "conv-1",
-        profile: "quality-optimized",
-        profileLabel: "Quality",
-        conversationKey: "legacy-key",
-      });
-      // THEN it is discarded by strip-mode
-      expect(event).toEqual({
-        type: "turn_profile_auto_routed",
-        conversationId: "conv-1",
-        profile: "quality-optimized",
-        profileLabel: "Quality",
-      });
-    });
-
-    test("falls through to unknown when profileLabel is missing", () => {
-      const event = parseEvent({
-        type: "turn_profile_auto_routed",
-        conversationId: "conv-1",
-        profile: "quality-optimized",
       });
       expect(event.type).toBe("unknown");
     });

@@ -5,7 +5,10 @@ import {
   ChevronRight,
   KeyRound,
   Loader2,
+  LogIn,
+  LogOut,
   Power,
+  RefreshCw,
   Trash2,
 } from "lucide-react";
 import { useCallback, useState } from "react";
@@ -13,6 +16,7 @@ import { useCallback, useState } from "react";
 import type { McpServerEntry, McpToolsSummaryServer } from "./mcp-api";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
+import { ListRow } from "@vellumai/design-library/components/list-row";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 const STATUS_CONFIG: Record<string, { icon: typeof CheckCircle2; label: string; className: string }> = {
@@ -29,7 +33,11 @@ interface McpServerCardProps {
   onToggleEnabled: (serverId: string, enabled: boolean) => void;
   onRemove: (serverId: string) => void;
   onConfigure: (serverId: string) => void;
+  onAuthenticate: (serverId: string) => void;
+  onRevokeOAuth: (serverId: string) => void;
   isUpdating: boolean;
+  isAuthenticating: boolean;
+  isRevoking: boolean;
 }
 
 export function McpServerCard({
@@ -38,7 +46,11 @@ export function McpServerCard({
   onToggleEnabled,
   onRemove,
   onConfigure,
+  onAuthenticate,
+  onRevokeOAuth,
   isUpdating,
+  isAuthenticating,
+  isRevoking,
 }: McpServerCardProps) {
   const [toolsExpanded, setToolsExpanded] = useState(false);
   const statusInfo = STATUS_CONFIG[server.status] ?? DEFAULT_STATUS;
@@ -57,6 +69,16 @@ export function McpServerCard({
   const handleConfigure = useCallback(
     () => onConfigure(server.id),
     [onConfigure, server.id],
+  );
+
+  const handleAuthenticate = useCallback(
+    () => onAuthenticate(server.id),
+    [onAuthenticate, server.id],
+  );
+
+  const handleRevokeOAuth = useCallback(
+    () => onRevokeOAuth(server.id),
+    [onRevokeOAuth, server.id],
   );
 
   const toggleToolsExpanded = useCallback(
@@ -78,6 +100,11 @@ export function McpServerCard({
                   <StatusIcon className="h-3.5 w-3.5" />
                   {statusInfo.label}
                 </span>
+                {server.hasOAuth ? (
+                  <span className="rounded-full bg-[var(--surface-lift)] px-2 py-0.5 text-label-small-default text-[var(--content-secondary)]">
+                    OAuth
+                  </span>
+                ) : null}
               </div>
               <div className="mt-0.5 flex items-center gap-2 text-body-small-default text-[var(--content-tertiary)]">
                 <span>{server.transport.type}</span>
@@ -96,8 +123,43 @@ export function McpServerCard({
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
-            {isUpdating ? (
+            {isUpdating || isAuthenticating ? (
               <Loader2 className="h-4 w-4 animate-spin text-[var(--content-tertiary)]" />
+            ) : null}
+            {server.status === "needs-auth" && server.transport.type !== "stdio" && !server.hasOAuth ? (
+              <Button
+                variant="ghost"
+                size="compact"
+                leftIcon={<LogIn />}
+                onClick={handleAuthenticate}
+                disabled={isAuthenticating}
+              >
+                {isAuthenticating ? "Authenticating..." : "Authenticate"}
+              </Button>
+            ) : null}
+            {server.hasOAuth ? (
+              <>
+                <Button
+                  variant="ghost"
+                  size="compact"
+                  leftIcon={<RefreshCw />}
+                  onClick={handleAuthenticate}
+                  disabled={isAuthenticating}
+                  tooltip="Re-authenticate OAuth"
+                >
+                  Re-auth
+                </Button>
+                <Button
+                  variant="dangerGhost"
+                  size="compact"
+                  leftIcon={<LogOut />}
+                  onClick={handleRevokeOAuth}
+                  disabled={isRevoking}
+                  tooltip="Revoke OAuth credentials"
+                >
+                  {isRevoking ? "Revoking..." : "Revoke"}
+                </Button>
+              </>
             ) : null}
             <Toggle
               checked={server.enabled}
@@ -140,22 +202,18 @@ export function McpServerCard({
             </button>
 
             {toolsExpanded ? (
-              <div className="mt-2 max-h-60 space-y-1 overflow-y-auto">
+              <div className="mt-2 max-h-60 overflow-y-auto">
                 {toolsSummary.tools.map((tool) => (
-                  <div
+                  <ListRow
                     key={tool.name}
-                    className="flex items-center justify-between rounded px-2 py-1 text-body-small-default hover:bg-[var(--ghost-hover)]"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <span className="font-medium text-[var(--content-default)]">{tool.name}</span>
-                      {tool.description ? (
-                        <p className="truncate text-[var(--content-tertiary)]">{tool.description}</p>
-                      ) : null}
-                    </div>
-                    <span className="shrink-0 text-[var(--content-tertiary)]">
-                      ~{tool.estimatedTokens.toLocaleString()} tok
-                    </span>
-                  </div>
+                    title={tool.name}
+                    subtitle={tool.description || undefined}
+                    trailing={
+                      <span className="whitespace-nowrap text-body-small-default text-[var(--content-secondary)]">
+                        ~{tool.estimatedTokens.toLocaleString()} tok
+                      </span>
+                    }
+                  />
                 ))}
               </div>
             ) : null}

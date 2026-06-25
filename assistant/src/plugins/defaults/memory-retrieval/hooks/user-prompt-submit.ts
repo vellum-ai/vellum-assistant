@@ -28,7 +28,7 @@
  */
 
 import type {
-  PluginHookFn,
+  HookFunction,
   UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
 
@@ -264,7 +264,7 @@ function persistInjectionBlocks(
  * slower turn. Cancellation still works via `ctx.signal`, which is threaded
  * into `prepareMemory`.
  */
-const userPromptSubmitMemoryRetrieval: PluginHookFn<
+const userPromptSubmitMemoryRetrieval: HookFunction<
   UserPromptSubmitContext
 > = async (ctx) => {
   // The conversation-scoped retrieval state — graph handle, abort signal, and
@@ -278,7 +278,6 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
     resolveTrustClass(conversation?.trustContext) === "guardian";
   const actorContext = resolveTurnInboundActorContext(
     conversation?.trustContext,
-    conversation?.assistantId,
   );
 
   // v2 graph retrieval is the deprecated path: `shouldRunV2Retrieval` skips it

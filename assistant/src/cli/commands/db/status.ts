@@ -31,6 +31,7 @@ import type { Command } from "commander";
 import { getLogsDbPath } from "../../../util/logs-db-path.js";
 import { getMemoryDbPath } from "../../../util/memory-db-path.js";
 import { getDbPath } from "../../../util/platform.js";
+import { getTelemetryDbPath } from "../../../util/telemetry-db-path.js";
 import { red } from "../../lib/cli-colors.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 import {
@@ -99,6 +100,15 @@ interface StatusReport {
    */
   memoryFile?: FileFacts;
   memoryDb?: DbFacts | null;
+  /**
+   * The dedicated telemetry database (`assistant-telemetry.db`). Like
+   * `logsFile` and `memoryFile`, it is omitted from the report until the file
+   * exists on disk — it is created the first time the daemon opens its
+   * connection, so a fresh install that has never run the daemon won't have
+   * one.
+   */
+  telemetryFile?: FileFacts;
+  telemetryDb?: DbFacts | null;
 }
 
 interface MigrationSummary {
@@ -327,6 +337,13 @@ function renderHuman(report: StatusReport): string {
     out += renderDbBlock(report.memoryFile, report.memoryDb ?? null);
   }
 
+  // The secondary telemetry file is likewise only reported once it exists.
+  if (report.telemetryFile?.exists) {
+    out += "\n";
+    out += "Telemetry database (telemetry event tables)\n";
+    out += renderDbBlock(report.telemetryFile, report.telemetryDb ?? null);
+  }
+
   // Cross-database migration summary — the checkpoint ledger lives only in
   // the main DB, so this is a single block at the end covering all three.
   out += renderSummary(report.migration);
@@ -409,7 +426,13 @@ function readMigrationSummary(mainDbPath: string): MigrationSummary | null {
       // No table yet.
     }
 
-    return { latestKey, latestUpdatedAtMs, appliedSteps, appliedRegistry, crashed };
+    return {
+      latestKey,
+      latestUpdatedAtMs,
+      appliedSteps,
+      appliedRegistry,
+      crashed,
+    };
   } finally {
     db.close();
   }
@@ -519,6 +542,17 @@ export function registerDbStatus(parent: Command): void {
         }
       }
 
+      // Same best-effort probe for the dedicated telemetry DB.
+      const telemetryFile = readFileFacts(getTelemetryDbPath());
+      let telemetryDb: DbFacts | null = null;
+      if (telemetryFile.exists) {
+        try {
+          telemetryDb = readDbFacts(telemetryFile.path);
+        } catch {
+          telemetryDb = null;
+        }
+      }
+
       // Cross-database migration summary from the main DB's checkpoint ledger.
       let migration: MigrationSummary | null = null;
       try {
@@ -535,6 +569,8 @@ export function registerDbStatus(parent: Command): void {
         logsDb,
         memoryFile,
         memoryDb,
+        telemetryFile,
+        telemetryDb,
       };
       if (shouldOutputJson(this)) {
         writeOutput(this, report);

@@ -5,7 +5,6 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { captureError } from "@/lib/sentry/capture-error";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -15,10 +14,8 @@ import { ByoServiceCard, SaveButton } from "@/domains/settings/ai/shared-ui";
 import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
 import { CallSiteOverridesModal } from "@/domains/settings/ai/call-site-overrides-modal";
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";
-import { AUTO_PROFILE_KEY } from "@vellumai/assistant-api";
 import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal";
 import {
-  gateAutoProfile,
   profilePickerLabel,
   visibleProfilesForPicker,
 } from "@/assistant/profile-pickers";
@@ -75,28 +72,17 @@ export function LanguageModelCard() {
   const [overridesOpen, setOverridesOpen] = useState(false);
   const [manageProvidersOpen, setManageProvidersOpen] = useState(false);
 
-  const queryComplexityRoutingEnabled =
-    useAssistantFeatureFlagStore.use.queryComplexityRouting();
-
   const defaultProfilePickerEntries = useMemo(
-    () =>
-      gateAutoProfile(
-        visibleProfilesForPicker(orderedProfiles, [effectiveActiveProfile]),
-        queryComplexityRoutingEnabled,
-      ),
-    [orderedProfiles, effectiveActiveProfile, queryComplexityRoutingEnabled],
+    () => visibleProfilesForPicker(orderedProfiles, [effectiveActiveProfile]),
+    [orderedProfiles, effectiveActiveProfile],
   );
 
   // Advisor Profile picker reuses the same option source as the Default
   // Profile dropdown; the current advisor selection stays visible even if
   // disabled so the trigger can render its label.
   const advisorProfilePickerEntries = useMemo(
-    () =>
-      gateAutoProfile(
-        visibleProfilesForPicker(orderedProfiles, [effectiveAdvisorProfile]),
-        queryComplexityRoutingEnabled,
-      ),
-    [orderedProfiles, effectiveAdvisorProfile, queryComplexityRoutingEnabled],
+    () => visibleProfilesForPicker(orderedProfiles, [effectiveAdvisorProfile]),
+    [orderedProfiles, effectiveAdvisorProfile],
   );
 
   const overrideCount = Object.entries(callSites).filter(
@@ -162,21 +148,9 @@ export function LanguageModelCard() {
               placeholder="Select a default profile…"
               options={defaultProfilePickerEntries.map((p) => ({
                 value: p.name,
-                label:
-                  p.name === AUTO_PROFILE_KEY
-                    ? "Automatically switch between profiles"
-                    : profilePickerLabel(p),
+                label: profilePickerLabel(p),
               }))}
             />
-            {queryComplexityRoutingEnabled &&
-              effectiveActiveProfile === AUTO_PROFILE_KEY && (
-                <div className="flex items-center gap-2 rounded-lg bg-[var(--surface-warning-subtle)] px-3 py-2">
-                  <span className="text-body-small-default text-[var(--content-warning)]">
-                    Auto may use more powerful models when needed, which can
-                    increase costs.
-                  </span>
-                </div>
-              )}
             {defaultProfilePickerEntries.length === 0 ? (
               <Typography
                 variant="body-small-default"
@@ -200,10 +174,7 @@ export function LanguageModelCard() {
               placeholder="Select an advisor profile…"
               options={advisorProfilePickerEntries.map((p) => ({
                 value: p.name,
-                label:
-                  p.name === AUTO_PROFILE_KEY
-                    ? "Automatically switch between profiles"
-                    : profilePickerLabel(p),
+                label: profilePickerLabel(p),
               }))}
             />
             <Typography

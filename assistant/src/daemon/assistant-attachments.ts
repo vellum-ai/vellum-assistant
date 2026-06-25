@@ -256,6 +256,111 @@ export function parseDirectives(text: string): DirectiveParseResult {
   };
 }
 
+// ---------------------------------------------------------------------------
+// vellum:// markdown link extraction
+// ---------------------------------------------------------------------------
+
+/**
+ * Match markdown links with `vellum://workspace/` or `vellum://host/` URLs.
+ *
+ * Captures:
+ *   [1] = link text (filename)
+ *   [2] = scheme authority: "workspace" or "host"
+ *   [3] = path after the authority
+ *
+ * The link text is NOT stripped from the assistant's message — unlike
+ * `<vellum-attachment />` tags, the markdown link is valid user-facing
+ * content that renders as a clickable download link.
+ */
+const VELLUM_LINK_RE = /\[([^\]]+)\]\(vellum:\/\/(workspace|host)(\/[^)]*)\)/g;
+
+interface VellumLinkExtractResult {
+  directiveRequests: DirectiveRequest[];
+  parseWarnings: string[];
+}
+
+/**
+ * Extract `[text](vellum://workspace/path)` and `[text](vellum://host/path)`
+ * markdown links from assistant text and return corresponding directive
+ * requests. The text is NOT modified — the links remain as rendered markdown.
+ */
+/**
+ * Decode a vellum:// path segment, returning null on malformed percent-encoding
+ * (e.g. a literal `%` not followed by two hex digits). This prevents a single
+ * bad link from throwing URIError and aborting the entire assistant message.
+ */
+function safeDecodePath(rawPath: string): string | null {
+  try {
+    return decodeURIComponent(rawPath);
+  } catch {
+    return null;
+  }
+}
+
+export function extractVellumLinks(text: string): VellumLinkExtractResult {
+  const directiveRequests: DirectiveRequest[] = [];
+  const parseWarnings: string[] = [];
+
+  let m: RegExpExecArray | null;
+  while ((m = VELLUM_LINK_RE.exec(text)) != null) {
+    const linkText = m[1]!;
+    const authority = m[2]!;
+    const rawPath = m[3]!;
+
+    const decodedPath = safeDecodePath(rawPath);
+    if (decodedPath === null) {
+      parseWarnings.push(
+        `Ignored vellum://${authority} link "${linkText}": malformed percent-encoding in path.`,
+      );
+      continue;
+    }
+
+    if (authority === "workspace") {
+      // Strip the leading "/" to get a workspace-relative path
+      const path = decodedPath.startsWith("/")
+        ? decodedPath.slice(1)
+        : decodedPath;
+      if (!path) {
+        parseWarnings.push(
+          `Ignored vellum://workspace link "${linkText}": empty path.`,
+        );
+        continue;
+      }
+      directiveRequests.push({
+        source: "sandbox",
+        path,
+        filename: linkText || undefined,
+        mimeType: undefined,
+      });
+    } else {
+      // host: decodedPath is already absolute (starts with /)
+      if (!decodedPath || decodedPath === "/") {
+        parseWarnings.push(
+          `Ignored vellum://host link "${linkText}": empty path.`,
+        );
+        continue;
+      }
+      directiveRequests.push({
+        source: "host",
+        path: decodedPath,
+        filename: linkText || undefined,
+        mimeType: undefined,
+      });
+    }
+  }
+
+  return { directiveRequests, parseWarnings };
+}
+
+/**
+ * Replace `[text](vellum://...)` markdown links with their link text.
+ * Used to sanitize text before channel delivery (Slack, Telegram, etc.)
+ * where the `vellum://` scheme has no meaning.
+ */
+export function stripVellumLinks(text: string): string {
+  return text.replace(VELLUM_LINK_RE, "$1");
+}
+
 /**
  * Drain streamed assistant text while stripping only valid, complete
  * self-closing `<vellum-attachment ... />` directives.
@@ -707,10 +812,18 @@ export function cleanAssistantContent(content: readonly unknown[]): {
       const b = block as Record<string, unknown>;
       if (b.type !== "text") return block;
       const text = b.text as string;
-      // Only run the directive parser when the text actually contains a
-      // potential tag. This avoids unintentional whitespace normalisation
-      // (parseDirectives trims and collapses blank lines) on plain messages.
-      if (!text.includes("<vellum-attachment")) return block;
+
+      // Extract vellum:// markdown links (non-destructive — links stay in text)
+      if (text.includes("vellum://")) {
+        const linkResult = extractVellumLinks(text);
+        directives.push(...linkResult.directiveRequests);
+        warnings.push(...linkResult.parseWarnings);
+      }
+
+      // Strip legacy <vellum-attachment /> tags from the text
+      if (!text.includes("<vellum-attachment")) {
+        return block;
+      }
       const result = parseDirectives(text);
       directives.push(...result.directiveRequests);
       warnings.push(...result.parseWarnings);

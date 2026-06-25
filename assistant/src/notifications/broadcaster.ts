@@ -11,6 +11,7 @@
 
 import { v4 as uuid } from "uuid";
 
+import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
 import { getConversation } from "../memory/conversation-crud.js";
 import type { ApprovalUIMetadata } from "../runtime/channel-approval-types.js";
 import { getLogger } from "../util/logger.js";
@@ -171,7 +172,13 @@ export class NotificationBroadcaster {
     decision: NotificationDecision,
     options?: BroadcastDecisionOptions,
   ): Promise<NotificationDeliveryResult[]> {
-    const destinations = resolveDestinations(decision.selectedChannels);
+    // Pull the guardian list once so the resolver stays pure. A null list
+    // (gateway unreachable) falls back to the local contacts read.
+    const guardians = await getGuardianDelivery();
+    const destinations = resolveDestinations(
+      decision.selectedChannels,
+      guardians,
+    );
 
     // Ensure vellum is processed first so the notification_conversation_created
     // event fires immediately, before slower channel sends (e.g. Telegram 30s

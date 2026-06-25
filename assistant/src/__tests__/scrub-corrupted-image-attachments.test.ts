@@ -245,14 +245,6 @@ describe("migrateScrubCorruptedImageAttachments", () => {
       .query(`SELECT COUNT(*) AS count FROM message_attachments`)
       .get() as { count: number };
     expect(linkCount.count).toBe(0);
-
-    // The checkpoint should be set to '1' (completed)
-    const checkpoint = raw
-      .query(
-        `SELECT value FROM memory_checkpoints WHERE key = 'migration_scrub_corrupted_image_attachments_v1'`,
-      )
-      .get() as { value: string } | null;
-    expect(checkpoint?.value).toBe("1");
   });
 
   test("skips non-image MIME types", () => {

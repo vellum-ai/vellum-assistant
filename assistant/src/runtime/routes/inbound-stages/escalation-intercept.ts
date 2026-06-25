@@ -13,8 +13,8 @@ import { storePayload } from "../../../memory/delivery-crud.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
 import { getLogger } from "../../../util/logger.js";
 import { getGuardianBinding } from "../../channel-verification-service.js";
+import type { VerdictMember } from "../../trust-verdict-consumer.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "../channel-route-shared.js";
-import type { ResolvedMember } from "./acl-enforcement.js";
 
 const log = getLogger("runtime-http");
 
@@ -23,7 +23,7 @@ const log = getLogger("runtime-http");
 // ---------------------------------------------------------------------------
 
 export interface EscalationInterceptParams {
-  resolvedMember: ResolvedMember | null;
+  resolvedMember: VerdictMember | null;
   canonicalAssistantId: string;
   sourceChannel: ChannelId;
   sourceInterface: InterfaceId;
@@ -49,9 +49,9 @@ export interface EscalationInterceptParams {
  * Returns a Response if the escalation was handled (the pipeline should
  * short-circuit), or null to continue the pipeline.
  */
-export function handleEscalationIntercept(
+export async function handleEscalationIntercept(
   params: EscalationInterceptParams,
-): Record<string, unknown> | null {
+): Promise<Record<string, unknown> | null> {
   const {
     resolvedMember,
     canonicalAssistantId,
@@ -72,15 +72,15 @@ export function handleEscalationIntercept(
     rawSenderId,
   } = params;
 
-  if (resolvedMember?.channel.policy !== "escalate") {
+  if (resolvedMember?.policy !== "escalate") {
     return null;
   }
 
-  const binding = getGuardianBinding(canonicalAssistantId, sourceChannel);
+  const binding = await getGuardianBinding(canonicalAssistantId, sourceChannel);
   if (!binding) {
     // Fail-closed: can't escalate without a guardian to route to
     log.info(
-      { sourceChannel, channelId: resolvedMember.channel.id },
+      { sourceChannel, channelId: resolvedMember.channelId },
       "Ingress ACL: escalate policy but no guardian binding, denying",
     );
     return {

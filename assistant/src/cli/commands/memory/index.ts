@@ -1,8 +1,10 @@
 import type { Command } from "commander";
 
 import { registerCommand } from "../../lib/register-command.js";
+import { registerMemoryRetrospectiveCommand } from "./memory-retrospective.js";
 import { registerMemoryV2Command } from "./memory-v2.js";
 import { registerMemoryV3Command } from "./memory-v3.js";
+import { registerMemoryWorkerCommand } from "./worker.js";
 
 export function registerMemoryCommand(program: Command): void {
   registerCommand(program, {
@@ -25,6 +27,8 @@ Examples:
 
       registerMemoryV2Command(memory);
       registerMemoryV3Command(memory);
+      registerMemoryRetrospectiveCommand(memory);
+      registerMemoryWorkerCommand(memory);
     },
   });
 }

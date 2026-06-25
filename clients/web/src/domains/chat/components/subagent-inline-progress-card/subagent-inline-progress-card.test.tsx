@@ -2,9 +2,10 @@
  * Tests for `SubagentInlineProgressCard`.
  *
  * Drives the Zustand subagent store with fixture timelines and asserts
- * the rendered shell's title/info/pill transitions, the spawn-race
- * `null` fallback, and the deterministic avatar trait variation across
- * subagent IDs.
+ * the rendered row's title/info/step-count transitions, the
+ * steps-before-stop DOM order, the transparent-with-hover row chrome, the
+ * spawn-race `null` fallback, and the deterministic avatar trait variation
+ * across subagent IDs.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -47,7 +48,7 @@ describe("SubagentInlineProgressCard — spawn race", () => {
 });
 
 describe("SubagentInlineProgressCard — fixture timeline", () => {
-  test("shows Thinking title with text preview while a text event is the latest", () => {
+  test("titles the card with the subagent task name, with the live text preview as subtitle", () => {
     spawn("sa-1");
     useSubagentStore.getState().receiveEvent({
       subagentId: "sa-1",
@@ -59,11 +60,13 @@ describe("SubagentInlineProgressCard — fixture timeline", () => {
       <SubagentInlineProgressCard subagentId="sa-1" />,
     );
 
-    expect(getByText("Thinking")).toBeTruthy();
+    // Title is the subagent's task name (not the derived "Thinking" status);
+    // the live reasoning preview moves to the subtitle.
+    expect(getByText("Research Agent")).toBeTruthy();
     expect(getByText("Checking the docs")).toBeTruthy();
-    // Single-step cards suppress the count pill — it only shows for 2+.
+    // Single-step rows suppress the step count — it only shows for 2+.
     expect(queryByText("1 step")).toBeNull();
-    expect(getByTestId("subagent-inline-card-shell")).toBeTruthy();
+    expect(getByTestId("subagent-inline-progress-card")).toBeTruthy();
   });
 
   test("transitions to Working when a tool_call lands after text", () => {
@@ -87,7 +90,8 @@ describe("SubagentInlineProgressCard — fixture timeline", () => {
     const { getByText } = render(
       <SubagentInlineProgressCard subagentId="sa-2" />,
     );
-    expect(getByText("Working")).toBeTruthy();
+    // Title stays the task name; the running tool's detail is the subtitle.
+    expect(getByText("Research Agent")).toBeTruthy();
     expect(getByText("ls -la")).toBeTruthy();
     expect(getByText("2 steps")).toBeTruthy();
   });
@@ -118,7 +122,9 @@ describe("SubagentInlineProgressCard — fixture timeline", () => {
     const { getByText, queryByText } = render(
       <SubagentInlineProgressCard subagentId="sa-3" />,
     );
-    expect(getByText("Used File Read")).toBeTruthy();
+    // Title is the task name even for a completed subagent (the derived
+    // "Used File Read" status is no longer the title).
+    expect(getByText("Research Agent")).toBeTruthy();
     // Single-step cards suppress the count pill.
     expect(queryByText("1 step")).toBeNull();
   });
@@ -135,7 +141,7 @@ describe("SubagentInlineProgressCard — fixture timeline", () => {
 });
 
 describe("SubagentInlineProgressCard — header action", () => {
-  test("clicking the header row invokes onSubagentClick", () => {
+  test("clicking the open affordance invokes onSubagentClick", () => {
     spawn("sa-open");
     const seen: string[] = [];
     const { getByRole } = render(
@@ -144,10 +150,37 @@ describe("SubagentInlineProgressCard — header action", () => {
         onSubagentClick={(id) => seen.push(id)}
       />,
     );
-    // The whole header row IS the open affordance — no separate icon
-    // button anymore. The shell uses the aria-label we passed through.
+    // The leading content cluster carries role="button" + the open
+    // aria-label; the outer row is a plain div.
     fireEvent.click(getByRole("button", { name: /open subagent/i }));
     expect(seen).toEqual(["sa-open"]);
+  });
+
+  test("Enter on the open affordance opens the panel, but Enter from the stop button does not", () => {
+    spawn("sa-keydown");
+    const seen: string[] = [];
+    const { getByRole, getByTestId } = render(
+      <SubagentInlineProgressCard
+        subagentId="sa-keydown"
+        onSubagentClick={(id) => seen.push(id)}
+        onStopSubagent={() => {}}
+      />,
+    );
+
+    const openAffordance = getByRole("button", { name: /open subagent/i });
+    const stop = getByTestId("subagent-inline-card-stop");
+
+    // The stop button is a sibling of the open affordance, not a descendant,
+    // so its keydown never reaches the open handler.
+    expect(openAffordance.contains(stop)).toBe(false);
+
+    // Enter originating on the stop button must not open the panel.
+    fireEvent.keyDown(stop, { key: "Enter" });
+    expect(seen).toEqual([]);
+
+    // Enter on the open affordance opens the panel.
+    fireEvent.keyDown(openAffordance, { key: "Enter" });
+    expect(seen).toEqual(["sa-keydown"]);
   });
 
   test("no expand toggle is exposed — there is no inline body", () => {
@@ -188,6 +221,50 @@ describe("SubagentInlineProgressCard — header action", () => {
       });
     });
     expect(queryByTestId("subagent-inline-card-stop")).toBeNull();
+  });
+
+  test("step count renders before the stop button in DOM order", () => {
+    spawn("sa-order");
+    const store = useSubagentStore.getState();
+    // Two steps so the step count is shown (single-step rows suppress it).
+    store.receiveEvent({
+      subagentId: "sa-order",
+      event: { type: "assistant_text_delta", text: "Searching" },
+      timestamp: NOW + 100,
+    });
+    store.receiveEvent({
+      subagentId: "sa-order",
+      event: {
+        type: "tool_use_start",
+        toolName: "bash",
+        input: { command: "ls -la" },
+      },
+      timestamp: NOW + 200,
+    });
+
+    const { getByTestId } = render(
+      <SubagentInlineProgressCard
+        subagentId="sa-order"
+        onStopSubagent={() => {}}
+      />,
+    );
+
+    const stepCount = getByTestId("subagent-inline-card-step-count");
+    const stop = getByTestId("subagent-inline-card-stop");
+    // The step count precedes the stop button in the rendered DOM.
+    expect(
+      stepCount.compareDocumentPosition(stop) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  test("the row is transparent by default and paints surface-active on hover", () => {
+    spawn("sa-hover");
+    const { getByTestId } = render(
+      <SubagentInlineProgressCard subagentId="sa-hover" />,
+    );
+    const row = getByTestId("subagent-inline-progress-card");
+    expect(row.className).toContain("hover:bg-[var(--surface-active)]");
   });
 });
 
