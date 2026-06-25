@@ -1,0 +1,185 @@
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { makeMockLogger } from "./helpers/mock-logger.js";
+
+mock.module("../util/logger.js", () => ({
+  getLogger: () => makeMockLogger(),
+}));
+
+let rawConfig: Record<string, unknown> = {};
+let savedRawConfig: Record<string, unknown> | null = null;
+
+function deepMerge(
+  target: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): void {
+  for (const [key, value] of Object.entries(patch)) {
+    if (
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      target[key] !== null &&
+      typeof target[key] === "object" &&
+      !Array.isArray(target[key])
+    ) {
+      deepMerge(
+        target[key] as Record<string, unknown>,
+        value as Record<string, unknown>,
+      );
+    } else {
+      target[key] = value;
+    }
+  }
+}
+
+function setNestedValue(
+  obj: Record<string, unknown>,
+  path: string,
+  value: unknown,
+): void {
+  const keys = path.split(".");
+  let current = obj;
+  for (const key of keys.slice(0, -1)) {
+    if (
+      current[key] === null ||
+      typeof current[key] !== "object" ||
+      Array.isArray(current[key])
+    ) {
+      current[key] = {};
+    }
+    current = current[key] as Record<string, unknown>;
+  }
+  current[keys[keys.length - 1]!] = value;
+}
+
+mock.module("../config/loader.js", () => ({
+  loadRawConfig: () => structuredClone(rawConfig),
+  saveRawConfig: (raw: Record<string, unknown>) => {
+    savedRawConfig = structuredClone(raw);
+  },
+  deepMergeOverwrite: deepMerge,
+  fillContextDefaultsForMissingKeys: () => {},
+  getConfig: () => structuredClone(savedRawConfig ?? rawConfig),
+  getDeploymentContextDefaults: () => ({}),
+  invalidateConfigCache: () => {},
+  setNestedValue,
+  withSuppressedConfigDiskWrites: async (fn: () => unknown) => fn(),
+  withSuppressedConfigDiskWritesSync: (fn: () => unknown) => fn(),
+}));
+
+mock.module("../daemon/config-watcher.js", () => ({
+  getConfigWatcher: () => ({
+    suppressConfigReload: false,
+    timers: { schedule: () => {} },
+    updateFingerprint: () => {},
+  }),
+}));
+
+mock.module("../providers/registry.js", () => ({
+  initializeProviders: async () => {},
+}));
+
+mock.module("../memory/embedding-backend.js", () => ({
+  clearEmbeddingBackendCache: () => {},
+}));
+
+mock.module("../security/secret-allowlist.js", () => ({
+  validateAllowlistFile: () => null,
+}));
+
+import { ROUTES } from "../runtime/routes/conversation-query-routes.js";
+import { BadRequestError } from "../runtime/routes/errors.js";
+
+function findRoute(operationId: string) {
+  const route = ROUTES.find((r) => r.operationId === operationId);
+  if (!route) throw new Error(`Route not found: ${operationId}`);
+  return route;
+}
+
+const configGetRoute = findRoute("config_get");
+const configPatchRoute = findRoute("config_patch");
+const configSetRoute = findRoute("config_set");
+
+describe("MCP config secret boundary", () => {
+  beforeEach(() => {
+    rawConfig = {};
+    savedRawConfig = null;
+  });
+
+  test("config_get omits legacy MCP transport headers from settings-read responses", () => {
+    rawConfig = {
+      mcp: {
+        servers: {
+          remote: {
+            transport: {
+              type: "streamable-http",
+              url: "https://mcp.example.com",
+              headers: {
+                Authorization: "Bearer mcp-secret",
+                "X-API-Key": "mcp-api-secret",
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const result = configGetRoute.handler({}) as Record<string, unknown>;
+
+    expect(JSON.stringify(result)).not.toContain("mcp-secret");
+    expect(JSON.stringify(result)).not.toContain("mcp-api-secret");
+    const mcp = result.mcp as {
+      servers: { remote: { transport: Record<string, unknown> } };
+    };
+    expect(mcp.servers.remote.transport).toEqual({
+      type: "streamable-http",
+      url: "https://mcp.example.com",
+    });
+  });
+
+  test("config_patch rejects MCP transport headers so generic writes cannot reintroduce plaintext credentials", async () => {
+    await expect(
+      configPatchRoute.handler({
+        body: {
+          mcp: {
+            servers: {
+              remote: {
+                transport: {
+                  type: "streamable-http",
+                  url: "https://mcp.example.com",
+                  headers: { Authorization: "Bearer mcp-secret" },
+                },
+              },
+            },
+          },
+        },
+      }),
+    ).rejects.toThrow(BadRequestError);
+    expect(savedRawConfig).toBeNull();
+  });
+
+  test("config_set rejects direct MCP transport header paths", async () => {
+    rawConfig = {
+      mcp: {
+        servers: {
+          remote: {
+            transport: {
+              type: "streamable-http",
+              url: "https://mcp.example.com",
+            },
+          },
+        },
+      },
+    };
+
+    await expect(
+      configSetRoute.handler({
+        body: {
+          path: "mcp.servers.remote.transport.headers.Authorization",
+          value: "Bearer mcp-secret",
+        },
+      }),
+    ).rejects.toThrow(BadRequestError);
+    expect(savedRawConfig).toBeNull();
+  });
+});

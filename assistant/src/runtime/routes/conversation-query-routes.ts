@@ -486,6 +486,41 @@ function readPlainObject(value: unknown): Record<string, unknown> | undefined {
   return value as Record<string, unknown>;
 }
 
+function sanitizeMcpTransportHeadersForSettingsRead(config: unknown): void {
+  const root = readPlainObject(config);
+  if (!root) return;
+  const mcp = readPlainObject(root.mcp);
+  const servers = readPlainObject(mcp?.servers);
+  if (!servers) return;
+
+  for (const server of Object.values(servers)) {
+    const serverConfig = readPlainObject(server);
+    const transport = readPlainObject(serverConfig?.transport);
+    if (!transport) continue;
+    delete transport.headers;
+  }
+}
+
+function patchContainsMcpTransportHeaders(patch: unknown): boolean {
+  const root = readPlainObject(patch);
+  const mcp = readPlainObject(root?.mcp);
+  const servers = readPlainObject(mcp?.servers);
+  if (!servers) return false;
+
+  return Object.values(servers).some((server) => {
+    const serverConfig = readPlainObject(server);
+    const transport = readPlainObject(serverConfig?.transport);
+    return transport ? Object.hasOwn(transport, "headers") : false;
+  });
+}
+
+function rejectMcpTransportHeaderWrite(patch: unknown): void {
+  if (!patchContainsMcpTransportHeaders(patch)) return;
+  throw new BadRequestError(
+    "MCP authentication headers must be managed through MCP server add/update APIs, not generic config writes.",
+  );
+}
+
 const WireProfileEntry = ProfileEntry.extend({
   supportsVision: z.boolean().optional(),
 })
@@ -688,6 +723,7 @@ const ConfigPatchRequestSchema = z
 function handleGetConfig() {
   try {
     const config = applyContextDefaultsToRawConfig(loadRawConfig());
+    sanitizeMcpTransportHeadersForSettingsRead(config);
     enrichProfilesWithVisionFlag(config);
     return config;
   } catch (err) {
@@ -840,6 +876,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
     throw new BadRequestError("Body must be a non-empty JSON object");
   }
   rejectManagedProfileDeletion(body as Record<string, unknown>);
+  rejectMcpTransportHeaderWrite(body);
 
   const raw = loadRawConfig();
   const patch = body as Record<string, unknown>;
@@ -848,6 +885,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   await commitConfigWrite(raw, "patch");
 
   const merged = applyContextDefaultsToRawConfig(loadRawConfig());
+  sanitizeMcpTransportHeadersForSettingsRead(merged);
   enrichProfilesWithVisionFlag(merged);
   return merged;
 }
@@ -892,6 +930,7 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
   const patchShape: Record<string, unknown> = {};
   setNestedValue(patchShape, path, value);
   rejectManagedProfileDeletion(patchShape);
+  rejectMcpTransportHeaderWrite(patchShape);
 
   const raw = loadRawConfig();
   setNestedValue(raw, path, value);
