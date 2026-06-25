@@ -51,6 +51,13 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   "subagent_spawned",
   "subagent_status_changed",
   "subagent_event",
+  // ACP session events route by `acpSessionId` into the global acp-run store
+  // and carry no top-level `conversationId`, so (like subagent events) the
+  // conversation-id gate would otherwise drop them.
+  "acp_session_spawned",
+  "acp_session_update",
+  "acp_session_completed",
+  "acp_session_error",
 ] as const;
 
 const GLOBAL_STREAM_EVENT_TYPES: ReadonlySet<string> = new Set(
