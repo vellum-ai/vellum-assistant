@@ -63,7 +63,13 @@ export function handleAcpSessionCompleted(
 }
 
 export function handleAcpSessionError(event: AcpSessionErrorEvent): void {
-  useAcpRunStore.getState().setTerminal({
+  const store = useAcpRunStore.getState();
+  // The daemon's cancel path rejects the in-flight prompt and emits
+  // acp_session_error even though it persists the run as `cancelled`. Mirror
+  // the daemon: a run already marked cancelled (by the Stop action) is not
+  // regressed to `failed`.
+  if (store.byId[event.acpSessionId]?.status === "cancelled") return;
+  store.setTerminal({
     acpSessionId: event.acpSessionId,
     status: "failed",
     error: event.error,

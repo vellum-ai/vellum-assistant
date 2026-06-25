@@ -123,6 +123,15 @@ export interface AcpRunActions {
     completedAt: number;
   }) => void;
 
+  /**
+   * Optimistically mark an active run as cancelled (user pressed Stop). No-op
+   * for unknown or already-terminal runs so a finished run is never regressed.
+   * Pairs with the error handler preserving `cancelled`: the daemon's cancel
+   * still emits `acp_session_error`, which would otherwise flash the card to
+   * `failed` before history rehydrates it as `cancelled`.
+   */
+  cancelRun: (params: { acpSessionId: string; completedAt: number }) => void;
+
   updateUsage: (params: {
     acpSessionId: string;
     usedTokens: number;
@@ -385,6 +394,23 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
           status: params.status,
           stopReason: params.stopReason ?? existing.stopReason,
           error: params.error ?? existing.error,
+          completedAt: params.completedAt,
+        },
+      },
+    });
+  },
+
+  cancelRun: (params) => {
+    const { byId } = get();
+    const existing = byId[params.acpSessionId];
+    if (!existing || !isActiveAcpStatus(existing.status)) return;
+
+    set({
+      byId: {
+        ...byId,
+        [params.acpSessionId]: {
+          ...existing,
+          status: "cancelled",
           completedAt: params.completedAt,
         },
       },

@@ -419,6 +419,41 @@ describe("setTerminal", () => {
 });
 
 // ---------------------------------------------------------------------------
+// cancelRun
+// ---------------------------------------------------------------------------
+
+describe("cancelRun", () => {
+  it("marks an active run cancelled with completedAt", () => {
+    spawn();
+    getState().cancelRun({ acpSessionId: "acp-1", completedAt: NOW + 3000 });
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.status).toBe("cancelled");
+    expect(entry.completedAt).toBe(NOW + 3000);
+  });
+
+  it("does not regress an already-terminal run", () => {
+    spawn();
+    getState().setTerminal({
+      acpSessionId: "acp-1",
+      status: "completed",
+      stopReason: "end_turn",
+      completedAt: NOW + 1000,
+    });
+    getState().cancelRun({ acpSessionId: "acp-1", completedAt: NOW + 3000 });
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.status).toBe("completed");
+    expect(entry.completedAt).toBe(NOW + 1000);
+  });
+
+  it("ignores an unknown session", () => {
+    getState().cancelRun({ acpSessionId: "acp-missing", completedAt: NOW });
+    expect(getState().byId).toEqual({});
+  });
+});
+
+// ---------------------------------------------------------------------------
 // updateUsage
 // ---------------------------------------------------------------------------
 

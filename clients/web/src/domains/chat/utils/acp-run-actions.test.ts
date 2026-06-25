@@ -34,6 +34,7 @@ mock.module("@/generated/daemon/client.gen", () => ({
 const { useResolvedAssistantsStore } = await import(
   "@/stores/resolved-assistants-store"
 );
+const { useAcpRunStore } = await import("@/domains/chat/acp-run-store");
 const { stopAcpRun, steerAcpRun } = await import(
   "@/domains/chat/utils/acp-run-actions"
 );
@@ -64,6 +65,21 @@ describe("stopAcpRun", () => {
     nextOk = false;
     nextStatus = 404;
     await expect(stopAcpRun("acp-1")).rejects.toThrow();
+  });
+
+  test("optimistically marks the active run cancelled", async () => {
+    useAcpRunStore.getState().reset();
+    useAcpRunStore.getState().spawnRun({
+      acpSessionId: "acp-1",
+      agent: "claude",
+      parentConversationId: "conv-1",
+      startedAt: 1,
+    });
+
+    await stopAcpRun("acp-1");
+
+    expect(useAcpRunStore.getState().byId["acp-1"]!.status).toBe("cancelled");
+    useAcpRunStore.getState().reset();
   });
 });
 

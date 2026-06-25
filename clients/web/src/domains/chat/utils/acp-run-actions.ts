@@ -7,6 +7,7 @@
  */
 
 import { client } from "@/generated/daemon/client.gen";
+import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 /** Response of `POST /v1/acp/:id/steer`. Mirrors the daemon's responseBody. */
@@ -29,8 +30,14 @@ function activeAssistantId(): string {
   return id;
 }
 
-/** Cancel an active ACP run. The daemon emits a terminal SSE event on success. */
+/**
+ * Cancel an active ACP run. Optimistically marks the run cancelled so the live
+ * card reflects the user's intent immediately and the daemon's prompt-rejection
+ * `acp_session_error` (which it emits even on cancel) doesn't flash it to
+ * `failed` before history rehydrates it as `cancelled`.
+ */
 export async function stopAcpRun(acpSessionId: string): Promise<void> {
+  useAcpRunStore.getState().cancelRun({ acpSessionId, completedAt: Date.now() });
   const { response } = await client.post({
     url: "/v1/assistants/{assistant_id}/acp/{id}/cancel" as KnownDaemonUrl,
     path: { assistant_id: activeAssistantId(), id: acpSessionId },

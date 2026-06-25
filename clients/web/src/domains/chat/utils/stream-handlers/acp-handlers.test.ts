@@ -158,4 +158,19 @@ describe("handleAcpSessionError", () => {
     expect(entry?.error).toBe("boom");
     expect(entry?.completedAt).toBeGreaterThan(0);
   });
+
+  it("preserves a cancelled run instead of regressing it to failed", () => {
+    spawn();
+    // The Stop action marks the run cancelled; the daemon then still emits
+    // acp_session_error from the cancelled prompt's rejection.
+    getState().cancelRun({ acpSessionId: "acp-1", completedAt: Date.now() });
+    handleAcpSessionError({
+      type: "acp_session_error",
+      acpSessionId: "acp-1",
+      error: "AbortError: cancelled",
+    });
+    const entry = getState().byId["acp-1"];
+    expect(entry?.status).toBe("cancelled");
+    expect(entry?.error).toBeUndefined();
+  });
 });
