@@ -52,7 +52,6 @@ import {
   resolveGitContext,
   resolvePlatformDeps,
   validatePluginForPublish,
-  type PublishResult,
 } from "../lib/publish-plugin.js";
 import { registerCommand } from "../lib/register-command.js";
 import {
