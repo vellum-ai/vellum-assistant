@@ -8,7 +8,6 @@
  */
 
 import { parseChannelId } from "../../channels/types.js";
-import { getConfig } from "../../config/loader.js";
 import { normalizeConversationType } from "../../daemon/message-types/shared.js";
 import {
   type AttentionState,
@@ -24,10 +23,7 @@ import {
 } from "../../memory/conversation-crud.js";
 import type { ExternalConversationBinding } from "../../memory/external-conversation-store.js";
 import { getBindingsForConversations } from "../../memory/external-conversation-store.js";
-import {
-  buildSlackMessageDeepLinks,
-  buildSlackWebChannelUrl,
-} from "../../messaging/providers/slack/deep-link.js";
+import { buildChannelBindingMetadata } from "../../messaging/channel-binding-metadata.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -126,48 +122,7 @@ function resolveSerializedGroupId(
 }
 
 function buildChannelBinding(binding: ExternalConversationBinding) {
-  const externalChatName =
-    binding.externalChatName?.trim() ||
-    (binding.sourceChannel === "slack" ? binding.externalChatId : undefined);
-  const slackConfig =
-    binding.sourceChannel === "slack" ? getConfig().slack : undefined;
-  const slackThreadLink =
-    slackConfig && binding.externalThreadId
-      ? buildSlackMessageDeepLinks({
-          teamId: slackConfig.teamId,
-          teamUrl: slackConfig.teamUrl,
-          channelId: binding.externalChatId,
-          messageTs: binding.externalThreadId,
-        })
-      : undefined;
-  const slackThread =
-    binding.sourceChannel === "slack" && binding.externalThreadId
-      ? {
-          channelId: binding.externalChatId,
-          threadTs: binding.externalThreadId,
-          ...(slackThreadLink ? { link: slackThreadLink } : {}),
-        }
-      : undefined;
-  const slackChannelWebUrl = slackConfig
-    ? buildSlackWebChannelUrl({
-        teamUrl: slackConfig.teamUrl,
-        channelId: binding.externalChatId,
-      })
-    : undefined;
-  const slackChannel =
-    binding.sourceChannel === "slack"
-      ? {
-          channelId: binding.externalChatId,
-          name: externalChatName,
-          ...(slackChannelWebUrl
-            ? {
-                link: {
-                  webUrl: slackChannelWebUrl,
-                },
-              }
-            : {}),
-        }
-      : undefined;
+  const externalChatName = binding.externalChatName?.trim() || undefined;
 
   return {
     sourceChannel: binding.sourceChannel,
@@ -179,8 +134,10 @@ function buildChannelBinding(binding: ExternalConversationBinding) {
     externalUserId: binding.externalUserId,
     displayName: binding.displayName,
     username: binding.username,
-    ...(slackThread ? { slackThread } : {}),
-    ...(slackChannel ? { slackChannel } : {}),
+    // Channel-specific enrichment (e.g. Slack deep links) is contributed by
+    // the source channel's binding-metadata builder, keeping this serializer
+    // channel-agnostic.
+    ...buildChannelBindingMetadata(binding),
   };
 }
 
