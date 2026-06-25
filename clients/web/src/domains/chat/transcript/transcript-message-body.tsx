@@ -13,6 +13,7 @@ import { BubbleAttachments } from "@/domains/chat/components/chat-attachments/bu
 import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import { toast } from "@vellumai/design-library";
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
 import { SubagentSpawnGroup } from "@/domains/chat/components/subagent-inline-progress-card/subagent-spawn-group";
 import { WorkflowInlineProgressCard } from "@/domains/chat/components/workflow-inline-progress-card/workflow-inline-progress-card";
@@ -181,6 +182,12 @@ export function TranscriptMessageBody({
         message.attachments?.find((a) => a.filename === pathBasename);
       if (att) {
         void downloadAttachment(att, assistantId);
+      } else {
+        const isHost = href.startsWith("vellum://host/");
+        toast.error(
+          `File not available for download${isHost ? " (host file approval may have timed out)" : ""}`,
+          { description: linkText || pathBasename },
+        );
       }
     },
     [message.attachments, assistantId],
