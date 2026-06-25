@@ -98,20 +98,20 @@ describe("api-interceptors / requestInterceptor", () => {
   test("attaches X-Vellum-Client-Id and X-Vellum-Interface-Id on GET", async () => {
     const headers = await intercept("GET");
     expect(headers.get("X-Vellum-Client-Id")).toBe(getClientId());
-    expect(headers.get("X-Vellum-Interface-Id")).toBe("vellum");
+    expect(headers.get("X-Vellum-Interface-Id")).toBe("web");
   });
 
   test("attaches X-Vellum-Client-Id and X-Vellum-Interface-Id on POST", async () => {
     const headers = await intercept("POST");
     expect(headers.get("X-Vellum-Client-Id")).toBe(getClientId());
-    expect(headers.get("X-Vellum-Interface-Id")).toBe("vellum");
+    expect(headers.get("X-Vellum-Interface-Id")).toBe("web");
   });
 
   test("attaches client + interface headers on PUT, PATCH, DELETE", async () => {
     for (const method of ["PUT", "PATCH", "DELETE"]) {
       const headers = await intercept(method);
       expect(headers.get("X-Vellum-Client-Id")).toBe(getClientId());
-      expect(headers.get("X-Vellum-Interface-Id")).toBe("vellum");
+      expect(headers.get("X-Vellum-Interface-Id")).toBe("web");
     }
   });
 
@@ -364,7 +364,7 @@ describe("api-interceptors / self-hosted rewriting", () => {
     const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}`);
     const output = await requestInterceptor(input);
     expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
-    expect(output.headers.get("X-Vellum-Interface-Id")).toBe("vellum");
+    expect(output.headers.get("X-Vellum-Interface-Id")).toBe("web");
   });
 
   test("rewrites assistant event routes to the self-hosted gateway", async () => {
@@ -542,7 +542,7 @@ describe("api-interceptors / daemon client self-hosted rewriting", () => {
     const input = new Request(`https://platform.test${DAEMON_SKILLS_PATH}`);
     const output = await daemonRequestInterceptor(input);
     expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
-    expect(output.headers.get("X-Vellum-Interface-Id")).toBe("vellum");
+    expect(output.headers.get("X-Vellum-Interface-Id")).toBe("web");
   });
 });
 

@@ -344,6 +344,10 @@ mock.module("@/hooks/use-prefilled-input", () => ({
 mock.module("@/runtime/platform-detection", () => ({
   useIsIOSWeb: () => isIOSWeb,
   useIsMacOSWeb: () => isMacOSWeb,
+  // `client-identity` (pulled in transitively) imports `detectInterfaceId`;
+  // this onboarding test doesn't exercise the interface id, so stub the
+  // web default to keep the partial module mock complete.
+  detectInterfaceId: () => "web",
 }));
 
 mock.module("@/hooks/use-ios-app-nudge", () => ({
