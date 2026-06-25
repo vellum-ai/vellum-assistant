@@ -233,6 +233,18 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        task:
+                          type: string
+                        parentToolUseId:
+                          type: string
+                        usedTokens:
+                          type: number
+                        contextSize:
+                          type: number
+                        costAmount:
+                          type: number
+                        costCurrency:
+                          type: string
                         eventLog:
                           type: array
                           items: {}

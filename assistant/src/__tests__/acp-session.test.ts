@@ -126,8 +126,8 @@ describe("VellumAcpClientHandler", () => {
       await handler.sessionUpdate({
         sessionId: "s1",
         update: {
-          sessionUpdate: "usage_update",
-          usage: { tokens: 100 },
+          sessionUpdate: "current_mode_update",
+          currentModeId: "ask",
         } as any,
       });
 
