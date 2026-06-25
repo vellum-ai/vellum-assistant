@@ -111,6 +111,7 @@ mock.module("../providers/registry.js", () => ({
   isNativeWebSearchCapableProvider: () => false,
   listProviders: () => [],
   resolveProviderFromConnection: async () => null,
+  shouldUseNativeWebSearch: () => false,
 }));
 
 mock.module("../memory/embedding-backend.js", () => ({

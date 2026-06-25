@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import * as schema from "../schema.js";
-import { migrateAcpSessionHistoryUsageColumns } from "./302-acp-session-history-usage-columns.js";
+import { migrateAcpSessionHistoryUsageColumns } from "./303-acp-session-history-usage-columns.js";
 
 const NEW_COLUMNS = [
   "task",

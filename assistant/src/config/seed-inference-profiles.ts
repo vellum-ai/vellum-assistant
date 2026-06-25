@@ -84,9 +84,6 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     effort: "high",
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-    // This is the advisor's own (strongest) profile: when it's also the chat
-    // profile there's nothing stronger to consult, so the advisor defaults off.
-    advisorEnabled: false,
   },
   // Served by DeepSeek V4 Flash on Fireworks via managed platform inference: a
   // fast, low-cost open model. `model` is pinned explicitly rather than
@@ -224,11 +221,9 @@ export type SeedInferenceProfilesOptions = {
  *    `cost-optimized`): reconciled from the code templates on every boot —
  *    on-platform and off-platform alike — so Vellum can push model/config
  *    updates to customers in a release without a workspace migration. The
- *    templates own all profile content; `label`, `status`, `advisorEnabled`,
- *    and `topP` are user overrides that survive reseeds. Of those, only
- *    `label`, `status`, and `topP` are editable through the managed PUT route
- *    allowlist; `advisorEnabled` is edited via the generic config path but is
- *    still preserved here so it survives reboots.
+ *    templates own all profile content; `label`, `status`, and `topP` are user
+ *    overrides that survive reseeds and are editable through the managed PUT
+ *    route allowlist.
  *    Platform overlays (`preserveProfileNames`) take precedence for the boot
  *    they are supplied.
  *
@@ -283,14 +278,11 @@ export function seedInferenceProfiles(
   //    as usual.
   //
   //    A whitelist of user-editable fields survives the reconcile: `label`
-  //    (display rename), `status` (active/disabled toggle), `advisorEnabled`
-  //    (per-profile advisor toggle), and `topP` (sampling override) — the only
-  //    fields a user may override. The managed PUT route
-  //    `/v1/config/llm/profiles/:name` lets users patch `label`, `status`, and
-  //    `topP` on managed profiles without duplicating (its editable allowlist,
-  //    `MANAGED_PROFILE_EDITABLE_KEYS`, deliberately excludes `advisorEnabled`,
-  //    which is set through the generic config path). We honor every one of
-  //    these overrides across reseeds or they'd silently revert on every boot.
+  //    (display rename), `status` (active/disabled toggle), and `topP`
+  //    (sampling override) — the only fields a user may override. The managed
+  //    PUT route `/v1/config/llm/profiles/:name` lets users patch these on
+  //    managed profiles without duplicating. We honor every one of these
+  //    overrides across reseeds or they'd silently revert on every boot.
   //    Carry by key-presence rather than truthiness so an explicit `null` (user
   //    cleared the field) survives too.
   //
@@ -362,12 +354,6 @@ export function seedInferenceProfiles(
             : previous.label;
       }
       if ("status" in previous) next.status = previous.status;
-      // The per-profile advisor toggle is a user override — preserve it across
-      // reseeds so a user's choice survives reboots (the template value only
-      // seeds the initial default, e.g. off for quality-optimized).
-      if ("advisorEnabled" in previous) {
-        next.advisorEnabled = previous.advisorEnabled;
-      }
       // `topP` is user-editable on managed profiles (see the managed-profile
       // editable allowlist on the PUT route) — preserve a user override across
       // reseeds, including an explicit `null` clear, or it would silently revert

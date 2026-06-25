@@ -273,7 +273,7 @@ describe("SubagentManager fork spawn", () => {
     expect(memoryPolicy.includeDefaultFallback).toBe(true);
   });
 
-  test("fork forces general role and skips tool filtering", async () => {
+  test("fork defaults to general role (which has no tool allowlist)", async () => {
     const manager = new SubagentManager();
     const subagentId = "sub-fork-role";
 
@@ -286,14 +286,16 @@ describe("SubagentManager fork spawn", () => {
     fakeConversation.injectInheritedContext = () => {};
     fakeConversation.setSubagentAllowedTools = () => {};
 
-    // Create a fork state — in real spawn(), the role would be forced to
-    // "general" regardless of what was requested, and tool filtering skipped.
+    // A fork that does not request a role defaults to "general", which has
+    // `allowedTools: undefined` — so no tool filter is applied. (An explicit
+    // non-general role on a fork IS honored; that path is covered in
+    // subagent-fork-prompt-role.test.ts.)
     const state = makeState(
       subagentId,
       { isFork: true },
       {
         fork: true,
-        role: "general", // forced by spawn() logic
+        role: "general",
         parentMessages: FAKE_PARENT_MESSAGES,
         parentSystemPrompt: "Parent system prompt.",
       },
@@ -303,9 +305,6 @@ describe("SubagentManager fork spawn", () => {
 
     await asInternals(manager).runSubagent(subagentId, "Do something");
 
-    // Tool filtering is only applied in spawn(), not runSubagent(), so we
-    // verify the logic directly: forks skip setSubagentAllowedTools.
-    // For this test, we verify the fork's role is general (which has no allowedTools).
     expect(state.config.role).toBe("general");
 
     asInternals(manager).stopSweep();
