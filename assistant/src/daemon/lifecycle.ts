@@ -830,8 +830,7 @@ export async function runDaemon(): Promise<void> {
     // Critical startup is complete: the runtime HTTP server is bound and the
     // daemon server is accepting requests. Mark the runtime ready so `/readyz`
     // returns 200 — but only when the DB initialized. CES is intentionally NOT
-    // gated here: it is a soft dependency with a direct-credential-store
-    // fallback, so readiness must not depend on the CES handshake.
+    // gated here (see `handleReadyz` for the soft-dependency rationale).
     //
     // Readiness is gated on `dbReady` because the contract for `/readyz` is
     // "HTTP bound + DB initialized + daemon started". If `initializeDb()` failed

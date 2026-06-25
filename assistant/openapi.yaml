@@ -30,9 +30,37 @@ paths:
   /readyz:
     get:
       operationId: readyz_get
+      summary: Readiness probe
+      description:
+        Returns 200 once critical startup is complete (HTTP bound, DB initialized, daemon started). Returns 503
+        while startup is still in progress. CES is a soft dependency and does not gate readiness.
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - ok
+                required:
+                  - status
+        "503":
+          description: Runtime is still starting up and not yet ready.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - starting
+                required:
+                  - status
   /v1/acp/{id}/cancel:
     post:
       operationId: acp_by_id_cancel_post
