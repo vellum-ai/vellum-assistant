@@ -1,43 +1,36 @@
-/**
- * Inline workflow progress card rendered per-`run_workflow` run in the
- * assistant transcript. Built on `ToolProgressCardShell` with a workflow
- * glyph slotted into the leading-icon slot — workflows have no avatar.
- *
- * Subscribes to the workflow store via `useWorkflowCardData(runId)`.
- * Returns `null` when the entry isn't in the store yet — handles the
- * spawn race where the assistant message containing the inline card
- * mounts a hair before the `workflow_started` SSE event lands. A later
- * PR wires this into the transcript; this PR ships the component
- * standalone.
- *
- * Interaction model mirrors the subagent inline card:
- *   - Clicking anywhere on the header row opens the workflow's detail
- *     panel via `onWorkflowClick`. There is no inline expand — the panel
- *     is the only detail view.
- *   - Stop is exposed via `onStopWorkflow`; the shell renders a small
- *     stop chip in the right rail while the run is in-flight.
- */
+// Inline per-`run_workflow` progress row, rendered in the transcript and in the
+// active-workflows overlay dropdown. Mirrors the subagent inline card
+// (`SubagentInlineProgressCard`, Figma 6063:148642) exactly so the two read as
+// one language: status indicator → workflow glyph → Name | detail carousel →
+// "X agents" → stop, on the transparent chat background with a full-row
+// --surface-active hover (no boxed surface). The leading cluster is the open
+// affordance (role="button"); the stop button stays a separate sibling so it
+// isn't nested inside an interactive element.
+//
+// Subscribes to the workflow store via `useWorkflowCardData(runId)`. Returns
+// `null` when the entry isn't in the store yet — the spawn race where the
+// assistant message mounts a hair before the `workflow_started` SSE event lands.
+//
+// Interaction model:
+//   - Clicking the leading cluster opens the workflow detail panel via
+//     `onWorkflowClick`. There is no inline expand — the panel is the only
+//     detail view.
+//   - Stop is exposed via `onStopWorkflow` while the run is in-flight.
 
-import { Square, Workflow } from "lucide-react";
-import { useCallback, type MouseEvent } from "react";
+import { AlertCircle, CheckCircle2, Square, Workflow } from "lucide-react";
+import { useCallback, type KeyboardEvent, type MouseEvent } from "react";
 
-import { Button } from "@vellumai/design-library";
+import { Button, Typography } from "@vellumai/design-library";
 
-import { PhaseGroupedStepList } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
-import { ToolProgressCardShell } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
+import { HeaderStepCarousel } from "@/domains/chat/components/tool-progress-card/header-step-carousel";
+import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
 import { useWorkflowCardData } from "@/domains/chat/hooks/use-workflow-card-data";
 
 export interface WorkflowInlineProgressCardProps {
   runId: string;
-  /**
-   * Invoked when the user activates the header row. Routes to the
-   * workflow detail panel.
-   */
+  /** Open the workflow detail panel (row activation, not the stop button). */
   onWorkflowClick?: (runId: string) => void;
-  /**
-   * Invoked when the user activates the stop button while the run is
-   * in-flight. Omitted callers hide the button entirely.
-   */
+  /** Stop an in-flight workflow; omit to hide the stop button. */
   onStopWorkflow?: (runId: string) => void;
 }
 
@@ -47,13 +40,25 @@ export function WorkflowInlineProgressCard({
   onStopWorkflow,
 }: WorkflowInlineProgressCardProps) {
   const data = useWorkflowCardData(runId);
-  // The shell's `loading` state is the live window where stopping the
-  // workflow is a meaningful action (see `deriveCardState`).
+  // "loading" = the live window where stopping the run is meaningful
+  // (see `deriveCardState`).
   const isRunning = data?.state === "loading";
 
-  const handleHeaderClick = useCallback(() => {
+  const handleOpenClick = useCallback(() => {
     onWorkflowClick?.(runId);
   }, [onWorkflowClick, runId]);
+
+  const handleOpenKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      // Ignore keydowns bubbled from children (e.g. the stop button).
+      if (e.target !== e.currentTarget) return;
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onWorkflowClick?.(runId);
+      }
+    },
+    [onWorkflowClick, runId],
+  );
 
   const handleStop = useCallback(
     (e: MouseEvent) => {
@@ -63,47 +68,96 @@ export function WorkflowInlineProgressCard({
     [onStopWorkflow, runId],
   );
 
-  // Spawn-race: assistant message references a run before the
-  // `workflow_started` event lands. Render `null` rather than a blank
-  // shell so the transcript doesn't flicker an empty card.
+  // Spawn-race: card mounts before the `workflow_started` event lands.
   if (!data) return null;
 
-  const leadingIcon = <Workflow size={20} aria-hidden />;
+  // Title = workflow name; detail prefers the live step info, else the title
+  // (so it never reads blank or just echoes the name).
+  const headerTitle = data.currentStepTitle;
+  const headerInfo =
+    data.currentStepInfo && data.currentStepInfo !== data.currentStepTitle
+      ? data.currentStepInfo
+      : data.currentStepTitle;
 
-  const actionSlot =
-    onStopWorkflow && isRunning ? (
-      <Button
-        variant="dangerGhost"
-        size="compact"
-        iconOnly={<Square fill="currentColor" />}
-        aria-label="Stop workflow"
-        data-testid="workflow-inline-card-stop"
-        onClick={handleStop}
-      />
-    ) : undefined;
+  // Local copy of the shared StatusIndicator chrome (matches the subagent row).
+  const statusIndicator = isRunning ? (
+    <ThreeDotIndicator
+      className="shrink-0"
+      data-testid="workflow-inline-card-status-indicator"
+    />
+  ) : data.state === "complete" ? (
+    <CheckCircle2
+      data-testid="workflow-inline-card-status-indicator"
+      aria-hidden="true"
+      className="h-[14px] w-[14px] shrink-0 text-[var(--system-positive-strong)]"
+    />
+  ) : (
+    <AlertCircle
+      data-testid="workflow-inline-card-status-indicator"
+      aria-hidden="true"
+      className="h-[14px] w-[14px] shrink-0 text-[var(--system-negative-strong)]"
+    />
+  );
+
+  // Hidden for 0/1-agent rows where the carousel detail already says it.
+  const stepCount = data.stepCount;
+  const showStepCount =
+    !!stepCount &&
+    !stepCount.startsWith("0 ") &&
+    !stepCount.startsWith("1 ");
+
+  // Without a click handler the leading cluster is inert (not a button).
+  const canOpen = !!onWorkflowClick;
 
   return (
-    <div className="w-full" data-testid="workflow-inline-progress-card">
-      <ToolProgressCardShell
-        data-testid="workflow-inline-card-shell"
-        statusIndicatorTestId="workflow-inline-card-status-indicator"
-        state={data.state}
-        leadingIcon={leadingIcon}
-        currentStepTitle={data.currentStepTitle}
-        currentStepInfo={data.currentStepInfo}
-        stepCount={data.stepCount}
-        // No inline timeline to reveal — the detail panel is the only
-        // detail view, so the expanded body stays disabled.
-        disableExpand
-        headerActionSlot={actionSlot}
-        onHeaderClick={onWorkflowClick ? handleHeaderClick : undefined}
-        headerAriaLabel={onWorkflowClick ? "Open workflow" : undefined}
+    <div
+      data-testid="workflow-inline-progress-card"
+      className="group flex w-full items-center justify-between gap-2 rounded-md p-2 text-left hover:bg-[var(--surface-active)]"
+    >
+      <span
+        role={canOpen ? "button" : undefined}
+        tabIndex={canOpen ? 0 : undefined}
+        aria-label={canOpen ? "Open workflow" : undefined}
+        onClick={canOpen ? handleOpenClick : undefined}
+        onKeyDown={canOpen ? handleOpenKeyDown : undefined}
+        className={`flex min-w-0 flex-1 items-center gap-1 text-left${
+          canOpen ? " cursor-pointer" : ""
+        }`}
       >
-        {/* Children unused — `disableExpand` suppresses the body region. */}
-        <div className="hidden">
-          <PhaseGroupedStepList steps={data.steps} />
-        </div>
-      </ToolProgressCardShell>
+        {statusIndicator}
+        <span className="mx-1 flex shrink-0 items-center">
+          <Workflow
+            className="h-4 w-4 text-[var(--content-secondary)]"
+            aria-hidden
+          />
+        </span>
+        <HeaderStepCarousel
+          currentStepTitle={headerTitle}
+          currentStepInfo={headerInfo}
+          bypassDwell={data.state !== "loading"}
+        />
+      </span>
+      <span className="flex shrink-0 items-center gap-2">
+        {showStepCount ? (
+          <Typography
+            variant="body-small-default"
+            className="text-[var(--content-tertiary)]"
+            data-testid="workflow-inline-card-step-count"
+          >
+            {stepCount}
+          </Typography>
+        ) : null}
+        {onStopWorkflow && isRunning ? (
+          <Button
+            variant="dangerGhost"
+            size="compact"
+            iconOnly={<Square fill="currentColor" />}
+            aria-label="Stop workflow"
+            data-testid="workflow-inline-card-stop"
+            onClick={handleStop}
+          />
+        ) : null}
+      </span>
     </div>
   );
 }
