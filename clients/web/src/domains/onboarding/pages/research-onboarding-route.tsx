@@ -17,7 +17,7 @@
  * then clicks "Continue" to drop into the full workspace on the same conversation.
  */
 
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
@@ -44,6 +44,7 @@ import {
   type ResearchStep,
 } from "@/domains/onboarding/research-onboarding-persistence";
 import {
+  emitResearchOnboardingPluginsInstalled,
   emitResearchOnboardingStepCompleted,
   RESEARCH_ONBOARDING_FUNNEL_STEPS,
   type OnboardingFunnelStepOutcome,
@@ -127,6 +128,13 @@ export function ResearchOnboardingRoute() {
   // (or re-fire research before adopting saved results). Flips true once the
   // restore has run — whether it found a snapshot or not.
   const [restored, setRestored] = useState(false);
+  // True once a research turn has been started live THIS session (form submit
+  // or mid-flow resume re-fire). A completed-journey resume hydrates status to
+  // "done" WITHOUT a live start, so this stays false there and we don't
+  // re-report plugins already reported in the original session.
+  const liveRunRef = useRef(false);
+  // Guards the plugins report to once per session.
+  const pluginsReportedRef = useRef(false);
 
   function navTo(next: ResearchStep) {
     setStep(next);
@@ -304,6 +312,7 @@ export function ResearchOnboardingRoute() {
       subject: researchSubjectFrom(formValues),
       conversationTitle: researchTitleFor(formValues),
     });
+    liveRunRef.current = true;
   }, [
     restored,
     enabled,
@@ -313,6 +322,19 @@ export function ResearchOnboardingRoute() {
     startResearch,
     awaitHatchReady,
   ]);
+
+  // Report the persona plugins auto-installed for this assistant once the live
+  // research turn settles. installedPlugins is final by the time status flips
+  // to "done". Fires once, and only for a live run — a refresh that resumes a
+  // finished journey (hydrate) leaves liveRunRef false, so it stays silent.
+  useEffect(() => {
+    if (research.status !== "done") return;
+    if (!liveRunRef.current || pluginsReportedRef.current) return;
+    pluginsReportedRef.current = true;
+    emitResearchOnboardingPluginsInstalled(research.installedPlugins, {
+      userId,
+    });
+  }, [research.status, research.installedPlugins, userId]);
 
   // If we're sitting on the results step when the research turn resolves empty
   // (it was still streaming when we arrived), skip ahead to the suggestions.
@@ -415,6 +437,7 @@ export function ResearchOnboardingRoute() {
       subject: researchSubjectFrom(values),
       conversationTitle: researchTitleFor(values),
     });
+    liveRunRef.current = true;
     goForwardTo("face");
   }
 
