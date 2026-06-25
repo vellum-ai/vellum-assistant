@@ -103,6 +103,16 @@ describe("Slack sub-operation selection", () => {
     expect(slack.sendSlackReaction).not.toHaveBeenCalled();
   });
 
+  test("threads a base-less callback URL's threadTs", async () => {
+    await deliverDirect(
+      `/deliver/slack?threadTs=1700.9`,
+      payload({ text: "hi" }),
+    );
+    expect(slack.sendSlackReply).toHaveBeenCalledTimes(1);
+    const opts = slack.sendSlackReply.mock.calls[0][2] as { threadTs?: string };
+    expect(opts.threadTs).toBe("1700.9");
+  });
+
   test("reaction routes to sendSlackReaction, not the text path", async () => {
     await deliverDirect(
       `${BASE}/deliver/slack`,

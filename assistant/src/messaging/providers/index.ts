@@ -14,17 +14,23 @@ import type {
 } from "@vellumai/gateway-client";
 
 import { a2aTransport } from "./a2a/transport.js";
+import type { DirectDeliveryChannel } from "./callback-routing.js";
 import { channelForCallback } from "./callback-routing.js";
 import type { CallbackContext, ChannelTransport } from "./channel-transport.js";
 import { slackTransport } from "./slack/transport.js";
 import { telegramTransport } from "./telegram-bot/transport.js";
 import { whatsappTransport } from "./whatsapp/transport.js";
 
-const TRANSPORTS_BY_CHANNEL: ReadonlyMap<string, ChannelTransport> = new Map(
-  [slackTransport, telegramTransport, whatsappTransport, a2aTransport].map(
-    (transport) => [transport.channel, transport],
-  ),
-);
+// Keyed by `DirectDeliveryChannel` so the type checker enforces that the
+// registered transports cover exactly the channels `callback-routing` resolves:
+// add a channel to that set and this object fails to compile until its transport
+// is registered here (and vice versa). No second list to drift against.
+const TRANSPORTS: Record<DirectDeliveryChannel, ChannelTransport> = {
+  slack: slackTransport,
+  telegram: telegramTransport,
+  whatsapp: whatsappTransport,
+  a2a: a2aTransport,
+};
 
 /**
  * Resolve the transport that owns a gateway callback URL, or `undefined` when
@@ -34,13 +40,18 @@ export function getTransportForCallback(
   callbackUrl: string,
 ): ChannelTransport | undefined {
   const channel = channelForCallback(callbackUrl);
-  return channel ? TRANSPORTS_BY_CHANNEL.get(channel) : undefined;
+  return channel ? TRANSPORTS[channel] : undefined;
 }
 
 function callbackContext(callbackUrl: string): CallbackContext {
   const params: Record<string, string> = {};
   try {
-    for (const [key, value] of new URL(callbackUrl).searchParams) {
+    // Resolve against a dummy base so base-less callbacks (e.g.
+    // `/deliver/slack?threadTs=…`) still expose their params. `channelForCallback`
+    // already routes those as direct delivery, so dispatch must not drop
+    // threadTs/taskId for them.
+    const url = new URL(callbackUrl, "http://callback.invalid");
+    for (const [key, value] of url.searchParams) {
       params[key] = value;
     }
   } catch {
